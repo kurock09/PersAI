@@ -22,6 +22,9 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
 - Argo CD wiring skeleton lives in `infra/dev/gitops/argocd`.
 - Cleanup/reset and first deploy manual procedures live in `infra/dev/gke/RUNBOOK.md`.
 - CI now pins `infra/helm/values-dev.yaml` `global.images.tag` to immutable commit SHA on each `main` push after successful image publish.
+- API deployment requires secret `persai-api-secrets` in namespace `persai-dev` with keys:
+  - `DATABASE_URL`
+  - `CLERK_SECRET_KEY`
 
 ## CI config required for image publish baseline
 

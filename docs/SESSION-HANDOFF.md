@@ -2,67 +2,69 @@
 
 ## What changed
 
-- Implemented targeted startup hotfix slice for dev deploy runtime failures (no Step 2/product scope changes).
-- Fixed web startup command wiring:
-  - `apps/web/package.json` `start` now: `next start -p 3000 -H 0.0.0.0`
-  - `apps/web/Dockerfile` now runs `CMD ["pnpm", "start"]` (no extra argument forwarding)
-- Fixed api build artifact production reliability:
-  - `apps/api/package.json` `build` now uses `tsc -p tsconfig.build.json --incremental false`
-  - `apps/api/Dockerfile` now includes fail-fast check:
-    - `RUN test -f /workspace/apps/api/dist/apps/api/src/main.js`
-  - api runtime command now starts from emitted path:
-    - `CMD ["node", "dist/apps/api/src/main.js"]`
-- Fixed shared logger runtime artifact path:
-  - `packages/logger/tsconfig.json` now uses `rootDir: "src"` and no source-path alias override so `dist/index.js` is emitted for package runtime `main`
-- Updated docs:
+- Implemented targeted dev API runtime env wiring fix in Helm/GitOps (no Step 2/product scope changes).
+- Added Helm values structure for API runtime config:
+  - `infra/helm/values.yaml`:
+    - `api.env` for non-secret env
+    - `api.secretEnv` for `secretKeyRef` mappings
+  - `infra/helm/values-dev.yaml`:
+    - set `APP_ENV`, `PORT`, `LOG_LEVEL`, `GCP_PROJECT_ID`, `GCP_REGION`
+    - mapped secret refs for `DATABASE_URL` and `CLERK_SECRET_KEY`
+- Updated API deployment template to render env vars from values:
+  - `infra/helm/templates/api-deployment.yaml` now injects:
+    - `api.env` as plain env values
+    - `api.secretEnv` as `valueFrom.secretKeyRef`
+- Updated operational docs:
+  - `infra/dev/gke/RUNBOOK.md` with command to create/update `persai-api-secrets`
+  - `infra/dev/gke/README.md` with required secret keys
+  - `infra/dev/gitops/README.md` with `api.env`/`api.secretEnv` boundary
   - `docs/CHANGELOG.md`
   - `docs/SESSION-HANDOFF.md`
 
 ## Why changed
 
-- Current dev rollout reached new pinned SHA images but both containers still failed to start:
-  - api: missing `/workspace/apps/api/dist/main.js`
-  - web: invalid `next start` invocation caused by argument forwarding
-- This slice applies only minimal startup/build fixes required to make containers reach Running.
+- API container reached runtime startup but failed config validation because required env vars were not injected in deployment.
+- This slice introduces minimal Helm-level runtime env wiring required for `api` to run in dev.
 
 ## Decisions made
 
-- Kept scope strictly to startup/build command fixes for `apps/web` and `apps/api`.
-- Did not redesign Docker strategy or runtime architecture.
-- Added explicit fail-fast assertion in api Docker build so broken image no longer publishes silently.
-- Added minimal shared package emit-path correction required for api runtime dependency resolution.
+- Kept fix limited to Helm values/template and operational docs.
+- Kept secrets out of Git values; only secret references are committed.
+- Used single namespace-scoped secret name `persai-api-secrets` for required secret keys.
 
 ## Files touched
 
-- apps/web/package.json
-- apps/web/Dockerfile
-- apps/api/package.json
-- apps/api/Dockerfile
-- packages/logger/tsconfig.json
+- infra/helm/values.yaml
+- infra/helm/values-dev.yaml
+- infra/helm/templates/api-deployment.yaml
+- infra/dev/gke/RUNBOOK.md
+- infra/dev/gke/README.md
+- infra/dev/gitops/README.md
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
 
 ## Migrations run
 
-- Not run (startup/build/docs slice only).
+- Not run (helm/docs slice only).
 
 ## Tests run / result
 
 - Pending in this slice before push:
-  - run local checks
+  - run lint/format check
   - push to `main`
   - wait for `Dev Image Publish`
-  - `argocd app sync persai-dev`
-  - verify pods/logs in `persai-dev`
+  - sync Argo app
+  - verify `api/web` pod status and logs
 
 ## Known risks
 
-- If build output path changes in future, docker fail-fast check path must be updated accordingly.
+- API runtime still requires valid secret values (`DATABASE_URL`, `CLERK_SECRET_KEY`) in cluster secret `persai-api-secrets`.
+- Placeholder local-style `DATABASE_URL` may start process but not guarantee working DB connectivity for API requests.
 
 ## Next recommended step
 
-- Complete operational rollout loop for this hotfix:
-  - push
-  - wait for publish
-  - sync Argo
-  - verify `api/web` Running and tail logs for startup confirmation.
+- Complete rollout loop:
+  - apply/verify `persai-api-secrets`
+  - push and publish
+  - Argo sync
+  - verify `api` and `web` both `Running` and stable in `persai-dev`.

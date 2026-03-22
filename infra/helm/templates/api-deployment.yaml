@@ -21,6 +21,20 @@ spec:
         - name: api
           image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.api.image.name }}:{{ $apiTag }}"
           imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+{{- if or .Values.api.env .Values.api.secretEnv }}
+          env:
+{{- range $name, $value := .Values.api.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+{{- end }}
+{{- range $name, $ref := .Values.api.secretEnv }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ref.secretName | quote }}
+                  key: {{ $ref.secretKey | quote }}
+{{- end }}
+{{- end }}
           ports:
             - containerPort: {{ .Values.api.service.port }}
 {{- end }}

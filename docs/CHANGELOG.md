@@ -161,6 +161,11 @@
     - `apps/api/Dockerfile` now fails fast when `/workspace/apps/api/dist/apps/api/src/main.js` is missing and starts node from the same emitted path
   - fixed shared logger package emit path for runtime resolution:
     - `packages/logger/tsconfig.json` now sets `rootDir: "src"` and removes source-path alias override, so runtime entry `dist/index.js` is produced as expected
+- Dev API runtime env wiring fix:
+  - added `api.env` and `api.secretEnv` defaults in Helm values (`infra/helm/values.yaml`)
+  - configured dev values for required API env keys (`APP_ENV`, `PORT`, `LOG_LEVEL`, `GCP_PROJECT_ID`, `GCP_REGION`) in `infra/helm/values-dev.yaml`
+  - wired `api.secretEnv` into deployment template as `secretKeyRef` env variables in `infra/helm/templates/api-deployment.yaml`
+  - documented required dev secret `persai-api-secrets` and runbook commands in `infra/dev/gke/RUNBOOK.md`, `infra/dev/gke/README.md`, and `infra/dev/gitops/README.md`
 
 ### Changed
 

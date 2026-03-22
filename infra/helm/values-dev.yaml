@@ -13,6 +13,19 @@ api:
     name: api
     tag: 95b7ff21cf6844f32110e31c7371840fc9961797
     pullPolicy: IfNotPresent
+  env:
+    APP_ENV: dev
+    PORT: "3001"
+    LOG_LEVEL: info
+    GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
+    GCP_REGION: europe-west1
+  secretEnv:
+    DATABASE_URL:
+      secretName: persai-api-secrets
+      secretKey: DATABASE_URL
+    CLERK_SECRET_KEY:
+      secretName: persai-api-secrets
+      secretKey: CLERK_SECRET_KEY
   service:
     type: ClusterIP
     port: 3001

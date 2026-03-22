@@ -16,6 +16,9 @@ Dev values image composition pattern:
 - GAR repository: `global.images.repository`
 - shared deployed tag: `global.images.tag` (pinned by CI to immutable `${GITHUB_SHA}`)
 - component names: `api.image.name`, `web.image.name`, `openclaw.image.name`
+- api runtime env is supplied from values + k8s secret refs:
+  - `api.env` (non-secret runtime config)
+  - `api.secretEnv` (`secretKeyRef` mapping for required secrets)
 
 Dev image publish behavior:
 

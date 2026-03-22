@@ -93,7 +93,16 @@ kubectl -n argocd get applications.argoproj.io persai-dev
 kubectl -n persai-dev get deploy,svc
 ```
 
-7. Verify OpenClaw remains disabled by default in dev values:
+7. Create/update required API secret values in dev namespace:
+
+```bash
+kubectl -n persai-dev create secret generic persai-api-secrets \
+  --from-literal=DATABASE_URL='postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public' \
+  --from-literal=CLERK_SECRET_KEY='sk_test_replace_me' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+8. Verify OpenClaw remains disabled by default in dev values:
 
 ```bash
 rg "openclaw:" infra/helm/values-dev.yaml -n
@@ -102,7 +111,14 @@ rg "global:" infra/helm/values-dev.yaml -n
 rg "images:" infra/helm/values-dev.yaml -n
 ```
 
-8. Verify dev image tag is pinned to commit SHA in GitOps values:
+9. Verify API runtime env wiring in dev values:
+
+```bash
+rg "^  env:" infra/helm/values-dev.yaml -n
+rg "^  secretEnv:" infra/helm/values-dev.yaml -n
+```
+
+10. Verify dev image tag is pinned to commit SHA in GitOps values:
 
 ```bash
 rg "^    tag: " infra/helm/values-dev.yaml -n
@@ -113,7 +129,7 @@ Expected:
 - `global.images.tag` is a commit SHA (immutable), not a moving tag like `dev-main`.
 - this value is updated automatically by `.github/workflows/dev-image-publish.yml` on successful `main` pushes.
 
-9. Step 2 foundation deploy-path verification (manual):
+11. Step 2 foundation deploy-path verification (manual):
 
 ```bash
 # App resources are up
