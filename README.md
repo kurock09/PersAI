@@ -101,9 +101,11 @@ Infra skeleton files are present but are not applied in this phase:
 - `infra/helm/values.yaml`
 - `infra/helm/templates/*`
 
-OpenClaw deploy skeleton exists but is disabled by default:
+OpenClaw dev deploy baseline (O3):
 
-- `openclaw.enabled=false` in `infra/helm/values-dev.yaml`
+- `openclaw.enabled=true` in `infra/helm/values-dev.yaml`
+- runtime wiring uses OpenClaw gateway port `18789`
+- auth token is injected from `persai-openclaw-secrets`
 
 ## Dev image build/push baseline (Step 1 slice 13)
 

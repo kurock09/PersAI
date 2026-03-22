@@ -58,12 +58,28 @@ web:
     port: 3000
 
 openclaw:
-  enabled: false
+  enabled: true
   replicaCount: 1
   image:
     name: openclaw
-    tag: 86cb8f868937ffa7448ca70825f7497eca7e8bbb
+    tag: aa6b962a3ab0d59f73fd34df58c0f8815070eadd
     pullPolicy: IfNotPresent
+  controlUi:
+    allowedOrigins:
+      - http://localhost:18789
+      - http://127.0.0.1:18789
+    dangerouslyAllowHostHeaderOriginFallback: false
+  args:
+    - --bind
+    - lan
+    - --port
+    - "18789"
+  env:
+    TZ: UTC
+  secretEnv:
+    OPENCLAW_GATEWAY_TOKEN:
+      secretName: persai-openclaw-secrets
+      secretKey: OPENCLAW_GATEWAY_TOKEN
   service:
     type: ClusterIP
-    port: 8080
+    port: 18789

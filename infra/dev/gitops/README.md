@@ -44,7 +44,7 @@ Dev image publish behavior:
 
 ## OpenClaw rule
 
-- OpenClaw remains disabled by default (`openclaw.enabled=false`).
+- OpenClaw is enabled in dev values for O3 baseline deploy enablement.
 - OpenClaw is treated as a standalone neighboring runtime, not part of `apps/api`.
 
 ## OpenClaw source/deploy boundary (Step 3 O1)
@@ -90,7 +90,7 @@ Dev image publish behavior:
 
 ## OpenClaw dev config/secrets baseline (Step 3 O5)
 
-Goal of this slice is config/secrets baseline only (no deploy enablement yet).
+This baseline is now wired in O3 for dev deployment.
 
 Required dev runtime baseline values:
 
@@ -120,16 +120,36 @@ Intentionally not configured yet in this slice:
 
 Source-of-truth mapping in dev policy:
 
-- plain config source-of-truth: Git-tracked dev values (`infra/helm/values-dev.yaml`) once O3 env wiring lands
+- plain config source-of-truth: Git-tracked dev values (`infra/helm/values-dev.yaml`)
 - secret source-of-truth: Google Secret Manager -> synced Kubernetes Secret in `persai-dev` namespace
 - recommended OpenClaw secret object: `persai-openclaw-secrets` with key:
   - `OPENCLAW_GATEWAY_TOKEN`
 
-Known pre-O3 blockers for successful dev pod start:
+## OpenClaw O3 runtime assumptions (dev)
 
-- Current OpenClaw Helm deployment template does not inject OpenClaw env/secret values yet.
-- Current OpenClaw Helm service/deployment port baseline is `8080`, while OpenClaw gateway default runtime port is `18789`.
-- Current OpenClaw container command in image defaults to loopback bind unless command/config override is wired.
+- Deploy enablement:
+  - `openclaw.enabled=true` in `infra/helm/values-dev.yaml`
+  - OpenClaw image tag pinned to approved fork SHA: `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+- Runtime command/args:
+  - command: `node openclaw.mjs gateway`
+  - args: `--bind lan --port 18789`
+- Runtime port:
+  - container/service port: `18789`
+- Runtime auth:
+  - `OPENCLAW_GATEWAY_TOKEN` from `persai-openclaw-secrets` -> `secretKeyRef`
+- Runtime Control UI origin policy:
+  - non-loopback bind is used (`lan`)
+  - explicitly wired via OpenClaw config file mounted from ConfigMap (`infra/helm/templates/openclaw-configmap.yaml`)
+  - config path in container: `/app/openclaw-dev.json` (`OPENCLAW_CONFIG_PATH`)
+  - exact allowed origins in dev:
+    - `http://localhost:18789`
+    - `http://127.0.0.1:18789`
+  - `dangerouslyAllowHostHeaderOriginFallback` is explicitly set to `false`
+  - any additional browser origin requires explicit update to `openclaw.controlUi.allowedOrigins` values
+
+Remaining known blocker before first successful pod start:
+
+- Kubernetes secret `persai-openclaw-secrets` with key `OPENCLAW_GATEWAY_TOKEN` must exist in namespace `persai-dev`.
 
 ## Manual procedures
 

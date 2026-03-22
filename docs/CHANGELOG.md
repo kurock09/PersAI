@@ -238,6 +238,25 @@
     - OpenClaw Helm port baseline (`8080`) mismatches gateway default (`18789`)
     - runtime bind override not yet wired
   - marked `O5` complete in `docs/ROADMAP.md`
+- Step 3 slice O3 OpenClaw dev deploy enablement:
+  - enabled OpenClaw in dev values (`openclaw.enabled=true`)
+  - aligned OpenClaw service/deployment runtime port to `18789`
+  - wired OpenClaw deployment runtime command/args:
+    - `node openclaw.mjs gateway --bind lan --port 18789`
+  - wired baseline auth secret into deployment:
+    - `OPENCLAW_GATEWAY_TOKEN` from `persai-openclaw-secrets`
+  - added OpenClaw readiness/liveness probes to `/readyz` and `/healthz`
+  - pinned OpenClaw image tag in dev values to approved OpenClaw fork SHA:
+    - `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+  - documented explicit non-loopback origin policy wiring:
+    - added OpenClaw ConfigMap template `infra/helm/templates/openclaw-configmap.yaml`
+    - wired `OPENCLAW_CONFIG_PATH=/app/openclaw-dev.json` in deployment
+    - set `gateway.controlUi.allowedOrigins` explicitly to:
+      - `http://localhost:18789`
+      - `http://127.0.0.1:18789`
+    - set `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback=false`
+  - updated runbooks/docs for manual sync and validation steps
+  - marked `O3` complete in `docs/ROADMAP.md`
 
 ### Changed
 

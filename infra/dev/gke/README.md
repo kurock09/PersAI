@@ -14,8 +14,7 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
 ## OpenClaw rule
 
 - OpenClaw remains a neighboring service skeleton.
-- `openclaw.enabled` is `false` by default in `infra/helm/values-dev.yaml`.
-- OpenClaw O5 config/secrets baseline is defined, but deploy remains disabled until O3.
+- OpenClaw is enabled in dev values for O3 deploy baseline.
 
 ## Notes
 
@@ -29,12 +28,19 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
 - Web deployment requires:
   - `web.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `infra/helm/values-dev.yaml`
   - `web.secretEnv.CLERK_SECRET_KEY` mapped from `persai-api-secrets`
-- OpenClaw baseline secret in dev namespace (for future O3 enablement):
+- OpenClaw baseline secret in dev namespace:
   - `persai-openclaw-secrets` with key `OPENCLAW_GATEWAY_TOKEN`
   - source-of-truth follows ADR-008 policy: Google Secret Manager -> Kubernetes Secret sync
-- OpenClaw baseline config targets for dev (to be wired in O3):
+- OpenClaw baseline config targets for dev (wired in O3):
   - `OPENCLAW_GATEWAY_BIND=lan`
   - `OPENCLAW_GATEWAY_PORT=18789`
+- OpenClaw runtime in O3:
+  - command/args set to `node openclaw.mjs gateway --bind lan --port 18789`
+  - service/deployment port aligned to `18789`
+  - auth token injected via `secretKeyRef` from `persai-openclaw-secrets`
+  - Control UI non-loopback origin policy is explicitly wired via ConfigMap-mounted OpenClaw config:
+    - `gateway.controlUi.allowedOrigins = ["http://localhost:18789","http://127.0.0.1:18789"]`
+    - `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = false`
 - OpenClaw provider/channel credentials are intentionally out of O5 scope.
 - API deployment uses Cloud SQL proxy sidecar in dev:
   - dedicated KSA (`api-sa`) with GCP service account annotation for Workload Identity

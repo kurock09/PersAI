@@ -2,56 +2,56 @@
 
 ## What changed
 
-- Completed Step 3 O5 config/secrets baseline clarification for OpenClaw (docs-only, no deploy enablement).
-- Documented minimum OpenClaw dev runtime baseline values in `infra/dev/gitops/README.md`:
-  - required plain config:
-    - `OPENCLAW_GATEWAY_BIND=lan`
-    - `OPENCLAW_GATEWAY_PORT=18789`
-  - required secret:
-    - `OPENCLAW_GATEWAY_TOKEN`
-- Documented optional values:
-  - `TZ`
-  - `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS` (kept unset/false unless explicit debug need)
-  - provider API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, etc.) as optional for process boot
-- Documented intentionally not configured yet:
-  - provider/channel integration credentials
-  - backend integration with `apps/api`
-  - deploy/sync enablement
-- Added dev secret baseline documentation:
-  - recommended secret object `persai-openclaw-secrets` with key `OPENCLAW_GATEWAY_TOKEN`
-  - runbook command added in `infra/dev/gke/RUNBOOK.md`
-- Documented source mapping:
-  - plain config source (policy): Git-tracked dev values
-  - secret source: Google Secret Manager -> Kubernetes Secret sync (ADR-008 policy)
-- Captured pre-O3 blockers for successful OpenClaw pod start:
-  - OpenClaw deployment template does not inject env/secret values yet
-  - Helm OpenClaw port baseline is `8080` but OpenClaw gateway default runtime port is `18789`
-  - runtime bind override is not yet wired (image default remains loopback-friendly path)
-- Updated docs:
-  - `infra/dev/gitops/README.md`
-  - `infra/dev/gke/README.md`
-  - `infra/dev/gke/RUNBOOK.md`
-  - `docs/ROADMAP.md` (`O5` marked complete)
-  - `docs/CHANGELOG.md`
-  - `docs/SESSION-HANDOFF.md`
+- Completed Step 3 O3 OpenClaw dev deploy enablement.
+- Helm wiring changes:
+  - enabled OpenClaw in `infra/helm/values-dev.yaml` (`openclaw.enabled=true`)
+  - aligned OpenClaw service/container port to `18789` in values
+  - wired explicit runtime command/args:
+    - command: `node openclaw.mjs gateway`
+    - args: `--bind lan --port 18789`
+  - wired baseline auth secret into deployment:
+    - env var `OPENCLAW_GATEWAY_TOKEN` from secret `persai-openclaw-secrets`
+  - added OpenClaw readiness/liveness probes:
+    - `/readyz`
+    - `/healthz`
+  - pinned OpenClaw dev image tag to approved fork SHA:
+    - `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+- Updated operational docs:
+  - OpenClaw O3 runtime assumptions in `infra/dev/gitops/README.md`
+  - OpenClaw dev infra notes in `infra/dev/gke/README.md`
+  - runbook sync/validate steps in `infra/dev/gke/RUNBOOK.md`
+  - root deployment notes in `README.md`
+  - roadmap status in `docs/ROADMAP.md` (`O3` marked complete)
+  - changelog/session docs updated
 
 ## Why changed
 
-- O5 must define a safe and deterministic OpenClaw dev config/secrets baseline before deploy enablement work.
-- This keeps OpenClaw standalone, aligned with existing secret policy, and avoids premature provider/channel scope expansion.
+- O3 requires OpenClaw to be deployable in dev as a standalone runtime using already defined baseline config/secrets.
+- This unblocks dev pod startup validation without widening into backend integration.
 
 ## Decisions made
 
-- Preserved O1/O2 decisions and kept O5 docs-only.
-- Required baseline auth secret for deployable-safe runtime is `OPENCLAW_GATEWAY_TOKEN`.
-- Required baseline config target values are `OPENCLAW_GATEWAY_BIND=lan` and `OPENCLAW_GATEWAY_PORT=18789`.
-- Provider/channel credentials are intentionally deferred.
+- Runtime bind strategy in dev: non-loopback (`lan`) on port `18789`.
+- Runtime auth strategy in dev: shared token via `OPENCLAW_GATEWAY_TOKEN` secret ref.
+- Control UI origin policy (explicitly wired, no startup seeding assumption):
+  - ConfigMap `openclaw-config` mounts OpenClaw config at `/app/openclaw-dev.json`
+  - deployment sets `OPENCLAW_CONFIG_PATH=/app/openclaw-dev.json`
+  - `gateway.controlUi.allowedOrigins` is explicitly set to:
+    - `http://localhost:18789`
+    - `http://127.0.0.1:18789`
+  - `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback=false`
+- OpenClaw remains standalone (no `apps/api` integration).
 
 ## Files touched
 
+- infra/helm/values.yaml
+- infra/helm/values-dev.yaml
+- infra/helm/templates/openclaw-deployment.yaml
+- infra/helm/templates/openclaw-configmap.yaml
 - infra/dev/gitops/README.md
 - infra/dev/gke/README.md
 - infra/dev/gke/RUNBOOK.md
+- README.md
 - docs/ROADMAP.md
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
@@ -62,13 +62,21 @@
 
 ## Tests run / result
 
-- Not run (docs-only slice).
+- `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml` -> passed
+- rendered manifest contains expected OpenClaw wiring:
+  - bind args (`--bind lan`)
+  - port `18789`
+  - secret env `OPENCLAW_GATEWAY_TOKEN`
+  - config path env `OPENCLAW_CONFIG_PATH`
+  - ConfigMap with explicit `gateway.controlUi.allowedOrigins`
+  - readiness `/readyz` and liveness `/healthz` probes
 
 ## Known risks
 
-- O5 defines baseline expectations only; O3 still needs Helm env/secret and port/bind wiring for successful pod runtime.
-- Provider/channel functionality remains unavailable until those credentials are intentionally configured.
+- Kubernetes secret `persai-openclaw-secrets` must exist in `persai-dev` with key `OPENCLAW_GATEWAY_TOKEN`; otherwise pod startup fails.
+- Additional non-local browser origins are not configured by default; they require explicit update to `openclaw.controlUi.allowedOrigins`.
+- Provider/channel capabilities remain intentionally unconfigured.
 
 ## Next recommended step
 
-- Proceed to O3 with minimal Helm wiring for OpenClaw env/secret injection and port/bind alignment to baseline values.
+- Run O4 runtime verification after Argo sync (pod health, service reachability, and basic gateway smoke checks).

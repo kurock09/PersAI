@@ -64,6 +64,27 @@ openclaw:
     name: openclaw
     tag: ""
     pullPolicy: IfNotPresent
+  configPath: /app/openclaw-dev.json
+  controlUi:
+    allowedOrigins:
+      - http://localhost:18789
+      - http://127.0.0.1:18789
+    dangerouslyAllowHostHeaderOriginFallback: false
+  command:
+    - node
+    - openclaw.mjs
+    - gateway
+  args:
+    - --bind
+    - loopback
+    - --port
+    - "18789"
+  env:
+    TZ: UTC
+  secretEnv:
+    OPENCLAW_GATEWAY_TOKEN:
+      secretName: persai-openclaw-secrets
+      secretKey: OPENCLAW_GATEWAY_TOKEN
   service:
     type: ClusterIP
-    port: 8080
+    port: 18789

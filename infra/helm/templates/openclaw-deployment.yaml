@@ -17,10 +17,58 @@ spec:
       labels:
         app.kubernetes.io/name: openclaw
     spec:
+      volumes:
+        - name: openclaw-config
+          configMap:
+            name: openclaw-config
       containers:
         - name: openclaw
           image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.openclaw.image.name }}:{{ $openclawTag }}"
           imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+{{- if .Values.openclaw.command }}
+          command:
+{{- range .Values.openclaw.command }}
+            - {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- if .Values.openclaw.args }}
+          args:
+{{- range .Values.openclaw.args }}
+            - {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- if or .Values.openclaw.env .Values.openclaw.secretEnv }}
+          env:
+{{- range $name, $value := .Values.openclaw.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+{{- end }}
+            - name: OPENCLAW_CONFIG_PATH
+              value: {{ .Values.openclaw.configPath | quote }}
+{{- range $name, $ref := .Values.openclaw.secretEnv }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ref.secretName | quote }}
+                  key: {{ $ref.secretKey | quote }}
+{{- end }}
+{{- end }}
+          volumeMounts:
+            - name: openclaw-config
+              mountPath: {{ .Values.openclaw.configPath | quote }}
+              subPath: openclaw.json
           ports:
             - containerPort: {{ .Values.openclaw.service.port }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.openclaw.service.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.openclaw.service.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 20
 {{- end }}

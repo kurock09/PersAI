@@ -102,11 +102,12 @@ kubectl -n persai-dev create secret generic persai-api-secrets \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-8. Verify OpenClaw remains disabled by default in dev values:
+8. Verify OpenClaw is enabled in dev values and port is aligned:
 
 ```bash
 rg "openclaw:" infra/helm/values-dev.yaml -n
-rg "enabled: false" infra/helm/values-dev.yaml -n
+rg "enabled: true" infra/helm/values-dev.yaml -n
+rg "port: 18789" infra/helm/values-dev.yaml -n
 rg "global:" infra/helm/values-dev.yaml -n
 rg "images:" infra/helm/values-dev.yaml -n
 ```
@@ -143,7 +144,7 @@ rg "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" infra/helm/values-dev.yaml -n
 rg "web.secretEnv|CLERK_SECRET_KEY" infra/helm/values-dev.yaml -n
 ```
 
-14. (Pre-O3 baseline) Create/update OpenClaw gateway auth secret in dev namespace:
+14. Create/update OpenClaw gateway auth secret in dev namespace:
 
 ```bash
 kubectl -n persai-dev create secret generic persai-openclaw-secrets \
@@ -155,14 +156,43 @@ kubectl -n persai-dev create secret generic persai-openclaw-secrets \
 
 ```bash
 rg "^    tag: " infra/helm/values-dev.yaml -n
+rg "openclaw-approved-sha.txt" infra/dev/gitops/README.md -n
 ```
 
 Expected:
 
 - `global.images.tag` is a commit SHA (immutable), not a moving tag like `dev-main`.
 - this value is updated automatically by `.github/workflows/dev-image-publish.yml` on successful `main` pushes.
+- OpenClaw image is pinned by `openclaw.image.tag` to the approved OpenClaw fork SHA.
 
-16. Step 2 foundation deploy-path verification (manual):
+16. Trigger Argo CD sync to apply OpenClaw O3 wiring:
+
+```bash
+argocd app sync persai-dev
+```
+
+17. Verify OpenClaw deployment and service:
+
+```bash
+kubectl -n persai-dev get deploy/openclaw svc/openclaw pods -l app.kubernetes.io/name=openclaw
+kubectl -n persai-dev logs deployment/openclaw --tail=120
+```
+
+18. Verify OpenClaw health endpoints through port-forward:
+
+```bash
+kubectl -n persai-dev port-forward svc/openclaw 18789:18789
+curl -fsS http://127.0.0.1:18789/healthz
+curl -fsS http://127.0.0.1:18789/readyz
+```
+
+19. Verify OpenClaw explicit Control UI origin policy wiring:
+
+```bash
+kubectl -n persai-dev get configmap openclaw-config -o yaml | rg "allowedOrigins|dangerouslyAllowHostHeaderOriginFallback|localhost:18789|127.0.0.1:18789" -n
+```
+
+20. Step 2 foundation deploy-path verification (manual):
 
 ```bash
 # App resources are up
@@ -190,6 +220,5 @@ Expected baseline:
 
 ## OpenClaw Rule
 
-- `openclaw.enabled` must remain `false` by default in `infra/helm/values-dev.yaml`.
-- Do not enable OpenClaw in Step 1 deploy path.
-- O5 baseline prepares secret/config expectations only; OpenClaw deploy enablement is handled in O3.
+- OpenClaw is enabled in O3 dev wiring as a standalone service.
+- Do not connect `apps/api` to OpenClaw in this stage.
