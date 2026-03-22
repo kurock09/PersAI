@@ -4,14 +4,14 @@ global:
     registryHost: europe-west1-docker.pkg.dev
     projectId: project-44786b14-b7d7-4554-a8a
     repository: persai
-    tag: d1c6590abf4d61adbbb2bae259bc88d80feacdfd
+    tag: 7cd7b36654317172dd6eeedede5e1cf32c1084dd
 
 api:
   enabled: true
   replicaCount: 1
   image:
     name: api
-    tag: d1c6590abf4d61adbbb2bae259bc88d80feacdfd
+    tag: 7cd7b36654317172dd6eeedede5e1cf32c1084dd
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -22,7 +22,7 @@ web:
   replicaCount: 1
   image:
     name: web
-    tag: d1c6590abf4d61adbbb2bae259bc88d80feacdfd
+    tag: 7cd7b36654317172dd6eeedede5e1cf32c1084dd
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -33,7 +33,7 @@ openclaw:
   replicaCount: 1
   image:
     name: openclaw
-    tag: d1c6590abf4d61adbbb2bae259bc88d80feacdfd
+    tag: 7cd7b36654317172dd6eeedede5e1cf32c1084dd
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
