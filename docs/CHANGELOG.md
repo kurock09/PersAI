@@ -62,6 +62,11 @@
   - added Prettier baseline (`.prettierrc.json`, `.prettierignore`) and repo `format:check` script
   - updated root `lint` script to enforce ESLint + Prettier checks
   - applied Prettier formatting to files in enforced scope so CI/local lint is no longer effectively no-op
+- Step 1 slice 11 infra bootstrap/reset runbook baseline:
+  - added one-time manual reset script skeleton in `infra/bootstrap/dev-gke-reset.sh` (dry-run by default, `--execute` required)
+  - added bootstrap manual usage notes in `infra/bootstrap/README.md`
+  - added exact dev GKE cleanup/reset and first deploy procedure in `infra/dev/gke/RUNBOOK.md`
+  - updated infra docs to point to runbooks (`infra/dev/gke/README.md`, `infra/dev/gitops/README.md`, `README.md`)
 
 ### Changed
 - None.

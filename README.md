@@ -115,3 +115,8 @@ Skeleton only; not applied in this phase:
 Dev deploy path is explicit:
 
 - Argo CD app points to `infra/helm` with `infra/helm/values-dev.yaml`
+
+Manual runbooks:
+
+- One-time reset script skeleton: `infra/bootstrap/dev-gke-reset.sh`
+- Dev cleanup/reset + first deploy procedure: `infra/dev/gke/RUNBOOK.md`

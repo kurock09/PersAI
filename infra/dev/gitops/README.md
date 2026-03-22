@@ -18,3 +18,7 @@ This directory contains the Step 1 GitOps/Argo CD skeleton for dev.
 ## OpenClaw rule
 
 - OpenClaw remains disabled by default (`openclaw.enabled=false`).
+
+## Manual procedures
+
+- Cleanup/reset and first deploy runbook: `infra/dev/gke/RUNBOOK.md`
