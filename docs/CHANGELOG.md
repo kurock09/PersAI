@@ -166,6 +166,19 @@
   - configured dev values for required API env keys (`APP_ENV`, `PORT`, `LOG_LEVEL`, `GCP_PROJECT_ID`, `GCP_REGION`) in `infra/helm/values-dev.yaml`
   - wired `api.secretEnv` into deployment template as `secretKeyRef` env variables in `infra/helm/templates/api-deployment.yaml`
   - documented required dev secret `persai-api-secrets` and runbook commands in `infra/dev/gke/RUNBOOK.md`, `infra/dev/gke/README.md`, and `infra/dev/gitops/README.md`
+- Dev web Clerk key wiring fix:
+  - added `web.env` defaults in `infra/helm/values.yaml`
+  - configured `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `infra/helm/values-dev.yaml`
+  - added `web.secretEnv` defaults in `infra/helm/values.yaml`
+  - configured `web.secretEnv.CLERK_SECRET_KEY` in `infra/helm/values-dev.yaml`
+  - wired `web.env` and `web.secretEnv` into `infra/helm/templates/web-deployment.yaml`
+  - documented where to update Clerk publishable key in `infra/dev/gke/RUNBOOK.md`, `infra/dev/gke/README.md`, and `infra/dev/gitops/README.md`
+- Dev DB hardening narrow slice (api Cloud SQL proxy):
+  - added `api.cloudSqlProxy` config in `infra/helm/values.yaml`
+  - enabled `api.cloudSqlProxy` with instance connection name in `infra/helm/values-dev.yaml`
+  - wired optional `cloud-sql-proxy` sidecar into `infra/helm/templates/api-deployment.yaml`
+  - documented dev DB access path via proxy and `DATABASE_URL` localhost requirement in `infra/dev/gke/RUNBOOK.md`, `infra/dev/gke/README.md`, and `infra/dev/gitops/README.md`
+  - added ADR `docs/ADR/010-dev-cloudsql-proxy-for-api.md`
 
 ### Changed
 

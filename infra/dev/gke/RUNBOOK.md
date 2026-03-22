@@ -97,7 +97,7 @@ kubectl -n persai-dev get deploy,svc
 
 ```bash
 kubectl -n persai-dev create secret generic persai-api-secrets \
-  --from-literal=DATABASE_URL='postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public' \
+  --from-literal=DATABASE_URL='postgresql://USER:PASSWORD@127.0.0.1:5432/DB_NAME?schema=public' \
   --from-literal=CLERK_SECRET_KEY='sk_test_replace_me' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
@@ -118,7 +118,25 @@ rg "^  env:" infra/helm/values-dev.yaml -n
 rg "^  secretEnv:" infra/helm/values-dev.yaml -n
 ```
 
-10. Verify dev image tag is pinned to commit SHA in GitOps values:
+10. Verify API Cloud SQL proxy is enabled in dev values:
+
+```bash
+rg "cloudSqlProxy|instanceConnectionName" infra/helm/values-dev.yaml -n
+```
+
+11. Verify web Clerk publishable key is configured in dev values:
+
+```bash
+rg "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" infra/helm/values-dev.yaml -n
+```
+
+12. Verify web Clerk secret key mapping is configured in dev values:
+
+```bash
+rg "web.secretEnv|CLERK_SECRET_KEY" infra/helm/values-dev.yaml -n
+```
+
+13. Verify dev image tag is pinned to commit SHA in GitOps values:
 
 ```bash
 rg "^    tag: " infra/helm/values-dev.yaml -n
@@ -129,7 +147,7 @@ Expected:
 - `global.images.tag` is a commit SHA (immutable), not a moving tag like `dev-main`.
 - this value is updated automatically by `.github/workflows/dev-image-publish.yml` on successful `main` pushes.
 
-11. Step 2 foundation deploy-path verification (manual):
+14. Step 2 foundation deploy-path verification (manual):
 
 ```bash
 # App resources are up

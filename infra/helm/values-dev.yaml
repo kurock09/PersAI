@@ -13,6 +13,11 @@ api:
     name: api
     tag: c8bdb410a0a5989f66901cfb38840aed0e604586
     pullPolicy: IfNotPresent
+  cloudSqlProxy:
+    enabled: true
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.18.3
+    port: 5432
+    instanceConnectionName: project-44786b14-b7d7-4554-a8a:europe-west1:persai-dev-postgres
   env:
     APP_ENV: dev
     PORT: "3001"
@@ -37,6 +42,12 @@ web:
     name: web
     tag: c8bdb410a0a5989f66901cfb38840aed0e604586
     pullPolicy: IfNotPresent
+  env:
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_a2Vlbi1yb2Jpbi04MC5jbGVyay5hY2NvdW50cy5kZXYk
+  secretEnv:
+    CLERK_SECRET_KEY:
+      secretName: persai-api-secrets
+      secretKey: CLERK_SECRET_KEY
   service:
     type: ClusterIP
     port: 3000

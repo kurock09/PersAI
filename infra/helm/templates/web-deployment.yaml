@@ -21,6 +21,20 @@ spec:
         - name: web
           image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.web.image.name }}:{{ $webTag }}"
           imagePullPolicy: {{ .Values.web.image.pullPolicy }}
+{{- if or .Values.web.env .Values.web.secretEnv }}
+          env:
+{{- range $name, $value := .Values.web.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+{{- end }}
+{{- range $name, $ref := .Values.web.secretEnv }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ref.secretName | quote }}
+                  key: {{ $ref.secretKey | quote }}
+{{- end }}
+{{- end }}
           ports:
             - containerPort: {{ .Values.web.service.port }}
 {{- end }}

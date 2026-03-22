@@ -19,6 +19,13 @@ Dev values image composition pattern:
 - api runtime env is supplied from values + k8s secret refs:
   - `api.env` (non-secret runtime config)
   - `api.secretEnv` (`secretKeyRef` mapping for required secrets)
+- api database runtime path in dev:
+  - `api.cloudSqlProxy.enabled=true` in `values-dev.yaml`
+  - API connects to Cloud SQL via sidecar proxy on `127.0.0.1:5432`
+  - `DATABASE_URL` secret must use `@127.0.0.1:5432`
+- web runtime env is supplied from values:
+  - `web.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (Clerk frontend publishable key)
+  - `web.secretEnv.CLERK_SECRET_KEY` (Clerk server key via `secretKeyRef`)
 
 Dev image publish behavior:
 

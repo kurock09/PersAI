@@ -13,6 +13,11 @@ api:
     name: api
     tag: ""
     pullPolicy: IfNotPresent
+  cloudSqlProxy:
+    enabled: false
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.18.3
+    port: 5432
+    instanceConnectionName: ""
   env:
     APP_ENV: dev
     PORT: "3001"
@@ -37,6 +42,12 @@ web:
     name: web
     tag: ""
     pullPolicy: IfNotPresent
+  env:
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ""
+  secretEnv:
+    CLERK_SECRET_KEY:
+      secretName: persai-api-secrets
+      secretKey: CLERK_SECRET_KEY
   service:
     type: ClusterIP
     port: 3000

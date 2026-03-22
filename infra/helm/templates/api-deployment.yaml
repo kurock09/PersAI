@@ -37,4 +37,17 @@ spec:
 {{- end }}
           ports:
             - containerPort: {{ .Values.api.service.port }}
+{{- if .Values.api.cloudSqlProxy.enabled }}
+        - name: cloud-sql-proxy
+          image: "{{ .Values.api.cloudSqlProxy.image }}"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--structured-logs"
+            - "--port={{ .Values.api.cloudSqlProxy.port }}"
+            - "{{ .Values.api.cloudSqlProxy.instanceConnectionName }}"
+{{- if .Values.api.cloudSqlProxy.port }}
+          ports:
+            - containerPort: {{ .Values.api.cloudSqlProxy.port }}
+{{- end }}
+{{- end }}
 {{- end }}
