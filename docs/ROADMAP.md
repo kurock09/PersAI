@@ -43,6 +43,6 @@ Foundation Phase
 - [x] O2 - OpenClaw image build/push automation
 - [ ] O3 - OpenClaw dev deploy enablement
 - [ ] O4 - OpenClaw health/runtime verification
-- [ ] O5 - OpenClaw config/secrets baseline
+- [x] O5 - OpenClaw config/secrets baseline
 - [ ] O6 - backend-to-OpenClaw integration contract
 - [ ] O7 - first apps/api -> OpenClaw integration

@@ -2,40 +2,57 @@
 
 ## What changed
 
-- Completed pre-O3 hardening clarification for OpenClaw approved build input (minimal deterministic change).
-- Added single machine-readable source for approved OpenClaw revision:
-  - `infra/dev/gitops/openclaw-approved-sha.txt`
-- Updated OpenClaw image workflow to read SHA only from machine-readable file:
-  - `.github/workflows/openclaw-dev-image-publish.yml`
-  - uses `OPENCLAW_APPROVED_SHA_FILE=infra/dev/gitops/openclaw-approved-sha.txt`
-  - resolves SHA with `tr -d '\r\n' < "${OPENCLAW_APPROVED_SHA_FILE}"`
-  - validates strict 40-char lowercase hex format before build
-- Updated docs references so prose is no longer SHA source-of-truth:
+- Completed Step 3 O5 config/secrets baseline clarification for OpenClaw (docs-only, no deploy enablement).
+- Documented minimum OpenClaw dev runtime baseline values in `infra/dev/gitops/README.md`:
+  - required plain config:
+    - `OPENCLAW_GATEWAY_BIND=lan`
+    - `OPENCLAW_GATEWAY_PORT=18789`
+  - required secret:
+    - `OPENCLAW_GATEWAY_TOKEN`
+- Documented optional values:
+  - `TZ`
+  - `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS` (kept unset/false unless explicit debug need)
+  - provider API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, etc.) as optional for process boot
+- Documented intentionally not configured yet:
+  - provider/channel integration credentials
+  - backend integration with `apps/api`
+  - deploy/sync enablement
+- Added dev secret baseline documentation:
+  - recommended secret object `persai-openclaw-secrets` with key `OPENCLAW_GATEWAY_TOKEN`
+  - runbook command added in `infra/dev/gke/RUNBOOK.md`
+- Documented source mapping:
+  - plain config source (policy): Git-tracked dev values
+  - secret source: Google Secret Manager -> Kubernetes Secret sync (ADR-008 policy)
+- Captured pre-O3 blockers for successful OpenClaw pod start:
+  - OpenClaw deployment template does not inject env/secret values yet
+  - Helm OpenClaw port baseline is `8080` but OpenClaw gateway default runtime port is `18789`
+  - runtime bind override is not yet wired (image default remains loopback-friendly path)
+- Updated docs:
   - `infra/dev/gitops/README.md`
-  - `README.md`
-  - `docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md`
+  - `infra/dev/gke/README.md`
+  - `infra/dev/gke/RUNBOOK.md`
+  - `docs/ROADMAP.md` (`O5` marked complete)
   - `docs/CHANGELOG.md`
   - `docs/SESSION-HANDOFF.md`
 
 ## Why changed
 
-- Before O3 deploy enablement, approved build revision needed a machine-readable single source for deterministic automation.
-- This removes dependence on human-readable docs parsing while preserving current O1/O2 boundaries.
+- O5 must define a safe and deterministic OpenClaw dev config/secrets baseline before deploy enablement work.
+- This keeps OpenClaw standalone, aligned with existing secret policy, and avoids premature provider/channel scope expansion.
 
 ## Decisions made
 
-- Preserved O1/O2 decisions (fork-sync, isolated OpenClaw build/push workflow, no deploy/sync).
-- Machine-readable file is now single approved SHA source for OpenClaw automation:
-  - `infra/dev/gitops/openclaw-approved-sha.txt`
-- Docs reference this file, but do not act as the source themselves.
+- Preserved O1/O2 decisions and kept O5 docs-only.
+- Required baseline auth secret for deployable-safe runtime is `OPENCLAW_GATEWAY_TOKEN`.
+- Required baseline config target values are `OPENCLAW_GATEWAY_BIND=lan` and `OPENCLAW_GATEWAY_PORT=18789`.
+- Provider/channel credentials are intentionally deferred.
 
 ## Files touched
 
-- infra/dev/gitops/openclaw-approved-sha.txt
-- .github/workflows/openclaw-dev-image-publish.yml
 - infra/dev/gitops/README.md
-- README.md
-- docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md
+- infra/dev/gke/README.md
+- infra/dev/gke/RUNBOOK.md
+- docs/ROADMAP.md
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
 
@@ -45,13 +62,13 @@
 
 ## Tests run / result
 
-- Not run (workflow/docs hardening slice; no runtime execution in this session).
+- Not run (docs-only slice).
 
 ## Known risks
 
-- If `infra/dev/gitops/openclaw-approved-sha.txt` is stale or invalid, OpenClaw workflow build fails by design.
-- O3 still requires deploy enablement wiring and verification; this slice hardens build input only.
+- O5 defines baseline expectations only; O3 still needs Helm env/secret and port/bind wiring for successful pod runtime.
+- Provider/channel functionality remains unavailable until those credentials are intentionally configured.
 
 ## Next recommended step
 
-- Proceed to O3 deploy enablement using the machine-readable approved SHA source already in place.
+- Proceed to O3 with minimal Helm wiring for OpenClaw env/secret injection and port/bind alignment to baseline values.

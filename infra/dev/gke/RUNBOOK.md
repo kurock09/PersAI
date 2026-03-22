@@ -143,7 +143,15 @@ rg "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" infra/helm/values-dev.yaml -n
 rg "web.secretEnv|CLERK_SECRET_KEY" infra/helm/values-dev.yaml -n
 ```
 
-14. Verify dev image tag is pinned to commit SHA in GitOps values:
+14. (Pre-O3 baseline) Create/update OpenClaw gateway auth secret in dev namespace:
+
+```bash
+kubectl -n persai-dev create secret generic persai-openclaw-secrets \
+  --from-literal=OPENCLAW_GATEWAY_TOKEN='replace-with-long-random-token' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+15. Verify dev image tag is pinned to commit SHA in GitOps values:
 
 ```bash
 rg "^    tag: " infra/helm/values-dev.yaml -n
@@ -154,7 +162,7 @@ Expected:
 - `global.images.tag` is a commit SHA (immutable), not a moving tag like `dev-main`.
 - this value is updated automatically by `.github/workflows/dev-image-publish.yml` on successful `main` pushes.
 
-15. Step 2 foundation deploy-path verification (manual):
+16. Step 2 foundation deploy-path verification (manual):
 
 ```bash
 # App resources are up
@@ -184,3 +192,4 @@ Expected baseline:
 
 - `openclaw.enabled` must remain `false` by default in `infra/helm/values-dev.yaml`.
 - Do not enable OpenClaw in Step 1 deploy path.
+- O5 baseline prepares secret/config expectations only; OpenClaw deploy enablement is handled in O3.

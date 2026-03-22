@@ -15,6 +15,7 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
 
 - OpenClaw remains a neighboring service skeleton.
 - `openclaw.enabled` is `false` by default in `infra/helm/values-dev.yaml`.
+- OpenClaw O5 config/secrets baseline is defined, but deploy remains disabled until O3.
 
 ## Notes
 
@@ -28,6 +29,13 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
 - Web deployment requires:
   - `web.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `infra/helm/values-dev.yaml`
   - `web.secretEnv.CLERK_SECRET_KEY` mapped from `persai-api-secrets`
+- OpenClaw baseline secret in dev namespace (for future O3 enablement):
+  - `persai-openclaw-secrets` with key `OPENCLAW_GATEWAY_TOKEN`
+  - source-of-truth follows ADR-008 policy: Google Secret Manager -> Kubernetes Secret sync
+- OpenClaw baseline config targets for dev (to be wired in O3):
+  - `OPENCLAW_GATEWAY_BIND=lan`
+  - `OPENCLAW_GATEWAY_PORT=18789`
+- OpenClaw provider/channel credentials are intentionally out of O5 scope.
 - API deployment uses Cloud SQL proxy sidecar in dev:
   - dedicated KSA (`api-sa`) with GCP service account annotation for Workload Identity
   - `api.cloudSqlProxy.enabled=true` in `infra/helm/values-dev.yaml`

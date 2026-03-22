@@ -88,6 +88,49 @@ Dev image publish behavior:
   - workflow performs build/push only
   - no deploy/sync operation is executed in O2
 
+## OpenClaw dev config/secrets baseline (Step 3 O5)
+
+Goal of this slice is config/secrets baseline only (no deploy enablement yet).
+
+Required dev runtime baseline values:
+
+- Plain config (non-secret):
+  - `OPENCLAW_GATEWAY_BIND=lan`
+    - why: deployed service must not depend on loopback-only binding
+  - `OPENCLAW_GATEWAY_PORT=18789`
+    - why: match OpenClaw gateway default and health endpoints (`/healthz`, `/readyz`)
+- Secret values:
+  - `OPENCLAW_GATEWAY_TOKEN`
+    - why: required baseline auth token for non-loopback / future exposure-safe runtime
+
+Optional dev values (not required for pod boot):
+
+- Plain config:
+  - `TZ` (example `UTC`)
+  - `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS` (keep unset/false unless explicit local debugging)
+- Secrets:
+  - provider API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, etc.)
+    - optional for process boot, required only for real model responses
+
+Intentionally not configured yet in this slice:
+
+- channels/provider credentials beyond baseline gateway startup/auth
+- OpenClaw runtime integration with `apps/api`
+- deploy/sync enablement
+
+Source-of-truth mapping in dev policy:
+
+- plain config source-of-truth: Git-tracked dev values (`infra/helm/values-dev.yaml`) once O3 env wiring lands
+- secret source-of-truth: Google Secret Manager -> synced Kubernetes Secret in `persai-dev` namespace
+- recommended OpenClaw secret object: `persai-openclaw-secrets` with key:
+  - `OPENCLAW_GATEWAY_TOKEN`
+
+Known pre-O3 blockers for successful dev pod start:
+
+- Current OpenClaw Helm deployment template does not inject OpenClaw env/secret values yet.
+- Current OpenClaw Helm service/deployment port baseline is `8080`, while OpenClaw gateway default runtime port is `18789`.
+- Current OpenClaw container command in image defaults to loopback bind unless command/config override is wired.
+
 ## Manual procedures
 
 - Cleanup/reset and first deploy runbook: `infra/dev/gke/RUNBOOK.md`

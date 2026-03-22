@@ -224,6 +224,20 @@
   - updated OpenClaw workflow to read approved SHA only from that file (not from prose docs)
   - kept existing O1/O2 decisions unchanged (fork-sync, isolated build/push, no deploy/sync)
   - updated references in `infra/dev/gitops/README.md`, `README.md`, and `docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md`
+- Step 3 slice O5 OpenClaw config/secrets baseline (docs-only):
+  - documented minimum OpenClaw dev runtime baseline values:
+    - plain config: `OPENCLAW_GATEWAY_BIND=lan`, `OPENCLAW_GATEWAY_PORT=18789`
+    - secret: `OPENCLAW_GATEWAY_TOKEN`
+  - classified optional vs intentionally-not-configured values for this phase (providers/channels remain out of scope)
+  - aligned with existing env/secrets policy by defining source mapping:
+    - plain config from Git-tracked dev values
+    - secrets from Google Secret Manager -> Kubernetes Secret sync
+  - documented recommended dev secret object `persai-openclaw-secrets` and runbook command
+  - documented pre-O3 blockers for successful OpenClaw pod start:
+    - env/secret injection not wired in OpenClaw deployment template
+    - OpenClaw Helm port baseline (`8080`) mismatches gateway default (`18789`)
+    - runtime bind override not yet wired
+  - marked `O5` complete in `docs/ROADMAP.md`
 
 ### Changed
 
