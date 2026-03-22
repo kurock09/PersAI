@@ -120,6 +120,7 @@ GitHub Actions image publish workflow:
 - publishes two tags per image:
   - immutable commit tag: `${GITHUB_SHA}`
   - moving dev tag: `dev-main`
+- on `main` push success, CI updates `infra/helm/values-dev.yaml` `global.images.tag` to `${GITHUB_SHA}` and pushes that GitOps commit
 
 Artifact Registry naming pattern:
 
@@ -168,7 +169,7 @@ Helm dev values are wired to the same pattern:
 - `global.images.registryHost`
 - `global.images.projectId`
 - `global.images.repository`
-- `global.images.tag` (default `dev-main`)
+- `global.images.tag` (pinned by CI to immutable commit SHA for deploys)
 - component image names (`api`, `web`, `openclaw`) are composed in templates
 
 ## Dev GitOps / Argo CD baseline (Step 1)

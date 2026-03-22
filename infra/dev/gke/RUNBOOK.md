@@ -102,7 +102,18 @@ rg "global:" infra/helm/values-dev.yaml -n
 rg "images:" infra/helm/values-dev.yaml -n
 ```
 
-8. Step 2 foundation deploy-path verification (manual):
+8. Verify dev image tag is pinned to commit SHA in GitOps values:
+
+```bash
+rg "^    tag: " infra/helm/values-dev.yaml -n
+```
+
+Expected:
+
+- `global.images.tag` is a commit SHA (immutable), not a moving tag like `dev-main`.
+- this value is updated automatically by `.github/workflows/dev-image-publish.yml` on successful `main` pushes.
+
+9. Step 2 foundation deploy-path verification (manual):
 
 ```bash
 # App resources are up

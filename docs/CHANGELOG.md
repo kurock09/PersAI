@@ -148,6 +148,10 @@
   - extended `infra/dev/gke/RUNBOOK.md` with manual Step 2 deploy-path verification checklist
   - updated `docs/TEST-PLAN.md` and `docs/ROADMAP.md` to reflect completed Step 2 smoke/e2e baseline and status
   - verified current dev cluster state and recorded deploy blocker: `persai-dev` api/web pods are `CrashLoopBackOff` with image runtime startup errors
+- Dev GitOps image-tag automation hardening:
+  - updated `.github/workflows/dev-image-publish.yml` to pin `infra/helm/values-dev.yaml` `global.images.tag` to `${GITHUB_SHA}` after successful image publish on `main`
+  - workflow now ignores pushes that only change `infra/helm/values-dev.yaml` to prevent self-trigger loops
+  - documented immutable SHA deploy-tag flow in `README.md`, `infra/dev/gitops/README.md`, `infra/dev/gke/README.md`, and `infra/dev/gke/RUNBOOK.md`
 
 ### Changed
 

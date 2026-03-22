@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - infra/helm/values-dev.yaml
   workflow_dispatch:
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     env:
       GAR_REGION: ${{ vars.GAR_REGION }}
@@ -68,3 +70,32 @@ jobs:
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.image }}:${{ env.MAIN_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  pin-dev-values-tag:
+    if: ${{ github.event_name == 'push' }}
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pin dev Helm image tag to current commit SHA
+        run: |
+          set -eu
+          sed -i "s/^    tag: .*/    tag: ${GITHUB_SHA}/" infra/helm/values-dev.yaml
+
+      - name: Commit and push values-dev tag update
+        run: |
+          set -eu
+          if git diff --quiet -- infra/helm/values-dev.yaml; then
+            echo "No values-dev tag change to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/helm/values-dev.yaml
+          git commit -m "chore(dev-gitops): pin dev image tag to ${GITHUB_SHA}"
+          git push origin HEAD:main

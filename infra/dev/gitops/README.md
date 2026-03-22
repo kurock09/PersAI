@@ -14,8 +14,14 @@ Dev values image composition pattern:
 - registry host: `global.images.registryHost`
 - project id: `global.images.projectId`
 - GAR repository: `global.images.repository`
-- shared default tag: `global.images.tag` (baseline: `dev-main`)
+- shared deployed tag: `global.images.tag` (pinned by CI to immutable `${GITHUB_SHA}`)
 - component names: `api.image.name`, `web.image.name`, `openclaw.image.name`
+
+Dev image publish behavior:
+
+- CI publishes both `${GITHUB_SHA}` and `dev-main` tags to GAR.
+- CI then updates `infra/helm/values-dev.yaml` -> `global.images.tag: <GITHUB_SHA>` and pushes that commit to `main`.
+- Argo CD deploys the pinned SHA tag from GitOps values, avoiding stale-node-cache issues with moving tags.
 
 ## Scope in this phase
 
