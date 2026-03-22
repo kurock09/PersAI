@@ -1,0 +1,16 @@
+{
+  "name": "@persai/contracts",
+  "private": true,
+  "version": "0.0.0",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "generate": "orval --config ./orval.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@persai/tsconfig": "workspace:*",
+    "orval": "^7.6.0",
+    "typescript": "^5.9.3"
+  }
+}

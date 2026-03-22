@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.17.1",
   "scripts": {
+    "contracts:generate": "corepack pnpm --filter @persai/contracts run generate",
     "prisma:generate": "corepack pnpm --filter @persai/api run prisma:generate",
     "prisma:migrate:check": "corepack pnpm --filter @persai/api run prisma:migrate:check",
     "format:check": "corepack pnpm exec prettier --check \"apps/**/*.{ts,tsx,js,cjs,json,css}\" \"packages/**/*.{ts,js,cjs,json}\" \".github/**/*.{yml,yaml}\" \"infra/dev/**/*.{yml,yaml,md}\" \"infra/local/**/*.{yml,yaml}\" \"*.{json,md,yml,yaml}\"",

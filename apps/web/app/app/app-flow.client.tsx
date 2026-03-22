@@ -109,7 +109,10 @@ export function AppFlowClient() {
             id="displayName"
             value={onboardingPayload.displayName}
             onChange={(event) =>
-              setOnboardingPayload((current) => ({ ...current, displayName: event.target.value }))
+              setOnboardingPayload({
+                ...onboardingPayload,
+                displayName: event.target.value
+              })
             }
             required
           />
@@ -119,7 +122,10 @@ export function AppFlowClient() {
             id="workspaceName"
             value={onboardingPayload.workspaceName}
             onChange={(event) =>
-              setOnboardingPayload((current) => ({ ...current, workspaceName: event.target.value }))
+              setOnboardingPayload({
+                ...onboardingPayload,
+                workspaceName: event.target.value
+              })
             }
             required
           />
@@ -129,7 +135,10 @@ export function AppFlowClient() {
             id="locale"
             value={onboardingPayload.locale}
             onChange={(event) =>
-              setOnboardingPayload((current) => ({ ...current, locale: event.target.value }))
+              setOnboardingPayload({
+                ...onboardingPayload,
+                locale: event.target.value
+              })
             }
             required
           />
@@ -139,7 +148,10 @@ export function AppFlowClient() {
             id="timezone"
             value={onboardingPayload.timezone}
             onChange={(event) =>
-              setOnboardingPayload((current) => ({ ...current, timezone: event.target.value }))
+              setOnboardingPayload({
+                ...onboardingPayload,
+                timezone: event.target.value
+              })
             }
             required
           />

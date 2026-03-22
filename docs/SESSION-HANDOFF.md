@@ -2,22 +2,27 @@
 
 ## What changed
 
-- Implemented Step 2 slice 4 only: frontend authenticated flow baseline on protected `/app`.
-- Added typed frontend API client for existing backend endpoints:
-  - `GET /api/v1/me`
-  - `POST /api/v1/me/onboarding`
-  - file: `apps/web/app/app/me-api-client.ts`
-- Added `/app` client flow component:
-  - file: `apps/web/app/app/app-flow.client.tsx`
-  - strict onboarding gate:
-    - shows onboarding form when `me.onboarding.status === "pending"`
-    - shows me screen when `me.onboarding.status === "completed"`
-  - includes loading state, error state (retry), and empty workspace state after onboarding
-  - uses Clerk login/logout controls in app flow
-- Updated protected route entry:
-  - `apps/web/app/app/page.tsx` now renders app flow client after server-side `auth.protect()`
-- Updated web env example:
-  - added `NEXT_PUBLIC_API_BASE_URL` to `apps/web/.env.local.example`
+- Implemented Step 2 slice 5 only: finalized API contract boundary with OpenAPI + generated typed client.
+- Added contracts package baseline:
+  - `packages/contracts/openapi.yaml` with:
+    - `GET /api/v1/me`
+    - `POST /api/v1/me/onboarding`
+    - `ErrorEnvelope` schema aligned with API boundary docs
+  - `packages/contracts/orval.config.cjs`
+  - `packages/contracts/package.json`
+  - `packages/contracts/tsconfig.json`
+  - `packages/contracts/src/index.ts`
+  - `packages/contracts/src/mutator/custom-fetch.ts`
+- Ran Orval generation and committed generated client:
+  - `packages/contracts/src/generated/step2-client.ts`
+  - `packages/contracts/src/generated/model/*`
+- Updated web to consume generated typed client through contracts package:
+  - `apps/web/app/app/me-api-client.ts` now calls generated Orval client functions
+  - removed handcrafted endpoint-specific fetch logic from web client file
+- Added workspace wiring:
+  - `apps/web/package.json` includes `@persai/contracts`
+  - `apps/web/next.config.ts` transpiles `@persai/contracts`
+  - root script `contracts:generate` added to `package.json`
 - Updated docs:
   - `docs/API-BOUNDARY.md`
   - `docs/CHANGELOG.md`
@@ -25,41 +30,47 @@
 
 ## Why changed
 
-- Step 2 slice 4 requires frontend consumption of existing auth/me/onboarding backend flow.
-- This slice adds the minimum protected app UX baseline without adding new backend endpoints or product scope.
+- Step 2 slice 5 requires contracts-first source of truth plus committed generated typed client.
+- This slice removes manual drift risk between backend me endpoints and frontend consumption.
 
 ## Decisions made
 
-- Kept frontend/backend boundary strict by centralizing HTTP calls in a typed client module.
-- No global store introduced; state remains local to `/app` flow component.
-- No extra product screens and no API scope expansion.
-- No OpenClaw/runtime/chat/channel work.
+- API scope remains unchanged: only `GET /api/v1/me` and `POST /api/v1/me/onboarding`.
+- Orval-generated client is committed to repo to satisfy ADR-003.
+- Frontend uses generated typed client via a centralized wrapper file (`me-api-client.ts`) to keep UI free from scattered fetch logic.
 
 ## Files touched
 
-- apps/web/app/app/page.tsx
-- apps/web/app/app/app-flow.client.tsx
+- package.json
+- apps/web/package.json
+- apps/web/next.config.ts
 - apps/web/app/app/me-api-client.ts
-- apps/web/.env.local.example
+- packages/contracts/package.json
+- packages/contracts/tsconfig.json
+- packages/contracts/orval.config.cjs
+- packages/contracts/openapi.yaml
+- packages/contracts/src/index.ts
+- packages/contracts/src/mutator/custom-fetch.ts
+- packages/contracts/src/generated/step2-client.ts
+- packages/contracts/src/generated/model/\*
 - docs/API-BOUNDARY.md
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
+- pnpm-lock.yaml
 
 ## Migrations run
 
-- Not run (frontend/docs slice only).
+- Not run (contracts/frontend/docs slice only).
 
 ## Tests run / result
 
-- `corepack pnpm run lint` (pass)
-- `corepack pnpm run typecheck` (pass)
-- `corepack pnpm run build` (pass)
+- Pending in this slice (see final output for executed checks).
 
 ## Known risks
 
-- Frontend currently assumes API error bodies contain `error.message`; unknown envelopes fall back to HTTP status message.
-- Next.js 16 still warns about `middleware.ts` deprecation in favor of `proxy.ts` (existing baseline behavior).
+- Generated client currently uses split-model output, so model files are verbose but explicit.
+- Next.js still emits existing middleware deprecation warning unrelated to this contract slice.
 
 ## Next recommended step
 
-- Continue with next Step 2 slice for polish/testing around authenticated app flow (without expanding API scope unless required).
+- Continue with Step 2 smoke/e2e validation slice to verify full login -> me -> onboarding -> me loop using the generated client boundary.

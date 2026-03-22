@@ -1,0 +1,8 @@
+{
+  "extends": "@persai/tsconfig/base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "moduleResolution": "node"
+  },
+  "include": ["src/**/*.ts"]
+}

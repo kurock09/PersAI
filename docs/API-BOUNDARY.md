@@ -65,3 +65,9 @@ Behavior baseline:
   "requestId": "..."
 }
 ```
+
+## Contract source of truth (Step 2 slice 5)
+
+- OpenAPI spec: `packages/contracts/openapi.yaml`
+- Generated typed client (Orval): `packages/contracts/src/generated/*`
+- Frontend consumption baseline: `apps/web/app/app/me-api-client.ts` via `@persai/contracts`

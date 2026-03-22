@@ -1,0 +1,209 @@
+openapi: 3.0.3
+info:
+  title: PersAI Step 2 API Contract
+  version: 0.1.0
+servers:
+  - url: /api/v1
+paths:
+  /me:
+    get:
+      operationId: getMe
+      summary: Get current authenticated app user state
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetMeResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /me/onboarding:
+    post:
+      operationId: postMeOnboarding
+      summary: Upsert onboarding data for authenticated app user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingRequest"
+      responses:
+        "200":
+          description: Updated current user state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetMeResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    OnboardingRequest:
+      type: object
+      required:
+        - displayName
+        - workspaceName
+        - locale
+        - timezone
+      properties:
+        displayName:
+          type: string
+        workspaceName:
+          type: string
+        locale:
+          type: string
+        timezone:
+          type: string
+    WorkspaceSummary:
+      type: object
+      required:
+        - id
+        - name
+        - locale
+        - timezone
+        - status
+        - role
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        locale:
+          type: string
+        timezone:
+          type: string
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+        role:
+          type: string
+          enum:
+            - owner
+            - member
+    AppUserSummary:
+      type: object
+      required:
+        - id
+        - clerkUserId
+        - email
+      properties:
+        id:
+          type: string
+          format: uuid
+        clerkUserId:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+    OnboardingState:
+      type: object
+      required:
+        - isComplete
+        - status
+      properties:
+        isComplete:
+          type: boolean
+        status:
+          type: string
+          enum:
+            - completed
+            - pending
+    CurrentMeState:
+      type: object
+      required:
+        - appUser
+        - onboarding
+        - workspace
+      properties:
+        appUser:
+          $ref: "#/components/schemas/AppUserSummary"
+        onboarding:
+          $ref: "#/components/schemas/OnboardingState"
+        workspace:
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceSummary"
+          nullable: true
+    GetMeResponse:
+      type: object
+      required:
+        - me
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        me:
+          $ref: "#/components/schemas/CurrentMeState"
+    ErrorEnvelope:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorObject"
+        requestId:
+          type: string
+          nullable: true
+    ErrorObject:
+      type: object
+      required:
+        - code
+        - category
+        - message
+      properties:
+        code:
+          type: string
+        category:
+          type: string
+          enum:
+            - validation
+            - auth
+            - forbidden
+            - conflict
+            - infra
+            - unknown
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true

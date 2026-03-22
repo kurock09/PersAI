@@ -130,6 +130,13 @@
   - added explicit loading, error (with retry), and post-onboarding empty workspace state handling
   - kept login/logout baseline with Clerk controls in app flow
   - added web env baseline variable `NEXT_PUBLIC_API_BASE_URL`
+- Step 2 slice 5 contract boundary finalization:
+  - added OpenAPI spec for Step 2 me endpoints in `packages/contracts/openapi.yaml`
+  - added Orval generation setup in `packages/contracts` and root `contracts:generate` script
+  - generated and committed typed client in `packages/contracts/src/generated/*`
+  - added shared contracts package exports and custom fetch mutator with error envelope handling
+  - updated `apps/web` to consume generated typed client via `@persai/contracts` (no handwritten endpoint client logic)
+  - kept API scope unchanged (`GET /api/v1/me`, `POST /api/v1/me/onboarding`) and reflected contract source-of-truth in docs
 
 ### Changed
 
