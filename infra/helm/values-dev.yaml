@@ -4,7 +4,7 @@ global:
     registryHost: europe-west1-docker.pkg.dev
     projectId: project-44786b14-b7d7-4554-a8a
     repository: persai
-    tag: 443400944bc3b0a377bf83e28b7b0e43a8e4f8ca
+    tag: 86cb8f868937ffa7448ca70825f7497eca7e8bbb
 
 api:
   enabled: true
@@ -15,7 +15,7 @@ api:
     gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
-    tag: 443400944bc3b0a377bf83e28b7b0e43a8e4f8ca
+    tag: 86cb8f868937ffa7448ca70825f7497eca7e8bbb
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -45,7 +45,7 @@ web:
   replicaCount: 1
   image:
     name: web
-    tag: 443400944bc3b0a377bf83e28b7b0e43a8e4f8ca
+    tag: 86cb8f868937ffa7448ca70825f7497eca7e8bbb
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_a2Vlbi1yb2Jpbi04MC5jbGVyay5hY2NvdW50cy5kZXYk
@@ -62,7 +62,7 @@ openclaw:
   replicaCount: 1
   image:
     name: openclaw
-    tag: 443400944bc3b0a377bf83e28b7b0e43a8e4f8ca
+    tag: 86cb8f868937ffa7448ca70825f7497eca7e8bbb
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
