@@ -50,6 +50,7 @@ Behavior baseline:
 - web sends Bearer token
 - api validates Clerk JWT itself
 - api resolves/auto-creates internal `app_users` record on first authenticated access
+- web uses a typed client module for `/api/v1/me` and `/api/v1/me/onboarding` calls (no scattered raw fetch in UI)
 
 ## Error envelope
 

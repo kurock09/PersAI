@@ -121,6 +121,15 @@
     - updates workspace profile fields consistently (`name`, `locale`, `timezone`, `status=active`)
   - extended auth middleware scope to protect onboarding endpoint
   - updated API/data-model docs for onboarding request/behavior baseline
+- Step 2 slice 4 frontend authenticated flow baseline:
+  - implemented protected `/app` flow using existing backend endpoints only (`GET /api/v1/me`, `POST /api/v1/me/onboarding`)
+  - added typed frontend API client module for me/onboarding calls (no scattered raw fetch in UI components)
+  - added strict onboarding gate in `/app`:
+    - onboarding form when status is `pending`
+    - me screen when status is `completed`
+  - added explicit loading, error (with retry), and post-onboarding empty workspace state handling
+  - kept login/logout baseline with Clerk controls in app flow
+  - added web env baseline variable `NEXT_PUBLIC_API_BASE_URL`
 
 ### Changed
 
