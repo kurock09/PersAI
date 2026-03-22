@@ -1,64 +1,53 @@
 # SESSION-HANDOFF
 
 ## What changed
-- Implemented Step 1 slice 5 Prisma + local DB baseline.
-- Added Prisma schema with `app_users`, `workspaces`, and `workspace_members`.
-- Added initial migration SQL in `apps/api/prisma/migrations`.
-- Added deterministic idempotent seed script in `apps/api/prisma/seed.ts`.
-- Added local Postgres Docker baseline at `infra/local/docker-compose.postgres.yml`.
-- Updated config/env baseline to require `DATABASE_URL`.
+- Implemented Step 1 slice 6 CI/workspace Prisma flow baseline.
+- Added root workspace scripts for Prisma generate and migrate check.
+- Extended CI workflow with local Postgres service and Prisma checks.
+- Documented local DB bootstrap + migrate + seed commands in `README.md`, including `corepack pnpm` usage.
 
 ## Why changed
-- Step 1 requires database foundation before auth and Step 2 business endpoints.
-- This slice establishes schema/migration/seed/local-db primitives while staying inside agreed table scope.
+- Step 1 quality gate requires Prisma migrate check in CI.
+- This slice makes Prisma validation part of baseline checks and clarifies local DB run steps.
 
 ## Decisions made
 - Foundation phase is split into Step 1 and Step 2.
 - OpenClaw is a separate neighboring service, not part of foundation runtime.
 - Living docs are mandatory.
-- Slice 5 is limited to Prisma + local Postgres baseline only.
-- No auth, onboarding, business endpoints, or Step 2 functionality was introduced.
+- Slice 6 is limited to CI/workspace wiring and docs for Prisma flow.
+- No auth, onboarding, business endpoints, GKE deploy, or Step 2 functionality was introduced.
 
 ## Files touched
-- docs/DATA-MODEL.md
-- packages/config/src/api-config.ts
-- apps/api/prisma/schema.prisma
-- apps/api/prisma/seed.ts
-- apps/api/prisma/migrations/20260322150000_init_foundation_schema/migration.sql
-- apps/api/prisma/migrations/migration_lock.toml
+- package.json
+- .github/workflows/ci.yml
 - apps/api/package.json
-- apps/api/.env.local.example
-- apps/api/.env.dev.example
-- infra/local/docker-compose.postgres.yml
-- pnpm-lock.yaml
+- README.md
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
 
 ## Migrations run
-- Generated initial migration SQL via:
-  - `corepack pnpm --filter @persai/api exec prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script`
-- Attempted apply verification via:
-  - `corepack pnpm --filter @persai/api run prisma:migrate:deploy` (failed: local DB not reachable on `localhost:5432`)
+- Local verification run via:
+  - `corepack pnpm run prisma:migrate:check` with `DATABASE_URL` set to local Postgres
+  - this executed `prisma migrate deploy` and `prisma migrate status` successfully
 
 ## Tests run / result
 - `corepack pnpm install --no-frozen-lockfile` (pass)
-- `corepack pnpm --filter @persai/api run prisma:generate` (pass)
+- `corepack pnpm run prisma:generate` (pass)
+- `corepack pnpm run prisma:migrate:check` (pass with local `DATABASE_URL`)
 - `corepack pnpm run lint` (pass)
 - `corepack pnpm run typecheck` (pass)
 - `corepack pnpm run test` (pass)
 - `corepack pnpm run build` (pass)
-- `corepack pnpm --filter @persai/api run build` (pass)
-- `corepack pnpm --filter @persai/api run prisma:migrate:deploy` (fail, `P1001` local DB unreachable)
-- `corepack pnpm --filter @persai/api run prisma:seed` (not executed because migrate deploy failed)
 
 ## Known risks
-- Local migration/seed verification is blocked until Docker/Postgres is available on the machine.
-- Prisma seed is implemented and idempotent but not executed against a live local DB in this run.
+- Local `prisma:migrate:check` requires `DATABASE_URL` to be set and local Postgres to be running.
+- CI uses a Postgres service for migrate check; parity depends on matching connection settings.
 - Auth and Step 2 flows remain pending by design.
 
 ## Next recommended step
-- Resolve local DB runtime availability, then execute:
+- Keep local DB workflow documented and verified:
   - `docker compose -f infra/local/docker-compose.postgres.yml up -d`
-  - `corepack pnpm --filter @persai/api run prisma:migrate:deploy`
+  - `$env:DATABASE_URL="postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public"`
+  - `corepack pnpm run prisma:migrate:check`
   - `corepack pnpm --filter @persai/api run prisma:seed`
-- After DB verification, proceed to next Step 1 slice (shared logger package extraction or API error envelope baseline).
+- Then continue to the next Step 1 slice (logger package extraction or API error envelope baseline).

@@ -63,3 +63,29 @@ packages/
 infra/
 docs/
 .github/
+```
+
+## Local database bootstrap (Step 1 baseline)
+
+Use Docker for local Postgres:
+
+```bash
+docker compose -f infra/local/docker-compose.postgres.yml up -d
+```
+
+Then apply Prisma migration and seed:
+
+```powershell
+$env:DATABASE_URL="postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public"
+corepack pnpm --filter @persai/api run prisma:migrate:deploy
+corepack pnpm --filter @persai/api run prisma:seed
+```
+
+Helpful checks:
+
+```bash
+corepack pnpm --filter @persai/api run prisma:migrate:status
+corepack pnpm run prisma:migrate:check
+```
+
+If `pnpm` is not globally installed in your shell, use `corepack pnpm ...`.

@@ -7,6 +7,22 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: persai_v2
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d persai_v2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +46,12 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
+
+      - name: Prisma Generate
+        run: pnpm run prisma:generate
+
+      - name: Prisma Migrate Check
+        run: pnpm run prisma:migrate:check
 
       - name: Test
         run: pnpm run test

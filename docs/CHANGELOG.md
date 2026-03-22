@@ -37,6 +37,10 @@
   - added local Postgres Docker baseline in `infra/local/docker-compose.postgres.yml`
   - added Prisma scripts and dependencies in `apps/api` and wired `DATABASE_URL` in env validation/examples
   - updated `docs/DATA-MODEL.md` with concrete Prisma baseline constraints/enums
+- Step 1 slice 6 CI + workspace Prisma flow baseline:
+  - added root workspace scripts `prisma:generate` and `prisma:migrate:check`
+  - extended CI checks workflow with Postgres service and Prisma generate/migrate check steps
+  - documented local database bootstrap/migrate/seed commands in `README.md`
 
 ### Changed
 - None.
