@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+
 - Initial documentation baseline.
 - Session discipline and startup reading order.
 - ADR baseline for foundation phase.
@@ -97,12 +98,22 @@
     - `roles/iam.workloadIdentityUser` principalSet binding for `kurock09/PersAI` on target service account
   - configured GitHub repository variables for WIF auth (`GAR_REGION`, `GCP_PROJECT_ID`, `GAR_REPOSITORY`, `GCP_WIF_PROVIDER`, `GCP_WIF_SERVICE_ACCOUNT`)
   - verified operational blocker: remote `main` does not yet contain `Dev Image Publish` workflow and still references placeholder image repos in `infra/helm/values-dev.yaml`, so workflow dispatch and GAR image verification cannot complete until those repo changes are pushed
+- Step 2 slice 1 auth foundation baseline:
+  - integrated Clerk into `apps/web` with provider, login/logout baseline UI, and protected `/app` route middleware
+  - added backend Clerk JWT validation in `apps/api` (identity-access interface layer middleware)
+  - added internal app user resolution/auto-create flow in identity-access application/infrastructure layers
+  - added minimal authenticated verification endpoint `GET /api/v1/auth/verify` for auth baseline validation (no onboarding/me business flow yet)
+  - extended API config/env examples with required `CLERK_SECRET_KEY` and added web Clerk env example
+  - updated API boundary docs for auth verify endpoint and app_user auto-create behavior
 
 ### Changed
+
 - None.
 
 ### Fixed
+
 - None.
 
 ### Removed
+
 - None.

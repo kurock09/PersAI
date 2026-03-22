@@ -1,5 +1,12 @@
 import { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 
+export interface RequestResolvedAppUser {
+  id: string;
+  clerkUserId: string;
+  email: string;
+  displayName: string | null;
+}
+
 export interface RequestWithPlatformContext extends IncomingMessage {
   headers: IncomingHttpHeaders;
   method?: string;
@@ -8,6 +15,7 @@ export interface RequestWithPlatformContext extends IncomingMessage {
   requestId?: string;
   userId?: string | null;
   workspaceId?: string | null;
+  resolvedAppUser?: RequestResolvedAppUser;
 }
 
 export interface ResponseWithPlatformContext extends ServerResponse<IncomingMessage> {
