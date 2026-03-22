@@ -12,7 +12,7 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
 ## OpenClaw rule
 
 - OpenClaw remains a neighboring service skeleton.
-- `openclaw.enabled` is `false` by default in `infra/helm/values.yaml`.
+- `openclaw.enabled` is `false` by default in `infra/helm/values-dev.yaml`.
 
 ## Notes
 

@@ -67,6 +67,11 @@
   - added bootstrap manual usage notes in `infra/bootstrap/README.md`
   - added exact dev GKE cleanup/reset and first deploy procedure in `infra/dev/gke/RUNBOOK.md`
   - updated infra docs to point to runbooks (`infra/dev/gke/README.md`, `infra/dev/gitops/README.md`, `README.md`)
+- Step 1 slice 12 reset/deploy flow finalization:
+  - reviewed and hardened `infra/bootstrap/dev-gke-reset.sh` safety behavior (kubectl dependency check, context output/guard, strict `--execute` gating, dry-run default)
+  - finalized and clarified command order in `infra/dev/gke/RUNBOOK.md` for reset and first dev deploy
+  - fixed docs consistency: OpenClaw default-disabled reference now points to `infra/helm/values-dev.yaml` in all relevant docs
+  - kept OpenClaw disabled by default and kept all actions manual/non-executed
 
 ### Changed
 - None.

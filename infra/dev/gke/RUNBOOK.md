@@ -16,6 +16,7 @@ export PROJECT_ID="your-gcp-project-id"
 export REGION="your-gke-region"
 export CLUSTER_NAME="your-dev-cluster"
 export REPO_URL="https://github.com/example/persai.git"
+export EXPECTED_KUBE_CONTEXT="gke_${PROJECT_ID}_${REGION}_${CLUSTER_NAME}"
 ```
 
 Connect kubectl to the dev cluster:
@@ -37,7 +38,7 @@ gcloud container clusters get-credentials "$CLUSTER_NAME" --region "$REGION" --p
 2. Execute one-time reset (destructive for dev namespace/app objects):
 
 ```bash
-./infra/bootstrap/dev-gke-reset.sh --execute
+EXPECTED_KUBE_CONTEXT="$EXPECTED_KUBE_CONTEXT" ./infra/bootstrap/dev-gke-reset.sh --execute
 ```
 
 3. Verify cleanup completed:
@@ -59,6 +60,12 @@ kubectl apply -f infra/dev/gke/namespace.yaml
 ```
 
 2. Set Argo CD application source repo URL in `infra/dev/gitops/argocd/application-dev.yaml` to match this repo.
+
+Example (manual edit or scripted replace):
+
+```bash
+sed -i.bak "s|https://github.com/example/persai.git|${REPO_URL}|g" infra/dev/gitops/argocd/application-dev.yaml
+```
 
 3. Apply Argo CD project:
 
@@ -83,6 +90,13 @@ kubectl -n argocd get applications.argoproj.io persai-dev
 
 ```bash
 kubectl -n persai-dev get deploy,svc
+```
+
+7. Verify OpenClaw remains disabled by default in dev values:
+
+```bash
+rg "openclaw:" infra/helm/values-dev.yaml -n
+rg "enabled: false" infra/helm/values-dev.yaml -n
 ```
 
 ## OpenClaw Rule

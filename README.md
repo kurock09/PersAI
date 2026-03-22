@@ -103,7 +103,7 @@ Infra skeleton files are present but are not applied in this phase:
 
 OpenClaw deploy skeleton exists but is disabled by default:
 
-- `openclaw.enabled=false` in `infra/helm/values.yaml`
+- `openclaw.enabled=false` in `infra/helm/values-dev.yaml`
 
 ## Dev GitOps / Argo CD baseline (Step 1)
 
