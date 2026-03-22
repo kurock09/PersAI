@@ -105,6 +105,12 @@
   - added minimal authenticated verification endpoint `GET /api/v1/auth/verify` for auth baseline validation (no onboarding/me business flow yet)
   - extended API config/env examples with required `CLERK_SECRET_KEY` and added web Clerk env example
   - updated API boundary docs for auth verify endpoint and app_user auto-create behavior
+- Step 2 slice 2 first authenticated business endpoint:
+  - added `GET /api/v1/me` in `apps/api` identity-access interface layer
+  - endpoint returns current internal app user state, onboarding status, and workspace summary (when exists)
+  - onboarding status baseline is derived from workspace membership existence (`completed` vs `pending`)
+  - kept onboarding write endpoint (`POST /api/v1/me/onboarding`) out of scope
+  - updated API boundary documentation for `/api/v1/me` response baseline
 
 ### Changed
 
