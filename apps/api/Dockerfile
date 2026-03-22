@@ -15,6 +15,7 @@ RUN pnpm --filter @persai/logger run build
 RUN pnpm --filter @persai/config run build
 RUN pnpm --filter @persai/api run prisma:generate
 RUN pnpm --filter @persai/api run build
+RUN test -f /workspace/apps/api/dist/main.js
 
 WORKDIR /workspace/apps/api
 

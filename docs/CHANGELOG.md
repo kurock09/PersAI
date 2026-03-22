@@ -152,6 +152,13 @@
   - updated `.github/workflows/dev-image-publish.yml` to pin `infra/helm/values-dev.yaml` `global.images.tag` to `${GITHUB_SHA}` after successful image publish on `main`
   - workflow now ignores pushes that only change `infra/helm/values-dev.yaml` to prevent self-trigger loops
   - documented immutable SHA deploy-tag flow in `README.md`, `infra/dev/gitops/README.md`, `infra/dev/gke/README.md`, and `infra/dev/gke/RUNBOOK.md`
+- Dev deployment startup hotfix (web/api):
+  - fixed web production startup command wiring:
+    - `apps/web/package.json` `start` now explicitly runs `next start -p 3000 -H 0.0.0.0`
+    - `apps/web/Dockerfile` now runs `pnpm start` without extra argument forwarding
+  - hardened api build artifact generation:
+    - `apps/api/package.json` build now disables incremental cache (`--incremental false`) to ensure fresh emit in container builds
+    - `apps/api/Dockerfile` now fails fast when `/workspace/apps/api/dist/main.js` is missing
 
 ### Changed
 

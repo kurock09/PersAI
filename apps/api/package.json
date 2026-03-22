@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json --incremental false",
     "start": "node dist/main.js",
     "lint": "eslint --max-warnings=0 --ext .ts src prisma/seed.ts",
     "typecheck": "tsc --noEmit",

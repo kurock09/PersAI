@@ -2,53 +2,61 @@
 
 ## What changed
 
-- Implemented targeted dev image-tag deploy automation hardening (no API/product scope changes).
-- Updated `.github/workflows/dev-image-publish.yml`:
-  - on `main` push, after successful image publish, workflow updates `infra/helm/values-dev.yaml` `global.images.tag` to `${GITHUB_SHA}`
-  - commits and pushes this GitOps values change to `main`
-  - ignores push events that only change `infra/helm/values-dev.yaml` to prevent recursive workflow loops
+- Implemented targeted startup hotfix slice for dev deploy runtime failures (no Step 2/product scope changes).
+- Fixed web startup command wiring:
+  - `apps/web/package.json` `start` now: `next start -p 3000 -H 0.0.0.0`
+  - `apps/web/Dockerfile` now runs `CMD ["pnpm", "start"]` (no extra argument forwarding)
+- Fixed api build artifact production reliability:
+  - `apps/api/package.json` `build` now uses `tsc -p tsconfig.build.json --incremental false`
+  - `apps/api/Dockerfile` now includes fail-fast check:
+    - `RUN test -f /workspace/apps/api/dist/main.js`
 - Updated docs:
-  - `README.md`
-  - `infra/dev/gitops/README.md`
-  - `infra/dev/gke/README.md`
-  - `infra/dev/gke/RUNBOOK.md`
   - `docs/CHANGELOG.md`
   - `docs/SESSION-HANDOFF.md`
 
 ## Why changed
 
-- Dev deploy used moving tag `dev-main` with `IfNotPresent`, which can keep stale node-cached images after sync.
-- Pinning deploy tag in GitOps values to immutable commit SHA makes Argo sync deterministic and prevents stale-image rollout.
+- Current dev rollout reached new pinned SHA images but both containers still failed to start:
+  - api: missing `/workspace/apps/api/dist/main.js`
+  - web: invalid `next start` invocation caused by argument forwarding
+- This slice applies only minimal startup/build fixes required to make containers reach Running.
 
 ## Decisions made
 
-- Kept scope strictly infra/gitops-docs for image tag flow hardening.
-- Kept image publish behavior (`${GITHUB_SHA}` + `dev-main`) unchanged; only deploy tag selection in `values-dev` is now auto-pinned to immutable SHA.
-- Prevented CI self-trigger loops with workflow `paths-ignore` on `infra/helm/values-dev.yaml`.
+- Kept scope strictly to startup/build command fixes for `apps/web` and `apps/api`.
+- Did not redesign Docker strategy or runtime architecture.
+- Added explicit fail-fast assertion in api Docker build so broken image no longer publishes silently.
 
 ## Files touched
 
-- .github/workflows/dev-image-publish.yml
-- README.md
-- infra/dev/gitops/README.md
-- infra/dev/gke/README.md
-- infra/dev/gke/RUNBOOK.md
+- apps/web/package.json
+- apps/web/Dockerfile
+- apps/api/package.json
+- apps/api/Dockerfile
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
 
 ## Migrations run
 
-- Not run (workflow/docs slice only).
+- Not run (startup/build/docs slice only).
 
 ## Tests run / result
 
-- Pending in this slice (workflow/docs only; follow-up operational verification should run after next `main` push triggers publish + values pin).
+- Pending in this slice before push:
+  - run local checks
+  - push to `main`
+  - wait for `Dev Image Publish`
+  - `argocd app sync persai-dev`
+  - verify pods/logs in `persai-dev`
 
 ## Known risks
 
-- Workflow uses bot commit/push to `main`; repository branch protection must allow GitHub Actions token writes, otherwise tag pin commit step will fail.
-- Current runtime crash issues in deployed images remain separate and must still be fixed by publishing corrected images.
+- If build output path changes in future, docker fail-fast check path must be updated accordingly.
 
 ## Next recommended step
 
-- Trigger or wait for next `main` push, confirm workflow commits pinned SHA into `infra/helm/values-dev.yaml`, then run `argocd app sync persai-dev` and verify pods use the new SHA image digest.
+- Complete operational rollout loop for this hotfix:
+  - push
+  - wait for publish
+  - sync Argo
+  - verify `api/web` Running and tail logs for startup confirmation.
