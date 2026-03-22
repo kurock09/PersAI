@@ -1,14 +1,10 @@
 import { Injectable, LoggerService } from "@nestjs/common";
-import pino, { Logger } from "pino";
-import { RequestLogEntry } from "./request-log-entry";
+import { createAppLogger, logRequestCompleted } from "@persai/logger";
+import { RequestLogEntry } from "@persai/types";
 
 @Injectable()
 export class AppLoggerService implements LoggerService {
-  private readonly logger: Logger = pino({
-    level: process.env.LOG_LEVEL ?? "info",
-    base: null,
-    timestamp: pino.stdTimeFunctions.isoTime
-  });
+  private readonly logger = createAppLogger(process.env.LOG_LEVEL ?? "info");
 
   log(message: string, context?: string): void {
     this.logger.info({ context }, message);
@@ -35,6 +31,6 @@ export class AppLoggerService implements LoggerService {
   }
 
   requestCompleted(entry: RequestLogEntry): void {
-    this.logger.info(entry, "request_completed");
+    logRequestCompleted(this.logger, entry);
   }
 }

@@ -1,0 +1,19 @@
+{
+  "name": "@persai/logger",
+  "private": true,
+  "version": "0.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@persai/types": "workspace:*",
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "@persai/tsconfig": "workspace:*",
+    "typescript": "^5.9.3"
+  }
+}

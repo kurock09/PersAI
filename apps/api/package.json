@@ -22,12 +22,15 @@
     "@nestjs/core": "^11.1.17",
     "@nestjs/platform-express": "^11.1.17",
     "@persai/config": "workspace:*",
+    "@persai/logger": "workspace:*",
+    "@persai/types": "workspace:*",
     "@prisma/client": "^6.19.2",
-    "pino": "^10.3.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
+    "@persai/eslint-config": "workspace:*",
+    "@persai/tsconfig": "workspace:*",
     "@types/node": "^24.12.0",
     "prisma": "^6.19.2",
     "tsx": "^4.21.0",

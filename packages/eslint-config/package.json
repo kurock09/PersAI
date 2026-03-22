@@ -1,0 +1,11 @@
+{
+  "name": "@persai/eslint-config",
+  "private": true,
+  "version": "0.0.0",
+  "main": "base.cjs",
+  "files": [
+    "base.cjs",
+    "next.cjs",
+    "nest.cjs"
+  ]
+}

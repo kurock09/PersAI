@@ -1,24 +1,14 @@
 {
+  "extends": "@persai/tsconfig/nest.json",
   "compilerOptions": {
-    "module": "commonjs",
-    "declaration": true,
-    "removeComments": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "allowSyntheticDefaultImports": true,
-    "target": "ES2022",
-    "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {
-      "@persai/config": ["../../packages/config/src"]
+      "@persai/config": ["../../packages/config/src"],
+      "@persai/logger": ["../../packages/logger/src"],
+      "@persai/types": ["../../packages/types/src"]
     },
-    "incremental": true,
-    "strict": true,
-    "noImplicitAny": true,
-    "exactOptionalPropertyTypes": true,
-    "noUncheckedIndexedAccess": true,
-    "skipLibCheck": true
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]

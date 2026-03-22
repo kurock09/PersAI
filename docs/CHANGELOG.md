@@ -51,6 +51,11 @@
   - made dev deploy path explicit: Argo CD -> `infra/helm` + `infra/helm/values-dev.yaml`
   - kept OpenClaw disabled by default in dev values
   - updated infra docs in `infra/dev/gitops/README.md`, `infra/dev/gke/README.md`, and `README.md`
+- Step 1 slice 9 shared repo baseline wiring:
+  - added shared workspace packages: `packages/tsconfig`, `packages/eslint-config`, `packages/logger`, and `packages/types`
+  - wired `apps/web` and `apps/api` to consume shared tsconfig baselines
+  - added app-level ESLint config files extending `@persai/eslint-config`
+  - switched API logging service to consume `@persai/logger` and shared request log types from `@persai/types`
 
 ### Changed
 - None.
