@@ -30,6 +30,13 @@
   - wired API startup to fail fast on invalid environment via `loadApiConfig`
   - added example env files for `apps/api` local/dev configuration
   - updated `.gitignore` to allow tracking `.env.*.example` files
+- Step 1 slice 5 Prisma + local DB baseline:
+  - added Prisma schema for `app_users`, `workspaces`, `workspace_members` with UUID IDs and snake_case mappings
+  - added initial Prisma migration SQL baseline and migration lock file
+  - added idempotent deterministic Prisma seed baseline
+  - added local Postgres Docker baseline in `infra/local/docker-compose.postgres.yml`
+  - added Prisma scripts and dependencies in `apps/api` and wired `DATABASE_URL` in env validation/examples
+  - updated `docs/DATA-MODEL.md` with concrete Prisma baseline constraints/enums
 
 ### Changed
 - None.

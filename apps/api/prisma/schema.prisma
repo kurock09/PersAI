@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceStatus {
+  active
+  inactive
+}
+
+enum WorkspaceRole {
+  owner
+  member
+}
+
+model AppUser {
+  id             String            @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  clerkUserId    String?           @unique @map("clerk_user_id")
+  email          String            @unique
+  displayName    String?           @map("display_name")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspaceLinks WorkspaceMember[]
+
+  @@map("app_users")
+}
+
+model Workspace {
+  id        String            @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name      String
+  locale    String
+  timezone  String
+  status    WorkspaceStatus
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  members   WorkspaceMember[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String        @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  workspaceId String        @map("workspace_id") @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  role        WorkspaceRole
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user        AppUser       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_members")
+}

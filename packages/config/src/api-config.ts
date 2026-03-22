@@ -6,7 +6,8 @@ const APP_ENVS = ["local", "dev"] as const;
 const baseApiConfigSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
   PORT: z.coerce.number().int().positive().default(3001),
-  LOG_LEVEL: z.enum(LOG_LEVELS).default("info")
+  LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
+  DATABASE_URL: z.string().min(1)
 });
 
 const localApiConfigSchema = baseApiConfigSchema.extend({
