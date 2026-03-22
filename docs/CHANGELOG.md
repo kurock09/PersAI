@@ -24,6 +24,12 @@
   - added structured JSON logger baseline using `pino`
   - added request completion logs with `requestId`, `userId`, `workspaceId`, `path`, `method`, `status`, `latencyMs`
   - wired platform-core middleware/controllers without adding auth, Prisma, or Step 2 endpoints
+- Step 1 slice 4 config baseline:
+  - added shared `packages/config` package with strict `zod` env validation
+  - added discriminated config handling for `APP_ENV=local|dev`
+  - wired API startup to fail fast on invalid environment via `loadApiConfig`
+  - added example env files for `apps/api` local/dev configuration
+  - updated `.gitignore` to allow tracking `.env.*.example` files
 
 ### Changed
 - None.

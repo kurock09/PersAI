@@ -10,6 +10,9 @@
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
+    "paths": {
+      "@persai/config": ["../../packages/config/src"]
+    },
     "incremental": true,
     "strict": true,
     "noImplicitAny": true,
