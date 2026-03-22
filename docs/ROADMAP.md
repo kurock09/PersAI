@@ -6,21 +6,21 @@ Foundation Phase
 
 ## Step 1
 
-- [ ] Monorepo scaffold
-- [ ] pnpm workspaces
-- [ ] apps/web skeleton
-- [ ] apps/api skeleton
-- [ ] packages baseline
-- [ ] infra baseline
-- [ ] Helm baseline
-- [ ] local Postgres Docker baseline
-- [ ] logger/config/request context baseline
-- [ ] Prisma baseline
-- [ ] seed baseline
-- [ ] /health
-- [ ] /ready
-- [ ] /metrics
-- [ ] CI baseline
+- [x] Monorepo scaffold
+- [x] pnpm workspaces
+- [x] apps/web skeleton
+- [x] apps/api skeleton
+- [x] packages baseline
+- [x] infra baseline
+- [x] Helm baseline
+- [x] local Postgres Docker baseline
+- [x] logger/config/request context baseline
+- [x] Prisma baseline
+- [x] seed baseline
+- [x] /health
+- [x] /ready
+- [x] /metrics
+- [x] CI baseline
 
 ## Step 2
 
@@ -37,12 +37,12 @@ Foundation Phase
 - [x] Orval generation
 - [x] smoke/e2e flow
 
-## Later phases
+## Step 3 OpenClaw
 
-- Chat
-- Conversation core
-- OpenClaw integration
-- Channels
-- Knowledge
-- Billing
-- Admin operations
+- [ ] O1 - OpenClaw repo/deploy boundary
+- [ ] O2 - OpenClaw image build/push automation
+- [ ] O3 - OpenClaw dev deploy enablement
+- [ ] O4 - OpenClaw health/runtime verification
+- [ ] O5 - OpenClaw config/secrets baseline
+- [ ] O6 - backend-to-OpenClaw integration contract
+- [ ] O7 - first apps/api -> OpenClaw integration

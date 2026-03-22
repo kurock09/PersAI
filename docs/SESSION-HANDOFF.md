@@ -71,25 +71,22 @@
 
 ## Tests run / result
 
-- Pending in this slice before push:
-  - run lint/format check
-  - push to `main`
-  - wait for `Dev Image Publish`
-  - sync Argo app
-  - verify `api/web` pod status and logs
+- `corepack pnpm run lint` -> passed
+- `corepack pnpm run test:step2` -> passed
+- `kubectl -n persai-dev get deploy,svc,pods` -> `api` and `web` running
+- `kubectl -n persai-dev logs deployment/api -c api --tail=80` -> app startup healthy
+- `kubectl -n persai-dev logs deployment/api -c cloud-sql-proxy --tail=80` -> proxy ready on `127.0.0.1:5432`
+- `kubectl -n persai-dev logs deployment/web --tail=80` -> web startup healthy
 
 ## Known risks
 
 - API runtime still requires valid secret values (`DATABASE_URL`, `CLERK_SECRET_KEY`) in cluster secret `persai-api-secrets`.
 - `DATABASE_URL` host must be `127.0.0.1` when proxy sidecar is enabled.
 - Runtime identity mapping requires matching GCP IAM bindings for KSA -> GSA Workload Identity.
-- Placeholder local-style `DATABASE_URL` may start process but not guarantee working DB connectivity for API requests.
 - Clerk frontend or server key changes require updating `infra/helm/values-dev.yaml` and resyncing Argo.
+- Prisma runtime warns about OpenSSL auto-detection in API container image (non-blocking, infra hardening follow-up).
 
 ## Next recommended step
 
-- Complete rollout loop:
-  - apply/verify `persai-api-secrets`
-  - push and publish
-  - Argo sync
-  - verify `api` and `web` both `Running` and stable in `persai-dev`.
+- Step 2 is complete and operational in dev.
+- Next infra hardening slice: reduce broad IAM on default/node service accounts and pin runtime least-privilege policy.

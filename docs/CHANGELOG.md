@@ -186,6 +186,10 @@
   - enabled API service account mapping and private-IP proxy mode in `infra/helm/values-dev.yaml`
   - documented runtime identity + private-IP path baseline in dev infra docs and runbook
   - added ADR `docs/ADR/011-dev-api-runtime-identity-and-private-sql-path.md`
+- Docs consistency pass after Step 2 closeout:
+  - marked Step 1 checklist items as complete in `docs/ROADMAP.md`
+  - updated `docs/SESSION-HANDOFF.md` from pending actions to completed verification/test results
+  - aligned known risks/next step with current dev runtime state
 
 ### Changed
 
