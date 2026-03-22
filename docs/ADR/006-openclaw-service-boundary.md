@@ -13,6 +13,7 @@ In foundation phase:
 - no functional code changes
 - chart/service may exist but disabled
 - only service boundary skeleton and sync structure are allowed
+- source/deploy boundary details are defined in ADR-012
 
 ## Consequences
 ### Positive

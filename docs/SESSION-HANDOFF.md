@@ -2,91 +2,61 @@
 
 ## What changed
 
-- Implemented targeted dev API+web runtime env wiring fixes in Helm/GitOps (no Step 2/product scope changes).
-- Added Helm values structure for API runtime config:
-  - `infra/helm/values.yaml`:
-    - `api.env` for non-secret env
-    - `api.secretEnv` for `secretKeyRef` mappings
-  - `infra/helm/values-dev.yaml`:
-    - set `APP_ENV`, `PORT`, `LOG_LEVEL`, `GCP_PROJECT_ID`, `GCP_REGION`
-    - mapped secret refs for `DATABASE_URL` and `CLERK_SECRET_KEY`
-- Updated API deployment template to render env vars from values:
-  - `infra/helm/templates/api-deployment.yaml` now injects:
-    - `api.env` as plain env values
-    - `api.secretEnv` as `valueFrom.secretKeyRef`
-- Added web Clerk publishable key wiring:
-  - `infra/helm/values.yaml` now defines `web.env` defaults
-  - `infra/helm/values-dev.yaml` now sets `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
-  - `infra/helm/values.yaml` now defines `web.secretEnv` defaults
-  - `infra/helm/values-dev.yaml` now maps `web.secretEnv.CLERK_SECRET_KEY` to `persai-api-secrets`
-  - `infra/helm/templates/web-deployment.yaml` now injects `web.env` and `web.secretEnv`
-- Updated operational docs:
-  - `infra/dev/gke/RUNBOOK.md` with command to create/update `persai-api-secrets`
-  - `infra/dev/gke/README.md` with required API secret keys and web Clerk key location
-  - `infra/dev/gitops/README.md` with `api.env`/`api.secretEnv`/`web.env` boundary
+- Completed pre-O2 clarification slice (docs-only) on top of accepted O1 fork-sync decision.
+- Tightened source-of-truth determinism policy:
+  - fork-sync does not imply building from floating external `main`
+  - required OpenClaw build input is full commit SHA pin (no branch/tag refs)
+- Recorded approved OpenClaw fork revision in docs:
+  - `infra/dev/gitops/README.md` -> `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+- Defined sync ownership/update rule:
+  - PersAI infra maintainers update approved SHA via PR in this repo
+  - same PR must update `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md`
+- Defined pre-O2 drift rules in ADR:
+  - floating ref usage in docs/build assumptions is drift
+  - disagreement across approved SHA records is drift
+  - boundary assumptions not matching approved revision is drift
+- Updated docs:
+  - `docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md`
+  - `infra/dev/gitops/README.md`
   - `docs/CHANGELOG.md`
   - `docs/SESSION-HANDOFF.md`
 
 ## Why changed
 
-- API container reached runtime startup but failed config validation because required env vars were not injected in deployment.
-- Web returned 500 because Clerk publishable key was missing at runtime.
-- This slice introduces minimal Helm-level runtime env wiring required for both `api` and `web` to run in dev.
+- O2 image automation must be deterministic and operationally owned before implementation starts.
+- This clarification keeps O1 decision intact while removing ambiguity about approved revision, ownership, and drift handling.
 
 ## Decisions made
 
-- Kept fix limited to Helm values/template and operational docs.
-- Kept secrets out of Git values; only secret references are committed.
-- Used single namespace-scoped secret name `persai-api-secrets` for required secret keys.
-- Stored Clerk frontend publishable key in dev values under `web.env`.
-- Reused existing Kubernetes secret `persai-api-secrets` for `web` server-side `CLERK_SECRET_KEY`.
-- Added narrow dev DB hardening:
-  - `api.cloudSqlProxy` values in Helm
-  - optional `cloud-sql-proxy` sidecar in api deployment
-  - dev values enable proxy with Cloud SQL instance connection name
-- Finalized dev API runtime hardening path:
-  - dedicated API KSA configuration in Helm values
-  - API service account template with GKE Workload Identity annotation
-  - API deployment uses explicit `serviceAccountName`
-  - Cloud SQL proxy supports/enforces private-IP mode (`--private-ip`)
-  - ADR added for runtime identity + private SQL path
+- Preserved source-of-truth strategy: **fork-sync**.
+- Deterministic build input policy:
+  - approved full commit SHA only
+  - no implicit floating `main`/tag builds
+- Approved fork revision for pre-O2 baseline:
+  - `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+- Sync ownership:
+  - PersAI infra maintainers own SHA updates by PR and must record them in changelog + handoff.
 
 ## Files touched
 
-- infra/helm/values.yaml
-- infra/helm/values-dev.yaml
-- infra/helm/templates/api-deployment.yaml
-- infra/helm/templates/web-deployment.yaml
-- infra/dev/gke/RUNBOOK.md
-- infra/dev/gke/README.md
+- docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md
 - infra/dev/gitops/README.md
-- docs/ADR/010-dev-cloudsql-proxy-for-api.md
-- docs/ADR/011-dev-api-runtime-identity-and-private-sql-path.md
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
 
 ## Migrations run
 
-- Not run (helm/docs slice only).
+- Not run (docs-only slice).
 
 ## Tests run / result
 
-- `corepack pnpm run lint` -> passed
-- `corepack pnpm run test:step2` -> passed
-- `kubectl -n persai-dev get deploy,svc,pods` -> `api` and `web` running
-- `kubectl -n persai-dev logs deployment/api -c api --tail=80` -> app startup healthy
-- `kubectl -n persai-dev logs deployment/api -c cloud-sql-proxy --tail=80` -> proxy ready on `127.0.0.1:5432`
-- `kubectl -n persai-dev logs deployment/web --tail=80` -> web startup healthy
+- Not run (docs-only changes).
 
 ## Known risks
 
-- API runtime still requires valid secret values (`DATABASE_URL`, `CLERK_SECRET_KEY`) in cluster secret `persai-api-secrets`.
-- `DATABASE_URL` host must be `127.0.0.1` when proxy sidecar is enabled.
-- Runtime identity mapping requires matching GCP IAM bindings for KSA -> GSA Workload Identity.
-- Clerk frontend or server key changes require updating `infra/helm/values-dev.yaml` and resyncing Argo.
-- Prisma runtime warns about OpenSSL auto-detection in API container image (non-blocking, infra hardening follow-up).
+- Until O2 is implemented, determinism remains a docs policy and is not yet enforced by CI automation.
+- Approved SHA must be kept current intentionally when upgrading OpenClaw.
 
 ## Next recommended step
 
-- Step 2 is complete and operational in dev.
-- Next infra hardening slice: reduce broad IAM on default/node service accounts and pin runtime least-privilege policy.
+- Proceed to O2 with CI workflow implementation that consumes only the approved OpenClaw commit SHA pin.

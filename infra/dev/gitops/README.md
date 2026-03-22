@@ -45,6 +45,23 @@ Dev image publish behavior:
 ## OpenClaw rule
 
 - OpenClaw remains disabled by default (`openclaw.enabled=false`).
+- OpenClaw is treated as a standalone neighboring runtime, not part of `apps/api`.
+
+## OpenClaw source/deploy boundary (Step 3 O1)
+
+- Source-of-truth strategy: **fork-sync** from `https://github.com/kurock09/openclaw` (`main`).
+- O1 stays docs-only: no OpenClaw code integration into backend modules and no runtime calls from `apps/api`.
+- Build context for OpenClaw image: fork root (`.`), Dockerfile path `./Dockerfile`.
+- Runtime command for this fork image uses Dockerfile default:
+  - `node openclaw.mjs gateway --allow-unconfigured`
+
+## OpenClaw approved revision (pre-O2 pin)
+
+- Approved fork repository: `https://github.com/kurock09/openclaw`
+- Approved ref type: full commit SHA only (no branch/tag refs)
+- Approved commit SHA: `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+- Ownership: PersAI infra maintainers update this SHA by PR in this repo.
+- Update rule: every SHA change here must be reflected in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md` in the same PR.
 
 ## Manual procedures
 

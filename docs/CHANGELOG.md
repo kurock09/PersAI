@@ -190,6 +190,23 @@
   - marked Step 1 checklist items as complete in `docs/ROADMAP.md`
   - updated `docs/SESSION-HANDOFF.md` from pending actions to completed verification/test results
   - aligned known risks/next step with current dev runtime state
+- Step 3 slice O1 OpenClaw repo/deploy boundary formalization (docs-only):
+  - selected and documented source-of-truth strategy: **fork-sync** from `https://github.com/kurock09/openclaw` (`main`)
+  - added ADR `docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md`
+  - clarified that `apps/api` remains decoupled with no OpenClaw runtime calls in O1
+  - documented exact OpenClaw fork container boundary assumptions for upcoming deploy slices:
+    - build context: fork repository root (`.`)
+    - Dockerfile path: `./Dockerfile`
+    - runtime command: `node openclaw.mjs gateway --allow-unconfigured`
+  - marked roadmap item `O1` as completed in `docs/ROADMAP.md`
+- Step 3 pre-O2 clarification for deterministic OpenClaw source pinning (docs-only):
+  - clarified that fork-sync does not allow implicit floating builds from external `main`
+  - defined required build-input pinning rule: full commit SHA only
+  - recorded approved OpenClaw fork revision in `infra/dev/gitops/README.md`:
+    - `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+  - defined sync ownership/update rule:
+    - PersAI infra maintainers update approved SHA via PR, with same-PR updates in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md`
+  - defined pre-O2 drift conditions between docs assumptions and fork state in ADR-012
 
 ### Changed
 
