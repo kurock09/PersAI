@@ -6,7 +6,7 @@ metadata:
 spec:
   project: persai-dev
   source:
-    repoURL: https://github.com/example/persai.git
+    repoURL: https://github.com/kurock09/PersAI.git
     targetRevision: HEAD
     path: infra/helm
     helm:
