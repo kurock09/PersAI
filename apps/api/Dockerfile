@@ -15,10 +15,10 @@ RUN pnpm --filter @persai/logger run build
 RUN pnpm --filter @persai/config run build
 RUN pnpm --filter @persai/api run prisma:generate
 RUN pnpm --filter @persai/api run build
-RUN test -f /workspace/apps/api/dist/main.js
+RUN test -f /workspace/apps/api/dist/apps/api/src/main.js
 
 WORKDIR /workspace/apps/api
 
 EXPOSE 3001
 
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/apps/api/src/main.js"]

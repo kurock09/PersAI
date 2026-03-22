@@ -9,7 +9,9 @@
 - Fixed api build artifact production reliability:
   - `apps/api/package.json` `build` now uses `tsc -p tsconfig.build.json --incremental false`
   - `apps/api/Dockerfile` now includes fail-fast check:
-    - `RUN test -f /workspace/apps/api/dist/main.js`
+    - `RUN test -f /workspace/apps/api/dist/apps/api/src/main.js`
+  - api runtime command now starts from emitted path:
+    - `CMD ["node", "dist/apps/api/src/main.js"]`
 - Updated docs:
   - `docs/CHANGELOG.md`
   - `docs/SESSION-HANDOFF.md`

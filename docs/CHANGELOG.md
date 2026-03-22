@@ -158,7 +158,7 @@
     - `apps/web/Dockerfile` now runs `pnpm start` without extra argument forwarding
   - hardened api build artifact generation:
     - `apps/api/package.json` build now disables incremental cache (`--incremental false`) to ensure fresh emit in container builds
-    - `apps/api/Dockerfile` now fails fast when `/workspace/apps/api/dist/main.js` is missing
+    - `apps/api/Dockerfile` now fails fast when `/workspace/apps/api/dist/apps/api/src/main.js` is missing and starts node from the same emitted path
 
 ### Changed
 
