@@ -1,0 +1,87 @@
+name: OpenClaw Dev Image Publish
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-push-openclaw:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GAR_REGION: ${{ vars.GAR_REGION }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_WIF_SERVICE_ACCOUNT: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
+      OPENCLAW_FORK_REPO: https://github.com/kurock09/openclaw.git
+      OPENCLAW_APPROVED_SHA_FILE: infra/dev/gitops/openclaw-approved-sha.txt
+      OPENCLAW_MAIN_TAG: dev-main
+      OPENCLAW_SERVICE_PATH: services/openclaw
+    steps:
+      - name: Checkout PersAI repository
+        uses: actions/checkout@v4
+
+      - name: Validate required CI configuration
+        run: |
+          set -eu
+          test -n "${GAR_REGION}" || (echo "Missing repo variable GAR_REGION" && exit 1)
+          test -n "${GCP_PROJECT_ID}" || (echo "Missing repo variable GCP_PROJECT_ID" && exit 1)
+          test -n "${GAR_REPOSITORY}" || (echo "Missing repo variable GAR_REPOSITORY" && exit 1)
+          test -n "${GCP_WIF_PROVIDER}" || (echo "Missing repo variable GCP_WIF_PROVIDER" && exit 1)
+          test -n "${GCP_WIF_SERVICE_ACCOUNT}" || (echo "Missing repo variable GCP_WIF_SERVICE_ACCOUNT" && exit 1)
+
+      - name: Resolve approved OpenClaw SHA from machine-readable pin
+        run: |
+          set -eu
+          test -f "${OPENCLAW_APPROVED_SHA_FILE}" || (echo "Missing approved SHA file: ${OPENCLAW_APPROVED_SHA_FILE}" && exit 1)
+          OPENCLAW_APPROVED_SHA="$(tr -d '\r\n' < "${OPENCLAW_APPROVED_SHA_FILE}")"
+          test -n "${OPENCLAW_APPROVED_SHA}" || (echo "Approved OpenClaw SHA is empty in ${OPENCLAW_APPROVED_SHA_FILE}" && exit 1)
+          echo "${OPENCLAW_APPROVED_SHA}" | grep -Eq '^[0-9a-f]{40}$' || (echo "Approved OpenClaw SHA must be 40-char lowercase hex" && exit 1)
+          echo "OPENCLAW_APPROVED_SHA=${OPENCLAW_APPROVED_SHA}" >> "${GITHUB_ENV}"
+          echo "Using OpenClaw approved SHA: ${OPENCLAW_APPROVED_SHA}"
+
+      - name: Materialize OpenClaw source at approved SHA
+        run: |
+          set -eu
+          rm -rf "${OPENCLAW_SERVICE_PATH}"
+          git clone --no-tags --depth 1 "${OPENCLAW_FORK_REPO}" "${OPENCLAW_SERVICE_PATH}"
+          cd "${OPENCLAW_SERVICE_PATH}"
+          git fetch --depth 1 origin "${OPENCLAW_APPROVED_SHA}"
+          git checkout --detach "${OPENCLAW_APPROVED_SHA}"
+          test "$(git rev-parse HEAD)" = "${OPENCLAW_APPROVED_SHA}" || (echo "Resolved OpenClaw HEAD mismatch" && exit 1)
+          test -f Dockerfile || (echo "OpenClaw Dockerfile is missing at ${OPENCLAW_SERVICE_PATH}/Dockerfile" && exit 1)
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_WIF_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GAR_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Build and push OpenClaw image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.OPENCLAW_SERVICE_PATH }}
+          file: ${{ env.OPENCLAW_SERVICE_PATH }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/openclaw:${{ env.OPENCLAW_APPROVED_SHA }}
+            ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/openclaw:${{ env.OPENCLAW_MAIN_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -59,9 +59,34 @@ Dev image publish behavior:
 
 - Approved fork repository: `https://github.com/kurock09/openclaw`
 - Approved ref type: full commit SHA only (no branch/tag refs)
-- Approved commit SHA: `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+- Single machine-readable SHA source: `infra/dev/gitops/openclaw-approved-sha.txt`
+- Approved commit SHA (current): `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
 - Ownership: PersAI infra maintainers update this SHA by PR in this repo.
-- Update rule: every SHA change here must be reflected in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md` in the same PR.
+- Update rule: every SHA change in `infra/dev/gitops/openclaw-approved-sha.txt` must be reflected in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md` in the same PR.
+
+## OpenClaw image build/push automation (Step 3 O2)
+
+- Workflow: `.github/workflows/openclaw-dev-image-publish.yml`
+- Trigger:
+  - `push` to `main`
+  - `workflow_dispatch`
+- Auth: same WIF/OIDC GAR variables used by api/web workflows:
+  - `GAR_REGION`
+  - `GCP_PROJECT_ID`
+  - `GAR_REPOSITORY`
+  - `GCP_WIF_PROVIDER`
+  - `GCP_WIF_SERVICE_ACCOUNT`
+- Source materialization in CI:
+  - clone `https://github.com/kurock09/openclaw.git`
+  - read approved SHA from `infra/dev/gitops/openclaw-approved-sha.txt`
+  - build context path: `services/openclaw`
+  - Dockerfile path: `services/openclaw/Dockerfile`
+- OpenClaw image refs produced:
+  - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw:${OPENCLAW_APPROVED_SHA}`
+  - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw:dev-main`
+- Scope guard:
+  - workflow performs build/push only
+  - no deploy/sync operation is executed in O2
 
 ## Manual procedures
 

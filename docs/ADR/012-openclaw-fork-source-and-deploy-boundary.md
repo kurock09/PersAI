@@ -28,12 +28,12 @@ Deploy/runtime boundary for this fork is fixed as:
 Pre-O2 determinism clarification:
 - Fork-sync does not allow implicit floating builds from `main`.
 - OpenClaw build input must be pinned to an approved full 40-char commit SHA from `kurock09/openclaw`.
-- Approved revision is recorded in `infra/dev/gitops/README.md` under "OpenClaw approved revision (pre-O2 pin)".
+- Approved revision single source is machine-readable file `infra/dev/gitops/openclaw-approved-sha.txt`.
 - Revision updates are owned by PersAI infra maintainers via PR in this repository, with matching updates in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md`.
 
 Drift rule (before O2):
 - Drift exists if any OpenClaw build/deploy assumption in PersAI docs references a floating branch/tag ref instead of the approved SHA.
-- Drift exists if the approved SHA in `infra/dev/gitops/README.md` and session/changelog records disagree.
+- Drift exists if the approved SHA in `infra/dev/gitops/openclaw-approved-sha.txt` and session/changelog records disagree.
 - Drift exists if documented boundary assumptions (build context, Dockerfile path, runtime command) no longer match the approved fork revision.
 
 ## Consequences

@@ -122,10 +122,26 @@ GitHub Actions image publish workflow:
   - moving dev tag: `dev-main`
 - on `main` push success, CI updates `infra/helm/values-dev.yaml` `global.images.tag` to `${GITHUB_SHA}` and pushes that GitOps commit
 
+OpenClaw image publish workflow (Step 3 O2):
+
+- `.github/workflows/openclaw-dev-image-publish.yml`
+- triggers on `push` to `main` and manual `workflow_dispatch`
+- uses the same WIF/OIDC variables as `api`/`web` workflows
+- reads approved OpenClaw SHA from machine-readable pin file `infra/dev/gitops/openclaw-approved-sha.txt`
+- materializes OpenClaw source from fork into CI path `services/openclaw` at that approved SHA
+- builds using:
+  - context: `services/openclaw`
+  - Dockerfile: `services/openclaw/Dockerfile`
+- pushes image `openclaw` with tags:
+  - immutable source tag: `<OPENCLAW_APPROVED_SHA>`
+  - moving dev tag: `dev-main`
+- no deploy/sync step in this workflow (build/push only)
+
 Artifact Registry naming pattern:
 
 - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/api:<tag>`
 - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/web:<tag>`
+- `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw:<tag>`
 
 Required GitHub Actions configuration:
 

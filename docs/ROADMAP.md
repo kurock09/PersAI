@@ -40,7 +40,7 @@ Foundation Phase
 ## Step 3 OpenClaw
 
 - [x] O1 - OpenClaw repo/deploy boundary
-- [ ] O2 - OpenClaw image build/push automation
+- [x] O2 - OpenClaw image build/push automation
 - [ ] O3 - OpenClaw dev deploy enablement
 - [ ] O4 - OpenClaw health/runtime verification
 - [ ] O5 - OpenClaw config/secrets baseline

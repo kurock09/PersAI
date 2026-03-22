@@ -2,61 +2,56 @@
 
 ## What changed
 
-- Completed pre-O2 clarification slice (docs-only) on top of accepted O1 fork-sync decision.
-- Tightened source-of-truth determinism policy:
-  - fork-sync does not imply building from floating external `main`
-  - required OpenClaw build input is full commit SHA pin (no branch/tag refs)
-- Recorded approved OpenClaw fork revision in docs:
-  - `infra/dev/gitops/README.md` -> `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
-- Defined sync ownership/update rule:
-  - PersAI infra maintainers update approved SHA via PR in this repo
-  - same PR must update `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md`
-- Defined pre-O2 drift rules in ADR:
-  - floating ref usage in docs/build assumptions is drift
-  - disagreement across approved SHA records is drift
-  - boundary assumptions not matching approved revision is drift
-- Updated docs:
-  - `docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md`
+- Completed pre-O3 hardening clarification for OpenClaw approved build input (minimal deterministic change).
+- Added single machine-readable source for approved OpenClaw revision:
+  - `infra/dev/gitops/openclaw-approved-sha.txt`
+- Updated OpenClaw image workflow to read SHA only from machine-readable file:
+  - `.github/workflows/openclaw-dev-image-publish.yml`
+  - uses `OPENCLAW_APPROVED_SHA_FILE=infra/dev/gitops/openclaw-approved-sha.txt`
+  - resolves SHA with `tr -d '\r\n' < "${OPENCLAW_APPROVED_SHA_FILE}"`
+  - validates strict 40-char lowercase hex format before build
+- Updated docs references so prose is no longer SHA source-of-truth:
   - `infra/dev/gitops/README.md`
+  - `README.md`
+  - `docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md`
   - `docs/CHANGELOG.md`
   - `docs/SESSION-HANDOFF.md`
 
 ## Why changed
 
-- O2 image automation must be deterministic and operationally owned before implementation starts.
-- This clarification keeps O1 decision intact while removing ambiguity about approved revision, ownership, and drift handling.
+- Before O3 deploy enablement, approved build revision needed a machine-readable single source for deterministic automation.
+- This removes dependence on human-readable docs parsing while preserving current O1/O2 boundaries.
 
 ## Decisions made
 
-- Preserved source-of-truth strategy: **fork-sync**.
-- Deterministic build input policy:
-  - approved full commit SHA only
-  - no implicit floating `main`/tag builds
-- Approved fork revision for pre-O2 baseline:
-  - `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
-- Sync ownership:
-  - PersAI infra maintainers own SHA updates by PR and must record them in changelog + handoff.
+- Preserved O1/O2 decisions (fork-sync, isolated OpenClaw build/push workflow, no deploy/sync).
+- Machine-readable file is now single approved SHA source for OpenClaw automation:
+  - `infra/dev/gitops/openclaw-approved-sha.txt`
+- Docs reference this file, but do not act as the source themselves.
 
 ## Files touched
 
-- docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md
+- infra/dev/gitops/openclaw-approved-sha.txt
+- .github/workflows/openclaw-dev-image-publish.yml
 - infra/dev/gitops/README.md
+- README.md
+- docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
 
 ## Migrations run
 
-- Not run (docs-only slice).
+- Not run.
 
 ## Tests run / result
 
-- Not run (docs-only changes).
+- Not run (workflow/docs hardening slice; no runtime execution in this session).
 
 ## Known risks
 
-- Until O2 is implemented, determinism remains a docs policy and is not yet enforced by CI automation.
-- Approved SHA must be kept current intentionally when upgrading OpenClaw.
+- If `infra/dev/gitops/openclaw-approved-sha.txt` is stale or invalid, OpenClaw workflow build fails by design.
+- O3 still requires deploy enablement wiring and verification; this slice hardens build input only.
 
 ## Next recommended step
 
-- Proceed to O2 with CI workflow implementation that consumes only the approved OpenClaw commit SHA pin.
+- Proceed to O3 deploy enablement using the machine-readable approved SHA source already in place.

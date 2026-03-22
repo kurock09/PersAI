@@ -207,6 +207,23 @@
   - defined sync ownership/update rule:
     - PersAI infra maintainers update approved SHA via PR, with same-PR updates in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md`
   - defined pre-O2 drift conditions between docs assumptions and fork state in ADR-012
+- Step 3 slice O2 OpenClaw image build/push automation:
+  - added isolated workflow `.github/workflows/openclaw-dev-image-publish.yml`
+  - workflow uses same WIF/OIDC GAR auth variables as api/web image publish flow
+  - workflow reads approved OpenClaw source SHA from `infra/dev/gitops/README.md`, validates it, then clones fork source into CI path `services/openclaw`
+  - workflow builds/pushes OpenClaw image from:
+    - context: `services/openclaw`
+    - Dockerfile: `services/openclaw/Dockerfile`
+  - OpenClaw image tags produced:
+    - immutable: `${OPENCLAW_APPROVED_SHA}`
+    - moving: `dev-main`
+  - no deploy/sync steps added in O2
+  - updated docs in `infra/dev/gitops/README.md`, `README.md`, `docs/ROADMAP.md`, `docs/SESSION-HANDOFF.md`
+- Step 3 pre-O3 build-input hardening for OpenClaw approved revision:
+  - added machine-readable single source file: `infra/dev/gitops/openclaw-approved-sha.txt`
+  - updated OpenClaw workflow to read approved SHA only from that file (not from prose docs)
+  - kept existing O1/O2 decisions unchanged (fork-sync, isolated build/push, no deploy/sync)
+  - updated references in `infra/dev/gitops/README.md`, `README.md`, and `docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md`
 
 ### Changed
 
