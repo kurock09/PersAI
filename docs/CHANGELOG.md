@@ -86,6 +86,17 @@
   - added required WIF repo variables (`GCP_WIF_PROVIDER`, `GCP_WIF_SERVICE_ACCOUNT`) and workflow validation
   - documented exact required GCP resources (WIF pool/provider + target service account) and IAM bindings for impersonation and GAR push
   - kept image build/push behavior unchanged (`${GITHUB_SHA}` + `dev-main`) and kept OpenClaw disabled by default
+- Step 1 slice 15 operational WIF/GAR wiring execution:
+  - resolved and validated active environment values (`PROJECT_ID`, `PROJECT_NUMBER`, GAR region/repository, GitHub owner/repo)
+  - created GCP WIF resources for GitHub Actions image publish:
+    - Workload Identity Pool `github-actions-pool`
+    - OIDC Provider `github-provider` with GitHub repository claim mapping/condition
+    - service account `gha-gar-publisher@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com`
+  - applied IAM bindings:
+    - `roles/artifactregistry.writer` for target service account on GAR repository `persai`
+    - `roles/iam.workloadIdentityUser` principalSet binding for `kurock09/PersAI` on target service account
+  - configured GitHub repository variables for WIF auth (`GAR_REGION`, `GCP_PROJECT_ID`, `GAR_REPOSITORY`, `GCP_WIF_PROVIDER`, `GCP_WIF_SERVICE_ACCOUNT`)
+  - verified operational blocker: remote `main` does not yet contain `Dev Image Publish` workflow and still references placeholder image repos in `infra/helm/values-dev.yaml`, so workflow dispatch and GAR image verification cannot complete until those repo changes are pushed
 
 ### Changed
 - None.
