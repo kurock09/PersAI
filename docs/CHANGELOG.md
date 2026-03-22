@@ -18,6 +18,12 @@
   - backend module boundaries initialized with required modules and layer directories
   - workspace dependencies added for both app skeletons
   - `.gitignore` updated to ignore `*.tsbuildinfo`
+- Step 1 slice 3 internal service/runtime baseline in `apps/api`:
+  - added internal endpoints `GET /health`, `GET /ready`, `GET /metrics`
+  - added requestId middleware baseline with `x-request-id` propagation
+  - added structured JSON logger baseline using `pino`
+  - added request completion logs with `requestId`, `userId`, `workspaceId`, `path`, `method`, `status`, `latencyMs`
+  - wired platform-core middleware/controllers without adding auth, Prisma, or Step 2 endpoints
 
 ### Changed
 - None.

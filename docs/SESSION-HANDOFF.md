@@ -1,51 +1,37 @@
 # SESSION-HANDOFF
 
 ## What changed
-- Implemented Step 1 slice 2: minimal app skeletons.
-- Added `apps/web` minimal Next.js App Router scaffold.
-- Added `apps/api` minimal NestJS scaffold.
-- Initialized required backend modules (`identity-access`, `workspace-management`, `platform-core`) with required layer directories (`domain`, `application`, `infrastructure`, `interface`).
+- Implemented Step 1 slice 3 in `apps/api` only.
+- Added internal endpoints: `GET /health`, `GET /ready`, `GET /metrics`.
+- Added requestId middleware baseline with `x-request-id` propagation.
+- Added structured JSON logger baseline (`pino`) and request completion logging middleware.
+- Kept platform-core module/layer boundaries intact while wiring controllers and middleware.
 
 ## Why changed
-- Step 1 requires app skeletons while preserving strict architecture boundaries.
-- This slice establishes runnable frontend and backend shells without starting Prisma, auth, or Step 2 business APIs.
+- Step 1 requires health/readiness/metrics plus request context/logging baseline.
+- This slice establishes internal service observability plumbing without starting Prisma, auth, or Step 2 business APIs.
 
 ## Decisions made
 - Foundation phase is split into Step 1 and Step 2.
 - OpenClaw is a separate neighboring service, not part of foundation runtime.
 - Living docs are mandatory.
-- Slice 2 is limited to framework skeletons only.
+- Slice 3 is limited to internal service endpoints and platform-core request context/logging.
 - No auth, onboarding, business endpoints, Prisma, or Step 2 functionality was introduced.
 
 ## Files touched
-- .gitignore
-- apps/web/package.json
-- apps/web/tsconfig.json
-- apps/web/next-env.d.ts
-- apps/web/next.config.ts
-- apps/web/app/globals.css
-- apps/web/app/layout.tsx
-- apps/web/app/page.tsx
 - apps/api/package.json
-- apps/api/tsconfig.json
-- apps/api/tsconfig.build.json
 - apps/api/src/main.ts
-- apps/api/src/app.module.ts
-- apps/api/src/modules/identity-access/identity-access.module.ts
-- apps/api/src/modules/identity-access/domain/.gitkeep
-- apps/api/src/modules/identity-access/application/.gitkeep
-- apps/api/src/modules/identity-access/infrastructure/.gitkeep
-- apps/api/src/modules/identity-access/interface/.gitkeep
-- apps/api/src/modules/workspace-management/workspace-management.module.ts
-- apps/api/src/modules/workspace-management/domain/.gitkeep
-- apps/api/src/modules/workspace-management/application/.gitkeep
-- apps/api/src/modules/workspace-management/infrastructure/.gitkeep
-- apps/api/src/modules/workspace-management/interface/.gitkeep
 - apps/api/src/modules/platform-core/platform-core.module.ts
-- apps/api/src/modules/platform-core/domain/.gitkeep
-- apps/api/src/modules/platform-core/application/.gitkeep
-- apps/api/src/modules/platform-core/infrastructure/.gitkeep
-- apps/api/src/modules/platform-core/interface/.gitkeep
+- apps/api/src/modules/platform-core/infrastructure/request-context/request-context.types.ts
+- apps/api/src/modules/platform-core/infrastructure/request-context/request-context.store.ts
+- apps/api/src/modules/platform-core/infrastructure/logging/request-log-entry.ts
+- apps/api/src/modules/platform-core/infrastructure/logging/app-logger.service.ts
+- apps/api/src/modules/platform-core/interface/http/request-http.types.ts
+- apps/api/src/modules/platform-core/interface/http/request-id.middleware.ts
+- apps/api/src/modules/platform-core/interface/http/request-logging.middleware.ts
+- apps/api/src/modules/platform-core/interface/http/health.controller.ts
+- apps/api/src/modules/platform-core/interface/http/ready.controller.ts
+- apps/api/src/modules/platform-core/interface/http/metrics.controller.ts
 - pnpm-lock.yaml
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
@@ -54,21 +40,19 @@
 - None.
 
 ## Tests run / result
-- `corepack pnpm install --no-frozen-lockfile` (pass)
 - `corepack pnpm run lint` (pass)
 - `corepack pnpm run typecheck` (pass)
 - `corepack pnpm run test` (pass)
 - `corepack pnpm run build` (pass)
-- `corepack pnpm --filter @persai/web run build` (pass)
 - `corepack pnpm --filter @persai/api run build` (pass)
 
 ## Known risks
-- `apps/api` has framework/module skeletons only; service endpoints (`/health`, `/ready`, `/metrics`) are still pending later Step 1 slice.
-- Tailwind and shadcn/ui are not initialized in `apps/web` yet and remain pending within Step 1.
-- Logger/config/request-context and Prisma baselines remain pending in later Step 1 slices.
+- `/metrics` is a minimal Prometheus text baseline and not yet full instrumentation coverage.
+- Request context currently initializes `userId` and `workspaceId` as `null` until auth/business layers are added in later slices.
+- Prisma baseline and auth/Step 2 flows remain pending by design.
 
 ## Next recommended step
-- Implement Step 1 slice 3: platform-core service baseline
-  - add `/health`, `/ready`, `/metrics` in `apps/api` only
-  - add initial structured logger + requestId middleware baseline
-  - keep Prisma/auth/business endpoints out of scope for that slice
+- Implement next Step 1 slice: Prisma baseline + seed only
+  - add Prisma schema/migrations/seed in `apps/api` scope
+  - keep auth and Step 2 endpoints out of scope
+  - keep docs/data-model synchronization strict
