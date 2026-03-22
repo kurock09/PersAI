@@ -26,6 +26,24 @@ Path versioning: /api/v1/...
 - Includes current workspace summary if one exists:
   - `id`, `name`, `locale`, `timezone`, `status`, `role`
 
+### POST /api/v1/me/onboarding (slice 3 baseline request/behavior)
+
+Request body fields:
+
+- `displayName`
+- `workspaceName`
+- `locale`
+- `timezone`
+
+Behavior baseline:
+
+- authenticated caller only
+- idempotent upsert-style flow
+- updates `app_users.display_name`
+- creates workspace if user has no membership yet
+- creates/updates workspace membership for caller
+- updates current workspace summary fields (`name`, `locale`, `timezone`) consistently
+
 ## Auth model
 
 - web protects routes

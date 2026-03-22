@@ -1,10 +1,13 @@
 # DATA-MODEL
 
 ## Foundation phase database
+
 Postgres with Prisma.
 
 ## Initial entities
+
 ### app_users
+
 - id (UUID)
 - clerk_user_id (unique)
 - email
@@ -13,6 +16,7 @@ Postgres with Prisma.
 - updated_at
 
 ### workspaces
+
 - id (UUID)
 - name
 - locale
@@ -22,6 +26,7 @@ Postgres with Prisma.
 - updated_at
 
 ### workspace_members
+
 - id (UUID)
 - workspace_id
 - user_id
@@ -29,6 +34,7 @@ Postgres with Prisma.
 - created_at
 
 ## Prisma baseline (Step 1 slice 5)
+
 - `app_users`:
   - primary key: `id`
   - unique: `clerk_user_id`, `email`
@@ -42,13 +48,22 @@ Postgres with Prisma.
   - unique membership pair: `(workspace_id, user_id)`
 
 ## Seed baseline (Step 1 slice 5)
+
 - Deterministic seed inserts one baseline app user, one workspace, and one workspace membership.
 - Seed is idempotent using fixed UUID identifiers.
 
 ## Rules
+
 - snake_case in DB
 - UUID everywhere
 - one active workspace in product behavior for phase 1
 - membership model exists from day one
 - no OpenClaw runtime fields in domain tables
 - no manual schema changes; Prisma migrations only
+
+## Step 2 onboarding write baseline (slice 3)
+
+- onboarding write updates `app_users.display_name`
+- onboarding write ensures caller has a `workspace_members` row
+- when caller has no membership, creates one workspace (`status=active`) and one owner membership
+- onboarding write updates current workspace profile fields (`name`, `locale`, `timezone`) idempotently

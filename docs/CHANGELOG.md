@@ -111,6 +111,16 @@
   - onboarding status baseline is derived from workspace membership existence (`completed` vs `pending`)
   - kept onboarding write endpoint (`POST /api/v1/me/onboarding`) out of scope
   - updated API boundary documentation for `/api/v1/me` response baseline
+- Step 2 slice 3 onboarding write baseline:
+  - added `POST /api/v1/me/onboarding` in identity-access interface layer
+  - added idempotent onboarding upsert service for fields: `displayName`, `workspaceName`, `locale`, `timezone`
+  - onboarding flow now:
+    - updates `app_users.display_name`
+    - creates workspace when caller has no membership
+    - creates/updates workspace membership for caller
+    - updates workspace profile fields consistently (`name`, `locale`, `timezone`, `status=active`)
+  - extended auth middleware scope to protect onboarding endpoint
+  - updated API/data-model docs for onboarding request/behavior baseline
 
 ### Changed
 
