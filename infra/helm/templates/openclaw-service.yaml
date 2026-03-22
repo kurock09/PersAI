@@ -1,0 +1,17 @@
+{{- if .Values.openclaw.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: openclaw
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: openclaw
+spec:
+  type: {{ .Values.openclaw.service.type }}
+  selector:
+    app.kubernetes.io/name: openclaw
+  ports:
+    - name: http
+      port: {{ .Values.openclaw.service.port }}
+      targetPort: {{ .Values.openclaw.service.port }}
+{{- end }}

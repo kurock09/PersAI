@@ -1,0 +1,25 @@
+{{- if .Values.openclaw.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openclaw
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: openclaw
+spec:
+  replicas: {{ .Values.openclaw.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openclaw
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openclaw
+    spec:
+      containers:
+        - name: openclaw
+          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.openclaw.service.port }}
+{{- end }}

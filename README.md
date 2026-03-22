@@ -89,3 +89,16 @@ corepack pnpm run prisma:migrate:check
 ```
 
 If `pnpm` is not globally installed in your shell, use `corepack pnpm ...`.
+
+## Dev GKE infra baseline (Step 1)
+
+Infra skeleton files are present but are not applied in this phase:
+
+- `infra/dev/gke/namespace.yaml`
+- `infra/helm/Chart.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/templates/*`
+
+OpenClaw deploy skeleton exists but is disabled by default:
+
+- `openclaw.enabled=false` in `infra/helm/values.yaml`

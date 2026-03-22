@@ -41,6 +41,11 @@
   - added root workspace scripts `prisma:generate` and `prisma:migrate:check`
   - extended CI checks workflow with Postgres service and Prisma generate/migrate check steps
   - documented local database bootstrap/migrate/seed commands in `README.md`
+- Step 1 slice 7 dev infra + Helm skeleton baseline:
+  - added dev GKE namespace skeleton in `infra/dev/gke/namespace.yaml`
+  - added Helm skeleton for `apps/api` and `apps/web` in `infra/helm/templates`
+  - added OpenClaw service/deployment skeleton in Helm templates with `openclaw.enabled=false` by default
+  - added infra baseline docs in `infra/dev/gke/README.md` and root `README.md`
 
 ### Changed
 - None.

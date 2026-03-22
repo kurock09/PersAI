@@ -1,0 +1,6 @@
+apiVersion: v2
+name: persai-foundation
+description: Foundation Helm chart for web, api, and openclaw skeletons
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
