@@ -8,6 +8,7 @@ This is not the full product yet.
 ## Current scope
 
 ### Step 1
+
 - monorepo scaffold
 - docs baseline
 - CI baseline
@@ -19,6 +20,7 @@ This is not the full product yet.
 - health/readiness/metrics baseline
 
 ### Step 2
+
 - Clerk auth integration
 - internal app user model
 - `GET /api/v1/me`

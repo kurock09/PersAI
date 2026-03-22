@@ -7,5 +7,11 @@
     "base.cjs",
     "next.cjs",
     "nest.cjs"
-  ]
+  ],
+  "peerDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.46.1",
+    "@typescript-eslint/parser": "^8.46.1",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^10.1.8"
+  }
 }

@@ -56,6 +56,12 @@
   - wired `apps/web` and `apps/api` to consume shared tsconfig baselines
   - added app-level ESLint config files extending `@persai/eslint-config`
   - switched API logging service to consume `@persai/logger` and shared request log types from `@persai/types`
+- Step 1 slice 10 enforced lint/format baseline:
+  - added real ESLint runner scripts in `apps/web` and `apps/api`
+  - upgraded shared eslint config package from placeholder to actual TypeScript-aware baseline rules
+  - added Prettier baseline (`.prettierrc.json`, `.prettierignore`) and repo `format:check` script
+  - updated root `lint` script to enforce ESLint + Prettier checks
+  - applied Prettier formatting to files in enforced scope so CI/local lint is no longer effectively no-op
 
 ### Changed
 - None.

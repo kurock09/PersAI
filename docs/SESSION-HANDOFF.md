@@ -1,56 +1,45 @@
 # SESSION-HANDOFF
 
 ## What changed
-- Implemented Step 1 slice 9 shared baseline package wiring.
-- Added `packages/tsconfig` baseline package with shared `base`, `next`, and `nest` configs.
-- Added `packages/eslint-config` baseline package with shared `base`, `next`, and `nest` ESLint configs.
-- Added `packages/logger` shared package wrapping structured `pino` logger setup.
-- Added `packages/types` shared package for common request logging types.
-- Wired `apps/web` and `apps/api` to consume shared tsconfig and eslint config packages.
-- Updated API logger service to consume shared `@persai/logger` and `@persai/types`.
+- Implemented Step 1 slice 10 lint/format enforcement baseline.
+- Added real lint runner scripts to `apps/web` and `apps/api` using ESLint with `--max-warnings=0`.
+- Upgraded `packages/eslint-config` from placeholder to TypeScript-aware baseline (`eslint:recommended` + `@typescript-eslint/recommended` + `prettier`).
+- Added Prettier baseline files: `.prettierrc.json` and `.prettierignore`.
+- Added root `format:check` script and updated root `lint` script to run ESLint + Prettier checks.
+- Added required ESLint/Prettier tooling dependencies to app workspaces and root.
+- Applied Prettier formatting in the enforced scope so lint is now actively enforced.
 
 ## Why changed
-- Step 1 requires shared package baselines for consistent config/logging/types usage across apps.
-- This slice establishes reusable repo foundations without introducing Step 2/product features.
+- Step 1 requires the lint gate to be real and failing on violations, not a no-op.
+- This slice establishes enforceable code-style/quality checks for `apps/web` and `apps/api` while preserving Step 1 scope boundaries.
 
 ## Decisions made
 - Foundation phase is split into Step 1 and Step 2.
 - OpenClaw is a separate neighboring service, not part of foundation runtime.
 - Living docs are mandatory.
-- Slice 9 is limited to shared package baselines and app consumption wiring.
-- Shared logger/types are introduced without changing API behavior scope.
+- Slice 10 is limited to lint/format tooling and enforcement.
+- Prettier enforcement scope excludes Helm Go-template files and lockfile to avoid invalid parsing/noise.
 - No auth, onboarding, business endpoints, deploy execution, cleanup execution, or Step 2 functionality was introduced.
 
 ## Files touched
-- packages/tsconfig/package.json
-- packages/tsconfig/base.json
-- packages/tsconfig/next.json
-- packages/tsconfig/nest.json
+- package.json
+- .prettierrc.json
+- .prettierignore
 - packages/eslint-config/package.json
 - packages/eslint-config/base.cjs
 - packages/eslint-config/next.cjs
 - packages/eslint-config/nest.cjs
-- packages/logger/package.json
-- packages/logger/tsconfig.json
-- packages/logger/src/index.ts
-- packages/types/package.json
-- packages/types/tsconfig.json
-- packages/types/src/index.ts
-- packages/types/src/logging.ts
 - apps/web/package.json
-- apps/web/tsconfig.json
 - apps/web/.eslintrc.cjs
 - apps/api/package.json
-- apps/api/tsconfig.json
 - apps/api/.eslintrc.cjs
-- apps/api/src/modules/platform-core/infrastructure/logging/app-logger.service.ts
-- apps/api/src/modules/platform-core/infrastructure/logging/request-log-entry.ts
 - pnpm-lock.yaml
+- formatted files across `apps/*`, `packages/*`, `.github/*`, `infra/dev/*`, `infra/local/*`, and root config files (Prettier scope)
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
 
 ## Migrations run
-- Not run in this slice (shared package wiring only).
+- Not run in this slice (lint/format tooling only).
 
 ## Tests run / result
 - `corepack pnpm run prisma:generate` (pass)
@@ -60,9 +49,9 @@
 - `corepack pnpm run build` (pass)
 
 ## Known risks
-- ESLint shared configs are baseline-only and currently minimal; lint scripts remain no-op until ESLint runner/tooling is introduced.
-- Shared package consumption uses workspace path mappings for local type resolution in `apps/api`.
+- Current web lint baseline does not include Next-specific rule set (`next/core-web-vitals`) to avoid compatibility issues with current ESLint config mode.
+- Prisma CLI deprecation warning (`package.json#prisma`) still exists and is out of scope for this slice.
 - Auth and Step 2 flows remain pending by design.
 
 ## Next recommended step
-- Continue with API error envelope baseline and shared error type wiring, or add explicit ESLint runner/tooling slice if desired.
+- Continue with API error envelope baseline and shared error type wiring, or run a dedicated lint hardening slice for Next-specific rules under compatible ESLint config mode.

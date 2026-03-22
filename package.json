@@ -5,9 +5,13 @@
   "scripts": {
     "prisma:generate": "corepack pnpm --filter @persai/api run prisma:generate",
     "prisma:migrate:check": "corepack pnpm --filter @persai/api run prisma:migrate:check",
-    "lint": "corepack pnpm -r --if-present run lint",
+    "format:check": "corepack pnpm exec prettier --check \"apps/**/*.{ts,tsx,js,cjs,json,css}\" \"packages/**/*.{ts,js,cjs,json}\" \".github/**/*.{yml,yaml}\" \"infra/dev/**/*.{yml,yaml,md}\" \"infra/local/**/*.{yml,yaml}\" \"*.{json,md,yml,yaml}\"",
+    "lint": "corepack pnpm -r --if-present run lint && corepack pnpm run format:check",
     "typecheck": "corepack pnpm -r --if-present run typecheck",
     "test": "corepack pnpm -r --if-present run test",
     "build": "corepack pnpm -r --if-present run build"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.1"
   }
 }

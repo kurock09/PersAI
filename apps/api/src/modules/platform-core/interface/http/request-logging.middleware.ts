@@ -1,7 +1,11 @@
 import { Injectable, NestMiddleware } from "@nestjs/common";
 import { AppLoggerService } from "../../infrastructure/logging/app-logger.service";
 import { RequestContextStore } from "../../infrastructure/request-context/request-context.store";
-import { NextRequestFunction, RequestWithPlatformContext, ResponseWithPlatformContext } from "./request-http.types";
+import {
+  NextRequestFunction,
+  RequestWithPlatformContext,
+  ResponseWithPlatformContext
+} from "./request-http.types";
 
 @Injectable()
 export class RequestLoggingMiddleware implements NestMiddleware {
@@ -10,7 +14,11 @@ export class RequestLoggingMiddleware implements NestMiddleware {
     private readonly appLoggerService: AppLoggerService
   ) {}
 
-  use(req: RequestWithPlatformContext, res: ResponseWithPlatformContext, next: NextRequestFunction): void {
+  use(
+    req: RequestWithPlatformContext,
+    res: ResponseWithPlatformContext,
+    next: NextRequestFunction
+  ): void {
     const startedAt = process.hrtime.bigint();
 
     res.on("finish", () => {
