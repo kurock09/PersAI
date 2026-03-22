@@ -1,36 +1,51 @@
 # SESSION-HANDOFF
 
 ## What changed
-- Implemented Step 1 slice 1: monorepo scaffold/workspace baseline.
-- Added required directory skeleton for `apps`, `services/openclaw`, `packages`, and `infra`.
-- Added root workspace and CI baseline files.
+- Implemented Step 1 slice 2: minimal app skeletons.
+- Added `apps/web` minimal Next.js App Router scaffold.
+- Added `apps/api` minimal NestJS scaffold.
+- Initialized required backend modules (`identity-access`, `workspace-management`, `platform-core`) with required layer directories (`domain`, `application`, `infrastructure`, `interface`).
 
 ## Why changed
-- The repository needed the smallest executable Step 1 code slice after docs baseline.
-- This establishes enforced structure and baseline checks without entering Step 2 scope.
+- Step 1 requires app skeletons while preserving strict architecture boundaries.
+- This slice establishes runnable frontend and backend shells without starting Prisma, auth, or Step 2 business APIs.
 
 ## Decisions made
 - Foundation phase is split into Step 1 and Step 2.
 - OpenClaw is a separate neighboring service, not part of foundation runtime.
 - Living docs are mandatory.
-- First implementation slice is limited to workspace/bootstrap and CI wiring only.
-- No app runtime/framework/business/auth code in this slice.
+- Slice 2 is limited to framework skeletons only.
+- No auth, onboarding, business endpoints, Prisma, or Step 2 functionality was introduced.
 
 ## Files touched
-- pnpm-workspace.yaml
-- package.json
 - .gitignore
-- .github/workflows/ci.yml
-- apps/web/.gitkeep
-- apps/api/.gitkeep
-- services/openclaw/.gitkeep
-- packages/contracts/.gitkeep
-- packages/config/.gitkeep
-- packages/logger/.gitkeep
-- packages/types/.gitkeep
-- packages/eslint-config/.gitkeep
-- packages/tsconfig/.gitkeep
-- infra/.gitkeep
+- apps/web/package.json
+- apps/web/tsconfig.json
+- apps/web/next-env.d.ts
+- apps/web/next.config.ts
+- apps/web/app/globals.css
+- apps/web/app/layout.tsx
+- apps/web/app/page.tsx
+- apps/api/package.json
+- apps/api/tsconfig.json
+- apps/api/tsconfig.build.json
+- apps/api/src/main.ts
+- apps/api/src/app.module.ts
+- apps/api/src/modules/identity-access/identity-access.module.ts
+- apps/api/src/modules/identity-access/domain/.gitkeep
+- apps/api/src/modules/identity-access/application/.gitkeep
+- apps/api/src/modules/identity-access/infrastructure/.gitkeep
+- apps/api/src/modules/identity-access/interface/.gitkeep
+- apps/api/src/modules/workspace-management/workspace-management.module.ts
+- apps/api/src/modules/workspace-management/domain/.gitkeep
+- apps/api/src/modules/workspace-management/application/.gitkeep
+- apps/api/src/modules/workspace-management/infrastructure/.gitkeep
+- apps/api/src/modules/workspace-management/interface/.gitkeep
+- apps/api/src/modules/platform-core/platform-core.module.ts
+- apps/api/src/modules/platform-core/domain/.gitkeep
+- apps/api/src/modules/platform-core/application/.gitkeep
+- apps/api/src/modules/platform-core/infrastructure/.gitkeep
+- apps/api/src/modules/platform-core/interface/.gitkeep
 - pnpm-lock.yaml
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
@@ -39,19 +54,21 @@
 - None.
 
 ## Tests run / result
+- `corepack pnpm install --no-frozen-lockfile` (pass)
 - `corepack pnpm run lint` (pass)
 - `corepack pnpm run typecheck` (pass)
 - `corepack pnpm run test` (pass)
 - `corepack pnpm run build` (pass)
+- `corepack pnpm --filter @persai/web run build` (pass)
+- `corepack pnpm --filter @persai/api run build` (pass)
 
 ## Known risks
-- Framework skeletons (`apps/web`, `apps/api`) are intentionally not implemented yet.
-- Logger/config/request context, Prisma, and health/ready/metrics are pending later Step 1 slices.
-- CI is baseline-only today and does not yet include prisma/contract/e2e checks.
+- `apps/api` has framework/module skeletons only; service endpoints (`/health`, `/ready`, `/metrics`) are still pending later Step 1 slice.
+- Tailwind and shadcn/ui are not initialized in `apps/web` yet and remain pending within Step 1.
+- Logger/config/request-context and Prisma baselines remain pending in later Step 1 slices.
 
 ## Next recommended step
-- Implement Step 1 slice 2: app skeleton bootstrap only
-  - initialize Next.js app shell in `apps/web`
-  - initialize NestJS app shell in `apps/api`
-  - keep endpoints limited to internal service baseline when added
-  - update docs + handoff in same slice
+- Implement Step 1 slice 3: platform-core service baseline
+  - add `/health`, `/ready`, `/metrics` in `apps/api` only
+  - add initial structured logger + requestId middleware baseline
+  - keep Prisma/auth/business endpoints out of scope for that slice
