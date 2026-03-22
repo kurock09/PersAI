@@ -14,4 +14,4 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
 
 ## Notes
 - Runtime rollout in dev is intentionally deferred to later slices.
-- Argo CD wiring is not implemented in this slice.
+- Argo CD wiring skeleton lives in `infra/dev/gitops/argocd`.

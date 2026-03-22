@@ -1,0 +1,35 @@
+global:
+  namespace: persai-dev
+
+api:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: us-docker.pkg.dev/example/persai/api
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3001
+
+web:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: us-docker.pkg.dev/example/persai/web
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+
+openclaw:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: us-docker.pkg.dev/example/persai/openclaw
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080

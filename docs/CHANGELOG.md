@@ -46,6 +46,11 @@
   - added Helm skeleton for `apps/api` and `apps/web` in `infra/helm/templates`
   - added OpenClaw service/deployment skeleton in Helm templates with `openclaw.enabled=false` by default
   - added infra baseline docs in `infra/dev/gke/README.md` and root `README.md`
+- Step 1 slice 8 GitOps / Argo CD skeleton baseline:
+  - added dev Argo CD project and application skeleton manifests in `infra/dev/gitops/argocd`
+  - made dev deploy path explicit: Argo CD -> `infra/helm` + `infra/helm/values-dev.yaml`
+  - kept OpenClaw disabled by default in dev values
+  - updated infra docs in `infra/dev/gitops/README.md`, `infra/dev/gke/README.md`, and `README.md`
 
 ### Changed
 - None.
