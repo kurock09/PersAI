@@ -102,6 +102,32 @@ rg "global:" infra/helm/values-dev.yaml -n
 rg "images:" infra/helm/values-dev.yaml -n
 ```
 
+8. Step 2 foundation deploy-path verification (manual):
+
+```bash
+# App resources are up
+kubectl -n persai-dev get deploy,svc,pods
+
+# Protected route exists (requires auth in browser session)
+kubectl -n persai-dev port-forward svc/web 3000:3000
+# open http://localhost:3000/app and verify redirect/protection behavior
+
+# API me/onboarding path on deployed API (use a valid Clerk bearer token)
+kubectl -n persai-dev port-forward svc/api 3001:3001
+curl -i -H "Authorization: Bearer <CLERK_JWT>" http://localhost:3001/api/v1/me
+curl -i -X POST -H "Authorization: Bearer <CLERK_JWT>" -H "Content-Type: application/json" \
+  -d '{"displayName":"Dev User","workspaceName":"Dev Workspace","locale":"en-US","timezone":"UTC"}' \
+  http://localhost:3001/api/v1/me/onboarding
+curl -i -H "Authorization: Bearer <CLERK_JWT>" http://localhost:3001/api/v1/me
+```
+
+Expected baseline:
+
+- `/app` is protected.
+- first authenticated `/api/v1/me` returns onboarding `pending` when no membership exists.
+- `/api/v1/me/onboarding` returns onboarding `completed` and workspace summary.
+- repeated onboarding call with same payload remains stable (idempotent state).
+
 ## OpenClaw Rule
 
 - `openclaw.enabled` must remain `false` by default in `infra/helm/values-dev.yaml`.

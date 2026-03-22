@@ -137,6 +137,17 @@
   - added shared contracts package exports and custom fetch mutator with error envelope handling
   - updated `apps/web` to consume generated typed client via `@persai/contracts` (no handwritten endpoint client logic)
   - kept API scope unchanged (`GET /api/v1/me`, `POST /api/v1/me/onboarding`) and reflected contract source-of-truth in docs
+- Step 2 slice 6 smoke/e2e and dev deploy validation finalization:
+  - added Step 2 API smoke/e2e flow script in `apps/api/test/step2-auth-foundation.e2e.test.ts`
+  - smoke script validates auth access, app user auto-create, `GET /api/v1/me`, `POST /api/v1/me/onboarding`, and onboarding idempotency in one in-process flow
+  - added web smoke tests for protected `/app` and onboarding gate branches:
+    - `apps/web/app/app/page.test.tsx`
+    - `apps/web/app/app/app-flow.client.test.tsx`
+  - added test runners/config for web and API package test commands
+  - added explicit CI step `Step 2 Smoke/E2E` via `pnpm run test:step2`
+  - extended `infra/dev/gke/RUNBOOK.md` with manual Step 2 deploy-path verification checklist
+  - updated `docs/TEST-PLAN.md` and `docs/ROADMAP.md` to reflect completed Step 2 smoke/e2e baseline and status
+  - verified current dev cluster state and recorded deploy blocker: `persai-dev` api/web pods are `CrashLoopBackOff` with image runtime startup errors
 
 ### Changed
 

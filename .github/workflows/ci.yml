@@ -56,5 +56,8 @@ jobs:
       - name: Test
         run: pnpm run test
 
+      - name: Step 2 Smoke/E2E
+        run: pnpm run test:step2
+
       - name: Build
         run: pnpm run build

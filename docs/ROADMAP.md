@@ -1,9 +1,11 @@
 # ROADMAP
 
 ## Current phase
+
 Foundation Phase
 
 ## Step 1
+
 - [ ] Monorepo scaffold
 - [ ] pnpm workspaces
 - [ ] apps/web skeleton
@@ -21,20 +23,22 @@ Foundation Phase
 - [ ] CI baseline
 
 ## Step 2
-- [ ] Clerk integration
-- [ ] app_users model
-- [ ] workspaces model
-- [ ] workspace_members model
-- [ ] GET /api/v1/me
-- [ ] POST /api/v1/me/onboarding
-- [ ] onboarding idempotency
-- [ ] protected /app
-- [ ] onboarding gate
-- [ ] OpenAPI spec in packages/contracts
-- [ ] Orval generation
-- [ ] smoke/e2e flow
+
+- [x] Clerk integration
+- [x] app_users model
+- [x] workspaces model
+- [x] workspace_members model
+- [x] GET /api/v1/me
+- [x] POST /api/v1/me/onboarding
+- [x] onboarding idempotency
+- [x] protected /app
+- [x] onboarding gate
+- [x] OpenAPI spec in packages/contracts
+- [x] Orval generation
+- [x] smoke/e2e flow
 
 ## Later phases
+
 - Chat
 - Conversation core
 - OpenClaw integration

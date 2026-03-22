@@ -1,7 +1,9 @@
 # TEST-PLAN
 
 ## Quality gate
+
 Required in CI:
+
 - lint
 - typecheck
 - unit tests
@@ -11,6 +13,7 @@ Required in CI:
 - build
 
 ## Step 1 focus
+
 - app boot
 - health/ready/metrics
 - config validation
@@ -19,6 +22,7 @@ Required in CI:
 - seed works
 
 ## Step 2 focus
+
 - Clerk token validation
 - app user auto-create
 - GET /api/v1/me
@@ -26,3 +30,18 @@ Required in CI:
 - onboarding idempotency
 - protected /app
 - onboarding gate
+
+## Step 2 smoke/e2e baseline (slice 6)
+
+- API flow smoke/e2e script:
+  - `apps/api/test/step2-auth-foundation.e2e.test.ts`
+  - validates:
+    - auth access guard (missing bearer token -> unauthorized)
+    - app user auto-create on first authenticated request
+    - `GET /api/v1/me` state before onboarding
+    - `POST /api/v1/me/onboarding`
+    - onboarding idempotency (no duplicate user/workspace/membership records)
+- Web smoke tests:
+  - `apps/web/app/app/page.test.tsx` (protected `/app` calls `auth.protect`)
+  - `apps/web/app/app/app-flow.client.test.tsx` (onboarding gate pending/completed branches)
+- CI includes explicit Step 2 smoke/e2e step via `pnpm run test:step2`.

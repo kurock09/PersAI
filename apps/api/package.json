@@ -13,7 +13,8 @@
     "prisma:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
     "prisma:migrate:status": "prisma migrate status --schema prisma/schema.prisma",
     "prisma:migrate:check": "prisma migrate deploy --schema prisma/schema.prisma && prisma migrate status --schema prisma/schema.prisma",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "test": "tsx test/step2-auth-foundation.e2e.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
