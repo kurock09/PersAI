@@ -132,8 +132,36 @@ Required GitHub Actions configuration:
   - `GAR_REGION` (example: `europe-west1`)
   - `GCP_PROJECT_ID`
   - `GAR_REPOSITORY` (example: `persai`)
-- Repository secret:
-  - `GCP_ARTIFACT_REGISTRY_SA_KEY` (JSON service account key with Artifact Registry push permissions)
+  - `GCP_WIF_PROVIDER` (full Workload Identity Provider resource name)
+  - `GCP_WIF_SERVICE_ACCOUNT` (service account email used for GAR push)
+
+Workload Identity Federation setup required in GCP:
+
+1. Create a Workload Identity Pool.
+2. Create a Workload Identity Provider for GitHub OIDC in that pool.
+3. Create/select a target service account for image publish.
+4. Bind GitHub principal set to impersonate the target service account.
+5. Grant Artifact Registry write permissions to the target service account.
+
+Exact GitHub OIDC provider settings:
+
+- issuer URI: `https://token.actions.githubusercontent.com`
+- audience: default (`https://iam.googleapis.com/...` managed by Google auth action)
+- attribute mapping must include:
+  - `google.subject=assertion.sub`
+  - `attribute.repository=assertion.repository`
+
+Example provider resource format:
+
+- `projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<POOL_ID>/providers/<PROVIDER_ID>`
+
+IAM bindings required:
+
+- On target service account:
+  - role `roles/iam.workloadIdentityUser`
+  - member `principalSet://iam.googleapis.com/projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<POOL_ID>/attribute.repository/<GITHUB_OWNER>/<GITHUB_REPO>`
+- On Artifact Registry repository (or project):
+  - grant target service account role `roles/artifactregistry.writer`
 
 Helm dev values are wired to the same pattern:
 

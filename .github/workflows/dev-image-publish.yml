@@ -11,10 +11,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     env:
       GAR_REGION: ${{ vars.GAR_REGION }}
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_WIF_SERVICE_ACCOUNT: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
       MAIN_TAG: dev-main
     strategy:
       matrix:
@@ -33,12 +36,15 @@ jobs:
           test -n "${GAR_REGION}" || (echo "Missing repo variable GAR_REGION" && exit 1)
           test -n "${GCP_PROJECT_ID}" || (echo "Missing repo variable GCP_PROJECT_ID" && exit 1)
           test -n "${GAR_REPOSITORY}" || (echo "Missing repo variable GAR_REPOSITORY" && exit 1)
+          test -n "${GCP_WIF_PROVIDER}" || (echo "Missing repo variable GCP_WIF_PROVIDER" && exit 1)
+          test -n "${GCP_WIF_SERVICE_ACCOUNT}" || (echo "Missing repo variable GCP_WIF_SERVICE_ACCOUNT" && exit 1)
 
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_ARTIFACT_REGISTRY_SA_KEY }}
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_WIF_SERVICE_ACCOUNT }}
           token_format: access_token
 
       - name: Set up Docker Buildx

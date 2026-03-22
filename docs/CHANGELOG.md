@@ -80,6 +80,12 @@
   - replaced placeholder Helm image refs with composed GAR pattern (`global.images.*` + component image name) in `infra/helm/values.yaml`, `infra/helm/values-dev.yaml`, and deployment templates
   - documented required GitHub Actions repo variables/secret and Artifact Registry naming pattern in infra/root docs
   - kept OpenClaw disabled by default (`openclaw.enabled=false`)
+- Step 1 slice 14 CI auth hardening for Artifact Registry publish:
+  - switched `.github/workflows/dev-image-publish.yml` from JSON service account key auth to Workload Identity Federation (GitHub OIDC)
+  - removed `GCP_ARTIFACT_REGISTRY_SA_KEY` dependency from workflow/docs
+  - added required WIF repo variables (`GCP_WIF_PROVIDER`, `GCP_WIF_SERVICE_ACCOUNT`) and workflow validation
+  - documented exact required GCP resources (WIF pool/provider + target service account) and IAM bindings for impersonation and GAR push
+  - kept image build/push behavior unchanged (`${GITHUB_SHA}` + `dev-main`) and kept OpenClaw disabled by default
 
 ### Changed
 - None.

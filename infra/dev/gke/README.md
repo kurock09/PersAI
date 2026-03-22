@@ -31,7 +31,25 @@ Required repository variables:
 - `GAR_REGION` (example: `europe-west1`)
 - `GCP_PROJECT_ID`
 - `GAR_REPOSITORY` (example: `persai`)
+- `GCP_WIF_PROVIDER` (full Workload Identity Provider resource name)
+- `GCP_WIF_SERVICE_ACCOUNT` (service account email used for GAR push)
 
-Required repository secret:
+No GitHub secret is required for GAR auth in this workflow.
 
-- `GCP_ARTIFACT_REGISTRY_SA_KEY` (JSON key for service account allowed to push to GAR)
+## Required GCP resources for WIF
+
+- Workload Identity Pool (global)
+- Workload Identity Provider for GitHub OIDC
+- Target service account for image publish
+
+Provider must map GitHub repository claim:
+
+- `attribute.repository=assertion.repository`
+
+Required IAM bindings:
+
+- allow GitHub principal set to impersonate target service account:
+  - role: `roles/iam.workloadIdentityUser`
+  - member: `principalSet://iam.googleapis.com/projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<POOL_ID>/attribute.repository/<GITHUB_OWNER>/<GITHUB_REPO>`
+- allow target service account to push images:
+  - role: `roles/artifactregistry.writer` on GAR repository (or project scope)
