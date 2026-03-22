@@ -29,7 +29,9 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
   - `web.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `infra/helm/values-dev.yaml`
   - `web.secretEnv.CLERK_SECRET_KEY` mapped from `persai-api-secrets`
 - API deployment uses Cloud SQL proxy sidecar in dev:
+  - dedicated KSA (`api-sa`) with GCP service account annotation for Workload Identity
   - `api.cloudSqlProxy.enabled=true` in `infra/helm/values-dev.yaml`
+  - `api.cloudSqlProxy.usePrivateIp=true` (proxy connects over Cloud SQL private IP path)
   - set `DATABASE_URL` host to `127.0.0.1` and port `5432` in `persai-api-secrets`
 
 ## CI config required for image publish baseline

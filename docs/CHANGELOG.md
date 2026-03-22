@@ -179,6 +179,13 @@
   - wired optional `cloud-sql-proxy` sidecar into `infra/helm/templates/api-deployment.yaml`
   - documented dev DB access path via proxy and `DATABASE_URL` localhost requirement in `infra/dev/gke/RUNBOOK.md`, `infra/dev/gke/README.md`, and `infra/dev/gitops/README.md`
   - added ADR `docs/ADR/010-dev-cloudsql-proxy-for-api.md`
+- Dev DB/runtime hardening finalization (prod-like path baseline):
+  - added dedicated API runtime service account values (`api.serviceAccount.*`) in Helm values
+  - added `infra/helm/templates/api-serviceaccount.yaml` with optional GKE Workload Identity annotation
+  - updated `infra/helm/templates/api-deployment.yaml` to set `serviceAccountName` and support `cloudSqlProxy.usePrivateIp`
+  - enabled API service account mapping and private-IP proxy mode in `infra/helm/values-dev.yaml`
+  - documented runtime identity + private-IP path baseline in dev infra docs and runbook
+  - added ADR `docs/ADR/011-dev-api-runtime-identity-and-private-sql-path.md`
 
 ### Changed
 

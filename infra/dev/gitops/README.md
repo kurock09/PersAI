@@ -20,7 +20,10 @@ Dev values image composition pattern:
   - `api.env` (non-secret runtime config)
   - `api.secretEnv` (`secretKeyRef` mapping for required secrets)
 - api database runtime path in dev:
+  - API deployment uses dedicated runtime service account (`api.serviceAccount.*`)
+  - KSA -> GSA mapping is provided by annotation `iam.gke.io/gcp-service-account`
   - `api.cloudSqlProxy.enabled=true` in `values-dev.yaml`
+  - `api.cloudSqlProxy.usePrivateIp=true` routes proxy to Cloud SQL private IP
   - API connects to Cloud SQL via sidecar proxy on `127.0.0.1:5432`
   - `DATABASE_URL` secret must use `@127.0.0.1:5432`
 - web runtime env is supplied from values:

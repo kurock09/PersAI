@@ -118,25 +118,32 @@ rg "^  env:" infra/helm/values-dev.yaml -n
 rg "^  secretEnv:" infra/helm/values-dev.yaml -n
 ```
 
-10. Verify API Cloud SQL proxy is enabled in dev values:
+10. Verify API runtime identity wiring is configured in dev values:
 
 ```bash
-rg "cloudSqlProxy|instanceConnectionName" infra/helm/values-dev.yaml -n
+rg "serviceAccount:" infra/helm/values-dev.yaml -n
+rg "gcpServiceAccountEmail" infra/helm/values-dev.yaml -n
 ```
 
-11. Verify web Clerk publishable key is configured in dev values:
+11. Verify API Cloud SQL proxy is enabled with private IP in dev values:
+
+```bash
+rg "cloudSqlProxy|instanceConnectionName|usePrivateIp" infra/helm/values-dev.yaml -n
+```
+
+12. Verify web Clerk publishable key is configured in dev values:
 
 ```bash
 rg "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" infra/helm/values-dev.yaml -n
 ```
 
-12. Verify web Clerk secret key mapping is configured in dev values:
+13. Verify web Clerk secret key mapping is configured in dev values:
 
 ```bash
 rg "web.secretEnv|CLERK_SECRET_KEY" infra/helm/values-dev.yaml -n
 ```
 
-13. Verify dev image tag is pinned to commit SHA in GitOps values:
+14. Verify dev image tag is pinned to commit SHA in GitOps values:
 
 ```bash
 rg "^    tag: " infra/helm/values-dev.yaml -n
@@ -147,7 +154,7 @@ Expected:
 - `global.images.tag` is a commit SHA (immutable), not a moving tag like `dev-main`.
 - this value is updated automatically by `.github/workflows/dev-image-publish.yml` on successful `main` pushes.
 
-14. Step 2 foundation deploy-path verification (manual):
+15. Step 2 foundation deploy-path verification (manual):
 
 ```bash
 # App resources are up

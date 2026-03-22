@@ -44,6 +44,12 @@
   - `api.cloudSqlProxy` values in Helm
   - optional `cloud-sql-proxy` sidecar in api deployment
   - dev values enable proxy with Cloud SQL instance connection name
+- Finalized dev API runtime hardening path:
+  - dedicated API KSA configuration in Helm values
+  - API service account template with GKE Workload Identity annotation
+  - API deployment uses explicit `serviceAccountName`
+  - Cloud SQL proxy supports/enforces private-IP mode (`--private-ip`)
+  - ADR added for runtime identity + private SQL path
 
 ## Files touched
 
@@ -55,6 +61,7 @@
 - infra/dev/gke/README.md
 - infra/dev/gitops/README.md
 - docs/ADR/010-dev-cloudsql-proxy-for-api.md
+- docs/ADR/011-dev-api-runtime-identity-and-private-sql-path.md
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
 
@@ -75,6 +82,7 @@
 
 - API runtime still requires valid secret values (`DATABASE_URL`, `CLERK_SECRET_KEY`) in cluster secret `persai-api-secrets`.
 - `DATABASE_URL` host must be `127.0.0.1` when proxy sidecar is enabled.
+- Runtime identity mapping requires matching GCP IAM bindings for KSA -> GSA Workload Identity.
 - Placeholder local-style `DATABASE_URL` may start process but not guarantee working DB connectivity for API requests.
 - Clerk frontend or server key changes require updating `infra/helm/values-dev.yaml` and resyncing Argo.
 

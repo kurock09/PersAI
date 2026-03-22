@@ -9,6 +9,10 @@ global:
 api:
   enabled: true
   replicaCount: 1
+  serviceAccount:
+    create: true
+    name: api-sa
+    gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
     tag: 3454c21d6b676cc8df1ba1a448a5b03e34917e4c
@@ -18,6 +22,7 @@ api:
     image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.18.3
     port: 5432
     instanceConnectionName: project-44786b14-b7d7-4554-a8a:europe-west1:persai-dev-postgres
+    usePrivateIp: true
   env:
     APP_ENV: dev
     PORT: "3001"

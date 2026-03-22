@@ -17,6 +17,7 @@ spec:
       labels:
         app.kubernetes.io/name: api
     spec:
+      serviceAccountName: {{ .Values.api.serviceAccount.name }}
       containers:
         - name: api
           image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.api.image.name }}:{{ $apiTag }}"
@@ -44,6 +45,9 @@ spec:
           args:
             - "--structured-logs"
             - "--port={{ .Values.api.cloudSqlProxy.port }}"
+{{- if .Values.api.cloudSqlProxy.usePrivateIp }}
+            - "--private-ip"
+{{- end }}
             - "{{ .Values.api.cloudSqlProxy.instanceConnectionName }}"
 {{- if .Values.api.cloudSqlProxy.port }}
           ports:
