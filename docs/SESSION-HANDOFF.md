@@ -12,6 +12,8 @@
     - `RUN test -f /workspace/apps/api/dist/apps/api/src/main.js`
   - api runtime command now starts from emitted path:
     - `CMD ["node", "dist/apps/api/src/main.js"]`
+- Fixed shared logger runtime artifact path:
+  - `packages/logger/tsconfig.json` now uses `rootDir: "src"` and no source-path alias override so `dist/index.js` is emitted for package runtime `main`
 - Updated docs:
   - `docs/CHANGELOG.md`
   - `docs/SESSION-HANDOFF.md`
@@ -28,6 +30,7 @@
 - Kept scope strictly to startup/build command fixes for `apps/web` and `apps/api`.
 - Did not redesign Docker strategy or runtime architecture.
 - Added explicit fail-fast assertion in api Docker build so broken image no longer publishes silently.
+- Added minimal shared package emit-path correction required for api runtime dependency resolution.
 
 ## Files touched
 
@@ -35,6 +38,7 @@
 - apps/web/Dockerfile
 - apps/api/package.json
 - apps/api/Dockerfile
+- packages/logger/tsconfig.json
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
 

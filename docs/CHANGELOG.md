@@ -159,6 +159,8 @@
   - hardened api build artifact generation:
     - `apps/api/package.json` build now disables incremental cache (`--incremental false`) to ensure fresh emit in container builds
     - `apps/api/Dockerfile` now fails fast when `/workspace/apps/api/dist/apps/api/src/main.js` is missing and starts node from the same emitted path
+  - fixed shared logger package emit path for runtime resolution:
+    - `packages/logger/tsconfig.json` now sets `rootDir: "src"` and removes source-path alias override, so runtime entry `dist/index.js` is produced as expected
 
 ### Changed
 
