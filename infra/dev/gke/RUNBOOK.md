@@ -8,6 +8,7 @@ This runbook defines exact manual procedures for dev cleanup/reset and first dev
 - `kubectl` and cluster credentials
 - Argo CD installed in `argocd` namespace
 - repo checked out with latest `main`
+- `infra/helm/values-dev.yaml` points to your real Artifact Registry coordinates under `global.images.*`
 
 Export variables (adjust values):
 
@@ -97,6 +98,8 @@ kubectl -n persai-dev get deploy,svc
 ```bash
 rg "openclaw:" infra/helm/values-dev.yaml -n
 rg "enabled: false" infra/helm/values-dev.yaml -n
+rg "global:" infra/helm/values-dev.yaml -n
+rg "images:" infra/helm/values-dev.yaml -n
 ```
 
 ## OpenClaw Rule

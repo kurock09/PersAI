@@ -1,12 +1,17 @@
 global:
   namespace: persai-dev
+  images:
+    registryHost: europe-west1-docker.pkg.dev
+    projectId: project-44786b14-b7d7-4554-a8a
+    repository: persai
+    tag: dev-main
 
 api:
   enabled: true
   replicaCount: 1
   image:
-    repository: us-docker.pkg.dev/example/persai/api
-    tag: "latest"
+    name: api
+    tag: ""
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -16,8 +21,8 @@ web:
   enabled: true
   replicaCount: 1
   image:
-    repository: us-docker.pkg.dev/example/persai/web
-    tag: "latest"
+    name: web
+    tag: ""
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -27,8 +32,8 @@ openclaw:
   enabled: false
   replicaCount: 1
   image:
-    repository: us-docker.pkg.dev/example/persai/openclaw
-    tag: "latest"
+    name: openclaw
+    tag: ""
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP

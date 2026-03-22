@@ -105,6 +105,44 @@ OpenClaw deploy skeleton exists but is disabled by default:
 
 - `openclaw.enabled=false` in `infra/helm/values-dev.yaml`
 
+## Dev image build/push baseline (Step 1 slice 13)
+
+Container builds are now defined for:
+
+- `apps/api/Dockerfile`
+- `apps/web/Dockerfile`
+
+GitHub Actions image publish workflow:
+
+- `.github/workflows/dev-image-publish.yml`
+- triggers on `push` to `main` and manual `workflow_dispatch`
+- builds and pushes `api` + `web` images to Google Artifact Registry
+- publishes two tags per image:
+  - immutable commit tag: `${GITHUB_SHA}`
+  - moving dev tag: `dev-main`
+
+Artifact Registry naming pattern:
+
+- `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/api:<tag>`
+- `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/web:<tag>`
+
+Required GitHub Actions configuration:
+
+- Repository variables:
+  - `GAR_REGION` (example: `europe-west1`)
+  - `GCP_PROJECT_ID`
+  - `GAR_REPOSITORY` (example: `persai`)
+- Repository secret:
+  - `GCP_ARTIFACT_REGISTRY_SA_KEY` (JSON service account key with Artifact Registry push permissions)
+
+Helm dev values are wired to the same pattern:
+
+- `global.images.registryHost`
+- `global.images.projectId`
+- `global.images.repository`
+- `global.images.tag` (default `dev-main`)
+- component image names (`api`, `web`, `openclaw`) are composed in templates
+
 ## Dev GitOps / Argo CD baseline (Step 1)
 
 Skeleton only; not applied in this phase:

@@ -9,10 +9,18 @@ This directory contains the Step 1 GitOps/Argo CD skeleton for dev.
 3. Helm source chart: `infra/helm`
 4. Dev values file: `infra/helm/values-dev.yaml`
 
+Dev values image composition pattern:
+
+- registry host: `global.images.registryHost`
+- project id: `global.images.projectId`
+- GAR repository: `global.images.repository`
+- shared default tag: `global.images.tag` (baseline: `dev-main`)
+- component names: `api.image.name`, `web.image.name`, `openclaw.image.name`
+
 ## Scope in this phase
 
 - skeleton manifests only
-- no apply/sync execution
+- no automatic apply/sync execution
 - no GKE cleanup/reset
 
 ## OpenClaw rule

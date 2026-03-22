@@ -72,6 +72,14 @@
   - finalized and clarified command order in `infra/dev/gke/RUNBOOK.md` for reset and first dev deploy
   - fixed docs consistency: OpenClaw default-disabled reference now points to `infra/helm/values-dev.yaml` in all relevant docs
   - kept OpenClaw disabled by default and kept all actions manual/non-executed
+- Step 1 slice 13 container build/push baseline:
+  - added Docker build baselines for `apps/api` and `apps/web` via app-local Dockerfiles
+  - added `.dockerignore` to keep image build context clean and avoid local-only files in images
+  - added GitHub Actions workflow `.github/workflows/dev-image-publish.yml` to build/push `api` and `web` images to Artifact Registry on `main`
+  - defined explicit dev image tagging strategy in CI: immutable `${GITHUB_SHA}` and moving `dev-main`
+  - replaced placeholder Helm image refs with composed GAR pattern (`global.images.*` + component image name) in `infra/helm/values.yaml`, `infra/helm/values-dev.yaml`, and deployment templates
+  - documented required GitHub Actions repo variables/secret and Artifact Registry naming pattern in infra/root docs
+  - kept OpenClaw disabled by default (`openclaw.enabled=false`)
 
 ### Changed
 - None.

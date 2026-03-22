@@ -1,4 +1,5 @@
 {{- if .Values.openclaw.enabled }}
+{{- $openclawTag := default .Values.global.images.tag .Values.openclaw.image.tag }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,7 +19,7 @@ spec:
     spec:
       containers:
         - name: openclaw
-          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.openclaw.image.name }}:{{ $openclawTag }}"
           imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.openclaw.service.port }}
