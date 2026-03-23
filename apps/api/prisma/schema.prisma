@@ -62,6 +62,9 @@ model Assistant {
   id              String          @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   userId          String          @unique @map("user_id") @db.Uuid
   workspaceId     String          @map("workspace_id") @db.Uuid
+  draftDisplayName String?        @map("draft_display_name")
+  draftInstructions String?       @map("draft_instructions")
+  draftUpdatedAt   DateTime?      @map("draft_updated_at") @db.Timestamptz(6)
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
   user            AppUser         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)

@@ -19,3 +19,7 @@ export * from "./onboardingStateStatus";
 export * from "./workspaceSummary";
 export * from "./workspaceSummaryRole";
 export * from "./workspaceSummaryStatus";
+export * from './assistantDraftState';
+export * from './assistantDraftUpdateRequest';
+export * from './assistantLifecycleState';
+export * from './getAssistantResponse';

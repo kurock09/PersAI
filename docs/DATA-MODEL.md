@@ -38,6 +38,9 @@ Postgres with Prisma.
 - id (UUID)
 - user_id (unique)
 - workspace_id
+- draft_display_name (nullable)
+- draft_instructions (nullable)
+- draft_updated_at (nullable)
 - created_at
 - updated_at
 
@@ -60,6 +63,7 @@ Postgres with Prisma.
   - foreign keys: `user_id -> app_users.id`, `workspace_id -> workspaces.id`
   - scoped-membership FK: `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
   - unique pair: `(workspace_id, user_id)` to keep assistant bound to one concrete user-workspace membership record
+  - A2 draft columns (all nullable): `draft_display_name`, `draft_instructions`, `draft_updated_at`
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -75,7 +79,8 @@ Postgres with Prisma.
 - no OpenClaw runtime fields in domain tables
 - no manual schema changes; Prisma migrations only
 - assistant is a first-class domain entity (not embedded in `app_users` or `workspaces`)
-- Step 3 A1 supports assistant data model only (no publish/version, runtime apply, chat, channels, or OpenClaw calls)
+- A2 supports assistant create/get/draft-update control-plane entrypoints only
+- publish/version, rollback/reset, runtime apply/OpenClaw calls, chat, channels, and integrations remain unsupported
 
 ## Step 2 onboarding write baseline (slice 3)
 

@@ -4,98 +4,285 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { ErrorEnvelope, GetMeResponse, OnboardingRequest } from "./model";
+import type {
+  AssistantDraftUpdateRequest,
+  ErrorEnvelope,
+  GetAssistantResponse,
+  GetMeResponse,
+  OnboardingRequest
+} from './model';
 
-import { customFetch } from "../mutator/custom-fetch";
+import { customFetch } from '../mutator/custom-fetch';
+
+/**
+ * @summary Get current authenticated user assistant lifecycle state
+ */
+export type getAssistantResponse200 = {
+  data: GetAssistantResponse
+  status: 200
+}
+
+export type getAssistantResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAssistantResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type getAssistantResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAssistantResponseSuccess = (getAssistantResponse200) & {
+  headers: Headers;
+};
+export type getAssistantResponseError = (getAssistantResponse401 | getAssistantResponse404 | getAssistantResponse500) & {
+  headers: Headers;
+};
+
+export type getAssistantResponse = (getAssistantResponseSuccess | getAssistantResponseError)
+
+export const getGetAssistantUrl = () => {
+
+
+  
+
+  return `/assistant`
+}
+
+export const getAssistant = async ( options?: RequestInit): Promise<getAssistantResponse> => {
+  
+  return customFetch<getAssistantResponse>(getGetAssistantUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Create assistant for current authenticated user
+ */
+export type postAssistantCreateResponse200 = {
+  data: GetAssistantResponse
+  status: 200
+}
+
+export type postAssistantCreateResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAssistantCreateResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantCreateResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantCreateResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantCreateResponseSuccess = (postAssistantCreateResponse200) & {
+  headers: Headers;
+};
+export type postAssistantCreateResponseError = (postAssistantCreateResponse400 | postAssistantCreateResponse401 | postAssistantCreateResponse409 | postAssistantCreateResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantCreateResponse = (postAssistantCreateResponseSuccess | postAssistantCreateResponseError)
+
+export const getPostAssistantCreateUrl = () => {
+
+
+  
+
+  return `/assistant`
+}
+
+export const postAssistantCreate = async ( options?: RequestInit): Promise<postAssistantCreateResponse> => {
+  
+  return customFetch<postAssistantCreateResponse>(getPostAssistantCreateUrl(),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Update current authenticated user assistant draft fields
+ */
+export type patchAssistantDraftResponse200 = {
+  data: GetAssistantResponse
+  status: 200
+}
+
+export type patchAssistantDraftResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type patchAssistantDraftResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type patchAssistantDraftResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type patchAssistantDraftResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type patchAssistantDraftResponseSuccess = (patchAssistantDraftResponse200) & {
+  headers: Headers;
+};
+export type patchAssistantDraftResponseError = (patchAssistantDraftResponse400 | patchAssistantDraftResponse401 | patchAssistantDraftResponse404 | patchAssistantDraftResponse500) & {
+  headers: Headers;
+};
+
+export type patchAssistantDraftResponse = (patchAssistantDraftResponseSuccess | patchAssistantDraftResponseError)
+
+export const getPatchAssistantDraftUrl = () => {
+
+
+  
+
+  return `/assistant/draft`
+}
+
+export const patchAssistantDraft = async (assistantDraftUpdateRequest: AssistantDraftUpdateRequest, options?: RequestInit): Promise<patchAssistantDraftResponse> => {
+  
+  return customFetch<patchAssistantDraftResponse>(getPatchAssistantDraftUrl(),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantDraftUpdateRequest,)
+  }
+);}
+
+
 
 /**
  * @summary Get current authenticated app user state
  */
 export type getMeResponse200 = {
-  data: GetMeResponse;
-  status: 200;
-};
+  data: GetMeResponse
+  status: 200
+}
 
 export type getMeResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
+  data: ErrorEnvelope
+  status: 401
+}
 
 export type getMeResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type getMeResponseSuccess = getMeResponse200 & {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getMeResponseSuccess = (getMeResponse200) & {
   headers: Headers;
 };
 export type getMeResponseError = (getMeResponse401 | getMeResponse500) & {
   headers: Headers;
 };
 
-export type getMeResponse = getMeResponseSuccess | getMeResponseError;
+export type getMeResponse = (getMeResponseSuccess | getMeResponseError)
 
 export const getGetMeUrl = () => {
-  return `/me`;
-};
 
-export const getMe = async (options?: RequestInit): Promise<getMeResponse> => {
-  return customFetch<getMeResponse>(getGetMeUrl(), {
+
+  
+
+  return `/me`
+}
+
+export const getMe = async ( options?: RequestInit): Promise<getMeResponse> => {
+  
+  return customFetch<getMeResponse>(getGetMeUrl(),
+  {      
     ...options,
-    method: "GET"
-  });
-};
+    method: 'GET'
+    
+    
+  }
+);}
+
+
 
 /**
  * @summary Upsert onboarding data for authenticated app user
  */
 export type postMeOnboardingResponse200 = {
-  data: GetMeResponse;
-  status: 200;
-};
+  data: GetMeResponse
+  status: 200
+}
 
 export type postMeOnboardingResponse400 = {
-  data: ErrorEnvelope;
-  status: 400;
-};
+  data: ErrorEnvelope
+  status: 400
+}
 
 export type postMeOnboardingResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
+  data: ErrorEnvelope
+  status: 401
+}
 
 export type postMeOnboardingResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type postMeOnboardingResponseSuccess = postMeOnboardingResponse200 & {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postMeOnboardingResponseSuccess = (postMeOnboardingResponse200) & {
   headers: Headers;
 };
-export type postMeOnboardingResponseError = (
-  | postMeOnboardingResponse400
-  | postMeOnboardingResponse401
-  | postMeOnboardingResponse500
-) & {
+export type postMeOnboardingResponseError = (postMeOnboardingResponse400 | postMeOnboardingResponse401 | postMeOnboardingResponse500) & {
   headers: Headers;
 };
 
-export type postMeOnboardingResponse =
-  | postMeOnboardingResponseSuccess
-  | postMeOnboardingResponseError;
+export type postMeOnboardingResponse = (postMeOnboardingResponseSuccess | postMeOnboardingResponseError)
 
 export const getPostMeOnboardingUrl = () => {
-  return `/me/onboarding`;
-};
 
-export const postMeOnboarding = async (
-  onboardingRequest: OnboardingRequest,
-  options?: RequestInit
-): Promise<postMeOnboardingResponse> => {
-  return customFetch<postMeOnboardingResponse>(getPostMeOnboardingUrl(), {
+
+  
+
+  return `/me/onboarding`
+}
+
+export const postMeOnboarding = async (onboardingRequest: OnboardingRequest, options?: RequestInit): Promise<postMeOnboardingResponse> => {
+  
+  return customFetch<postMeOnboardingResponse>(getPostMeOnboardingUrl(),
+  {      
     ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(onboardingRequest)
-  });
-};
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      onboardingRequest,)
+  }
+);}
+
+
+

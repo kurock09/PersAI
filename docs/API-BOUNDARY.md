@@ -17,6 +17,48 @@ Path versioning: /api/v1/...
 - GET /api/v1/me
 - POST /api/v1/me/onboarding
 
+## Step 3 A2 assistant lifecycle skeleton endpoints
+
+- POST /api/v1/assistant
+- GET /api/v1/assistant
+- PATCH /api/v1/assistant/draft
+
+### POST /api/v1/assistant
+
+Behavior baseline:
+
+- authenticated caller only
+- creates assistant for current user if absent
+- rejects create when assistant already exists for current user (`1 user = 1 assistant`)
+- requires caller workspace membership (assistant is workspace-scoped)
+- no OpenClaw/runtime calls
+
+### GET /api/v1/assistant
+
+Behavior baseline:
+
+- authenticated caller only
+- returns assistant lifecycle skeleton state:
+  - `id`, `userId`, `workspaceId`
+  - `draft.displayName`, `draft.instructions`, `draft.updatedAt`
+  - `createdAt`, `updatedAt`
+- returns not found if assistant has not been created yet
+
+### PATCH /api/v1/assistant/draft
+
+Request body fields (at least one required):
+
+- `displayName` (string | null)
+- `instructions` (string | null)
+
+Behavior baseline:
+
+- authenticated caller only
+- updates mutable draft fields only
+- does not create published versions
+- does not perform runtime apply/openclaw actions
+- returns not found when assistant does not exist
+
 ### GET /api/v1/me (slice 2 baseline response)
 
 - Returns current internal app user (`app_users`) for authenticated caller.
@@ -66,11 +108,11 @@ Behavior baseline:
 }
 ```
 
-## Contract source of truth (Step 2 slice 5)
+## Contract source of truth (Step 2 + Step 3 A2)
 
 - OpenAPI spec: `packages/contracts/openapi.yaml`
 - Generated typed client (Orval): `packages/contracts/src/generated/*`
-- Frontend consumption baseline: `apps/web/app/app/me-api-client.ts` via `@persai/contracts`
+- Frontend consumption baseline remains typed-client only via `@persai/contracts`
 
 ## OpenClaw integration contract baseline (Step 3 O6, docs-only)
 

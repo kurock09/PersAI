@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import type { Assistant } from "../domain/assistant.entity";
+import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
+import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 
 @Injectable()
 export class GetAssistantByUserIdService {
@@ -9,7 +10,8 @@ export class GetAssistantByUserIdService {
     private readonly assistantRepository: AssistantRepository
   ) {}
 
-  async execute(userId: string): Promise<Assistant | null> {
-    return this.assistantRepository.findByUserId(userId);
+  async execute(userId: string): Promise<AssistantLifecycleState | null> {
+    const assistant = await this.assistantRepository.findByUserId(userId);
+    return assistant ? toAssistantLifecycleState(assistant) : null;
   }
 }

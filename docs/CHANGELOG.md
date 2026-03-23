@@ -301,6 +301,29 @@
   - kept Step 2 auth/onboarding/workspace flows unchanged
   - kept OpenClaw O1-O6 contract assumptions unchanged and introduced no runtime/OpenClaw calls
   - marked `A1` complete in `docs/ROADMAP.md`
+- Step 3 slice A2 assistant lifecycle API skeleton:
+  - added control-plane lifecycle entrypoints in `apps/api`:
+    - `POST /api/v1/assistant`
+    - `GET /api/v1/assistant`
+    - `PATCH /api/v1/assistant/draft`
+  - added thin assistant lifecycle services in `workspace-management`:
+    - create assistant
+    - get assistant
+    - update draft fields
+  - expanded assistant persistence model with draft fields:
+    - `draft_display_name`, `draft_instructions`, `draft_updated_at`
+  - kept assistant user-primary and workspace-scoped model:
+    - create requires workspace membership
+    - `1 user = 1 assistant` remains DB-enforced
+  - updated contracts-first artifacts:
+    - extended `packages/contracts/openapi.yaml` with assistant lifecycle schemas/paths
+    - regenerated typed client/models in `packages/contracts/src/generated/*`
+  - kept scope intentionally narrow:
+    - no publish/version snapshots
+    - no rollback/reset semantics
+    - no runtime/OpenClaw calls
+    - no chat APIs
+  - marked `A2` complete in `docs/ROADMAP.md`
 
 ### Changed
 

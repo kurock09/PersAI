@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { ErrorObjectCategory } from "./errorObjectCategory";
-import type { ErrorObjectDetails } from "./errorObjectDetails";
+import type { ErrorObjectCategory } from './errorObjectCategory';
+import type { ErrorObjectDetails } from './errorObjectDetails';
 
 export interface ErrorObject {
   code: string;

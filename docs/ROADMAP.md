@@ -49,7 +49,7 @@ Foundation Phase
 ## Step 3 Assistant Platform Core
 
 - [x] A1 — assistant domain model
-- [ ] A2 — assistant lifecycle API skeleton
+- [x] A2 — assistant lifecycle API skeleton
 - [ ] A3 — draft/publish/version model
 - [ ] A4 — rollback/reset semantics
 - [ ] A5 — runtime apply state model

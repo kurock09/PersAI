@@ -5,6 +5,116 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /assistant:
+    get:
+      operationId: getAssistant
+      summary: Get current authenticated user assistant lifecycle state
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current assistant state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAssistantCreate
+      summary: Create assistant for current authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Created assistant state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Assistant already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/draft:
+    patch:
+      operationId: patchAssistantDraft
+      summary: Update current authenticated user assistant draft fields
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantDraftUpdateRequest"
+      responses:
+        "200":
+          description: Updated assistant state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me:
     get:
       operationId: getMe
@@ -174,6 +284,70 @@ components:
           nullable: true
         me:
           $ref: "#/components/schemas/CurrentMeState"
+    AssistantDraftState:
+      type: object
+      required:
+        - displayName
+        - instructions
+        - updatedAt
+      properties:
+        displayName:
+          type: string
+          nullable: true
+        instructions:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    AssistantLifecycleState:
+      type: object
+      required:
+        - id
+        - userId
+        - workspaceId
+        - draft
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        workspaceId:
+          type: string
+          format: uuid
+        draft:
+          $ref: "#/components/schemas/AssistantDraftState"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AssistantDraftUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        displayName:
+          type: string
+          nullable: true
+        instructions:
+          type: string
+          nullable: true
+    GetAssistantResponse:
+      type: object
+      required:
+        - assistant
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        assistant:
+          $ref: "#/components/schemas/AssistantLifecycleState"
     ErrorEnvelope:
       type: object
       required:
