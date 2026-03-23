@@ -4,6 +4,20 @@
 
 ### Added
 
+- Step 8 slice E1 tool catalog and activation model:
+  - added canonical governed tool catalog persistence:
+    - `tool_catalog_tools`
+    - `plan_catalog_tool_activations`
+  - added explicit tool model dimensions:
+    - capability group (`knowledge|automation|communication|workspace_ops`)
+    - tool class (`cost_driving|utility`)
+    - plan-scoped activation status (`active|inactive`)
+  - hardened plan management persistence path to synchronize plan tool-activation rows from existing tool-class entitlement toggles on create/update
+  - materialization tool availability projection upgraded to:
+    - `persai.effectiveToolAvailability.v2`
+    - includes class-level activation and per-tool activation list for OpenClaw truth projection
+  - added API test script `test:tool-catalog-activation`
+  - added ADR `docs/ADR/031-tool-catalog-and-activation-model-e1.md`
 - Post-deploy live validation snapshot for Step 7 P1-P7 on dev GKE:
   - verified API + web deployments on aligned image tag
   - verified user/admin visibility endpoints and UI sections:

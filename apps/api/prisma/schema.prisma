@@ -61,6 +61,28 @@ enum PlanCatalogStatus {
   inactive
 }
 
+enum ToolCatalogToolClass {
+  cost_driving
+  utility
+}
+
+enum ToolCatalogCapabilityGroup {
+  knowledge
+  automation
+  communication
+  workspace_ops
+}
+
+enum ToolCatalogStatus {
+  active
+  inactive
+}
+
+enum PlanToolActivationStatus {
+  active
+  inactive
+}
+
 enum WorkspaceSubscriptionStatus {
   trialing
   active
@@ -209,6 +231,7 @@ model PlanCatalogPlan {
   createdAt                     DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                     DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
   entitlement                   PlanCatalogEntitlement?
+  toolActivations               PlanCatalogToolActivation[]
 
   @@map("plan_catalog_plans")
 }
@@ -226,6 +249,37 @@ model PlanCatalogEntitlement {
   plan                         PlanCatalogPlan @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("plan_catalog_entitlements")
+}
+
+model ToolCatalogTool {
+  id              String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  code            String                     @unique @db.VarChar(64)
+  displayName     String                     @map("display_name") @db.VarChar(120)
+  description     String?                    @db.Text
+  capabilityGroup ToolCatalogCapabilityGroup @map("capability_group")
+  toolClass       ToolCatalogToolClass       @map("tool_class")
+  status          ToolCatalogStatus          @default(active)
+  providerHints   Json?                      @map("provider_hints")
+  createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  planActivations PlanCatalogToolActivation[]
+
+  @@map("tool_catalog_tools")
+}
+
+model PlanCatalogToolActivation {
+  id               String                   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  planId           String                   @map("plan_id") @db.Uuid
+  toolId           String                   @map("tool_id") @db.Uuid
+  activationStatus PlanToolActivationStatus @default(inactive) @map("activation_status")
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  plan             PlanCatalogPlan          @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  tool             ToolCatalogTool          @relation(fields: [toolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([planId, toolId])
+  @@index([planId, activationStatus])
+  @@map("plan_catalog_tool_activations")
 }
 
 model WorkspaceSubscription {

@@ -167,6 +167,28 @@ Postgres with Prisma.
 - created_at
 - updated_at
 
+### tool_catalog_tools (Step 8 E1 baseline)
+
+- id (UUID)
+- code (varchar 64, unique)
+- display_name (varchar 120)
+- description (nullable text)
+- capability_group (`knowledge|automation|communication|workspace_ops`)
+- tool_class (`cost_driving|utility`)
+- status (`active|inactive`)
+- provider_hints (nullable jsonb, provider-agnostic metadata)
+- created_at
+- updated_at
+
+### plan_catalog_tool_activations (Step 8 E1 baseline)
+
+- id (UUID)
+- plan_id (UUID FK -> `plan_catalog_plans.id`)
+- tool_id (UUID FK -> `tool_catalog_tools.id`)
+- activation_status (`active|inactive`)
+- created_at
+- updated_at
+
 ### workspace_subscriptions (Step 7 P3 baseline)
 
 - id (UUID)
@@ -307,6 +329,16 @@ Postgres with Prisma.
   - primary key: `id`
   - unique FK: `plan_id -> plan_catalog_plans.id` (1:1 model)
   - grouped entitlement JSON arrays: capabilities, tool classes, channels/surfaces, limits permissions
+- `tool_catalog_tools`:
+  - primary key: `id`
+  - unique: `code`
+  - index: `(tool_class, status)`
+  - stores canonical governed tool metadata (class/group/status), not runtime execution logic
+- `plan_catalog_tool_activations`:
+  - primary key: `id`
+  - unique pair: `(plan_id, tool_id)`
+  - indexes: `(plan_id, activation_status)`
+  - stores explicit plan-scoped activation truth for catalog tools
 - `workspace_subscriptions`:
   - primary key: `id`
   - unique: `workspace_id` (one current subscription state row per workspace in P3)
@@ -353,6 +385,7 @@ Postgres with Prisma.
 - P4 adds centralized capability resolution service from P1-P3 models + governance; no new persistence table in P4
 - P5 adds canonical quota accounting state + usage event tables for token budget, cost/token-driving tool class usage, and active web chats cap; tasks/reminders remain intentionally non-commercial-quota dimensions
 - P6 adds centralized enforcement points over existing P1-P5 models and materializes explicit `toolAvailability` for OpenClaw; no new persistence table in P6
+- E1 adds canonical tool catalog + plan activation persistence and upgrades materialized tool availability to include per-tool activation truth; backend still does not route tool execution behavior
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

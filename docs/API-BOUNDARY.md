@@ -487,6 +487,18 @@ Behavior baseline:
   - effective entitlement snapshot (tool classes, channels/surfaces, governed features)
 - this is a control-plane visibility model, not a billing console
 
+## Step 8 E1 tool catalog and activation model
+
+- E1 adds control-plane persistence and projection only; no new public REST endpoints are introduced in this slice.
+- Canonical tool catalog + plan activation truth is persisted in backend:
+  - `tool_catalog_tools`
+  - `plan_catalog_tool_activations`
+- Existing owner-gated plan management API remains the single plan packaging surface.
+- Materialization tool availability projection is upgraded to `persai.effectiveToolAvailability.v2`:
+  - class-level activation summary (`utility`, `cost_driving`)
+  - per-tool activation list derived from catalog status + plan activation + effective class guardrail
+- Backend still does not execute tool behavior or route plugin/runtime internals.
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

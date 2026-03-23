@@ -1,5 +1,71 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 8 E1 tool catalog and activation model
+
+### What changed
+
+- Added canonical governed tool catalog persistence:
+  - `tool_catalog_tools`
+  - `plan_catalog_tool_activations`
+- Added explicit tool model dimensions for control-plane governance:
+  - capability group (`knowledge|automation|communication|workspace_ops`)
+  - tool class (`cost_driving|utility`)
+  - plan-scoped activation status (`active|inactive`)
+- Hardened plan catalog create/update persistence flow:
+  - plan tool-activation rows are synchronized from existing tool-class entitlement toggles
+- Added centralized per-tool availability resolver:
+  - `ResolveEffectiveToolAvailabilityService`
+  - projects catalog + plan activation + effective class guardrail into materialization-safe truth
+- Upgraded materialized tool-availability schema from class-only to per-tool model:
+  - `persai.effectiveToolAvailability.v2`
+- Added deterministic seed baseline tool catalog rows and default-plan activation rows.
+- Docs updated: ADR-031, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- E1 requires tools to be treated as a governed mini-system with explicit catalog and activation truth, while preserving the backend control-plane vs OpenClaw runtime boundary.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260327100000_step8_e1_tool_catalog_activation/migration.sql`
+- `apps/api/prisma/seed.ts`
+- `apps/api/src/modules/workspace-management/domain/tool-catalog.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/tool-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-tool-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/application/effective-tool-availability.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-effective-tool-availability.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-plan-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/tool-catalog-activation.test.ts`
+- `apps/api/package.json`
+- `docs/ADR/031-tool-catalog-and-activation-model-e1.md`
+- `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run prisma:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/api run test:tool-catalog-activation` — passed
+- `corepack pnpm --filter @persai/api run test:capability-resolution` — passed
+- `corepack pnpm run test:step2` — passed
+
+### Known risks / intentional limits
+
+- E1 introduces persistence + materialization truth only; no per-tool admin/web UI controls are added in this slice.
+- E1 does not add backend tool execution/routing logic; OpenClaw remains runtime execution owner.
+- Class-level enforcement points from P6 remain active; endpoint-by-endpoint per-tool enforcement is not expanded in E1.
+
+### Next recommended step
+
+- Step 8 **E2** tool policy and OpenClaw capability envelope alignment over the E1 catalog/activation baseline.
+
+### Ready commit message
+
+- `feat(api): add step 8 e1 governed tool catalog and plan activation model`
+
 ## 2026-03-23 - Step 7 P1-P7 post-deploy live validation + hotfixes
 
 ### What changed

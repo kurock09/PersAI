@@ -1,6 +1,10 @@
 import {
   PlanCatalogStatus,
+  PlanToolActivationStatus,
   PrismaClient,
+  ToolCatalogCapabilityGroup,
+  ToolCatalogStatus,
+  ToolCatalogToolClass,
   WorkspaceRole,
   WorkspaceStatus,
   WorkspaceSubscriptionStatus
@@ -15,8 +19,73 @@ const SEED_DEFAULT_PLAN_ID = "44444444-4444-4444-4444-444444444444";
 const SEED_DEFAULT_PLAN_ENTITLEMENT_ID = "55555555-5555-5555-5555-555555555555";
 const SEED_DEFAULT_PLAN_CODE = "starter_trial";
 const SEED_WORKSPACE_SUBSCRIPTION_ID = "66666666-6666-6666-6666-666666666666";
+const SEED_TOOL_COST_DRIVING_WEB_SEARCH_ID = "77777777-7777-7777-7777-777777777777";
+const SEED_TOOL_UTILITY_MEMORY_CENTER_ID = "88888888-8888-8888-8888-888888888888";
+const SEED_TOOL_UTILITY_TASKS_CENTER_ID = "99999999-9999-9999-9999-999999999999";
+
+async function upsertToolCatalogTool(params: {
+  id: string;
+  code: string;
+  displayName: string;
+  description: string;
+  capabilityGroup: ToolCatalogCapabilityGroup;
+  toolClass: ToolCatalogToolClass;
+}): Promise<void> {
+  await prisma.toolCatalogTool.upsert({
+    where: { code: params.code },
+    update: {
+      displayName: params.displayName,
+      description: params.description,
+      capabilityGroup: params.capabilityGroup,
+      toolClass: params.toolClass,
+      status: ToolCatalogStatus.active,
+      providerHints: {
+        schema: "persai.toolCatalogProviderHints.v1",
+        providerAgnostic: true
+      }
+    },
+    create: {
+      id: params.id,
+      code: params.code,
+      displayName: params.displayName,
+      description: params.description,
+      capabilityGroup: params.capabilityGroup,
+      toolClass: params.toolClass,
+      status: ToolCatalogStatus.active,
+      providerHints: {
+        schema: "persai.toolCatalogProviderHints.v1",
+        providerAgnostic: true
+      }
+    }
+  });
+}
 
 async function main(): Promise<void> {
+  await upsertToolCatalogTool({
+    id: SEED_TOOL_COST_DRIVING_WEB_SEARCH_ID,
+    code: "web_search",
+    displayName: "Web Search",
+    description: "Provider-backed external web lookup tool.",
+    capabilityGroup: ToolCatalogCapabilityGroup.knowledge,
+    toolClass: ToolCatalogToolClass.cost_driving
+  });
+  await upsertToolCatalogTool({
+    id: SEED_TOOL_UTILITY_MEMORY_CENTER_ID,
+    code: "memory_center_read",
+    displayName: "Memory Center Read",
+    description: "Utility read access for Memory Center summaries.",
+    capabilityGroup: ToolCatalogCapabilityGroup.workspace_ops,
+    toolClass: ToolCatalogToolClass.utility
+  });
+  await upsertToolCatalogTool({
+    id: SEED_TOOL_UTILITY_TASKS_CENTER_ID,
+    code: "tasks_center_control",
+    displayName: "Tasks Center Control",
+    description: "Utility control actions for task registry items.",
+    capabilityGroup: ToolCatalogCapabilityGroup.workspace_ops,
+    toolClass: ToolCatalogToolClass.utility
+  });
+
   await prisma.appUser.upsert({
     where: { id: SEED_USER_ID },
     update: {
@@ -191,6 +260,34 @@ async function main(): Promise<void> {
         }
       }
     });
+
+    const activeTools = await prisma.toolCatalogTool.findMany({
+      where: { status: ToolCatalogStatus.active },
+      select: { id: true, toolClass: true }
+    });
+
+    for (const tool of activeTools) {
+      const activationStatus =
+        tool.toolClass === ToolCatalogToolClass.utility
+          ? PlanToolActivationStatus.active
+          : PlanToolActivationStatus.inactive;
+      await prisma.planCatalogToolActivation.upsert({
+        where: {
+          planId_toolId: {
+            planId: seedPlan.id,
+            toolId: tool.id
+          }
+        },
+        update: {
+          activationStatus
+        },
+        create: {
+          planId: seedPlan.id,
+          toolId: tool.id,
+          activationStatus
+        }
+      });
+    }
   }
 }
 

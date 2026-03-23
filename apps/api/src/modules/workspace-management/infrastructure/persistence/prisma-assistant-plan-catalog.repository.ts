@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma, type PlanCatalogStatus } from "@prisma/client";
+import { Prisma, type PlanCatalogStatus, type ToolCatalogToolClass } from "@prisma/client";
 import type {
   AssistantPlanCatalogRepository,
   AssistantPlanCatalogWriteInput
@@ -48,7 +48,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
         });
       }
 
-      return tx.planCatalogPlan.create({
+      const created = await tx.planCatalogPlan.create({
         data: {
           code,
           displayName: input.displayName,
@@ -73,6 +73,8 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
         },
         include: { entitlement: true }
       });
+      await this.syncToolActivationsForPlan(tx, created.id, input);
+      return created;
     });
 
     const created = await this.prisma.planCatalogPlan.findUnique({
@@ -105,7 +107,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
         });
       }
 
-      return tx.planCatalogPlan.update({
+      const updated = await tx.planCatalogPlan.update({
         where: { code },
         data: {
           displayName: input.displayName,
@@ -141,6 +143,8 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
         },
         include: { entitlement: true }
       });
+      await this.syncToolActivationsForPlan(tx, updated.id, input);
+      return updated;
     });
 
     const updated = await this.prisma.planCatalogPlan.findUnique({
@@ -187,5 +191,74 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
 
   private toArray(value: unknown): unknown[] {
     return Array.isArray(value) ? value : [];
+  }
+
+  private hasAllowedToolClass(
+    entitlementModel: AssistantPlanCatalogWriteInput["entitlementModel"],
+    classKey: "cost_driving" | "utility"
+  ): boolean {
+    return entitlementModel.toolClasses.some((item) => {
+      if (item === null || typeof item !== "object" || Array.isArray(item)) {
+        return false;
+      }
+      const row = item as Record<string, unknown>;
+      return row.key === classKey && row.allowed === true;
+    });
+  }
+
+  private toActivationStatusByClass(
+    input: AssistantPlanCatalogWriteInput
+  ): Record<ToolCatalogToolClass, "active" | "inactive"> {
+    return {
+      cost_driving: this.hasAllowedToolClass(input.entitlementModel, "cost_driving")
+        ? "active"
+        : "inactive",
+      utility: this.hasAllowedToolClass(input.entitlementModel, "utility") ? "active" : "inactive"
+    };
+  }
+
+  private async syncToolActivationsForPlan(
+    tx: Prisma.TransactionClient,
+    planId: string,
+    input: AssistantPlanCatalogWriteInput
+  ): Promise<void> {
+    const tools = await tx.toolCatalogTool.findMany({
+      where: {
+        status: "active"
+      },
+      select: {
+        id: true,
+        toolClass: true
+      }
+    });
+
+    const statusByClass = this.toActivationStatusByClass(input);
+    const activeToolIds = tools.map((tool) => tool.id);
+
+    await tx.planCatalogToolActivation.deleteMany({
+      where: {
+        planId,
+        ...(activeToolIds.length > 0 ? { toolId: { notIn: activeToolIds } } : {})
+      }
+    });
+
+    for (const tool of tools) {
+      await tx.planCatalogToolActivation.upsert({
+        where: {
+          planId_toolId: {
+            planId,
+            toolId: tool.id
+          }
+        },
+        update: {
+          activationStatus: statusByClass[tool.toolClass]
+        },
+        create: {
+          planId,
+          toolId: tool.id,
+          activationStatus: statusByClass[tool.toolClass]
+        }
+      });
+    }
   }
 }

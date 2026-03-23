@@ -3,6 +3,7 @@ import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
+import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
@@ -30,6 +31,7 @@ import { TrackWorkspaceQuotaUsageService } from "./application/track-workspace-q
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
 import { ASSISTANT_PLAN_CATALOG_REPOSITORY } from "./domain/assistant-plan-catalog.repository";
+import { TOOL_CATALOG_REPOSITORY } from "./domain/tool-catalog.repository";
 import { WORKSPACE_SUBSCRIPTION_REPOSITORY } from "./domain/workspace-subscription.repository";
 import { WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY } from "./domain/workspace-quota-accounting.repository";
 import { ASSISTANT_MEMORY_REGISTRY_REPOSITORY } from "./domain/assistant-memory-registry.repository";
@@ -43,6 +45,7 @@ import { OpenClawRuntimeAdapter } from "./infrastructure/openclaw/openclaw-runti
 import { NullBillingProviderAdapter } from "./infrastructure/billing/null-billing-provider.adapter";
 import { PrismaAssistantGovernanceRepository } from "./infrastructure/persistence/prisma-assistant-governance.repository";
 import { PrismaAssistantPlanCatalogRepository } from "./infrastructure/persistence/prisma-assistant-plan-catalog.repository";
+import { PrismaToolCatalogRepository } from "./infrastructure/persistence/prisma-tool-catalog.repository";
 import { PrismaWorkspaceSubscriptionRepository } from "./infrastructure/persistence/prisma-workspace-subscription.repository";
 import { PrismaWorkspaceQuotaAccountingRepository } from "./infrastructure/persistence/prisma-workspace-quota-accounting.repository";
 import { BILLING_PROVIDER_PORT } from "./application/billing-provider.port";
@@ -65,6 +68,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManageAdminPlansService,
     ResolveEffectiveSubscriptionStateService,
     ResolveEffectiveCapabilityStateService,
+    ResolveEffectiveToolAvailabilityService,
     ResolvePlanVisibilityService,
     EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,
@@ -96,6 +100,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     {
       provide: ASSISTANT_PLAN_CATALOG_REPOSITORY,
       useClass: PrismaAssistantPlanCatalogRepository
+    },
+    {
+      provide: TOOL_CATALOG_REPOSITORY,
+      useClass: PrismaToolCatalogRepository
     },
     {
       provide: WORKSPACE_SUBSCRIPTION_REPOSITORY,

@@ -15,6 +15,7 @@ import {
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import type { Assistant } from "../domain/assistant.entity";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
+import { ResolveEffectiveToolAvailabilityService } from "./resolve-effective-tool-availability.service";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -51,7 +52,8 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
-    private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService
+    private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
+    private readonly resolveEffectiveToolAvailabilityService: ResolveEffectiveToolAvailabilityService
   ) {}
 
   async execute(
@@ -76,7 +78,9 @@ export class MaterializeAssistantPublishedVersionService {
       assistant,
       governance
     });
-    const toolAvailability = this.toToolAvailability(effectiveCapabilities);
+    const toolAvailability = await this.resolveEffectiveToolAvailabilityService.execute({
+      effectiveCapabilities
+    });
 
     const layers = {
       schema: MATERIALIZATION_SCHEMA,
@@ -184,48 +188,4 @@ export class MaterializeAssistantPublishedVersionService {
     };
   }
 
-  private toToolAvailability(effectiveCapabilities: Record<string, unknown>): Record<string, unknown> {
-    const capabilities = effectiveCapabilities as {
-      schema?: string;
-      toolClasses?: {
-        costDriving?: { allowed?: boolean; quotaGoverned?: boolean };
-        utility?: { allowed?: boolean; quotaGoverned?: boolean };
-      };
-      derivedFrom?: {
-        planCode?: string | null;
-      };
-    };
-
-    const utilityAllowed = capabilities.toolClasses?.utility?.allowed === true;
-    const utilityQuotaGoverned = capabilities.toolClasses?.utility?.quotaGoverned === true;
-    const costDrivingAllowed = capabilities.toolClasses?.costDriving?.allowed === true;
-    const costDrivingQuotaGoverned =
-      capabilities.toolClasses?.costDriving?.quotaGoverned === true;
-
-    return {
-      schema: "persai.effectiveToolAvailability.v1",
-      derivedFrom: {
-        effectiveCapabilitiesSchema:
-          typeof capabilities.schema === "string" ? capabilities.schema : null,
-        planCode: capabilities.derivedFrom?.planCode ?? null
-      },
-      toolClasses: {
-        utility: {
-          allowed: utilityAllowed,
-          quotaGoverned: utilityQuotaGoverned,
-          activation: utilityAllowed ? "active" : "inactive"
-        },
-        costDriving: {
-          allowed: costDrivingAllowed,
-          quotaGoverned: costDrivingQuotaGoverned,
-          activation: costDrivingAllowed ? "active" : "inactive"
-        }
-      },
-      tools: [],
-      notes: [
-        "P6 baseline uses class-level activation truth.",
-        "Per-tool catalog activation is intentionally deferred to Step 8."
-      ]
-    };
-  }
 }

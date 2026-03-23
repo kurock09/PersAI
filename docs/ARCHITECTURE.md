@@ -188,6 +188,15 @@ O6 defines a future adapter-only contract:
   - it does not route runtime tool behavior
 - OpenClaw materialization includes explicit `toolAvailability` truth so runtime does not assume unavailable tool classes exist
 
+## Tool catalog and activation boundary (Step 8 E1)
+
+- backend owns canonical tool catalog and plan activation truth in control plane:
+  - `tool_catalog_tools`
+  - `plan_catalog_tool_activations`
+- plan management flow remains owner-gated and continues to be the single control-plane packaging surface in this slice
+- materialization now projects explicit per-tool availability from catalog + activation + effective capability class guardrail
+- backend still does not execute or route runtime tool behavior; OpenClaw remains execution owner
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

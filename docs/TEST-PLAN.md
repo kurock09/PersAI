@@ -98,3 +98,12 @@ Required in CI:
   - user-facing plan state + percentage-only limits section
   - owner/admin visibility section for plan state, usage pressure, and effective entitlements
 - Existing app flow regressions remain green with the new visibility surfaces.
+
+## Step 8 E1 focus
+
+- Prisma schema/migration validates governed tool catalog + plan activation persistence:
+  - `tool_catalog_tools`
+  - `plan_catalog_tool_activations`
+- Plan create/update flows synchronize activation rows from tool-class entitlement controls (no scattered ad hoc writes).
+- Materialization compiles with `persai.effectiveToolAvailability.v2` projection including per-tool activation truth for OpenClaw-facing documents.
+- API lint/typecheck and Step 2 regression baseline remain green.
