@@ -9,14 +9,20 @@ import {
   type AssistantWebChatListItemState
 } from "@persai/contracts";
 import {
+  type AdminPlanCreateRequest,
+  type AdminPlanState,
+  type AdminPlanUpdateRequest,
   deleteAssistantWebChat,
+  getAdminPlans,
   getAssistant,
   getAssistantMemoryItems,
   getAssistantTaskItems,
   getAssistantWebChats,
   patchAssistantDraft,
+  patchAdminPlan,
   patchAssistantWebChat,
   postAssistantCreate,
+  postAdminPlanCreate,
   postAssistantMemoryDoNotRemember,
   postAssistantMemoryItemForget,
   postAssistantTaskItemCancel,
@@ -63,6 +69,30 @@ type QuickStartPayload = {
 type AdvancedSetupPayload = {
   displayName: string;
   instructions: string;
+};
+
+type PlanDraft = {
+  displayName: string;
+  description: string;
+  status: "active" | "inactive";
+  defaultOnRegistration: boolean;
+  trialEnabled: boolean;
+  trialDurationDays: number | null;
+  metadataCommercialTag: string;
+  metadataNotes: string;
+  capabilityAssistantLifecycle: boolean;
+  capabilityMemoryCenter: boolean;
+  capabilityTasksCenter: boolean;
+  toolCostDriving: boolean;
+  toolUtility: boolean;
+  toolCostDrivingQuotaGoverned: boolean;
+  toolUtilityQuotaGoverned: boolean;
+  channelWebChat: boolean;
+  channelTelegram: boolean;
+  channelWhatsapp: boolean;
+  channelMax: boolean;
+  limitsViewPercentages: boolean;
+  limitsTasksExcludedFromCommercialQuotas: boolean;
 };
 
 type PublishStateLabel = "Draft has changes" | "Publishing" | "Published" | "Draft only";
@@ -183,6 +213,97 @@ function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
 function toNullable(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function toPlanDraft(plan?: AdminPlanState): PlanDraft {
+  if (plan === undefined) {
+    return {
+      displayName: "",
+      description: "",
+      status: "active",
+      defaultOnRegistration: false,
+      trialEnabled: false,
+      trialDurationDays: null,
+      metadataCommercialTag: "",
+      metadataNotes: "",
+      capabilityAssistantLifecycle: true,
+      capabilityMemoryCenter: true,
+      capabilityTasksCenter: true,
+      toolCostDriving: false,
+      toolUtility: true,
+      toolCostDrivingQuotaGoverned: true,
+      toolUtilityQuotaGoverned: true,
+      channelWebChat: true,
+      channelTelegram: true,
+      channelWhatsapp: false,
+      channelMax: false,
+      limitsViewPercentages: true,
+      limitsTasksExcludedFromCommercialQuotas: true
+    };
+  }
+
+  return {
+    displayName: plan.displayName,
+    description: plan.description ?? "",
+    status: plan.status,
+    defaultOnRegistration: plan.defaultOnRegistration,
+    trialEnabled: plan.trialEnabled,
+    trialDurationDays: plan.trialDurationDays,
+    metadataCommercialTag: plan.metadata.commercialTag ?? "",
+    metadataNotes: plan.metadata.notes ?? "",
+    capabilityAssistantLifecycle: plan.entitlements.capabilities.assistantLifecycle,
+    capabilityMemoryCenter: plan.entitlements.capabilities.memoryCenter,
+    capabilityTasksCenter: plan.entitlements.capabilities.tasksCenter,
+    toolCostDriving: plan.entitlements.toolClasses.costDrivingTools,
+    toolUtility: plan.entitlements.toolClasses.utilityTools,
+    toolCostDrivingQuotaGoverned: plan.entitlements.toolClasses.costDrivingQuotaGoverned,
+    toolUtilityQuotaGoverned: plan.entitlements.toolClasses.utilityQuotaGoverned,
+    channelWebChat: plan.entitlements.channelsAndSurfaces.webChat,
+    channelTelegram: plan.entitlements.channelsAndSurfaces.telegram,
+    channelWhatsapp: plan.entitlements.channelsAndSurfaces.whatsapp,
+    channelMax: plan.entitlements.channelsAndSurfaces.max,
+    limitsViewPercentages: plan.entitlements.limitsPermissions.viewLimitPercentages,
+    limitsTasksExcludedFromCommercialQuotas:
+      plan.entitlements.limitsPermissions.tasksExcludedFromCommercialQuotas
+  };
+}
+
+function toAdminPlanPayload(draft: PlanDraft): Omit<AdminPlanCreateRequest, "code"> {
+  return {
+    displayName: draft.displayName.trim(),
+    description: toNullable(draft.description),
+    status: draft.status,
+    defaultOnRegistration: draft.defaultOnRegistration,
+    trialEnabled: draft.trialEnabled,
+    trialDurationDays: draft.trialEnabled ? draft.trialDurationDays : null,
+    metadata: {
+      commercialTag: toNullable(draft.metadataCommercialTag),
+      notes: toNullable(draft.metadataNotes)
+    },
+    entitlements: {
+      capabilities: {
+        assistantLifecycle: draft.capabilityAssistantLifecycle,
+        memoryCenter: draft.capabilityMemoryCenter,
+        tasksCenter: draft.capabilityTasksCenter
+      },
+      toolClasses: {
+        costDrivingTools: draft.toolCostDriving,
+        utilityTools: draft.toolUtility,
+        costDrivingQuotaGoverned: draft.toolCostDrivingQuotaGoverned,
+        utilityQuotaGoverned: draft.toolUtilityQuotaGoverned
+      },
+      channelsAndSurfaces: {
+        webChat: draft.channelWebChat,
+        telegram: draft.channelTelegram,
+        whatsapp: draft.channelWhatsapp,
+        max: draft.channelMax
+      },
+      limitsPermissions: {
+        viewLimitPercentages: draft.limitsViewPercentages,
+        tasksExcludedFromCommercialQuotas: draft.limitsTasksExcludedFromCommercialQuotas
+      }
+    }
+  };
 }
 
 function buildQuickStartInstructions(primaryGoal: string): string {
@@ -362,6 +483,14 @@ export function AppFlowClient() {
   const [taskItemsFeedback, setTaskItemsFeedback] = useState<string | null>(null);
   const [taskActionWorkingId, setTaskActionWorkingId] = useState<string | null>(null);
   const [chatDoNotRememberWorkingId, setChatDoNotRememberWorkingId] = useState<string | null>(null);
+  const [adminPlans, setAdminPlans] = useState<AdminPlanState[]>([]);
+  const [isLoadingAdminPlans, setIsLoadingAdminPlans] = useState(false);
+  const [adminPlansFeedback, setAdminPlansFeedback] = useState<string | null>(null);
+  const [newPlanCode, setNewPlanCode] = useState("");
+  const [newPlanDraft, setNewPlanDraft] = useState<PlanDraft>(toPlanDraft());
+  const [editingPlanCode, setEditingPlanCode] = useState<string | null>(null);
+  const [editingPlanDraft, setEditingPlanDraft] = useState<PlanDraft>(toPlanDraft());
+  const [isSavingAdminPlan, setIsSavingAdminPlan] = useState(false);
   const reachedActiveChatCap = streamingIssue?.classId === "active_chat_cap";
   const assistantIsLiveForWebChat =
     flowState.type === "ready" && flowState.data.assistantState !== null
@@ -415,6 +544,31 @@ export function AppFlowClient() {
       setTaskItemsFeedback(message);
     } finally {
       setIsLoadingTaskItems(false);
+    }
+  }, [flowState, getToken]);
+
+  const loadAdminPlans = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setAdminPlans([]);
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setIsLoadingAdminPlans(true);
+      const plans = await getAdminPlans(token);
+      setAdminPlans(plans);
+      setAdminPlansFeedback(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load plan catalog.";
+      setAdminPlansFeedback(message);
+    } finally {
+      setIsLoadingAdminPlans(false);
     }
   }, [flowState, getToken]);
 
@@ -536,6 +690,15 @@ export function AppFlowClient() {
 
     void loadTaskItems();
   }, [flowState, loadTaskItems]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setAdminPlans([]);
+      return;
+    }
+
+    void loadAdminPlans();
+  }, [flowState, loadAdminPlans]);
 
   const onboardingRequired = useMemo(() => {
     return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
@@ -1128,6 +1291,78 @@ export function AppFlowClient() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Hard delete failed.";
       setChatListFeedback(message);
+    }
+  }
+
+  function onSelectPlanForEditing(planCode: string): void {
+    const selected = adminPlans.find((plan) => plan.code === planCode);
+    if (selected === undefined) {
+      return;
+    }
+    setEditingPlanCode(planCode);
+    setEditingPlanDraft(toPlanDraft(selected));
+    setAdminPlansFeedback(null);
+  }
+
+  async function onCreateAdminPlan(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    if (newPlanCode.trim().length === 0) {
+      setAdminPlansFeedback("Plan code is required.");
+      return;
+    }
+
+    try {
+      setIsSavingAdminPlan(true);
+      const created = await postAdminPlanCreate(token, {
+        code: newPlanCode.trim().toLowerCase(),
+        ...toAdminPlanPayload(newPlanDraft)
+      });
+      setAdminPlans((current) => [created, ...current.filter((plan) => plan.code !== created.code)]);
+      setNewPlanCode("");
+      setNewPlanDraft(toPlanDraft());
+      setAdminPlansFeedback("Plan created.");
+      await loadAdminPlans();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not create plan.";
+      setAdminPlansFeedback(message);
+    } finally {
+      setIsSavingAdminPlan(false);
+    }
+  }
+
+  async function onSaveEditedAdminPlan(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (editingPlanCode === null) {
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setIsSavingAdminPlan(true);
+      const updated = await patchAdminPlan(
+        token,
+        editingPlanCode,
+        toAdminPlanPayload(editingPlanDraft) as AdminPlanUpdateRequest
+      );
+      setAdminPlans((current) => current.map((plan) => (plan.code === updated.code ? updated : plan)));
+      setAdminPlansFeedback("Plan updated.");
+      await loadAdminPlans();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update plan.";
+      setAdminPlansFeedback(message);
+    } finally {
+      setIsSavingAdminPlan(false);
     }
   }
 
@@ -1925,6 +2160,540 @@ export function AppFlowClient() {
               <strong>Published at:</strong>{" "}
               {assistantState.latestPublishedVersion?.publishedAt ?? "n/a"}
             </p>
+          </section>
+        </section>
+      )}
+
+      {me.workspace.role === "owner" && (
+        <section>
+          <h2>Admin plan management</h2>
+          <p>
+            Create and edit commercial plan packaging in one place. This is control-plane configuration,
+            not a billing provider console.
+          </p>
+          {adminPlansFeedback !== null && <p>{adminPlansFeedback}</p>}
+          {isLoadingAdminPlans && <p>Loading plan catalog…</p>}
+          <button type="button" disabled={isLoadingAdminPlans} onClick={() => void loadAdminPlans()}>
+            Refresh plans
+          </button>
+
+          <section>
+            <h3>Create plan</h3>
+            <form onSubmit={(event) => void onCreateAdminPlan(event)}>
+              <label htmlFor="adminPlanCode">Plan code</label>
+              <input
+                id="adminPlanCode"
+                value={newPlanCode}
+                onChange={(event) => setNewPlanCode(event.target.value)}
+                placeholder="starter_trial"
+                required
+              />
+              <label htmlFor="adminPlanDisplayName">Display name</label>
+              <input
+                id="adminPlanDisplayName"
+                value={newPlanDraft.displayName}
+                onChange={(event) =>
+                  setNewPlanDraft((current) => ({ ...current, displayName: event.target.value }))
+                }
+                required
+              />
+              <label htmlFor="adminPlanDescription">Description</label>
+              <textarea
+                id="adminPlanDescription"
+                value={newPlanDraft.description}
+                onChange={(event) =>
+                  setNewPlanDraft((current) => ({ ...current, description: event.target.value }))
+                }
+              />
+              <label htmlFor="adminPlanStatus">Status</label>
+              <select
+                id="adminPlanStatus"
+                value={newPlanDraft.status}
+                onChange={(event) =>
+                  setNewPlanDraft((current) => ({
+                    ...current,
+                    status: event.target.value === "inactive" ? "inactive" : "active"
+                  }))
+                }
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.defaultOnRegistration}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      defaultOnRegistration: event.target.checked
+                    }))
+                  }
+                />
+                Default on first registration
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.trialEnabled}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({ ...current, trialEnabled: event.target.checked }))
+                  }
+                />
+                Trial enabled
+              </label>
+              <label htmlFor="adminPlanTrialDuration">Trial duration (days)</label>
+              <input
+                id="adminPlanTrialDuration"
+                type="number"
+                min={1}
+                value={newPlanDraft.trialDurationDays ?? ""}
+                onChange={(event) =>
+                  setNewPlanDraft((current) => ({
+                    ...current,
+                    trialDurationDays:
+                      event.target.value.trim().length === 0 ? null : Number.parseInt(event.target.value, 10)
+                  }))
+                }
+                disabled={!newPlanDraft.trialEnabled}
+              />
+              <label htmlFor="adminPlanCommercialTag">Commercial tag</label>
+              <input
+                id="adminPlanCommercialTag"
+                value={newPlanDraft.metadataCommercialTag}
+                onChange={(event) =>
+                  setNewPlanDraft((current) => ({ ...current, metadataCommercialTag: event.target.value }))
+                }
+              />
+              <label htmlFor="adminPlanNotes">Admin notes</label>
+              <textarea
+                id="adminPlanNotes"
+                value={newPlanDraft.metadataNotes}
+                onChange={(event) =>
+                  setNewPlanDraft((current) => ({ ...current, metadataNotes: event.target.value }))
+                }
+              />
+              <p>
+                <strong>Entitlements</strong>
+              </p>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.capabilityAssistantLifecycle}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      capabilityAssistantLifecycle: event.target.checked
+                    }))
+                  }
+                />
+                Assistant lifecycle controls
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.capabilityMemoryCenter}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({ ...current, capabilityMemoryCenter: event.target.checked }))
+                  }
+                />
+                Memory Center
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.capabilityTasksCenter}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({ ...current, capabilityTasksCenter: event.target.checked }))
+                  }
+                />
+                Tasks Center
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.toolCostDriving}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({ ...current, toolCostDriving: event.target.checked }))
+                  }
+                />
+                Cost-driving tools available
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.toolCostDrivingQuotaGoverned}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      toolCostDrivingQuotaGoverned: event.target.checked
+                    }))
+                  }
+                />
+                Cost-driving tools quota-governed
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.toolUtility}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({ ...current, toolUtility: event.target.checked }))
+                  }
+                />
+                Utility tools available
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.toolUtilityQuotaGoverned}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      toolUtilityQuotaGoverned: event.target.checked
+                    }))
+                  }
+                />
+                Utility tools quota-governed
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.channelWebChat}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({ ...current, channelWebChat: event.target.checked }))
+                  }
+                />
+                Web chat surface
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.channelTelegram}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({ ...current, channelTelegram: event.target.checked }))
+                  }
+                />
+                Telegram surface
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.channelWhatsapp}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({ ...current, channelWhatsapp: event.target.checked }))
+                  }
+                />
+                WhatsApp surface
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.channelMax}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({ ...current, channelMax: event.target.checked }))
+                  }
+                />
+                MAX surface
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.limitsViewPercentages}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({ ...current, limitsViewPercentages: event.target.checked }))
+                  }
+                />
+                Show limits as percentages
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newPlanDraft.limitsTasksExcludedFromCommercialQuotas}
+                  onChange={(event) =>
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      limitsTasksExcludedFromCommercialQuotas: event.target.checked
+                    }))
+                  }
+                />
+                Tasks/reminders excluded from commercial quotas
+              </label>
+              <button type="submit" disabled={isSavingAdminPlan}>
+                {isSavingAdminPlan ? "Saving..." : "Create plan"}
+              </button>
+            </form>
+          </section>
+
+          <section>
+            <h3>Edit existing plan</h3>
+            {adminPlans.length === 0 ? (
+              <p>No plans available yet.</p>
+            ) : (
+              <>
+                <p>Select a plan, adjust controls, and save.</p>
+                <ul>
+                  {adminPlans.map((plan) => (
+                    <li key={plan.code}>
+                      <button type="button" onClick={() => onSelectPlanForEditing(plan.code)}>
+                        {plan.displayName} ({plan.code})
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {editingPlanCode !== null && (
+              <form onSubmit={(event) => void onSaveEditedAdminPlan(event)}>
+                <p>
+                  <strong>Editing:</strong> {editingPlanCode}
+                </p>
+                <label htmlFor="editPlanDisplayName">Display name</label>
+                <input
+                  id="editPlanDisplayName"
+                  value={editingPlanDraft.displayName}
+                  onChange={(event) =>
+                    setEditingPlanDraft((current) => ({ ...current, displayName: event.target.value }))
+                  }
+                  required
+                />
+                <label htmlFor="editPlanDescription">Description</label>
+                <textarea
+                  id="editPlanDescription"
+                  value={editingPlanDraft.description}
+                  onChange={(event) =>
+                    setEditingPlanDraft((current) => ({ ...current, description: event.target.value }))
+                  }
+                />
+                <label htmlFor="editPlanStatus">Status</label>
+                <select
+                  id="editPlanStatus"
+                  value={editingPlanDraft.status}
+                  onChange={(event) =>
+                    setEditingPlanDraft((current) => ({
+                      ...current,
+                      status: event.target.value === "inactive" ? "inactive" : "active"
+                    }))
+                  }
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.defaultOnRegistration}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        defaultOnRegistration: event.target.checked
+                      }))
+                    }
+                  />
+                  Default on first registration
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.trialEnabled}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        trialEnabled: event.target.checked
+                      }))
+                    }
+                  />
+                  Trial enabled
+                </label>
+                <label htmlFor="editPlanTrialDuration">Trial duration (days)</label>
+                <input
+                  id="editPlanTrialDuration"
+                  type="number"
+                  min={1}
+                  value={editingPlanDraft.trialDurationDays ?? ""}
+                  onChange={(event) =>
+                    setEditingPlanDraft((current) => ({
+                      ...current,
+                      trialDurationDays:
+                        event.target.value.trim().length === 0 ? null : Number.parseInt(event.target.value, 10)
+                    }))
+                  }
+                  disabled={!editingPlanDraft.trialEnabled}
+                />
+                <label htmlFor="editPlanCommercialTag">Commercial tag</label>
+                <input
+                  id="editPlanCommercialTag"
+                  value={editingPlanDraft.metadataCommercialTag}
+                  onChange={(event) =>
+                    setEditingPlanDraft((current) => ({
+                      ...current,
+                      metadataCommercialTag: event.target.value
+                    }))
+                  }
+                />
+                <label htmlFor="editPlanNotes">Admin notes</label>
+                <textarea
+                  id="editPlanNotes"
+                  value={editingPlanDraft.metadataNotes}
+                  onChange={(event) =>
+                    setEditingPlanDraft((current) => ({ ...current, metadataNotes: event.target.value }))
+                  }
+                />
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.capabilityAssistantLifecycle}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        capabilityAssistantLifecycle: event.target.checked
+                      }))
+                    }
+                  />
+                  Assistant lifecycle controls
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.capabilityMemoryCenter}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        capabilityMemoryCenter: event.target.checked
+                      }))
+                    }
+                  />
+                  Memory Center
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.capabilityTasksCenter}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        capabilityTasksCenter: event.target.checked
+                      }))
+                    }
+                  />
+                  Tasks Center
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.toolCostDriving}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({ ...current, toolCostDriving: event.target.checked }))
+                    }
+                  />
+                  Cost-driving tools available
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.toolCostDrivingQuotaGoverned}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        toolCostDrivingQuotaGoverned: event.target.checked
+                      }))
+                    }
+                  />
+                  Cost-driving tools quota-governed
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.toolUtility}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({ ...current, toolUtility: event.target.checked }))
+                    }
+                  />
+                  Utility tools available
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.toolUtilityQuotaGoverned}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        toolUtilityQuotaGoverned: event.target.checked
+                      }))
+                    }
+                  />
+                  Utility tools quota-governed
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.channelWebChat}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({ ...current, channelWebChat: event.target.checked }))
+                    }
+                  />
+                  Web chat surface
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.channelTelegram}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({ ...current, channelTelegram: event.target.checked }))
+                    }
+                  />
+                  Telegram surface
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.channelWhatsapp}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({ ...current, channelWhatsapp: event.target.checked }))
+                    }
+                  />
+                  WhatsApp surface
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.channelMax}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({ ...current, channelMax: event.target.checked }))
+                    }
+                  />
+                  MAX surface
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.limitsViewPercentages}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        limitsViewPercentages: event.target.checked
+                      }))
+                    }
+                  />
+                  Show limits as percentages
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editingPlanDraft.limitsTasksExcludedFromCommercialQuotas}
+                    onChange={(event) =>
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        limitsTasksExcludedFromCommercialQuotas: event.target.checked
+                      }))
+                    }
+                  />
+                  Tasks/reminders excluded from commercial quotas
+                </label>
+                <button type="submit" disabled={isSavingAdminPlan}>
+                  {isSavingAdminPlan ? "Saving..." : "Save plan changes"}
+                </button>
+              </form>
+            )}
           </section>
         </section>
       )}

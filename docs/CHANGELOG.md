@@ -4,6 +4,19 @@
 
 ### Added
 
+- Step 7 slice P2 admin plan management:
+  - added owner-gated admin API endpoints:
+    - `GET /api/v1/admin/plans`
+    - `POST /api/v1/admin/plans`
+    - `PATCH /api/v1/admin/plans/{code}`
+  - added centralized admin plan management service/repository wiring in `workspace-management` (no scattering to unrelated modules)
+  - added web `/app` admin section for plan create/edit with clear controls for:
+    - naming and high-level metadata
+    - default-on-registration flag
+    - trial flag and trial duration
+    - entitlement and limits parameters at plan level
+  - kept plan model provider-agnostic; no billing-provider workflow UI added
+  - ADR `docs/ADR/025-admin-plan-management-p2.md`
 - Step 7 slice P1 plan catalog and entitlement model:
   - added canonical plan catalog table `plan_catalog_plans` with provider-agnostic packaging metadata and explicit flags:
     - `isDefaultFirstRegistrationPlan`

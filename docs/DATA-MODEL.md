@@ -289,6 +289,7 @@ Postgres with Prisma.
 - D4 adds first-class `tasks_control` JSON on `assistant_governance` for task/reminder/trigger **control** metadata; execution and scheduling remain outside PersAI backend
 - D5 adds `assistant_task_registry_items` for Tasks Center rows (control plane); population from OpenClaw/sync is integration follow-up—MVP APIs + UI are honest when the list is empty
 - P1 adds canonical `plan_catalog_plans` + `plan_catalog_entitlements`; billing-vendor lifecycle and entitlement enforcement remain out of scope
+- P2 adds owner-gated admin create/edit surfaces over the same P1 tables; no new plan schema tables are added in P2
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

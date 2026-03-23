@@ -387,6 +387,36 @@ Behavior baseline:
 - `governance.quotaPlanCode` remains the assistant-facing pointer and is now resolved from the active catalog plan flagged as default first registration during governance baseline creation.
 - Trial semantics are modeled in catalog metadata (`isTrialPlan`, `trialDurationDays`) and are not yet coupled to billing-provider workflow.
 
+## Step 7 P2 admin plan management API baseline
+
+### GET /api/v1/admin/plans
+
+- authenticated caller only
+- workspace owner role required
+- returns admin-facing plan list with:
+  - naming and high-level metadata
+  - default-on-registration and trial controls
+  - entitlement controls (capabilities, tool classes, channels/surfaces, limits permissions)
+
+### POST /api/v1/admin/plans
+
+- authenticated caller only
+- workspace owner role required
+- creates one plan entry by `code`
+- supports:
+  - display name / description / status
+  - default-on-registration flag
+  - trial flag and trial duration
+  - entitlement and limits controls
+  - provider-agnostic metadata hints
+
+### PATCH /api/v1/admin/plans/{code}
+
+- authenticated caller only
+- workspace owner role required
+- updates existing plan by code with the same control set as create
+- keeps single default-on-registration truth by clearing previous default when a new default is set
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

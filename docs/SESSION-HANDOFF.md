@@ -1,5 +1,65 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - Step 7 P2 admin plan management UI/API
+
+### What changed
+
+- Added owner-gated admin plan management API:
+  - `GET /api/v1/admin/plans`
+  - `POST /api/v1/admin/plans`
+  - `PATCH /api/v1/admin/plans/{code}`
+- Added centralized plan management application service (`ManageAdminPlansService`) and expanded plan catalog repository for list/create/update flows.
+- Added `/app` owner-only admin section for plan create/edit with serious control-plane forms:
+  - naming and metadata
+  - default-on-registration
+  - trial + duration
+  - entitlement and limits controls
+- Extended contracts/OpenAPI + generated client models for admin plan endpoints and payloads.
+- Docs updated: ADR-025, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- P2 requires direct admin-side plan packaging controls without coupling to a billing vendor or exposing raw DB internals.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/interface/http/admin-plans.controller.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-plan-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-plan-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/web/app/app/app-flow.client.test.tsx`
+- `packages/contracts/openapi.yaml`, `packages/contracts/src/generated/*`
+- `docs/ADR/025-admin-plan-management-p2.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/web run lint` — passed
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` — passed
+- `corepack pnpm run typecheck` — passed
+- `corepack pnpm run test:step2` — passed
+
+### Known risks / intentional limits
+
+- No billing provider console/workflow in P2 (checkout, subscription lifecycle, invoices/webhooks remain out of scope).
+- Owner-gate uses workspace owner check; full admin RBAC expansion remains Step 9 scope.
+- Entitlement enforcement runtime/quotas are not added in P2; this slice is plan management control surface only.
+
+### Next recommended step
+
+- Step 7 **P3** subscription state + billing abstraction, keeping P1/P2 provider-agnostic boundaries intact.
+
+### Ready commit message
+
+- `feat(api-web): add step 7 p2 owner-gated admin plan management ui and api`
+
 ## 2026-03-26 - Step 7 P1 plan catalog and entitlement model
 
 ### What changed

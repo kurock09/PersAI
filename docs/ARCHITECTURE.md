@@ -132,6 +132,12 @@ O6 defines a future adapter-only contract:
 - trial behavior is modeled by plan flags (`isTrialPlan`, `trialDurationDays`) and remains control-plane metadata in P1
 - no billing-vendor workflow coupling and no runtime behavior routing/enforcement engine in P1
 
+## Admin plan management boundary (Step 7 P2)
+
+- admin-side plan create/edit is exposed in one owner-gated control surface and one API boundary (`/api/v1/admin/plans*`)
+- controls remain business-facing (name, metadata, default/trial flags, entitlement/limits toggles), not raw DB model editing
+- no billing provider console/workflow coupling in P2; provider selection/integration remains future scope
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

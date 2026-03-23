@@ -5,6 +5,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type {
+  AdminPlanCreateRequest,
+  AdminPlanUpdateRequest,
   AssistantDraftUpdateRequest,
   AssistantMemoryDoNotRememberRequest,
   AssistantRollbackRequest,
@@ -13,6 +15,7 @@ import type {
   AssistantWebChatTurnRequest,
   DeleteAssistantWebChatResponse,
   ErrorEnvelope,
+  GetAdminPlansResponse,
   GetAssistantMemoryItemsResponse,
   GetAssistantResponse,
   GetAssistantRuntimePreflightResponse,
@@ -22,6 +25,7 @@ import type {
   GetAssistantWebChatTransportResponse,
   GetMeResponse,
   OnboardingRequest,
+  PostAdminPlanResponse,
   PostAssistantMemoryDoNotRememberResponse,
   PostAssistantMemoryItemForgetResponse,
   PostAssistantTaskItemCancelResponse,
@@ -1218,6 +1222,188 @@ export const postAssistantTaskItemCancel = async (itemId: string, options?: Requ
     method: 'POST'
     
     
+  }
+);}
+
+
+
+/**
+ * @summary List plan catalog entries for admin management
+ */
+export type getAdminPlansResponse200 = {
+  data: GetAdminPlansResponse
+  status: 200
+}
+
+export type getAdminPlansResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAdminPlansResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type getAdminPlansResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAdminPlansResponseSuccess = (getAdminPlansResponse200) & {
+  headers: Headers;
+};
+export type getAdminPlansResponseError = (getAdminPlansResponse401 | getAdminPlansResponse403 | getAdminPlansResponse500) & {
+  headers: Headers;
+};
+
+export type getAdminPlansResponse = (getAdminPlansResponseSuccess | getAdminPlansResponseError)
+
+export const getGetAdminPlansUrl = () => {
+
+
+  
+
+  return `/admin/plans`
+}
+
+export const getAdminPlans = async ( options?: RequestInit): Promise<getAdminPlansResponse> => {
+  
+  return customFetch<getAdminPlansResponse>(getGetAdminPlansUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Create plan catalog entry with entitlement controls
+ */
+export type postAdminPlanCreateResponse200 = {
+  data: PostAdminPlanResponse
+  status: 200
+}
+
+export type postAdminPlanCreateResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAdminPlanCreateResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAdminPlanCreateResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type postAdminPlanCreateResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAdminPlanCreateResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAdminPlanCreateResponseSuccess = (postAdminPlanCreateResponse200) & {
+  headers: Headers;
+};
+export type postAdminPlanCreateResponseError = (postAdminPlanCreateResponse400 | postAdminPlanCreateResponse401 | postAdminPlanCreateResponse403 | postAdminPlanCreateResponse409 | postAdminPlanCreateResponse500) & {
+  headers: Headers;
+};
+
+export type postAdminPlanCreateResponse = (postAdminPlanCreateResponseSuccess | postAdminPlanCreateResponseError)
+
+export const getPostAdminPlanCreateUrl = () => {
+
+
+  
+
+  return `/admin/plans`
+}
+
+export const postAdminPlanCreate = async (adminPlanCreateRequest: AdminPlanCreateRequest, options?: RequestInit): Promise<postAdminPlanCreateResponse> => {
+  
+  return customFetch<postAdminPlanCreateResponse>(getPostAdminPlanCreateUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      adminPlanCreateRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Update admin plan metadata, trial flags, and entitlement controls
+ */
+export type patchAdminPlanResponse200 = {
+  data: PostAdminPlanResponse
+  status: 200
+}
+
+export type patchAdminPlanResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type patchAdminPlanResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type patchAdminPlanResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type patchAdminPlanResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type patchAdminPlanResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type patchAdminPlanResponseSuccess = (patchAdminPlanResponse200) & {
+  headers: Headers;
+};
+export type patchAdminPlanResponseError = (patchAdminPlanResponse400 | patchAdminPlanResponse401 | patchAdminPlanResponse403 | patchAdminPlanResponse404 | patchAdminPlanResponse500) & {
+  headers: Headers;
+};
+
+export type patchAdminPlanResponse = (patchAdminPlanResponseSuccess | patchAdminPlanResponseError)
+
+export const getPatchAdminPlanUrl = (code: string,) => {
+
+
+  
+
+  return `/admin/plans/${code}`
+}
+
+export const patchAdminPlan = async (code: string,
+    adminPlanUpdateRequest: AdminPlanUpdateRequest, options?: RequestInit): Promise<patchAdminPlanResponse> => {
+  
+  return customFetch<patchAdminPlanResponse>(getPatchAdminPlanUrl(code),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      adminPlanUpdateRequest,)
   }
 );}
 

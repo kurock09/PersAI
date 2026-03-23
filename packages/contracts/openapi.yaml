@@ -829,6 +829,140 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/plans:
+    get:
+      operationId: getAdminPlans
+      summary: List plan catalog entries for admin management
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Admin plan list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminPlansResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (workspace owner required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAdminPlanCreate
+      summary: Create plan catalog entry with entitlement controls
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminPlanCreateRequest"
+      responses:
+        "200":
+          description: Created plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminPlanResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (workspace owner required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Plan code conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/plans/{code}:
+    patch:
+      operationId: patchAdminPlan
+      summary: Update admin plan metadata, trial flags, and entitlement controls
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: code
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminPlanUpdateRequest"
+      responses:
+        "200":
+          description: Updated plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminPlanResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (workspace owner required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Plan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me:
     get:
       operationId: getMe
@@ -1663,6 +1797,200 @@ components:
           type: boolean
           enum:
             - true
+    AdminPlanEntitlementCapabilities:
+      type: object
+      required:
+        - assistantLifecycle
+        - memoryCenter
+        - tasksCenter
+      properties:
+        assistantLifecycle:
+          type: boolean
+        memoryCenter:
+          type: boolean
+        tasksCenter:
+          type: boolean
+    AdminPlanEntitlementToolClasses:
+      type: object
+      required:
+        - costDrivingTools
+        - utilityTools
+        - costDrivingQuotaGoverned
+        - utilityQuotaGoverned
+      properties:
+        costDrivingTools:
+          type: boolean
+        utilityTools:
+          type: boolean
+        costDrivingQuotaGoverned:
+          type: boolean
+        utilityQuotaGoverned:
+          type: boolean
+    AdminPlanEntitlementChannelsAndSurfaces:
+      type: object
+      required:
+        - webChat
+        - telegram
+        - whatsapp
+        - max
+      properties:
+        webChat:
+          type: boolean
+        telegram:
+          type: boolean
+        whatsapp:
+          type: boolean
+        max:
+          type: boolean
+    AdminPlanEntitlementLimitsPermissions:
+      type: object
+      required:
+        - viewLimitPercentages
+        - tasksExcludedFromCommercialQuotas
+      properties:
+        viewLimitPercentages:
+          type: boolean
+        tasksExcludedFromCommercialQuotas:
+          type: boolean
+    AdminPlanEntitlements:
+      type: object
+      required:
+        - capabilities
+        - toolClasses
+        - channelsAndSurfaces
+        - limitsPermissions
+      properties:
+        capabilities:
+          $ref: "#/components/schemas/AdminPlanEntitlementCapabilities"
+        toolClasses:
+          $ref: "#/components/schemas/AdminPlanEntitlementToolClasses"
+        channelsAndSurfaces:
+          $ref: "#/components/schemas/AdminPlanEntitlementChannelsAndSurfaces"
+        limitsPermissions:
+          $ref: "#/components/schemas/AdminPlanEntitlementLimitsPermissions"
+    AdminPlanMetadata:
+      type: object
+      required:
+        - commercialTag
+        - notes
+      properties:
+        commercialTag:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+    AdminPlanState:
+      type: object
+      required:
+        - code
+        - displayName
+        - description
+        - status
+        - defaultOnRegistration
+        - trialEnabled
+        - trialDurationDays
+        - metadata
+        - entitlements
+        - createdAt
+        - updatedAt
+      properties:
+        code:
+          type: string
+        displayName:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+        defaultOnRegistration:
+          type: boolean
+        trialEnabled:
+          type: boolean
+        trialDurationDays:
+          type: integer
+          nullable: true
+        metadata:
+          $ref: "#/components/schemas/AdminPlanMetadata"
+        entitlements:
+          $ref: "#/components/schemas/AdminPlanEntitlements"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AdminPlanInputBase:
+      type: object
+      required:
+        - displayName
+        - description
+        - status
+        - defaultOnRegistration
+        - trialEnabled
+        - trialDurationDays
+        - metadata
+        - entitlements
+      properties:
+        displayName:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+        defaultOnRegistration:
+          type: boolean
+        trialEnabled:
+          type: boolean
+        trialDurationDays:
+          type: integer
+          nullable: true
+        metadata:
+          $ref: "#/components/schemas/AdminPlanMetadata"
+        entitlements:
+          $ref: "#/components/schemas/AdminPlanEntitlements"
+    AdminPlanCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/AdminPlanInputBase"
+        - type: object
+          required:
+            - code
+          properties:
+            code:
+              type: string
+    AdminPlanUpdateRequest:
+      allOf:
+        - $ref: "#/components/schemas/AdminPlanInputBase"
+    GetAdminPlansResponse:
+      type: object
+      required:
+        - plans
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminPlanState"
+    PostAdminPlanResponse:
+      type: object
+      required:
+        - plan
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        plan:
+          $ref: "#/components/schemas/AdminPlanState"
     ErrorEnvelope:
       type: object
       required:

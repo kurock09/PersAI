@@ -34,6 +34,9 @@ const assistantApiMocks = vi.hoisted(() => {
     postAssistantMemoryItemForget: vi.fn(),
     postAssistantMemoryDoNotRemember: vi.fn(),
     getAssistantTaskItems: vi.fn(),
+    getAdminPlans: vi.fn(),
+    postAdminPlanCreate: vi.fn(),
+    patchAdminPlan: vi.fn(),
     postAssistantTaskItemDisable: vi.fn(),
     postAssistantTaskItemEnable: vi.fn(),
     postAssistantTaskItemCancel: vi.fn(),
@@ -82,6 +85,9 @@ vi.mock("./assistant-api-client", async () => {
     postAssistantMemoryItemForget: assistantApiMocks.postAssistantMemoryItemForget,
     postAssistantMemoryDoNotRemember: assistantApiMocks.postAssistantMemoryDoNotRemember,
     getAssistantTaskItems: assistantApiMocks.getAssistantTaskItems,
+    getAdminPlans: assistantApiMocks.getAdminPlans,
+    postAdminPlanCreate: assistantApiMocks.postAdminPlanCreate,
+    patchAdminPlan: assistantApiMocks.patchAdminPlan,
     postAssistantTaskItemDisable: assistantApiMocks.postAssistantTaskItemDisable,
     postAssistantTaskItemEnable: assistantApiMocks.postAssistantTaskItemEnable,
     postAssistantTaskItemCancel: assistantApiMocks.postAssistantTaskItemCancel,
@@ -250,12 +256,16 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.postAssistantMemoryItemForget.mockReset();
     assistantApiMocks.postAssistantMemoryDoNotRemember.mockReset();
     assistantApiMocks.getAssistantTaskItems.mockReset();
+    assistantApiMocks.getAdminPlans.mockReset();
+    assistantApiMocks.postAdminPlanCreate.mockReset();
+    assistantApiMocks.patchAdminPlan.mockReset();
     assistantApiMocks.postAssistantTaskItemDisable.mockReset();
     assistantApiMocks.postAssistantTaskItemEnable.mockReset();
     assistantApiMocks.postAssistantTaskItemCancel.mockReset();
     assistantApiMocks.getAssistantWebChats.mockResolvedValue([]);
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
     assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
+    assistantApiMocks.getAdminPlans.mockResolvedValue([]);
   });
 
   it("shows onboarding gate when /me returns pending", async () => {
@@ -384,6 +394,57 @@ describe("AppFlowClient onboarding gate", () => {
       })
     );
     expect(screen.getByText("Draft setup saved. No publish has been performed.")).toBeInTheDocument();
+  });
+
+  it("shows admin plan management and creates a plan", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.postAdminPlanCreate.mockResolvedValue({
+      code: "pro",
+      displayName: "Pro",
+      description: null,
+      status: "active",
+      defaultOnRegistration: false,
+      trialEnabled: false,
+      trialDurationDays: null,
+      metadata: { commercialTag: null, notes: null },
+      entitlements: {
+        capabilities: {
+          assistantLifecycle: true,
+          memoryCenter: true,
+          tasksCenter: true
+        },
+        toolClasses: {
+          costDrivingTools: true,
+          utilityTools: true,
+          costDrivingQuotaGoverned: true,
+          utilityQuotaGoverned: true
+        },
+        channelsAndSurfaces: {
+          webChat: true,
+          telegram: true,
+          whatsapp: false,
+          max: false
+        },
+        limitsPermissions: {
+          viewLimitPercentages: true,
+          tasksExcludedFromCommercialQuotas: true
+        }
+      },
+      createdAt: "2026-03-26T10:00:00.000Z",
+      updatedAt: "2026-03-26T10:00:00.000Z"
+    });
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Admin plan management")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Plan code"), { target: { value: "pro" } });
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Pro" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create plan" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAdminPlanCreate).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("applies advanced setup path to draft and auto-creates assistant when absent", async () => {

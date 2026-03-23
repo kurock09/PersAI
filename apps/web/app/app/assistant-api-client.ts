@@ -1,4 +1,7 @@
 import {
+  type AdminPlanCreateRequest,
+  type AdminPlanState,
+  type AdminPlanUpdateRequest,
   type AssistantWebChatDeleteRequest,
   type AssistantWebChatListItemState,
   type AssistantWebChatRenameRequest,
@@ -15,17 +18,20 @@ import {
   getAssistantTaskItems as getAssistantTaskItemsContract,
   getAssistantWebChats as getAssistantWebChatsContract,
   patchAssistantDraft as patchAssistantDraftContract,
+  patchAdminPlan as patchAdminPlanContract,
   patchAssistantWebChat as patchAssistantWebChatContract,
   postAssistantPublish as postAssistantPublishContract,
   postAssistantReset as postAssistantResetContract,
   postAssistantRollback as postAssistantRollbackContract,
   postAssistantWebChatArchive as postAssistantWebChatArchiveContract,
   postAssistantCreate as postAssistantCreateContract,
+  postAdminPlanCreate as postAdminPlanCreateContract,
   postAssistantMemoryDoNotRemember as postAssistantMemoryDoNotRememberContract,
   postAssistantMemoryItemForget as postAssistantMemoryItemForgetContract,
   postAssistantTaskItemCancel as postAssistantTaskItemCancelContract,
   postAssistantTaskItemDisable as postAssistantTaskItemDisableContract,
-  postAssistantTaskItemEnable as postAssistantTaskItemEnableContract
+  postAssistantTaskItemEnable as postAssistantTaskItemEnableContract,
+  getAdminPlans as getAdminPlansContract
 } from "@persai/contracts";
 
 function getAuthHeaders(token: string): HeadersInit {
@@ -743,6 +749,63 @@ export async function postAssistantMemoryDoNotRemember(
     }
 
     return { forgottenRegistryItems: response.data.forgottenRegistryItems };
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
+
+export async function getAdminPlans(token: string): Promise<AdminPlanState[]> {
+  try {
+    const response = await getAdminPlansContract({
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/plans.");
+    }
+
+    return response.data.plans;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminPlanCreate(
+  token: string,
+  payload: AdminPlanCreateRequest
+): Promise<AdminPlanState> {
+  try {
+    const response = await postAdminPlanCreateContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for POST /admin/plans.");
+    }
+
+    return response.data.plan;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchAdminPlan(
+  token: string,
+  code: string,
+  payload: AdminPlanUpdateRequest
+): Promise<AdminPlanState> {
+  try {
+    const response = await patchAdminPlanContract(code, payload, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for PATCH /admin/plans/:code.");
+    }
+
+    return response.data.plan;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

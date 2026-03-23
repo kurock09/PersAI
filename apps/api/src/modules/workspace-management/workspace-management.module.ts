@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AssistantController } from "./interface/http/assistant.controller";
+import { AdminPlansController } from "./interface/http/admin-plans.controller";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -12,6 +13,7 @@ import { EnableAssistantTaskRegistryItemService } from "./application/enable-ass
 import { CancelAssistantTaskRegistryItemService } from "./application/cancel-assistant-task-registry-item.service";
 import { GetAssistantByUserIdService } from "./application/get-assistant-by-user-id.service";
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
+import { ManageAdminPlansService } from "./application/manage-admin-plans.service";
 import { ManageWebChatListService } from "./application/manage-web-chat-list.service";
 import { PublishAssistantDraftService } from "./application/publish-assistant-draft.service";
 import { RecordWebChatMemoryTurnService } from "./application/record-web-chat-memory-turn.service";
@@ -22,6 +24,7 @@ import { SendWebChatTurnService } from "./application/send-web-chat-turn.service
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
+import { ASSISTANT_PLAN_CATALOG_REPOSITORY } from "./domain/assistant-plan-catalog.repository";
 import { ASSISTANT_MEMORY_REGISTRY_REPOSITORY } from "./domain/assistant-memory-registry.repository";
 import { ASSISTANT_TASK_REGISTRY_REPOSITORY } from "./domain/assistant-task-registry.repository";
 import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.repository";
@@ -31,6 +34,7 @@ import { ASSISTANT_RUNTIME_ADAPTER } from "./application/assistant-runtime-adapt
 import { ASSISTANT_REPOSITORY } from "./domain/assistant.repository";
 import { OpenClawRuntimeAdapter } from "./infrastructure/openclaw/openclaw-runtime.adapter";
 import { PrismaAssistantGovernanceRepository } from "./infrastructure/persistence/prisma-assistant-governance.repository";
+import { PrismaAssistantPlanCatalogRepository } from "./infrastructure/persistence/prisma-assistant-plan-catalog.repository";
 import { PrismaAssistantChatRepository } from "./infrastructure/persistence/prisma-assistant-chat.repository";
 import { PrismaAssistantMemoryRegistryRepository } from "./infrastructure/persistence/prisma-assistant-memory-registry.repository";
 import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persistence/prisma-assistant-task-registry.repository";
@@ -40,13 +44,14 @@ import { PrismaAssistantRepository } from "./infrastructure/persistence/prisma-a
 import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/workspace-management-prisma.service";
 
 @Module({
-  controllers: [AssistantController],
+  controllers: [AssistantController, AdminPlansController],
   providers: [
     WorkspaceManagementPrismaService,
     GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,
     MaterializeAssistantPublishedVersionService,
+    ManageAdminPlansService,
     ManageWebChatListService,
     CreateAssistantService,
     PublishAssistantDraftService,
@@ -71,6 +76,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     {
       provide: ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
       useClass: PrismaAssistantPublishedVersionRepository
+    },
+    {
+      provide: ASSISTANT_PLAN_CATALOG_REPOSITORY,
+      useClass: PrismaAssistantPlanCatalogRepository
     },
     {
       provide: ASSISTANT_GOVERNANCE_REPOSITORY,

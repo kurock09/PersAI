@@ -51,3 +51,9 @@ Required in CI:
 - Prisma migration validates canonical plan catalog + entitlement schema.
 - Governance baseline creation resolves `quotaPlanCode` from default first-registration active plan when catalog row exists.
 - Trial metadata constraints hold at DB level (`is_trial_plan` vs `trial_duration_days` check).
+
+## Step 7 P2 focus
+
+- Owner-gated admin endpoints validate create/update/list flows for plan management.
+- Web `/app` renders a dedicated admin plan management section for workspace owners and supports create/edit controls.
+- Baseline regression suite (`test:step2`) remains green after admin plan UI/API additions.
