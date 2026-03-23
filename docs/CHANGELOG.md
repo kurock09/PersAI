@@ -4,6 +4,13 @@
 
 ### Added
 
+- Post-deploy live validation snapshot for Step 7 P1-P7 on dev GKE:
+  - verified API + web deployments on aligned image tag
+  - verified user/admin visibility endpoints and UI sections:
+    - `GET /api/v1/assistant/plan-visibility`
+    - `GET /api/v1/admin/plans/visibility`
+  - verified admin plan create/edit flow and streaming chat happy-path after plan entitlement correction
+  - verified effective plan visibility moved from `Not configured` to configured plan (`test2`) and usage pressure updates (web chats pressure observed > 0)
 - Step 7 slice P7 plan/limit visibility read models:
   - added user-facing visibility endpoint:
     - `GET /api/v1/assistant/plan-visibility`
@@ -764,6 +771,11 @@
 
 ### Fixed
 
+- Step 7 P7 post-deploy API contract regression:
+  - fixed OpenAPI path wiring where `postAdminPlanCreate` was incorrectly attached under `/admin/plans/visibility` instead of `/admin/plans`
+  - regenerated contracts to restore correct client method/path mapping for plan create
+- Step 7 P7 post-deploy web client status handling:
+  - fixed admin plan create client guard to accept `201 Created` (and `200`) for `POST /admin/plans`, avoiding false non-success errors in UI
 - Step 4 closure blockers observed in live hybrid validation (`local web + GKE api`):
   - fixed contracts mutator runtime base URL resolution in `packages/contracts/src/mutator/custom-fetch.ts`:
     - now reads `process.env.NEXT_PUBLIC_API_BASE_URL` directly

@@ -1,5 +1,60 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - Step 7 P1-P7 post-deploy live validation + hotfixes
+
+### What changed
+
+- Completed live validation on dev GKE for Step 7 P1-P7 user/admin flows after deploy.
+- Verified deployed images aligned to the current release commit for both `api` and `web`.
+- Confirmed live route availability and successful auth-gated responses for:
+  - `GET /api/v1/admin/plans`
+  - `GET /api/v1/admin/plans/visibility`
+  - `GET /api/v1/assistant/plan-visibility`
+- Confirmed admin plan creation and editing in UI and API:
+  - `POST /api/v1/admin/plans` returns success (`201`)
+  - `PATCH /api/v1/admin/plans/:code` returns success (`200`)
+- Confirmed chat streaming happy path after entitlement correction:
+  - stream completes
+  - response persists
+  - "Do not remember this" action remains available on committed assistant turns.
+- Fixed two post-deploy regressions discovered during validation:
+  - contracts path regression: `postAdminPlanCreate` was erroneously attached to `/admin/plans/visibility` in OpenAPI and was restored to `/admin/plans`
+  - web client response guard: admin create path now accepts `201` and `200` as success for `POST /admin/plans`
+- Regenerated contracts and revalidated web typecheck/tests.
+
+### Why changed
+
+- Deployment initially surfaced false 404 and false non-success errors caused by contract/client mismatch, not by backend route availability.
+- This live pass was required to confirm P1-P7 product behavior end-to-end under real runtime conditions.
+
+### Files touched (high level)
+
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/web/app/app/assistant-api-client.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/web run test` — passed
+- Live cluster verification (`kubectl` + runtime logs) — passed for the P1-P7 target flows
+
+### Known risks / intentional limits
+
+- `Plan state: unconfigured` remains expected when no explicit workspace subscription lifecycle row is present; effective plan can still resolve via fallback.
+- Prisma OpenSSL warning remains visible in API logs; it is not a blocker for current functionality but should be hardened in base image later.
+
+### Next recommended step
+
+- Start Step 8 E1 (tool catalog and activation model) and extend visibility from class-level to per-tool level once catalog primitives are introduced.
+
+### Ready commit message
+
+- `fix(web-contracts): align admin plan create route and 201 handling; document step7 live validation`
+
 ## 2026-03-26 - Step 7 P7 plan visibility read models
 
 ### What changed
