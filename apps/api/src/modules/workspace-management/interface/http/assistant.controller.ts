@@ -17,7 +17,9 @@ import { ReapplyAssistantService } from "../../application/reapply-assistant.ser
 import { ResetAssistantService } from "../../application/reset-assistant.service";
 import { RollbackAssistantService } from "../../application/rollback-assistant.service";
 import { AssistantRuntimePreflightService } from "../../application/assistant-runtime-preflight.service";
+import { SendWebChatTurnService } from "../../application/send-web-chat-turn.service";
 import { UpdateAssistantDraftService } from "../../application/update-assistant-draft.service";
+import type { AssistantWebChatTurnState } from "../../application/web-chat.types";
 
 @Controller("api/v1")
 export class AssistantController {
@@ -29,6 +31,7 @@ export class AssistantController {
     private readonly rollbackAssistantService: RollbackAssistantService,
     private readonly resetAssistantService: ResetAssistantService,
     private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
+    private readonly sendWebChatTurnService: SendWebChatTurnService,
     private readonly updateAssistantDraftService: UpdateAssistantDraftService
   ) {}
 
@@ -156,6 +159,24 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       preflight
+    };
+  }
+
+  @Post("assistant/chat/web")
+  async sendWebChatTurn(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    transport: AssistantWebChatTurnState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.sendWebChatTurnService.parseInput(body);
+    const transport = await this.sendWebChatTurnService.execute(userId, input);
+
+    return {
+      requestId: req.requestId ?? null,
+      transport
     };
   }
 

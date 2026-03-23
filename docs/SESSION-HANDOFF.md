@@ -1,5 +1,77 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - Step 5 C2 web chat backend transport slice
+
+### What changed
+
+- Completed Step 5 slice `C2` only (web chat backend transport baseline):
+  - added backend transport endpoint in `apps/api`:
+    - `POST /api/v1/assistant/chat/web`
+  - added application service for web chat turn transport:
+    - parses/validates transport request payload
+    - enforces assistant lifecycle/apply gate
+    - resolves/creates canonical C1 chat record by `(assistantId, surface=web, surfaceThreadKey)`
+    - appends user message record before runtime call
+    - appends assistant message record after runtime call
+  - extended OpenClaw runtime adapter boundary with web chat turn operation:
+    - `POST /api/v1/runtime/chat/web`
+  - updated auth middleware route protection for new endpoint
+  - added OpenAPI contract for new endpoint and generated client updates in `packages/contracts`
+  - extended OpenClaw source compatibility patch to include auth-protected `POST /api/v1/runtime/chat/web` endpoint for dev image workflow patching
+  - updated docs:
+    - `docs/ADR/016-web-chat-backend-transport-boundary.md`
+    - `docs/ARCHITECTURE.md`
+    - `docs/API-BOUNDARY.md`
+    - `docs/ROADMAP.md` (`C2` marked complete)
+    - `docs/CHANGELOG.md`
+    - `docs/SESSION-HANDOFF.md`
+
+### Why changed
+
+- C2 introduces minimal backend transport for web chat while preserving boundaries established in C1 and A8.
+- Backend record/history truth remains canonical and runtime session/context truth remains in OpenClaw.
+- Lifecycle/apply gate prevents transport from bypassing assistant publish/apply model.
+
+### Files touched
+
+- apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts
+- apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts
+- apps/api/src/modules/workspace-management/application/web-chat.types.ts
+- apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts
+- apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts
+- apps/api/src/modules/workspace-management/workspace-management.module.ts
+- apps/api/src/modules/identity-access/identity-access.module.ts
+- packages/contracts/openapi.yaml
+- packages/contracts/src/generated/*
+- infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch
+- docs/ADR/016-web-chat-backend-transport-boundary.md
+- docs/ARCHITECTURE.md
+- docs/API-BOUNDARY.md
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` - passed
+- `corepack pnpm --filter @persai/api run lint` - passed
+- `corepack pnpm run typecheck` - passed
+- `corepack pnpm --filter @persai/web run build` - passed
+
+### Known risks
+
+- C2 transport is synchronous request/response only (no streaming/backpressure semantics).
+- OpenClaw web chat endpoint in this phase is compatibility-level and requires patched image path in dev workflow.
+- Telegram and broader multi-surface transport handling remain intentionally out of scope.
+
+### Next recommended step
+
+- Proceed to Step 5 `C3` (streaming web chat transport) while preserving C1/C2 record-vs-runtime boundary.
+
+### Ready commit message
+
+- `feat(api): add step 5 c2 web chat backend transport through openclaw adapter`
+
 ## 2026-03-23 - Step 5 C1 chat domain model slice
 
 ### What changed

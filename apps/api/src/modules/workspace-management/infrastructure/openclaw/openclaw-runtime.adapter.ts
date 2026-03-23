@@ -3,7 +3,9 @@ import { loadApiConfig } from "@persai/config";
 import type {
   AssistantRuntimeAdapter,
   AssistantRuntimeApplyInput,
-  AssistantRuntimePreflightResult
+  AssistantRuntimePreflightResult,
+  AssistantRuntimeWebChatTurnInput,
+  AssistantRuntimeWebChatTurnResult
 } from "../../application/assistant-runtime-adapter.types";
 import { AssistantRuntimeAdapterError } from "../../application/assistant-runtime-adapter.types";
 
@@ -109,6 +111,67 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       },
       config
     );
+  }
+
+  async sendWebChatTurn(
+    input: AssistantRuntimeWebChatTurnInput
+  ): Promise<AssistantRuntimeWebChatTurnResult> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError(
+        "runtime_unreachable",
+        "OpenClaw adapter is disabled by configuration."
+      );
+    }
+
+    const preflight = await this.preflight();
+    if (!preflight.live || !preflight.ready) {
+      throw new AssistantRuntimeAdapterError(
+        "runtime_degraded",
+        `OpenClaw runtime degraded: live=${preflight.live}, ready=${preflight.ready}.`
+      );
+    }
+
+    const payload = await this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/chat/web",
+      {
+        assistantId: input.assistantId,
+        publishedVersionId: input.publishedVersionId,
+        chatId: input.chatId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        userMessageId: input.userMessageId,
+        userMessage: input.userMessage
+      },
+      config
+    );
+
+    if (!isObject(payload)) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw web chat response is not a JSON object."
+      );
+    }
+
+    const assistantMessage = payload.assistantMessage;
+    const respondedAt = payload.respondedAt;
+    if (typeof assistantMessage !== "string" || assistantMessage.trim().length === 0) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw web chat response is missing assistantMessage."
+      );
+    }
+    if (typeof respondedAt !== "string" || respondedAt.trim().length === 0) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw web chat response is missing respondedAt."
+      );
+    }
+
+    return {
+      assistantMessage: assistantMessage.trim(),
+      respondedAt: respondedAt.trim()
+    };
   }
 
   private async requestWithRetries(

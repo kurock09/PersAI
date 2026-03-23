@@ -9,6 +9,7 @@ import { PublishAssistantDraftService } from "./application/publish-assistant-dr
 import { ReapplyAssistantService } from "./application/reapply-assistant.service";
 import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
+import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
 import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.repository";
@@ -37,6 +38,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ReapplyAssistantService,
     RollbackAssistantService,
     ResetAssistantService,
+    SendWebChatTurnService,
     UpdateAssistantDraftService,
     {
       provide: ASSISTANT_REPOSITORY,
@@ -72,6 +74,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ReapplyAssistantService,
     RollbackAssistantService,
     ResetAssistantService,
+    SendWebChatTurnService,
     UpdateAssistantDraftService,
     ASSISTANT_REPOSITORY,
     ASSISTANT_PUBLISHED_VERSION_REPOSITORY,

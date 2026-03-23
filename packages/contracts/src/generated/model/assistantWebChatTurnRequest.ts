@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { ErrorObject } from './errorObject';
 
-export interface ErrorEnvelope {
-  error: ErrorObject;
+export interface AssistantWebChatTurnRequest {
+  surfaceThreadKey: string;
+  message: string;
   /** @nullable */
-  requestId?: string | null;
+  title?: string | null;
 }

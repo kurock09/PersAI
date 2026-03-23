@@ -30,9 +30,24 @@ export interface AssistantRuntimeApplyInput {
   reapply: boolean;
 }
 
+export interface AssistantRuntimeWebChatTurnInput {
+  assistantId: string;
+  publishedVersionId: string;
+  chatId: string;
+  surfaceThreadKey: string;
+  userMessageId: string;
+  userMessage: string;
+}
+
+export interface AssistantRuntimeWebChatTurnResult {
+  assistantMessage: string;
+  respondedAt: string;
+}
+
 export interface AssistantRuntimeAdapter {
   preflight(): Promise<AssistantRuntimePreflightResult>;
   applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void>;
+  sendWebChatTurn(input: AssistantRuntimeWebChatTurnInput): Promise<AssistantRuntimeWebChatTurnResult>;
 }
 
 export const ASSISTANT_RUNTIME_ADAPTER = Symbol("ASSISTANT_RUNTIME_ADAPTER");

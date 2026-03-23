@@ -27,12 +27,35 @@ Path versioning: /api/v1/...
 - POST /api/v1/assistant/reset
 - POST /api/v1/assistant/reapply
 - GET /api/v1/assistant/runtime/preflight
+- POST /api/v1/assistant/chat/web
 
 ## Step 5 C1 backend boundary note
 
 - C1 introduces backend chat/message persistence model only.
 - No new public API endpoints are added in C1.
 - Streaming transport remains out of scope until C3.
+
+## Step 5 C2 web chat transport baseline
+
+### POST /api/v1/assistant/chat/web
+
+Request body fields:
+
+- `surfaceThreadKey` (string, required)
+- `message` (string, required)
+- `title` (string | null, optional; used when chat record is first created)
+
+Behavior baseline:
+
+- authenticated caller only
+- web surface only in C2
+- requires existing assistant and latest published version successfully applied
+- resolves/creates canonical backend chat record by `(assistantId, surface=web, surfaceThreadKey)`
+- persists user message record in backend chat history
+- sends transport turn through adapter boundary to OpenClaw runtime (`POST /api/v1/runtime/chat/web`)
+- persists assistant message record in backend chat history
+- returns transport result with chat + user message + assistant message records
+- no streaming in C2
 
 ### POST /api/v1/assistant
 
@@ -281,6 +304,9 @@ First supported adapter interactions:
   - `POST /api/v1/runtime/spec/apply`
   - payload source is A7 materialized documents (`openclawBootstrap`, `openclawWorkspace`, `contentHash`)
   - `reapply` flag is explicit in request body
+- runtime web chat transport (C2):
+  - `POST /api/v1/runtime/chat/web`
+  - payload source is backend canonical turn context (`assistantId`, published version ID, chat/thread identity, persisted user message data)
 
 Allowed backend knowledge:
 

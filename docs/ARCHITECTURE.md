@@ -49,6 +49,15 @@ O6 defines a future adapter-only contract:
 - backend chat domain must not include runtime session internals
 - surface-aware threading is explicit and record-level (`surface + surfaceThreadKey`)
 
+## Chat transport boundary (Step 5 C2)
+
+- backend web chat transport entrypoint:
+  - `POST /api/v1/assistant/chat/web`
+- transport is adapter-only to OpenClaw runtime:
+  - `POST /api/v1/runtime/chat/web`
+- backend persists canonical chat/message records before/after runtime turn
+- transport is synchronous in C2 (no streaming)
+
 ## Frontend/backend boundary
 
 - contracts-first

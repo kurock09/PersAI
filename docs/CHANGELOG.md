@@ -103,6 +103,22 @@
   - no new public chat endpoints in C1
   - no streaming transport in C1
   - no Telegram chat domain in C1
+- Step 5 slice C2 web chat backend transport baseline:
+  - added authenticated backend transport endpoint:
+    - `POST /api/v1/assistant/chat/web`
+  - transport is web-only in C2 and remains behind OpenClaw infrastructure adapter boundary
+  - added adapter interaction for web chat turn transport:
+    - `POST /api/v1/runtime/chat/web`
+  - transport path persists canonical backend chat records as user-facing truth:
+    - user message append before runtime turn
+    - assistant message append after runtime turn
+  - added lifecycle/apply gate for transport availability:
+    - assistant must exist
+    - at least one published version must exist
+    - latest published version must be successfully applied
+  - added OpenClaw compatibility patch support for runtime web chat transport endpoint in dev image workflow source patch
+  - no streaming transport in C2
+  - no Telegram transport/domain in C2
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

@@ -288,6 +288,55 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chat/web:
+    post:
+      operationId: postAssistantWebChatTurn
+      summary: Send one web chat turn through backend transport and adapter boundary
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantWebChatTurnRequest"
+      responses:
+        "200":
+          description: Transport result with canonical chat records and runtime response metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantWebChatTransportResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Assistant transport unavailable due to lifecycle/apply state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me:
     get:
       operationId: getMe
@@ -721,6 +770,119 @@ components:
         targetVersion:
           type: integer
           minimum: 1
+    AssistantChatSurface:
+      type: string
+      enum:
+        - web
+    AssistantChatMessageAuthor:
+      type: string
+      enum:
+        - user
+        - assistant
+        - system
+    AssistantWebChatTurnRequest:
+      type: object
+      required:
+        - surfaceThreadKey
+        - message
+      properties:
+        surfaceThreadKey:
+          type: string
+        message:
+          type: string
+        title:
+          type: string
+          nullable: true
+    AssistantWebChatState:
+      type: object
+      required:
+        - id
+        - assistantId
+        - surface
+        - surfaceThreadKey
+        - title
+        - archivedAt
+        - lastMessageAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        assistantId:
+          type: string
+          format: uuid
+        surface:
+          $ref: "#/components/schemas/AssistantChatSurface"
+        surfaceThreadKey:
+          type: string
+        title:
+          type: string
+          nullable: true
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastMessageAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AssistantWebChatMessageState:
+      type: object
+      required:
+        - id
+        - chatId
+        - assistantId
+        - author
+        - content
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        chatId:
+          type: string
+          format: uuid
+        assistantId:
+          type: string
+          format: uuid
+        author:
+          $ref: "#/components/schemas/AssistantChatMessageAuthor"
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    AssistantWebChatRuntimeState:
+      type: object
+      required:
+        - respondedAt
+      properties:
+        respondedAt:
+          type: string
+          format: date-time
+    AssistantWebChatTurnState:
+      type: object
+      required:
+        - chat
+        - userMessage
+        - assistantMessage
+        - runtime
+      properties:
+        chat:
+          $ref: "#/components/schemas/AssistantWebChatState"
+        userMessage:
+          $ref: "#/components/schemas/AssistantWebChatMessageState"
+        assistantMessage:
+          $ref: "#/components/schemas/AssistantWebChatMessageState"
+        runtime:
+          $ref: "#/components/schemas/AssistantWebChatRuntimeState"
     GetAssistantResponse:
       type: object
       required:
@@ -741,6 +903,16 @@ components:
           nullable: true
         preflight:
           $ref: "#/components/schemas/AssistantRuntimePreflightState"
+    GetAssistantWebChatTransportResponse:
+      type: object
+      required:
+        - transport
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        transport:
+          $ref: "#/components/schemas/AssistantWebChatTurnState"
     ErrorEnvelope:
       type: object
       required:
