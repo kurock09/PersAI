@@ -1,5 +1,63 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - Step 6 D1 memory control domain hardening
+
+### What changed
+
+- Hardened backend memory **control plane** while keeping OpenClaw as runtime memory behavior owner:
+  - added Prisma column `assistant_governance.memory_control` and migration with backfill from `policyEnvelope.memoryControl` when set
+  - seeded new assistants with default `persai.memoryControl.v1` envelope (`createDefaultMemoryControlEnvelope`)
+  - materialization now resolves effective memory control from column → legacy nested key → default
+  - included `memoryControl` in materialization governance layer snapshot for auditability
+  - exposed `governance.memoryControl` on assistant lifecycle API + OpenAPI/contracts
+- Documented boundary in `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, ADR-019; marked D1 complete in `docs/ROADMAP.md`.
+
+### Why changed
+
+- D1 requires explicit governable memory policy/hooks/markers in the control plane without moving runtime memory mechanics into `apps/api`.
+- Prior code only read optional `policyEnvelope.memoryControl` during materialization; there was no canonical persisted baseline.
+
+### Files touched
+
+- apps/api/prisma/schema.prisma
+- apps/api/prisma/migrations/20260324120000_step6_d1_memory_control_domain/migration.sql
+- apps/api/src/modules/workspace-management/domain/assistant-governance.entity.ts
+- apps/api/src/modules/workspace-management/domain/assistant-memory-control.defaults.ts
+- apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-governance.repository.ts
+- apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts
+- apps/api/src/modules/workspace-management/application/assistant-lifecycle.types.ts
+- apps/api/src/modules/workspace-management/application/assistant-lifecycle.mapper.ts
+- packages/contracts/openapi.yaml
+- packages/contracts/src/generated/*
+- apps/web/app/app/app-flow.client.test.tsx
+- docs/ADR/019-memory-control-domain-d1.md
+- docs/ARCHITECTURE.md
+- docs/API-BOUNDARY.md
+- docs/DATA-MODEL.md
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
+
+### Tests run / result
+
+- `corepack pnpm run typecheck` — passed
+- `corepack pnpm run prisma:migrate:check` — passed (local Postgres)
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` — passed
+
+### Known risks
+
+- Existing materialized specs keep prior `content_hash` until republish/reapply path creates a new spec; new publishes pick up enriched governance layer including `memoryControl`.
+- Clients must tolerate new `governance.memoryControl` field (nullable object).
+
+### Next recommended step
+
+- Step 6 `D2` Memory Center MVP (read-focused UX) using `governance.memoryControl` + future memory list APIs as designed.
+
+### Ready commit message
+
+- `feat(api): add step 6 d1 memory control envelope and materialization wiring`
+
 ## 2026-03-23 - OpenClaw patch protection hardening
 
 ### What changed

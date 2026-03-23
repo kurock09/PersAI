@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import type { AssistantGovernance as PrismaAssistantGovernance } from "@prisma/client";
+import type { AssistantGovernance as PrismaAssistantGovernance, Prisma } from "@prisma/client";
 import type { AssistantGovernanceRepository } from "../../domain/assistant-governance.repository";
 import type { AssistantGovernance } from "../../domain/assistant-governance.entity";
+import { createDefaultMemoryControlEnvelope } from "../../domain/assistant-memory-control.defaults";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
 @Injectable()
@@ -18,7 +19,10 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
 
   async createBaseline(assistantId: string): Promise<AssistantGovernance> {
     const governance = await this.prisma.assistantGovernance.create({
-      data: { assistantId }
+      data: {
+        assistantId,
+        memoryControl: createDefaultMemoryControlEnvelope() as Prisma.InputJsonValue
+      }
     });
 
     return this.mapToDomain(governance);
@@ -31,6 +35,7 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
       capabilityEnvelope: governance.capabilityEnvelope,
       secretRefs: governance.secretRefs,
       policyEnvelope: governance.policyEnvelope,
+      memoryControl: governance.memoryControl,
       quotaPlanCode: governance.quotaPlanCode,
       quotaHook: governance.quotaHook,
       auditHook: governance.auditHook,

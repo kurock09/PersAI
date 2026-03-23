@@ -78,7 +78,7 @@ Foundation Phase
 
 ## Step 6 Memory and Tasks Control
 
-- [ ] D1 — memory control domain hardening
+- [x] D1 — memory control domain hardening
 - [ ] D2 — memory center MVP
 - [ ] D3 — memory source policy enforcement
 - [ ] D4 — tasks control domain hardening

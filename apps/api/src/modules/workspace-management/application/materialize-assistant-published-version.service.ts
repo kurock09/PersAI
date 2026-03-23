@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
+import { createDefaultMemoryControlEnvelope } from "../domain/assistant-memory-control.defaults";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
@@ -49,6 +50,21 @@ function parsePolicyObject(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function resolveEffectiveMemoryControl(governance: AssistantGovernance): Record<string, unknown> {
+  const direct = governance.memoryControl;
+  if (direct !== null && typeof direct === "object" && !Array.isArray(direct)) {
+    return direct as Record<string, unknown>;
+  }
+
+  const policyEnvelope = parsePolicyObject(governance.policyEnvelope);
+  const legacy = parsePolicyObject(policyEnvelope?.memoryControl ?? null);
+  if (legacy !== null) {
+    return legacy;
+  }
+
+  return createDefaultMemoryControlEnvelope();
+}
+
 @Injectable()
 export class MaterializeAssistantPublishedVersionService {
   constructor(
@@ -74,8 +90,7 @@ export class MaterializeAssistantPublishedVersionService {
       (await this.assistantGovernanceRepository.findByAssistantId(assistant.id)) ??
       (await this.assistantGovernanceRepository.createBaseline(assistant.id));
 
-    const policyEnvelope = parsePolicyObject(governance.policyEnvelope);
-    const memoryControl = parsePolicyObject(policyEnvelope?.memoryControl ?? null);
+    const memoryControl = resolveEffectiveMemoryControl(governance);
 
     const layers = {
       schema: MATERIALIZATION_SCHEMA,
@@ -162,6 +177,7 @@ export class MaterializeAssistantPublishedVersionService {
       capabilityEnvelope: governance.capabilityEnvelope,
       secretRefs: governance.secretRefs,
       policyEnvelope: governance.policyEnvelope,
+      memoryControl: governance.memoryControl,
       quota: {
         planCode: governance.quotaPlanCode,
         hook: governance.quotaHook

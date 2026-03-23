@@ -69,6 +69,7 @@ Postgres with Prisma.
 - capability_envelope (jsonb, nullable)
 - secret_refs (jsonb, nullable)
 - policy_envelope (jsonb, nullable)
+- memory_control (jsonb, nullable) — Step 6 D1: canonical memory control-plane envelope (`persai.memoryControl.v1` baseline)
 - quota_plan_code (nullable)
 - quota_hook (jsonb, nullable)
 - audit_hook (jsonb, nullable)
@@ -154,6 +155,7 @@ Postgres with Prisma.
     - capability envelope
     - secret refs
     - policy envelope
+    - memory control envelope (policy, provenance hooks, visibility hooks, forget-request markers, audit routing)
     - quota plan/hook placeholders
     - audit hook placeholder
 - `assistant_materialized_specs`:
@@ -206,6 +208,7 @@ Postgres with Prisma.
 - A6 adds platform-managed governance layer separate from user-owned draft/version truth
 - A7 adds deterministic materialization layer from user-owned + governance inputs to OpenClaw-native outputs
 - A8 executes runtime apply/reapply via infrastructure adapter using A7 materialized outputs and persists coarse apply error state
+- D1 adds first-class `memory_control` JSON on `assistant_governance` for memory policy/hooks/markers; runtime memory behavior stays outside backend tables
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

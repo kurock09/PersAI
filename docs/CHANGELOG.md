@@ -4,6 +4,12 @@
 
 ### Added
 
+- Step 6 slice D1 memory control domain hardening:
+  - added `assistant_governance.memory_control` JSON column with MVP default envelope `persai.memoryControl.v1` (policy, provenance hooks, visibility hooks, forget-request markers placeholder, audit routing)
+  - migration backfills from legacy `policyEnvelope.memoryControl` when present
+  - materialization resolves `openclawWorkspace.memoryControl` from the new column with legacy fallback
+  - `GET /api/v1/assistant` governance block now includes `memoryControl` (OpenAPI + generated contracts)
+  - ADR `docs/ADR/019-memory-control-domain-d1.md`
 - Initial documentation baseline.
 - OpenClaw patch safety guardrails:
   - added `infra/dev/gitops/validate-openclaw-compat-patch.sh` to validate that `openclaw-runtime-spec-apply-compat.patch` cleanly applies to the pinned approved OpenClaw SHA

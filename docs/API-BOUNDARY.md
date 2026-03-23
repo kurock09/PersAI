@@ -197,6 +197,7 @@ Behavior baseline:
     - `capabilityEnvelope`
     - `secretRefs`
     - `policyEnvelope`
+    - `memoryControl` (Step 6 D1: control-plane memory governance envelope; not raw runtime memory)
     - `quotaPlanCode`
     - `quotaHook`
     - `auditHook`
@@ -318,6 +319,12 @@ Behavior baseline:
   - immutable published versions in `assistant_published_versions`
 - Platform-managed governance truth is separate:
   - envelopes/hooks in `assistant_governance`
+
+## Step 6 D1 memory control envelope rule
+
+- Canonical memory control JSON lives in `assistant_governance.memory_control` and is exposed as `governance.memoryControl` on assistant lifecycle reads.
+- Materialization resolves `openclawWorkspace.memoryControl` from that column, with legacy fallback to `policyEnvelope.memoryControl`, then MVP defaults.
+- D1 does not add memory edit APIs or Memory Center UI; enforcement of provenance/write surfaces is deferred to later slices.
 
 ## Step 3 A7 materialization rule
 

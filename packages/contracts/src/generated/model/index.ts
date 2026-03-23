@@ -43,6 +43,7 @@ export * from "./workspaceSummaryRole";
 export * from "./workspaceSummaryStatus";
 export * from './assistantChatMessageAuthor';
 export * from './assistantChatSurface';
+export * from './assistantGovernanceStateMemoryControl';
 export * from './assistantWebChatDeleteRequest';
 export * from './assistantWebChatListItemState';
 export * from './assistantWebChatMessageState';

@@ -33,6 +33,7 @@ export function toAssistantLifecycleState(
     capabilityEnvelope: governance?.capabilityEnvelope ?? null,
     secretRefs: governance?.secretRefs ?? null,
     policyEnvelope: governance?.policyEnvelope ?? null,
+    memoryControl: governance?.memoryControl ?? null,
     quotaPlanCode: governance?.quotaPlanCode ?? null,
     quotaHook: governance?.quotaHook ?? null,
     auditHook: governance?.auditHook ?? null,

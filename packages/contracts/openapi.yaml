@@ -839,6 +839,7 @@ components:
         - capabilityEnvelope
         - secretRefs
         - policyEnvelope
+        - memoryControl
         - quotaPlanCode
         - quotaHook
         - auditHook
@@ -853,6 +854,13 @@ components:
           additionalProperties: true
           nullable: true
         policyEnvelope:
+          type: object
+          additionalProperties: true
+          nullable: true
+        memoryControl:
+          description: >
+            Step 6 D1 control-plane memory governance envelope (policy, provenance hooks,
+            visibility hooks, forget-request markers, audit routing). Not raw OpenClaw/runtime memory.
           type: object
           additionalProperties: true
           nullable: true

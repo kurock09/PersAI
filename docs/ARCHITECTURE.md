@@ -89,3 +89,15 @@ O6 defines a future adapter-only contract:
 - contracts-first
 - no scattered raw fetch
 - typed client only
+
+## Memory control boundary (Step 6 D1)
+
+- backend owns a **memory control-plane envelope** per assistant (`assistant_governance.memory_control`):
+  - policy (read/write surfaces, group-sourced write denial)
+  - provenance metadata hooks (for later enforcement)
+  - visibility hooks (user-facing source exposure)
+  - forget-request markers (control-plane only in D1; not runtime memory contents)
+  - audit routing toward governance `audit_hook`
+- OpenClaw owns **runtime memory behavior** and consumption during assistant execution
+- materialized `openclawWorkspace.memoryControl` carries the resolved envelope so the runtime does not infer policy
+- legacy `policyEnvelope.memoryControl` is supported only as a migration/fallback path

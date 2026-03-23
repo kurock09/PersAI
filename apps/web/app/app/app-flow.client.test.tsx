@@ -137,6 +137,7 @@ function makeAssistantResponse(): AssistantLifecycleState {
       capabilityEnvelope: null,
       secretRefs: null,
       policyEnvelope: null,
+      memoryControl: null,
       quotaPlanCode: null,
       quotaHook: null,
       auditHook: null,
