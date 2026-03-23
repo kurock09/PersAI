@@ -458,6 +458,10 @@
 
 ### Fixed
 
+- Dev Argo PreSync migration hook hang:
+  - updated `infra/helm/templates/api-migrate-job.yaml` to use `cloud-sql-proxy` as a sidecar-style `initContainer` (`restartPolicy: Always`) instead of a regular long-running Job sidecar container
+  - added explicit local proxy readiness wait (`127.0.0.1:<port>`) before running Prisma commands in `api-migrate`
+  - this removes the deadlock where migration SQL completed but hook Job never reached `Succeeded`, leaving Argo sync stuck in `Running`
 - Dev deploy DB drift risk after rollout:
   - added Argo CD `PreSync` migration hook job (`infra/helm/templates/api-migrate-job.yaml`)
   - migration hook now runs on every sync:

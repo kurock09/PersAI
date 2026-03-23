@@ -2,9 +2,13 @@
 
 ## What changed
 
+- Fixed the `api-migrate` Argo PreSync hook lifecycle deadlock:
+  - changed `cloud-sql-proxy` from a regular Job sidecar container to a sidecar-style `initContainer` with `restartPolicy: Always`
+  - added explicit proxy readiness wait in `api-migrate` before Prisma commands run
+  - result: migration hook can now complete and reach `Succeeded` instead of hanging in `Running` after SQL steps finish
 - Applied deploy reliability hardening for automatic DB migration + verification on each sync:
   - added new Helm template `infra/helm/templates/api-migrate-job.yaml`
-  - `api-migrate` runs as Argo `PreSync` hook using API image + same env/secret + Cloud SQL proxy sidecar
+  - `api-migrate` runs as Argo `PreSync` hook using API image + same env/secret + Cloud SQL proxy in sidecar-style init lifecycle
   - hook command is strict:
     - `corepack pnpm run prisma:migrate:deploy`
     - `corepack pnpm run prisma:migrate:status`
@@ -60,6 +64,9 @@
 
 ## Why changed
 
+- User-required turnkey deploy path was still blocked by one recurring issue: successful migration SQL with non-terminating hook lifecycle.
+- The previous Job-sidecar pattern left `api-migrate` in `Running/Terminating`, which blocked Argo sync completion and required manual cleanup.
+- The fix keeps the same migration guarantees but removes the hook completion deadlock.
 - User requirement: deploy must be turnkey and stable without manual DB migration steps.
 - Previous flow allowed successful rollout while migrations could be skipped/failing, creating future break risk.
 - New PreSync migration hook guarantees schema update + verification before API rollout is considered successful.
@@ -147,13 +154,15 @@
 
 - Migration hook depends on Cloud SQL access rights for API runtime GSA (`roles/cloudsql.client`).
 - If Cloud SQL IAM/scopes are broken, sync will now fail fast (desired behavior) until infra permissions are fixed.
+- Argo application status can remain stale (`operationState`) after forced hook cleanup; if observed, clear the stale operation once and then rely on the fixed hook template for future sync cycles.
 - Runtime apply endpoint contract in OpenClaw is assumed at `/api/v1/runtime/spec/apply`; any drift must be handled via adapter contract update.
 - Existing historical published versions without materialized spec will fail apply/reapply with `invalid_response` until backfilled/materialized.
 - Adapter is synchronous request/response only; no async apply job tracking yet.
 
 ## Next recommended step
 
-- Run one `main` push verification cycle:
+- Commit/push this hook lifecycle fix, then run one `main` push verification cycle:
+  - confirm `api-migrate` reaches `Succeeded` (not `Running/Terminating`)
   - confirm workflow updates only `global.images.tag`
   - confirm OpenClaw workflow updates `openclaw.image.tag` to approved SHA
-  - confirm Argo auto-sync executes `api-migrate` hook and rollout stays healthy.
+  - confirm Argo auto-sync completes without manual terminate/delete operations.

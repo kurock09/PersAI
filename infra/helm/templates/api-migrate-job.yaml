@@ -19,6 +19,24 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: {{ .Values.api.serviceAccount.name }}
+{{- if .Values.api.cloudSqlProxy.enabled }}
+      initContainers:
+        - name: cloud-sql-proxy
+          image: "{{ .Values.api.cloudSqlProxy.image }}"
+          imagePullPolicy: IfNotPresent
+          restartPolicy: Always
+          args:
+            - "--structured-logs"
+            - "--port={{ .Values.api.cloudSqlProxy.port }}"
+{{- if .Values.api.cloudSqlProxy.usePrivateIp }}
+            - "--private-ip"
+{{- end }}
+            - "{{ .Values.api.cloudSqlProxy.instanceConnectionName }}"
+{{- if .Values.api.cloudSqlProxy.port }}
+          ports:
+            - containerPort: {{ .Values.api.cloudSqlProxy.port }}
+{{- end }}
+{{- end }}
       containers:
         - name: api-migrate
           image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.api.image.name }}:{{ $apiTag }}"
@@ -28,6 +46,31 @@ spec:
             - -lc
             - |
               set -eu
+{{- if .Values.api.cloudSqlProxy.enabled }}
+              node -e '
+              const net = require("net");
+              const port = {{ .Values.api.cloudSqlProxy.port }};
+              let attempt = 0;
+              const maxAttempts = 30;
+              const retryDelayMs = 1000;
+              function waitForPort() {
+                const socket = net.createConnection({ host: "127.0.0.1", port }, () => {
+                  socket.end();
+                  process.exit(0);
+                });
+                socket.on("error", () => {
+                  socket.destroy();
+                  attempt += 1;
+                  if (attempt >= maxAttempts) {
+                    console.error(`cloud-sql-proxy did not become ready on 127.0.0.1:${port}`);
+                    process.exit(1);
+                  }
+                  setTimeout(waitForPort, retryDelayMs);
+                });
+              }
+              waitForPort();
+              '
+{{- end }}
               corepack pnpm run prisma:migrate:deploy
               corepack pnpm run prisma:migrate:status
 {{- if or .Values.api.env .Values.api.secretEnv }}
@@ -42,22 +85,6 @@ spec:
                 secretKeyRef:
                   name: {{ $ref.secretName | quote }}
                   key: {{ $ref.secretKey | quote }}
-{{- end }}
-{{- end }}
-{{- if .Values.api.cloudSqlProxy.enabled }}
-        - name: cloud-sql-proxy
-          image: "{{ .Values.api.cloudSqlProxy.image }}"
-          imagePullPolicy: IfNotPresent
-          args:
-            - "--structured-logs"
-            - "--port={{ .Values.api.cloudSqlProxy.port }}"
-{{- if .Values.api.cloudSqlProxy.usePrivateIp }}
-            - "--private-ip"
-{{- end }}
-            - "{{ .Values.api.cloudSqlProxy.instanceConnectionName }}"
-{{- if .Values.api.cloudSqlProxy.port }}
-          ports:
-            - containerPort: {{ .Values.api.cloudSqlProxy.port }}
 {{- end }}
 {{- end }}
 {{- end }}
