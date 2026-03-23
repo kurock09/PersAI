@@ -449,6 +449,19 @@ Behavior baseline:
 - Limit sources are provider-agnostic plan hints + entitlement limit keys with config fallback defaults.
 - Tasks/reminders are intentionally excluded from commercial quota accounting.
 
+## Step 7 P6 enforcement points baseline
+
+- P6 introduces centralized control-plane enforcement checks and does not add new public endpoints.
+- Enforcement is active at:
+  - `POST /api/v1/assistant/chat/web`
+  - `POST /api/v1/assistant/chat/web/stream` (prepare/new-thread gate)
+- Enforced rules at these boundaries:
+  - capability gates: web chat channel + text media class + utility tool class
+  - active web chats cap on new-thread creation
+  - token budget quota limit
+  - cost/token-driving tool-class quota limit when class is quota-governed
+- Materialization now carries explicit `toolAvailability` (`persai.effectiveToolAvailability.v1`) for OpenClaw alongside `effectiveCapabilities`.
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

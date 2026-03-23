@@ -91,7 +91,7 @@ Foundation Phase
 - [x] P3 — subscription state and billing abstraction
 - [x] P4 — capability resolution engine
 - [x] P5 — quota accounting baseline
-- [ ] P6 — enforcement points
+- [x] P6 — enforcement points
 - [ ] P7 — user/admin plan visibility
 
 ## Step 8 Tools, Channels, and Integrations

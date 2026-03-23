@@ -12,6 +12,13 @@ import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.
 export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaAccountingRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
+  async findByWorkspaceId(workspaceId: string): Promise<WorkspaceQuotaAccountingState | null> {
+    const state = await this.prisma.workspaceQuotaAccountingState.findUnique({
+      where: { workspaceId }
+    });
+    return state ? this.mapToDomain(state) : null;
+  }
+
   async incrementUsage(
     input: IncrementWorkspaceQuotaUsageInput
   ): Promise<WorkspaceQuotaAccountingState> {

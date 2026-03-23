@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - Step 7 P6 enforcement points baseline
+
+### What changed
+
+- Added centralized enforcement layer service: `EnforceAssistantCapabilityAndQuotaService`.
+- Activated P6 enforcement at agreed control-plane boundaries:
+  - sync web chat send flow
+  - streaming web chat prepare flow
+- Enforcement checks now executed in one place:
+  - capability checks:
+    - web chat channel availability
+    - text media class availability
+    - utility tool-class availability
+  - quota/cap checks:
+    - active web chats cap for new-thread creation
+    - token budget limit
+    - cost/token-driving tool-class limit when quota-governed
+- Added read access for workspace quota accounting state in repository boundary for enforcement.
+- Materialization now includes explicit `toolAvailability` (`persai.effectiveToolAvailability.v1`) in:
+  - governance layer snapshot
+  - OpenClaw bootstrap document
+  - OpenClaw workspace document
+- Added API test script: `test:enforcement-points`.
+- Docs updated: ADR-029, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- P6 turns P1-P5 plan/entitlement/capability/quota state into active product rules at explicit control-plane boundaries while keeping backend out of runtime behavior routing.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/enforce-assistant-capability-and-quota.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-quota-accounting.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-quota-accounting.repository.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/enforcement-points.test.ts`
+- `apps/api/package.json`
+- `docs/ADR/029-enforcement-points-p6.md`
+- `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- pending in current session
+
+### Known risks / intentional limits
+
+- P6 enforces at current agreed boundaries (web chat send/stream prepare); broader endpoint-by-endpoint enforcement remains future hardening scope.
+- `toolAvailability` in P6 is class-level truth only; per-tool catalog activation remains Step 8 scope.
+- Backend still does not route runtime tool behavior.
+
+### Next recommended step
+
+- Step 7 **P7** user/admin plan visibility over enforced limits/capabilities and percentage-oriented quota UX read models.
+
+### Ready commit message
+
+- `feat(api): add step 7 p6 centralized capability and quota enforcement points`
+
 ## 2026-03-26 - Step 7 P5 quota accounting baseline
 
 ### What changed

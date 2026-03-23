@@ -173,6 +173,21 @@ O6 defines a future adapter-only contract:
 - tasks/reminders remain explicitly non-commercial-quota dimensions in this slice
 - no backend behavior routing and no BI/reporting expansion in P5
 
+## Enforcement points boundary (Step 7 P6)
+
+- enforcement is centralized in one application-layer service (`EnforceAssistantCapabilityAndQuotaService`)
+- active enforcement points in P6:
+  - web chat sync send path
+  - web chat stream prepare path
+- enforced rules combine:
+  - P4 effective capabilities (channel/media/tool-class availability)
+  - P5 quota/accounting state + plan-derived limits
+  - active web chats cap for new-thread creation
+- backend remains governance/control plane:
+  - it enforces policy at entry boundaries
+  - it does not route runtime tool behavior
+- OpenClaw materialization includes explicit `toolAvailability` truth so runtime does not assume unavailable tool classes exist
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

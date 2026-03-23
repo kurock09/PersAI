@@ -78,3 +78,12 @@ Required in CI:
   - cost/token-driving tool-class usage increments
   - active web chats usage refresh
 - Web chat/send/stream and chat list archive/delete compile with centralized quota tracking hooks and preserve prior regressions.
+
+## Step 7 P6 focus
+
+- Centralized enforcement behavior is validated in API test script (`test:enforcement-points`) for:
+  - capability gate checks
+  - active web chats cap gate
+  - quota limit gate behavior
+- Web chat send/stream boundaries compile and run through the enforcement layer (no ad hoc duplicate checks).
+- Materialization compiles with explicit `toolAvailability` snapshot included for OpenClaw-facing documents.

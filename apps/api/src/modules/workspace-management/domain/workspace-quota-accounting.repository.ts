@@ -32,6 +32,7 @@ export type RefreshActiveWebChatsQuotaInput = {
 };
 
 export interface WorkspaceQuotaAccountingRepository {
+  findByWorkspaceId(workspaceId: string): Promise<WorkspaceQuotaAccountingState | null>;
   incrementUsage(input: IncrementWorkspaceQuotaUsageInput): Promise<WorkspaceQuotaAccountingState>;
   refreshActiveWebChatsUsage(
     input: RefreshActiveWebChatsQuotaInput

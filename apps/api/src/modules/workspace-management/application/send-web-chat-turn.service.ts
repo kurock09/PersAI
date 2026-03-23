@@ -5,7 +5,6 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
-import { loadApiConfig } from "@persai/config";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -20,6 +19,7 @@ import {
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
 import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
+import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatTurnState } from "./web-chat.types";
@@ -57,6 +57,7 @@ export class SendWebChatTurnService {
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
+    private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
@@ -113,18 +114,15 @@ export class SendWebChatTurnService {
       "web",
       request.surfaceThreadKey
     );
-    if (existingChat === null) {
-      const activeChatsCount = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
-        assistant.id,
-        "web"
-      );
-      const activeChatsCap = loadApiConfig(process.env).WEB_ACTIVE_CHATS_CAP;
-      if (activeChatsCount >= activeChatsCap) {
-        throw new ConflictException(
-          `Active web chats cap reached (${activeChatsCap}). Archive an existing chat or continue in an existing thread.`
-        );
-      }
-    }
+    const activeChatsCount = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+      assistant.id,
+      "web"
+    );
+    await this.enforceAssistantCapabilityAndQuotaService.enforceWebChatTurn({
+      assistant,
+      isNewThread: existingChat === null,
+      activeWebChatsCount: activeChatsCount
+    });
     const chat =
       existingChat ??
       (await this.assistantChatRepository.createChat({

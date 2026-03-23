@@ -7,6 +7,7 @@ import { ApplyAssistantPublishedVersionService } from "./application/apply-assis
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
 import { DoNotRememberAssistantMemoryService } from "./application/do-not-remember-assistant-memory.service";
+import { EnforceAssistantCapabilityAndQuotaService } from "./application/enforce-assistant-capability-and-quota.service";
 import { ForgetAssistantMemoryItemService } from "./application/forget-assistant-memory-item.service";
 import { ListAssistantMemoryItemsService } from "./application/list-assistant-memory-items.service";
 import { ListAssistantTaskItemsService } from "./application/list-assistant-task-items.service";
@@ -63,6 +64,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManageAdminPlansService,
     ResolveEffectiveSubscriptionStateService,
     ResolveEffectiveCapabilityStateService,
+    EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,
     ManageWebChatListService,
     CreateAssistantService,

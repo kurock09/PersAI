@@ -76,6 +76,7 @@ export class MaterializeAssistantPublishedVersionService {
       assistant,
       governance
     });
+    const toolAvailability = this.toToolAvailability(effectiveCapabilities);
 
     const layers = {
       schema: MATERIALIZATION_SCHEMA,
@@ -94,7 +95,7 @@ export class MaterializeAssistantPublishedVersionService {
             instructions: publishedVersion.snapshotInstructions
           }
         },
-        governance: this.toGovernanceLayer(governance, effectiveCapabilities),
+        governance: this.toGovernanceLayer(governance, effectiveCapabilities, toolAvailability),
         applyState: {
           status: assistant.applyStatus,
           targetPublishedVersionId: assistant.applyTargetVersionId,
@@ -117,6 +118,7 @@ export class MaterializeAssistantPublishedVersionService {
           hook: governance.quotaHook
         },
         effectiveCapabilities,
+        toolAvailability,
         secretRefs: governance.secretRefs,
         auditHook: governance.auditHook
       }
@@ -134,6 +136,7 @@ export class MaterializeAssistantPublishedVersionService {
         instructions: publishedVersion.snapshotInstructions
       },
       effectiveCapabilities,
+      toolAvailability,
       memoryControl,
       tasksControl
     };
@@ -162,13 +165,15 @@ export class MaterializeAssistantPublishedVersionService {
 
   private toGovernanceLayer(
     governance: AssistantGovernance,
-    effectiveCapabilities: Record<string, unknown>
+    effectiveCapabilities: Record<string, unknown>,
+    toolAvailability: Record<string, unknown>
   ): Record<string, unknown> {
     return {
       capabilityEnvelope: governance.capabilityEnvelope,
       secretRefs: governance.secretRefs,
       policyEnvelope: governance.policyEnvelope,
       effectiveCapabilities,
+      toolAvailability,
       memoryControl: governance.memoryControl,
       tasksControl: governance.tasksControl,
       quota: {
@@ -176,6 +181,51 @@ export class MaterializeAssistantPublishedVersionService {
         hook: governance.quotaHook
       },
       auditHook: governance.auditHook
+    };
+  }
+
+  private toToolAvailability(effectiveCapabilities: Record<string, unknown>): Record<string, unknown> {
+    const capabilities = effectiveCapabilities as {
+      schema?: string;
+      toolClasses?: {
+        costDriving?: { allowed?: boolean; quotaGoverned?: boolean };
+        utility?: { allowed?: boolean; quotaGoverned?: boolean };
+      };
+      derivedFrom?: {
+        planCode?: string | null;
+      };
+    };
+
+    const utilityAllowed = capabilities.toolClasses?.utility?.allowed === true;
+    const utilityQuotaGoverned = capabilities.toolClasses?.utility?.quotaGoverned === true;
+    const costDrivingAllowed = capabilities.toolClasses?.costDriving?.allowed === true;
+    const costDrivingQuotaGoverned =
+      capabilities.toolClasses?.costDriving?.quotaGoverned === true;
+
+    return {
+      schema: "persai.effectiveToolAvailability.v1",
+      derivedFrom: {
+        effectiveCapabilitiesSchema:
+          typeof capabilities.schema === "string" ? capabilities.schema : null,
+        planCode: capabilities.derivedFrom?.planCode ?? null
+      },
+      toolClasses: {
+        utility: {
+          allowed: utilityAllowed,
+          quotaGoverned: utilityQuotaGoverned,
+          activation: utilityAllowed ? "active" : "inactive"
+        },
+        costDriving: {
+          allowed: costDrivingAllowed,
+          quotaGoverned: costDrivingQuotaGoverned,
+          activation: costDrivingAllowed ? "active" : "inactive"
+        }
+      },
+      tools: [],
+      notes: [
+        "P6 baseline uses class-level activation truth.",
+        "Per-tool catalog activation is intentionally deferred to Step 8."
+      ]
     };
   }
 }

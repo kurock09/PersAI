@@ -4,6 +4,17 @@
 
 ### Added
 
+- Step 7 slice P6 enforcement points baseline:
+  - added centralized enforcement service (`EnforceAssistantCapabilityAndQuotaService`) for control-plane rule gates
+  - activated enforcement at web chat boundaries (`/assistant/chat/web`, `/assistant/chat/web/stream` prepare path)
+  - enforced rules now include:
+    - capability gates (web chat channel, text media class, utility tool class)
+    - active web chats cap on new-thread creation
+    - token budget limit
+    - cost/token-driving tool-class quota limit (when class is quota-governed)
+  - materialization now includes explicit tool availability snapshot (`persai.effectiveToolAvailability.v1`) in governance/OpenClaw documents so runtime does not infer unavailable tool classes
+  - added API test script `test:enforcement-points`
+  - ADR `docs/ADR/029-enforcement-points-p6.md`
 - Step 7 slice P5 quota accounting baseline:
   - added canonical quota accounting persistence model:
     - `workspace_quota_accounting_state` (latest usage + limits per workspace)
