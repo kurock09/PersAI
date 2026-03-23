@@ -1,5 +1,79 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - Step 5 C5 active web chats cap slice
+
+### What changed
+
+- Completed Step 5 slice `C5` only (active web chats cap enforcement):
+  - added backend cap enforcement for web chat transport paths:
+    - synchronous path (`C2`) in `SendWebChatTurnService`
+    - streaming path (`C3`) in `StreamWebChatTurnService`
+  - cap is checked only when creating a **new** web chat thread (`surfaceThreadKey` not yet present)
+  - existing thread turns continue to work even when cap is reached
+  - cap counts active chats only (`archivedAt = null`)
+  - added admin-configurable API config/env threshold:
+    - `WEB_ACTIVE_CHATS_CAP` (default `20`)
+  - wired cap env into examples and Helm values:
+    - `apps/api/.env.local.example`
+    - `apps/api/.env.dev.example`
+    - `infra/helm/values.yaml`
+    - `infra/helm/values-dev.yaml`
+  - web `/app` now shows explicit user-facing guidance when cap is reached
+  - updated docs:
+    - `docs/ARCHITECTURE.md`
+    - `docs/API-BOUNDARY.md`
+    - `docs/ROADMAP.md` (`C5` marked complete)
+    - `docs/CHANGELOG.md`
+    - `docs/SESSION-HANDOFF.md`
+
+### Why changed
+
+- C5 requires a real, user-visible enforcement point for active web chat limits.
+- The limit must block new chat creation explicitly without silent failure or destructive side effects.
+- Cap must stay operationally tunable by admins without introducing billing implementation scope.
+
+### Files touched
+
+- apps/api/src/modules/workspace-management/domain/assistant-chat.repository.ts
+- apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository.ts
+- apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts
+- apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts
+- apps/web/app/app/app-flow.client.tsx
+- packages/config/src/api-config.ts
+- apps/api/.env.local.example
+- apps/api/.env.dev.example
+- infra/helm/values.yaml
+- infra/helm/values-dev.yaml
+- packages/contracts/openapi.yaml
+- packages/contracts/src/generated/*
+- docs/ARCHITECTURE.md
+- docs/API-BOUNDARY.md
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` - passed
+- `corepack pnpm --filter @persai/api run lint` - passed
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` - passed
+- `corepack pnpm run typecheck` - passed
+- `corepack pnpm --filter @persai/web run build` - passed
+
+### Known risks
+
+- C5 currently enforces a single global per-assistant web active-chat cap value from API config; no plan/tier-specific limits yet.
+- Cap enforcement is transport-path based (new-thread creation point), not a separate dedicated quota subsystem.
+- C6 degradation/error UX refinements are not yet implemented.
+
+### Next recommended step
+
+- Proceed to Step 5 `C6` (chat error/degradation UX) while preserving explicit C5 cap guidance and non-destructive cap behavior.
+
+### Ready commit message
+
+- `feat(api-web): add step 5 c5 active web chats cap enforcement and guidance`
+
 ## 2026-03-23 - Step 5 C4 web chat list and actions slice
 
 ### What changed

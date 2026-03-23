@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
+import { loadApiConfig } from "@persai/config";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -98,6 +99,18 @@ export class StreamWebChatTurnService {
       "web",
       request.surfaceThreadKey
     );
+    if (existingChat === null) {
+      const activeChatsCount = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+        assistant.id,
+        "web"
+      );
+      const activeChatsCap = loadApiConfig(process.env).WEB_ACTIVE_CHATS_CAP;
+      if (activeChatsCount >= activeChatsCap) {
+        throw new ConflictException(
+          `Active web chats cap reached (${activeChatsCap}). Archive an existing chat or continue in an existing thread.`
+        );
+      }
+    }
     const chat =
       existingChat ??
       (await this.assistantChatRepository.createChat({

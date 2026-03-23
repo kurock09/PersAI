@@ -78,6 +78,12 @@ O6 defines a future adapter-only contract:
   - archive keeps records/history
   - delete permanently removes chat + message records
 
+## Active web chats cap boundary (Step 5 C5)
+
+- cap is enforced in backend web chat transport flow at new-thread creation point
+- cap threshold is runtime-configurable via API config (`WEB_ACTIVE_CHATS_CAP`)
+- enforcement blocks only new chat creation; existing threads and records remain intact
+
 ## Frontend/backend boundary
 
 - contracts-first

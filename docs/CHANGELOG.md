@@ -153,6 +153,17 @@
   - web `/app` now renders chat list and exposes rename/archive/hard-delete controls
   - destructive behavior is explicit in UI copy; delete is not implemented as soft archive
   - no Telegram thread management added
+- Step 5 slice C5 active web chats cap baseline:
+  - enforced active web chats cap in backend web chat transport flow (C2/C3 paths)
+  - cap applies at new-thread creation only; existing threads remain usable
+  - cap counts active chats only (`archivedAt = null`)
+  - cap threshold is admin-configurable via API env/config:
+    - `WEB_ACTIVE_CHATS_CAP`
+  - at cap limit, backend returns explicit conflict guidance:
+    - archive an existing active chat
+    - or continue in an existing thread
+  - web UI now surfaces explicit cap guidance when limit is reached
+  - no automatic hard-delete/archive side effects introduced
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

@@ -138,6 +138,17 @@ Behavior baseline:
 - removes chat record and all related message records permanently
 - requires explicit delete confirmation payload
 
+## Step 5 C5 active web chats cap baseline
+
+- active web chats cap is enforced when attempting to create a **new** web chat thread.
+- threshold is admin-configurable via API env/config:
+  - `WEB_ACTIVE_CHATS_CAP`
+- cap check applies to active chats only (`archivedAt = null`).
+- behavior at limit:
+  - backend blocks new chat creation with explicit conflict error
+  - existing threads remain usable for continued chat turns
+  - no automatic deletion/archive side effects are performed
+
 ### POST /api/v1/assistant
 
 Behavior baseline:

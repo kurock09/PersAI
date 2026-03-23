@@ -326,7 +326,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "409":
-          description: Assistant transport unavailable due to lifecycle/apply state
+          description: Assistant transport unavailable due to lifecycle/apply state or active web chats cap
           content:
             application/json:
               schema:
@@ -375,7 +375,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "409":
-          description: Assistant transport unavailable due to lifecycle/apply state
+          description: Assistant transport unavailable due to lifecycle/apply state or active web chats cap
           content:
             application/json:
               schema:

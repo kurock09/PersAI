@@ -32,6 +32,10 @@ export interface AssistantChatRepository {
     surface: AssistantChatSurface,
     surfaceThreadKey: string
   ): Promise<AssistantChat | null>;
+  countActiveChatsByAssistantIdAndSurface(
+    assistantId: string,
+    surface: AssistantChatSurface
+  ): Promise<number>;
   listChatsByAssistantId(assistantId: string): Promise<AssistantChat[]>;
   getChatListMetadata(chatId: string): Promise<AssistantChatListMetadata>;
   renameChat(chatId: string, title: string | null): Promise<AssistantChat | null>;

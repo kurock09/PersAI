@@ -240,6 +240,8 @@ export function AppFlowClient() {
     null
   );
   const [chatAbortController, setChatAbortController] = useState<AbortController | null>(null);
+  const reachedActiveChatCap =
+    streamingError !== null && streamingError.toLowerCase().includes("active web chats cap reached");
 
   const loadWebChatList = useCallback(async () => {
     if (flowState.type !== "ready" || flowState.data.assistantState === null) {
@@ -1137,6 +1139,12 @@ export function AppFlowClient() {
           </div>
           {streamingMeta !== null && <p>{streamingMeta}</p>}
           {streamingError !== null && <p>{streamingError}</p>}
+          {reachedActiveChatCap && (
+            <p>
+              Active chat limit reached for new threads. Archive an existing active chat from the list
+              or continue in an existing thread key.
+            </p>
+          )}
           {chatMessages.length === 0 ? (
             <p>No chat turns yet.</p>
           ) : (

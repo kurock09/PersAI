@@ -34,6 +34,7 @@ api:
     GCP_REGION: ""
     OPENCLAW_ADAPTER_ENABLED: "false"
     OPENCLAW_BASE_URL: "http://openclaw:18789"
+    WEB_ACTIVE_CHATS_CAP: "20"
   secretEnv:
     DATABASE_URL:
       secretName: persai-api-secrets

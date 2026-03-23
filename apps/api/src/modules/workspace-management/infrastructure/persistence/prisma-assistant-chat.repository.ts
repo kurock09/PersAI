@@ -58,6 +58,19 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     return chat ? this.mapChatToDomain(chat) : null;
   }
 
+  async countActiveChatsByAssistantIdAndSurface(
+    assistantId: string,
+    surface: AssistantChatSurface
+  ): Promise<number> {
+    return this.prisma.assistantChat.count({
+      where: {
+        assistantId,
+        surface,
+        archivedAt: null
+      }
+    });
+  }
+
   async listChatsByAssistantId(assistantId: string): Promise<AssistantChat[]> {
     const chats = await this.prisma.assistantChat.findMany({
       where: { assistantId },
