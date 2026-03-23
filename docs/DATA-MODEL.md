@@ -69,7 +69,7 @@ Postgres with Prisma.
 - capability_envelope (jsonb, nullable)
 - secret_refs (jsonb, nullable)
 - policy_envelope (jsonb, nullable)
-- memory_control (jsonb, nullable) — Step 6 D1: canonical memory control-plane envelope (`persai.memoryControl.v1` baseline)
+- memory_control (jsonb, nullable) — Step 6 D1/D3: canonical memory control-plane envelope (`persai.memoryControl.v1` baseline), including `policy` (read/write surfaces, deny group-sourced global writes, trusted 1:1 write surfaces) and `sourceClassification` (named trust classes for global registry; D3)
 - quota_plan_code (nullable)
 - quota_hook (jsonb, nullable)
 - audit_hook (jsonb, nullable)
@@ -229,6 +229,7 @@ Postgres with Prisma.
 - A8 executes runtime apply/reapply via infrastructure adapter using A7 materialized outputs and persists coarse apply error state
 - D1 adds first-class `memory_control` JSON on `assistant_governance` for memory policy/hooks/markers; runtime memory behavior stays outside backend tables
 - D2 adds `assistant_memory_registry_items` for Memory Center summaries (web chat derived); not a dump of OpenClaw runtime memory
+- D3 adds explicit `sourceClassification` + `trustedOneToOneGlobalWriteSurfaces` in the envelope (with SQL backfill) and server-side evaluation of global registry read/write policy
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

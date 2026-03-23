@@ -107,3 +107,9 @@ O6 defines a future adapter-only contract:
 - `assistant_memory_registry_items` stores user-facing **summaries** linked to web chat turns (control plane), not OpenClaw runtime memory contents
 - items are created on successful web chat completion (sync + stream paths); list/forget/do-not-remember APIs are assistant-scoped
 - “Do not remember” updates registry rows and appends to `memory_control.forgetRequestMarkers` for governance continuity
+
+## Memory source policy enforcement (Step 6 D3)
+
+- Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.
+- Web chat classifies turns as `trusted_1to1` + `web` at the send/stream services; the record hook does not infer trust in isolation.
+- Other channels and group contexts are out of scope; they must not bypass this module when future ingest is added (ADR-021).

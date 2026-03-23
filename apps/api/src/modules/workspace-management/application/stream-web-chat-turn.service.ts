@@ -18,6 +18,7 @@ import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
+import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import type {
   AssistantWebChatMessageState,
@@ -217,7 +218,8 @@ export class StreamWebChatTurnService {
         userMessageId: prepared.userMessage.id,
         assistantMessageId: assistantMessage.id,
         userContent: prepared.userMessage.content,
-        assistantContent: accumulated
+        assistantContent: accumulated,
+        memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
       });
       const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
       if (refreshedChat === null) {

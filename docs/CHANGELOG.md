@@ -4,6 +4,12 @@
 
 ### Added
 
+- Step 6 slice D3 memory source policy enforcement:
+  - evaluates `memory_control` on Memory Center read paths (list, forget, do-not-remember) via `globalMemoryReadAllSurfaces`
+  - evaluates global registry write policy on web chat turn completion (`trusted_1to1` + allowed/trusted surfaces; denies `group` for global registry)
+  - explicit envelope fields `policy.trustedOneToOneGlobalWriteSurfaces` and `sourceClassification`; migration `20260324160000_step6_d3_memory_source_policy_envelope` backfills existing rows
+  - API script `test:memory-policy` for policy unit assertions
+  - ADR `docs/ADR/021-memory-source-policy-d3.md`
 - Step 6 slice D2 Memory Center MVP:
   - added `assistant_memory_registry_items` for user-facing web-chat-derived summaries (post-success turn only)
   - APIs: `GET /assistant/memory/items`, `POST /assistant/memory/items/{itemId}/forget`, `POST /assistant/memory/do-not-remember` (registry + `forgetRequestMarkers` append)

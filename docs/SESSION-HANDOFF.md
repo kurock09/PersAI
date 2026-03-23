@@ -1,5 +1,48 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 6 D3 memory source policy enforcement
+
+### What changed
+
+- Enforced global memory **read** policy on all Memory Center–related APIs (list, forget-by-id, do-not-remember) using `globalMemoryReadAllSurfaces` on the resolved `memory_control` envelope.
+- Enforced global **registry write** policy after successful web chat turns: caller supplies explicit `memoryWriteContext` (`web` + `trusted_1to1`); denies `group` and non–trusted-1:1 classifications; requires surface in both allowed and trusted 1:1 write lists.
+- Extended default `memory_control` with `trustedOneToOneGlobalWriteSurfaces` and `sourceClassification`; Prisma migration backfills existing JSON documents.
+- Docs: ADR-021, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- D3 requires the agreed memory source policy to be **evaluated in code**, not implied by JSON alone, with explicit trust/surface classification in the control model.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/domain/memory-source-policy.ts`, `memory-control-resolve.ts`, `assistant-memory-control.defaults.ts`
+- `apps/api/src/modules/workspace-management/application/record-web-chat-memory-turn.service.ts`, `send-web-chat-turn.service.ts`, `stream-web-chat-turn.service.ts`, `list-assistant-memory-items.service.ts`, `forget-assistant-memory-item.service.ts`, `do-not-remember-assistant-memory.service.ts`, `materialize-assistant-published-version.service.ts`
+- `apps/api/prisma/migrations/20260324160000_step6_d3_memory_source_policy_envelope/migration.sql`
+- `apps/api/test/memory-source-policy.test.ts`, `apps/api/package.json`
+- `docs/ADR/021-memory-source-policy-d3.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run typecheck` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run test:memory-policy` — passed
+- `corepack pnpm run test:step2` — passed
+- `corepack pnpm run prisma:migrate:check` — not run in this session (requires local Postgres)
+
+### Known risks / intentional limits
+
+- Only **web** is a typed transport surface; channel/group ingest is intentionally unsupported—future surfaces must thread explicit `GlobalMemoryWriteAttemptContext`.
+- Disabling `denyGroupSourcedGlobalWrites` still does not allow group → global registry (explicit not-supported path).
+- Registry write denial **skips** registry insert only; chat completion remains successful.
+
+### Next recommended step
+
+- Step 6 **D4** tasks control domain hardening (per `docs/ROADMAP.md`).
+
+### Ready commit message
+
+- `feat(api): enforce step 6 d3 global memory source policy`
+
 ## 2026-03-23 - Step 6 D2 Memory Center MVP
 
 ### What changed

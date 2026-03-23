@@ -324,7 +324,7 @@ Behavior baseline:
 
 - Canonical memory control JSON lives in `assistant_governance.memory_control` and is exposed as `governance.memoryControl` on assistant lifecycle reads.
 - Materialization resolves `openclawWorkspace.memoryControl` from that column, with legacy fallback to `policyEnvelope.memoryControl`, then MVP defaults.
-- D1 does not add memory edit APIs or Memory Center UI; enforcement of provenance/write surfaces is deferred to later slices.
+- D1 does not add memory edit APIs or Memory Center UI; **D3** enforces global memory read/write rules on Memory Center + web-chat registry ingest (see below).
 
 ## Step 6 D2 Memory Center API baseline
 
@@ -346,6 +346,13 @@ Behavior baseline:
 - validates messages belong to the assistant; assistant message must be `author=assistant`
 - marks matching registry rows forgotten (by related message ids) and appends a marker to `governance.memoryControl.forgetRequestMarkers`
 - does not expose raw OpenClaw internals in responses
+
+## Step 6 D3 global memory source policy (registry + Memory Center)
+
+- Effective policy is resolved from `assistant_governance.memory_control` with legacy `policyEnvelope.memoryControl` fallback, then defaults (`resolveEffectiveMemoryControlFromGovernance`).
+- **Read** (`policy.globalMemoryReadAllSurfaces`): when `false`, `GET /api/v1/assistant/memory/items`, `POST .../forget`, and `POST .../do-not-remember` return **409 Conflict** (global memory surfaced/actioned via these endpoints is disabled).
+- **Write** (registry row after successful web chat turn): requires `trusted_1to1` source classification, `group` is denied for global registry writes; transport must be in `policy.allowedGlobalWriteSurfaces` and `policy.trustedOneToOneGlobalWriteSurfaces` (defaults: `web` only). Denied writes **do not fail** the chat turn; the record hook **skips** registry insert (no error response on the chat endpoint).
+- Trust/surface vocabulary is also stored under `governance.memoryControl.sourceClassification` for explicit control-model documentation; evaluation uses the typed policy module in `apps/api` (ADR-021).
 
 ## Step 3 A7 materialization rule
 

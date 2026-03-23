@@ -15,7 +15,14 @@ export function createDefaultMemoryControlEnvelope(): Record<string, unknown> {
     policy: {
       globalMemoryReadAllSurfaces: true,
       allowedGlobalWriteSurfaces: ["web"],
+      trustedOneToOneGlobalWriteSurfaces: ["web"],
       denyGroupSourcedGlobalWrites: true
+    },
+    sourceClassification: {
+      schemaVersion: 1,
+      globalWriteRequiresTrust: "trusted_1to1",
+      groupSourcedGlobalWriteClass: "group",
+      trustedDirectThreadClass: "trusted_1to1"
     },
     provenance: {
       schemaVersion: 1,

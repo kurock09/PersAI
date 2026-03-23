@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException
@@ -17,6 +18,8 @@ import {
   ASSISTANT_MEMORY_REGISTRY_REPOSITORY,
   type AssistantMemoryRegistryRepository
 } from "../domain/assistant-memory-registry.repository";
+import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
+import { isGlobalMemoryReadAllowed } from "../domain/memory-source-policy";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 
 function isUuid(value: string): boolean {
@@ -91,6 +94,14 @@ export class DoNotRememberAssistantMemoryService {
       if (userMessage.chatId !== assistantMessage.chatId) {
         throw new BadRequestException("User and assistant messages must belong to the same chat.");
       }
+    }
+
+    const governanceRow = await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
+    const envelope = resolveEffectiveMemoryControlFromGovernance(governanceRow);
+    if (!isGlobalMemoryReadAllowed(envelope)) {
+      throw new ConflictException(
+        "Global memory read is disabled by assistant policy. Do-not-remember is unavailable."
+      );
     }
 
     const forgottenRegistryItems = await this.memoryRegistryRepository.markForgottenForMessages(
