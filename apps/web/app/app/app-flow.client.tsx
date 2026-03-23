@@ -205,6 +205,17 @@ function hasDraftChanges(assistantState: AssistantLifecycleState): boolean {
   );
 }
 
+function isAssistantLiveForWebChat(assistantState: AssistantLifecycleState): boolean {
+  if (assistantState.latestPublishedVersion === null) {
+    return false;
+  }
+
+  return (
+    assistantState.runtimeApply.status === "succeeded" &&
+    assistantState.runtimeApply.appliedPublishedVersionId === assistantState.latestPublishedVersion.id
+  );
+}
+
 function toPublishStateLabel(
   assistantState: AssistantLifecycleState,
   draftHasChanges: boolean,
@@ -352,6 +363,10 @@ export function AppFlowClient() {
   const [taskActionWorkingId, setTaskActionWorkingId] = useState<string | null>(null);
   const [chatDoNotRememberWorkingId, setChatDoNotRememberWorkingId] = useState<string | null>(null);
   const reachedActiveChatCap = streamingIssue?.classId === "active_chat_cap";
+  const assistantIsLiveForWebChat =
+    flowState.type === "ready" && flowState.data.assistantState !== null
+      ? isAssistantLiveForWebChat(flowState.data.assistantState)
+      : false;
 
   const loadMemoryItems = useCallback(async () => {
     if (flowState.type !== "ready" || flowState.data.assistantState === null) {
@@ -887,6 +902,16 @@ export function AppFlowClient() {
 
   async function onSendStreamingChatMessage(): Promise<void> {
     if (flowState.type !== "ready" || flowState.data.assistantState === null || isStreamingChat) {
+      return;
+    }
+
+    if (!isAssistantLiveForWebChat(flowState.data.assistantState)) {
+      setStreamingIssue(
+        toWebChatUxIssue(
+          "Assistant transport requires the latest published version to be successfully applied."
+        )
+      );
+      setStreamingMeta("Publish/apply the latest assistant version before sending chat messages.");
       return;
     }
 
@@ -1430,13 +1455,20 @@ export function AppFlowClient() {
             disabled={isStreamingChat}
           />
           <div>
-            <button type="button" disabled={isStreamingChat} onClick={() => void onSendStreamingChatMessage()}>
+            <button
+              type="button"
+              disabled={isStreamingChat || !assistantIsLiveForWebChat}
+              onClick={() => void onSendStreamingChatMessage()}
+            >
               {isStreamingChat ? "Streaming..." : "Send message (stream)"}
             </button>
             <button type="button" disabled={!isStreamingChat} onClick={stopStreamingChat}>
               Stop streaming
             </button>
           </div>
+          {!assistantIsLiveForWebChat && (
+            <p>Chat will unlock after publish/apply succeeds for the latest assistant version.</p>
+          )}
           {streamingMeta !== null && <p>{streamingMeta}</p>}
           {streamingIssue !== null && (
             <p>
