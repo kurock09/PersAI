@@ -201,6 +201,8 @@ Skeleton only; not applied in this phase:
 Dev deploy path is explicit:
 
 - Argo CD app points to `infra/helm` with `infra/helm/values-dev.yaml`
+- Argo CD app uses automated sync in dev baseline (`prune + selfHeal`)
+- API DB migrations are executed automatically by an Argo PreSync hook job (`api-migrate`) on each deploy sync
 
 Manual runbooks:
 

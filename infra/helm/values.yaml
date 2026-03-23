@@ -9,6 +9,9 @@ global:
 api:
   enabled: true
   replicaCount: 1
+  migrations:
+    enabled: true
+    backoffLimit: 1
   serviceAccount:
     create: true
     name: api-sa

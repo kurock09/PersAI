@@ -87,6 +87,11 @@ kubectl -n argocd get appprojects.argoproj.io persai-dev
 kubectl -n argocd get applications.argoproj.io persai-dev
 ```
 
+Expected:
+
+- `persai-dev` application uses automated sync.
+- `api-migrate` PreSync hook job executes on each sync before API rollout.
+
 6. Verify target namespace resources:
 
 ```bash
@@ -169,6 +174,27 @@ Expected:
 
 ```bash
 argocd app sync persai-dev
+```
+
+16.1 Verify migration hook status for the sync:
+
+```bash
+kubectl -n persai-dev get jobs -l app.kubernetes.io/name=api-migrate
+kubectl -n persai-dev logs job/api-migrate --tail=120
+```
+
+Expected:
+
+- Job exit is successful.
+- output includes successful Prisma migrate deploy/status.
+
+  16.2 If migration hook fails due to Cloud SQL authorization:
+
+```bash
+# GSA used by api-sa must include Cloud SQL Client role
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:api-runtime@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/cloudsql.client"
 ```
 
 17. Verify OpenClaw deployment and service:

@@ -458,6 +458,14 @@
 
 ### Fixed
 
+- Dev deploy DB drift risk after rollout:
+  - added Argo CD `PreSync` migration hook job (`infra/helm/templates/api-migrate-job.yaml`)
+  - migration hook now runs on every sync:
+    - `corepack pnpm run prisma:migrate:deploy`
+    - `corepack pnpm run prisma:migrate:status`
+  - deploy sync now fails early when DB migration fails, preventing silent app/schema drift
+  - enabled automated sync in `infra/dev/gitops/argocd/application-dev.yaml` (`prune + selfHeal`)
+  - documented required migration-hook verification and Cloud SQL IAM prerequisite in runbooks/docs
 - Dev GitOps tag pinning drift after `main` push:
   - narrowed `.github/workflows/dev-image-publish.yml` tag update logic to update only `global.images.tag`
   - prevented accidental overwrite of `openclaw.image.tag` by api/web image publish workflow

@@ -37,6 +37,16 @@ Dev image publish behavior:
 - OpenClaw CI publishes both `<OPENCLAW_APPROVED_SHA>` and `dev-main` tags to GAR.
 - OpenClaw CI then updates `infra/helm/values-dev.yaml` -> `openclaw.image.tag: <OPENCLAW_APPROVED_SHA>` and pushes that commit to `main`.
 - Argo CD deploys the pinned SHA tag from GitOps values, avoiding stale-node-cache issues with moving tags.
+- Argo CD auto-sync is enabled for `persai-dev`, so new GitOps commits are applied automatically.
+
+Database migration behavior on every deploy sync:
+
+- `api-migrate` PreSync hook job runs before API rollout.
+- The hook runs:
+  - `corepack pnpm run prisma:migrate:deploy`
+  - `corepack pnpm run prisma:migrate:status`
+- If migration/apply/status fails, Argo sync fails and API rollout is blocked.
+- This keeps deploy + schema state aligned by default (no manual migrate step).
 
 ## Scope in this phase
 

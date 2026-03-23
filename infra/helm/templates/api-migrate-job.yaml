@@ -1,0 +1,63 @@
+{{- if and .Values.api.enabled .Values.api.migrations.enabled }}
+{{- $apiTag := default .Values.global.images.tag .Values.api.image.tag }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: api-migrate
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: api-migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  backoffLimit: {{ .Values.api.migrations.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.api.serviceAccount.name }}
+      containers:
+        - name: api-migrate
+          image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.api.image.name }}:{{ $apiTag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              corepack pnpm run prisma:migrate:deploy
+              corepack pnpm run prisma:migrate:status
+{{- if or .Values.api.env .Values.api.secretEnv }}
+          env:
+{{- range $name, $value := .Values.api.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+{{- end }}
+{{- range $name, $ref := .Values.api.secretEnv }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ref.secretName | quote }}
+                  key: {{ $ref.secretKey | quote }}
+{{- end }}
+{{- end }}
+{{- if .Values.api.cloudSqlProxy.enabled }}
+        - name: cloud-sql-proxy
+          image: "{{ .Values.api.cloudSqlProxy.image }}"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--structured-logs"
+            - "--port={{ .Values.api.cloudSqlProxy.port }}"
+{{- if .Values.api.cloudSqlProxy.usePrivateIp }}
+            - "--private-ip"
+{{- end }}
+            - "{{ .Values.api.cloudSqlProxy.instanceConnectionName }}"
+{{- if .Values.api.cloudSqlProxy.port }}
+          ports:
+            - containerPort: {{ .Values.api.cloudSqlProxy.port }}
+{{- end }}
+{{- end }}
+{{- end }}

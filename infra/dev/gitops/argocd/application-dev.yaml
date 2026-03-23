@@ -16,4 +16,8 @@ spec:
     server: https://kubernetes.default.svc
     namespace: persai-dev
   syncPolicy:
-    automated: null
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

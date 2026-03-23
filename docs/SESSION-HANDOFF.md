@@ -2,6 +2,21 @@
 
 ## What changed
 
+- Applied deploy reliability hardening for automatic DB migration + verification on each sync:
+  - added new Helm template `infra/helm/templates/api-migrate-job.yaml`
+  - `api-migrate` runs as Argo `PreSync` hook using API image + same env/secret + Cloud SQL proxy sidecar
+  - hook command is strict:
+    - `corepack pnpm run prisma:migrate:deploy`
+    - `corepack pnpm run prisma:migrate:status`
+  - sync fails if migration/apply/status fails (prevents app/schema drift)
+- Enabled dev Argo application automated sync:
+  - `prune: true`
+  - `selfHeal: true`
+  - `CreateNamespace=true`
+- Added migration automation guidance in:
+  - `README.md`
+  - `infra/dev/gitops/README.md`
+  - `infra/dev/gke/RUNBOOK.md`
 - Applied a narrow OpenClaw deploy automation slice:
   - extended `.github/workflows/openclaw-dev-image-publish.yml` to auto-update `infra/helm/values-dev.yaml` `openclaw.image.tag` to `OPENCLAW_APPROVED_SHA` after successful image publish on `main`
   - added `paths-ignore` for `infra/helm/values-dev.yaml` to prevent self-trigger loops from workflow-generated commits
@@ -45,6 +60,9 @@
 
 ## Why changed
 
+- User requirement: deploy must be turnkey and stable without manual DB migration steps.
+- Previous flow allowed successful rollout while migrations could be skipped/failing, creating future break risk.
+- New PreSync migration hook guarantees schema update + verification before API rollout is considered successful.
 - User requirement: no manual OpenClaw deploy/tag step after push.
 - OpenClaw image build was automated, but tag promotion in GitOps values was still manual.
 - The new workflow step closes this gap while preserving separation:
@@ -76,9 +94,13 @@
 
 ## Files touched
 
+- infra/helm/templates/api-migrate-job.yaml
+- infra/helm/values.yaml
+- infra/dev/gitops/argocd/application-dev.yaml
 - .github/workflows/openclaw-dev-image-publish.yml
 - README.md
 - infra/dev/gitops/README.md
+- infra/dev/gke/RUNBOOK.md
 - .github/workflows/dev-image-publish.yml
 - infra/helm/values-dev.yaml
 - apps/api/.env.dev.example
@@ -123,6 +145,8 @@
 
 ## Known risks
 
+- Migration hook depends on Cloud SQL access rights for API runtime GSA (`roles/cloudsql.client`).
+- If Cloud SQL IAM/scopes are broken, sync will now fail fast (desired behavior) until infra permissions are fixed.
 - Runtime apply endpoint contract in OpenClaw is assumed at `/api/v1/runtime/spec/apply`; any drift must be handled via adapter contract update.
 - Existing historical published versions without materialized spec will fail apply/reapply with `invalid_response` until backfilled/materialized.
 - Adapter is synchronous request/response only; no async apply job tracking yet.
@@ -132,4 +156,4 @@
 - Run one `main` push verification cycle:
   - confirm workflow updates only `global.images.tag`
   - confirm OpenClaw workflow updates `openclaw.image.tag` to approved SHA
-  - confirm Argo sync rolls api/web while OpenClaw stays healthy.
+  - confirm Argo auto-sync executes `api-migrate` hook and rollout stays healthy.
