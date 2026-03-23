@@ -44,6 +44,19 @@
   - integrated channel/surface binding projection into `openclawCapabilityEnvelope` for OpenClaw-facing materialization
   - added API test script `test:openclaw-channel-surface-bindings`
   - added ADR `docs/ADR/033-channel-surface-binding-model-e3.md`
+- Step 8 slice E4 Telegram connection and delivery surface:
+  - added canonical assistant-scoped provider/surface binding persistence:
+    - `assistant_channel_surface_bindings`
+  - added Telegram integration control-plane API endpoints:
+    - `GET /assistant/integrations/telegram`
+    - `POST /assistant/integrations/telegram/connect`
+    - `PATCH /assistant/integrations/telegram/config`
+  - added token verification connect flow using Telegram `getMe`, persisted binding state, and connected-state projection for web UI
+  - added post-connect Telegram configuration panel persistence (parse mode, inbound/outbound toggles, notes)
+  - added best-effort bot profile sync (display name/username and derived avatar URL when available)
+  - integrated Telegram active binding truth into channel/surface envelope resolver so runtime projection reflects actual connect state
+  - added API test script `test:telegram-integration` and web app-flow coverage for integration connect interaction
+  - added ADR `docs/ADR/034-telegram-connection-and-delivery-surface-e4.md`
 - Post-deploy live validation snapshot for Step 7 P1-P7 on dev GKE:
   - verified API + web deployments on aligned image tag
   - verified user/admin visibility endpoints and UI sections:

@@ -6,6 +6,9 @@ import { ResolveEffectiveCapabilityStateService } from "./application/resolve-ef
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
 import { ResolveOpenClawChannelSurfaceBindingsService } from "./application/resolve-openclaw-channel-surface-bindings.service";
 import { ResolveOpenClawCapabilityEnvelopeService } from "./application/resolve-openclaw-capability-envelope.service";
+import { ResolveTelegramIntegrationStateService } from "./application/resolve-telegram-integration-state.service";
+import { ConnectTelegramIntegrationService } from "./application/connect-telegram-integration.service";
+import { UpdateTelegramIntegrationConfigService } from "./application/update-telegram-integration-config.service";
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
@@ -38,6 +41,7 @@ import { WORKSPACE_SUBSCRIPTION_REPOSITORY } from "./domain/workspace-subscripti
 import { WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY } from "./domain/workspace-quota-accounting.repository";
 import { ASSISTANT_MEMORY_REGISTRY_REPOSITORY } from "./domain/assistant-memory-registry.repository";
 import { ASSISTANT_TASK_REGISTRY_REPOSITORY } from "./domain/assistant-task-registry.repository";
+import { ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY } from "./domain/assistant-channel-surface-binding.repository";
 import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.repository";
 import { ASSISTANT_MATERIALIZED_SPEC_REPOSITORY } from "./domain/assistant-materialized-spec.repository";
 import { ASSISTANT_PUBLISHED_VERSION_REPOSITORY } from "./domain/assistant-published-version.repository";
@@ -54,6 +58,7 @@ import { BILLING_PROVIDER_PORT } from "./application/billing-provider.port";
 import { PrismaAssistantChatRepository } from "./infrastructure/persistence/prisma-assistant-chat.repository";
 import { PrismaAssistantMemoryRegistryRepository } from "./infrastructure/persistence/prisma-assistant-memory-registry.repository";
 import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persistence/prisma-assistant-task-registry.repository";
+import { PrismaAssistantChannelSurfaceBindingRepository } from "./infrastructure/persistence/prisma-assistant-channel-surface-binding.repository";
 import { PrismaAssistantMaterializedSpecRepository } from "./infrastructure/persistence/prisma-assistant-materialized-spec.repository";
 import { PrismaAssistantPublishedVersionRepository } from "./infrastructure/persistence/prisma-assistant-published-version.repository";
 import { PrismaAssistantRepository } from "./infrastructure/persistence/prisma-assistant.repository";
@@ -73,6 +78,9 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ResolveEffectiveToolAvailabilityService,
     ResolveOpenClawChannelSurfaceBindingsService,
     ResolveOpenClawCapabilityEnvelopeService,
+    ResolveTelegramIntegrationStateService,
+    ConnectTelegramIntegrationService,
+    UpdateTelegramIntegrationConfigService,
     ResolvePlanVisibilityService,
     EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,
@@ -136,6 +144,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     {
       provide: ASSISTANT_TASK_REGISTRY_REPOSITORY,
       useClass: PrismaAssistantTaskRegistryRepository
+    },
+    {
+      provide: ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
+      useClass: PrismaAssistantChannelSurfaceBindingRepository
     },
     {
       provide: ASSISTANT_RUNTIME_ADAPTER,

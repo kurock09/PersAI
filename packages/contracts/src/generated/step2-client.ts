@@ -10,6 +10,8 @@ import type {
   AssistantDraftUpdateRequest,
   AssistantMemoryDoNotRememberRequest,
   AssistantRollbackRequest,
+  AssistantTelegramConfigUpdateRequest,
+  AssistantTelegramConnectRequest,
   AssistantWebChatDeleteRequest,
   AssistantWebChatRenameRequest,
   AssistantWebChatTurnRequest,
@@ -22,6 +24,7 @@ import type {
   GetAssistantResponse,
   GetAssistantRuntimePreflightResponse,
   GetAssistantTaskItemsResponse,
+  GetAssistantTelegramIntegrationResponse,
   GetAssistantWebChatListItemResponse,
   GetAssistantWebChatListResponse,
   GetAssistantWebChatTransportResponse,
@@ -531,6 +534,187 @@ export const getAssistantRuntimePreflight = async ( options?: RequestInit): Prom
     method: 'GET'
     
     
+  }
+);}
+
+
+
+/**
+ * @summary Get Telegram integration connection/config state for current assistant
+ */
+export type getAssistantTelegramIntegrationResponse200 = {
+  data: GetAssistantTelegramIntegrationResponse
+  status: 200
+}
+
+export type getAssistantTelegramIntegrationResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAssistantTelegramIntegrationResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type getAssistantTelegramIntegrationResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAssistantTelegramIntegrationResponseSuccess = (getAssistantTelegramIntegrationResponse200) & {
+  headers: Headers;
+};
+export type getAssistantTelegramIntegrationResponseError = (getAssistantTelegramIntegrationResponse401 | getAssistantTelegramIntegrationResponse404 | getAssistantTelegramIntegrationResponse500) & {
+  headers: Headers;
+};
+
+export type getAssistantTelegramIntegrationResponse = (getAssistantTelegramIntegrationResponseSuccess | getAssistantTelegramIntegrationResponseError)
+
+export const getGetAssistantTelegramIntegrationUrl = () => {
+
+
+  
+
+  return `/assistant/integrations/telegram`
+}
+
+export const getAssistantTelegramIntegration = async ( options?: RequestInit): Promise<getAssistantTelegramIntegrationResponse> => {
+  
+  return customFetch<getAssistantTelegramIntegrationResponse>(getGetAssistantTelegramIntegrationUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Verify and connect Telegram bot token for current assistant
+ */
+export type postAssistantTelegramConnectResponse200 = {
+  data: GetAssistantTelegramIntegrationResponse
+  status: 200
+}
+
+export type postAssistantTelegramConnectResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAssistantTelegramConnectResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantTelegramConnectResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantTelegramConnectResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantTelegramConnectResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantTelegramConnectResponseSuccess = (postAssistantTelegramConnectResponse200) & {
+  headers: Headers;
+};
+export type postAssistantTelegramConnectResponseError = (postAssistantTelegramConnectResponse400 | postAssistantTelegramConnectResponse401 | postAssistantTelegramConnectResponse404 | postAssistantTelegramConnectResponse409 | postAssistantTelegramConnectResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantTelegramConnectResponse = (postAssistantTelegramConnectResponseSuccess | postAssistantTelegramConnectResponseError)
+
+export const getPostAssistantTelegramConnectUrl = () => {
+
+
+  
+
+  return `/assistant/integrations/telegram/connect`
+}
+
+export const postAssistantTelegramConnect = async (assistantTelegramConnectRequest: AssistantTelegramConnectRequest, options?: RequestInit): Promise<postAssistantTelegramConnectResponse> => {
+  
+  return customFetch<postAssistantTelegramConnectResponse>(getPostAssistantTelegramConnectUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantTelegramConnectRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Update Telegram post-connect configuration for current assistant
+ */
+export type patchAssistantTelegramConfigResponse200 = {
+  data: GetAssistantTelegramIntegrationResponse
+  status: 200
+}
+
+export type patchAssistantTelegramConfigResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type patchAssistantTelegramConfigResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type patchAssistantTelegramConfigResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type patchAssistantTelegramConfigResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type patchAssistantTelegramConfigResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type patchAssistantTelegramConfigResponseSuccess = (patchAssistantTelegramConfigResponse200) & {
+  headers: Headers;
+};
+export type patchAssistantTelegramConfigResponseError = (patchAssistantTelegramConfigResponse400 | patchAssistantTelegramConfigResponse401 | patchAssistantTelegramConfigResponse404 | patchAssistantTelegramConfigResponse409 | patchAssistantTelegramConfigResponse500) & {
+  headers: Headers;
+};
+
+export type patchAssistantTelegramConfigResponse = (patchAssistantTelegramConfigResponseSuccess | patchAssistantTelegramConfigResponseError)
+
+export const getPatchAssistantTelegramConfigUrl = () => {
+
+
+  
+
+  return `/assistant/integrations/telegram/config`
+}
+
+export const patchAssistantTelegramConfig = async (assistantTelegramConfigUpdateRequest: AssistantTelegramConfigUpdateRequest, options?: RequestInit): Promise<patchAssistantTelegramConfigResponse> => {
+  
+  return customFetch<patchAssistantTelegramConfigResponse>(getPatchAssistantTelegramConfigUrl(),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantTelegramConfigUpdateRequest,)
   }
 );}
 

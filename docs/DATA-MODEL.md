@@ -189,6 +189,23 @@ Postgres with Prisma.
 - created_at
 - updated_at
 
+### assistant_channel_surface_bindings (Step 8 E4 baseline)
+
+- id (UUID)
+- assistant_id (UUID FK -> `assistants.id`)
+- provider_key (`web_internal|telegram|whatsapp|max|system_notifications`)
+- surface_type (`web_chat|telegram_bot|whatsapp_business|max_bot|max_mini_app|system_notification`)
+- binding_state (`active|inactive|unconfigured`)
+- token_fingerprint (nullable varchar 128) — control-plane fingerprint hint, not raw token exposure
+- token_last_four (nullable varchar 4)
+- policy (nullable jsonb)
+- config (nullable jsonb)
+- metadata (nullable jsonb)
+- connected_at (nullable timestamptz)
+- disconnected_at (nullable timestamptz)
+- created_at
+- updated_at
+
 ### workspace_subscriptions (Step 7 P3 baseline)
 
 - id (UUID)
@@ -339,6 +356,11 @@ Postgres with Prisma.
   - unique pair: `(plan_id, tool_id)`
   - indexes: `(plan_id, activation_status)`
   - stores explicit plan-scoped activation truth for catalog tools
+- `assistant_channel_surface_bindings`:
+  - primary key: `id`
+  - unique triplet: `(assistant_id, provider_key, surface_type)`
+  - index: `(assistant_id, provider_key, binding_state)`
+  - stores assistant-scoped provider/surface binding truth and light control-plane config/policy metadata
 - `workspace_subscriptions`:
   - primary key: `id`
   - unique: `workspace_id` (one current subscription state row per workspace in P3)
@@ -388,6 +410,7 @@ Postgres with Prisma.
 - E1 adds canonical tool catalog + plan activation persistence and upgrades materialized tool availability to include per-tool activation truth; backend still does not route tool execution behavior
 - E2 hardens materialized OpenClaw capability envelope with explicit allow/deny and suppression truth; no new persistence table in E2
 - E3 hardens materialized channel/surface binding model (`openclawChannelSurfaceBindings`) with provider+surface+assistant-binding structure; no new persistence table in E3
+- E4 adds canonical assistant-scoped provider/surface binding persistence for Telegram connect/config (`assistant_channel_surface_bindings`) and keeps web as primary control-plane surface
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

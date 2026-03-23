@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type { EffectiveCapabilityState } from "./effective-capability.types";
 import type {
   OpenClawBindingState,
@@ -6,6 +6,10 @@ import type {
   OpenClawProviderKey,
   OpenClawSurfaceType
 } from "./openclaw-channel-surface-bindings.types";
+import {
+  ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
+  type AssistantChannelSurfaceBindingRepository
+} from "../domain/assistant-channel-surface-binding.repository";
 
 type SurfaceSeed = {
   provider: OpenClawProviderKey;
@@ -84,15 +88,26 @@ const PROVIDERS: OpenClawProviderKey[] = [
 
 @Injectable()
 export class ResolveOpenClawChannelSurfaceBindingsService {
-  execute(params: {
+  constructor(
+    @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
+    private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository
+  ) {}
+
+  async execute(params: {
     assistantId: string;
     effectiveCapabilities: EffectiveCapabilityState;
-  }): OpenClawChannelSurfaceBindingsState {
+  }): Promise<OpenClawChannelSurfaceBindingsState> {
     const { assistantId, effectiveCapabilities } = params;
+
+    const telegramConfigured =
+      await this.assistantChannelSurfaceBindingRepository.hasActiveBindingForProvider(
+        assistantId,
+        "telegram"
+      );
 
     const providerConfigured: Record<OpenClawProviderKey, boolean> = {
       web_internal: true,
-      telegram: false,
+      telegram: telegramConfigured,
       whatsapp: false,
       max: false,
       system_notifications: true

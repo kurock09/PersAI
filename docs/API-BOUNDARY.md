@@ -529,6 +529,26 @@ Behavior baseline:
   - projection hardening maps it to two distinct surfaces (`max_bot`, `max_mini_app`)
 - Backend still does not implement Telegram/WhatsApp/MAX delivery execution in this slice.
 
+## Step 8 E4 Telegram connection and delivery surface
+
+- E4 adds authenticated assistant-scoped control-plane endpoints:
+  - `GET /assistant/integrations/telegram` (read connection/config state)
+  - `POST /assistant/integrations/telegram/connect` (verify token + persist binding)
+  - `PATCH /assistant/integrations/telegram/config` (update post-connect panel settings)
+- Connection semantics:
+  - token format validation + Telegram `getMe` verification
+  - persists provider/surface binding (`telegram` + `telegram_bot`) in canonical binding table
+  - returns explicit integration state (`persai.telegramIntegration.v1`) for UI
+- Post-connect configuration surface supports:
+  - parse mode
+  - inbound/outbound message toggles
+  - notes
+- Bot profile sync:
+  - username/display name synced from Telegram `getMe`
+  - avatar URL is best-effort and derived from Telegram username when available
+- E4 keeps web as primary control-plane surface and does not move deep assistant config into Telegram.
+- E4 does not add WhatsApp/MAX delivery implementation.
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

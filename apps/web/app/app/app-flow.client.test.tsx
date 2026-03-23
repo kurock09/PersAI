@@ -23,6 +23,7 @@ const assistantApiMocks = vi.hoisted(() => {
     getAssistant: vi.fn(),
     getAssistantPlanVisibility: vi.fn(),
     getAssistantMemoryItems: vi.fn(),
+    getAssistantTelegramIntegration: vi.fn(),
     getAssistantWebChats: vi.fn(),
     postAssistantCreate: vi.fn(),
     patchAssistantDraft: vi.fn(),
@@ -42,7 +43,9 @@ const assistantApiMocks = vi.hoisted(() => {
     postAssistantTaskItemDisable: vi.fn(),
     postAssistantTaskItemEnable: vi.fn(),
     postAssistantTaskItemCancel: vi.fn(),
-    streamAssistantWebChatTurn: vi.fn()
+    streamAssistantWebChatTurn: vi.fn(),
+    postAssistantTelegramConnect: vi.fn(),
+    patchAssistantTelegramConfig: vi.fn()
   };
 });
 
@@ -76,6 +79,7 @@ vi.mock("./assistant-api-client", async () => {
     getAssistant: assistantApiMocks.getAssistant,
     getAssistantPlanVisibility: assistantApiMocks.getAssistantPlanVisibility,
     getAssistantMemoryItems: assistantApiMocks.getAssistantMemoryItems,
+    getAssistantTelegramIntegration: assistantApiMocks.getAssistantTelegramIntegration,
     getAssistantWebChats: assistantApiMocks.getAssistantWebChats,
     postAssistantCreate: assistantApiMocks.postAssistantCreate,
     patchAssistantDraft: assistantApiMocks.patchAssistantDraft,
@@ -95,7 +99,9 @@ vi.mock("./assistant-api-client", async () => {
     postAssistantTaskItemDisable: assistantApiMocks.postAssistantTaskItemDisable,
     postAssistantTaskItemEnable: assistantApiMocks.postAssistantTaskItemEnable,
     postAssistantTaskItemCancel: assistantApiMocks.postAssistantTaskItemCancel,
-    streamAssistantWebChatTurn: assistantApiMocks.streamAssistantWebChatTurn
+    streamAssistantWebChatTurn: assistantApiMocks.streamAssistantWebChatTurn,
+    postAssistantTelegramConnect: assistantApiMocks.postAssistantTelegramConnect,
+    patchAssistantTelegramConfig: assistantApiMocks.patchAssistantTelegramConfig
   };
 });
 
@@ -180,6 +186,60 @@ function makeAssistantResponse(): AssistantLifecycleState {
     },
     createdAt: "2026-03-23T10:00:00.000Z",
     updatedAt: "2026-03-23T10:05:03.000Z"
+  };
+}
+
+function makeTelegramIntegrationState() {
+  return {
+    schema: "persai.telegramIntegration.v1" as const,
+    provider: "telegram" as const,
+    surfaceType: "telegram_bot" as const,
+    capabilityAllowed: true,
+    connectionStatus: "not_connected" as const,
+    bindingState: "unconfigured" as const,
+    connectedAt: null,
+    bot: {
+      telegramUserId: null,
+      username: null,
+      displayName: null,
+      avatarUrl: null
+    },
+    tokenHint: {
+      lastFour: null
+    },
+    configPanel: {
+      available: false,
+      settings: {
+        defaultParseMode: "plain_text" as const,
+        inboundUserMessagesEnabled: true,
+        outboundAssistantMessagesEnabled: true,
+        notes: null
+      }
+    },
+    notes: []
+  };
+}
+
+function makeConnectedTelegramIntegrationState() {
+  const state = makeTelegramIntegrationState();
+  return {
+    ...state,
+    connectionStatus: "connected" as const,
+    bindingState: "active" as const,
+    connectedAt: "2026-03-24T10:00:00.000Z",
+    bot: {
+      telegramUserId: 777,
+      username: "persai_bot",
+      displayName: "PersAI Bot",
+      avatarUrl: "https://t.me/i/userpic/320/persai_bot.jpg"
+    },
+    tokenHint: {
+      lastFour: "0123"
+    },
+    configPanel: {
+      ...state.configPanel,
+      available: true
+    }
   };
 }
 
@@ -318,6 +378,7 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.deleteAssistantWebChat.mockReset();
     assistantApiMocks.streamAssistantWebChatTurn.mockReset();
     assistantApiMocks.getAssistantMemoryItems.mockReset();
+    assistantApiMocks.getAssistantTelegramIntegration.mockReset();
     assistantApiMocks.getAssistantPlanVisibility.mockReset();
     assistantApiMocks.postAssistantMemoryItemForget.mockReset();
     assistantApiMocks.postAssistantMemoryDoNotRemember.mockReset();
@@ -329,8 +390,11 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.postAssistantTaskItemDisable.mockReset();
     assistantApiMocks.postAssistantTaskItemEnable.mockReset();
     assistantApiMocks.postAssistantTaskItemCancel.mockReset();
+    assistantApiMocks.postAssistantTelegramConnect.mockReset();
+    assistantApiMocks.patchAssistantTelegramConfig.mockReset();
     assistantApiMocks.getAssistantWebChats.mockResolvedValue([]);
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
+    assistantApiMocks.getAssistantTelegramIntegration.mockResolvedValue(makeTelegramIntegrationState());
     assistantApiMocks.getAssistantPlanVisibility.mockResolvedValue(makeUserPlanVisibility());
     assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
     assistantApiMocks.getAdminPlans.mockResolvedValue([]);
@@ -652,5 +716,27 @@ describe("AppFlowClient onboarding gate", () => {
       expect(assistantApiMocks.postAssistantReset).toHaveBeenCalledTimes(1);
     });
     expect(screen.getByText(/Reset requested\./)).toBeInTheDocument();
+  });
+
+  it("connects telegram from integrations area", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.postAssistantTelegramConnect.mockResolvedValue(
+      makeConnectedTelegramIntegrationState()
+    );
+
+    render(<AppFlowClient />);
+
+    expect((await screen.findAllByText("Tools & Integrations")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("Telegram bot token"), {
+      target: { value: "123456:ABCDEF01234567890123" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Telegram" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantTelegramConnect).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByText("Telegram bot connected.")).toBeInTheDocument();
+    expect(screen.getByText("PersAI Bot")).toBeInTheDocument();
   });
 });

@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { ResolveOpenClawChannelSurfaceBindingsService } from "../src/modules/workspace-management/application/resolve-openclaw-channel-surface-bindings.service";
 
 async function run(): Promise<void> {
-  const service = new ResolveOpenClawChannelSurfaceBindingsService();
-  const resolved = service.execute({
+  const service = new ResolveOpenClawChannelSurfaceBindingsService({
+    hasActiveBindingForProvider: async (_assistantId, providerKey) => providerKey === "telegram"
+  });
+  const resolved = await service.execute({
     assistantId: "assistant_e3",
     effectiveCapabilities: {
       schema: "persai.effectiveCapabilities.v1",
@@ -61,7 +63,7 @@ async function run(): Promise<void> {
   );
   assert.equal(
     resolved.providers.find((provider) => provider.provider === "telegram")?.assistantBinding.state,
-    "unconfigured"
+    "active"
   );
   assert.equal(
     resolved.providers

@@ -23,6 +23,7 @@
     "test:tool-catalog-activation": "tsx test/tool-catalog-activation.test.ts",
     "test:openclaw-capability-envelope": "tsx test/openclaw-capability-envelope.test.ts",
     "test:openclaw-channel-surface-bindings": "tsx test/openclaw-channel-surface-bindings.test.ts",
+    "test:telegram-integration": "tsx test/telegram-integration.test.ts",
     "test:quota-accounting": "tsx test/quota-accounting.test.ts",
     "test:enforcement-points": "tsx test/enforcement-points.test.ts"
   },

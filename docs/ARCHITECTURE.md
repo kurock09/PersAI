@@ -221,6 +221,18 @@ O6 defines a future adapter-only contract:
   - projected as distinct surfaces: `max_bot`, `max_mini_app`
 - backend remains control-plane only; no channel delivery routing is implemented in E3
 
+## Telegram connection surface boundary (Step 8 E4)
+
+- backend now supports assistant-scoped Telegram connection/control-plane APIs:
+  - `GET /assistant/integrations/telegram`
+  - `POST /assistant/integrations/telegram/connect`
+  - `PATCH /assistant/integrations/telegram/config`
+- canonical Telegram binding state is persisted in:
+  - `assistant_channel_surface_bindings`
+- token handling in E4 persists only control-plane fingerprint/hint metadata (not raw token storage in domain state response)
+- web remains primary assistant control surface; Telegram is treated as interaction/delivery surface binding
+- E4 does not add WhatsApp/MAX delivery and does not turn backend into runtime routing layer
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

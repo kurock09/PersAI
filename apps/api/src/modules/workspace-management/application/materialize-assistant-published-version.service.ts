@@ -86,7 +86,7 @@ export class MaterializeAssistantPublishedVersionService {
       effectiveCapabilities
     });
     const channelSurfaceBindings =
-      this.resolveOpenClawChannelSurfaceBindingsService.execute({
+      await this.resolveOpenClawChannelSurfaceBindingsService.execute({
         assistantId: assistant.id,
         effectiveCapabilities
       });

@@ -29,6 +29,9 @@ import { ManageWebChatListService } from "../../application/manage-web-chat-list
 import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn.service";
 import { UpdateAssistantDraftService } from "../../application/update-assistant-draft.service";
 import { ResolvePlanVisibilityService } from "../../application/resolve-plan-visibility.service";
+import { ResolveTelegramIntegrationStateService } from "../../application/resolve-telegram-integration-state.service";
+import { ConnectTelegramIntegrationService } from "../../application/connect-telegram-integration.service";
+import { UpdateTelegramIntegrationConfigService } from "../../application/update-telegram-integration-config.service";
 import { DoNotRememberAssistantMemoryService } from "../../application/do-not-remember-assistant-memory.service";
 import { ForgetAssistantMemoryItemService } from "../../application/forget-assistant-memory-item.service";
 import { ListAssistantMemoryItemsService } from "../../application/list-assistant-memory-items.service";
@@ -40,6 +43,7 @@ import type {
   AssistantWebChatListItemState,
   AssistantWebChatTurnState
 } from "../../application/web-chat.types";
+import type { TelegramIntegrationState } from "../../application/telegram-integration.types";
 
 @Controller("api/v1")
 export class AssistantController {
@@ -56,6 +60,9 @@ export class AssistantController {
     private readonly streamWebChatTurnService: StreamWebChatTurnService,
     private readonly updateAssistantDraftService: UpdateAssistantDraftService,
     private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
+    private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
+    private readonly connectTelegramIntegrationService: ConnectTelegramIntegrationService,
+    private readonly updateTelegramIntegrationConfigService: UpdateTelegramIntegrationConfigService,
     private readonly listAssistantMemoryItemsService: ListAssistantMemoryItemsService,
     private readonly forgetAssistantMemoryItemService: ForgetAssistantMemoryItemService,
     private readonly doNotRememberAssistantMemoryService: DoNotRememberAssistantMemoryService,
@@ -125,6 +132,53 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       visibility
+    };
+  }
+
+  @Get("assistant/integrations/telegram")
+  async getTelegramIntegrationState(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    integration: TelegramIntegrationState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const integration = await this.resolveTelegramIntegrationStateService.execute(userId);
+    return {
+      requestId: req.requestId ?? null,
+      integration
+    };
+  }
+
+  @Post("assistant/integrations/telegram/connect")
+  async connectTelegramIntegration(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    integration: TelegramIntegrationState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.connectTelegramIntegrationService.parseInput(body);
+    const integration = await this.connectTelegramIntegrationService.execute(userId, input);
+    return {
+      requestId: req.requestId ?? null,
+      integration
+    };
+  }
+
+  @Patch("assistant/integrations/telegram/config")
+  async updateTelegramIntegrationConfig(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    integration: TelegramIntegrationState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.updateTelegramIntegrationConfigService.parseInput(body);
+    const integration = await this.updateTelegramIntegrationConfigService.execute(userId, input);
+    return {
+      requestId: req.requestId ?? null,
+      integration
     };
   }
 

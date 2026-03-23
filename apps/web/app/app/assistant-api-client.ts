@@ -3,6 +3,8 @@ import {
   type AdminPlanVisibilityState,
   type AdminPlanState,
   type AdminPlanUpdateRequest,
+  type AssistantTelegramConfigUpdateRequest,
+  type TelegramIntegrationState,
   type AssistantWebChatDeleteRequest,
   type AssistantWebChatListItemState,
   type AssistantWebChatRenameRequest,
@@ -36,7 +38,10 @@ import {
   getAdminPlans as getAdminPlansContract
   ,
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
-  getAssistantPlanVisibility as getAssistantPlanVisibilityContract
+  getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
+  getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
+  patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
+  postAssistantTelegramConnect as postAssistantTelegramConnectContract
 } from "@persai/contracts";
 
 function getAuthHeaders(token: string): HeadersInit {
@@ -761,6 +766,7 @@ export async function postAssistantMemoryDoNotRemember(
 
 export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
 export type { UserPlanVisibilityState, AdminPlanVisibilityState };
+export type { TelegramIntegrationState, AssistantTelegramConfigUpdateRequest };
 
 export async function getAdminPlans(token: string): Promise<AdminPlanState[]> {
   try {
@@ -801,6 +807,54 @@ export async function getAdminPlanVisibility(token: string): Promise<AdminPlanVi
       throw new Error("Unexpected non-success response for GET /admin/plans/visibility.");
     }
     return response.data.visibility;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAssistantTelegramIntegration(token: string): Promise<TelegramIntegrationState> {
+  try {
+    const response = await getAssistantTelegramIntegrationContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /assistant/integrations/telegram.");
+    }
+    return response.data.integration;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantTelegramConnect(
+  token: string,
+  payload: { botToken: string }
+): Promise<TelegramIntegrationState> {
+  try {
+    const response = await postAssistantTelegramConnectContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for POST /assistant/integrations/telegram/connect.");
+    }
+    return response.data.integration;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchAssistantTelegramConfig(
+  token: string,
+  payload: AssistantTelegramConfigUpdateRequest
+): Promise<TelegramIntegrationState> {
+  try {
+    const response = await patchAssistantTelegramConfigContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for PATCH /assistant/integrations/telegram/config.");
+    }
+    return response.data.integration;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

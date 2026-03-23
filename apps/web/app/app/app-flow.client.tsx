@@ -13,6 +13,8 @@ import {
   type AdminPlanCreateRequest,
   type AdminPlanState,
   type AdminPlanUpdateRequest,
+  type AssistantTelegramConfigUpdateRequest,
+  type TelegramIntegrationState,
   type UserPlanVisibilityState,
   deleteAssistantWebChat,
   getAdminPlanVisibility,
@@ -20,11 +22,13 @@ import {
   getAssistant,
   getAssistantPlanVisibility,
   getAssistantMemoryItems,
+  getAssistantTelegramIntegration,
   getAssistantTaskItems,
   getAssistantWebChats,
   patchAssistantDraft,
   patchAdminPlan,
   patchAssistantWebChat,
+  patchAssistantTelegramConfig,
   postAssistantCreate,
   postAdminPlanCreate,
   postAssistantMemoryDoNotRemember,
@@ -35,6 +39,7 @@ import {
   postAssistantPublish,
   postAssistantReset,
   postAssistantRollback,
+  postAssistantTelegramConnect,
   postAssistantWebChatArchive,
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
@@ -502,6 +507,20 @@ export function AppFlowClient() {
   const [assistantPlanVisibilityFeedback, setAssistantPlanVisibilityFeedback] = useState<string | null>(
     null
   );
+  const [telegramIntegration, setTelegramIntegration] = useState<TelegramIntegrationState | null>(null);
+  const [isLoadingTelegramIntegration, setIsLoadingTelegramIntegration] = useState(false);
+  const [telegramIntegrationFeedback, setTelegramIntegrationFeedback] = useState<string | null>(null);
+  const [telegramBotTokenInput, setTelegramBotTokenInput] = useState("");
+  const [isConnectingTelegram, setIsConnectingTelegram] = useState(false);
+  const [isTelegramConfigPanelOpen, setIsTelegramConfigPanelOpen] = useState(false);
+  const [isSavingTelegramConfig, setIsSavingTelegramConfig] = useState(false);
+  const [telegramConfigDraft, setTelegramConfigDraft] =
+    useState<AssistantTelegramConfigUpdateRequest>({
+      defaultParseMode: "plain_text",
+      inboundUserMessagesEnabled: true,
+      outboundAssistantMessagesEnabled: true,
+      notes: null
+    });
   const [adminPlanVisibility, setAdminPlanVisibility] = useState<AdminPlanVisibilityState | null>(
     null
   );
@@ -610,6 +629,39 @@ export function AppFlowClient() {
       setAssistantPlanVisibilityFeedback(message);
     } finally {
       setIsLoadingAssistantPlanVisibility(false);
+    }
+  }, [flowState, getToken]);
+
+  const loadTelegramIntegration = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      setTelegramIntegration(null);
+      return;
+    }
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+    try {
+      setIsLoadingTelegramIntegration(true);
+      const integration = await getAssistantTelegramIntegration(token);
+      setTelegramIntegration(integration);
+      setTelegramIntegrationFeedback(null);
+      setTelegramConfigDraft({
+        defaultParseMode: integration.configPanel.settings.defaultParseMode,
+        inboundUserMessagesEnabled: integration.configPanel.settings.inboundUserMessagesEnabled,
+        outboundAssistantMessagesEnabled:
+          integration.configPanel.settings.outboundAssistantMessagesEnabled,
+        notes: integration.configPanel.settings.notes
+      });
+      if (!integration.configPanel.available) {
+        setIsTelegramConfigPanelOpen(false);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load Telegram integration.";
+      setTelegramIntegrationFeedback(message);
+    } finally {
+      setIsLoadingTelegramIntegration(false);
     }
   }, [flowState, getToken]);
 
@@ -776,6 +828,14 @@ export function AppFlowClient() {
   }, [flowState, loadAssistantPlanVisibility]);
 
   useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      setTelegramIntegration(null);
+      return;
+    }
+    void loadTelegramIntegration();
+  }, [flowState, loadTelegramIntegration]);
+
+  useEffect(() => {
     if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
       setAdminPlanVisibility(null);
       return;
@@ -911,6 +971,59 @@ export function AppFlowClient() {
         instructions: toNullable(advancedSetupPayload.instructions)
       };
     });
+  }
+
+  async function onConnectTelegram(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+    try {
+      setIsConnectingTelegram(true);
+      setTelegramIntegrationFeedback(null);
+      const integration = await postAssistantTelegramConnect(token, {
+        botToken: telegramBotTokenInput
+      });
+      setTelegramIntegration(integration);
+      setTelegramBotTokenInput("");
+      setTelegramConfigDraft({
+        defaultParseMode: integration.configPanel.settings.defaultParseMode,
+        inboundUserMessagesEnabled: integration.configPanel.settings.inboundUserMessagesEnabled,
+        outboundAssistantMessagesEnabled:
+          integration.configPanel.settings.outboundAssistantMessagesEnabled,
+        notes: integration.configPanel.settings.notes
+      });
+      setTelegramIntegrationFeedback("Telegram bot connected.");
+      setIsTelegramConfigPanelOpen(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Telegram connect failed.";
+      setTelegramIntegrationFeedback(message);
+    } finally {
+      setIsConnectingTelegram(false);
+    }
+  }
+
+  async function onSaveTelegramConfig(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+    try {
+      setIsSavingTelegramConfig(true);
+      setTelegramIntegrationFeedback(null);
+      const integration = await patchAssistantTelegramConfig(token, telegramConfigDraft);
+      setTelegramIntegration(integration);
+      setTelegramIntegrationFeedback("Telegram configuration updated.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Telegram config update failed.";
+      setTelegramIntegrationFeedback(message);
+    } finally {
+      setIsSavingTelegramConfig(false);
+    }
   }
 
   async function onPublishDraft(): Promise<void> {
@@ -2253,12 +2366,152 @@ export function AppFlowClient() {
 
           <section>
             <h3>Tools & Integrations</h3>
-            <p>Placeholder in B2. Tool catalog and integration governance are not wired yet.</p>
+            <p>Connect external delivery surfaces while keeping web as the main control plane.</p>
+            {isLoadingTelegramIntegration && <p>Loading Telegram integration…</p>}
+            {telegramIntegrationFeedback !== null && <p>{telegramIntegrationFeedback}</p>}
+            {telegramIntegration === null ? (
+              <p>Telegram integration state is not available yet.</p>
+            ) : (
+              <>
+                <article className="task-item-card">
+                  <h4>Telegram bot</h4>
+                  <p>
+                    <strong>Capability:</strong>{" "}
+                    {telegramIntegration.capabilityAllowed ? "allowed" : "not allowed by plan"}
+                  </p>
+                  <p>
+                    <strong>Status:</strong>{" "}
+                    {telegramIntegration.connectionStatus === "connected" ? "Connected" : "Not connected"}
+                  </p>
+                  {telegramIntegration.connectionStatus === "connected" && (
+                    <>
+                      <p>
+                        <strong>Bot:</strong>{" "}
+                        {telegramIntegration.bot.displayName ??
+                          telegramIntegration.bot.username ??
+                          "Unnamed bot"}
+                      </p>
+                      {telegramIntegration.bot.username !== null && (
+                        <p>
+                          <strong>Username:</strong> @{telegramIntegration.bot.username}
+                        </p>
+                      )}
+                      {telegramIntegration.bot.avatarUrl !== null && (
+                        <img
+                          src={telegramIntegration.bot.avatarUrl}
+                          alt="Telegram bot avatar"
+                          width={48}
+                          height={48}
+                        />
+                      )}
+                    </>
+                  )}
+                  {telegramIntegration.connectionStatus !== "connected" && (
+                    <form onSubmit={(event) => void onConnectTelegram(event)}>
+                      <p>
+                        1) Open Telegram and create/get your bot via @BotFather. 2) Paste bot token.
+                        3) Connect.
+                      </p>
+                      <label htmlFor="telegramBotTokenInput">Telegram bot token</label>
+                      <input
+                        id="telegramBotTokenInput"
+                        type="password"
+                        value={telegramBotTokenInput}
+                        onChange={(event) => setTelegramBotTokenInput(event.target.value)}
+                        placeholder="123456789:AA..."
+                        required
+                      />
+                      <button
+                        type="submit"
+                        disabled={!telegramIntegration.capabilityAllowed || isConnectingTelegram}
+                      >
+                        {isConnectingTelegram ? "Connecting…" : "Connect Telegram"}
+                      </button>
+                    </form>
+                  )}
+                  {telegramIntegration.connectionStatus === "connected" && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-quiet"
+                        onClick={() => setIsTelegramConfigPanelOpen((current) => !current)}
+                      >
+                        {isTelegramConfigPanelOpen
+                          ? "Close Telegram configuration panel"
+                          : "Open Telegram configuration panel"}
+                      </button>
+                      {isTelegramConfigPanelOpen && (
+                        <form onSubmit={(event) => void onSaveTelegramConfig(event)}>
+                          <label htmlFor="telegramParseMode">Default parse mode</label>
+                          <select
+                            id="telegramParseMode"
+                            value={telegramConfigDraft.defaultParseMode ?? "plain_text"}
+                            onChange={(event) =>
+                              setTelegramConfigDraft((current) => ({
+                                ...current,
+                                defaultParseMode:
+                                  event.target.value === "markdown" ? "markdown" : "plain_text"
+                              }))
+                            }
+                          >
+                            <option value="plain_text">Plain text</option>
+                            <option value="markdown">Markdown</option>
+                          </select>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={telegramConfigDraft.inboundUserMessagesEnabled ?? true}
+                              onChange={(event) =>
+                                setTelegramConfigDraft((current) => ({
+                                  ...current,
+                                  inboundUserMessagesEnabled: event.target.checked
+                                }))
+                              }
+                            />
+                            Inbound user messages enabled
+                          </label>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={telegramConfigDraft.outboundAssistantMessagesEnabled ?? true}
+                              onChange={(event) =>
+                                setTelegramConfigDraft((current) => ({
+                                  ...current,
+                                  outboundAssistantMessagesEnabled: event.target.checked
+                                }))
+                              }
+                            />
+                            Outbound assistant messages enabled
+                          </label>
+                          <label htmlFor="telegramConfigNotes">Notes</label>
+                          <textarea
+                            id="telegramConfigNotes"
+                            value={telegramConfigDraft.notes ?? ""}
+                            onChange={(event) =>
+                              setTelegramConfigDraft((current) => ({
+                                ...current,
+                                notes: event.target.value
+                              }))
+                            }
+                          />
+                          <button type="submit" disabled={isSavingTelegramConfig}>
+                            {isSavingTelegramConfig ? "Saving…" : "Save Telegram configuration"}
+                          </button>
+                        </form>
+                      )}
+                    </>
+                  )}
+                </article>
+              </>
+            )}
           </section>
 
           <section>
             <h3>Channels</h3>
-            <p>Placeholder in B2. Channel bindings are intentionally deferred beyond this slice.</p>
+            <p>
+              Web remains primary for setup and governance. Telegram is an interaction/delivery surface
+              connected from Integrations.
+            </p>
           </section>
 
           <section>

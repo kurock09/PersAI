@@ -127,3 +127,12 @@ Required in CI:
   - system notifications modeled as a distinct non-chat surface
 - OpenClaw capability envelope test (`test:openclaw-capability-envelope`) validates embedding of `openclawChannelSurfaceBindings`.
 - Existing E1/E2 and baseline capability tests remain green.
+
+## Step 8 E4 focus
+
+- Telegram integration flow is validated in API test script (`test:telegram-integration`) for:
+  - connect flow token verification path and persisted connected state
+  - post-connect configuration update persistence and response shape
+- API lint/typecheck validate Telegram endpoints/services and binding persistence wiring.
+- Web app flow tests validate integrations-area Telegram connect interaction path.
+- Existing E1-E3 envelope/capability tests remain green.

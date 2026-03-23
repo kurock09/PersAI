@@ -1,5 +1,89 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 8 E4 Telegram connection and delivery surface
+
+### What changed
+
+- Added canonical assistant-scoped channel binding persistence:
+  - `assistant_channel_surface_bindings`
+  - stores provider/surface state, policy/config, token fingerprint hint, and Telegram metadata
+- Added Telegram integration control-plane endpoints:
+  - `GET /assistant/integrations/telegram`
+  - `POST /assistant/integrations/telegram/connect`
+  - `PATCH /assistant/integrations/telegram/config`
+- Implemented Telegram connect flow:
+  - short token entry payload (`botToken`)
+  - token verification via Telegram `getMe`
+  - persisted `telegram` + `telegram_bot` active binding state
+  - connected-state response payload (`persai.telegramIntegration.v1`) for UI
+- Added web integrations-area UX for Telegram:
+  - simple connect instruction flow + token input
+  - connected state rendering
+  - post-connect Telegram configuration panel
+  - web remains primary control-plane surface
+- Added best-effort bot profile sync:
+  - display name and username from Telegram `getMe`
+  - derived avatar URL when username is available
+- Hardened E3 binding projection to read active Telegram binding truth from persistence (instead of static unconfigured assumption).
+- Docs updated: ADR-034, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- E4 requires real Telegram connection UX + persisted binding truth so Telegram can act as interaction/delivery surface without moving assistant control-plane ownership out of web.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260327120000_step8_e4_telegram_connection_surface/migration.sql`
+- `apps/api/src/modules/workspace-management/domain/assistant-channel-surface-binding.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-channel-surface-binding.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-channel-surface-binding.repository.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-integration.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-telegram-integration-state.service.ts`
+- `apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts`
+- `apps/api/src/modules/workspace-management/application/update-telegram-integration-config.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-channel-surface-bindings.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/telegram-integration.test.ts`
+- `apps/api/test/openclaw-channel-surface-bindings.test.ts`
+- `apps/api/package.json`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/web/app/app/app-flow.client.test.tsx`
+- `docs/ADR/034-telegram-connection-and-delivery-surface-e4.md`
+- `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run prisma:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/api run test:telegram-integration` — passed
+- `corepack pnpm --filter @persai/api run test:openclaw-channel-surface-bindings` — passed
+- `corepack pnpm --filter @persai/api run test:openclaw-capability-envelope` — passed
+- `corepack pnpm --filter @persai/web run lint` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/web run test -- app/app/app-flow.client.test.tsx` — passed
+
+### Known risks / intentional limits
+
+- E4 does not implement Telegram webhook ingestion or runtime delivery transport wiring; this slice is connect/config + binding truth.
+- Raw Telegram bot token is not persisted in domain read model; connect flow uses verification and stores fingerprint/hint metadata for control-plane traceability.
+- WhatsApp/MAX connection and delivery remain out of scope.
+
+### Next recommended step
+
+- Step 8 **E5** integrations panel and messenger binding UX expansion over the E4 Telegram connect baseline.
+
+### Ready commit message
+
+- `feat(api-web): add step 8 e4 telegram connect flow and binding surface`
+
 ## 2026-03-24 - Step 8 E3 channel and surface binding model hardening
 
 ### What changed

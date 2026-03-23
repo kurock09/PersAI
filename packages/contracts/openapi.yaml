@@ -319,6 +319,135 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/telegram:
+    get:
+      operationId: getAssistantTelegramIntegration
+      summary: Get Telegram integration connection/config state for current assistant
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Telegram integration state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantTelegramIntegrationResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/telegram/connect:
+    post:
+      operationId: postAssistantTelegramConnect
+      summary: Verify and connect Telegram bot token for current assistant
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantTelegramConnectRequest"
+      responses:
+        "200":
+          description: Telegram integration connected state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantTelegramIntegrationResponse"
+        "400":
+          description: Validation or verification error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Telegram channel not allowed by effective capability
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/telegram/config:
+    patch:
+      operationId: patchAssistantTelegramConfig
+      summary: Update Telegram post-connect configuration for current assistant
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantTelegramConfigUpdateRequest"
+      responses:
+        "200":
+          description: Telegram integration state after config update
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantTelegramIntegrationResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Telegram not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/chat/web:
     post:
       operationId: postAssistantWebChatTurn
@@ -1599,6 +1728,145 @@ components:
         checkedAt:
           type: string
           format: date-time
+    TelegramIntegrationConnectionStatus:
+      type: string
+      enum:
+        - connected
+        - not_connected
+    TelegramIntegrationBindingState:
+      type: string
+      enum:
+        - active
+        - inactive
+        - unconfigured
+    TelegramIntegrationBotState:
+      type: object
+      required:
+        - telegramUserId
+        - username
+        - displayName
+        - avatarUrl
+      properties:
+        telegramUserId:
+          type: number
+          nullable: true
+        username:
+          type: string
+          nullable: true
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+    TelegramIntegrationTokenHint:
+      type: object
+      required:
+        - lastFour
+      properties:
+        lastFour:
+          type: string
+          nullable: true
+    TelegramIntegrationConfigSettings:
+      type: object
+      required:
+        - defaultParseMode
+        - inboundUserMessagesEnabled
+        - outboundAssistantMessagesEnabled
+        - notes
+      properties:
+        defaultParseMode:
+          type: string
+          enum:
+            - plain_text
+            - markdown
+        inboundUserMessagesEnabled:
+          type: boolean
+        outboundAssistantMessagesEnabled:
+          type: boolean
+        notes:
+          type: string
+          nullable: true
+    TelegramIntegrationConfigPanel:
+      type: object
+      required:
+        - available
+        - settings
+      properties:
+        available:
+          type: boolean
+        settings:
+          $ref: "#/components/schemas/TelegramIntegrationConfigSettings"
+    TelegramIntegrationState:
+      type: object
+      required:
+        - schema
+        - provider
+        - surfaceType
+        - capabilityAllowed
+        - connectionStatus
+        - bindingState
+        - connectedAt
+        - bot
+        - tokenHint
+        - configPanel
+        - notes
+      properties:
+        schema:
+          type: string
+          enum:
+            - persai.telegramIntegration.v1
+        provider:
+          type: string
+          enum:
+            - telegram
+        surfaceType:
+          type: string
+          enum:
+            - telegram_bot
+        capabilityAllowed:
+          type: boolean
+        connectionStatus:
+          $ref: "#/components/schemas/TelegramIntegrationConnectionStatus"
+        bindingState:
+          $ref: "#/components/schemas/TelegramIntegrationBindingState"
+        connectedAt:
+          type: string
+          format: date-time
+          nullable: true
+        bot:
+          $ref: "#/components/schemas/TelegramIntegrationBotState"
+        tokenHint:
+          $ref: "#/components/schemas/TelegramIntegrationTokenHint"
+        configPanel:
+          $ref: "#/components/schemas/TelegramIntegrationConfigPanel"
+        notes:
+          type: array
+          items:
+            type: string
+    AssistantTelegramConnectRequest:
+      type: object
+      required:
+        - botToken
+      properties:
+        botToken:
+          type: string
+    AssistantTelegramConfigUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        defaultParseMode:
+          type: string
+          enum:
+            - plain_text
+            - markdown
+        inboundUserMessagesEnabled:
+          type: boolean
+        outboundAssistantMessagesEnabled:
+          type: boolean
+        notes:
+          type: string
+          nullable: true
     AssistantLifecycleState:
       type: object
       required:
@@ -2048,6 +2316,16 @@ components:
           nullable: true
         preflight:
           $ref: "#/components/schemas/AssistantRuntimePreflightState"
+    GetAssistantTelegramIntegrationResponse:
+      type: object
+      required:
+        - integration
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        integration:
+          $ref: "#/components/schemas/TelegramIntegrationState"
     GetAssistantWebChatTransportResponse:
       type: object
       required:

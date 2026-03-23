@@ -99,6 +99,29 @@ enum WorkspaceQuotaDimension {
   active_web_chats_cap
 }
 
+enum AssistantIntegrationProviderKey {
+  web_internal
+  telegram
+  whatsapp
+  max
+  system_notifications
+}
+
+enum AssistantIntegrationSurfaceType {
+  web_chat
+  telegram_bot
+  whatsapp_business
+  max_bot
+  max_mini_app
+  system_notification
+}
+
+enum AssistantChannelBindingState {
+  active
+  inactive
+  unconfigured
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -176,10 +199,33 @@ model Assistant {
   chatMessages          AssistantChatMessage[]
   memoryRegistryItems   AssistantMemoryRegistryItem[]
   taskRegistryItems     AssistantTaskRegistryItem[]
+  channelSurfaceBindings AssistantChannelSurfaceBinding[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
   @@map("assistants")
+}
+
+model AssistantChannelSurfaceBinding {
+  id                String                         @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  assistantId       String                         @map("assistant_id") @db.Uuid
+  providerKey       AssistantIntegrationProviderKey @map("provider_key")
+  surfaceType       AssistantIntegrationSurfaceType @map("surface_type")
+  bindingState      AssistantChannelBindingState   @default(unconfigured) @map("binding_state")
+  tokenFingerprint  String?                        @map("token_fingerprint") @db.VarChar(128)
+  tokenLastFour     String?                        @map("token_last_four") @db.VarChar(4)
+  policy            Json?                          @db.JsonB
+  config            Json?                          @db.JsonB
+  metadata          Json?                          @db.JsonB
+  connectedAt       DateTime?                      @map("connected_at") @db.Timestamptz(6)
+  disconnectedAt    DateTime?                      @map("disconnected_at") @db.Timestamptz(6)
+  createdAt         DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant         Assistant                      @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([assistantId, providerKey, surfaceType])
+  @@index([assistantId, providerKey, bindingState])
+  @@map("assistant_channel_surface_bindings")
 }
 
 model AssistantPublishedVersion {
