@@ -37,7 +37,7 @@ Foundation Phase
 - [x] Orval generation
 - [x] smoke/e2e flow
 
-## Step 3 OpenClaw
+## Step 2-1 OpenClaw
 
 - [x] O1 - OpenClaw repo/deploy boundary
 - [x] O2 - OpenClaw image build/push automation
@@ -45,3 +45,67 @@ Foundation Phase
 - [x] O4 - OpenClaw health/runtime verification
 - [x] O5 - OpenClaw config/secrets baseline
 - [x] O6 - backend-to-OpenClaw integration contract
+
+## Step 3 Assistant Platform Core
+
+- [ ] A1 — assistant domain model
+- [ ] A2 — assistant lifecycle API skeleton
+- [ ] A3 — draft/publish/version model
+- [ ] A4 — rollback/reset semantics
+- [ ] A5 — runtime apply state model
+- [ ] A6 — assistant governance baseline
+- [ ] A7 — materialized runtime spec
+- [ ] A8 — OpenClaw apply/reapply adapter
+
+## Step 4 Assistant User Control Surface
+
+- [ ] B1 — assistant dashboard shell
+- [ ] B2 — assistant editor sections
+- [ ] B3 — quick start and advanced setup
+- [ ] B4 — publish/apply UX states
+- [ ] B5 — rollback/reset UX
+- [ ] B6 — assistant activity/update markers
+
+## Step 5 Web Chat Core
+
+- [ ] C1 — chat domain model
+- [ ] C2 — web chat backend transport
+- [ ] C3 — streaming web chat
+- [ ] C4 — chat list and chat actions
+- [ ] C5 — active web chats cap
+- [ ] C6 — chat error/degradation UX
+
+## Step 6 Memory and Tasks Control
+
+- [ ] D1 — memory control domain
+- [ ] D2 — memory center MVP
+- [ ] D3 — memory source policy enforcement
+- [ ] D4 — tasks control domain
+- [ ] D5 — tasks center MVP
+
+## Step 7 Tools, Channels, and Integrations
+
+- [ ] E1 — tool catalog and capability groups
+- [ ] E2 — tool policy and quota envelope
+- [ ] E3 — channel and surface binding model
+- [ ] E4 — Telegram delivery surface
+- [ ] E5 — integration binding baseline
+- [ ] E6 — provider and fallback baseline
+
+## Step 8 Admin, Audit, and Operations
+
+- [ ] F1 — append-only audit log
+- [ ] F2 — admin RBAC baseline
+- [ ] F3 — ops cockpit baseline
+- [ ] F4 — business cockpit baseline
+- [ ] F5 — system notifications for admins
+- [ ] F6 — progressive rollout and rollback controls
+
+## Step 9 Hardening and Recovery
+
+- [ ] G1 — secret lifecycle hardening
+- [ ] G2 — abuse and rate limit enforcement
+- [ ] G3 — recovery and ownership transfer flows
+- [ ] G4 — retention/delete/compliance baseline
+- [ ] G5 — WhatsApp-ready channel hardening
+- [ ] G6 — MAX-ready surface hardening
