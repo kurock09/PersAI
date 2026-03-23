@@ -1,5 +1,56 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - Step 7 P1 plan catalog and entitlement model
+
+### What changed
+
+- Added canonical plan catalog persistence:
+  - `plan_catalog_plans` (`code`, `status`, provider-agnostic metadata, `isDefaultFirstRegistrationPlan`, `isTrialPlan`, `trialDurationDays`)
+  - `plan_catalog_entitlements` (1:1 by plan with grouped entitlement JSON arrays for capabilities, tool classes, channels/surfaces, limits permissions)
+- Added DB integrity constraints:
+  - partial unique index for single default first-registration plan
+  - trial duration check (`is_trial_plan=false => null`, `is_trial_plan=true => >0`)
+- Governance baseline creation now resolves `quotaPlanCode` from active default-first-registration plan in catalog (nullable fallback when catalog is empty).
+- Seed baseline now inserts/updates provider-agnostic default trial plan `starter_trial` (14 days) and canonical entitlement payload.
+- Docs updated: ADR-024, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- P1 makes plan packaging and entitlement truth explicit in the control plane without coupling to a billing vendor or introducing subscription workflow scope.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260326170000_step7_p1_plan_catalog_entitlements/migration.sql`
+- `apps/api/prisma/seed.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-governance.repository.ts`
+- `docs/ADR/024-plan-catalog-and-entitlements-p1.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- pending in current session
+
+### Known risks / intentional limits
+
+- No plan-management API/UI in P1.
+- No billing provider workflows (checkout, subscription state machine, invoices/webhooks).
+- No entitlement enforcement engine yet; P1 defines canonical storage and governance default assignment only.
+
+### Next recommended step
+
+- Step 7 **P2** admin plan management UI (or management API first) while keeping P1 provider-agnostic model unchanged.
+
+### Ready commit message
+
+- `feat(api): add step 7 p1 canonical plan catalog and entitlement model`
+
 ## 2026-03-26 - Step 6 D5 Tasks Center MVP
 
 ### What changed

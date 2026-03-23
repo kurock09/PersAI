@@ -45,3 +45,9 @@ Required in CI:
   - `apps/web/app/app/page.test.tsx` (protected `/app` calls `auth.protect`)
   - `apps/web/app/app/app-flow.client.test.tsx` (onboarding gate pending/completed branches)
 - CI includes explicit Step 2 smoke/e2e step via `pnpm run test:step2`.
+
+## Step 7 P1 focus
+
+- Prisma migration validates canonical plan catalog + entitlement schema.
+- Governance baseline creation resolves `quotaPlanCode` from default first-registration active plan when catalog row exists.
+- Trial metadata constraints hold at DB level (`is_trial_plan` vs `trial_duration_days` check).

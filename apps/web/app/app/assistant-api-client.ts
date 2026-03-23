@@ -59,7 +59,9 @@ function getApiBaseUrl(): string {
   return "http://localhost:3001/api/v1";
 }
 
-function isPostSuccessStatus(status: number): boolean {
+function isSuccessStatus(
+  status: number
+): status is 200 | 201 {
   return status === 200 || status === 201;
 }
 
@@ -430,7 +432,12 @@ export async function postAssistantCreate(token: string): Promise<AssistantLifec
       headers: getAuthHeaders(token)
     });
 
-    if (!isPostSuccessStatus(response.status)) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("assistant" in response.data)
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant.");
     }
 
@@ -465,7 +472,12 @@ export async function postAssistantPublish(token: string): Promise<AssistantLife
       headers: getAuthHeaders(token)
     });
 
-    if (!isPostSuccessStatus(response.status)) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("assistant" in response.data)
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/publish.");
     }
 
@@ -484,7 +496,12 @@ export async function postAssistantRollback(
       headers: getAuthHeaders(token)
     });
 
-    if (!isPostSuccessStatus(response.status)) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("assistant" in response.data)
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/rollback.");
     }
 
@@ -500,7 +517,12 @@ export async function postAssistantReset(token: string): Promise<AssistantLifecy
       headers: getAuthHeaders(token)
     });
 
-    if (!isPostSuccessStatus(response.status)) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("assistant" in response.data)
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/reset.");
     }
 
@@ -555,7 +577,12 @@ export async function postAssistantWebChatArchive(
       headers: getAuthHeaders(token)
     });
 
-    if (!isPostSuccessStatus(response.status)) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("chat" in response.data)
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/chats/web/:chatId/archive.");
     }
 
@@ -607,7 +634,13 @@ export async function postAssistantMemoryItemForget(token: string, itemId: strin
       headers: getAuthHeaders(token)
     });
 
-    if (!isPostSuccessStatus(response.status) || response.data.forgotten !== true) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("forgotten" in response.data) ||
+      response.data.forgotten !== true
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/memory/items/:itemId/forget.");
     }
   } catch (error) {
@@ -637,7 +670,13 @@ export async function postAssistantTaskItemDisable(token: string, itemId: string
       headers: getAuthHeaders(token)
     });
 
-    if (!isPostSuccessStatus(response.status) || response.data.disabled !== true) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("disabled" in response.data) ||
+      response.data.disabled !== true
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/tasks/items/:itemId/disable.");
     }
   } catch (error) {
@@ -651,7 +690,13 @@ export async function postAssistantTaskItemEnable(token: string, itemId: string)
       headers: getAuthHeaders(token)
     });
 
-    if (!isPostSuccessStatus(response.status) || response.data.enabled !== true) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("enabled" in response.data) ||
+      response.data.enabled !== true
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/tasks/items/:itemId/enable.");
     }
   } catch (error) {
@@ -665,7 +710,13 @@ export async function postAssistantTaskItemCancel(token: string, itemId: string)
       headers: getAuthHeaders(token)
     });
 
-    if (!isPostSuccessStatus(response.status) || response.data.cancelled !== true) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("cancelled" in response.data) ||
+      response.data.cancelled !== true
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/tasks/items/:itemId/cancel.");
     }
   } catch (error) {
@@ -682,7 +733,12 @@ export async function postAssistantMemoryDoNotRemember(
       headers: getAuthHeaders(token)
     });
 
-    if (!isPostSuccessStatus(response.status)) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("forgottenRegistryItems" in response.data)
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/memory/do-not-remember.");
     }
 

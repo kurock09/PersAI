@@ -19,15 +19,28 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
   }
 
   async createBaseline(assistantId: string): Promise<AssistantGovernance> {
+    const defaultPlanCode = await this.resolveDefaultFirstRegistrationPlanCode();
     const governance = await this.prisma.assistantGovernance.create({
       data: {
         assistantId,
         memoryControl: createDefaultMemoryControlEnvelope() as Prisma.InputJsonValue,
-        tasksControl: createDefaultTasksControlEnvelope() as Prisma.InputJsonValue
+        tasksControl: createDefaultTasksControlEnvelope() as Prisma.InputJsonValue,
+        quotaPlanCode: defaultPlanCode
       }
     });
 
     return this.mapToDomain(governance);
+  }
+
+  private async resolveDefaultFirstRegistrationPlanCode(): Promise<string | null> {
+    const plan = await this.prisma.planCatalogPlan.findFirst({
+      where: {
+        isDefaultFirstRegistrationPlan: true,
+        status: "active"
+      },
+      select: { code: true }
+    });
+    return plan?.code ?? null;
   }
 
   async appendMemoryControlForgetMarker(

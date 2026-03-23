@@ -141,6 +141,32 @@ Postgres with Prisma.
 - external_ref (nullable) — optional correlation to runtime (not exposed in product API)
 - created_at, updated_at
 
+### plan_catalog_plans (Step 7 P1 baseline)
+
+- id (UUID)
+- code (varchar 64, unique)
+- display_name (varchar 120)
+- description (nullable text)
+- status (`active|inactive`)
+- is_default_first_registration_plan (bool)
+- is_trial_plan (bool)
+- trial_duration_days (nullable int; required and >0 when `is_trial_plan=true`)
+- billing_provider_hints (nullable jsonb, provider-agnostic metadata only)
+- created_at
+- updated_at
+
+### plan_catalog_entitlements (Step 7 P1 baseline)
+
+- id (UUID)
+- plan_id (UUID, unique FK -> `plan_catalog_plans.id`)
+- schema_version (int)
+- capabilities (jsonb array)
+- tool_classes (jsonb array)
+- channels_and_surfaces (jsonb array)
+- limits_permissions (jsonb array)
+- created_at
+- updated_at
+
 ## Prisma baseline (Step 1 slice 5)
 
 - `app_users`:
@@ -226,6 +252,15 @@ Postgres with Prisma.
     - `(assistant_id, user_id) -> assistants(id, user_id)`
     - `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
   - Tasks Center visibility: `control_status` drives Active vs Inactive UX; `external_ref` is not returned by Tasks APIs
+- `plan_catalog_plans`:
+  - primary key: `id`
+  - unique: `code`
+  - partial unique: single plan may have `is_default_first_registration_plan=true`
+  - check: trial duration must be null for non-trial plans, and >0 for trial plans
+- `plan_catalog_entitlements`:
+  - primary key: `id`
+  - unique FK: `plan_id -> plan_catalog_plans.id` (1:1 model)
+  - grouped entitlement JSON arrays: capabilities, tool classes, channels/surfaces, limits permissions
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -253,6 +288,7 @@ Postgres with Prisma.
 - D3 adds explicit `sourceClassification` + `trustedOneToOneGlobalWriteSurfaces` in the envelope (with SQL backfill) and server-side evaluation of global registry read/write policy
 - D4 adds first-class `tasks_control` JSON on `assistant_governance` for task/reminder/trigger **control** metadata; execution and scheduling remain outside PersAI backend
 - D5 adds `assistant_task_registry_items` for Tasks Center rows (control plane); population from OpenClaw/sync is integration follow-up—MVP APIs + UI are honest when the list is empty
+- P1 adds canonical `plan_catalog_plans` + `plan_catalog_entitlements`; billing-vendor lifecycle and entitlement enforcement remain out of scope
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

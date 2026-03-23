@@ -381,6 +381,12 @@ Behavior baseline:
 
 - `active` or `disabled` → `cancelled`; idempotent if already `cancelled`; **409** if `userMayCancel` is false
 
+## Step 7 P1 plan catalog + entitlement control-plane baseline
+
+- P1 introduces canonical plan/entitlement persistence in backend data model (no public API endpoints added in this slice).
+- `governance.quotaPlanCode` remains the assistant-facing pointer and is now resolved from the active catalog plan flagged as default first registration during governance baseline creation.
+- Trial semantics are modeled in catalog metadata (`isTrialPlan`, `trialDurationDays`) and are not yet coupled to billing-provider workflow.
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

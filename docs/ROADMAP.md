@@ -86,7 +86,7 @@ Foundation Phase
 
 ## Step 7 Plans, Billing, and Entitlements
 
-- [ ] P1 — plan catalog and entitlement model
+- [x] P1 — plan catalog and entitlement model
 - [ ] P2 — admin plan management UI
 - [ ] P3 — subscription state and billing abstraction
 - [ ] P4 — capability resolution engine

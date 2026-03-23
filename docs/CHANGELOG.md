@@ -4,6 +4,22 @@
 
 ### Added
 
+- Step 7 slice P1 plan catalog and entitlement model:
+  - added canonical plan catalog table `plan_catalog_plans` with provider-agnostic packaging metadata and explicit flags:
+    - `isDefaultFirstRegistrationPlan`
+    - `isTrialPlan`
+    - `trialDurationDays`
+  - added canonical entitlement table `plan_catalog_entitlements` (1:1 per plan) with grouped entitlement truth:
+    - `capabilities`
+    - `toolClasses`
+    - `channelsAndSurfaces`
+    - `limitsPermissions`
+  - added DB constraints for plan baseline integrity:
+    - at most one default first-registration plan
+    - trial duration required only for trial plans and must be > 0
+  - updated governance baseline creation to resolve `quotaPlanCode` from active default first-registration plan in catalog (nullable fallback when missing)
+  - updated deterministic seed with provider-agnostic default trial plan + entitlement baseline (`starter_trial`, 14 days)
+  - ADR `docs/ADR/024-plan-catalog-and-entitlements-p1.md`
 - Step 6 slice D5 Tasks Center MVP:
   - added `assistant_task_registry_items` for user-facing reminders/tasks (title, source surface/label, `controlStatus`, optional `nextRunAt`; `externalRef` stored but not exposed in API)
   - APIs: `GET /assistant/tasks/items`, `POST .../items/{itemId}/disable`, `POST .../enable`, `POST .../cancel` (honors `tasks_control` userMay* flags; 409 on denial)

@@ -56,6 +56,11 @@ enum AssistantTaskRegistryControlStatus {
   cancelled
 }
 
+enum PlanCatalogStatus {
+  active
+  inactive
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -170,6 +175,38 @@ model AssistantGovernance {
   assistant          Assistant @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("assistant_governance")
+}
+
+model PlanCatalogPlan {
+  id                            String                 @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  code                          String                 @unique @db.VarChar(64)
+  displayName                   String                 @map("display_name") @db.VarChar(120)
+  description                   String?                @db.Text
+  status                        PlanCatalogStatus      @default(active)
+  isDefaultFirstRegistrationPlan Boolean               @default(false) @map("is_default_first_registration_plan")
+  isTrialPlan                   Boolean                @default(false) @map("is_trial_plan")
+  trialDurationDays             Int?                   @map("trial_duration_days")
+  billingProviderHints          Json?                  @map("billing_provider_hints")
+  createdAt                     DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  entitlement                   PlanCatalogEntitlement?
+
+  @@map("plan_catalog_plans")
+}
+
+model PlanCatalogEntitlement {
+  id                           String          @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  planId                       String          @unique @map("plan_id") @db.Uuid
+  schemaVersion                Int             @default(1) @map("schema_version")
+  capabilities                 Json            @default("[]") @db.JsonB
+  toolClasses                  Json            @default("[]") @map("tool_classes") @db.JsonB
+  channelsAndSurfaces          Json            @default("[]") @map("channels_and_surfaces") @db.JsonB
+  limitsPermissions            Json            @default("[]") @map("limits_permissions") @db.JsonB
+  createdAt                    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  plan                         PlanCatalogPlan @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("plan_catalog_entitlements")
 }
 
 model AssistantMaterializedSpec {
