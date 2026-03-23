@@ -32,6 +32,18 @@
   - preserved non-commercial quota rule for tasks/reminders via envelope field `tasksAndRemindersExcludedFromCommercialQuotas`
   - added API test script `test:openclaw-capability-envelope`
   - added ADR `docs/ADR/032-openclaw-capability-envelope-e2.md`
+- Step 8 slice E3 channel/surface binding model hardening:
+  - added explicit materialized channel/surface binding projection:
+    - `openclawChannelSurfaceBindings`
+    - schema `persai.openclawChannelSurfaceBindings.v1`
+  - projection now preserves provider + surface + assistant-binding structure with policy/config at provider and surface levels
+  - removed flat MAX surface assumption in projection by mapping MAX channel gate to two distinct surfaces:
+    - `max_bot`
+    - `max_mini_app`
+  - added explicit unavailable-surface suppression list so runtime does not infer unsupported surfaces
+  - integrated channel/surface binding projection into `openclawCapabilityEnvelope` for OpenClaw-facing materialization
+  - added API test script `test:openclaw-channel-surface-bindings`
+  - added ADR `docs/ADR/033-channel-surface-binding-model-e3.md`
 - Post-deploy live validation snapshot for Step 7 P1-P7 on dev GKE:
   - verified API + web deployments on aligned image tag
   - verified user/admin visibility endpoints and UI sections:

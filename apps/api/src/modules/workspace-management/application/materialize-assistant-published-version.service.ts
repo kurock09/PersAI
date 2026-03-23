@@ -16,6 +16,7 @@ import type { AssistantPublishedVersion } from "../domain/assistant-published-ve
 import type { Assistant } from "../domain/assistant.entity";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./resolve-effective-tool-availability.service";
+import { ResolveOpenClawChannelSurfaceBindingsService } from "./resolve-openclaw-channel-surface-bindings.service";
 import { ResolveOpenClawCapabilityEnvelopeService } from "./resolve-openclaw-capability-envelope.service";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
@@ -55,6 +56,7 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly resolveEffectiveToolAvailabilityService: ResolveEffectiveToolAvailabilityService,
+    private readonly resolveOpenClawChannelSurfaceBindingsService: ResolveOpenClawChannelSurfaceBindingsService,
     private readonly resolveOpenClawCapabilityEnvelopeService: ResolveOpenClawCapabilityEnvelopeService
   ) {}
 
@@ -83,9 +85,15 @@ export class MaterializeAssistantPublishedVersionService {
     const toolAvailability = await this.resolveEffectiveToolAvailabilityService.execute({
       effectiveCapabilities
     });
+    const channelSurfaceBindings =
+      this.resolveOpenClawChannelSurfaceBindingsService.execute({
+        assistantId: assistant.id,
+        effectiveCapabilities
+      });
     const openclawCapabilityEnvelope = this.resolveOpenClawCapabilityEnvelopeService.execute({
       effectiveCapabilities,
-      effectiveToolAvailability: toolAvailability
+      effectiveToolAvailability: toolAvailability,
+      channelSurfaceBindings
     });
 
     const layers = {

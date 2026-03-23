@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 8 E3 channel and surface binding model hardening
+
+### What changed
+
+- Added explicit channel/surface binding projection resolver:
+  - `ResolveOpenClawChannelSurfaceBindingsService`
+  - schema `persai.openclawChannelSurfaceBindings.v1`
+- Binding projection now models non-flat structure:
+  - providers: `web_internal`, `telegram`, `whatsapp`, `max`, `system_notifications`
+  - surfaces: `web_chat`, `telegram_bot`, `whatsapp_business`, `max_bot`, `max_mini_app`, `system_notification`
+  - assistant-binding status/state at provider level
+  - policy/config split at provider and surface levels
+- Integrated `openclawChannelSurfaceBindings` into `openclawCapabilityEnvelope` and materialization outputs consumed by OpenClaw.
+- Applied corrective hardening for prior channel assumptions:
+  - preserved existing `channelsAndSurfaces.max` entitlement gate for compatibility
+  - projected that gate into two distinct surfaces (`max_bot`, `max_mini_app`) to avoid flattening
+- Added explicit unavailable-surface suppression list (`deniedSurfaceTypes` + `declaredSurfaceTypes`).
+- Added API test script `test:openclaw-channel-surface-bindings` and updated envelope test to validate embedded channel/surface binding payload.
+- Docs updated: ADR-033, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- E3 requires provider+surface binding truth to be explicit and runtime-safe so OpenClaw can distinguish available, unavailable, and non-existent surfaces without Telegram-specific or flat-surface assumptions.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/openclaw-channel-surface-bindings.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-channel-surface-bindings.service.ts`
+- `apps/api/src/modules/workspace-management/application/openclaw-capability-envelope.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-capability-envelope.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/openclaw-channel-surface-bindings.test.ts`
+- `apps/api/test/openclaw-capability-envelope.test.ts`
+- `apps/api/package.json`
+- `docs/ADR/033-channel-surface-binding-model-e3.md`
+- `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/api run test:openclaw-channel-surface-bindings` — passed
+- `corepack pnpm --filter @persai/api run test:openclaw-capability-envelope` — passed
+- `corepack pnpm --filter @persai/api run test:tool-catalog-activation` — passed
+- `corepack pnpm --filter @persai/api run test:capability-resolution` — passed
+
+### Known risks / intentional limits
+
+- E3 is projection hardening only; no Telegram/WhatsApp/MAX delivery execution is implemented.
+- Provider config refs are modeled as control-plane references and not connected to runtime channel provisioning in this slice.
+- Existing plan entitlement source for MAX remains one coarse gate; split commercial/package controls for `max_bot` vs `max_mini_app` are deferred.
+
+### Next recommended step
+
+- Step 8 **E4** Telegram connection and delivery surface over the E3 binding baseline.
+
+### Ready commit message
+
+- `feat(api): add step 8 e3 channel-surface binding envelope hardening`
+
 ## 2026-03-24 - Step 8 E2 OpenClaw capability envelope hardening
 
 ### What changed

@@ -117,3 +117,13 @@ Required in CI:
   - quota-related restriction flags and tasks/reminders non-commercial-quota rule
 - Materialization compiles with envelope included in governance layer snapshot + OpenClaw bootstrap/workspace documents.
 - Existing E1 and Step 2 baselines remain green.
+
+## Step 8 E3 focus
+
+- Channel/surface binding projection is validated in API test script (`test:openclaw-channel-surface-bindings`) for:
+  - explicit provider + surface + assistant-binding structure
+  - MAX split into `max_bot` and `max_mini_app` surfaces (no flattening)
+  - explicit unavailable-surface suppression list behavior
+  - system notifications modeled as a distinct non-chat surface
+- OpenClaw capability envelope test (`test:openclaw-capability-envelope`) validates embedding of `openclawChannelSurfaceBindings`.
+- Existing E1/E2 and baseline capability tests remain green.

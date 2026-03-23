@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { EffectiveCapabilityState } from "./effective-capability.types";
 import type { EffectiveToolAvailabilityState } from "./effective-tool-availability.types";
 import type { OpenClawCapabilityEnvelopeState } from "./openclaw-capability-envelope.types";
+import type { OpenClawChannelSurfaceBindingsState } from "./openclaw-channel-surface-bindings.types";
 
 type ToolGroup = "knowledge" | "automation" | "communication" | "workspace_ops";
 
@@ -10,8 +11,9 @@ export class ResolveOpenClawCapabilityEnvelopeService {
   execute(params: {
     effectiveCapabilities: EffectiveCapabilityState;
     effectiveToolAvailability: EffectiveToolAvailabilityState;
+    channelSurfaceBindings: OpenClawChannelSurfaceBindingsState;
   }): OpenClawCapabilityEnvelopeState {
-    const { effectiveCapabilities, effectiveToolAvailability } = params;
+    const { effectiveCapabilities, effectiveToolAvailability, channelSurfaceBindings } = params;
 
     const tools = effectiveToolAvailability.tools.map((tool) => {
       const allowed = tool.effectiveActivation === "active";
@@ -64,6 +66,7 @@ export class ResolveOpenClawCapabilityEnvelopeService {
         whatsapp: { allowed: effectiveCapabilities.channelsAndSurfaces.whatsapp },
         max: { allowed: effectiveCapabilities.channelsAndSurfaces.max }
       },
+      channelSurfaceBindings,
       toolClasses: {
         utility: effectiveToolAvailability.toolClasses.utility,
         costDriving: effectiveToolAvailability.toolClasses.costDriving

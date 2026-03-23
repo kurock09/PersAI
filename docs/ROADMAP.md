@@ -98,7 +98,7 @@ Foundation Phase
 
 - [x] E1 — tool catalog and activation model
 - [x] E2 — tool policy and OpenClaw capability envelope
-- [ ] E3 — channel and surface binding model hardening
+- [x] E3 — channel and surface binding model hardening
 - [ ] E4 — Telegram connection and delivery surface
 - [ ] E5 — integrations panel and messenger binding UX
 - [ ] E6 — provider and fallback baseline

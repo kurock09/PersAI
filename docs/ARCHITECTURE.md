@@ -208,6 +208,19 @@ O6 defines a future adapter-only contract:
   - explicit suppression list for unavailable tools
 - envelope is projection-only governance truth; backend still does not become runtime routing layer
 
+## Channel and surface binding model boundary (Step 8 E3)
+
+- backend materialization now includes explicit channel/surface binding projection:
+  - `openclawChannelSurfaceBindings` (`persai.openclawChannelSurfaceBindings.v1`)
+- projection preserves model separation:
+  - integration provider
+  - surface type
+  - assistant binding
+- provider-level status/policy/config and surface-level allow/deny state are represented separately
+- MAX is no longer flattened at projection level:
+  - projected as distinct surfaces: `max_bot`, `max_mini_app`
+- backend remains control-plane only; no channel delivery routing is implemented in E3
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

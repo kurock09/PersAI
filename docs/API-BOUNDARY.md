@@ -513,6 +513,22 @@ Behavior baseline:
 - Tasks/reminders remain explicitly non-commercial-quota class in the envelope (`tasksAndRemindersExcludedFromCommercialQuotas`).
 - Backend still does not route runtime execution behavior.
 
+## Step 8 E3 channel and surface binding model hardening
+
+- E3 adds no new public REST endpoints; this is control-plane materialization hardening.
+- Materialization now includes explicit channel/surface binding projection:
+  - `openclawChannelSurfaceBindings` (`persai.openclawChannelSurfaceBindings.v1`)
+- Projection shape is explicit and non-flat:
+  - provider-level binding (`web_internal`, `telegram`, `whatsapp`, `max`, `system_notifications`)
+  - surface-level binding (`web_chat`, `telegram_bot`, `whatsapp_business`, `max_bot`, `max_mini_app`, `system_notification`)
+  - assistant binding state
+  - policy/config split at provider and surface levels
+  - explicit suppression list for unavailable surfaces
+- E3 preserves existing entitlement compatibility:
+  - existing `channelsAndSurfaces.max` capability input remains one gate
+  - projection hardening maps it to two distinct surfaces (`max_bot`, `max_mini_app`)
+- Backend still does not implement Telegram/WhatsApp/MAX delivery execution in this slice.
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

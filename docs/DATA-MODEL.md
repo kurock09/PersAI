@@ -386,6 +386,8 @@ Postgres with Prisma.
 - P5 adds canonical quota accounting state + usage event tables for token budget, cost/token-driving tool class usage, and active web chats cap; tasks/reminders remain intentionally non-commercial-quota dimensions
 - P6 adds centralized enforcement points over existing P1-P5 models and materializes explicit `toolAvailability` for OpenClaw; no new persistence table in P6
 - E1 adds canonical tool catalog + plan activation persistence and upgrades materialized tool availability to include per-tool activation truth; backend still does not route tool execution behavior
+- E2 hardens materialized OpenClaw capability envelope with explicit allow/deny and suppression truth; no new persistence table in E2
+- E3 hardens materialized channel/surface binding model (`openclawChannelSurfaceBindings`) with provider+surface+assistant-binding structure; no new persistence table in E3
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

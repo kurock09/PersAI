@@ -91,12 +91,54 @@ async function run(): Promise<void> {
         }
       ],
       notes: []
+    },
+    channelSurfaceBindings: {
+      schema: "persai.openclawChannelSurfaceBindings.v1",
+      derivedFrom: {
+        effectiveCapabilitiesSchema: "persai.effectiveCapabilities.v1",
+        planCode: "starter_trial"
+      },
+      providers: [
+        {
+          provider: "web_internal",
+          assistantBinding: { assistantId: "assistant_1", bound: true, state: "active" },
+          policy: {
+            inboundUserMessages: true,
+            outboundAssistantMessages: true,
+            supportsInteractiveChat: true
+          },
+          config: { mode: "native", configRef: null },
+          surfaces: [
+            {
+              surfaceType: "web_chat",
+              allowed: true,
+              state: "active",
+              denyReason: null,
+              policy: {
+                interactionMode: "chat",
+                inboundUserMessages: true,
+                outboundAssistantMessages: true
+              },
+              config: { routingKey: "web.chat" }
+            }
+          ]
+        }
+      ],
+      suppression: {
+        suppressUnavailableSurfaces: true,
+        deniedSurfaceTypes: [],
+        declaredSurfaceTypes: ["web_chat"]
+      }
     }
   });
 
   assert.equal(resolved.schema, "persai.openclawCapabilityEnvelope.v1");
   assert.equal(resolved.catalog.declaredToolCodes.includes("memory_center_read"), true);
   assert.equal(resolved.channelsAndSurfaces.webChat.allowed, true);
+  assert.equal(
+    resolved.channelSurfaceBindings.providers[0]?.surfaces[0]?.surfaceType,
+    "web_chat"
+  );
   assert.equal(resolved.channelsAndSurfaces.whatsapp.allowed, false);
   assert.equal(
     resolved.tools.find((tool) => tool.code === "web_search")?.allowed,

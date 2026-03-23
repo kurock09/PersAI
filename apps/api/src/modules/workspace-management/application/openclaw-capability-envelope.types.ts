@@ -1,3 +1,5 @@
+import type { OpenClawChannelSurfaceBindingsState } from "./openclaw-channel-surface-bindings.types";
+
 export type OpenClawCapabilityEnvelopeState = {
   schema: "persai.openclawCapabilityEnvelope.v1";
   derivedFrom: {
@@ -11,6 +13,7 @@ export type OpenClawCapabilityEnvelopeState = {
     whatsapp: { allowed: boolean };
     max: { allowed: boolean };
   };
+  channelSurfaceBindings: OpenClawChannelSurfaceBindingsState;
   toolClasses: {
     utility: {
       allowed: boolean;
