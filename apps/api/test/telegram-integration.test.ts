@@ -131,6 +131,9 @@ async function run(): Promise<void> {
     },
     hasActiveBindingForProvider: async () => binding?.bindingState === "active"
   };
+  const auditEventService = {
+    execute: async () => undefined
+  };
 
   const resolveStateService = new ResolveTelegramIntegrationStateService(
     assistantRepository as never,
@@ -143,12 +146,14 @@ async function run(): Promise<void> {
     governanceRepository as never,
     bindingRepository as never,
     capabilityResolver as never,
-    resolveStateService
+    resolveStateService,
+    auditEventService as never
   );
   const updateConfigService = new UpdateTelegramIntegrationConfigService(
     assistantRepository as never,
     bindingRepository as never,
-    resolveStateService
+    resolveStateService,
+    auditEventService as never
   );
 
   const originalFetch = globalThis.fetch;

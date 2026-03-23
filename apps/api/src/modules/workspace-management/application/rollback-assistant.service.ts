@@ -22,6 +22,7 @@ import { ApplyAssistantPublishedVersionService } from "./apply-assistant-publish
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
+import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 export interface RollbackAssistantRequest {
   targetVersion: number;
@@ -39,7 +40,8 @@ export class RollbackAssistantService {
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
-    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService
+    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   parseInput(payload: unknown): RollbackAssistantRequest {
@@ -94,6 +96,19 @@ export class RollbackAssistantService {
       publishedByUserId: userId,
       snapshotDisplayName: targetVersion.snapshotDisplayName,
       snapshotInstructions: targetVersion.snapshotInstructions
+    });
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      actorUserId: userId,
+      eventCategory: "assistant_lifecycle",
+      eventCode: "assistant.rollback_published",
+      summary: "Assistant rollback published as a new latest version.",
+      details: {
+        sourceVersion: targetVersion.version,
+        publishedVersionId: rolledBackVersion.id,
+        publishedVersionNumber: rolledBackVersion.version
+      }
     });
 
     const updatedAssistant = await this.assistantRepository.updateDraft(userId, {

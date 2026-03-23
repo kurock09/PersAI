@@ -247,6 +247,18 @@ O6 defines a future adapter-only contract:
   - optional policy override via `policyEnvelope.runtimeProviderRouting` (model keys and fallback disable)
 - no user-facing provider picker and no provider marketplace logic are added in E6
 
+## Append-only audit boundary (Step 9 F1)
+
+- backend now owns canonical append-only audit persistence for critical control-plane and runtime-transition truth:
+  - `assistant_audit_events`
+- audit rows are immutable at DB level (no update/delete mutation path)
+- F1 audit scope is intentionally high-signal:
+  - lifecycle milestones (create/draft/publish/rollback/reset/reapply request)
+  - runtime apply transitions (`in_progress|succeeded|failed|degraded`)
+  - admin plan create/update actions
+  - policy/binding critical changes (memory forget-marker append, Telegram binding/config, token fingerprint update)
+- audit remains control-plane telemetry; backend still does not become runtime behavior router
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

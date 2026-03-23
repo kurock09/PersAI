@@ -206,6 +206,19 @@ Postgres with Prisma.
 - created_at
 - updated_at
 
+### assistant_audit_events (Step 9 F1 baseline)
+
+- id (UUID)
+- workspace_id (nullable UUID FK -> `workspaces.id`)
+- assistant_id (nullable UUID FK -> `assistants.id`)
+- actor_user_id (nullable UUID FK -> `app_users.id`)
+- event_category (varchar 64)
+- event_code (varchar 128)
+- outcome (varchar 24; baseline `succeeded|failed|degraded|denied`)
+- summary (varchar 255)
+- details (jsonb; bounded event metadata)
+- created_at
+
 ### workspace_subscriptions (Step 7 P3 baseline)
 
 - id (UUID)
@@ -361,6 +374,14 @@ Postgres with Prisma.
   - unique triplet: `(assistant_id, provider_key, surface_type)`
   - index: `(assistant_id, provider_key, binding_state)`
   - stores assistant-scoped provider/surface binding truth and light control-plane config/policy metadata
+- `assistant_audit_events`:
+  - primary key: `id`
+  - indexes:
+    - `(assistant_id, created_at DESC)`
+    - `(workspace_id, created_at DESC)`
+    - `(event_category, created_at DESC)`
+  - immutable row policy enforced by DB trigger (no `UPDATE`, no `DELETE`)
+  - stores high-signal append-only control-plane/runtime-transition audit events
 - `workspace_subscriptions`:
   - primary key: `id`
   - unique: `workspace_id` (one current subscription state row per workspace in P3)
@@ -411,6 +432,7 @@ Postgres with Prisma.
 - E2 hardens materialized OpenClaw capability envelope with explicit allow/deny and suppression truth; no new persistence table in E2
 - E3 hardens materialized channel/surface binding model (`openclawChannelSurfaceBindings`) with provider+surface+assistant-binding structure; no new persistence table in E3
 - E4 adds canonical assistant-scoped provider/surface binding persistence for Telegram connect/config (`assistant_channel_surface_bindings`) and keeps web as primary control-plane surface
+- F1 adds append-only `assistant_audit_events` with immutable rows for critical lifecycle/runtime/admin/policy/binding transitions only (no unbounded raw event dump)
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

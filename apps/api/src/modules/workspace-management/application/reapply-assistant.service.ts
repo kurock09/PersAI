@@ -15,6 +15,7 @@ import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assist
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
+import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 @Injectable()
 export class ReapplyAssistantService {
@@ -27,7 +28,8 @@ export class ReapplyAssistantService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
-    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService
+    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
@@ -41,6 +43,18 @@ export class ReapplyAssistantService {
     if (latestPublishedVersion === null) {
       throw new NotFoundException("Assistant does not have a published version to reapply.");
     }
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      actorUserId: userId,
+      eventCategory: "assistant_lifecycle",
+      eventCode: "assistant.reapply_requested",
+      summary: "Assistant reapply requested for latest published version.",
+      details: {
+        publishedVersionId: latestPublishedVersion.id,
+        publishedVersionNumber: latestPublishedVersion.version
+      }
+    });
 
     await this.assistantRepository.markApplyPending(userId, latestPublishedVersion.id);
     await this.applyAssistantPublishedVersionService.execute(userId, latestPublishedVersion, true);

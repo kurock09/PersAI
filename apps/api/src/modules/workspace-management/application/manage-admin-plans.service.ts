@@ -19,6 +19,7 @@ import type {
   AdminPlanInput,
   AdminPlanState
 } from "./admin-plan-management.types";
+import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 function toBoolean(value: unknown): boolean {
   return value === true;
@@ -107,7 +108,8 @@ export class ManageAdminPlansService {
   constructor(
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly planCatalogRepository: AssistantPlanCatalogRepository,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   async listPlans(userId: string): Promise<AdminPlanState[]> {
@@ -130,18 +132,32 @@ export class ManageAdminPlansService {
   }
 
   async createPlan(userId: string, input: AdminCreatePlanInput): Promise<AdminPlanState> {
-    await this.assertWorkspaceOwner(userId);
+    const ownerMembership = await this.assertWorkspaceOwner(userId);
     const existing = await this.planCatalogRepository.findByCode(input.code);
     if (existing !== null) {
       throw new ConflictException("Plan code already exists.");
     }
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: ownerMembership.workspaceId,
+      assistantId: null,
+      actorUserId: userId,
+      eventCategory: "admin_action",
+      eventCode: "admin.plan_created",
+      summary: "Admin plan created.",
+      details: {
+        code: created.code,
+        status: created.status,
+        defaultOnRegistration: created.isDefaultFirstRegistrationPlan,
+        trialEnabled: created.isTrialPlan
+      }
+    });
     return this.toAdminPlanState(created);
   }
 
   async updatePlan(userId: string, code: string, input: AdminPlanInput): Promise<AdminPlanState> {
-    await this.assertWorkspaceOwner(userId);
+    const ownerMembership = await this.assertWorkspaceOwner(userId);
     const normalizedCode = parseRequiredString(code, "code").toLowerCase();
     const updated = await this.planCatalogRepository.updateByCode(
       normalizedCode,
@@ -150,6 +166,20 @@ export class ManageAdminPlansService {
     if (updated === null) {
       throw new NotFoundException("Plan not found.");
     }
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: ownerMembership.workspaceId,
+      assistantId: null,
+      actorUserId: userId,
+      eventCategory: "admin_action",
+      eventCode: "admin.plan_updated",
+      summary: "Admin plan updated.",
+      details: {
+        code: updated.code,
+        status: updated.status,
+        defaultOnRegistration: updated.isDefaultFirstRegistrationPlan,
+        trialEnabled: updated.isTrialPlan
+      }
+    });
     return this.toAdminPlanState(updated);
   }
 
@@ -320,12 +350,14 @@ export class ManageAdminPlansService {
     };
   }
 
-  private async assertWorkspaceOwner(userId: string): Promise<void> {
+  private async assertWorkspaceOwner(userId: string): Promise<{ workspaceId: string }> {
     const ownerMembership = await this.prisma.workspaceMember.findFirst({
-      where: { userId, role: WorkspaceRole.owner }
+      where: { userId, role: WorkspaceRole.owner },
+      select: { workspaceId: true }
     });
     if (ownerMembership === null) {
       throw new ForbiddenException("Admin plan management requires workspace owner role.");
     }
+    return ownerMembership;
   }
 }

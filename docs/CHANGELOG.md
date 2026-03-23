@@ -4,6 +4,21 @@
 
 ### Added
 
+- Step 9 slice F1 append-only audit log hardening:
+  - added canonical append-only audit persistence:
+    - `assistant_audit_events`
+  - added DB-level immutability guards for audit rows:
+    - rejects `UPDATE`
+    - rejects `DELETE`
+  - added centralized audit append service in backend control plane:
+    - `AppendAssistantAuditEventService`
+  - added critical high-signal coverage for:
+    - assistant lifecycle milestones (`created`, `draft_updated`, `published`, `rollback_published`, `reset_published`, `reapply_requested`)
+    - runtime apply transitions (`apply_in_progress`, `apply_succeeded`, `apply_failed`, `apply_degraded`)
+    - admin actions (`plan_created`, `plan_updated`)
+    - policy/control changes (`memory_forget_marker_appended`)
+    - channel binding + related secret fingerprint changes (`telegram_connected`, `telegram_config_updated`, `telegram_token_fingerprint_updated`)
+  - added ADR `docs/ADR/037-append-only-audit-log-hardening-f1.md`
 - Step 8 slice E1 tool catalog and activation model:
   - added canonical governed tool catalog persistence:
     - `tool_catalog_tools`

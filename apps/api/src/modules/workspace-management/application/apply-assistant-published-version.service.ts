@@ -10,6 +10,7 @@ import {
   AssistantRuntimeAdapterError,
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
+import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 @Injectable()
 export class ApplyAssistantPublishedVersionService {
@@ -19,7 +20,8 @@ export class ApplyAssistantPublishedVersionService {
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter
+    private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   async execute(
@@ -34,6 +36,18 @@ export class ApplyAssistantPublishedVersionService {
     if (assistantInProgress === null) {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: assistantInProgress.workspaceId,
+      assistantId: assistantInProgress.id,
+      actorUserId: userId,
+      eventCategory: "runtime_apply",
+      eventCode: "assistant.runtime.apply_in_progress",
+      summary: "Assistant runtime apply started.",
+      details: {
+        publishedVersionId: publishedVersion.id,
+        reapply
+      }
+    });
 
     const materializedSpec =
       await this.assistantMaterializedSpecRepository.findByPublishedVersionId(publishedVersion.id);
@@ -44,6 +58,21 @@ export class ApplyAssistantPublishedVersionService {
         "invalid_response",
         "Materialized runtime spec is missing for published version."
       );
+      await this.appendAssistantAuditEventService.execute({
+        workspaceId: assistantInProgress.workspaceId,
+        assistantId: assistantInProgress.id,
+        actorUserId: userId,
+        eventCategory: "runtime_apply",
+        eventCode: "assistant.runtime.apply_failed",
+        outcome: "failed",
+        summary: "Assistant runtime apply failed.",
+        details: {
+          publishedVersionId: publishedVersion.id,
+          reapply,
+          errorCode: "invalid_response",
+          errorMessage: "Materialized runtime spec is missing for published version."
+        }
+      });
       return;
     }
 
@@ -58,6 +87,19 @@ export class ApplyAssistantPublishedVersionService {
       });
 
       await this.assistantRepository.markApplySucceeded(userId, publishedVersion.id);
+      await this.appendAssistantAuditEventService.execute({
+        workspaceId: assistantInProgress.workspaceId,
+        assistantId: assistantInProgress.id,
+        actorUserId: userId,
+        eventCategory: "runtime_apply",
+        eventCode: "assistant.runtime.apply_succeeded",
+        summary: "Assistant runtime apply succeeded.",
+        details: {
+          publishedVersionId: publishedVersion.id,
+          reapply,
+          contentHash: materializedSpec.contentHash
+        }
+      });
     } catch (error) {
       if (error instanceof AssistantRuntimeAdapterError) {
         if (error.code === "runtime_degraded") {
@@ -67,6 +109,21 @@ export class ApplyAssistantPublishedVersionService {
             error.code,
             error.message
           );
+          await this.appendAssistantAuditEventService.execute({
+            workspaceId: assistantInProgress.workspaceId,
+            assistantId: assistantInProgress.id,
+            actorUserId: userId,
+            eventCategory: "runtime_apply",
+            eventCode: "assistant.runtime.apply_degraded",
+            outcome: "degraded",
+            summary: "Assistant runtime apply completed with degraded runtime state.",
+            details: {
+              publishedVersionId: publishedVersion.id,
+              reapply,
+              errorCode: error.code,
+              errorMessage: error.message
+            }
+          });
           return;
         }
 
@@ -76,6 +133,21 @@ export class ApplyAssistantPublishedVersionService {
           error.code,
           error.message
         );
+        await this.appendAssistantAuditEventService.execute({
+          workspaceId: assistantInProgress.workspaceId,
+          assistantId: assistantInProgress.id,
+          actorUserId: userId,
+          eventCategory: "runtime_apply",
+          eventCode: "assistant.runtime.apply_failed",
+          outcome: "failed",
+          summary: "Assistant runtime apply failed.",
+          details: {
+            publishedVersionId: publishedVersion.id,
+            reapply,
+            errorCode: error.code,
+            errorMessage: error.message
+          }
+        });
         return;
       }
 

@@ -12,6 +12,7 @@ import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assist
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
+import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 @Injectable()
 export class CreateAssistantService {
@@ -22,7 +23,8 @@ export class CreateAssistantService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
@@ -57,6 +59,17 @@ export class CreateAssistantService {
     const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
       assistant.id
     );
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      actorUserId: userId,
+      eventCategory: "assistant_lifecycle",
+      eventCode: "assistant.created",
+      summary: "Assistant baseline created.",
+      details: {
+        governanceBaselineCreated: true
+      }
+    });
     return toAssistantLifecycleState(assistant, null, governance, materialization);
   }
 }

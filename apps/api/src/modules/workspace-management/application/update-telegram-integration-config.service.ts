@@ -9,6 +9,7 @@ import type {
   TelegramConfigUpdateInput,
   TelegramIntegrationState
 } from "./telegram-integration.types";
+import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 function asObject(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -23,7 +24,8 @@ export class UpdateTelegramIntegrationConfigService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
-    private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService
+    private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   parseInput(body: unknown): TelegramConfigUpdateInput {
@@ -113,6 +115,24 @@ export class UpdateTelegramIntegrationConfigService {
       metadata: asObject(binding.metadata),
       connectedAt: binding.connectedAt,
       disconnectedAt: null
+    });
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      actorUserId: userId,
+      eventCategory: "channel_binding",
+      eventCode: "assistant.telegram_config_updated",
+      summary: "Telegram channel binding configuration updated.",
+      details: {
+        providerKey: "telegram",
+        surfaceType: "telegram_bot",
+        changedFields: {
+          defaultParseMode: input.defaultParseMode !== undefined,
+          inboundUserMessagesEnabled: input.inboundUserMessagesEnabled !== undefined,
+          outboundAssistantMessagesEnabled: input.outboundAssistantMessagesEnabled !== undefined,
+          notes: input.notes !== undefined
+        }
+      }
     });
 
     return this.resolveTelegramIntegrationStateService.execute(userId);

@@ -1,5 +1,86 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 9 F1 append-only audit log hardening
+
+### What changed
+
+- Added canonical append-only audit persistence model:
+  - `assistant_audit_events`
+- Enforced append-only behavior at DB level for audit rows:
+  - reject `UPDATE`
+  - reject `DELETE`
+- Added centralized audit append service in `workspace-management`:
+  - `AppendAssistantAuditEventService`
+- Wired critical high-signal audit coverage into existing control-plane flows:
+  - assistant lifecycle:
+    - `assistant.created`
+    - `assistant.draft_updated`
+    - `assistant.published`
+    - `assistant.rollback_published`
+    - `assistant.reset_published`
+    - `assistant.reapply_requested`
+  - runtime apply transitions:
+    - `assistant.runtime.apply_in_progress`
+    - `assistant.runtime.apply_succeeded`
+    - `assistant.runtime.apply_failed`
+    - `assistant.runtime.apply_degraded`
+  - admin actions:
+    - `admin.plan_created`
+    - `admin.plan_updated`
+  - policy/control:
+    - `assistant.memory_forget_marker_appended`
+  - channel binding and secret-adjacent token fingerprint change:
+    - `assistant.telegram_connected`
+    - `assistant.telegram_config_updated`
+    - `assistant.telegram_token_fingerprint_updated`
+- Docs updated: ADR-037, `ROADMAP`, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- F1 requires critical control-plane and runtime-transition truth to be explicitly traceable in an append-only audit layer without turning audit into a noisy raw event dump.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260328120000_step9_f1_append_only_audit_log_hardening/migration.sql`
+- `apps/api/src/modules/workspace-management/application/append-assistant-audit-event.service.ts`
+- `apps/api/src/modules/workspace-management/application/create-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/update-assistant-draft.service.ts`
+- `apps/api/src/modules/workspace-management/application/publish-assistant-draft.service.ts`
+- `apps/api/src/modules/workspace-management/application/rollback-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/reapply-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/apply-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts`
+- `apps/api/src/modules/workspace-management/application/update-telegram-integration-config.service.ts`
+- `apps/api/src/modules/workspace-management/application/do-not-remember-assistant-memory.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `docs/ADR/037-append-only-audit-log-hardening-f1.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run prisma:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/api run test:telegram-integration` — passed
+- `corepack pnpm run test:step2` — passed
+
+### Known risks / intentional limits
+
+- F1 does not add audit read/query APIs yet.
+- F1 does not introduce broad chat-turn/event-stream raw dumping by design.
+- There is still no dedicated secret management API in this slice; secret-adjacent coverage is limited to Telegram token fingerprint updates on connect.
+
+### Next recommended step
+
+- Step 9 **F2** admin RBAC and step-up actions, with audit events attached to privileged authorization transitions.
+
+### Ready commit message
+
+- `feat(api): add step 9 f1 append-only audit log hardening for lifecycle admin policy and runtime transitions`
+
 ## 2026-03-24 - Step 8 E6 provider and fallback baseline
 
 ### What changed

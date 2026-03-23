@@ -563,6 +563,12 @@ Behavior baseline:
   - `policyEnvelope.runtimeProviderRouting` can override model keys and disable fallback path.
 - E6 does not introduce a user-facing provider picker, provider marketplace logic, or backend runtime routing execution.
 
+## Step 9 F1 append-only audit hardening
+
+- F1 adds no new public REST endpoints.
+- Backend writes high-signal append-only audit events for critical control-plane and runtime transition actions.
+- Audit storage is immutable at DB level (`assistant_audit_events` update/delete rejected).
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

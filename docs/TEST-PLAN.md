@@ -146,3 +146,15 @@ Required in CI:
   - entitlement/governance alignment fields (cost-driving restrictions)
 - OpenClaw capability envelope test (`test:openclaw-capability-envelope`) validates embedding of `runtimeProviderRouting`.
 - API lint/typecheck validate service wiring through materialization and module registration.
+
+## Step 9 F1 focus
+
+- Prisma schema/migration validates append-only audit persistence model (`assistant_audit_events`).
+- DB-level immutability for audit rows is enforced via trigger (update/delete rejected).
+- Critical audit coverage is verified by service wiring for:
+  - lifecycle milestones (`create|draft update|publish|rollback|reset|reapply request`)
+  - runtime apply transitions (`in_progress|succeeded|failed|degraded`)
+  - admin plan create/update actions
+  - policy marker append (`do-not-remember` -> memory forget marker)
+  - Telegram binding/config and token-fingerprint update events
+- API lint/typecheck and existing Step 8 baseline tests remain green.

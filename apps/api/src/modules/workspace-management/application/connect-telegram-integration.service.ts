@@ -12,6 +12,7 @@ import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assist
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveTelegramIntegrationStateService } from "./resolve-telegram-integration-state.service";
 import type { TelegramConnectInput, TelegramIntegrationState } from "./telegram-integration.types";
+import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 type TelegramGetMeResult = {
   id: number;
@@ -36,7 +37,8 @@ export class ConnectTelegramIntegrationService {
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
-    private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService
+    private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   parseInput(body: unknown): TelegramConnectInput {
@@ -97,6 +99,35 @@ export class ConnectTelegramIntegrationService {
       },
       connectedAt: new Date(),
       disconnectedAt: null
+    });
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      actorUserId: userId,
+      eventCategory: "channel_binding",
+      eventCode: "assistant.telegram_connected",
+      summary: "Telegram channel binding connected.",
+      details: {
+        providerKey: "telegram",
+        surfaceType: "telegram_bot",
+        username: bot.username ?? null,
+        tokenFingerprintPrefix: tokenFingerprint.slice(0, 12),
+        tokenLastFour
+      }
+    });
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      actorUserId: userId,
+      eventCategory: "secret_change",
+      eventCode: "assistant.telegram_token_fingerprint_updated",
+      summary: "Telegram token fingerprint updated for channel binding.",
+      details: {
+        providerKey: "telegram",
+        surfaceType: "telegram_bot",
+        tokenFingerprintPrefix: tokenFingerprint.slice(0, 12),
+        tokenLastFour
+      }
     });
 
     return this.resolveTelegramIntegrationStateService.execute(userId);

@@ -105,7 +105,7 @@ Foundation Phase
 
 ## Step 9 Admin, Audit, and Operations
 
-- [ ] F1 — append-only audit log hardening
+- [x] F1 — append-only audit log hardening
 - [ ] F2 — admin RBAC and step-up actions
 - [ ] F3 — ops cockpit baseline
 - [ ] F4 — business cockpit baseline

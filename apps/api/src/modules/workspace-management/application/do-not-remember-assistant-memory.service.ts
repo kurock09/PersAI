@@ -21,6 +21,7 @@ import {
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import { isGlobalMemoryReadAllowed } from "../domain/memory-source-policy";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -38,7 +39,8 @@ export class DoNotRememberAssistantMemoryService {
     @Inject(ASSISTANT_MEMORY_REGISTRY_REPOSITORY)
     private readonly memoryRegistryRepository: AssistantMemoryRegistryRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
-    private readonly assistantGovernanceRepository: AssistantGovernanceRepository
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   parseInput(payload: unknown): { assistantMessageId: string; userMessageId: string | null } {
@@ -119,6 +121,20 @@ export class DoNotRememberAssistantMemoryService {
       assistantMessageId: input.assistantMessageId,
       userMessageId,
       chatId: assistantMessage.chatId
+    });
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      actorUserId: userId,
+      eventCategory: "policy_change",
+      eventCode: "assistant.memory_forget_marker_appended",
+      summary: "Memory-control forget marker appended from do-not-remember action.",
+      details: {
+        assistantMessageId: input.assistantMessageId,
+        userMessageId,
+        chatId: assistantMessage.chatId,
+        forgottenRegistryItems
+      }
     });
 
     return { forgottenRegistryItems };

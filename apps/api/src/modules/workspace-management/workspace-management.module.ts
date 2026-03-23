@@ -11,6 +11,7 @@ import { ResolveTelegramIntegrationStateService } from "./application/resolve-te
 import { ConnectTelegramIntegrationService } from "./application/connect-telegram-integration.service";
 import { UpdateTelegramIntegrationConfigService } from "./application/update-telegram-integration-config.service";
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
+import { AppendAssistantAuditEventService } from "./application/append-assistant-audit-event.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -69,6 +70,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
   controllers: [AssistantController, AdminPlansController],
   providers: [
     WorkspaceManagementPrismaService,
+    AppendAssistantAuditEventService,
     GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,

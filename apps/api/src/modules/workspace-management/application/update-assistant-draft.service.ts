@@ -18,6 +18,7 @@ import {
 } from "../domain/assistant.repository";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
+import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 export interface UpdateAssistantDraftRequest {
   displayName?: string | null;
@@ -50,7 +51,8 @@ export class UpdateAssistantDraftService {
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
-    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository
+    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   parseInput(payload: unknown): UpdateAssistantDraftRequest {
@@ -105,6 +107,20 @@ export class UpdateAssistantDraftService {
     const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
       updatedAssistant.id
     );
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: updatedAssistant.workspaceId,
+      assistantId: updatedAssistant.id,
+      actorUserId: userId,
+      eventCategory: "assistant_lifecycle",
+      eventCode: "assistant.draft_updated",
+      summary: "Assistant draft updated.",
+      details: {
+        changedFields: {
+          displayName: existingAssistant.draftDisplayName !== updatedAssistant.draftDisplayName,
+          instructions: existingAssistant.draftInstructions !== updatedAssistant.draftInstructions
+        }
+      }
+    });
 
     return toAssistantLifecycleState(
       updatedAssistant,

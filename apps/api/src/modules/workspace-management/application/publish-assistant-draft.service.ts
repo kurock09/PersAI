@@ -16,6 +16,7 @@ import { ApplyAssistantPublishedVersionService } from "./apply-assistant-publish
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
+import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 @Injectable()
 export class PublishAssistantDraftService {
@@ -29,7 +30,8 @@ export class PublishAssistantDraftService {
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
-    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService
+    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
@@ -43,6 +45,18 @@ export class PublishAssistantDraftService {
       publishedByUserId: userId,
       snapshotDisplayName: assistant.draftDisplayName,
       snapshotInstructions: assistant.draftInstructions
+    });
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      actorUserId: userId,
+      eventCategory: "assistant_lifecycle",
+      eventCode: "assistant.published",
+      summary: "Assistant draft published.",
+      details: {
+        publishedVersionId: publishedVersion.id,
+        publishedVersionNumber: publishedVersion.version
+      }
     });
 
     const assistantWithPendingApply = await this.assistantRepository.markApplyPending(

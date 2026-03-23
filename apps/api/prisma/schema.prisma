@@ -132,6 +132,7 @@ model AppUser {
   assistant                 Assistant?
   workspaceLinks            WorkspaceMember[]
   publishedAssistantVersion AssistantPublishedVersion[] @relation("AssistantVersionPublisher")
+  assistantAuditEvents      AssistantAuditEvent[]      @relation("AssistantAuditActor")
 
   @@map("app_users")
 }
@@ -149,6 +150,7 @@ model Workspace {
   subscription WorkspaceSubscription?
   quotaAccountingState WorkspaceQuotaAccountingState?
   quotaUsageEvents WorkspaceQuotaUsageEvent[]
+  assistantAuditEvents AssistantAuditEvent[]
 
   @@map("workspaces")
 }
@@ -200,6 +202,7 @@ model Assistant {
   memoryRegistryItems   AssistantMemoryRegistryItem[]
   taskRegistryItems     AssistantTaskRegistryItem[]
   channelSurfaceBindings AssistantChannelSurfaceBinding[]
+  auditEvents            AssistantAuditEvent[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -262,6 +265,27 @@ model AssistantGovernance {
   assistant          Assistant @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("assistant_governance")
+}
+
+model AssistantAuditEvent {
+  id           String     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  workspaceId  String?    @map("workspace_id") @db.Uuid
+  assistantId  String?    @map("assistant_id") @db.Uuid
+  actorUserId  String?    @map("actor_user_id") @db.Uuid
+  eventCategory String    @map("event_category") @db.VarChar(64)
+  eventCode    String     @map("event_code") @db.VarChar(128)
+  outcome      String     @default("succeeded") @db.VarChar(24)
+  summary      String     @db.VarChar(255)
+  details      Json       @default("{}") @db.JsonB
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace    Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  assistant    Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  actorUser    AppUser?   @relation("AssistantAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([eventCategory, createdAt(sort: Desc)])
+  @@map("assistant_audit_events")
 }
 
 model PlanCatalogPlan {
