@@ -78,35 +78,57 @@ Foundation Phase
 
 ## Step 6 Memory and Tasks Control
 
-- [ ] D1 — memory control domain
+- [ ] D1 — memory control domain hardening
 - [ ] D2 — memory center MVP
 - [ ] D3 — memory source policy enforcement
-- [ ] D4 — tasks control domain
+- [ ] D4 — tasks control domain hardening
 - [ ] D5 — tasks center MVP
 
-## Step 7 Tools, Channels, and Integrations
+## Step 7 Plans, Billing, and Entitlements
 
-- [ ] E1 — tool catalog and capability groups
-- [ ] E2 — tool policy and quota envelope
-- [ ] E3 — channel and surface binding model
-- [ ] E4 — Telegram delivery surface
-- [ ] E5 — integration binding baseline
+- [ ] P1 — plan catalog and entitlement model
+- [ ] P2 — admin plan management UI
+- [ ] P3 — subscription state and billing abstraction
+- [ ] P4 — capability resolution engine
+- [ ] P5 — quota accounting baseline
+- [ ] P6 — enforcement points
+- [ ] P7 — user/admin plan visibility
+
+## Step 8 Tools, Channels, and Integrations
+
+- [ ] E1 — tool catalog and activation model
+- [ ] E2 — tool policy and OpenClaw capability envelope
+- [ ] E3 — channel and surface binding model hardening
+- [ ] E4 — Telegram connection and delivery surface
+- [ ] E5 — integrations panel and messenger binding UX
 - [ ] E6 — provider and fallback baseline
 
-## Step 8 Admin, Audit, and Operations
+## Step 9 Admin, Audit, and Operations
 
-- [ ] F1 — append-only audit log
-- [ ] F2 — admin RBAC baseline
+- [ ] F1 — append-only audit log hardening
+- [ ] F2 — admin RBAC and step-up actions
 - [ ] F3 — ops cockpit baseline
 - [ ] F4 — business cockpit baseline
-- [ ] F5 — system notifications for admins
+- [ ] F5 — admin system notifications
 - [ ] F6 — progressive rollout and rollback controls
 
-## Step 9 Hardening and Recovery
+## Step 10 Hardening and Recovery
 
 - [ ] G1 — secret lifecycle hardening
 - [ ] G2 — abuse and rate limit enforcement
 - [ ] G3 — recovery and ownership transfer flows
 - [ ] G4 — retention/delete/compliance baseline
-- [ ] G5 — WhatsApp-ready channel hardening
-- [ ] G6 — MAX-ready surface hardening
+- [ ] G5 — WhatsApp and MAX readiness hardening
+
+## Step 11 Product Experience and Visual Polish
+
+- [ ] H1 — design language and product shell alignment
+- [ ] H2 — first registration welcome flow polish
+- [ ] H3 — main user desktop polish
+- [ ] H4 — assistant card and settings modal polish
+- [ ] H5 — chats and messenger panels polish
+- [ ] H6 — integrations panel and Telegram setup polish
+- [ ] H7 — web chat premium polish
+- [ ] H8 — admin shell and cockpit polish
+- [ ] H9 — responsive, accessibility, and motion polish
+- [ ] H10 — final consistency and cleanup pass
