@@ -4,6 +4,12 @@
 
 ### Added
 
+- Step 6 slice D5 Tasks Center MVP:
+  - added `assistant_task_registry_items` for user-facing reminders/tasks (title, source surface/label, `controlStatus`, optional `nextRunAt`; `externalRef` stored but not exposed in API)
+  - APIs: `GET /assistant/tasks/items`, `POST .../items/{itemId}/disable`, `POST .../enable`, `POST .../cancel` (honors `tasks_control` userMay* flags; 409 on denial)
+  - web: Tasks section in assistant editor (Active / Inactive groups, next-run copy, Pause / Stop / Turn back on) + contracts/OpenAPI + Clerk routes
+  - API script `test:tasks-user-controls` for affordance flag parsing
+  - ADR `docs/ADR/023-tasks-center-mvp-d5.md`
 - Step 6 slice D4 tasks control domain hardening:
   - added `assistant_governance.tasks_control` JSON column with MVP default envelope `persai.tasksControl.v1` (ownership, source/surface hooks, control lifecycle labels, enable/disable/cancel, explicit tasks-excluded-from-commercial-quotas, audit routing)
   - migration backfills from legacy `policyEnvelope.tasksControl` when present

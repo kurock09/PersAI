@@ -469,6 +469,9 @@ The user should feel:
 - “I can understand and control this”
 - not “I’m operating a system internals console”
 
+### Step 6 D5 Tasks Center
+- Assistant editor **Tasks** section mirrors Memory Center calm patterns: Active vs Inactive groups, plain-language actions (Pause / Stop / Turn back on), source/surface pill, friendly next-run copy—no workflow canvas and no runtime dumps.
+
 ---
 
 ## Admin Design

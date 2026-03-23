@@ -114,6 +114,12 @@ O6 defines a future adapter-only contract:
 - OpenClaw owns **execution, scheduling, and trigger routing**; PersAI does not implement a backend scheduler in D4
 - materialized `openclawWorkspace.tasksControl` carries the resolved envelope for runtime alignment without inferring policy locally
 
+## Tasks Center registry (Step 6 D5)
+
+- `assistant_task_registry_items` stores user-facing **reminder/task lines** for the Tasks Center (control plane), not raw OpenClaw runtime payloads; `externalRef` may be used later for correlation but is **not** exposed in list APIs
+- list/disable/enable/cancel endpoints are assistant-scoped and honor `tasks_control` user affordance flags (`userMayDisable`, `userMayEnable`, `userMayCancel`)
+- D5 does not add backend scheduling or execution routing; `nextRunAt` is a display hint until integration populates it
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

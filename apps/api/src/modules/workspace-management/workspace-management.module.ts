@@ -6,6 +6,10 @@ import { CreateAssistantService } from "./application/create-assistant.service";
 import { DoNotRememberAssistantMemoryService } from "./application/do-not-remember-assistant-memory.service";
 import { ForgetAssistantMemoryItemService } from "./application/forget-assistant-memory-item.service";
 import { ListAssistantMemoryItemsService } from "./application/list-assistant-memory-items.service";
+import { ListAssistantTaskItemsService } from "./application/list-assistant-task-items.service";
+import { DisableAssistantTaskRegistryItemService } from "./application/disable-assistant-task-registry-item.service";
+import { EnableAssistantTaskRegistryItemService } from "./application/enable-assistant-task-registry-item.service";
+import { CancelAssistantTaskRegistryItemService } from "./application/cancel-assistant-task-registry-item.service";
 import { GetAssistantByUserIdService } from "./application/get-assistant-by-user-id.service";
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
 import { ManageWebChatListService } from "./application/manage-web-chat-list.service";
@@ -19,6 +23,7 @@ import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.ser
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
 import { ASSISTANT_MEMORY_REGISTRY_REPOSITORY } from "./domain/assistant-memory-registry.repository";
+import { ASSISTANT_TASK_REGISTRY_REPOSITORY } from "./domain/assistant-task-registry.repository";
 import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.repository";
 import { ASSISTANT_MATERIALIZED_SPEC_REPOSITORY } from "./domain/assistant-materialized-spec.repository";
 import { ASSISTANT_PUBLISHED_VERSION_REPOSITORY } from "./domain/assistant-published-version.repository";
@@ -28,6 +33,7 @@ import { OpenClawRuntimeAdapter } from "./infrastructure/openclaw/openclaw-runti
 import { PrismaAssistantGovernanceRepository } from "./infrastructure/persistence/prisma-assistant-governance.repository";
 import { PrismaAssistantChatRepository } from "./infrastructure/persistence/prisma-assistant-chat.repository";
 import { PrismaAssistantMemoryRegistryRepository } from "./infrastructure/persistence/prisma-assistant-memory-registry.repository";
+import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persistence/prisma-assistant-task-registry.repository";
 import { PrismaAssistantMaterializedSpecRepository } from "./infrastructure/persistence/prisma-assistant-materialized-spec.repository";
 import { PrismaAssistantPublishedVersionRepository } from "./infrastructure/persistence/prisma-assistant-published-version.repository";
 import { PrismaAssistantRepository } from "./infrastructure/persistence/prisma-assistant.repository";
@@ -51,6 +57,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ListAssistantMemoryItemsService,
     ForgetAssistantMemoryItemService,
     DoNotRememberAssistantMemoryService,
+    ListAssistantTaskItemsService,
+    DisableAssistantTaskRegistryItemService,
+    EnableAssistantTaskRegistryItemService,
+    CancelAssistantTaskRegistryItemService,
     SendWebChatTurnService,
     StreamWebChatTurnService,
     UpdateAssistantDraftService,
@@ -73,6 +83,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     {
       provide: ASSISTANT_MEMORY_REGISTRY_REPOSITORY,
       useClass: PrismaAssistantMemoryRegistryRepository
+    },
+    {
+      provide: ASSISTANT_TASK_REGISTRY_REPOSITORY,
+      useClass: PrismaAssistantTaskRegistryRepository
     },
     {
       provide: ASSISTANT_RUNTIME_ADAPTER,

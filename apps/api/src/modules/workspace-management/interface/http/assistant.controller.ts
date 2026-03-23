@@ -30,6 +30,10 @@ import { UpdateAssistantDraftService } from "../../application/update-assistant-
 import { DoNotRememberAssistantMemoryService } from "../../application/do-not-remember-assistant-memory.service";
 import { ForgetAssistantMemoryItemService } from "../../application/forget-assistant-memory-item.service";
 import { ListAssistantMemoryItemsService } from "../../application/list-assistant-memory-items.service";
+import { ListAssistantTaskItemsService } from "../../application/list-assistant-task-items.service";
+import { DisableAssistantTaskRegistryItemService } from "../../application/disable-assistant-task-registry-item.service";
+import { EnableAssistantTaskRegistryItemService } from "../../application/enable-assistant-task-registry-item.service";
+import { CancelAssistantTaskRegistryItemService } from "../../application/cancel-assistant-task-registry-item.service";
 import type {
   AssistantWebChatListItemState,
   AssistantWebChatTurnState
@@ -51,7 +55,11 @@ export class AssistantController {
     private readonly updateAssistantDraftService: UpdateAssistantDraftService,
     private readonly listAssistantMemoryItemsService: ListAssistantMemoryItemsService,
     private readonly forgetAssistantMemoryItemService: ForgetAssistantMemoryItemService,
-    private readonly doNotRememberAssistantMemoryService: DoNotRememberAssistantMemoryService
+    private readonly doNotRememberAssistantMemoryService: DoNotRememberAssistantMemoryService,
+    private readonly listAssistantTaskItemsService: ListAssistantTaskItemsService,
+    private readonly disableAssistantTaskRegistryItemService: DisableAssistantTaskRegistryItemService,
+    private readonly enableAssistantTaskRegistryItemService: EnableAssistantTaskRegistryItemService,
+    private readonly cancelAssistantTaskRegistryItemService: CancelAssistantTaskRegistryItemService
   ) {}
 
   @Post("assistant")
@@ -234,6 +242,80 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       forgotten: result.forgotten
+    };
+  }
+
+  @Get("assistant/tasks/items")
+  async listTaskItems(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    items: Array<{
+      id: string;
+      title: string;
+      sourceSurface: "web";
+      sourceLabel: string | null;
+      controlStatus: "active" | "disabled" | "cancelled";
+      nextRunAt: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const items = await this.listAssistantTaskItemsService.execute(userId);
+
+    return {
+      requestId: req.requestId ?? null,
+      items
+    };
+  }
+
+  @Post("assistant/tasks/items/:itemId/disable")
+  async disableTaskItem(
+    @Req() req: RequestWithPlatformContext,
+    @Param("itemId") itemId: string
+  ): Promise<{
+    requestId: string | null;
+    disabled: true;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const result = await this.disableAssistantTaskRegistryItemService.execute(userId, itemId);
+
+    return {
+      requestId: req.requestId ?? null,
+      disabled: result.disabled
+    };
+  }
+
+  @Post("assistant/tasks/items/:itemId/enable")
+  async enableTaskItem(
+    @Req() req: RequestWithPlatformContext,
+    @Param("itemId") itemId: string
+  ): Promise<{
+    requestId: string | null;
+    enabled: true;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const result = await this.enableAssistantTaskRegistryItemService.execute(userId, itemId);
+
+    return {
+      requestId: req.requestId ?? null,
+      enabled: result.enabled
+    };
+  }
+
+  @Post("assistant/tasks/items/:itemId/cancel")
+  async cancelTaskItem(
+    @Req() req: RequestWithPlatformContext,
+    @Param("itemId") itemId: string
+  ): Promise<{
+    requestId: string | null;
+    cancelled: true;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const result = await this.cancelAssistantTaskRegistryItemService.execute(userId, itemId);
+
+    return {
+      requestId: req.requestId ?? null,
+      cancelled: result.cancelled
     };
   }
 

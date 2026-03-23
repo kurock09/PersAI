@@ -82,7 +82,7 @@ Foundation Phase
 - [x] D2 — memory center MVP
 - [x] D3 — memory source policy enforcement
 - [x] D4 — tasks control domain hardening
-- [ ] D5 — tasks center MVP
+- [x] D5 — tasks center MVP
 
 ## Step 7 Plans, Billing, and Entitlements
 

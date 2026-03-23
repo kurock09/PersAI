@@ -224,3 +224,102 @@ ul {
 .web-chat-dnr-wrap {
   margin-top: 6px;
 }
+
+.task-center-lead,
+.task-empty,
+.task-empty-inline,
+.task-inactive-hint {
+  color: #4b5563;
+  font-size: 0.95rem;
+}
+
+.task-feedback {
+  color: #1d4ed8;
+  font-size: 0.92rem;
+}
+
+.task-center-group {
+  margin-top: 14px;
+}
+
+.task-center-subheading {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #374151;
+}
+
+.task-item-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 8px 0 0;
+}
+
+.task-item-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+.task-item-title {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: #111827;
+}
+
+.task-item-meta {
+  margin: 0 0 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.task-pill-surface {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #c2410c;
+  font-weight: 600;
+}
+
+.task-pill-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.task-pill-status-active {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.task-pill-status-paused {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.task-pill-status-stopped {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.task-item-next {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+  color: #6b7280;
+}
+
+.task-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

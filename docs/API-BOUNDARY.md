@@ -361,6 +361,26 @@ Behavior baseline:
 - Materialization resolves `openclawWorkspace.tasksControl` from that column, with legacy fallback to `policyEnvelope.tasksControl`, then MVP defaults (`resolveEffectiveTasksControlFromGovernance`).
 - The envelope defines ownership, source/surface hooks, control lifecycle **labels**, user enable/disable/cancel affordances, **explicit exclusion of tasks from commercial plan quotas**, and audit delegation — not runtime schedules or execution routing (OpenClaw-owned). See ADR-022.
 
+## Step 6 D5 Tasks Center API baseline
+
+### GET /api/v1/assistant/tasks/items
+
+- authenticated caller only
+- returns task registry rows for the user’s assistant (active items first by `nextRunAt`, then inactive by recency)
+- each item: `id`, `title`, `sourceSurface` (`web`), `sourceLabel`, `controlStatus` (`active|disabled|cancelled`), `nextRunAt` (nullable), `createdAt`, `updatedAt` — no `externalRef` or raw runtime payloads
+
+### POST /api/v1/assistant/tasks/items/{itemId}/disable
+
+- `active` → `disabled`; **409** if not active or `userMayDisable` is false in resolved `tasks_control`
+
+### POST /api/v1/assistant/tasks/items/{itemId}/enable
+
+- `disabled` → `active`; **409** if not disabled or `userMayEnable` is false
+
+### POST /api/v1/assistant/tasks/items/{itemId}/cancel
+
+- `active` or `disabled` → `cancelled`; idempotent if already `cancelled`; **409** if `userMayCancel` is false
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

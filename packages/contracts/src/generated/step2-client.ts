@@ -16,13 +16,17 @@ import type {
   GetAssistantMemoryItemsResponse,
   GetAssistantResponse,
   GetAssistantRuntimePreflightResponse,
+  GetAssistantTaskItemsResponse,
   GetAssistantWebChatListItemResponse,
   GetAssistantWebChatListResponse,
   GetAssistantWebChatTransportResponse,
   GetMeResponse,
   OnboardingRequest,
   PostAssistantMemoryDoNotRememberResponse,
-  PostAssistantMemoryItemForgetResponse
+  PostAssistantMemoryItemForgetResponse,
+  PostAssistantTaskItemCancelResponse,
+  PostAssistantTaskItemDisableResponse,
+  PostAssistantTaskItemEnableResponse
 } from './model';
 
 import { customFetch } from '../mutator/custom-fetch';
@@ -987,6 +991,233 @@ export const postAssistantMemoryDoNotRemember = async (assistantMemoryDoNotRemem
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       assistantMemoryDoNotRememberRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary List Tasks Center items for the current assistant (control-plane registry, not raw runtime)
+ */
+export type getAssistantTaskItemsResponse200 = {
+  data: GetAssistantTaskItemsResponse
+  status: 200
+}
+
+export type getAssistantTaskItemsResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAssistantTaskItemsResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type getAssistantTaskItemsResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAssistantTaskItemsResponseSuccess = (getAssistantTaskItemsResponse200) & {
+  headers: Headers;
+};
+export type getAssistantTaskItemsResponseError = (getAssistantTaskItemsResponse401 | getAssistantTaskItemsResponse404 | getAssistantTaskItemsResponse500) & {
+  headers: Headers;
+};
+
+export type getAssistantTaskItemsResponse = (getAssistantTaskItemsResponseSuccess | getAssistantTaskItemsResponseError)
+
+export const getGetAssistantTaskItemsUrl = () => {
+
+
+  
+
+  return `/assistant/tasks/items`
+}
+
+export const getAssistantTaskItems = async ( options?: RequestInit): Promise<getAssistantTaskItemsResponse> => {
+  
+  return customFetch<getAssistantTaskItemsResponse>(getGetAssistantTaskItemsUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Pause an active task or reminder (control-plane)
+ */
+export type postAssistantTaskItemDisableResponse200 = {
+  data: PostAssistantTaskItemDisableResponse
+  status: 200
+}
+
+export type postAssistantTaskItemDisableResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantTaskItemDisableResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantTaskItemDisableResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantTaskItemDisableResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantTaskItemDisableResponseSuccess = (postAssistantTaskItemDisableResponse200) & {
+  headers: Headers;
+};
+export type postAssistantTaskItemDisableResponseError = (postAssistantTaskItemDisableResponse401 | postAssistantTaskItemDisableResponse404 | postAssistantTaskItemDisableResponse409 | postAssistantTaskItemDisableResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantTaskItemDisableResponse = (postAssistantTaskItemDisableResponseSuccess | postAssistantTaskItemDisableResponseError)
+
+export const getPostAssistantTaskItemDisableUrl = (itemId: string,) => {
+
+
+  
+
+  return `/assistant/tasks/items/${itemId}/disable`
+}
+
+export const postAssistantTaskItemDisable = async (itemId: string, options?: RequestInit): Promise<postAssistantTaskItemDisableResponse> => {
+  
+  return customFetch<postAssistantTaskItemDisableResponse>(getPostAssistantTaskItemDisableUrl(itemId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Resume a paused task or reminder (control-plane)
+ */
+export type postAssistantTaskItemEnableResponse200 = {
+  data: PostAssistantTaskItemEnableResponse
+  status: 200
+}
+
+export type postAssistantTaskItemEnableResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantTaskItemEnableResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantTaskItemEnableResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantTaskItemEnableResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantTaskItemEnableResponseSuccess = (postAssistantTaskItemEnableResponse200) & {
+  headers: Headers;
+};
+export type postAssistantTaskItemEnableResponseError = (postAssistantTaskItemEnableResponse401 | postAssistantTaskItemEnableResponse404 | postAssistantTaskItemEnableResponse409 | postAssistantTaskItemEnableResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantTaskItemEnableResponse = (postAssistantTaskItemEnableResponseSuccess | postAssistantTaskItemEnableResponseError)
+
+export const getPostAssistantTaskItemEnableUrl = (itemId: string,) => {
+
+
+  
+
+  return `/assistant/tasks/items/${itemId}/enable`
+}
+
+export const postAssistantTaskItemEnable = async (itemId: string, options?: RequestInit): Promise<postAssistantTaskItemEnableResponse> => {
+  
+  return customFetch<postAssistantTaskItemEnableResponse>(getPostAssistantTaskItemEnableUrl(itemId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Stop a task or reminder permanently (control-plane)
+ */
+export type postAssistantTaskItemCancelResponse200 = {
+  data: PostAssistantTaskItemCancelResponse
+  status: 200
+}
+
+export type postAssistantTaskItemCancelResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantTaskItemCancelResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantTaskItemCancelResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantTaskItemCancelResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantTaskItemCancelResponseSuccess = (postAssistantTaskItemCancelResponse200) & {
+  headers: Headers;
+};
+export type postAssistantTaskItemCancelResponseError = (postAssistantTaskItemCancelResponse401 | postAssistantTaskItemCancelResponse404 | postAssistantTaskItemCancelResponse409 | postAssistantTaskItemCancelResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantTaskItemCancelResponse = (postAssistantTaskItemCancelResponseSuccess | postAssistantTaskItemCancelResponseError)
+
+export const getPostAssistantTaskItemCancelUrl = (itemId: string,) => {
+
+
+  
+
+  return `/assistant/tasks/items/${itemId}/cancel`
+}
+
+export const postAssistantTaskItemCancel = async (itemId: string, options?: RequestInit): Promise<postAssistantTaskItemCancelResponse> => {
+  
+  return customFetch<postAssistantTaskItemCancelResponse>(getPostAssistantTaskItemCancelUrl(itemId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
   }
 );}
 

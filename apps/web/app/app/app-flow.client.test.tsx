@@ -33,6 +33,10 @@ const assistantApiMocks = vi.hoisted(() => {
     deleteAssistantWebChat: vi.fn(),
     postAssistantMemoryItemForget: vi.fn(),
     postAssistantMemoryDoNotRemember: vi.fn(),
+    getAssistantTaskItems: vi.fn(),
+    postAssistantTaskItemDisable: vi.fn(),
+    postAssistantTaskItemEnable: vi.fn(),
+    postAssistantTaskItemCancel: vi.fn(),
     streamAssistantWebChatTurn: vi.fn()
   };
 });
@@ -77,6 +81,10 @@ vi.mock("./assistant-api-client", async () => {
     deleteAssistantWebChat: assistantApiMocks.deleteAssistantWebChat,
     postAssistantMemoryItemForget: assistantApiMocks.postAssistantMemoryItemForget,
     postAssistantMemoryDoNotRemember: assistantApiMocks.postAssistantMemoryDoNotRemember,
+    getAssistantTaskItems: assistantApiMocks.getAssistantTaskItems,
+    postAssistantTaskItemDisable: assistantApiMocks.postAssistantTaskItemDisable,
+    postAssistantTaskItemEnable: assistantApiMocks.postAssistantTaskItemEnable,
+    postAssistantTaskItemCancel: assistantApiMocks.postAssistantTaskItemCancel,
     streamAssistantWebChatTurn: assistantApiMocks.streamAssistantWebChatTurn
   };
 });
@@ -241,8 +249,13 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.getAssistantMemoryItems.mockReset();
     assistantApiMocks.postAssistantMemoryItemForget.mockReset();
     assistantApiMocks.postAssistantMemoryDoNotRemember.mockReset();
+    assistantApiMocks.getAssistantTaskItems.mockReset();
+    assistantApiMocks.postAssistantTaskItemDisable.mockReset();
+    assistantApiMocks.postAssistantTaskItemEnable.mockReset();
+    assistantApiMocks.postAssistantTaskItemCancel.mockReset();
     assistantApiMocks.getAssistantWebChats.mockResolvedValue([]);
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
+    assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
   });
 
   it("shows onboarding gate when /me returns pending", async () => {
@@ -268,6 +281,7 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByText("Assistant editor")).toBeInTheDocument();
     expect(screen.getAllByText("Persona").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Memory").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tasks").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Tools & Integrations").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Channels").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Limits & Safety Summary").length).toBeGreaterThan(0);
@@ -292,6 +306,42 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByText("Update:")).toBeInTheDocument();
     expect(screen.getByText("Assistant is live after the latest apply.")).toBeInTheDocument();
     expect(screen.getByTestId("user-button")).toBeInTheDocument();
+  });
+
+  it("shows Tasks Center active and inactive groups when task items load", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    const nextRun = new Date("2026-03-28T15:30:00.000Z").toISOString();
+    assistantApiMocks.getAssistantTaskItems.mockResolvedValue([
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        title: "Daily check-in",
+        sourceSurface: "web",
+        sourceLabel: "Web assistant",
+        controlStatus: "active",
+        nextRunAt: nextRun,
+        createdAt: "2026-03-26T10:00:00.000Z",
+        updatedAt: "2026-03-26T10:00:00.000Z"
+      },
+      {
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        title: "Weekly recap",
+        sourceSurface: "web",
+        sourceLabel: null,
+        controlStatus: "disabled",
+        nextRunAt: null,
+        createdAt: "2026-03-25T10:00:00.000Z",
+        updatedAt: "2026-03-25T12:00:00.000Z"
+      }
+    ]);
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Daily check-in")).toBeInTheDocument();
+    expect(screen.getByText("Weekly recap")).toBeInTheDocument();
+    expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getByText(/Next run:/i)).toBeInTheDocument();
   });
 
   it("shows create assistant control when assistant is absent", async () => {

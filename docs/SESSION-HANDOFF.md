@@ -1,5 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - Step 6 D5 Tasks Center MVP
+
+### What changed
+
+- Added **`assistant_task_registry_items`** and APIs: list tasks, pause (`disable`), resume (`enable`), stop (`cancel`), with sorting and **409** when `tasks_control` denies an action.
+- Web **Tasks** section in the assistant editor (after Memory): Active / Inactive groups, source pill, next-run messaging, warm copy; **EDITOR_SECTIONS** includes `Tasks`.
+- OpenAPI/contracts + Clerk middleware routes; `globals.css` task-center styling; `test:tasks-user-controls`; web tests for Tasks nav + mocked list.
+- Docs: ADR-023, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `DESIGN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- D5 delivers the agreed Tasks Center MVP: inspect and control reminders/tasks without exposing raw runtime or building a workflow designer.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`, migration `20260326120000_step6_d5_tasks_center_registry`
+- `apps/api/src/modules/workspace-management/**` (task domain, repo, services, controller, module, `tasks-user-controls.ts`)
+- `packages/contracts/openapi.yaml`, `packages/contracts/src/generated/*`
+- `apps/web/app/app/app-flow.client.tsx`, `assistant-api-client.ts`, `app-flow.client.test.tsx`, `globals.css`
+- `apps/api/test/tasks-user-controls.test.ts`, `apps/api/package.json`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `docs/ADR/023-tasks-center-mvp-d5.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/DESIGN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run typecheck` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/web run lint` — passed
+- `corepack pnpm --filter @persai/api run test:tasks-user-controls` — passed
+- `corepack pnpm run test:step2` — passed
+- `corepack pnpm run prisma:migrate:check` — not run in this session (requires Postgres)
+
+### Known risks / intentional limits
+
+- Registry may stay **empty** until OpenClaw/sync (or ops) inserts rows; UI explains that honestly.
+- Control actions update **PersAI registry state only** in D5; runtime must consume/sync separately.
+- Cancelled items cannot be re-enabled from the API.
+
+### Next recommended step
+
+- Step 7 **P1** plan catalog (per `docs/ROADMAP.md`) or wire task registry population from OpenClaw when contract-ready.
+
+### Ready commit message
+
+- `feat(api-web): add step 6 d5 tasks center registry and ui`
+
 ## 2026-03-25 - Step 6 D4 tasks control domain hardening
 
 ### What changed
@@ -40,7 +86,7 @@
 
 ### Next recommended step
 
-- Step 6 **D5** Tasks Center MVP (per `docs/ROADMAP.md`).
+- Step 7 **P1** plan catalog (per `docs/ROADMAP.md`) or OpenClaw task-registry population when ready.
 
 ### Ready commit message
 

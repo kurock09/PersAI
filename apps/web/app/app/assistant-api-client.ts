@@ -6,11 +6,13 @@ import {
   type AssistantRollbackRequest,
   type AssistantMemoryDoNotRememberRequest,
   type AssistantMemoryRegistryItemState,
+  type AssistantTaskRegistryItemState,
   ContractsApiError,
   type AssistantLifecycleState,
   deleteAssistantWebChat as deleteAssistantWebChatContract,
   getAssistant as getAssistantContract,
   getAssistantMemoryItems as getAssistantMemoryItemsContract,
+  getAssistantTaskItems as getAssistantTaskItemsContract,
   getAssistantWebChats as getAssistantWebChatsContract,
   patchAssistantDraft as patchAssistantDraftContract,
   patchAssistantWebChat as patchAssistantWebChatContract,
@@ -20,7 +22,10 @@ import {
   postAssistantWebChatArchive as postAssistantWebChatArchiveContract,
   postAssistantCreate as postAssistantCreateContract,
   postAssistantMemoryDoNotRemember as postAssistantMemoryDoNotRememberContract,
-  postAssistantMemoryItemForget as postAssistantMemoryItemForgetContract
+  postAssistantMemoryItemForget as postAssistantMemoryItemForgetContract,
+  postAssistantTaskItemCancel as postAssistantTaskItemCancelContract,
+  postAssistantTaskItemDisable as postAssistantTaskItemDisableContract,
+  postAssistantTaskItemEnable as postAssistantTaskItemEnableContract
 } from "@persai/contracts";
 
 function getAuthHeaders(token: string): HeadersInit {
@@ -574,7 +579,7 @@ export async function deleteAssistantWebChat(
   }
 }
 
-export type { AssistantMemoryRegistryItemState };
+export type { AssistantMemoryRegistryItemState, AssistantTaskRegistryItemState };
 
 export async function getAssistantMemoryItems(token: string): Promise<AssistantMemoryRegistryItemState[]> {
   try {
@@ -600,6 +605,64 @@ export async function postAssistantMemoryItemForget(token: string, itemId: strin
 
     if (response.status !== 200 || response.data.forgotten !== true) {
       throw new Error("Unexpected non-success response for POST /assistant/memory/items/:itemId/forget.");
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAssistantTaskItems(token: string): Promise<AssistantTaskRegistryItemState[]> {
+  try {
+    const response = await getAssistantTaskItemsContract({
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /assistant/tasks/items.");
+    }
+
+    return response.data.items;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantTaskItemDisable(token: string, itemId: string): Promise<void> {
+  try {
+    const response = await postAssistantTaskItemDisableContract(itemId, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200 || response.data.disabled !== true) {
+      throw new Error("Unexpected non-success response for POST /assistant/tasks/items/:itemId/disable.");
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantTaskItemEnable(token: string, itemId: string): Promise<void> {
+  try {
+    const response = await postAssistantTaskItemEnableContract(itemId, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200 || response.data.enabled !== true) {
+      throw new Error("Unexpected non-success response for POST /assistant/tasks/items/:itemId/enable.");
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantTaskItemCancel(token: string, itemId: string): Promise<void> {
+  try {
+    const response = await postAssistantTaskItemCancelContract(itemId, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200 || response.data.cancelled !== true) {
+      throw new Error("Unexpected non-success response for POST /assistant/tasks/items/:itemId/cancel.");
     }
   } catch (error) {
     throw new Error(toErrorMessage(error));

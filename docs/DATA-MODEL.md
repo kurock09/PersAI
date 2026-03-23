@@ -128,6 +128,19 @@ Postgres with Prisma.
 - forgotten_at (nullable) — soft-remove from Memory Center list
 - created_at
 
+### assistant_task_registry_items (Step 6 D5 baseline)
+
+- id (UUID)
+- assistant_id, user_id, workspace_id (scoped like chats / memory registry)
+- title (varchar 500) — user-facing line for Tasks Center
+- source_surface (`web` in MVP)
+- source_label (nullable)
+- control_status (`active|disabled|cancelled`) — user-facing control state
+- next_run_at (nullable) — optional schedule hint for UX (not backend scheduling)
+- disabled_at, cancelled_at (nullable)
+- external_ref (nullable) — optional correlation to runtime (not exposed in product API)
+- created_at, updated_at
+
 ## Prisma baseline (Step 1 slice 5)
 
 - `app_users`:
@@ -207,6 +220,12 @@ Postgres with Prisma.
     - `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
   - optional correlation fields: `chat_id`, `related_user_message_id`, `related_assistant_message_id` (no FK to messages in D2)
   - `forgotten_at` null = visible in Memory Center
+- `assistant_task_registry_items`:
+  - primary key: `id`
+  - composite ownership:
+    - `(assistant_id, user_id) -> assistants(id, user_id)`
+    - `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
+  - Tasks Center visibility: `control_status` drives Active vs Inactive UX; `external_ref` is not returned by Tasks APIs
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -233,6 +252,7 @@ Postgres with Prisma.
 - D2 adds `assistant_memory_registry_items` for Memory Center summaries (web chat derived); not a dump of OpenClaw runtime memory
 - D3 adds explicit `sourceClassification` + `trustedOneToOneGlobalWriteSurfaces` in the envelope (with SQL backfill) and server-side evaluation of global registry read/write policy
 - D4 adds first-class `tasks_control` JSON on `assistant_governance` for task/reminder/trigger **control** metadata; execution and scheduling remain outside PersAI backend
+- D5 adds `assistant_task_registry_items` for Tasks Center rows (control plane); population from OpenClaw/sync is integration follow-up—MVP APIs + UI are honest when the list is empty
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

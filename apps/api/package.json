@@ -16,7 +16,8 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "test": "tsx test/step2-auth-foundation.e2e.test.ts",
     "test:memory-policy": "tsx test/memory-source-policy.test.ts",
-    "test:tasks-control": "tsx test/tasks-control-resolve.test.ts"
+    "test:tasks-control": "tsx test/tasks-control-resolve.test.ts",
+    "test:tasks-user-controls": "tsx test/tasks-user-controls.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -5,18 +5,23 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   type AssistantLifecycleState,
   type AssistantMemoryRegistryItemState,
+  type AssistantTaskRegistryItemState,
   type AssistantWebChatListItemState
 } from "@persai/contracts";
 import {
   deleteAssistantWebChat,
   getAssistant,
   getAssistantMemoryItems,
+  getAssistantTaskItems,
   getAssistantWebChats,
   patchAssistantDraft,
   patchAssistantWebChat,
   postAssistantCreate,
   postAssistantMemoryDoNotRemember,
   postAssistantMemoryItemForget,
+  postAssistantTaskItemCancel,
+  postAssistantTaskItemDisable,
+  postAssistantTaskItemEnable,
   postAssistantPublish,
   postAssistantReset,
   postAssistantRollback,
@@ -41,6 +46,7 @@ type FlowState =
 const EDITOR_SECTIONS = [
   "Persona",
   "Memory",
+  "Tasks",
   "Tools & Integrations",
   "Channels",
   "Limits & Safety Summary",
@@ -111,6 +117,58 @@ function formatMemorySourceLine(
     return "Web chat";
   }
   return String(sourceType);
+}
+
+function formatTaskSourceLine(
+  sourceSurface: AssistantTaskRegistryItemState["sourceSurface"],
+  sourceLabel: AssistantTaskRegistryItemState["sourceLabel"]
+): string {
+  if (sourceLabel !== null && sourceLabel.trim().length > 0) {
+    return sourceLabel.trim();
+  }
+  if (sourceSurface === "web") {
+    return "Web";
+  }
+  return String(sourceSurface);
+}
+
+function formatTaskNextRunText(
+  nextRunAt: string | null,
+  controlStatus: AssistantTaskRegistryItemState["controlStatus"]
+): string {
+  if (controlStatus === "cancelled") {
+    return "This reminder will not run again.";
+  }
+  if (controlStatus === "disabled") {
+    return "Paused — nothing new will run while this is off.";
+  }
+  if (nextRunAt === null) {
+    return "Next run isn’t set yet.";
+  }
+  return `Next run: ${new Date(nextRunAt).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  })}`;
+}
+
+function taskStatusPillClass(controlStatus: AssistantTaskRegistryItemState["controlStatus"]): string {
+  if (controlStatus === "active") {
+    return "task-pill-status task-pill-status-active";
+  }
+  if (controlStatus === "disabled") {
+    return "task-pill-status task-pill-status-paused";
+  }
+  return "task-pill-status task-pill-status-stopped";
+}
+
+function taskStatusLabel(controlStatus: AssistantTaskRegistryItemState["controlStatus"]): string {
+  if (controlStatus === "active") {
+    return "Active";
+  }
+  if (controlStatus === "disabled") {
+    return "Paused";
+  }
+  return "Stopped";
 }
 
 function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
@@ -288,6 +346,10 @@ export function AppFlowClient() {
   const [isLoadingMemoryItems, setIsLoadingMemoryItems] = useState(false);
   const [memoryItemsFeedback, setMemoryItemsFeedback] = useState<string | null>(null);
   const [memoryForgetWorkingId, setMemoryForgetWorkingId] = useState<string | null>(null);
+  const [taskItems, setTaskItems] = useState<AssistantTaskRegistryItemState[]>([]);
+  const [isLoadingTaskItems, setIsLoadingTaskItems] = useState(false);
+  const [taskItemsFeedback, setTaskItemsFeedback] = useState<string | null>(null);
+  const [taskActionWorkingId, setTaskActionWorkingId] = useState<string | null>(null);
   const [chatDoNotRememberWorkingId, setChatDoNotRememberWorkingId] = useState<string | null>(null);
   const reachedActiveChatCap = streamingIssue?.classId === "active_chat_cap";
 
@@ -313,6 +375,31 @@ export function AppFlowClient() {
       setMemoryItemsFeedback(message);
     } finally {
       setIsLoadingMemoryItems(false);
+    }
+  }, [flowState, getToken]);
+
+  const loadTaskItems = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      setTaskItems([]);
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setIsLoadingTaskItems(true);
+      const items = await getAssistantTaskItems(token);
+      setTaskItems(items);
+      setTaskItemsFeedback(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load tasks.";
+      setTaskItemsFeedback(message);
+    } finally {
+      setIsLoadingTaskItems(false);
     }
   }, [flowState, getToken]);
 
@@ -425,6 +512,15 @@ export function AppFlowClient() {
 
     void loadMemoryItems();
   }, [flowState, loadMemoryItems]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      setTaskItems([]);
+      return;
+    }
+
+    void loadTaskItems();
+  }, [flowState, loadTaskItems]);
 
   const onboardingRequired = useMemo(() => {
     return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
@@ -677,6 +773,66 @@ export function AppFlowClient() {
     }
   }
 
+  async function onPauseTaskItem(itemId: string): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setTaskActionWorkingId(itemId);
+      await postAssistantTaskItemDisable(token, itemId);
+      setTaskItemsFeedback("That reminder is paused.");
+      await loadTaskItems();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not pause this reminder.";
+      setTaskItemsFeedback(message);
+    } finally {
+      setTaskActionWorkingId(null);
+    }
+  }
+
+  async function onResumeTaskItem(itemId: string): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setTaskActionWorkingId(itemId);
+      await postAssistantTaskItemEnable(token, itemId);
+      setTaskItemsFeedback("That reminder is active again.");
+      await loadTaskItems();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not turn this reminder back on.";
+      setTaskItemsFeedback(message);
+    } finally {
+      setTaskActionWorkingId(null);
+    }
+  }
+
+  async function onStopTaskItem(itemId: string): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setTaskActionWorkingId(itemId);
+      await postAssistantTaskItemCancel(token, itemId);
+      setTaskItemsFeedback("That reminder is stopped.");
+      await loadTaskItems();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not stop this reminder.";
+      setTaskItemsFeedback(message);
+    } finally {
+      setTaskActionWorkingId(null);
+    }
+  }
+
   async function onForgetMemoryItem(itemId: string): Promise<void> {
     const token = await getToken();
     if (token === null) {
@@ -823,6 +979,7 @@ export function AppFlowClient() {
             setStreamingMeta("Streaming completed and response persisted.");
             void loadWebChatList();
             void loadMemoryItems();
+            void loadTaskItems();
           },
           onInterrupted: () => {
             setChatMessages((current) =>
@@ -1589,6 +1746,119 @@ export function AppFlowClient() {
                   </li>
                 ))}
               </ul>
+            )}
+          </section>
+
+          <section className="task-center">
+            <h3>Tasks</h3>
+            <p className="task-center-lead">
+              Your reminders and scheduled tasks in one calm place. This is a simple control panel—not a
+              workflow builder and not a technical runtime view.
+            </p>
+            {taskItemsFeedback !== null && <p className="task-feedback">{taskItemsFeedback}</p>}
+            {isLoadingTaskItems ? (
+              <p>Loading reminders…</p>
+            ) : taskItems.length === 0 ? (
+              <p className="task-empty">
+                Nothing here yet. When your assistant sets up reminders or repeating tasks, they’ll show up
+                so you can pause or stop them anytime.
+              </p>
+            ) : (
+              <>
+                <section className="task-center-group">
+                  <h4 className="task-center-subheading">Active</h4>
+                  {taskItems.filter((t) => t.controlStatus === "active").length === 0 ? (
+                    <p className="task-empty-inline">No active reminders right now.</p>
+                  ) : (
+                    <ul className="task-item-list">
+                      {taskItems
+                        .filter((t) => t.controlStatus === "active")
+                        .map((item) => (
+                          <li key={item.id} className="task-item-card">
+                            <p className="task-item-title">{item.title}</p>
+                            <p className="task-item-meta">
+                              <span className="task-pill-surface">
+                                {formatTaskSourceLine(item.sourceSurface, item.sourceLabel)}
+                              </span>
+                              <span className={taskStatusPillClass(item.controlStatus)}>
+                                {taskStatusLabel(item.controlStatus)}
+                              </span>
+                            </p>
+                            <p className="task-item-next">{formatTaskNextRunText(item.nextRunAt, item.controlStatus)}</p>
+                            <div className="task-item-actions">
+                              <button
+                                type="button"
+                                className="btn-quiet"
+                                disabled={taskActionWorkingId !== null}
+                                onClick={() => void onPauseTaskItem(item.id)}
+                              >
+                                {taskActionWorkingId === item.id ? "Working…" : "Pause"}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-quiet"
+                                disabled={taskActionWorkingId !== null}
+                                onClick={() => void onStopTaskItem(item.id)}
+                              >
+                                {taskActionWorkingId === item.id ? "Working…" : "Stop"}
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </section>
+                <section className="task-center-group">
+                  <h4 className="task-center-subheading">Inactive</h4>
+                  <p className="task-inactive-hint">
+                    Paused or stopped items stay listed so you always know what you changed.
+                  </p>
+                  {taskItems.filter((t) => t.controlStatus !== "active").length === 0 ? (
+                    <p className="task-empty-inline">No paused or stopped reminders.</p>
+                  ) : (
+                    <ul className="task-item-list">
+                      {taskItems
+                        .filter((t) => t.controlStatus !== "active")
+                        .map((item) => (
+                          <li key={item.id} className="task-item-card">
+                            <p className="task-item-title">{item.title}</p>
+                            <p className="task-item-meta">
+                              <span className="task-pill-surface">
+                                {formatTaskSourceLine(item.sourceSurface, item.sourceLabel)}
+                              </span>
+                              <span className={taskStatusPillClass(item.controlStatus)}>
+                                {taskStatusLabel(item.controlStatus)}
+                              </span>
+                            </p>
+                            <p className="task-item-next">{formatTaskNextRunText(item.nextRunAt, item.controlStatus)}</p>
+                            <div className="task-item-actions">
+                              {item.controlStatus === "disabled" ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="btn-quiet"
+                                    disabled={taskActionWorkingId !== null}
+                                    onClick={() => void onResumeTaskItem(item.id)}
+                                  >
+                                    {taskActionWorkingId === item.id ? "Working…" : "Turn back on"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-quiet"
+                                    disabled={taskActionWorkingId !== null}
+                                    onClick={() => void onStopTaskItem(item.id)}
+                                  >
+                                    {taskActionWorkingId === item.id ? "Working…" : "Stop"}
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </section>
+              </>
             )}
           </section>
 

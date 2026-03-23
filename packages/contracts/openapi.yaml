@@ -666,6 +666,169 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/tasks/items:
+    get:
+      operationId: getAssistantTaskItems
+      summary: List Tasks Center items for the current assistant (control-plane registry, not raw runtime)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Task registry items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantTaskItemsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/tasks/items/{itemId}/disable:
+    post:
+      operationId: postAssistantTaskItemDisable
+      summary: Pause an active task or reminder (control-plane)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Task paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantTaskItemDisableResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or task not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Policy or state conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/tasks/items/{itemId}/enable:
+    post:
+      operationId: postAssistantTaskItemEnable
+      summary: Resume a paused task or reminder (control-plane)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Task resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantTaskItemEnableResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or task not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Policy or state conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/tasks/items/{itemId}/cancel:
+    post:
+      operationId: postAssistantTaskItemCancel
+      summary: Stop a task or reminder permanently (control-plane)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Task cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantTaskItemCancelResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or task not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Policy conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me:
     get:
       operationId: getMe
@@ -1047,6 +1210,102 @@ components:
       type: string
       enum:
         - web_chat
+    AssistantTaskRegistrySourceSurface:
+      type: string
+      enum:
+        - web
+    AssistantTaskRegistryControlStatus:
+      type: string
+      enum:
+        - active
+        - disabled
+        - cancelled
+    AssistantTaskRegistryItemState:
+      type: object
+      required:
+        - id
+        - title
+        - sourceSurface
+        - sourceLabel
+        - controlStatus
+        - nextRunAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        sourceSurface:
+          $ref: "#/components/schemas/AssistantTaskRegistrySourceSurface"
+        sourceLabel:
+          type: string
+          nullable: true
+        controlStatus:
+          $ref: "#/components/schemas/AssistantTaskRegistryControlStatus"
+        nextRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    GetAssistantTaskItemsResponse:
+      type: object
+      required:
+        - requestId
+        - items
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantTaskRegistryItemState"
+    PostAssistantTaskItemDisableResponse:
+      type: object
+      required:
+        - requestId
+        - disabled
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        disabled:
+          type: boolean
+          enum:
+            - true
+    PostAssistantTaskItemEnableResponse:
+      type: object
+      required:
+        - requestId
+        - enabled
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        enabled:
+          type: boolean
+          enum:
+            - true
+    PostAssistantTaskItemCancelResponse:
+      type: object
+      required:
+        - requestId
+        - cancelled
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        cancelled:
+          type: boolean
+          enum:
+            - true
     AssistantMemoryRegistryItemState:
       type: object
       required:

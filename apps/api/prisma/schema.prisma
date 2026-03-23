@@ -46,6 +46,16 @@ enum AssistantMemoryRegistrySourceType {
   web_chat
 }
 
+enum AssistantTaskRegistrySourceSurface {
+  web
+}
+
+enum AssistantTaskRegistryControlStatus {
+  active
+  disabled
+  cancelled
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -83,6 +93,7 @@ model WorkspaceMember {
   assistant                   Assistant?                    @relation("AssistantWorkspaceScope")
   assistantChats              AssistantChat[]
   assistantMemoryRegistryItems AssistantMemoryRegistryItem[]
+  assistantTaskRegistryItems  AssistantTaskRegistryItem[]
   workspace                   Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   user           AppUser         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
@@ -118,6 +129,7 @@ model Assistant {
   chats                 AssistantChat[]
   chatMessages          AssistantChatMessage[]
   memoryRegistryItems   AssistantMemoryRegistryItem[]
+  taskRegistryItems     AssistantTaskRegistryItem[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -233,4 +245,26 @@ model AssistantMemoryRegistryItem {
 
   @@index([assistantId, createdAt(sort: Desc)])
   @@map("assistant_memory_registry_items")
+}
+
+model AssistantTaskRegistryItem {
+  id              String                           @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  assistantId     String                           @map("assistant_id") @db.Uuid
+  userId          String                           @map("user_id") @db.Uuid
+  workspaceId     String                           @map("workspace_id") @db.Uuid
+  title           String                           @db.VarChar(500)
+  sourceSurface   AssistantTaskRegistrySourceSurface @map("source_surface")
+  sourceLabel     String?                          @map("source_label") @db.VarChar(64)
+  controlStatus   AssistantTaskRegistryControlStatus @map("control_status")
+  nextRunAt       DateTime?                        @map("next_run_at") @db.Timestamptz(6)
+  disabledAt      DateTime?                        @map("disabled_at") @db.Timestamptz(6)
+  cancelledAt     DateTime?                        @map("cancelled_at") @db.Timestamptz(6)
+  externalRef     String?                          @map("external_ref") @db.VarChar(128)
+  createdAt       DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant       Assistant                        @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([assistantId, controlStatus, nextRunAt])
+  @@map("assistant_task_registry_items")
 }

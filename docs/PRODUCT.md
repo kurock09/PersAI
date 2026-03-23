@@ -376,6 +376,8 @@ The product should include a basic Tasks Center where the user can:
 - understand status,
 - understand source/surface at a basic level.
 
+Step 6 D5 implements this as the **Tasks** section in the assistant editor (registry-backed APIs + pause / stop / turn back on).
+
 The product should not try to become a full no-code automation builder in MVP.
 
 ---
