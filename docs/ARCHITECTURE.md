@@ -285,6 +285,22 @@ O6 defines a future adapter-only contract:
   - restart is explicitly unsupported in this slice
 - no BI expansion and no raw event/metrics wall are introduced in F3
 
+## Business cockpit boundary (Step 9 F4)
+
+- backend now exposes a separate role-gated business cockpit read model:
+  - `GET /api/v1/admin/business/cockpit`
+- business cockpit stays intentionally scanable and bounded to product/commercial signals:
+  - active assistants
+  - active chats
+  - channel split
+  - publish/apply success snapshot
+  - quota pressure snapshot
+  - plan usage snapshot
+- business cockpit remains read-only visibility and does not introduce operational lifecycle controls
+- separation is explicit:
+  - ops cockpit = operational/runtime truth
+  - business cockpit = commercial/product visibility
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

@@ -625,6 +625,23 @@ Behavior baseline:
   - control availability flags (`reapplySupported`, `restartSupported`)
 - this endpoint is operational visibility baseline, not BI/analytics surface
 
+## Step 9 F4 business cockpit baseline
+
+### GET /api/v1/admin/business/cockpit
+
+- authenticated caller only
+- requires admin read role:
+  - `ops_admin|business_admin|security_admin|super_admin`
+  - or legacy owner fallback
+- returns bounded business snapshot views:
+  - active assistants
+  - active chats
+  - channel split
+  - publish/apply success (last 7 days snapshot)
+  - quota pressure
+  - plan usage snapshot
+- this endpoint is a baseline business cockpit, not a heavy BI/reporting platform
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

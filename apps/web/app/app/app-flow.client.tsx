@@ -9,6 +9,7 @@ import {
   type AssistantWebChatListItemState
 } from "@persai/contracts";
 import {
+  type AdminBusinessCockpitState,
   type AdminOpsCockpitState,
   type AdminPlanVisibilityState,
   type AdminPlanCreateRequest,
@@ -18,6 +19,7 @@ import {
   type TelegramIntegrationState,
   type UserPlanVisibilityState,
   deleteAssistantWebChat,
+  getAdminBusinessCockpit,
   getAdminOpsCockpit,
   getAdminPlanVisibility,
   getAdminPlans,
@@ -530,6 +532,10 @@ export function AppFlowClient() {
   );
   const [isLoadingAdminPlanVisibility, setIsLoadingAdminPlanVisibility] = useState(false);
   const [adminPlanVisibilityFeedback, setAdminPlanVisibilityFeedback] = useState<string | null>(null);
+  const [adminBusinessCockpit, setAdminBusinessCockpit] =
+    useState<AdminBusinessCockpitState | null>(null);
+  const [isLoadingAdminBusinessCockpit, setIsLoadingAdminBusinessCockpit] = useState(false);
+  const [adminBusinessCockpitFeedback, setAdminBusinessCockpitFeedback] = useState<string | null>(null);
   const [adminOpsCockpit, setAdminOpsCockpit] = useState<AdminOpsCockpitState | null>(null);
   const [isLoadingAdminOpsCockpit, setIsLoadingAdminOpsCockpit] = useState(false);
   const [adminOpsCockpitFeedback, setAdminOpsCockpitFeedback] = useState<string | null>(null);
@@ -723,6 +729,31 @@ export function AppFlowClient() {
     }
   }, [flowState, getToken]);
 
+  const loadAdminBusinessCockpit = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setAdminBusinessCockpit(null);
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setIsLoadingAdminBusinessCockpit(true);
+      const cockpit = await getAdminBusinessCockpit(token);
+      setAdminBusinessCockpit(cockpit);
+      setAdminBusinessCockpitFeedback(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load business cockpit.";
+      setAdminBusinessCockpitFeedback(message);
+    } finally {
+      setIsLoadingAdminBusinessCockpit(false);
+    }
+  }, [flowState, getToken]);
+
   const loadWebChatList = useCallback(async () => {
     if (flowState.type !== "ready" || flowState.data.assistantState === null) {
       setChatList([]);
@@ -882,6 +913,14 @@ export function AppFlowClient() {
     }
     void loadAdminOpsCockpit();
   }, [flowState, loadAdminOpsCockpit]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setAdminBusinessCockpit(null);
+      return;
+    }
+    void loadAdminBusinessCockpit();
+  }, [flowState, loadAdminBusinessCockpit]);
 
   const onboardingRequired = useMemo(() => {
     return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
@@ -2634,6 +2673,99 @@ export function AppFlowClient() {
               {assistantState.latestPublishedVersion?.publishedAt ?? "n/a"}
             </p>
           </section>
+        </section>
+      )}
+
+      {me.workspace.role === "owner" && (
+        <section>
+          <h2>Business cockpit</h2>
+          <p>
+            Business-facing product and commercial snapshot. This view stays separate from runtime
+            operations detail.
+          </p>
+          {isLoadingAdminBusinessCockpit && <p>Loading business cockpit…</p>}
+          {adminBusinessCockpitFeedback !== null && <p>{adminBusinessCockpitFeedback}</p>}
+          <button
+            type="button"
+            disabled={isLoadingAdminBusinessCockpit}
+            onClick={() => void loadAdminBusinessCockpit()}
+          >
+            Refresh business cockpit
+          </button>
+          {adminBusinessCockpit !== null && (
+            <>
+              <p>
+                <strong>Active assistants:</strong> {adminBusinessCockpit.activeAssistants.activeAssistants} /{" "}
+                {adminBusinessCockpit.activeAssistants.totalAssistants}
+              </p>
+              <p>
+                <strong>Published assistants:</strong>{" "}
+                {adminBusinessCockpit.activeAssistants.publishedAssistants}
+              </p>
+              <p>
+                <strong>Active chats:</strong> {adminBusinessCockpit.activeChats.activeWebChats}
+              </p>
+              <p>
+                <strong>Total chats:</strong> {adminBusinessCockpit.activeChats.totalWebChats}
+              </p>
+              <section>
+                <h3>Channel split</h3>
+                <ul>
+                  {adminBusinessCockpit.channelSplit.channels.map((entry) => (
+                    <li key={entry.channel}>
+                      <strong>{entry.channel}:</strong> {entry.value} ({entry.percent}%)
+                    </li>
+                  ))}
+                </ul>
+              </section>
+              <section>
+                <h3>Publish/apply success (last 7 days)</h3>
+                <p>
+                  <strong>Published version events:</strong>{" "}
+                  {adminBusinessCockpit.publishApplySuccess.publishedVersionEvents}
+                </p>
+                <p>
+                  <strong>Apply success:</strong>{" "}
+                  {adminBusinessCockpit.publishApplySuccess.applySuccessPercent}%
+                </p>
+                <p>
+                  <strong>Apply outcomes:</strong> {adminBusinessCockpit.publishApplySuccess.applySucceeded}{" "}
+                  succeeded / {adminBusinessCockpit.publishApplySuccess.applyDegraded} degraded /{" "}
+                  {adminBusinessCockpit.publishApplySuccess.applyFailed} failed
+                </p>
+              </section>
+              <section>
+                <h3>Quota pressure</h3>
+                <p>
+                  <strong>Pressure:</strong> {adminBusinessCockpit.quotaPressure.pressureLevel}
+                </p>
+                <p>
+                  <strong>Token budget:</strong> {adminBusinessCockpit.quotaPressure.tokenBudgetPercent}%
+                </p>
+                <p>
+                  <strong>Cost-driving:</strong>{" "}
+                  {adminBusinessCockpit.quotaPressure.costDrivingToolsPercent}%
+                </p>
+                <p>
+                  <strong>Active web chats:</strong>{" "}
+                  {adminBusinessCockpit.quotaPressure.activeWebChatsPercent}%
+                </p>
+              </section>
+              <section>
+                <h3>Plan usage snapshot</h3>
+                <p>
+                  <strong>Effective plan:</strong>{" "}
+                  {adminBusinessCockpit.planUsageSnapshot.effectivePlanDisplayName ??
+                    adminBusinessCockpit.planUsageSnapshot.effectivePlanCode ??
+                    "Not configured"}
+                </p>
+                <p>
+                  <strong>Catalog mix:</strong> {adminBusinessCockpit.planUsageSnapshot.activePlans} active /{" "}
+                  {adminBusinessCockpit.planUsageSnapshot.inactivePlans} inactive
+                </p>
+              </section>
+            </>
+          )}
         </section>
       )}
 

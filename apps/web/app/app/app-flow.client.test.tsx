@@ -37,6 +37,7 @@ const assistantApiMocks = vi.hoisted(() => {
     postAssistantMemoryDoNotRemember: vi.fn(),
     getAssistantTaskItems: vi.fn(),
     getAdminPlans: vi.fn(),
+    getAdminBusinessCockpit: vi.fn(),
     getAdminOpsCockpit: vi.fn(),
     getAdminPlanVisibility: vi.fn(),
     postAdminPlanCreate: vi.fn(),
@@ -95,6 +96,7 @@ vi.mock("./assistant-api-client", async () => {
     postAssistantMemoryDoNotRemember: assistantApiMocks.postAssistantMemoryDoNotRemember,
     getAssistantTaskItems: assistantApiMocks.getAssistantTaskItems,
     getAdminPlans: assistantApiMocks.getAdminPlans,
+    getAdminBusinessCockpit: assistantApiMocks.getAdminBusinessCockpit,
     getAdminOpsCockpit: assistantApiMocks.getAdminOpsCockpit,
     getAdminPlanVisibility: assistantApiMocks.getAdminPlanVisibility,
     postAdminPlanCreate: assistantApiMocks.postAdminPlanCreate,
@@ -402,6 +404,52 @@ function makeAdminOpsCockpit() {
   };
 }
 
+function makeAdminBusinessCockpit() {
+  return {
+    activeAssistants: {
+      totalAssistants: 4,
+      activeAssistants: 3,
+      publishedAssistants: 4
+    },
+    activeChats: {
+      activeWebChats: 12,
+      totalWebChats: 22
+    },
+    channelSplit: {
+      channels: [
+        { channel: "web_chat" as const, value: 12, percent: 80 },
+        { channel: "telegram" as const, value: 3, percent: 20 },
+        { channel: "whatsapp" as const, value: 0, percent: 0 },
+        { channel: "max" as const, value: 0, percent: 0 }
+      ]
+    },
+    publishApplySuccess: {
+      window: "last_7_days" as const,
+      publishedVersionEvents: 8,
+      applySucceeded: 6,
+      applyDegraded: 1,
+      applyFailed: 1,
+      applySuccessPercent: 75
+    },
+    quotaPressure: {
+      tokenBudgetPercent: 24,
+      costDrivingToolsPercent: 18,
+      activeWebChatsPercent: 30,
+      pressureLevel: "low" as const
+    },
+    planUsageSnapshot: {
+      effectivePlanCode: "starter_trial",
+      effectivePlanDisplayName: "Starter Trial",
+      effectivePlanStatus: "active" as const,
+      defaultRegistrationPlanCode: "starter_trial",
+      totalPlans: 2,
+      activePlans: 1,
+      inactivePlans: 1
+    },
+    updatedAt: "2026-03-26T12:00:00.000Z"
+  };
+}
+
 describe("AppFlowClient onboarding gate", () => {
   afterEach(() => {
     cleanup();
@@ -427,6 +475,7 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.postAssistantMemoryDoNotRemember.mockReset();
     assistantApiMocks.getAssistantTaskItems.mockReset();
     assistantApiMocks.getAdminPlans.mockReset();
+    assistantApiMocks.getAdminBusinessCockpit.mockReset();
     assistantApiMocks.getAdminOpsCockpit.mockReset();
     assistantApiMocks.getAdminPlanVisibility.mockReset();
     assistantApiMocks.postAdminPlanCreate.mockReset();
@@ -443,6 +492,7 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.getAssistantPlanVisibility.mockResolvedValue(makeUserPlanVisibility());
     assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
     assistantApiMocks.getAdminPlans.mockResolvedValue([]);
+    assistantApiMocks.getAdminBusinessCockpit.mockResolvedValue(makeAdminBusinessCockpit());
     assistantApiMocks.getAdminOpsCockpit.mockResolvedValue(makeAdminOpsCockpit());
     assistantApiMocks.getAdminPlanVisibility.mockResolvedValue(makeAdminPlanVisibility());
   });
@@ -493,9 +543,11 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByRole("button", { name: "Reset assistant" })).toBeInTheDocument();
     expect(screen.getByText("Assistant activity and updates")).toBeInTheDocument();
     expect(screen.getByText("Plan and limits visibility")).toBeInTheDocument();
-    expect(screen.getByText("Token budget:")).toBeInTheDocument();
+    expect(screen.getAllByText("Token budget:").length).toBeGreaterThan(0);
     expect(screen.getAllByText("24%").length).toBeGreaterThan(0);
     expect(screen.getByText("Admin plan visibility")).toBeInTheDocument();
+    expect(screen.getByText("Business cockpit")).toBeInTheDocument();
+    expect(screen.getByText("Channel split")).toBeInTheDocument();
     expect(screen.getByText("Ops cockpit")).toBeInTheDocument();
     expect(screen.getByText("Runtime preflight:")).toBeInTheDocument();
     expect(screen.getByText("Usage pressure:")).toBeInTheDocument();

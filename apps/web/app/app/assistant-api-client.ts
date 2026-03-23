@@ -1,4 +1,5 @@
 import {
+  type AdminBusinessCockpitState,
   type AdminPlanCreateRequest,
   type AdminDangerousActionCode,
   type AdminOpsCockpitState,
@@ -40,6 +41,7 @@ import {
   postAssistantTaskItemDisable as postAssistantTaskItemDisableContract,
   postAssistantTaskItemEnable as postAssistantTaskItemEnableContract,
   getAdminPlans as getAdminPlansContract,
+  getAdminBusinessCockpit as getAdminBusinessCockpitContract,
   getAdminOpsCockpit as getAdminOpsCockpitContract,
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
@@ -797,6 +799,7 @@ export async function postAssistantMemoryDoNotRemember(
 }
 
 export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
+export type { AdminBusinessCockpitState };
 export type { AdminOpsCockpitState };
 export type { UserPlanVisibilityState, AdminPlanVisibilityState };
 export type { TelegramIntegrationState, AssistantTelegramConfigUpdateRequest };
@@ -840,6 +843,20 @@ export async function getAdminPlanVisibility(token: string): Promise<AdminPlanVi
       throw new Error("Unexpected non-success response for GET /admin/plans/visibility.");
     }
     return response.data.visibility;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAdminBusinessCockpit(token: string): Promise<AdminBusinessCockpitState> {
+  try {
+    const response = await getAdminBusinessCockpitContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/business/cockpit.");
+    }
+    return response.data.cockpit;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

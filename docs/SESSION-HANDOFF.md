@@ -1,5 +1,67 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 9 F4 business cockpit baseline
+
+### What changed
+
+- Added role-gated admin business cockpit endpoint:
+  - `GET /api/v1/admin/business/cockpit`
+- Added centralized business cockpit read-model service:
+  - `ResolveAdminBusinessCockpitService`
+  - returns bounded business views for:
+    - active assistants
+    - active chats
+    - channel split
+    - publish/apply success (last 7 days snapshot)
+    - quota pressure
+    - plan usage snapshot
+- Added dedicated admin business cockpit UI section in `/app`:
+  - serious, scanable read-only business view
+  - separate from ops cockpit section
+- Kept operational control surfaces in ops cockpit only; business cockpit remains visibility-only.
+- Added ADR-040 and updated roadmap/docs for F4.
+
+### Why changed
+
+- F4 requires a compact business cockpit baseline so platform operators can track commercial/product health signals without turning admin UI into a heavy BI dashboard.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/business-cockpit.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-business-cockpit.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-business.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/web/app/app/app-flow.client.test.tsx`
+- `docs/ADR/040-business-cockpit-baseline-f4.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` — passed
+
+### Known risks / intentional limits
+
+- F4 is a baseline snapshot and does not provide long-range BI analytics, trend charts, or export tooling.
+- Channel split is bounded to available control-plane signals and currently reflects MVP channel reality.
+- Business cockpit intentionally does not add lifecycle/runtime action controls.
+
+### Next recommended step
+
+- Step 9 **F5** admin system notifications baseline.
+
+### Ready commit message
+
+- `feat(api-web): add step 9 f4 business cockpit baseline with bounded commercial and product views`
+
 ## 2026-03-24 - Step 9 F3 ops cockpit baseline
 
 ### What changed

@@ -4,6 +4,23 @@
 
 ### Added
 
+- Step 9 slice F4 business cockpit baseline:
+  - added role-gated admin business cockpit endpoint:
+    - `GET /api/v1/admin/business/cockpit`
+  - added centralized business cockpit read-model resolver:
+    - `ResolveAdminBusinessCockpitService`
+    - returns bounded views for:
+      - active assistants
+      - active chats
+      - channel split
+      - publish/apply success snapshot (last 7 days)
+      - quota pressure
+      - plan usage snapshot
+  - added `/app` business cockpit section for admin surface with concise scanable business signals
+  - preserved separation:
+    - ops cockpit remains operational/runtime truth
+    - business cockpit remains product/commercial visibility
+  - added ADR `docs/ADR/040-business-cockpit-baseline-f4.md`
 - Step 9 slice F3 ops cockpit baseline:
   - added role-gated admin ops cockpit endpoint:
     - `GET /api/v1/admin/ops/cockpit`

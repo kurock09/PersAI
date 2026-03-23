@@ -108,7 +108,7 @@ Foundation Phase
 - [x] F1 — append-only audit log hardening
 - [x] F2 — admin RBAC and step-up actions
 - [x] F3 — ops cockpit baseline
-- [ ] F4 — business cockpit baseline
+- [x] F4 — business cockpit baseline
 - [ ] F5 — admin system notifications
 - [ ] F6 — progressive rollout and rollback controls
 

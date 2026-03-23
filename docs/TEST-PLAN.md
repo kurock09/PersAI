@@ -176,3 +176,11 @@ Required in CI:
 - API lint/typecheck validate ops cockpit resolver/controller wiring and role-gated read path.
 - Web app-flow tests validate ops cockpit section rendering and reapply control wiring from cockpit.
 - Existing Step 9 F1/F2 and Step 2 baseline regressions remain green.
+
+## Step 9 F4 focus
+
+- Contracts/OpenAPI generation includes business cockpit endpoint:
+  - `GET /admin/business/cockpit`
+- API lint/typecheck validate business cockpit resolver/controller wiring and role-gated read path.
+- Web app-flow tests validate business cockpit section rendering alongside existing admin surfaces.
+- Existing F3 ops cockpit behavior and Step 2 baseline regressions remain green.

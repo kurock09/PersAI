@@ -18,6 +18,7 @@ import type {
   AssistantWebChatTurnRequest,
   DeleteAssistantWebChatResponse,
   ErrorEnvelope,
+  GetAdminBusinessCockpitResponse,
   GetAdminOpsCockpitResponse,
   GetAdminPlanVisibilityResponse,
   GetAdminPlansResponse,
@@ -1687,6 +1688,59 @@ export const getGetAdminOpsCockpitUrl = () => {
 export const getAdminOpsCockpit = async ( options?: RequestInit): Promise<getAdminOpsCockpitResponse> => {
   
   return customFetch<getAdminOpsCockpitResponse>(getGetAdminOpsCockpitUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Get business cockpit baseline state for commercial and product visibility
+ */
+export type getAdminBusinessCockpitResponse200 = {
+  data: GetAdminBusinessCockpitResponse
+  status: 200
+}
+
+export type getAdminBusinessCockpitResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAdminBusinessCockpitResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type getAdminBusinessCockpitResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAdminBusinessCockpitResponseSuccess = (getAdminBusinessCockpitResponse200) & {
+  headers: Headers;
+};
+export type getAdminBusinessCockpitResponseError = (getAdminBusinessCockpitResponse401 | getAdminBusinessCockpitResponse403 | getAdminBusinessCockpitResponse500) & {
+  headers: Headers;
+};
+
+export type getAdminBusinessCockpitResponse = (getAdminBusinessCockpitResponseSuccess | getAdminBusinessCockpitResponseError)
+
+export const getGetAdminBusinessCockpitUrl = () => {
+
+
+  
+
+  return `/admin/business/cockpit`
+}
+
+export const getAdminBusinessCockpit = async ( options?: RequestInit): Promise<getAdminBusinessCockpitResponse> => {
+  
+  return customFetch<getAdminBusinessCockpitResponse>(getGetAdminBusinessCockpitUrl(),
   {      
     ...options,
     method: 'GET'

@@ -1143,6 +1143,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/business/cockpit:
+    get:
+      operationId: getAdminBusinessCockpit
+      summary: Get business cockpit baseline state for commercial and product visibility
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Business cockpit snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminBusinessCockpitResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/plans/{code}:
     patch:
       operationId: patchAdminPlan
@@ -2756,6 +2787,160 @@ components:
           nullable: true
         cockpit:
           $ref: "#/components/schemas/AdminOpsCockpitState"
+    BusinessCockpitChannel:
+      type: string
+      enum:
+        - web_chat
+        - telegram
+        - whatsapp
+        - max
+    BusinessCockpitPressureLevel:
+      type: string
+      enum:
+        - low
+        - elevated
+        - high
+    AdminBusinessCockpitChannelSplitItem:
+      type: object
+      required:
+        - channel
+        - value
+        - percent
+      properties:
+        channel:
+          $ref: "#/components/schemas/BusinessCockpitChannel"
+        value:
+          type: integer
+        percent:
+          type: integer
+    AdminBusinessCockpitState:
+      type: object
+      required:
+        - activeAssistants
+        - activeChats
+        - channelSplit
+        - publishApplySuccess
+        - quotaPressure
+        - planUsageSnapshot
+        - updatedAt
+      properties:
+        activeAssistants:
+          type: object
+          required:
+            - totalAssistants
+            - activeAssistants
+            - publishedAssistants
+          properties:
+            totalAssistants:
+              type: integer
+            activeAssistants:
+              type: integer
+            publishedAssistants:
+              type: integer
+        activeChats:
+          type: object
+          required:
+            - activeWebChats
+            - totalWebChats
+          properties:
+            activeWebChats:
+              type: integer
+            totalWebChats:
+              type: integer
+        channelSplit:
+          type: object
+          required:
+            - channels
+          properties:
+            channels:
+              type: array
+              items:
+                $ref: "#/components/schemas/AdminBusinessCockpitChannelSplitItem"
+        publishApplySuccess:
+          type: object
+          required:
+            - window
+            - publishedVersionEvents
+            - applySucceeded
+            - applyDegraded
+            - applyFailed
+            - applySuccessPercent
+          properties:
+            window:
+              type: string
+              enum:
+                - last_7_days
+            publishedVersionEvents:
+              type: integer
+            applySucceeded:
+              type: integer
+            applyDegraded:
+              type: integer
+            applyFailed:
+              type: integer
+            applySuccessPercent:
+              type: integer
+        quotaPressure:
+          type: object
+          required:
+            - tokenBudgetPercent
+            - costDrivingToolsPercent
+            - activeWebChatsPercent
+            - pressureLevel
+          properties:
+            tokenBudgetPercent:
+              type: integer
+            costDrivingToolsPercent:
+              type: integer
+            activeWebChatsPercent:
+              type: integer
+            pressureLevel:
+              $ref: "#/components/schemas/BusinessCockpitPressureLevel"
+        planUsageSnapshot:
+          type: object
+          required:
+            - effectivePlanCode
+            - effectivePlanDisplayName
+            - effectivePlanStatus
+            - defaultRegistrationPlanCode
+            - totalPlans
+            - activePlans
+            - inactivePlans
+          properties:
+            effectivePlanCode:
+              type: string
+              nullable: true
+            effectivePlanDisplayName:
+              type: string
+              nullable: true
+            effectivePlanStatus:
+              type: string
+              nullable: true
+              enum:
+                - active
+                - inactive
+            defaultRegistrationPlanCode:
+              type: string
+              nullable: true
+            totalPlans:
+              type: integer
+            activePlans:
+              type: integer
+            inactivePlans:
+              type: integer
+        updatedAt:
+          type: string
+          format: date-time
+    GetAdminBusinessCockpitResponse:
+      type: object
+      required:
+        - cockpit
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        cockpit:
+          $ref: "#/components/schemas/AdminBusinessCockpitState"
     PostAdminPlanResponse:
       type: object
       required:
