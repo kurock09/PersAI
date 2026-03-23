@@ -64,6 +64,7 @@ jobs:
         run: |
           set -eu
           test -f infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch || (echo "Missing compatibility patch file" && exit 1)
+          git -C "${OPENCLAW_SERVICE_PATH}" apply --check "${GITHUB_WORKSPACE}/infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch"
           git -C "${OPENCLAW_SERVICE_PATH}" apply "${GITHUB_WORKSPACE}/infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch"
 
       - name: Authenticate to Google Cloud

@@ -5,6 +5,9 @@
 ### Added
 
 - Initial documentation baseline.
+- OpenClaw patch safety guardrails:
+  - added `infra/dev/gitops/validate-openclaw-compat-patch.sh` to validate that `openclaw-runtime-spec-apply-compat.patch` cleanly applies to the pinned approved OpenClaw SHA
+  - wired guard into CI (`.github/workflows/ci.yml`) so malformed patches fail fast before deploy workflows
 - Session discipline and startup reading order.
 - ADR baseline for foundation phase.
 - OpenClaw pre-session docs pack baseline:

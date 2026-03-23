@@ -1,5 +1,47 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - OpenClaw patch protection hardening
+
+### What changed
+
+- Added deploy-safety protections around OpenClaw compatibility patch usage:
+  - added `infra/dev/gitops/validate-openclaw-compat-patch.sh`
+    - resolves pinned SHA from `infra/dev/gitops/openclaw-approved-sha.txt`
+    - materializes OpenClaw at that exact SHA
+    - runs `git apply --check` for `infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch`
+  - wired the validator into `.github/workflows/ci.yml` so malformed patch files fail in CI before deployment workflows
+  - strengthened `.github/workflows/openclaw-dev-image-publish.yml` patch step by adding an explicit `git apply --check` preflight before `git apply`
+
+### Why changed
+
+- Deploy failed with `error: corrupt patch at line 15` during patch apply.
+- This adds an early deterministic gate so patch formatting or drift issues are caught before image publish/deploy path.
+
+### Files touched
+
+- infra/dev/gitops/validate-openclaw-compat-patch.sh
+- .github/workflows/ci.yml
+- .github/workflows/openclaw-dev-image-publish.yml
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
+
+### Tests run / result
+
+- Not run locally in this slice (workflow and script hardening only).
+
+### Known risks
+
+- Validation depends on cloning `OPENCLAW_FORK_REPO`; transient GitHub/network outages can fail the guard even when patch is valid.
+- Guard checks patch applicability against the pinned SHA only; patch may still fail if workflow target SHA is changed without updating the pin.
+
+### Next recommended step
+
+- Trigger CI once to confirm validator pass, then trigger `OpenClaw Dev Image Publish` to verify apply preflight and publish path end-to-end.
+
+### Ready commit message
+
+- `ci(gitops): add openclaw patch preflight validation guards`
+
 ## 2026-03-23 - Step 5 C6 chat error/degradation UX slice
 
 ### What changed
