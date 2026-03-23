@@ -22,7 +22,8 @@ const assistantApiMocks = vi.hoisted(() => {
   return {
     getAssistant: vi.fn(),
     postAssistantCreate: vi.fn(),
-    patchAssistantDraft: vi.fn()
+    patchAssistantDraft: vi.fn(),
+    postAssistantPublish: vi.fn()
   };
 });
 
@@ -55,7 +56,8 @@ vi.mock("./assistant-api-client", async () => {
     ...actual,
     getAssistant: assistantApiMocks.getAssistant,
     postAssistantCreate: assistantApiMocks.postAssistantCreate,
-    patchAssistantDraft: assistantApiMocks.patchAssistantDraft
+    patchAssistantDraft: assistantApiMocks.patchAssistantDraft,
+    postAssistantPublish: assistantApiMocks.postAssistantPublish
   };
 });
 
@@ -156,6 +158,19 @@ function makeAssistantResponseWithDraft(
   };
 }
 
+function makeAssistantResponseWithApplyStatus(
+  status: AssistantLifecycleState["runtimeApply"]["status"]
+): AssistantLifecycleState {
+  const state = makeAssistantResponse();
+  return {
+    ...state,
+    runtimeApply: {
+      ...state.runtimeApply,
+      status
+    }
+  };
+}
+
 describe("AppFlowClient onboarding gate", () => {
   afterEach(() => {
     cleanup();
@@ -166,6 +181,7 @@ describe("AppFlowClient onboarding gate", () => {
     clerkMocks.getToken.mockResolvedValue("token-user-1");
     assistantApiMocks.postAssistantCreate.mockReset();
     assistantApiMocks.patchAssistantDraft.mockReset();
+    assistantApiMocks.postAssistantPublish.mockReset();
   });
 
   it("shows onboarding gate when /me returns pending", async () => {
@@ -198,6 +214,12 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByText("Assistant summary")).toBeInTheDocument();
     expect(screen.getAllByText("v2").length).toBeGreaterThan(0);
     expect(screen.getByText("succeeded")).toBeInTheDocument();
+    expect(screen.getByText("Publish state:")).toBeInTheDocument();
+    expect(screen.getByText("Published")).toBeInTheDocument();
+    expect(screen.getByText("Apply state:")).toBeInTheDocument();
+    expect(screen.getByText("Live")).toBeInTheDocument();
+    expect(screen.getByText("Rollback available:")).toBeInTheDocument();
+    expect(screen.getByText("yes")).toBeInTheDocument();
     expect(screen.getByText("Assistant setup paths")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Quick start", level: 3 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Quick start path" })).toBeInTheDocument();
@@ -272,5 +294,26 @@ describe("AppFlowClient onboarding gate", () => {
       expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
     });
     expect(screen.getByText("Draft setup saved. No publish has been performed.")).toBeInTheDocument();
+  });
+
+  it("publishes draft and keeps apply state separate", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponseWithApplyStatus("failed"));
+    assistantApiMocks.postAssistantPublish.mockResolvedValue(
+      makeAssistantResponseWithApplyStatus("pending")
+    );
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Publish draft")).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish draft" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByText("Publish requested. Apply state is tracked separately.")).toBeInTheDocument();
+    expect(screen.getByText("Applying")).toBeInTheDocument();
   });
 });

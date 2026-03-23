@@ -39,6 +39,22 @@
   - setup paths explicitly do not publish and do not bypass draft/publish lifecycle
   - kept B1/B2 dashboard + sectioned editor behavior intact
   - updated web tests for quick-start draft update and advanced-setup draft update (including assistant-absent auto-create path)
+- Step 4 slice B4 publish/apply UX states:
+  - added explicit user-facing publish/apply state model in `apps/web` global status area
+  - publish state now surfaces as one of:
+    - `Draft has changes`
+    - `Publishing`
+    - `Published`
+    - `Draft only`
+  - apply state now surfaces as one of:
+    - `Applying`
+    - `Live`
+    - `Failed`
+    - `Not requested`
+  - rollback availability is surfaced (`yes|no`) from published-version truth (`latestPublishedVersion.version > 1`)
+  - added `Publish draft` action wired to `POST /assistant/publish` with explicit copy that apply tracking remains separate
+  - preserved strict publish/apply separation and avoided exposing raw runtime traces
+  - updated web tests to validate publish/apply mapping and publish action behavior
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

@@ -3,7 +3,12 @@
 import { SignOutButton, UserButton, useAuth } from "@clerk/nextjs";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { type AssistantLifecycleState } from "@persai/contracts";
-import { getAssistant, patchAssistantDraft, postAssistantCreate } from "./assistant-api-client";
+import {
+  getAssistant,
+  patchAssistantDraft,
+  postAssistantCreate,
+  postAssistantPublish
+} from "./assistant-api-client";
 import { CurrentMeResponse, OnboardingPayload, getMe, postOnboarding } from "./me-api-client";
 
 type FlowState =
@@ -37,6 +42,9 @@ type AdvancedSetupPayload = {
   displayName: string;
   instructions: string;
 };
+
+type PublishStateLabel = "Draft has changes" | "Publishing" | "Published" | "Draft only";
+type ApplyStateLabel = "Applying" | "Live" | "Failed" | "Not requested";
 
 function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
   return {
@@ -72,6 +80,42 @@ function hasDraftChanges(assistantState: AssistantLifecycleState): boolean {
   );
 }
 
+function toPublishStateLabel(
+  assistantState: AssistantLifecycleState,
+  draftHasChanges: boolean,
+  isPublishing: boolean
+): PublishStateLabel {
+  if (isPublishing) {
+    return "Publishing";
+  }
+
+  if (draftHasChanges) {
+    return "Draft has changes";
+  }
+
+  if (assistantState.latestPublishedVersion !== null) {
+    return "Published";
+  }
+
+  return "Draft only";
+}
+
+function toApplyStateLabel(assistantState: AssistantLifecycleState): ApplyStateLabel {
+  switch (assistantState.runtimeApply.status) {
+    case "pending":
+    case "in_progress":
+      return "Applying";
+    case "succeeded":
+      return "Live";
+    case "failed":
+    case "degraded":
+      return "Failed";
+    case "not_requested":
+    default:
+      return "Not requested";
+  }
+}
+
 export function AppFlowClient() {
   const { getToken } = useAuth();
   const [flowState, setFlowState] = useState<FlowState>({ type: "loading" });
@@ -81,8 +125,10 @@ export function AppFlowClient() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatingAssistant, setIsCreatingAssistant] = useState(false);
   const [isApplyingSetup, setIsApplyingSetup] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [setupMode, setSetupMode] = useState<SetupMode>("quick_start");
   const [setupFeedback, setSetupFeedback] = useState<string | null>(null);
+  const [publishFeedback, setPublishFeedback] = useState<string | null>(null);
   const [quickStartPayload, setQuickStartPayload] = useState<QuickStartPayload>({
     displayName: "",
     primaryGoal: ""
@@ -236,6 +282,7 @@ export function AppFlowClient() {
     try {
       setIsApplyingSetup(true);
       setSetupFeedback(null);
+      setPublishFeedback(null);
 
       const existingAssistant = flowState.data.assistantState;
       const assistantForUpdate =
@@ -281,6 +328,38 @@ export function AppFlowClient() {
     });
   }
 
+  async function onPublishDraft(): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      return;
+    }
+
+    try {
+      setIsPublishing(true);
+      setPublishFeedback(null);
+      const updatedAssistant = await postAssistantPublish(token);
+
+      setFlowState({
+        type: "ready",
+        data: {
+          meState: flowState.data.meState,
+          assistantState: updatedAssistant
+        }
+      });
+      setPublishFeedback("Publish requested. Apply state is tracked separately.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Publish request failed.";
+      setPublishFeedback(message);
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
   if (flowState.type === "loading") {
     return (
       <main>
@@ -305,6 +384,13 @@ export function AppFlowClient() {
   const { meState, assistantState } = flowState.data;
   const { me } = meState;
   const draftHasChanges = assistantState !== null ? hasDraftChanges(assistantState) : false;
+  const publishStateLabel =
+    assistantState !== null ? toPublishStateLabel(assistantState, draftHasChanges, isPublishing) : null;
+  const applyStateLabel = assistantState !== null ? toApplyStateLabel(assistantState) : null;
+  const rollbackAvailable =
+    assistantState !== null &&
+    assistantState.latestPublishedVersion !== null &&
+    assistantState.latestPublishedVersion.version > 1;
 
   if (onboardingRequired) {
     return (
@@ -433,6 +519,19 @@ export function AppFlowClient() {
               <strong>Apply error:</strong> {assistantState.runtimeApply.error.message}
             </p>
           )}
+        {assistantState !== null && (
+          <>
+            <p>
+              <strong>Publish state:</strong> {publishStateLabel}
+            </p>
+            <p>
+              <strong>Apply state:</strong> {applyStateLabel}
+            </p>
+            <p>
+              <strong>Rollback available:</strong> {rollbackAvailable ? "yes" : "no"}
+            </p>
+          </>
+        )}
 
         <button type="button" onClick={() => void loadMe()}>
           Refresh dashboard
@@ -442,6 +541,12 @@ export function AppFlowClient() {
             {isCreatingAssistant ? "Creating assistant..." : "Create assistant"}
           </button>
         )}
+        {assistantState !== null && (
+          <button type="button" disabled={isPublishing} onClick={() => void onPublishDraft()}>
+            {isPublishing ? "Publishing..." : "Publish draft"}
+          </button>
+        )}
+        {publishFeedback !== null && <p>{publishFeedback}</p>}
       </section>
 
       <section>

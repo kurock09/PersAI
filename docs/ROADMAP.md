@@ -62,7 +62,7 @@ Foundation Phase
 - [x] B1 — assistant dashboard shell
 - [x] B2 — assistant editor sections
 - [x] B3 — quick start and advanced setup
-- [ ] B4 — publish/apply UX states
+- [x] B4 — publish/apply UX states
 - [ ] B5 — rollback/reset UX
 - [ ] B6 — assistant activity/update markers
 

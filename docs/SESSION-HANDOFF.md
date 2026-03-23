@@ -2,6 +2,23 @@
 
 ## What changed
 
+- Completed Step 4 slice `B4` only (publish/apply UX state model in `apps/web`):
+  - added explicit publish/apply state labels in global status area
+  - publish-state labels surfaced:
+    - `Draft has changes`
+    - `Publishing`
+    - `Published`
+    - `Draft only`
+  - apply-state labels surfaced:
+    - `Applying`
+    - `Live`
+    - `Failed`
+    - `Not requested`
+  - added rollback-availability visibility (`yes|no`) based on published version history
+  - added `Publish draft` UI action wired to `POST /assistant/publish`
+  - kept publish/apply separated in UX copy and backend mapping (no fake merged state)
+  - kept runtime diagnostics/details hidden; only coarse user-safe status and message are displayed
+  - updated web tests for publish/apply state mapping and publish action transition behavior
 - Completed Step 4 slice `B3` only (dual-path setup flow in `apps/web`):
   - added `Assistant setup paths` block with two explicit branches:
     - quick start path
@@ -127,6 +144,9 @@
 
 ## Why changed
 
+- Step 4 requires a user-friendly but honest lifecycle model where users can understand publish and apply as separate truths.
+- B4 makes publish/apply progress and failure outcomes visible without exposing raw runtime internals.
+- This keeps lifecycle transparency aligned with control-plane state and prepares rollback/reset UX work in B5.
 - Step 4 requires setup UX that supports both fast-start users and advanced users while preserving explicit lifecycle truth.
 - B3 introduces two setup paths that always land in draft state, preventing hidden live-state mutation and avoiding accidental publish side effects.
 - This keeps control-plane consistency with B1/B2 and prepares B4 publish/apply UX without widening into full persona/memory feature depth.
@@ -186,6 +206,12 @@
 
 ## Files touched
 
+- apps/web/app/app/assistant-api-client.ts
+- apps/web/app/app/app-flow.client.tsx
+- apps/web/app/app/app-flow.client.test.tsx
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
 - apps/web/app/app/assistant-api-client.ts
 - apps/web/app/app/app-flow.client.tsx
 - apps/web/app/app/app-flow.client.test.tsx
