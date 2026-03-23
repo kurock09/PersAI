@@ -63,3 +63,9 @@ Required in CI:
 - Prisma schema/migration validates workspace subscription state model.
 - Effective subscription resolution precedence is tested in API test script (`test:subscription-state`).
 - Workspace-wide typecheck/lint and Step 2 regression baseline remain green.
+
+## Step 7 P4 focus
+
+- Capability resolution precedence and governance guardrails are validated in API test script (`test:capability-resolution`).
+- Materialization integration compiles/typechecks with effective capability payload included.
+- Baseline Step 2 regressions remain green.

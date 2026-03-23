@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - Step 7 P4 capability resolution engine
+
+### What changed
+
+- Added centralized capability resolution service `ResolveEffectiveCapabilityStateService` with output schema `persai.effectiveCapabilities.v1`.
+- Resolution inputs are now unified in one place:
+  - P3 effective subscription state
+  - P1/P2 plan catalog entitlements
+  - assistant governance capability envelope
+- Resolution output includes explicit effective allowances for:
+  - tool classes
+  - channels/surfaces
+  - media classes
+  - governed features
+- Materialization now embeds `effectiveCapabilities` into:
+  - governance layer snapshot
+  - OpenClaw bootstrap document
+  - OpenClaw workspace document
+- Added API test `test:capability-resolution`.
+- Applied minimal corrective hardening required by P4:
+  - `findByCode` plan lookup now resolves by `code` regardless of plan status, so existing subscriptions pinned to inactive plans still resolve effective capability baseline.
+- Docs updated: ADR-027, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- P4 requires one explicit reusable capability truth source for enforcement layers and runtime projection without duplicating logic or turning backend into behavior routing.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/effective-capability.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-effective-capability-state.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-plan-catalog.repository.ts` (minimal corrective hardening)
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/capability-resolution.test.ts`
+- `apps/api/package.json`
+- `docs/ADR/027-capability-resolution-engine-p4.md`
+- `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/api run test:capability-resolution` — passed
+- `corepack pnpm run typecheck` — passed
+- `corepack pnpm run test:step2` — passed
+
+### Known risks / intentional limits
+
+- P4 computes and propagates effective capability truth but does not yet enforce every endpoint/action.
+- Media-class allowance baseline is conservative and governance-driven; richer plan-level media entitlements remain future scope.
+- No billing-provider or quota-accounting expansion in this slice.
+
+### Next recommended step
+
+- Step 7 **P5** quota accounting baseline, consuming P4 effective capability outputs.
+
+### Ready commit message
+
+- `feat(api): add step 7 p4 centralized capability resolution engine and materialization projection`
+
 ## 2026-03-26 - Step 7 P3 subscription state and billing abstraction boundary
 
 ### What changed

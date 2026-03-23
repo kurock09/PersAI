@@ -21,7 +21,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
 
   async findByCode(code: string): Promise<AssistantPlanCatalog | null> {
     const plan = await this.prisma.planCatalogPlan.findFirst({
-      where: { code, status: "active" },
+      where: { code },
       include: { entitlement: true }
     });
     return plan ? this.mapToDomain(plan) : null;

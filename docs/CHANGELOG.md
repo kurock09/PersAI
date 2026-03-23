@@ -4,6 +4,19 @@
 
 ### Added
 
+- Step 7 slice P4 capability resolution engine:
+  - added centralized effective capability resolver (`persai.effectiveCapabilities.v1`) based on:
+    - effective subscription state
+    - plan catalog entitlements
+    - assistant governance capability envelope
+  - resolves explicit effective allowances for:
+    - tool classes
+    - channels/surfaces
+    - media classes
+    - governed features
+  - integrates resolved capability payload into materialization/OpenClaw documents for explicit runtime availability truth
+  - added API test script `test:capability-resolution`
+  - ADR `docs/ADR/027-capability-resolution-engine-p4.md`
 - Step 7 slice P3 subscription state and billing abstraction boundary:
   - added canonical workspace subscription state model `workspace_subscriptions` with statuses:
     - `trialing`

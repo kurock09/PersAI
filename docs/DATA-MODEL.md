@@ -314,6 +314,7 @@ Postgres with Prisma.
 - P1 adds canonical `plan_catalog_plans` + `plan_catalog_entitlements`; billing-vendor lifecycle and entitlement enforcement remain out of scope
 - P2 adds owner-gated admin create/edit surfaces over the same P1 tables; no new plan schema tables are added in P2
 - P3 adds canonical `workspace_subscriptions` and provider-agnostic billing abstraction hooks; no concrete billing vendor integration is added
+- P4 adds centralized capability resolution service from P1-P3 models + governance; no new persistence table in P4
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

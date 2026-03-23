@@ -14,6 +14,7 @@ import {
 } from "../domain/assistant-materialized-spec.repository";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import type { Assistant } from "../domain/assistant.entity";
+import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -49,7 +50,8 @@ export class MaterializeAssistantPublishedVersionService {
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
-    private readonly assistantGovernanceRepository: AssistantGovernanceRepository
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
+    private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService
   ) {}
 
   async execute(
@@ -70,6 +72,10 @@ export class MaterializeAssistantPublishedVersionService {
 
     const memoryControl = resolveEffectiveMemoryControlFromGovernance(governance);
     const tasksControl = resolveEffectiveTasksControlFromGovernance(governance);
+    const effectiveCapabilities = await this.resolveEffectiveCapabilityStateService.execute({
+      assistant,
+      governance
+    });
 
     const layers = {
       schema: MATERIALIZATION_SCHEMA,
@@ -88,7 +94,7 @@ export class MaterializeAssistantPublishedVersionService {
             instructions: publishedVersion.snapshotInstructions
           }
         },
-        governance: this.toGovernanceLayer(governance),
+        governance: this.toGovernanceLayer(governance, effectiveCapabilities),
         applyState: {
           status: assistant.applyStatus,
           targetPublishedVersionId: assistant.applyTargetVersionId,
@@ -110,6 +116,7 @@ export class MaterializeAssistantPublishedVersionService {
           planCode: governance.quotaPlanCode,
           hook: governance.quotaHook
         },
+        effectiveCapabilities,
         secretRefs: governance.secretRefs,
         auditHook: governance.auditHook
       }
@@ -126,6 +133,7 @@ export class MaterializeAssistantPublishedVersionService {
         displayName: publishedVersion.snapshotDisplayName,
         instructions: publishedVersion.snapshotInstructions
       },
+      effectiveCapabilities,
       memoryControl,
       tasksControl
     };
@@ -152,11 +160,15 @@ export class MaterializeAssistantPublishedVersionService {
     });
   }
 
-  private toGovernanceLayer(governance: AssistantGovernance): Record<string, unknown> {
+  private toGovernanceLayer(
+    governance: AssistantGovernance,
+    effectiveCapabilities: Record<string, unknown>
+  ): Record<string, unknown> {
     return {
       capabilityEnvelope: governance.capabilityEnvelope,
       secretRefs: governance.secretRefs,
       policyEnvelope: governance.policyEnvelope,
+      effectiveCapabilities,
       memoryControl: governance.memoryControl,
       tasksControl: governance.tasksControl,
       quota: {

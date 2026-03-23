@@ -89,7 +89,7 @@ Foundation Phase
 - [x] P1 — plan catalog and entitlement model
 - [x] P2 — admin plan management UI
 - [x] P3 — subscription state and billing abstraction
-- [ ] P4 — capability resolution engine
+- [x] P4 — capability resolution engine
 - [ ] P5 — quota accounting baseline
 - [ ] P6 — enforcement points
 - [ ] P7 — user/admin plan visibility

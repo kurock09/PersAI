@@ -427,6 +427,15 @@ Behavior baseline:
   - catalog default fallback
   - none (`unconfigured`)
 
+## Step 7 P4 capability resolution baseline
+
+- P4 introduces centralized capability resolution service logic only (no new public API endpoints in this slice).
+- Effective capability output is derived from:
+  - effective subscription state
+  - resolved plan entitlements
+  - assistant governance capability envelope
+- Materialization now carries `effectiveCapabilities` into OpenClaw-facing documents for explicit runtime availability truth.
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:
