@@ -17,6 +17,15 @@ type FlowState =
       };
     };
 
+const EDITOR_SECTIONS = [
+  "Persona",
+  "Memory",
+  "Tools & Integrations",
+  "Channels",
+  "Limits & Safety Summary",
+  "Publish History"
+] as const;
+
 function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
   return {
     displayName: state?.me.appUser.displayName ?? "",
@@ -24,6 +33,17 @@ function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
     locale: state?.me.workspace?.locale ?? "en-US",
     timezone: state?.me.workspace?.timezone ?? "UTC"
   };
+}
+
+function hasDraftChanges(assistantState: AssistantLifecycleState): boolean {
+  if (assistantState.latestPublishedVersion === null) {
+    return assistantState.draft.displayName !== null || assistantState.draft.instructions !== null;
+  }
+
+  return (
+    assistantState.draft.displayName !== assistantState.latestPublishedVersion.snapshot.displayName ||
+    assistantState.draft.instructions !== assistantState.latestPublishedVersion.snapshot.instructions
+  );
 }
 
 export function AppFlowClient() {
@@ -167,6 +187,7 @@ export function AppFlowClient() {
 
   const { meState, assistantState } = flowState.data;
   const { me } = meState;
+  const draftHasChanges = assistantState !== null ? hasDraftChanges(assistantState) : false;
 
   if (onboardingRequired) {
     return (
@@ -252,7 +273,7 @@ export function AppFlowClient() {
       <p>Minimal control-plane shell for managed assistant lifecycle state.</p>
 
       <section>
-        <h2>Primary status and controls</h2>
+        <h2>Global publish and status bar</h2>
         <p>
           <strong>Onboarding:</strong> {me.onboarding.status}
         </p>
@@ -268,6 +289,16 @@ export function AppFlowClient() {
               ? "no recorded draft update"
               : `updated at ${assistantState.draft.updatedAt}`}
         </p>
+        {assistantState !== null && (
+          <p>
+            <strong>Draft publish state:</strong>{" "}
+            {assistantState.latestPublishedVersion === null
+              ? "no published baseline yet"
+              : draftHasChanges
+                ? "draft has unpublished changes"
+                : "draft matches latest published snapshot"}
+          </p>
+        )}
         <p>
           <strong>Published truth:</strong>{" "}
           {assistantState?.latestPublishedVersion === null || assistantState === null
@@ -333,6 +364,73 @@ export function AppFlowClient() {
           </>
         )}
       </section>
+
+      {assistantState !== null && (
+        <section>
+          <h2>Assistant editor</h2>
+          <p>Sectioned control surface aligned to draft-based lifecycle behavior.</p>
+
+          <nav aria-label="Assistant editor sections">
+            <p>
+              <strong>Sections</strong>
+            </p>
+            <ul>
+              {EDITOR_SECTIONS.map((sectionName) => (
+                <li key={sectionName}>{sectionName}</li>
+              ))}
+            </ul>
+          </nav>
+
+          <section>
+            <h3>Persona</h3>
+            <p>Editable draft-facing assistant identity and instruction summary.</p>
+            <p>
+              <strong>Draft display name:</strong> {assistantState.draft.displayName ?? "not set"}
+            </p>
+            <p>
+              <strong>Draft instructions:</strong> {assistantState.draft.instructions ?? "not set"}
+            </p>
+          </section>
+
+          <section>
+            <h3>Memory</h3>
+            <p>Placeholder in B2. Memory controls and policy UX are scheduled for Step 6.</p>
+          </section>
+
+          <section>
+            <h3>Tools & Integrations</h3>
+            <p>Placeholder in B2. Tool catalog and integration governance are not wired yet.</p>
+          </section>
+
+          <section>
+            <h3>Channels</h3>
+            <p>Placeholder in B2. Channel bindings are intentionally deferred beyond this slice.</p>
+          </section>
+
+          <section>
+            <h3>Limits & Safety Summary</h3>
+            <p>Read-only summary placeholder in B2. Full policy/quota controls are not added yet.</p>
+            <p>
+              <strong>Quota plan code:</strong> {assistantState.governance.quotaPlanCode ?? "not configured"}
+            </p>
+          </section>
+
+          <section>
+            <h3>Publish History</h3>
+            <p>Minimal published-version snapshot pointer from control plane.</p>
+            <p>
+              <strong>Latest published version:</strong>{" "}
+              {assistantState.latestPublishedVersion === null
+                ? "none"
+                : `v${assistantState.latestPublishedVersion.version}`}
+            </p>
+            <p>
+              <strong>Published at:</strong>{" "}
+              {assistantState.latestPublishedVersion?.publishedAt ?? "n/a"}
+            </p>
+          </section>
+        </section>
+      )}
 
       <section>
         <h2>Account context</h2>

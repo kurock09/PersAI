@@ -2,6 +2,23 @@
 
 ## What changed
 
+- Completed Step 4 slice `B2` only (assistant editor sections in `apps/web`):
+  - added sectioned assistant editor shell (not a wizard) under `/app` completed-onboarding branch
+  - introduced visible editor sections:
+    - Persona
+    - Memory
+    - Tools & Integrations
+    - Channels
+    - Limits & Safety Summary
+    - Publish History
+  - surfaced a global publish/status bar above editor sections with lifecycle truth:
+    - draft truth (`draft.updatedAt`)
+    - draft publish state (unpublished changes vs matches latest published snapshot)
+    - published truth (`latestPublishedVersion`)
+    - apply truth (`runtimeApply.status` + optional error)
+  - kept B1 create-assistant flow for assistant-absent state
+  - kept onboarding gate and protected route behavior unchanged
+  - updated web tests for section visibility and assistant-absent behavior
 - Completed Step 4 slice `B1` only (assistant dashboard shell in `apps/web`):
   - replaced completed-onboarding `/app` "Me" view with a minimal assistant-first dashboard shell
   - added primary status/control block that surfaces control-plane truth:
@@ -96,6 +113,9 @@
 
 ## Why changed
 
+- Step 4 requires a sectioned control surface so assistant management does not collapse into one oversized settings page.
+- B2 establishes editor information architecture and keeps lifecycle status globally visible while preserving draft/publish/apply control-plane truth.
+- This creates a stable foundation for B3-B6 without introducing chat-first drift or raw runtime file exposure.
 - Step 4 product order requires assistant control surface visibility before chat expansion.
 - Prior `/app` completed branch showed account/workspace baseline only, so assistant lifecycle/apply truth was not visible to users.
 - B1 introduces a minimal assistant-managed shell that keeps control-plane lifecycle truth explicit without expanding into full editor/chat/tasks/memory scope.
@@ -149,6 +169,11 @@
 
 ## Files touched
 
+- apps/web/app/app/app-flow.client.tsx
+- apps/web/app/app/app-flow.client.test.tsx
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
 - apps/web/app/app/assistant-api-client.ts
 - apps/web/app/app/app-flow.client.tsx
 - apps/web/app/app/app-flow.client.test.tsx

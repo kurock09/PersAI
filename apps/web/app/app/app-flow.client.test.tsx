@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantLifecycleState } from "@persai/contracts";
 import { AppFlowClient } from "./app-flow.client";
 import { CurrentMeResponse } from "./me-api-client";
@@ -140,6 +140,10 @@ function makeAssistantResponse(): AssistantLifecycleState {
 }
 
 describe("AppFlowClient onboarding gate", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     clerkMocks.getToken.mockResolvedValue("token-user-1");
@@ -164,10 +168,17 @@ describe("AppFlowClient onboarding gate", () => {
 
     expect(await screen.findByText("Assistant dashboard")).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText("Primary status and controls")).toBeInTheDocument();
+      expect(screen.getByText("Global publish and status bar")).toBeInTheDocument();
     });
+    expect(screen.getByText("Assistant editor")).toBeInTheDocument();
+    expect(screen.getAllByText("Persona").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Memory").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tools & Integrations").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Channels").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Limits & Safety Summary").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Publish History").length).toBeGreaterThan(0);
     expect(screen.getByText("Assistant summary")).toBeInTheDocument();
-    expect(screen.getByText("v2")).toBeInTheDocument();
+    expect(screen.getAllByText("v2").length).toBeGreaterThan(0);
     expect(screen.getByText("succeeded")).toBeInTheDocument();
     expect(screen.getByTestId("user-button")).toBeInTheDocument();
   });
@@ -181,5 +192,6 @@ describe("AppFlowClient onboarding gate", () => {
     expect(await screen.findByText("Assistant entity:")).toBeInTheDocument();
     expect(screen.getByText("not created")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create assistant" })).toBeInTheDocument();
+    expect(screen.queryByText("Assistant editor")).not.toBeInTheDocument();
   });
 });

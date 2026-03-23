@@ -17,6 +17,19 @@
   - kept onboarding gate and protected route behavior unchanged
   - added assistant API client wiring in web for `GET /assistant` (404 -> no assistant yet) and `POST /assistant` create action
   - added/updated web tests for completed onboarding dashboard and assistant-absent state
+- Step 4 slice B2 assistant editor sections:
+  - added a sectioned assistant editor shell in `apps/web` (not a wizard) with visible sections:
+    - Persona
+    - Memory
+    - Tools & Integrations
+    - Channels
+    - Limits & Safety Summary
+    - Publish History
+  - promoted lifecycle state strip to a global publish/status bar above editor sections
+  - aligned editor shell with draft-based control-plane truth (`draft`, `latestPublishedVersion`, `runtimeApply`)
+  - kept deep section functionality intentionally placeholder in this slice
+  - kept onboarding gate, protected route behavior, and B1 assistant creation flow intact
+  - updated web tests to assert editor sections and global status bar visibility
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build
