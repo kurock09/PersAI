@@ -58,6 +58,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "${OPENCLAW_APPROVED_SHA}" || (echo "Resolved OpenClaw HEAD mismatch" && exit 1)
           test -f Dockerfile || (echo "OpenClaw Dockerfile is missing at ${OPENCLAW_SERVICE_PATH}/Dockerfile" && exit 1)
 
+      - name: Apply OpenClaw runtime spec apply compatibility patch
+        run: |
+          set -eu
+          test -f infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch || (echo "Missing compatibility patch file" && exit 1)
+          git -C "${OPENCLAW_SERVICE_PATH}" apply "${GITHUB_WORKSPACE}/infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch"
+
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v2

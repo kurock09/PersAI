@@ -50,7 +50,8 @@ Foundation Phase only.
 5. docs/API-BOUNDARY.md
 6. docs/DATA-MODEL.md
 7. docs/TEST-PLAN.md
-8. relevant docs/ADR/*
+8. docs/OPENCLAW-PRESESSION.md
+9. relevant docs/ADR/*
 
 ## Repo rules
 - one session = one small slice

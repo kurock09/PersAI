@@ -2,6 +2,15 @@
 
 ## What changed
 
+- Closed the remaining A8 apply-route compatibility gap:
+  - added workflow-driven OpenClaw source patching in `.github/workflows/openclaw-dev-image-publish.yml`
+  - added patch file `infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch`
+  - patch injects auth-protected endpoint `POST /api/v1/runtime/spec/apply` into OpenClaw gateway HTTP server
+  - endpoint validates minimal payload shape and returns JSON ack instead of `404`
+- Added OpenClaw pre-session guidance baseline for agent startup discipline:
+  - created `docs/OPENCLAW-PRESESSION.md` with mandatory OpenClaw docs pack, role-based optional links, and a 60-second pre-session checklist
+  - updated `AGENTS.md` mandatory startup reading order to include `docs/OPENCLAW-PRESESSION.md`
+  - recorded this baseline in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md`
 - Applied a narrow A8 runtime stabilization slice before Step 4:
   - added missing API runtime adapter wiring in Helm values (`OPENCLAW_ADAPTER_ENABLED`, `OPENCLAW_BASE_URL`, `OPENCLAW_GATEWAY_TOKEN`)
   - enabled adapter in dev values with in-cluster OpenClaw URL (`http://openclaw:18789`)
@@ -68,6 +77,11 @@
 
 ## Why changed
 
+- Live A8 check after runtime wiring fix showed one final blocker before Step 4:
+  - preflight was healthy, but `publish/reapply` still failed because OpenClaw returned `404` on `/api/v1/runtime/spec/apply`
+- This slice restores the exact A8 route contract while keeping domain/application boundaries and avoiding behavior-level runtime expansion.
+- Team requested a single source for OpenClaw pre-session reading so every new agent session starts with consistent runtime/ops assumptions.
+- This reduces session drift when working on Step 4+ slices that depend on stable control-plane/runtime boundary understanding.
 - Live A1-A8 validation showed A8 runtime drift in dev:
   - adapter env/secret wiring was absent in API runtime values, so apply path failed as configuration-disabled
   - preflight endpoint surfaced adapter exceptions as `500`, making operator/UX checks noisy
@@ -109,6 +123,12 @@
 
 ## Files touched
 
+- .github/workflows/openclaw-dev-image-publish.yml
+- infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch
+- AGENTS.md
+- docs/OPENCLAW-PRESESSION.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
 - apps/api/src/modules/workspace-management/application/assistant-runtime-preflight.service.ts
 - infra/helm/values.yaml
 - infra/helm/values-dev.yaml
@@ -166,6 +186,7 @@
 - If Cloud SQL IAM/scopes are broken, sync will now fail fast (desired behavior) until infra permissions are fixed.
 - Argo application status can remain stale (`operationState`) after forced hook cleanup; if observed, clear the stale operation once and then rely on the fixed hook template for future sync cycles.
 - Runtime apply endpoint contract in OpenClaw is assumed at `/api/v1/runtime/spec/apply`; any drift must be handled via adapter contract update.
+- Current OpenClaw compatibility endpoint acknowledges apply payloads and validates shape/auth, but does not yet execute behavior-level assistant runtime mutation.
 - Existing historical published versions without materialized spec will fail apply/reapply with `invalid_response` until backfilled/materialized.
 - Adapter is synchronous request/response only; no async apply job tracking yet.
 

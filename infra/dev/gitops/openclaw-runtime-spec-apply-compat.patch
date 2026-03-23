@@ -1,0 +1,121 @@
+diff --git a/src/gateway/server-http.ts b/src/gateway/server-http.ts
+index dd5a659..91960fe 100644
+--- a/src/gateway/server-http.ts
++++ b/src/gateway/server-http.ts
+@@ -114,6 +114,7 @@ const GATEWAY_PROBE_STATUS_BY_PATH = new Map<string, "live" | "ready">([
+   ["/ready", "ready"],
+   ["/readyz", "ready"],
+ ]);
++const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
+ const MATTERMOST_SLASH_CALLBACK_PATH = "/api/channels/mattermost/command";
+ 
+ function resolveMattermostSlashCallbackPaths(
+@@ -258,6 +259,89 @@ async function handleGatewayProbeRequest(
+   return true;
+ }
+ 
++function isRecord(value: unknown): value is Record<string, unknown> {
++  return typeof value === "object" && value !== null && !Array.isArray(value);
++}
++
++async function handleRuntimeSpecApplyHttpRequest(
++  req: IncomingMessage,
++  res: ServerResponse,
++  requestPath: string,
++  resolvedAuth: ResolvedGatewayAuth,
++  trustedProxies: string[],
++  allowRealIpFallback: boolean,
++): Promise<boolean> {
++  if (requestPath !== RUNTIME_SPEC_APPLY_PATH) {
++    return false;
++  }
++
++  const method = (req.method ?? "GET").toUpperCase();
++  if (method !== "POST") {
++    res.statusCode = 405;
++    res.setHeader("Allow", "POST");
++    res.setHeader("Content-Type", "text/plain; charset=utf-8");
++    res.end("Method Not Allowed");
++    return true;
++  }
++
++  const bearerToken = getBearerToken(req);
++  const auth = await authorizeHttpGatewayConnect({
++    auth: resolvedAuth,
++    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
++    req,
++    trustedProxies,
++    allowRealIpFallback,
++  });
++  if (!auth.ok) {
++    sendGatewayAuthFailure(res, auth);
++    return true;
++  }
++
++  const parsed = await readJsonBody(req, 1_000_000);
++  if (!parsed.ok) {
++    const status =
++      parsed.error === "payload too large"
++        ? 413
++        : parsed.error === "request body timeout"
++          ? 408
++          : 400;
++    sendJson(res, status, { ok: false, error: parsed.error });
++    return true;
++  }
++
++  const payload = isRecord(parsed.value) ? parsed.value : {};
++  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
++  const publishedVersionId =
++    typeof payload.publishedVersionId === "string" ? payload.publishedVersionId.trim() : "";
++  const contentHash = typeof payload.contentHash === "string" ? payload.contentHash.trim() : "";
++  const reapply = payload.reapply === true;
++  const spec = payload.spec;
++  const specOk =
++    isRecord(spec) &&
++    Object.prototype.hasOwnProperty.call(spec, "bootstrap") &&
++    Object.prototype.hasOwnProperty.call(spec, "workspace");
++
++  if (!assistantId || !publishedVersionId || !contentHash || !specOk) {
++    sendJson(res, 400, {
++      ok: false,
++      error:
++        "Invalid runtime spec apply payload. Required fields: assistantId, publishedVersionId, contentHash, spec.bootstrap, spec.workspace.",
++    });
++    return true;
++  }
++
++  sendJson(res, 200, {
++    ok: true,
++    accepted: true,
++    assistantId,
++    publishedVersionId,
++    contentHash,
++    reapply,
++    appliedAt: new Date().toISOString(),
++  });
++  return true;
++}
++
+ function writeUpgradeAuthFailure(
+   socket: { write: (chunk: string) => void },
+   auth: GatewayAuthResult,
+@@ -853,6 +937,18 @@ export function createGatewayHttpServer(opts: {
+             }),
+         });
+       }
++      requestStages.push({
++        name: "runtime-spec-apply",
++        run: () =>
++          handleRuntimeSpecApplyHttpRequest(
++            req,
++            res,
++            requestPath,
++            resolvedAuth,
++            trustedProxies,
++            allowRealIpFallback,
++          ),
++      });
+       if (canvasHost) {
+         requestStages.push({
+           name: "canvas-auth",

@@ -7,6 +7,9 @@
 - Initial documentation baseline.
 - Session discipline and startup reading order.
 - ADR baseline for foundation phase.
+- OpenClaw pre-session docs pack baseline:
+  - added `docs/OPENCLAW-PRESESSION.md` with mandatory and role-based OpenClaw reading links plus a 60-second checklist
+  - updated `AGENTS.md` mandatory startup reading order to include `docs/OPENCLAW-PRESESSION.md`
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build
@@ -458,6 +461,11 @@
 
 ### Fixed
 
+- Step 3 A8 OpenClaw runtime apply contract gap:
+  - added a build-time compatibility patch for OpenClaw source in `.github/workflows/openclaw-dev-image-publish.yml`
+  - patch injects auth-protected HTTP endpoint `POST /api/v1/runtime/spec/apply` into OpenClaw gateway runtime
+  - endpoint validates minimal A8 payload contract and returns structured JSON ack instead of `404`
+  - this restores A8 `apps/api -> OpenClaw` apply/reapply route compatibility without widening into behavior-level runtime integration
 - Step 3 A8 runtime wiring hardening (narrow slice):
   - wired OpenClaw adapter env/secret into API Helm values:
     - `OPENCLAW_ADAPTER_ENABLED`
