@@ -32,6 +32,16 @@ enum AssistantMaterializationSourceAction {
   reset
 }
 
+enum AssistantChatSurface {
+  web
+}
+
+enum AssistantChatMessageAuthor {
+  user
+  assistant
+  system
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -61,46 +71,50 @@ model Workspace {
 }
 
 model WorkspaceMember {
-  id          String        @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  workspaceId String        @map("workspace_id") @db.Uuid
-  userId      String        @map("user_id") @db.Uuid
-  role        WorkspaceRole
-  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  assistant   Assistant?    @relation("AssistantWorkspaceScope")
-  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  user        AppUser       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id             String          @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  workspaceId    String          @map("workspace_id") @db.Uuid
+  userId         String          @map("user_id") @db.Uuid
+  role           WorkspaceRole
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant      Assistant?      @relation("AssistantWorkspaceScope")
+  assistantChats AssistantChat[]
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user           AppUser         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([workspaceId, userId])
   @@map("workspace_members")
 }
 
 model Assistant {
-  id                 String                    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  userId             String                    @unique @map("user_id") @db.Uuid
-  workspaceId        String                    @map("workspace_id") @db.Uuid
-  draftDisplayName   String?                   @map("draft_display_name")
-  draftInstructions  String?                   @map("draft_instructions")
-  draftUpdatedAt     DateTime?                 @map("draft_updated_at") @db.Timestamptz(6)
-  applyStatus        AssistantApplyStatus      @default(not_requested) @map("apply_status")
-  applyTargetVersionId String?                 @map("apply_target_version_id") @db.Uuid
-  applyAppliedVersionId String?                @map("apply_applied_version_id") @db.Uuid
-  applyRequestedAt   DateTime?                 @map("apply_requested_at") @db.Timestamptz(6)
-  applyStartedAt     DateTime?                 @map("apply_started_at") @db.Timestamptz(6)
-  applyFinishedAt    DateTime?                 @map("apply_finished_at") @db.Timestamptz(6)
-  applyErrorCode     String?                   @map("apply_error_code")
-  applyErrorMessage  String?                   @map("apply_error_message")
-  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user               AppUser                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace          Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember    WorkspaceMember           @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
-  applyTargetVersion AssistantPublishedVersion? @relation("AssistantApplyTargetVersion", fields: [applyTargetVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  applyAppliedVersion AssistantPublishedVersion? @relation("AssistantApplyAppliedVersion", fields: [applyAppliedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  id                   String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  userId               String                     @unique @map("user_id") @db.Uuid
+  workspaceId          String                     @map("workspace_id") @db.Uuid
+  draftDisplayName     String?                    @map("draft_display_name")
+  draftInstructions    String?                    @map("draft_instructions")
+  draftUpdatedAt       DateTime?                  @map("draft_updated_at") @db.Timestamptz(6)
+  applyStatus          AssistantApplyStatus       @default(not_requested) @map("apply_status")
+  applyTargetVersionId String?                    @map("apply_target_version_id") @db.Uuid
+  applyAppliedVersionId String?                   @map("apply_applied_version_id") @db.Uuid
+  applyRequestedAt     DateTime?                  @map("apply_requested_at") @db.Timestamptz(6)
+  applyStartedAt       DateTime?                  @map("apply_started_at") @db.Timestamptz(6)
+  applyFinishedAt      DateTime?                  @map("apply_finished_at") @db.Timestamptz(6)
+  applyErrorCode       String?                    @map("apply_error_code")
+  applyErrorMessage    String?                    @map("apply_error_message")
+  createdAt            DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                 AppUser                    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace            Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember      WorkspaceMember            @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  applyTargetVersion   AssistantPublishedVersion? @relation("AssistantApplyTargetVersion", fields: [applyTargetVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  applyAppliedVersion  AssistantPublishedVersion? @relation("AssistantApplyAppliedVersion", fields: [applyAppliedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   governance       AssistantGovernance?
   materializedSpecs AssistantMaterializedSpec[]
   publishedVersions AssistantPublishedVersion[]
+  chats              AssistantChat[]
+  chatMessages       AssistantChatMessage[]
 
   @@unique([workspaceId, userId])
+  @@unique([id, userId])
   @@map("assistants")
 }
 
@@ -156,4 +170,39 @@ model AssistantMaterializedSpec {
   publishedVersion          AssistantPublishedVersion           @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("assistant_materialized_specs")
+}
+
+model AssistantChat {
+  id               String                @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  assistantId      String                @map("assistant_id") @db.Uuid
+  userId           String                @map("user_id") @db.Uuid
+  workspaceId      String                @map("workspace_id") @db.Uuid
+  surface          AssistantChatSurface
+  surfaceThreadKey String                @map("surface_thread_key")
+  title            String?
+  archivedAt       DateTime?             @map("archived_at") @db.Timestamptz(6)
+  lastMessageAt    DateTime?             @map("last_message_at") @db.Timestamptz(6)
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant        Assistant             @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember  WorkspaceMember       @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  messages         AssistantChatMessage[]
+
+  @@unique([assistantId, surface, surfaceThreadKey])
+  @@unique([id, assistantId])
+  @@map("assistant_chats")
+}
+
+model AssistantChatMessage {
+  id          String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  chatId      String                     @map("chat_id") @db.Uuid
+  assistantId String                     @map("assistant_id") @db.Uuid
+  author      AssistantChatMessageAuthor
+  content     String                     @db.Text
+  createdAt   DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  chat        AssistantChat              @relation(fields: [chatId, assistantId], references: [id, assistantId], onDelete: Restrict, onUpdate: Cascade)
+  assistant   Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([chatId, createdAt])
+  @@map("assistant_chat_messages")
 }

@@ -87,6 +87,22 @@
   - added `docs/LIVE-TEST-HYBRID.md` with exact run sequence for `local web + GKE api`
   - documented required web env values, quick health checks, and common failure signatures
   - linked guidance from `AGENTS.md` and `README.md` so future sessions can reproduce the same live-test mode consistently
+- Step 5 slice C1 chat domain model baseline (backend record layer only):
+  - added canonical chat record persistence model in `apps/api` Prisma schema:
+    - `assistant_chats`
+    - `assistant_chat_messages`
+  - introduced explicit web-surface thread identity:
+    - chat unique key `(assistant_id, surface, surface_thread_key)` with `surface=web` baseline
+  - enforced ownership/scope constraints on chat records:
+    - chat tied to assistant ownership (`assistant_id`, `user_id`)
+    - chat tied to workspace membership scope (`workspace_id`, `user_id`)
+  - added backend domain and Prisma repository wiring for chat/message record operations in `workspace-management`
+  - preserved record-vs-runtime split:
+    - backend stores canonical user-facing chat records/history
+    - OpenClaw remains owner of runtime session/context truth
+  - no new public chat endpoints in C1
+  - no streaming transport in C1
+  - no Telegram chat domain in C1
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

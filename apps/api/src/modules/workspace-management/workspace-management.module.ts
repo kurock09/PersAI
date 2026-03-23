@@ -10,6 +10,7 @@ import { ReapplyAssistantService } from "./application/reapply-assistant.service
 import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
+import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
 import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.repository";
 import { ASSISTANT_MATERIALIZED_SPEC_REPOSITORY } from "./domain/assistant-materialized-spec.repository";
 import { ASSISTANT_PUBLISHED_VERSION_REPOSITORY } from "./domain/assistant-published-version.repository";
@@ -17,6 +18,7 @@ import { ASSISTANT_RUNTIME_ADAPTER } from "./application/assistant-runtime-adapt
 import { ASSISTANT_REPOSITORY } from "./domain/assistant.repository";
 import { OpenClawRuntimeAdapter } from "./infrastructure/openclaw/openclaw-runtime.adapter";
 import { PrismaAssistantGovernanceRepository } from "./infrastructure/persistence/prisma-assistant-governance.repository";
+import { PrismaAssistantChatRepository } from "./infrastructure/persistence/prisma-assistant-chat.repository";
 import { PrismaAssistantMaterializedSpecRepository } from "./infrastructure/persistence/prisma-assistant-materialized-spec.repository";
 import { PrismaAssistantPublishedVersionRepository } from "./infrastructure/persistence/prisma-assistant-published-version.repository";
 import { PrismaAssistantRepository } from "./infrastructure/persistence/prisma-assistant.repository";
@@ -49,6 +51,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
       useClass: PrismaAssistantGovernanceRepository
     },
     {
+      provide: ASSISTANT_CHAT_REPOSITORY,
+      useClass: PrismaAssistantChatRepository
+    },
+    {
       provide: ASSISTANT_RUNTIME_ADAPTER,
       useClass: OpenClawRuntimeAdapter
     },
@@ -70,6 +76,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ASSISTANT_REPOSITORY,
     ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
     ASSISTANT_GOVERNANCE_REPOSITORY,
+    ASSISTANT_CHAT_REPOSITORY,
     ASSISTANT_MATERIALIZED_SPEC_REPOSITORY
   ]
 })

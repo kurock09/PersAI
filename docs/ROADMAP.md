@@ -69,7 +69,7 @@ Foundation Phase
 
 ## Step 5 Web Chat Core
 
-- [ ] C1 — chat domain model
+- [x] C1 — chat domain model
 - [ ] C2 — web chat backend transport
 - [ ] C3 — streaming web chat
 - [ ] C4 — chat list and chat actions

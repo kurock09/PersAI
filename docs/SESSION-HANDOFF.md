@@ -1,5 +1,80 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - Step 5 C1 chat domain model slice
+
+### What changed
+
+- Completed Step 5 slice `C1` only (backend chat record domain baseline):
+  - added chat record persistence model in `apps/api` Prisma:
+    - `assistant_chats`
+    - `assistant_chat_messages`
+  - added chat surface-awareness at identity level:
+    - `assistant_chats` unique thread key `(assistant_id, surface, surface_thread_key)`
+    - C1 surface baseline is `web`
+  - added ownership/scope constraints for chat records:
+    - assistant ownership tie via `(assistant_id, user_id) -> assistants(id, user_id)`
+    - workspace scope tie via `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
+  - added backend domain/repository wiring in `workspace-management`:
+    - chat entity + message entity
+    - chat repository contract
+    - Prisma repository implementation
+    - Nest provider registration
+  - added ADR for C1 boundary decision:
+    - `docs/ADR/015-chat-record-model-and-runtime-session-boundary.md`
+  - updated docs:
+    - `docs/ARCHITECTURE.md`
+    - `docs/API-BOUNDARY.md`
+    - `docs/DATA-MODEL.md`
+    - `docs/ROADMAP.md` (`C1` marked complete)
+    - `docs/CHANGELOG.md`
+    - `docs/SESSION-HANDOFF.md`
+
+### Why changed
+
+- Step 5 requires canonical backend chat/history records before transport and streaming slices.
+- Product boundary requires preserving split ownership:
+  - backend owns user-facing record/history truth
+  - OpenClaw owns runtime session/context truth
+- Surface-aware threading must be explicit now so future web and non-web surfaces do not collapse into one global thread model.
+
+### Files touched
+
+- apps/api/prisma/schema.prisma
+- apps/api/prisma/migrations/20260323190000_step5_c1_chat_domain_model/migration.sql
+- apps/api/src/modules/workspace-management/domain/assistant-chat.entity.ts
+- apps/api/src/modules/workspace-management/domain/assistant-chat-message.entity.ts
+- apps/api/src/modules/workspace-management/domain/assistant-chat.repository.ts
+- apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository.ts
+- apps/api/src/modules/workspace-management/workspace-management.module.ts
+- docs/ADR/015-chat-record-model-and-runtime-session-boundary.md
+- docs/ARCHITECTURE.md
+- docs/API-BOUNDARY.md
+- docs/DATA-MODEL.md
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
+
+### Tests run / result
+
+- `corepack pnpm run prisma:generate` - passed
+- `corepack pnpm --filter @persai/api run lint` - passed
+- `corepack pnpm --filter @persai/api run typecheck` - passed
+- `corepack pnpm run typecheck` - failed in existing `packages/contracts` (`src/mutator/custom-fetch.ts`: missing `process` type), unrelated to C1 chat-domain changes
+
+### Known risks
+
+- C1 introduces storage/repository baseline only; chat transport/API behavior is intentionally deferred.
+- Message append ordering in C1 is timestamp-based (`created_at`) and does not yet include explicit streaming/event sequencing semantics.
+- `surface` enum is intentionally `web`-only in C1; adding other surfaces requires explicit next-slice model extension.
+
+### Next recommended step
+
+- Proceed to Step 5 `C2` (web chat backend transport) using the C1 record model as persistence boundary.
+
+### Ready commit message
+
+- `feat(api): add step 5 c1 chat record domain model with surface-aware threading`
+
 ## 2026-03-23 - Step 4 closure stabilization slice
 
 ### What changed

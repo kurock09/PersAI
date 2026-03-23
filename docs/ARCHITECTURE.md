@@ -39,6 +39,16 @@ O6 defines a future adapter-only contract:
   - runtime preflight (`/healthz`, `/readyz`)
   - apply/reapply of A7 materialized published specs through adapter
 
+## Chat boundary (Step 5 C1)
+
+- backend stores canonical user-facing chat records:
+  - chat/thread identity
+  - message history
+  - ownership and retention-oriented record fields
+- OpenClaw stores runtime conversational/session context only
+- backend chat domain must not include runtime session internals
+- surface-aware threading is explicit and record-level (`surface + surfaceThreadKey`)
+
 ## Frontend/backend boundary
 
 - contracts-first

@@ -28,6 +28,12 @@ Path versioning: /api/v1/...
 - POST /api/v1/assistant/reapply
 - GET /api/v1/assistant/runtime/preflight
 
+## Step 5 C1 backend boundary note
+
+- C1 introduces backend chat/message persistence model only.
+- No new public API endpoints are added in C1.
+- Streaming transport remains out of scope until C3.
+
 ### POST /api/v1/assistant
 
 Behavior baseline:

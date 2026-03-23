@@ -91,6 +91,29 @@ Postgres with Prisma.
 - content_hash
 - created_at
 
+### assistant_chats (Step 5 C1 baseline)
+
+- id (UUID)
+- assistant_id
+- user_id
+- workspace_id
+- surface (`web`)
+- surface_thread_key (opaque per-surface thread identity key)
+- title (nullable)
+- archived_at (nullable)
+- last_message_at (nullable)
+- created_at
+- updated_at
+
+### assistant_chat_messages (Step 5 C1 baseline)
+
+- id (UUID)
+- chat_id
+- assistant_id
+- author (`user|assistant|system`)
+- content
+- created_at
+
 ## Prisma baseline (Step 1 slice 5)
 
 - `app_users`:
@@ -144,6 +167,23 @@ Postgres with Prisma.
     - OpenClaw-native outputs (`openclaw_bootstrap`, `openclaw_workspace`)
     - deterministic diff documents (`*_document`)
     - integrity hash (`content_hash`)
+- `assistant_chats`:
+  - primary key: `id`
+  - unique per-assistant/per-surface thread identity:
+    - `(assistant_id, surface, surface_thread_key)`
+  - composite ownership constraints:
+    - `(assistant_id, user_id) -> assistants(id, user_id)`
+    - `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
+  - record-layer fields include:
+    - archive marker (`archived_at`)
+    - latest-message pointer time (`last_message_at`)
+- `assistant_chat_messages`:
+  - primary key: `id`
+  - foreign keys:
+    - `(chat_id, assistant_id) -> assistant_chats(id, assistant_id)`
+    - `assistant_id -> assistants.id`
+  - sorted-history index:
+    - `(chat_id, created_at)`
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -166,7 +206,11 @@ Postgres with Prisma.
 - A6 adds platform-managed governance layer separate from user-owned draft/version truth
 - A7 adds deterministic materialization layer from user-owned + governance inputs to OpenClaw-native outputs
 - A8 executes runtime apply/reapply via infrastructure adapter using A7 materialized outputs and persists coarse apply error state
-- chat, channels, and integrations remain unsupported
+- Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
+- runtime conversational/session context remains outside chat domain and is owned by OpenClaw
+- no streaming transport in C1
+- Telegram chat domain remains out of scope in C1
+- channels and integrations remain unsupported
 
 ## Step 2 onboarding write baseline (slice 3)
 
