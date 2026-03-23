@@ -815,7 +815,12 @@ export async function postAdminPlanCreate(
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("plan" in response.data)
+    ) {
       throw new Error("Unexpected non-success response for POST /admin/plans.");
     }
 

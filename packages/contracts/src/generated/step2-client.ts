@@ -1336,6 +1336,70 @@ export const getAdminPlans = async ( options?: RequestInit): Promise<getAdminPla
 
 
 /**
+ * @summary Create plan catalog entry with entitlement controls
+ */
+export type postAdminPlanCreateResponse200 = {
+  data: PostAdminPlanResponse
+  status: 200
+}
+
+export type postAdminPlanCreateResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAdminPlanCreateResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAdminPlanCreateResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type postAdminPlanCreateResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAdminPlanCreateResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAdminPlanCreateResponseSuccess = (postAdminPlanCreateResponse200) & {
+  headers: Headers;
+};
+export type postAdminPlanCreateResponseError = (postAdminPlanCreateResponse400 | postAdminPlanCreateResponse401 | postAdminPlanCreateResponse403 | postAdminPlanCreateResponse409 | postAdminPlanCreateResponse500) & {
+  headers: Headers;
+};
+
+export type postAdminPlanCreateResponse = (postAdminPlanCreateResponseSuccess | postAdminPlanCreateResponseError)
+
+export const getPostAdminPlanCreateUrl = () => {
+
+
+  
+
+  return `/admin/plans`
+}
+
+export const postAdminPlanCreate = async (adminPlanCreateRequest: AdminPlanCreateRequest, options?: RequestInit): Promise<postAdminPlanCreateResponse> => {
+  
+  return customFetch<postAdminPlanCreateResponse>(getPostAdminPlanCreateUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      adminPlanCreateRequest,)
+  }
+);}
+
+
+
+/**
  * @summary Get admin-facing plan visibility and usage pressure
  */
 export type getAdminPlanVisibilityResponse200 = {
@@ -1388,70 +1452,6 @@ export const getAdminPlanVisibility = async ( options?: RequestInit): Promise<ge
     method: 'GET'
     
     
-  }
-);}
-
-
-
-/**
- * @summary Create plan catalog entry with entitlement controls
- */
-export type postAdminPlanCreateResponse200 = {
-  data: PostAdminPlanResponse
-  status: 200
-}
-
-export type postAdminPlanCreateResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
-
-export type postAdminPlanCreateResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
-
-export type postAdminPlanCreateResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
-
-export type postAdminPlanCreateResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
-
-export type postAdminPlanCreateResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAdminPlanCreateResponseSuccess = (postAdminPlanCreateResponse200) & {
-  headers: Headers;
-};
-export type postAdminPlanCreateResponseError = (postAdminPlanCreateResponse400 | postAdminPlanCreateResponse401 | postAdminPlanCreateResponse403 | postAdminPlanCreateResponse409 | postAdminPlanCreateResponse500) & {
-  headers: Headers;
-};
-
-export type postAdminPlanCreateResponse = (postAdminPlanCreateResponseSuccess | postAdminPlanCreateResponseError)
-
-export const getPostAdminPlanCreateUrl = () => {
-
-
-  
-
-  return `/admin/plans/visibility`
-}
-
-export const postAdminPlanCreate = async (adminPlanCreateRequest: AdminPlanCreateRequest, options?: RequestInit): Promise<postAdminPlanCreateResponse> => {
-  
-  return customFetch<postAdminPlanCreateResponse>(getPostAdminPlanCreateUrl(),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      adminPlanCreateRequest,)
   }
 );}
 
