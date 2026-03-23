@@ -4,6 +4,33 @@
 
 ### Added
 
+- Step 9 slice F6 progressive rollout and rollback controls baseline:
+  - added canonical platform rollout persistence:
+    - `assistant_platform_rollouts`
+    - `assistant_platform_rollout_items`
+  - added admin rollout control APIs:
+    - `GET /api/v1/admin/platform-rollouts`
+    - `POST /api/v1/admin/platform-rollouts`
+    - `POST /api/v1/admin/platform-rollouts/{rolloutId}/rollback`
+  - added bounded progressive rollout behavior:
+    - rollout percentage targeting over workspace assistants
+    - per-assistant governance snapshot capture for rollback restore
+    - platform-managed governance patching only (no draft/version mutation)
+    - soft runtime reapply against latest published version where present
+  - added explicit rollback flow:
+    - restores per-assistant pre-rollout governance snapshot
+    - reapply after restore to keep runtime state aligned
+  - extended dangerous-action step-up action set:
+    - `admin.rollout.apply`
+    - `admin.rollout.rollback`
+  - added action-scoped dangerous-role model:
+    - rollout dangerous actions require `ops_admin|super_admin` (+ narrow owner fallback)
+    - plan dangerous actions remain `business_admin|super_admin` (+ narrow owner fallback)
+  - added admin audit events for rollout operations:
+    - `admin.platform_rollout_applied`
+    - `admin.platform_rollout_rolled_back`
+  - added `/app` owner platform rollout controls section for apply/rollback operations
+  - added ADR `docs/ADR/042-progressive-rollout-and-rollback-controls-f6.md`
 - Step 9 slice F5 admin system notifications baseline:
   - added workspace-scoped admin notification channel persistence:
     - `workspace_admin_notification_channels`

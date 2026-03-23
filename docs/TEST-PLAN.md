@@ -197,3 +197,20 @@ Required in CI:
   - admin notification channel RBAC enforcement
   - non-blocking delivery wiring from selected high-signal audit events
 - Web app-flow tests validate admin notification channel section rendering and webhook update action.
+
+## Step 9 F6 focus
+
+- Prisma schema/migration validates rollout control persistence:
+  - `assistant_platform_rollouts`
+  - `assistant_platform_rollout_items`
+- Contracts/OpenAPI generation includes rollout control endpoints:
+  - `GET /admin/platform-rollouts`
+  - `POST /admin/platform-rollouts`
+  - `POST /admin/platform-rollouts/{rolloutId}/rollback`
+- API lint/typecheck validate:
+  - action-scoped dangerous step-up extension (`admin.rollout.apply|admin.rollout.rollback`)
+  - rollout/rollback service wiring and governance-only mutation scope
+  - audit emission for rollout apply/rollback actions
+- Web app-flow tests validate platform rollout controls section rendering and apply/rollback action wiring.
+- Full regression baseline remains green:
+  - `pnpm run test:step2`

@@ -1248,6 +1248,141 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/platform-rollouts:
+    get:
+      operationId: getAdminPlatformRollouts
+      summary: List platform-managed rollout operations
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Platform rollout operations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminPlatformRolloutsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAdminPlatformRollout
+      summary: Apply platform-managed progressive rollout
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.rollout.apply.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAdminPlatformRolloutRequest"
+      responses:
+        "200":
+          description: Platform rollout applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminPlatformRolloutResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/super-admin role and valid step-up required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/platform-rollouts/{rolloutId}/rollback:
+    post:
+      operationId: postAdminPlatformRolloutRollback
+      summary: Roll back a platform-managed rollout operation
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: rolloutId
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.rollout.rollback.
+      responses:
+        "200":
+          description: Platform rollout rolled back
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminPlatformRolloutRollbackResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/super-admin role and valid step-up required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Rollout not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/plans/{code}:
     patch:
       operationId: patchAdminPlan
@@ -1341,7 +1476,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "403":
-          description: Forbidden (business-admin/super-admin role required)
+          description: Forbidden (action-scoped admin role required)
           content:
             application/json:
               schema:
@@ -3103,6 +3238,112 @@ components:
           nullable: true
         channel:
           $ref: "#/components/schemas/AdminNotificationChannelState"
+    PlatformRolloutStatus:
+      type: string
+      enum:
+        - in_progress
+        - applied
+        - rolled_back
+        - failed
+    PlatformRolloutPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        capabilityEnvelope: {}
+        secretRefs: {}
+        policyEnvelope: {}
+        memoryControl: {}
+        tasksControl: {}
+        quotaHook: {}
+        auditHook: {}
+    PlatformRolloutState:
+      type: object
+      required:
+        - id
+        - status
+        - rolloutPercent
+        - targetPatch
+        - totalAssistants
+        - targetedAssistants
+        - applySucceededCount
+        - applyDegradedCount
+        - applyFailedCount
+        - rolledBackAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        status:
+          $ref: "#/components/schemas/PlatformRolloutStatus"
+        rolloutPercent:
+          type: integer
+        targetPatch:
+          $ref: "#/components/schemas/PlatformRolloutPatch"
+        totalAssistants:
+          type: integer
+        targetedAssistants:
+          type: integer
+        applySucceededCount:
+          type: integer
+        applyDegradedCount:
+          type: integer
+        applyFailedCount:
+          type: integer
+        rolledBackAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    PostAdminPlatformRolloutRequest:
+      type: object
+      required:
+        - rolloutPercent
+        - targetPatch
+      properties:
+        rolloutPercent:
+          type: integer
+          minimum: 1
+          maximum: 100
+        targetPatch:
+          $ref: "#/components/schemas/PlatformRolloutPatch"
+    PostAdminPlatformRolloutResponse:
+      type: object
+      required:
+        - rollout
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        rollout:
+          $ref: "#/components/schemas/PlatformRolloutState"
+    PostAdminPlatformRolloutRollbackResponse:
+      type: object
+      required:
+        - rollout
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        rollout:
+          $ref: "#/components/schemas/PlatformRolloutState"
+    GetAdminPlatformRolloutsResponse:
+      type: object
+      required:
+        - rollouts
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        rollouts:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformRolloutState"
     PostAdminPlanResponse:
       type: object
       required:
@@ -3118,6 +3359,8 @@ components:
       enum:
         - admin.plan.create
         - admin.plan.update
+        - admin.rollout.apply
+        - admin.rollout.rollback
     AdminStepUpChallengeRequest:
       type: object
       required:

@@ -110,7 +110,7 @@ Foundation Phase
 - [x] F3 — ops cockpit baseline
 - [x] F4 — business cockpit baseline
 - [x] F5 — admin system notifications
-- [ ] F6 — progressive rollout and rollback controls
+- [x] F6 — progressive rollout and rollback controls
 
 ## Step 10 Hardening and Recovery
 

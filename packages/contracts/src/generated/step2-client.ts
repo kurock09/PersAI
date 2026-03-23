@@ -23,6 +23,7 @@ import type {
   GetAdminOpsCockpitResponse,
   GetAdminPlanVisibilityResponse,
   GetAdminPlansResponse,
+  GetAdminPlatformRolloutsResponse,
   GetAssistantMemoryItemsResponse,
   GetAssistantPlanVisibilityResponse,
   GetAssistantResponse,
@@ -37,6 +38,9 @@ import type {
   PatchAdminNotificationWebhookChannelRequest,
   PatchAdminNotificationWebhookChannelResponse,
   PostAdminPlanResponse,
+  PostAdminPlatformRolloutRequest,
+  PostAdminPlatformRolloutResponse,
+  PostAdminPlatformRolloutRollbackResponse,
   PostAdminStepUpChallengeResponse,
   PostAssistantMemoryDoNotRememberResponse,
   PostAssistantMemoryItemForgetResponse,
@@ -1861,6 +1865,181 @@ export const patchAdminNotificationWebhookChannel = async (patchAdminNotificatio
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       patchAdminNotificationWebhookChannelRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary List platform-managed rollout operations
+ */
+export type getAdminPlatformRolloutsResponse200 = {
+  data: GetAdminPlatformRolloutsResponse
+  status: 200
+}
+
+export type getAdminPlatformRolloutsResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAdminPlatformRolloutsResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type getAdminPlatformRolloutsResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAdminPlatformRolloutsResponseSuccess = (getAdminPlatformRolloutsResponse200) & {
+  headers: Headers;
+};
+export type getAdminPlatformRolloutsResponseError = (getAdminPlatformRolloutsResponse401 | getAdminPlatformRolloutsResponse403 | getAdminPlatformRolloutsResponse500) & {
+  headers: Headers;
+};
+
+export type getAdminPlatformRolloutsResponse = (getAdminPlatformRolloutsResponseSuccess | getAdminPlatformRolloutsResponseError)
+
+export const getGetAdminPlatformRolloutsUrl = () => {
+
+
+  
+
+  return `/admin/platform-rollouts`
+}
+
+export const getAdminPlatformRollouts = async ( options?: RequestInit): Promise<getAdminPlatformRolloutsResponse> => {
+  
+  return customFetch<getAdminPlatformRolloutsResponse>(getGetAdminPlatformRolloutsUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Apply platform-managed progressive rollout
+ */
+export type postAdminPlatformRolloutResponse200 = {
+  data: PostAdminPlatformRolloutResponse
+  status: 200
+}
+
+export type postAdminPlatformRolloutResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAdminPlatformRolloutResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAdminPlatformRolloutResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type postAdminPlatformRolloutResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAdminPlatformRolloutResponseSuccess = (postAdminPlatformRolloutResponse200) & {
+  headers: Headers;
+};
+export type postAdminPlatformRolloutResponseError = (postAdminPlatformRolloutResponse400 | postAdminPlatformRolloutResponse401 | postAdminPlatformRolloutResponse403 | postAdminPlatformRolloutResponse500) & {
+  headers: Headers;
+};
+
+export type postAdminPlatformRolloutResponse = (postAdminPlatformRolloutResponseSuccess | postAdminPlatformRolloutResponseError)
+
+export const getPostAdminPlatformRolloutUrl = () => {
+
+
+  
+
+  return `/admin/platform-rollouts`
+}
+
+export const postAdminPlatformRollout = async (postAdminPlatformRolloutRequest: PostAdminPlatformRolloutRequest, options?: RequestInit): Promise<postAdminPlatformRolloutResponse> => {
+  
+  return customFetch<postAdminPlatformRolloutResponse>(getPostAdminPlatformRolloutUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      postAdminPlatformRolloutRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Roll back a platform-managed rollout operation
+ */
+export type postAdminPlatformRolloutRollbackResponse200 = {
+  data: PostAdminPlatformRolloutRollbackResponse
+  status: 200
+}
+
+export type postAdminPlatformRolloutRollbackResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAdminPlatformRolloutRollbackResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAdminPlatformRolloutRollbackResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type postAdminPlatformRolloutRollbackResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAdminPlatformRolloutRollbackResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAdminPlatformRolloutRollbackResponseSuccess = (postAdminPlatformRolloutRollbackResponse200) & {
+  headers: Headers;
+};
+export type postAdminPlatformRolloutRollbackResponseError = (postAdminPlatformRolloutRollbackResponse400 | postAdminPlatformRolloutRollbackResponse401 | postAdminPlatformRolloutRollbackResponse403 | postAdminPlatformRolloutRollbackResponse404 | postAdminPlatformRolloutRollbackResponse500) & {
+  headers: Headers;
+};
+
+export type postAdminPlatformRolloutRollbackResponse = (postAdminPlatformRolloutRollbackResponseSuccess | postAdminPlatformRolloutRollbackResponseError)
+
+export const getPostAdminPlatformRolloutRollbackUrl = (rolloutId: string,) => {
+
+
+  
+
+  return `/admin/platform-rollouts/${rolloutId}/rollback`
+}
+
+export const postAdminPlatformRolloutRollback = async (rolloutId: string, options?: RequestInit): Promise<postAdminPlatformRolloutRollbackResponse> => {
+  
+  return customFetch<postAdminPlatformRolloutRollbackResponse>(getPostAdminPlatformRolloutRollbackUrl(rolloutId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
   }
 );}
 

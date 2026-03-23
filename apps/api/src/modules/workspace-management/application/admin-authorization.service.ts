@@ -5,7 +5,11 @@ import { WorkspaceRole } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 export type SupportedAdminRole = "ops_admin" | "business_admin" | "security_admin" | "super_admin";
-export type DangerousAdminActionCode = "admin.plan.create" | "admin.plan.update";
+export type DangerousAdminActionCode =
+  | "admin.plan.create"
+  | "admin.plan.update"
+  | "admin.rollout.apply"
+  | "admin.rollout.rollback";
 
 export interface AdminAccessContext {
   userId: string;
@@ -30,6 +34,13 @@ interface StepUpTokenPayload {
 }
 
 const STEP_UP_TTL_SECONDS = 10 * 60;
+
+function requiredRolesForDangerousAction(action: DangerousAdminActionCode): SupportedAdminRole[] {
+  if (action === "admin.rollout.apply" || action === "admin.rollout.rollback") {
+    return ["ops_admin", "super_admin"];
+  }
+  return ["business_admin", "super_admin"];
+}
 
 function toBase64Url(value: string): string {
   return Buffer.from(value, "utf-8").toString("base64url");
@@ -73,9 +84,10 @@ export class AdminAuthorizationService {
     stepUpToken: string | null
   ): Promise<AdminAccessContext> {
     const context = await this.resolveAdminAccessContext(userId);
-    if (!this.hasAnyRole(context, ["business_admin", "super_admin"])) {
+    const requiredRoles = requiredRolesForDangerousAction(action);
+    if (!this.hasAnyRole(context, requiredRoles)) {
       throw new ForbiddenException(
-        "Dangerous admin actions require business-admin or super-admin role (legacy owner fallback allowed)."
+        "Dangerous admin actions require action-scoped admin role with step-up confirmation (legacy owner fallback allowed)."
       );
     }
     this.verifyStepUpToken(context, action, stepUpToken);
@@ -87,9 +99,10 @@ export class AdminAuthorizationService {
     action: DangerousAdminActionCode
   ): Promise<{ context: AdminAccessContext; challenge: AdminStepUpChallenge }> {
     const context = await this.resolveAdminAccessContext(userId);
-    if (!this.hasAnyRole(context, ["business_admin", "super_admin"])) {
+    const requiredRoles = requiredRolesForDangerousAction(action);
+    if (!this.hasAnyRole(context, requiredRoles)) {
       throw new ForbiddenException(
-        "Step-up challenge for dangerous admin actions requires business-admin or super-admin role."
+        "Step-up challenge for dangerous admin actions requires action-scoped admin role."
       );
     }
     const now = Math.floor(Date.now() / 1000);

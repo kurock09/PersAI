@@ -144,6 +144,21 @@ enum AdminNotificationDeliveryStatus {
   skipped
 }
 
+enum PlatformRolloutStatus {
+  in_progress
+  applied
+  rolled_back
+  failed
+}
+
+enum PlatformRolloutItemOutcome {
+  pending
+  succeeded
+  degraded
+  failed
+  skipped
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -157,6 +172,8 @@ model AppUser {
   assistantAuditEvents      AssistantAuditEvent[]      @relation("AssistantAuditActor")
   adminRoles                AppUserAdminRole[]
   createdAdminNotificationChannels WorkspaceAdminNotificationChannel[]
+  createdPlatformRollouts AssistantPlatformRollout[]
+  platformRolloutItems      AssistantPlatformRolloutItem[]
 
   @@map("app_users")
 }
@@ -178,6 +195,7 @@ model Workspace {
   adminRoles AppUserAdminRole[]
   adminNotificationChannels WorkspaceAdminNotificationChannel[]
   adminNotificationDeliveries AdminNotificationDelivery[]
+  platformRollouts AssistantPlatformRollout[]
 
   @@map("workspaces")
 }
@@ -230,6 +248,7 @@ model Assistant {
   taskRegistryItems     AssistantTaskRegistryItem[]
   channelSurfaceBindings AssistantChannelSurfaceBinding[]
   auditEvents            AssistantAuditEvent[]
+  platformRolloutItems   AssistantPlatformRolloutItem[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -364,6 +383,56 @@ model AdminNotificationDelivery {
   @@index([workspaceId, attemptedAt(sort: Desc)])
   @@index([channelId, attemptedAt(sort: Desc)])
   @@map("admin_notification_deliveries")
+}
+
+model AssistantPlatformRollout {
+  id                String               @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  workspaceId       String               @map("workspace_id") @db.Uuid
+  createdByUserId   String?              @map("created_by_user_id") @db.Uuid
+  status            PlatformRolloutStatus @default(in_progress)
+  rolloutPercent    Int                  @map("rollout_percent")
+  targetPatch       Json                 @map("target_patch") @db.JsonB
+  totalAssistants   Int                  @default(0) @map("total_assistants")
+  targetedAssistants Int                 @default(0) @map("targeted_assistants")
+  applySucceededCount Int                @default(0) @map("apply_succeeded_count")
+  applyDegradedCount Int                 @default(0) @map("apply_degraded_count")
+  applyFailedCount  Int                  @default(0) @map("apply_failed_count")
+  rolledBackAt      DateTime?            @map("rolled_back_at") @db.Timestamptz(6)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace         Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdByUser     AppUser?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  items             AssistantPlatformRolloutItem[]
+
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@map("assistant_platform_rollouts")
+}
+
+model AssistantPlatformRolloutItem {
+  id                   String                    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  rolloutId            String                    @map("rollout_id") @db.Uuid
+  assistantId          String                    @map("assistant_id") @db.Uuid
+  userId               String                    @map("user_id") @db.Uuid
+  previousGovernance   Json                      @map("previous_governance") @db.JsonB
+  updatedGovernance    Json                      @map("updated_governance") @db.JsonB
+  applyOutcome         PlatformRolloutItemOutcome @default(pending) @map("apply_outcome")
+  rollbackOutcome      PlatformRolloutItemOutcome @default(pending) @map("rollback_outcome")
+  applyStatus          AssistantApplyStatus?     @map("apply_status")
+  applyErrorCode       String?                   @map("apply_error_code") @db.VarChar(128)
+  applyErrorMessage    String?                   @map("apply_error_message") @db.VarChar(512)
+  rollbackStatus       AssistantApplyStatus?     @map("rollback_status")
+  rollbackErrorCode    String?                   @map("rollback_error_code") @db.VarChar(128)
+  rollbackErrorMessage String?                   @map("rollback_error_message") @db.VarChar(512)
+  appliedAt            DateTime?                 @map("applied_at") @db.Timestamptz(6)
+  rolledBackAt         DateTime?                 @map("rolled_back_at") @db.Timestamptz(6)
+  createdAt            DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  rollout              AssistantPlatformRollout  @relation(fields: [rolloutId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant            Assistant                 @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user                 AppUser                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([rolloutId, assistantId])
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@map("assistant_platform_rollout_items")
 }
 
 model PlanCatalogPlan {

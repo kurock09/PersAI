@@ -576,11 +576,15 @@ Behavior baseline:
 ### POST /api/v1/admin/step-up/challenge
 
 - authenticated caller only
-- requires admin write-capable role (`business_admin|super_admin`) or legacy owner fallback
+- requires action-scoped dangerous-write role or legacy owner fallback:
+  - `admin.plan.create|admin.plan.update` -> `business_admin|super_admin`
+  - `admin.rollout.apply|admin.rollout.rollback` -> `ops_admin|super_admin`
 - request body:
   - `action`:
     - `admin.plan.create`
     - `admin.plan.update`
+    - `admin.rollout.apply`
+    - `admin.rollout.rollback`
 - returns short-lived signed step-up token scoped to:
   - actor user
   - workspace
@@ -663,6 +667,48 @@ Behavior baseline:
   - `endpointUrl`
   - optional `signingSecret`
 - payload validates URL shape and ensures endpoint is present when enabling
+
+## Step 9 F6 progressive rollout and rollback controls
+
+### GET /api/v1/admin/platform-rollouts
+
+- authenticated caller only
+- requires admin read role:
+  - `ops_admin|business_admin|security_admin|super_admin`
+  - or legacy owner fallback
+- returns bounded recent rollout operation summaries:
+  - rollout status
+  - rollout percent
+  - targeted vs total assistants
+  - apply outcome counters
+  - target patch summary
+
+### POST /api/v1/admin/platform-rollouts
+
+- authenticated caller only
+- requires dangerous-action role (`ops_admin|super_admin`) or legacy owner fallback
+- requires `x-persai-step-up-token` header issued for action `admin.rollout.apply`
+- request body:
+  - `rolloutPercent` (1..100)
+  - `targetPatch` (subset of platform-managed governance fields)
+- behavior:
+  - selects target assistant subset by rollout percent
+  - stores per-assistant pre-update governance snapshot
+  - updates platform-managed governance fields only
+  - triggers soft runtime reapply against latest published version when present
+  - stores per-assistant apply outcomes (`succeeded|degraded|failed|skipped`)
+  - writes rollout summary audit event (`admin.platform_rollout_applied`)
+
+### POST /api/v1/admin/platform-rollouts/{rolloutId}/rollback
+
+- authenticated caller only
+- requires dangerous-action role (`ops_admin|super_admin`) or legacy owner fallback
+- requires `x-persai-step-up-token` header issued for action `admin.rollout.rollback`
+- behavior:
+  - restores per-assistant governance snapshots captured by the referenced rollout
+  - triggers soft runtime reapply against latest published version when present
+  - stores rollback outcomes per rollout item
+  - marks rollout as rolled back and writes audit event (`admin.platform_rollout_rolled_back`)
 
 ## Step 3 A7 materialization rule
 

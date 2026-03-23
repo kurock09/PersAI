@@ -12,4 +12,6 @@ export type AdminDangerousActionCode = typeof AdminDangerousActionCode[keyof typ
 export const AdminDangerousActionCode = {
   adminplancreate: 'admin.plan.create',
   adminplanupdate: 'admin.plan.update',
+  adminrolloutapply: 'admin.rollout.apply',
+  adminrolloutrollback: 'admin.rollout.rollback',
 } as const;

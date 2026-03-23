@@ -267,6 +267,8 @@ O6 defines a future adapter-only contract:
 - dangerous admin write actions require step-up token verification:
   - `admin.plan.create`
   - `admin.plan.update`
+  - `admin.rollout.apply`
+  - `admin.rollout.rollback`
 - role/context and step-up verification outcomes are written to append-only audit events
 - compatibility fallback is narrow: workspace `owner` maps to legacy `business_admin` access only
 
@@ -310,6 +312,26 @@ O6 defines a future adapter-only contract:
 - F5 baseline delivery transport is webhook (system-oriented payload, optional signing secret)
 - notification trigger scope is intentionally bounded to selected high-signal admin/runtime events
 - delivery is best-effort and non-blocking to primary control-plane actions
+
+## Progressive rollout and rollback boundary (Step 9 F6)
+
+- backend now owns explicit platform-managed rollout operation model:
+  - `assistant_platform_rollouts`
+  - `assistant_platform_rollout_items`
+- rollout scope is strictly platform-managed governance layers (`assistant_governance` fields only)
+- user-owned assistant truth is preserved:
+  - no draft mutation
+  - no published-version row mutation
+- rollout applies soft updates by:
+  - updating governance snapshot per targeted assistant
+  - triggering runtime reapply against latest published version (when present)
+- rollback support is explicit and mandatory:
+  - pre-rollout governance snapshot is captured per targeted assistant
+  - rollback restores that snapshot and triggers reapply
+- controls are action-scoped dangerous admin operations with step-up:
+  - `admin.rollout.apply`
+  - `admin.rollout.rollback`
+- F6 is an operator control baseline, not a full staged-orchestration or auto-remediation engine
 
 ## Memory source policy enforcement (Step 6 D3)
 

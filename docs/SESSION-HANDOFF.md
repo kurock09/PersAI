@@ -1,5 +1,91 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 9 F6 progressive rollout and rollback controls baseline
+
+### What changed
+
+- Added platform rollout persistence model:
+  - `assistant_platform_rollouts`
+  - `assistant_platform_rollout_items`
+- Added admin rollout APIs:
+  - `GET /api/v1/admin/platform-rollouts`
+  - `POST /api/v1/admin/platform-rollouts`
+  - `POST /api/v1/admin/platform-rollouts/{rolloutId}/rollback`
+- Added rollout service behavior for platform-managed layers:
+  - validates bounded rollout patch payload
+  - selects targeted assistants by rollout percentage
+  - captures per-assistant pre-update governance snapshot
+  - updates only platform-managed governance fields
+  - triggers soft reapply against latest published version where available
+  - stores per-assistant apply outcomes (`succeeded|degraded|failed|skipped`)
+- Added explicit rollback behavior:
+  - restores captured governance snapshots
+  - reapply after restore to align runtime
+  - records rollback outcomes and marks rollout operation as `rolled_back`
+- Extended dangerous admin step-up action set:
+  - `admin.rollout.apply`
+  - `admin.rollout.rollback`
+- Hardened dangerous role model to be action-scoped:
+  - plan dangerous actions stay `business_admin|super_admin`
+  - rollout dangerous actions require `ops_admin|super_admin`
+  - legacy owner fallback remains compatibility path
+- Added audit events for rollout operations:
+  - `admin.platform_rollout_applied`
+  - `admin.platform_rollout_rolled_back`
+- Added `/app` owner section "Platform rollout controls" with:
+  - rollout percent + target patch JSON form
+  - rollback selector
+  - recent rollout operation summary
+- Added ADR-042 and updated roadmap/docs for F6.
+
+### Why changed
+
+- F6 requires real operator controls for progressive platform-managed updates with rollback support, while preserving immutable user-owned assistant version truth and keeping soft update behavior.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260328220000_step9_f6_rollout_rollback_controls/migration.sql`
+- `apps/api/src/modules/workspace-management/application/admin-authorization.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-platform-rollouts.service.ts`
+- `apps/api/src/modules/workspace-management/application/platform-rollout.types.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-platform-rollouts.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-security.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/web/app/app/app-flow.client.test.tsx`
+- `docs/ADR/042-progressive-rollout-and-rollback-controls-f6.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run prisma:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run lint` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` — passed
+- `corepack pnpm run test:step2` — passed
+
+### Known risks / intentional limits
+
+- F6 rollout targeting is percentage-based single-wave execution per request; no automatic staged scheduler is added.
+- No automatic rollback-by-threshold policy in this slice.
+- Rollout UI uses JSON patch input for platform-managed fields and intentionally does not add a full policy editor.
+
+### Next recommended step
+
+- Step 10 **G1** secret lifecycle hardening.
+
+### Ready commit message
+
+- `feat(api-web): add step 9 f6 progressive rollout and rollback controls for platform-managed updates`
+
 ## 2026-03-24 - Step 9 F5 admin system notifications baseline
 
 ### What changed

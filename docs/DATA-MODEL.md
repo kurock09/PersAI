@@ -251,6 +251,41 @@ Postgres with Prisma.
 - error_message (nullable varchar 512)
 - attempted_at
 
+### assistant_platform_rollouts (Step 9 F6 baseline)
+
+- id (UUID)
+- workspace_id (UUID FK -> `workspaces.id`)
+- created_by_user_id (nullable UUID FK -> `app_users.id`)
+- status (`in_progress|applied|rolled_back|failed`)
+- rollout_percent (int)
+- target_patch (jsonb) — bounded platform-managed governance patch payload
+- total_assistants (int)
+- targeted_assistants (int)
+- apply_succeeded_count (int)
+- apply_degraded_count (int)
+- apply_failed_count (int)
+- rolled_back_at (nullable timestamptz)
+- created_at
+- updated_at
+
+### assistant_platform_rollout_items (Step 9 F6 baseline)
+
+- id (UUID)
+- rollout_id (UUID FK -> `assistant_platform_rollouts.id`)
+- assistant_id (UUID FK -> `assistants.id`)
+- user_id (UUID FK -> `app_users.id`)
+- previous_governance (jsonb) — pre-rollout snapshot for rollback restore
+- updated_governance (jsonb) — post-rollout platform-managed governance state
+- apply_outcome (`pending|succeeded|degraded|failed|skipped`)
+- rollback_outcome (`pending|succeeded|degraded|failed|skipped`)
+- apply_status (nullable assistant apply status enum)
+- apply_error_code / apply_error_message (nullable)
+- rollback_status (nullable assistant apply status enum)
+- rollback_error_code / rollback_error_message (nullable)
+- applied_at (nullable timestamptz)
+- rolled_back_at (nullable timestamptz)
+- created_at
+
 ### workspace_subscriptions (Step 7 P3 baseline)
 
 - id (UUID)
@@ -430,6 +465,15 @@ Postgres with Prisma.
     - `(workspace_id, attempted_at DESC)`
     - `(channel_id, attempted_at DESC)`
   - stores append-only delivery outcomes per signal/channel attempt
+- `assistant_platform_rollouts`:
+  - primary key: `id`
+  - index: `(workspace_id, created_at DESC)`
+  - stores platform rollout operation envelope and aggregate apply outcome counters
+- `assistant_platform_rollout_items`:
+  - primary key: `id`
+  - unique pair: `(rollout_id, assistant_id)`
+  - index: `(assistant_id, created_at DESC)`
+  - stores per-assistant governance snapshots + apply/rollback outcomes for explicit rollback support
 - `workspace_subscriptions`:
   - primary key: `id`
   - unique: `workspace_id` (one current subscription state row per workspace in P3)
@@ -483,6 +527,7 @@ Postgres with Prisma.
 - F1 adds append-only `assistant_audit_events` with immutable rows for critical lifecycle/runtime/admin/policy/binding transitions only (no unbounded raw event dump)
 - F2 adds explicit `app_user_admin_roles` RBAC model and dangerous-action step-up gating for admin writes; legacy owner fallback remains narrow compatibility path
 - F5 adds workspace-scoped admin system-notification channel and delivery-log tables; delivery is system-oriented and does not replace admin console workflows
+- F6 adds explicit platform rollout operation tables with per-assistant governance snapshots so progressive rollout and rollback remain platform-managed and do not mutate user-owned draft/published-version truth
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

@@ -38,12 +38,15 @@ const assistantApiMocks = vi.hoisted(() => {
     getAssistantTaskItems: vi.fn(),
     getAdminPlans: vi.fn(),
     getAdminNotificationChannels: vi.fn(),
+    getAdminPlatformRollouts: vi.fn(),
     getAdminBusinessCockpit: vi.fn(),
     getAdminOpsCockpit: vi.fn(),
     getAdminPlanVisibility: vi.fn(),
     postAdminPlanCreate: vi.fn(),
     patchAdminPlan: vi.fn(),
     patchAdminNotificationWebhookChannel: vi.fn(),
+    postAdminPlatformRollout: vi.fn(),
+    postAdminPlatformRolloutRollback: vi.fn(),
     postAssistantReapply: vi.fn(),
     postAssistantTaskItemDisable: vi.fn(),
     postAssistantTaskItemEnable: vi.fn(),
@@ -99,12 +102,15 @@ vi.mock("./assistant-api-client", async () => {
     getAssistantTaskItems: assistantApiMocks.getAssistantTaskItems,
     getAdminPlans: assistantApiMocks.getAdminPlans,
     getAdminNotificationChannels: assistantApiMocks.getAdminNotificationChannels,
+    getAdminPlatformRollouts: assistantApiMocks.getAdminPlatformRollouts,
     getAdminBusinessCockpit: assistantApiMocks.getAdminBusinessCockpit,
     getAdminOpsCockpit: assistantApiMocks.getAdminOpsCockpit,
     getAdminPlanVisibility: assistantApiMocks.getAdminPlanVisibility,
     postAdminPlanCreate: assistantApiMocks.postAdminPlanCreate,
     patchAdminPlan: assistantApiMocks.patchAdminPlan,
     patchAdminNotificationWebhookChannel: assistantApiMocks.patchAdminNotificationWebhookChannel,
+    postAdminPlatformRollout: assistantApiMocks.postAdminPlatformRollout,
+    postAdminPlatformRolloutRollback: assistantApiMocks.postAdminPlatformRolloutRollback,
     postAssistantReapply: assistantApiMocks.postAssistantReapply,
     postAssistantTaskItemDisable: assistantApiMocks.postAssistantTaskItemDisable,
     postAssistantTaskItemEnable: assistantApiMocks.postAssistantTaskItemEnable,
@@ -471,6 +477,29 @@ function makeAdminNotificationChannels() {
   ];
 }
 
+function makePlatformRollouts() {
+  return [
+    {
+      id: "rollout-1",
+      status: "applied" as const,
+      rolloutPercent: 10,
+      targetPatch: {
+        policyEnvelope: {
+          platformUpdateWindow: "default"
+        }
+      },
+      totalAssistants: 10,
+      targetedAssistants: 1,
+      applySucceededCount: 1,
+      applyDegradedCount: 0,
+      applyFailedCount: 0,
+      rolledBackAt: null,
+      createdAt: "2026-03-27T09:00:00.000Z",
+      updatedAt: "2026-03-27T09:01:00.000Z"
+    }
+  ];
+}
+
 describe("AppFlowClient onboarding gate", () => {
   afterEach(() => {
     cleanup();
@@ -497,12 +526,15 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.getAssistantTaskItems.mockReset();
     assistantApiMocks.getAdminPlans.mockReset();
     assistantApiMocks.getAdminNotificationChannels.mockReset();
+    assistantApiMocks.getAdminPlatformRollouts.mockReset();
     assistantApiMocks.getAdminBusinessCockpit.mockReset();
     assistantApiMocks.getAdminOpsCockpit.mockReset();
     assistantApiMocks.getAdminPlanVisibility.mockReset();
     assistantApiMocks.postAdminPlanCreate.mockReset();
     assistantApiMocks.patchAdminPlan.mockReset();
     assistantApiMocks.patchAdminNotificationWebhookChannel.mockReset();
+    assistantApiMocks.postAdminPlatformRollout.mockReset();
+    assistantApiMocks.postAdminPlatformRolloutRollback.mockReset();
     assistantApiMocks.postAssistantReapply.mockReset();
     assistantApiMocks.postAssistantTaskItemDisable.mockReset();
     assistantApiMocks.postAssistantTaskItemEnable.mockReset();
@@ -516,6 +548,7 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
     assistantApiMocks.getAdminPlans.mockResolvedValue([]);
     assistantApiMocks.getAdminNotificationChannels.mockResolvedValue(makeAdminNotificationChannels());
+    assistantApiMocks.getAdminPlatformRollouts.mockResolvedValue(makePlatformRollouts());
     assistantApiMocks.getAdminBusinessCockpit.mockResolvedValue(makeAdminBusinessCockpit());
     assistantApiMocks.getAdminOpsCockpit.mockResolvedValue(makeAdminOpsCockpit());
     assistantApiMocks.getAdminPlanVisibility.mockResolvedValue(makeAdminPlanVisibility());
@@ -572,6 +605,8 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByText("Admin plan visibility")).toBeInTheDocument();
     expect(screen.getByText("Admin system notifications")).toBeInTheDocument();
     expect(screen.getByText("Configured channels")).toBeInTheDocument();
+    expect(screen.getByText("Platform rollout controls")).toBeInTheDocument();
+    expect(screen.getByText("Apply progressive rollout")).toBeInTheDocument();
     expect(screen.getByText("Business cockpit")).toBeInTheDocument();
     expect(screen.getByText("Channel split")).toBeInTheDocument();
     expect(screen.getByText("Ops cockpit")).toBeInTheDocument();
@@ -736,6 +771,44 @@ describe("AppFlowClient onboarding gate", () => {
 
     await waitFor(() => {
       expect(assistantApiMocks.patchAdminNotificationWebhookChannel).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("applies platform rollout from admin controls", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.postAdminPlatformRollout.mockResolvedValue(makePlatformRollouts()[0]);
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Platform rollout controls")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Rollout percent"), { target: { value: "15" } });
+    fireEvent.change(screen.getByLabelText("Platform patch JSON"), {
+      target: { value: '{"policyEnvelope":{"platformUpdateWindow":"15pct"}}' }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply platform rollout" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAdminPlatformRollout).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("rolls back selected platform rollout from admin controls", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.postAdminPlatformRolloutRollback.mockResolvedValue({
+      ...makePlatformRollouts()[0],
+      status: "rolled_back",
+      rolledBackAt: "2026-03-27T10:00:00.000Z"
+    });
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Platform rollout controls")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Rollback selected rollout" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAdminPlatformRolloutRollback).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -14,11 +14,16 @@ import {
 import { AppendAssistantAuditEventService } from "../../application/append-assistant-audit-event.service";
 
 function parseStepUpAction(value: unknown): DangerousAdminActionCode {
-  if (value === "admin.plan.create" || value === "admin.plan.update") {
+  if (
+    value === "admin.plan.create" ||
+    value === "admin.plan.update" ||
+    value === "admin.rollout.apply" ||
+    value === "admin.rollout.rollback"
+  ) {
     return value;
   }
   throw new BadRequestException(
-    "action must be one of: admin.plan.create, admin.plan.update."
+    "action must be one of: admin.plan.create, admin.plan.update, admin.rollout.apply, admin.rollout.rollback."
   );
 }
 

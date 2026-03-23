@@ -11,6 +11,8 @@ import {
 import {
   type AdminBusinessCockpitState,
   type AdminNotificationChannelState,
+  type PlatformRolloutState,
+  type PostAdminPlatformRolloutRequest,
   type PatchAdminNotificationWebhookChannelRequest,
   type AdminOpsCockpitState,
   type AdminPlanVisibilityState,
@@ -23,6 +25,7 @@ import {
   deleteAssistantWebChat,
   getAdminBusinessCockpit,
   getAdminNotificationChannels,
+  getAdminPlatformRollouts,
   getAdminOpsCockpit,
   getAdminPlanVisibility,
   getAdminPlans,
@@ -34,6 +37,8 @@ import {
   getAssistantWebChats,
   patchAssistantDraft,
   patchAdminNotificationWebhookChannel,
+  postAdminPlatformRollout,
+  postAdminPlatformRolloutRollback,
   patchAdminPlan,
   patchAssistantWebChat,
   patchAssistantTelegramConfig,
@@ -547,6 +552,16 @@ export function AppFlowClient() {
   const [adminNotificationWebhookEndpointUrl, setAdminNotificationWebhookEndpointUrl] = useState("");
   const [adminNotificationWebhookSigningSecret, setAdminNotificationWebhookSigningSecret] = useState("");
   const [isSavingAdminNotificationWebhook, setIsSavingAdminNotificationWebhook] = useState(false);
+  const [platformRollouts, setPlatformRollouts] = useState<PlatformRolloutState[]>([]);
+  const [isLoadingPlatformRollouts, setIsLoadingPlatformRollouts] = useState(false);
+  const [platformRolloutsFeedback, setPlatformRolloutsFeedback] = useState<string | null>(null);
+  const [platformRolloutPercentInput, setPlatformRolloutPercentInput] = useState("10");
+  const [platformRolloutPatchInput, setPlatformRolloutPatchInput] = useState(
+    '{"policyEnvelope":{"platformUpdateWindow":"default"}}'
+  );
+  const [isApplyingPlatformRollout, setIsApplyingPlatformRollout] = useState(false);
+  const [isRollingBackPlatformRollout, setIsRollingBackPlatformRollout] = useState(false);
+  const [selectedRollbackRolloutId, setSelectedRollbackRolloutId] = useState("");
   const [adminBusinessCockpit, setAdminBusinessCockpit] =
     useState<AdminBusinessCockpitState | null>(null);
   const [isLoadingAdminBusinessCockpit, setIsLoadingAdminBusinessCockpit] = useState(false);
@@ -797,6 +812,32 @@ export function AppFlowClient() {
     }
   }, [flowState, getToken]);
 
+  const loadPlatformRollouts = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setPlatformRollouts([]);
+      return;
+    }
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+    try {
+      setIsLoadingPlatformRollouts(true);
+      const rollouts = await getAdminPlatformRollouts(token);
+      setPlatformRollouts(rollouts);
+      if (selectedRollbackRolloutId.trim().length === 0 && rollouts[0] !== undefined) {
+        setSelectedRollbackRolloutId(rollouts[0].id);
+      }
+      setPlatformRolloutsFeedback(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load platform rollouts.";
+      setPlatformRolloutsFeedback(message);
+    } finally {
+      setIsLoadingPlatformRollouts(false);
+    }
+  }, [flowState, getToken, selectedRollbackRolloutId]);
+
   const loadWebChatList = useCallback(async () => {
     if (flowState.type !== "ready" || flowState.data.assistantState === null) {
       setChatList([]);
@@ -972,6 +1013,14 @@ export function AppFlowClient() {
     }
     void loadAdminNotificationChannels();
   }, [flowState, loadAdminNotificationChannels]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setPlatformRollouts([]);
+      return;
+    }
+    void loadPlatformRollouts();
+  }, [flowState, loadPlatformRollouts]);
 
   const onboardingRequired = useMemo(() => {
     return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
@@ -1329,6 +1378,75 @@ export function AppFlowClient() {
       setAdminNotificationChannelsFeedback(message);
     } finally {
       setIsSavingAdminNotificationWebhook(false);
+    }
+  }
+
+  async function onApplyPlatformRollout(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+    const rolloutPercent = Number.parseInt(platformRolloutPercentInput, 10);
+    if (!Number.isFinite(rolloutPercent) || rolloutPercent < 1 || rolloutPercent > 100) {
+      setPlatformRolloutsFeedback("Rollout percent must be an integer between 1 and 100.");
+      return;
+    }
+    let patchObject: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(platformRolloutPatchInput);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        setPlatformRolloutsFeedback("Target patch JSON must be an object.");
+        return;
+      }
+      patchObject = parsed as Record<string, unknown>;
+    } catch {
+      setPlatformRolloutsFeedback("Target patch JSON is invalid.");
+      return;
+    }
+    const input: PostAdminPlatformRolloutRequest = {
+      rolloutPercent,
+      targetPatch: patchObject
+    };
+    try {
+      setIsApplyingPlatformRollout(true);
+      setPlatformRolloutsFeedback(null);
+      const rollout = await postAdminPlatformRollout(token, input);
+      setPlatformRollouts((current) => [rollout, ...current.filter((entry) => entry.id !== rollout.id)]);
+      setSelectedRollbackRolloutId(rollout.id);
+      await loadPlatformRollouts();
+      setPlatformRolloutsFeedback("Platform-managed rollout applied.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not apply platform rollout.";
+      setPlatformRolloutsFeedback(message);
+    } finally {
+      setIsApplyingPlatformRollout(false);
+    }
+  }
+
+  async function onRollbackSelectedPlatformRollout(): Promise<void> {
+    if (selectedRollbackRolloutId.trim().length === 0) {
+      setPlatformRolloutsFeedback("Select a rollout to rollback.");
+      return;
+    }
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+    try {
+      setIsRollingBackPlatformRollout(true);
+      setPlatformRolloutsFeedback(null);
+      const rollout = await postAdminPlatformRolloutRollback(token, selectedRollbackRolloutId.trim());
+      setPlatformRollouts((current) => current.map((entry) => (entry.id === rollout.id ? rollout : entry)));
+      await loadPlatformRollouts();
+      setPlatformRolloutsFeedback("Platform-managed rollout rollback executed.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not rollback platform rollout.";
+      setPlatformRolloutsFeedback(message);
+    } finally {
+      setIsRollingBackPlatformRollout(false);
     }
   }
 
@@ -2914,6 +3032,88 @@ export function AppFlowClient() {
                     {channel.lastDelivery !== null
                       ? `, last delivery ${channel.lastDelivery.deliveryStatus} at ${channel.lastDelivery.attemptedAt}`
                       : ", no deliveries yet"}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </section>
+      )}
+
+      {me.workspace.role === "owner" && (
+        <section>
+          <h2>Platform rollout controls</h2>
+          <p>
+            Progressive rollout and rollback controls for platform-managed governance layers only.
+            User-owned draft/version truth is never overwritten by this mechanism.
+          </p>
+          {isLoadingPlatformRollouts && <p>Loading platform rollouts…</p>}
+          {platformRolloutsFeedback !== null && <p>{platformRolloutsFeedback}</p>}
+          <button
+            type="button"
+            disabled={isLoadingPlatformRollouts}
+            onClick={() => void loadPlatformRollouts()}
+          >
+            Refresh rollout controls
+          </button>
+          <section>
+            <h3>Apply progressive rollout</h3>
+            <form onSubmit={(event) => void onApplyPlatformRollout(event)}>
+              <label htmlFor="platformRolloutPercent">Rollout percent</label>
+              <input
+                id="platformRolloutPercent"
+                type="number"
+                min={1}
+                max={100}
+                value={platformRolloutPercentInput}
+                onChange={(event) => setPlatformRolloutPercentInput(event.target.value)}
+              />
+              <label htmlFor="platformRolloutPatchJson">Platform patch JSON</label>
+              <textarea
+                id="platformRolloutPatchJson"
+                value={platformRolloutPatchInput}
+                onChange={(event) => setPlatformRolloutPatchInput(event.target.value)}
+              />
+              <button type="submit" disabled={isApplyingPlatformRollout}>
+                {isApplyingPlatformRollout ? "Applying rollout..." : "Apply platform rollout"}
+              </button>
+            </form>
+          </section>
+          <section>
+            <h3>Rollback rollout</h3>
+            <label htmlFor="platformRolloutRollbackSelect">Select rollout</label>
+            <select
+              id="platformRolloutRollbackSelect"
+              value={selectedRollbackRolloutId}
+              onChange={(event) => setSelectedRollbackRolloutId(event.target.value)}
+            >
+              <option value="">Select rollout</option>
+              {platformRollouts.map((rollout) => (
+                <option key={rollout.id} value={rollout.id}>
+                  {rollout.id} ({rollout.status}, {rollout.rolloutPercent}%)
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={isRollingBackPlatformRollout}
+              onClick={() => void onRollbackSelectedPlatformRollout()}
+            >
+              {isRollingBackPlatformRollout ? "Rolling back..." : "Rollback selected rollout"}
+            </button>
+          </section>
+          <section>
+            <h3>Recent rollout operations</h3>
+            {platformRollouts.length === 0 ? (
+              <p>No rollout operations yet.</p>
+            ) : (
+              <ul>
+                {platformRollouts.map((rollout) => (
+                  <li key={rollout.id}>
+                    <strong>{rollout.id}</strong>: {rollout.status}, {rollout.rolloutPercent}% target,{" "}
+                    {rollout.targetedAssistants}/{rollout.totalAssistants} assistants, apply outcomes{" "}
+                    {rollout.applySucceededCount} succeeded / {rollout.applyDegradedCount} degraded /{" "}
+                    {rollout.applyFailedCount} failed
                   </li>
                 ))}
               </ul>

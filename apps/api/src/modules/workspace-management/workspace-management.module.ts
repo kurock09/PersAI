@@ -5,6 +5,7 @@ import { AdminSecurityController } from "./interface/http/admin-security.control
 import { AdminOpsController } from "./interface/http/admin-ops.controller";
 import { AdminBusinessController } from "./interface/http/admin-business.controller";
 import { AdminNotificationsController } from "./interface/http/admin-notifications.controller";
+import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
@@ -21,6 +22,7 @@ import { ResolveAdminOpsCockpitService } from "./application/resolve-admin-ops-c
 import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-business-cockpit.service";
 import { ManageAdminNotificationChannelsService } from "./application/manage-admin-notification-channels.service";
 import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
+import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -82,7 +84,8 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminSecurityController,
     AdminOpsController,
     AdminBusinessController,
-    AdminNotificationsController
+    AdminNotificationsController,
+    AdminPlatformRolloutsController
   ],
   providers: [
     WorkspaceManagementPrismaService,
@@ -92,6 +95,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ResolveAdminBusinessCockpitService,
     ManageAdminNotificationChannelsService,
     DeliverAdminSystemNotificationService,
+    ManagePlatformRolloutsService,
     GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,

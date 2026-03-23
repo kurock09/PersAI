@@ -1,6 +1,8 @@
 import {
   type AdminBusinessCockpitState,
   type AdminNotificationChannelState,
+  type PlatformRolloutState,
+  type PostAdminPlatformRolloutRequest,
   type PatchAdminNotificationWebhookChannelRequest,
   type AdminPlanCreateRequest,
   type AdminDangerousActionCode,
@@ -45,6 +47,7 @@ import {
   getAdminPlans as getAdminPlansContract,
   getAdminBusinessCockpit as getAdminBusinessCockpitContract,
   getAdminNotificationChannels as getAdminNotificationChannelsContract,
+  getAdminPlatformRollouts as getAdminPlatformRolloutsContract,
   getAdminOpsCockpit as getAdminOpsCockpitContract,
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
@@ -52,6 +55,9 @@ import {
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
   patchAdminNotificationWebhookChannel as patchAdminNotificationWebhookChannelContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract
+  ,
+  postAdminPlatformRollout as postAdminPlatformRolloutContract,
+  postAdminPlatformRolloutRollback as postAdminPlatformRolloutRollbackContract
 } from "@persai/contracts";
 
 function getAuthHeaders(token: string): HeadersInit {
@@ -806,6 +812,7 @@ export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
 export type { AdminBusinessCockpitState };
 export type { AdminOpsCockpitState };
 export type { AdminNotificationChannelState, PatchAdminNotificationWebhookChannelRequest };
+export type { PlatformRolloutState, PostAdminPlatformRolloutRequest };
 export type { UserPlanVisibilityState, AdminPlanVisibilityState };
 export type { TelegramIntegrationState, AssistantTelegramConfigUpdateRequest };
 
@@ -897,6 +904,64 @@ export async function patchAdminNotificationWebhookChannel(
       );
     }
     return response.data.channel;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAdminPlatformRollouts(token: string): Promise<PlatformRolloutState[]> {
+  try {
+    const response = await getAdminPlatformRolloutsContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/platform-rollouts.");
+    }
+    return response.data.rollouts;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminPlatformRollout(
+  token: string,
+  input: PostAdminPlatformRolloutRequest
+): Promise<PlatformRolloutState> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.rollout.apply");
+    const response = await postAdminPlatformRolloutContract(input, {
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for POST /admin/platform-rollouts.");
+    }
+    return response.data.rollout;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminPlatformRolloutRollback(
+  token: string,
+  rolloutId: string
+): Promise<PlatformRolloutState> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.rollout.rollback");
+    const response = await postAdminPlatformRolloutRollbackContract(rolloutId, {
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for POST /admin/platform-rollouts/{rolloutId}/rollback."
+      );
+    }
+    return response.data.rollout;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
