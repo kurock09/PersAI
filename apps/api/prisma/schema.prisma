@@ -17,6 +17,15 @@ enum WorkspaceRole {
   member
 }
 
+enum AssistantApplyStatus {
+  not_requested
+  pending
+  in_progress
+  succeeded
+  failed
+  degraded
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -60,17 +69,27 @@ model WorkspaceMember {
 }
 
 model Assistant {
-  id              String                    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  userId          String                    @unique @map("user_id") @db.Uuid
-  workspaceId     String                    @map("workspace_id") @db.Uuid
-  draftDisplayName String?                  @map("draft_display_name")
-  draftInstructions String?                 @map("draft_instructions")
-  draftUpdatedAt   DateTime?                @map("draft_updated_at") @db.Timestamptz(6)
-  createdAt       DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user            AppUser                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace       Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember WorkspaceMember           @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  id                 String                    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  userId             String                    @unique @map("user_id") @db.Uuid
+  workspaceId        String                    @map("workspace_id") @db.Uuid
+  draftDisplayName   String?                   @map("draft_display_name")
+  draftInstructions  String?                   @map("draft_instructions")
+  draftUpdatedAt     DateTime?                 @map("draft_updated_at") @db.Timestamptz(6)
+  applyStatus        AssistantApplyStatus      @default(not_requested) @map("apply_status")
+  applyTargetVersionId String?                 @map("apply_target_version_id") @db.Uuid
+  applyAppliedVersionId String?                @map("apply_applied_version_id") @db.Uuid
+  applyRequestedAt   DateTime?                 @map("apply_requested_at") @db.Timestamptz(6)
+  applyStartedAt     DateTime?                 @map("apply_started_at") @db.Timestamptz(6)
+  applyFinishedAt    DateTime?                 @map("apply_finished_at") @db.Timestamptz(6)
+  applyErrorCode     String?                   @map("apply_error_code")
+  applyErrorMessage  String?                   @map("apply_error_message")
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user               AppUser                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace          Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember    WorkspaceMember           @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  applyTargetVersion AssistantPublishedVersion? @relation("AssistantApplyTargetVersion", fields: [applyTargetVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  applyAppliedVersion AssistantPublishedVersion? @relation("AssistantApplyAppliedVersion", fields: [applyAppliedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   publishedVersions AssistantPublishedVersion[]
 
   @@unique([workspaceId, userId])
@@ -85,8 +104,10 @@ model AssistantPublishedVersion {
   snapshotInstructions String?  @map("snapshot_instructions")
   publishedByUserId   String    @map("published_by_user_id") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  assistant           Assistant @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  publishedByUser     AppUser   @relation("AssistantVersionPublisher", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant             Assistant   @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publishedByUser       AppUser     @relation("AssistantVersionPublisher", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  applyTargetAssistants Assistant[] @relation("AssistantApplyTargetVersion")
+  applyAppliedAssistants Assistant[] @relation("AssistantApplyAppliedVersion")
 
   @@unique([assistantId, version])
   @@map("assistant_published_versions")

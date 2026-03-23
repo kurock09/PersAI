@@ -88,6 +88,14 @@ export class RollbackAssistantService {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
-    return toAssistantLifecycleState(updatedAssistant, rolledBackVersion);
+    const assistantWithPendingApply = await this.assistantRepository.markApplyPending(
+      userId,
+      rolledBackVersion.id
+    );
+    if (assistantWithPendingApply === null) {
+      throw new NotFoundException("Assistant does not exist for this user.");
+    }
+
+    return toAssistantLifecycleState(assistantWithPendingApply, rolledBackVersion);
   }
 }

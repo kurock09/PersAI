@@ -453,6 +453,64 @@ components:
           format: date-time
         snapshot:
           $ref: "#/components/schemas/AssistantPublishedVersionSnapshotState"
+    AssistantRuntimeApplyStatus:
+      type: string
+      enum:
+        - not_requested
+        - pending
+        - in_progress
+        - succeeded
+        - failed
+        - degraded
+    AssistantRuntimeApplyErrorState:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+    AssistantRuntimeApplyState:
+      type: object
+      required:
+        - status
+        - targetPublishedVersionId
+        - appliedPublishedVersionId
+        - requestedAt
+        - startedAt
+        - finishedAt
+        - error
+      properties:
+        status:
+          $ref: "#/components/schemas/AssistantRuntimeApplyStatus"
+        targetPublishedVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        appliedPublishedVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        requestedAt:
+          type: string
+          format: date-time
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          allOf:
+            - $ref: "#/components/schemas/AssistantRuntimeApplyErrorState"
+          nullable: true
     AssistantLifecycleState:
       type: object
       required:
@@ -461,6 +519,7 @@ components:
         - workspaceId
         - draft
         - latestPublishedVersion
+        - runtimeApply
         - createdAt
         - updatedAt
       properties:
@@ -479,6 +538,8 @@ components:
           allOf:
             - $ref: "#/components/schemas/AssistantPublishedVersionState"
           nullable: true
+        runtimeApply:
+          $ref: "#/components/schemas/AssistantRuntimeApplyState"
         createdAt:
           type: string
           format: date-time

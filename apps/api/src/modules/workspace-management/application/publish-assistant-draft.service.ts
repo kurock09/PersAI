@@ -29,6 +29,14 @@ export class PublishAssistantDraftService {
       snapshotInstructions: assistant.draftInstructions
     });
 
-    return toAssistantLifecycleState(assistant, publishedVersion);
+    const assistantWithPendingApply = await this.assistantRepository.markApplyPending(
+      userId,
+      publishedVersion.id
+    );
+    if (assistantWithPendingApply === null) {
+      throw new NotFoundException("Assistant does not exist for this user.");
+    }
+
+    return toAssistantLifecycleState(assistantWithPendingApply, publishedVersion);
   }
 }

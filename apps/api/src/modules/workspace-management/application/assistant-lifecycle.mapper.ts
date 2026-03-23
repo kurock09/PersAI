@@ -37,6 +37,21 @@ export function toAssistantLifecycleState(
       latestPublishedVersion === null
         ? null
         : toAssistantPublishedVersionState(latestPublishedVersion),
+    runtimeApply: {
+      status: assistant.applyStatus,
+      targetPublishedVersionId: assistant.applyTargetVersionId,
+      appliedPublishedVersionId: assistant.applyAppliedVersionId,
+      requestedAt: assistant.applyRequestedAt?.toISOString() ?? null,
+      startedAt: assistant.applyStartedAt?.toISOString() ?? null,
+      finishedAt: assistant.applyFinishedAt?.toISOString() ?? null,
+      error:
+        assistant.applyErrorCode === null && assistant.applyErrorMessage === null
+          ? null
+          : {
+              code: assistant.applyErrorCode,
+              message: assistant.applyErrorMessage
+            }
+    },
     createdAt: assistant.createdAt.toISOString(),
     updatedAt: assistant.updatedAt.toISOString()
   };

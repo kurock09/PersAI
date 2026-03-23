@@ -52,6 +52,33 @@ export class PrismaAssistantRepository implements AssistantRepository {
     return this.mapToDomain(assistant);
   }
 
+  async markApplyPending(userId: string, targetVersionId: string): Promise<Assistant | null> {
+    const existingAssistant = await this.prisma.assistant.findUnique({
+      where: { userId },
+      select: { id: true }
+    });
+
+    if (existingAssistant === null) {
+      return null;
+    }
+
+    const assistant = await this.prisma.assistant.update({
+      where: { userId },
+      data: {
+        applyStatus: "pending",
+        applyTargetVersionId: targetVersionId,
+        applyAppliedVersionId: null,
+        applyRequestedAt: new Date(),
+        applyStartedAt: null,
+        applyFinishedAt: null,
+        applyErrorCode: null,
+        applyErrorMessage: null
+      }
+    });
+
+    return this.mapToDomain(assistant);
+  }
+
   private mapToDomain(assistant: PrismaAssistant): Assistant {
     return {
       id: assistant.id,
@@ -60,6 +87,14 @@ export class PrismaAssistantRepository implements AssistantRepository {
       draftDisplayName: assistant.draftDisplayName,
       draftInstructions: assistant.draftInstructions,
       draftUpdatedAt: assistant.draftUpdatedAt,
+      applyStatus: assistant.applyStatus,
+      applyTargetVersionId: assistant.applyTargetVersionId,
+      applyAppliedVersionId: assistant.applyAppliedVersionId,
+      applyRequestedAt: assistant.applyRequestedAt,
+      applyStartedAt: assistant.applyStartedAt,
+      applyFinishedAt: assistant.applyFinishedAt,
+      applyErrorCode: assistant.applyErrorCode,
+      applyErrorMessage: assistant.applyErrorMessage,
       createdAt: assistant.createdAt,
       updatedAt: assistant.updatedAt
     };

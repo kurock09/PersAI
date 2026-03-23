@@ -366,6 +366,22 @@
     - no account deletion logic
     - no chat retention changes
   - marked `A4` complete in `docs/ROADMAP.md`
+- Step 3 slice A5 runtime apply state model:
+  - added assistant runtime apply state fields in control-plane model (`assistants`):
+    - `apply_status`
+    - `apply_target_version_id`
+    - `apply_applied_version_id`
+    - `apply_requested_at`, `apply_started_at`, `apply_finished_at`
+    - `apply_error_code`, `apply_error_message`
+  - added apply-status enum states:
+    - `not_requested`, `pending`, `in_progress`, `succeeded`, `failed`, `degraded`
+  - extended assistant lifecycle response shape with `runtimeApply` block for UX/admin visibility
+  - publish/rollback/reset now set apply state to `pending` and target the newly produced published version
+  - kept publish truth and apply truth explicitly separated:
+    - `latestPublishedVersion` = publish truth
+    - `runtimeApply` = runtime apply progress/outcome truth
+  - no OpenClaw/runtime calls introduced and no success simulation added
+  - marked `A5` complete in `docs/ROADMAP.md`
 
 ### Changed
 

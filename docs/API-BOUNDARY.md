@@ -45,6 +45,12 @@ Behavior baseline:
   - `id`, `userId`, `workspaceId`
   - `draft.displayName`, `draft.instructions`, `draft.updatedAt`
   - `latestPublishedVersion` (nullable)
+  - `runtimeApply`:
+    - `status`: `not_requested | pending | in_progress | succeeded | failed | degraded`
+    - `targetPublishedVersionId`
+    - `appliedPublishedVersionId`
+    - `requestedAt`, `startedAt`, `finishedAt`
+    - `error` (`code`, `message`) nullable
   - `createdAt`, `updatedAt`
 - returns not found if assistant has not been created yet
 
@@ -72,6 +78,7 @@ Behavior baseline:
 - creates new immutable published snapshot version from current draft
 - version number is per-assistant incremental (`1,2,3,...`)
 - returns assistant lifecycle state with `latestPublishedVersion` set to newly published version
+- sets `runtimeApply.status = pending` with target pointing to the new published version
 - does not perform runtime apply/openclaw actions
 - does not mutate historical published versions
 
@@ -88,6 +95,7 @@ Behavior baseline:
 - **does not mutate** old published rows
 - creates a new latest published version snapshot copied from `targetVersion`
 - updates current draft to the same rolled-back snapshot values
+- sets `runtimeApply.status = pending` with target pointing to rollback-created published version
 - no runtime apply/openclaw actions
 
 ### POST /api/v1/assistant/reset (Step 3 A4 baseline)
@@ -99,12 +107,21 @@ Behavior baseline:
 - creates new assistant state without deleting platform attachment layer
 - creates new latest published version with blank snapshot (`displayName=null`, `instructions=null`)
 - resets draft to blank values (`displayName=null`, `instructions=null`)
+- sets `runtimeApply.status = pending` with target pointing to reset-created published version
 - preserves:
   - ownership/user binding
   - workspace scope
   - billing scope (not modified in this slice)
   - secret bindings/integration attachment layer (not modified in this slice)
 - no runtime apply/openclaw actions
+
+## Step 3 A5 apply-state separation rule
+
+- Publish truth and apply truth are distinct:
+  - publish/rollback/reset produce published version truth in `latestPublishedVersion`
+  - runtime apply progress/outcome is tracked separately in `runtimeApply`
+- In A5, backend stores apply-state transitions to `pending` only for lifecycle actions.
+- No runtime execution call is made in this slice, so `succeeded/failed/degraded` are represented model states but not produced by runtime integration yet.
 
 ### GET /api/v1/me (slice 2 baseline response)
 

@@ -41,6 +41,14 @@ Postgres with Prisma.
 - draft_display_name (nullable)
 - draft_instructions (nullable)
 - draft_updated_at (nullable)
+- apply_status (`not_requested|pending|in_progress|succeeded|failed|degraded`)
+- apply_target_version_id (nullable)
+- apply_applied_version_id (nullable)
+- apply_requested_at (nullable)
+- apply_started_at (nullable)
+- apply_finished_at (nullable)
+- apply_error_code (nullable)
+- apply_error_message (nullable)
 - created_at
 - updated_at
 
@@ -74,6 +82,12 @@ Postgres with Prisma.
   - scoped-membership FK: `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
   - unique pair: `(workspace_id, user_id)` to keep assistant bound to one concrete user-workspace membership record
   - A2 draft columns (all nullable): `draft_display_name`, `draft_instructions`, `draft_updated_at`
+  - A5 apply-state columns:
+    - `apply_status` (enum)
+    - `apply_target_version_id` (nullable FK -> `assistant_published_versions.id`)
+    - `apply_applied_version_id` (nullable FK -> `assistant_published_versions.id`)
+    - `apply_requested_at`, `apply_started_at`, `apply_finished_at` (nullable timestamps)
+    - `apply_error_code`, `apply_error_message` (nullable)
 - `assistant_published_versions`:
   - primary key: `id`
   - foreign keys: `assistant_id -> assistants.id`, `published_by_user_id -> app_users.id`
@@ -98,7 +112,8 @@ Postgres with Prisma.
 - A2 supports assistant create/get/draft-update control-plane entrypoints only
 - A3 adds publish/version snapshot model only (control-plane)
 - A4 adds rollback/reset actions over existing A3 model without deleting attachment layers
-- runtime apply, chat, channels, and integrations remain unsupported
+- A5 adds runtime apply state tracking model only (no runtime call execution)
+- chat, channels, and integrations remain unsupported
 
 ## Step 2 onboarding write baseline (slice 3)
 
