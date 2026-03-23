@@ -1,6 +1,7 @@
 import {
   type AdminPlanCreateRequest,
   type AdminDangerousActionCode,
+  type AdminOpsCockpitState,
   type AdminPlanVisibilityState,
   type AdminPlanState,
   type AdminPlanUpdateRequest,
@@ -26,6 +27,7 @@ import {
   patchAdminPlan as patchAdminPlanContract,
   patchAssistantWebChat as patchAssistantWebChatContract,
   postAssistantPublish as postAssistantPublishContract,
+  postAssistantReapply as postAssistantReapplyContract,
   postAssistantReset as postAssistantResetContract,
   postAssistantRollback as postAssistantRollbackContract,
   postAssistantWebChatArchive as postAssistantWebChatArchiveContract,
@@ -38,6 +40,7 @@ import {
   postAssistantTaskItemDisable as postAssistantTaskItemDisableContract,
   postAssistantTaskItemEnable as postAssistantTaskItemEnableContract,
   getAdminPlans as getAdminPlansContract,
+  getAdminOpsCockpit as getAdminOpsCockpitContract,
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
@@ -794,6 +797,7 @@ export async function postAssistantMemoryDoNotRemember(
 }
 
 export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
+export type { AdminOpsCockpitState };
 export type { UserPlanVisibilityState, AdminPlanVisibilityState };
 export type { TelegramIntegrationState, AssistantTelegramConfigUpdateRequest };
 
@@ -836,6 +840,20 @@ export async function getAdminPlanVisibility(token: string): Promise<AdminPlanVi
       throw new Error("Unexpected non-success response for GET /admin/plans/visibility.");
     }
     return response.data.visibility;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAdminOpsCockpit(token: string): Promise<AdminOpsCockpitState> {
+  try {
+    const response = await getAdminOpsCockpitContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/ops/cockpit.");
+    }
+    return response.data.cockpit;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
@@ -917,6 +935,20 @@ export async function postAdminPlanCreate(
     }
 
     return response.data.plan;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantReapply(token: string): Promise<AssistantLifecycleState> {
+  try {
+    const response = await postAssistantReapplyContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for POST /assistant/reapply.");
+    }
+    return response.data.assistant;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

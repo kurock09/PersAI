@@ -55,7 +55,7 @@ Required in CI:
 ## Step 7 P2 focus
 
 - Owner-gated admin endpoints validate create/update/list flows for plan management.
-- Web `/app` renders a dedicated admin plan management section for workspace owners and supports create/edit controls.
+- Web `/app` renders a dedicated admin plan management section and supports create/edit controls for authorized admins.
 - Baseline regression suite (`test:step2`) remains green after admin plan UI/API additions.
 
 ## Step 7 P3 focus
@@ -93,7 +93,7 @@ Required in CI:
 - Contracts/OpenAPI generation includes new visibility read-model endpoints:
   - `GET /assistant/plan-visibility`
   - `GET /admin/plans/visibility`
-- API lint/typecheck validate visibility services and owner-gated admin visibility path.
+- API lint/typecheck validate visibility services and role-gated admin visibility path.
 - Web `/app` renders:
   - user-facing plan state + percentage-only limits section
   - owner/admin visibility section for plan state, usage pressure, and effective entitlements
@@ -168,3 +168,11 @@ Required in CI:
   - `PATCH /admin/plans/{code}`
 - Step-up challenge issuance path validates action scoping and short-lived token generation (`POST /admin/step-up/challenge`).
 - Admin audit events include actor role context and step-up verification metadata for dangerous writes.
+
+## Step 9 F3 focus
+
+- Contracts/OpenAPI generation includes ops cockpit endpoint:
+  - `GET /admin/ops/cockpit`
+- API lint/typecheck validate ops cockpit resolver/controller wiring and role-gated read path.
+- Web app-flow tests validate ops cockpit section rendering and reapply control wiring from cockpit.
+- Existing Step 9 F1/F2 and Step 2 baseline regressions remain green.

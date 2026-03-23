@@ -37,9 +37,11 @@ const assistantApiMocks = vi.hoisted(() => {
     postAssistantMemoryDoNotRemember: vi.fn(),
     getAssistantTaskItems: vi.fn(),
     getAdminPlans: vi.fn(),
+    getAdminOpsCockpit: vi.fn(),
     getAdminPlanVisibility: vi.fn(),
     postAdminPlanCreate: vi.fn(),
     patchAdminPlan: vi.fn(),
+    postAssistantReapply: vi.fn(),
     postAssistantTaskItemDisable: vi.fn(),
     postAssistantTaskItemEnable: vi.fn(),
     postAssistantTaskItemCancel: vi.fn(),
@@ -93,9 +95,11 @@ vi.mock("./assistant-api-client", async () => {
     postAssistantMemoryDoNotRemember: assistantApiMocks.postAssistantMemoryDoNotRemember,
     getAssistantTaskItems: assistantApiMocks.getAssistantTaskItems,
     getAdminPlans: assistantApiMocks.getAdminPlans,
+    getAdminOpsCockpit: assistantApiMocks.getAdminOpsCockpit,
     getAdminPlanVisibility: assistantApiMocks.getAdminPlanVisibility,
     postAdminPlanCreate: assistantApiMocks.postAdminPlanCreate,
     patchAdminPlan: assistantApiMocks.patchAdminPlan,
+    postAssistantReapply: assistantApiMocks.postAssistantReapply,
     postAssistantTaskItemDisable: assistantApiMocks.postAssistantTaskItemDisable,
     postAssistantTaskItemEnable: assistantApiMocks.postAssistantTaskItemEnable,
     postAssistantTaskItemCancel: assistantApiMocks.postAssistantTaskItemCancel,
@@ -359,6 +363,45 @@ function makeAdminPlanVisibility() {
   };
 }
 
+function makeAdminOpsCockpit() {
+  return {
+    assistant: {
+      exists: true,
+      assistantId: "assistant-1",
+      workspaceId: "ws-1",
+      latestPublishedVersion: {
+        id: "pub-2",
+        version: 2,
+        publishedAt: "2026-03-23T10:05:00.000Z"
+      },
+      runtimeApply: {
+        status: "succeeded" as const,
+        targetPublishedVersionId: "pub-2",
+        appliedPublishedVersionId: "pub-2",
+        requestedAt: "2026-03-23T10:05:01.000Z",
+        startedAt: "2026-03-23T10:05:02.000Z",
+        finishedAt: "2026-03-23T10:05:03.000Z",
+        error: null
+      }
+    },
+    runtime: {
+      adapterEnabled: true,
+      openclawBaseUrlHost: "openclaw:18789",
+      preflight: {
+        live: true,
+        ready: true,
+        checkedAt: "2026-03-26T12:00:00.000Z"
+      }
+    },
+    controls: {
+      reapplySupported: true,
+      restartSupported: false
+    },
+    incidentSignals: [],
+    updatedAt: "2026-03-26T12:00:00.000Z"
+  };
+}
+
 describe("AppFlowClient onboarding gate", () => {
   afterEach(() => {
     cleanup();
@@ -384,9 +427,11 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.postAssistantMemoryDoNotRemember.mockReset();
     assistantApiMocks.getAssistantTaskItems.mockReset();
     assistantApiMocks.getAdminPlans.mockReset();
+    assistantApiMocks.getAdminOpsCockpit.mockReset();
     assistantApiMocks.getAdminPlanVisibility.mockReset();
     assistantApiMocks.postAdminPlanCreate.mockReset();
     assistantApiMocks.patchAdminPlan.mockReset();
+    assistantApiMocks.postAssistantReapply.mockReset();
     assistantApiMocks.postAssistantTaskItemDisable.mockReset();
     assistantApiMocks.postAssistantTaskItemEnable.mockReset();
     assistantApiMocks.postAssistantTaskItemCancel.mockReset();
@@ -398,6 +443,7 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.getAssistantPlanVisibility.mockResolvedValue(makeUserPlanVisibility());
     assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
     assistantApiMocks.getAdminPlans.mockResolvedValue([]);
+    assistantApiMocks.getAdminOpsCockpit.mockResolvedValue(makeAdminOpsCockpit());
     assistantApiMocks.getAdminPlanVisibility.mockResolvedValue(makeAdminPlanVisibility());
   });
 
@@ -431,7 +477,7 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getAllByText("Publish History").length).toBeGreaterThan(0);
     expect(screen.getByText("Assistant summary")).toBeInTheDocument();
     expect(screen.getAllByText("v2").length).toBeGreaterThan(0);
-    expect(screen.getByText("succeeded")).toBeInTheDocument();
+    expect(screen.getAllByText("succeeded").length).toBeGreaterThan(0);
     expect(screen.getByText("Publish state:")).toBeInTheDocument();
     expect(screen.getByText("Published")).toBeInTheDocument();
     expect(screen.getByText("Apply state:")).toBeInTheDocument();
@@ -450,6 +496,8 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByText("Token budget:")).toBeInTheDocument();
     expect(screen.getAllByText("24%").length).toBeGreaterThan(0);
     expect(screen.getByText("Admin plan visibility")).toBeInTheDocument();
+    expect(screen.getByText("Ops cockpit")).toBeInTheDocument();
+    expect(screen.getByText("Runtime preflight:")).toBeInTheDocument();
     expect(screen.getByText("Usage pressure:")).toBeInTheDocument();
     expect(screen.getByText("Update:")).toBeInTheDocument();
     expect(screen.getByText("Assistant is live after the latest apply.")).toBeInTheDocument();
@@ -631,6 +679,24 @@ describe("AppFlowClient onboarding gate", () => {
     });
     expect(screen.getByText("Publish requested. Apply state is tracked separately.")).toBeInTheDocument();
     expect(screen.getByText("Applying")).toBeInTheDocument();
+  });
+
+  it("reapplies latest published version from ops cockpit", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.postAssistantReapply.mockResolvedValue(makeAssistantResponseWithApplyStatus("pending"));
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Ops cockpit")).toBeInTheDocument();
+    const reapplyButton = await screen.findByRole("button", {
+      name: "Reapply latest published version"
+    });
+    fireEvent.click(reapplyButton);
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantReapply).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("shows recovery-worthy update marker when apply fails", async () => {

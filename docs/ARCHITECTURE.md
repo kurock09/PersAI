@@ -134,7 +134,7 @@ O6 defines a future adapter-only contract:
 
 ## Admin plan management boundary (Step 7 P2)
 
-- admin-side plan create/edit is exposed in one owner-gated control surface and one API boundary (`/api/v1/admin/plans*`)
+- admin-side plan create/edit is exposed in one admin control surface and one API boundary (`/api/v1/admin/plans*`)
 - controls remain business-facing (name, metadata, default/trial flags, entitlement/limits toggles), not raw DB model editing
 - no billing provider console/workflow coupling in P2; provider selection/integration remains future scope
 
@@ -193,7 +193,7 @@ O6 defines a future adapter-only contract:
 - backend owns canonical tool catalog and plan activation truth in control plane:
   - `tool_catalog_tools`
   - `plan_catalog_tool_activations`
-- plan management flow remains owner-gated and continues to be the single control-plane packaging surface in this slice
+- plan management flow remains role-gated (+ step-up on dangerous writes) and continues to be the single control-plane packaging surface in this slice
 - materialization now projects explicit per-tool availability from catalog + activation + effective capability class guardrail
 - backend still does not execute or route runtime tool behavior; OpenClaw remains execution owner
 
@@ -269,6 +269,21 @@ O6 defines a future adapter-only contract:
   - `admin.plan.update`
 - role/context and step-up verification outcomes are written to append-only audit events
 - compatibility fallback is narrow: workspace `owner` maps to legacy `business_admin` access only
+
+## Ops cockpit boundary (Step 9 F3)
+
+- backend now exposes a role-gated ops cockpit read model:
+  - `GET /api/v1/admin/ops/cockpit`
+- cockpit read model is intentionally bounded and high-signal:
+  - assistant/runtime status snapshot
+  - publish/apply truth pointer
+  - runtime preflight state
+  - minimal topology awareness (`OPENCLAW_ADAPTER_ENABLED`, OpenClaw host)
+  - concise incident signals derived from control-plane/runtime transition truth
+- ops controls in F3 are limited to already-supported lifecycle actions:
+  - reapply is surfaced when a latest published version exists
+  - restart is explicitly unsupported in this slice
+- no BI expansion and no raw event/metrics wall are introduced in F3
 
 ## Memory source policy enforcement (Step 6 D3)
 

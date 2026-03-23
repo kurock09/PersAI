@@ -1,5 +1,79 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 9 F3 ops cockpit baseline
+
+### What changed
+
+- Added role-gated admin ops cockpit read endpoint:
+  - `GET /api/v1/admin/ops/cockpit`
+- Added centralized ops cockpit read-model service:
+  - `ResolveAdminOpsCockpitService`
+  - returns bounded operator snapshot for:
+    - assistant presence and latest published version
+    - runtime apply status and error pointer
+    - runtime preflight (`live|ready|checkedAt`)
+    - topology awareness (`adapterEnabled`, OpenClaw host)
+    - high-signal incident projections
+- Added bounded incident signal model in cockpit payload:
+  - `assistant_absent`
+  - `assistant_not_published`
+  - `runtime_preflight_unhealthy`
+  - `runtime_apply_failed`
+  - `runtime_apply_degraded`
+  - `runtime_apply_in_progress`
+- Added cockpit control visibility model:
+  - `reapplySupported` surfaced when latest published version exists
+  - `restartSupported` surfaced as `false` in F3 by design
+- Added `/app` ops cockpit section (admin/owner surface) with:
+  - assistant/runtime status summary
+  - publish/apply truth
+  - incident signal list
+  - runtime topology line
+  - `Reapply latest published version` button wired to existing `POST /api/v1/assistant/reapply`
+- Added ADR-039 and updated roadmap/docs for Step 9 F3.
+
+### Why changed
+
+- F3 requires a serious and readable operational cockpit baseline so operators can understand assistant/runtime health and lifecycle truth without relying on raw logs or manual DB inspection.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/ops-cockpit.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-ops.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/web/app/app/app-flow.client.test.tsx`
+- `apps/web/app/globals.css`
+- `docs/ADR/039-ops-cockpit-baseline-f3.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` — passed
+
+### Known risks / intentional limits
+
+- F3 does not add restart/redeploy orchestration controls.
+- F3 does not add historical BI, trends, or dense metrics dashboards.
+- Cockpit is intentionally a bounded high-signal snapshot, not an incident timeline/explorer.
+
+### Next recommended step
+
+- Step 9 **F4** business cockpit baseline, reusing F3 operational truth and F1/F2 governance constraints.
+
+### Ready commit message
+
+- `feat(api-web): add step 9 f3 ops cockpit baseline with status signals and reapply control`
+
 ## 2026-03-24 - Step 9 F2 admin RBAC and dangerous-action step-up
 
 ### What changed

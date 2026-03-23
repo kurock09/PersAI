@@ -9,6 +9,7 @@ import {
   type AssistantWebChatListItemState
 } from "@persai/contracts";
 import {
+  type AdminOpsCockpitState,
   type AdminPlanVisibilityState,
   type AdminPlanCreateRequest,
   type AdminPlanState,
@@ -17,6 +18,7 @@ import {
   type TelegramIntegrationState,
   type UserPlanVisibilityState,
   deleteAssistantWebChat,
+  getAdminOpsCockpit,
   getAdminPlanVisibility,
   getAdminPlans,
   getAssistant,
@@ -37,6 +39,7 @@ import {
   postAssistantTaskItemDisable,
   postAssistantTaskItemEnable,
   postAssistantPublish,
+  postAssistantReapply,
   postAssistantReset,
   postAssistantRollback,
   postAssistantTelegramConnect,
@@ -452,6 +455,7 @@ export function AppFlowClient() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [isRollingBack, setIsRollingBack] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isReapplying, setIsReapplying] = useState(false);
   const [setupMode, setSetupMode] = useState<SetupMode>("quick_start");
   const [setupFeedback, setSetupFeedback] = useState<string | null>(null);
   const [publishFeedback, setPublishFeedback] = useState<string | null>(null);
@@ -526,6 +530,9 @@ export function AppFlowClient() {
   );
   const [isLoadingAdminPlanVisibility, setIsLoadingAdminPlanVisibility] = useState(false);
   const [adminPlanVisibilityFeedback, setAdminPlanVisibilityFeedback] = useState<string | null>(null);
+  const [adminOpsCockpit, setAdminOpsCockpit] = useState<AdminOpsCockpitState | null>(null);
+  const [isLoadingAdminOpsCockpit, setIsLoadingAdminOpsCockpit] = useState(false);
+  const [adminOpsCockpitFeedback, setAdminOpsCockpitFeedback] = useState<string | null>(null);
   const reachedActiveChatCap = streamingIssue?.classId === "active_chat_cap";
   const assistantIsLiveForWebChat =
     flowState.type === "ready" && flowState.data.assistantState !== null
@@ -691,6 +698,31 @@ export function AppFlowClient() {
     }
   }, [flowState, getToken]);
 
+  const loadAdminOpsCockpit = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setAdminOpsCockpit(null);
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setIsLoadingAdminOpsCockpit(true);
+      const cockpit = await getAdminOpsCockpit(token);
+      setAdminOpsCockpit(cockpit);
+      setAdminOpsCockpitFeedback(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load ops cockpit.";
+      setAdminOpsCockpitFeedback(message);
+    } finally {
+      setIsLoadingAdminOpsCockpit(false);
+    }
+  }, [flowState, getToken]);
+
   const loadWebChatList = useCallback(async () => {
     if (flowState.type !== "ready" || flowState.data.assistantState === null) {
       setChatList([]);
@@ -842,6 +874,14 @@ export function AppFlowClient() {
     }
     void loadAdminPlanVisibility();
   }, [flowState, loadAdminPlanVisibility]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setAdminOpsCockpit(null);
+      return;
+    }
+    void loadAdminOpsCockpit();
+  }, [flowState, loadAdminOpsCockpit]);
 
   const onboardingRequired = useMemo(() => {
     return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
@@ -1138,6 +1178,35 @@ export function AppFlowClient() {
       setResetFeedback(message);
     } finally {
       setIsResetting(false);
+    }
+  }
+
+  async function onReapplyAssistantFromOps(): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+    try {
+      setIsReapplying(true);
+      setAdminOpsCockpitFeedback(null);
+      const updatedAssistant = await postAssistantReapply(token);
+      if (flowState.type === "ready") {
+        setFlowState({
+          type: "ready",
+          data: {
+            meState: flowState.data.meState,
+            assistantState: updatedAssistant
+          }
+        });
+      }
+      await loadAdminOpsCockpit();
+      setAdminOpsCockpitFeedback("Reapply requested from ops cockpit.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not reapply from ops cockpit.";
+      setAdminOpsCockpitFeedback(message);
+    } finally {
+      setIsReapplying(false);
     }
   }
 
@@ -2565,6 +2634,93 @@ export function AppFlowClient() {
               {assistantState.latestPublishedVersion?.publishedAt ?? "n/a"}
             </p>
           </section>
+        </section>
+      )}
+
+      {me.workspace.role === "owner" && (
+        <section>
+          <h2>Ops cockpit</h2>
+          <p>
+            Operational snapshot for assistant/runtime state, lifecycle truth, and incident signals.
+            This is a control-plane cockpit, not a raw metrics wall.
+          </p>
+          {isLoadingAdminOpsCockpit && <p>Loading ops cockpit…</p>}
+          {adminOpsCockpitFeedback !== null && <p>{adminOpsCockpitFeedback}</p>}
+          <button
+            type="button"
+            disabled={isLoadingAdminOpsCockpit}
+            onClick={() => void loadAdminOpsCockpit()}
+          >
+            Refresh ops cockpit
+          </button>
+          {adminOpsCockpit !== null && (
+            <>
+              <p>
+                <strong>Runtime adapter:</strong>{" "}
+                {adminOpsCockpit.runtime.adapterEnabled ? "enabled" : "disabled"}
+              </p>
+              <p>
+                <strong>Runtime topology:</strong>{" "}
+                {adminOpsCockpit.runtime.openclawBaseUrlHost ?? "not configured"}
+              </p>
+              <p>
+                <strong>Runtime preflight:</strong>{" "}
+                {adminOpsCockpit.runtime.preflight.live && adminOpsCockpit.runtime.preflight.ready
+                  ? "live + ready"
+                  : "not healthy"}
+              </p>
+              <p>
+                <strong>Assistant entity:</strong>{" "}
+                {adminOpsCockpit.assistant.exists ? "present" : "absent"}
+              </p>
+              <p>
+                <strong>Latest published version:</strong>{" "}
+                {adminOpsCockpit.assistant.latestPublishedVersion.version === null
+                  ? "none"
+                  : `v${adminOpsCockpit.assistant.latestPublishedVersion.version}`}
+              </p>
+              <p>
+                <strong>Apply status:</strong>{" "}
+                {adminOpsCockpit.assistant.runtimeApply?.status ?? "n/a"}
+              </p>
+              {adminOpsCockpit.assistant.runtimeApply?.error !== null &&
+                adminOpsCockpit.assistant.runtimeApply?.error !== undefined && (
+                  <p>
+                    <strong>Apply error:</strong>{" "}
+                    {adminOpsCockpit.assistant.runtimeApply.error.code ?? "unknown"} —{" "}
+                    {adminOpsCockpit.assistant.runtimeApply.error.message ?? "No message"}
+                  </p>
+                )}
+              <section className="ops-cockpit-controls">
+                <h3>Ops controls</h3>
+                <p>
+                  Restart control is intentionally unsupported in this slice. Reapply is available when
+                  there is a published version.
+                </p>
+                <button
+                  type="button"
+                  disabled={!adminOpsCockpit.controls.reapplySupported || isReapplying}
+                  onClick={() => void onReapplyAssistantFromOps()}
+                >
+                  {isReapplying ? "Reapplying..." : "Reapply latest published version"}
+                </button>
+              </section>
+              <section className="ops-cockpit-signals">
+                <h3>Incident signals</h3>
+                {adminOpsCockpit.incidentSignals.length === 0 ? (
+                  <p>No active incident signals.</p>
+                ) : (
+                  <ul>
+                    {adminOpsCockpit.incidentSignals.map((signal) => (
+                      <li key={signal.code}>
+                        <strong>{signal.severity.toUpperCase()}:</strong> {signal.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
         </section>
       )}
 

@@ -392,7 +392,7 @@ Behavior baseline:
 ### GET /api/v1/admin/plans
 
 - authenticated caller only
-- workspace owner role required
+- requires admin read role (`ops_admin|business_admin|security_admin|super_admin`) or legacy owner fallback
 - returns admin-facing plan list with:
   - naming and high-level metadata
   - default-on-registration and trial controls
@@ -401,7 +401,8 @@ Behavior baseline:
 ### POST /api/v1/admin/plans
 
 - authenticated caller only
-- workspace owner role required
+- requires dangerous-action role (`business_admin|super_admin`) or legacy owner fallback
+- requires `x-persai-step-up-token` for action `admin.plan.create`
 - creates one plan entry by `code`
 - supports:
   - display name / description / status
@@ -413,7 +414,8 @@ Behavior baseline:
 ### PATCH /api/v1/admin/plans/{code}
 
 - authenticated caller only
-- workspace owner role required
+- requires dangerous-action role (`business_admin|super_admin`) or legacy owner fallback
+- requires `x-persai-step-up-token` for action `admin.plan.update`
 - updates existing plan by code with the same control set as create
 - keeps single default-on-registration truth by clearing previous default when a new default is set
 
@@ -479,7 +481,7 @@ Behavior baseline:
 ### GET /api/v1/admin/plans/visibility
 
 - authenticated caller only
-- workspace owner role required
+- requires admin read role (`ops_admin|business_admin|security_admin|super_admin`) or legacy owner fallback
 - returns admin-facing visibility snapshot:
   - effective plan state + catalog state (`active/inactive` counts, default registration plan)
   - usage pressure percentages for core dimensions
@@ -493,7 +495,7 @@ Behavior baseline:
 - Canonical tool catalog + plan activation truth is persisted in backend:
   - `tool_catalog_tools`
   - `plan_catalog_tool_activations`
-- Existing owner-gated plan management API remains the single plan packaging surface.
+- Existing role-gated + step-up protected admin plan management API remains the single plan packaging surface.
 - Materialization tool availability projection is upgraded to `persai.effectiveToolAvailability.v2`:
   - class-level activation summary (`utility`, `cost_driving`)
   - per-tool activation list derived from catalog status + plan activation + effective class guardrail
@@ -605,6 +607,23 @@ Behavior baseline:
 - requires admin read role:
   - `ops_admin|business_admin|security_admin|super_admin`
   - or legacy owner fallback
+
+## Step 9 F3 ops cockpit baseline
+
+### GET /api/v1/admin/ops/cockpit
+
+- authenticated caller only
+- requires admin read role:
+  - `ops_admin|business_admin|security_admin|super_admin`
+  - or legacy owner fallback
+- returns bounded ops cockpit snapshot:
+  - assistant presence + latest published version pointer
+  - runtime apply status/error truth
+  - runtime preflight health/readiness
+  - topology awareness (`adapterEnabled`, OpenClaw host)
+  - high-signal incident list (no raw logs/trace dump)
+  - control availability flags (`reapplySupported`, `restartSupported`)
+- this endpoint is operational visibility baseline, not BI/analytics surface
 
 ## Step 3 A7 materialization rule
 

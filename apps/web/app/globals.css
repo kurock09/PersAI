@@ -375,3 +375,8 @@ ul {
   color: #6b7280;
   font-size: 0.9rem;
 }
+
+.ops-cockpit-controls,
+.ops-cockpit-signals {
+  margin-top: 10px;
+}

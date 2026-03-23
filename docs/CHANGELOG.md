@@ -4,6 +4,29 @@
 
 ### Added
 
+- Step 9 slice F3 ops cockpit baseline:
+  - added role-gated admin ops cockpit endpoint:
+    - `GET /api/v1/admin/ops/cockpit`
+  - added centralized ops cockpit read-model resolver:
+    - `ResolveAdminOpsCockpitService`
+    - combines assistant lifecycle/apply truth, latest published version pointer, runtime preflight state, and topology snapshot (`OPENCLAW_BASE_URL` host + adapter enabled flag)
+  - added explicit baseline incident signal projection:
+    - `assistant_absent`
+    - `assistant_not_published`
+    - `runtime_preflight_unhealthy`
+    - `runtime_apply_failed`
+    - `runtime_apply_degraded`
+    - `runtime_apply_in_progress`
+  - added baseline ops controls exposure:
+    - reapply support surfaced when latest published version exists
+    - restart intentionally surfaced as unsupported in F3
+  - added `/app` owner/admin ops cockpit section with:
+    - assistant/runtime status snapshot
+    - publish/apply truth
+    - incident signal list
+    - topology awareness line
+    - "Reapply latest published version" control wired to existing `POST /assistant/reapply`
+  - added ADR `docs/ADR/039-ops-cockpit-baseline-f3.md`
 - Step 9 slice F2 admin RBAC and dangerous-action step-up:
   - added explicit admin role persistence:
     - `app_user_admin_roles`

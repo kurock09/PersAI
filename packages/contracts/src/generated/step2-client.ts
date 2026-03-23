@@ -18,6 +18,7 @@ import type {
   AssistantWebChatTurnRequest,
   DeleteAssistantWebChatResponse,
   ErrorEnvelope,
+  GetAdminOpsCockpitResponse,
   GetAdminPlanVisibilityResponse,
   GetAdminPlansResponse,
   GetAssistantMemoryItemsResponse,
@@ -1633,6 +1634,59 @@ export const getGetAdminPlanVisibilityUrl = () => {
 export const getAdminPlanVisibility = async ( options?: RequestInit): Promise<getAdminPlanVisibilityResponse> => {
   
   return customFetch<getAdminPlanVisibilityResponse>(getGetAdminPlanVisibilityUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Get ops cockpit baseline state for control-plane operations
+ */
+export type getAdminOpsCockpitResponse200 = {
+  data: GetAdminOpsCockpitResponse
+  status: 200
+}
+
+export type getAdminOpsCockpitResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAdminOpsCockpitResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type getAdminOpsCockpitResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAdminOpsCockpitResponseSuccess = (getAdminOpsCockpitResponse200) & {
+  headers: Headers;
+};
+export type getAdminOpsCockpitResponseError = (getAdminOpsCockpitResponse401 | getAdminOpsCockpitResponse403 | getAdminOpsCockpitResponse500) & {
+  headers: Headers;
+};
+
+export type getAdminOpsCockpitResponse = (getAdminOpsCockpitResponseSuccess | getAdminOpsCockpitResponseError)
+
+export const getGetAdminOpsCockpitUrl = () => {
+
+
+  
+
+  return `/admin/ops/cockpit`
+}
+
+export const getAdminOpsCockpit = async ( options?: RequestInit): Promise<getAdminOpsCockpitResponse> => {
+  
+  return customFetch<getAdminOpsCockpitResponse>(getGetAdminOpsCockpitUrl(),
   {      
     ...options,
     method: 'GET'
