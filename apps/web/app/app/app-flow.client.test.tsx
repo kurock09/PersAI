@@ -728,7 +728,7 @@ describe("AppFlowClient onboarding gate", () => {
     render(<AppFlowClient />);
 
     expect((await screen.findAllByText("Tools & Integrations")).length).toBeGreaterThan(0);
-    fireEvent.change(screen.getByLabelText("Telegram bot token"), {
+    fireEvent.change(await screen.findByLabelText("Telegram bot token"), {
       target: { value: "123456:ABCDEF01234567890123" }
     });
     fireEvent.click(screen.getByRole("button", { name: "Connect Telegram" }));
