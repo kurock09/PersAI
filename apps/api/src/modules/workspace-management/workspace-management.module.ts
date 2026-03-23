@@ -6,6 +6,7 @@ import { ResolveEffectiveCapabilityStateService } from "./application/resolve-ef
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
 import { ResolveOpenClawChannelSurfaceBindingsService } from "./application/resolve-openclaw-channel-surface-bindings.service";
 import { ResolveOpenClawCapabilityEnvelopeService } from "./application/resolve-openclaw-capability-envelope.service";
+import { ResolveRuntimeProviderRoutingService } from "./application/resolve-runtime-provider-routing.service";
 import { ResolveTelegramIntegrationStateService } from "./application/resolve-telegram-integration-state.service";
 import { ConnectTelegramIntegrationService } from "./application/connect-telegram-integration.service";
 import { UpdateTelegramIntegrationConfigService } from "./application/update-telegram-integration-config.service";
@@ -77,6 +78,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ResolveEffectiveCapabilityStateService,
     ResolveEffectiveToolAvailabilityService,
     ResolveOpenClawChannelSurfaceBindingsService,
+    ResolveRuntimeProviderRoutingService,
     ResolveOpenClawCapabilityEnvelopeService,
     ResolveTelegramIntegrationStateService,
     ConnectTelegramIntegrationService,

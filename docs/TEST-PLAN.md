@@ -136,3 +136,13 @@ Required in CI:
 - API lint/typecheck validate Telegram endpoints/services and binding persistence wiring.
 - Web app flow tests validate integrations-area Telegram connect interaction path.
 - Existing E1-E3 envelope/capability tests remain green.
+
+## Step 8 E6 focus
+
+- Runtime provider routing baseline is validated in API test script (`test:runtime-provider-routing`) for:
+  - primary path resolution
+  - fallback matrix trigger mapping
+  - policy override handling for model keys
+  - entitlement/governance alignment fields (cost-driving restrictions)
+- OpenClaw capability envelope test (`test:openclaw-capability-envelope`) validates embedding of `runtimeProviderRouting`.
+- API lint/typecheck validate service wiring through materialization and module registration.

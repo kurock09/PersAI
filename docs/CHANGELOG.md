@@ -67,6 +67,24 @@
   - added warm, uncluttered card styling for premium baseline presentation while keeping truthful state signaling
   - updated web app-flow test assertions for coming-soon messenger states
   - added ADR `docs/ADR/035-integrations-panel-messenger-presentation-e5.md`
+- Step 8 slice E6 provider and fallback baseline:
+  - added explicit runtime provider routing projection:
+    - `runtimeProviderRouting`
+    - schema `persai.runtimeProviderRouting.v1`
+  - integrated routing projection into materialized OpenClaw capability envelope (`persai.openclawCapabilityEnvelope.v1`)
+  - added explicit primary path baseline:
+    - provider `openclaw_managed_default`
+    - model key resolved from policy override or baseline default
+  - added explicit fallback matrix with trigger-based behavior:
+    - `provider_failure_or_timeout` -> fallback model path
+    - `runtime_degraded` -> safe-mode degrade path
+    - `cost_driving_restricted` -> tool-constrained path
+  - aligned fallback eligibility with governance and entitlement truth:
+    - effective channel/text capability gates
+    - cost-driving class allow/quota-governed signals
+    - optional `policyEnvelope.runtimeProviderRouting` overrides for model keys and fallback disable
+  - added API test script `test:runtime-provider-routing`
+  - added ADR `docs/ADR/036-provider-and-fallback-baseline-e6.md`
 - Post-deploy live validation snapshot for Step 7 P1-P7 on dev GKE:
   - verified API + web deployments on aligned image tag
   - verified user/admin visibility endpoints and UI sections:

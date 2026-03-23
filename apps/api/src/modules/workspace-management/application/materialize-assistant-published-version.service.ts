@@ -18,6 +18,7 @@ import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capa
 import { ResolveEffectiveToolAvailabilityService } from "./resolve-effective-tool-availability.service";
 import { ResolveOpenClawChannelSurfaceBindingsService } from "./resolve-openclaw-channel-surface-bindings.service";
 import { ResolveOpenClawCapabilityEnvelopeService } from "./resolve-openclaw-capability-envelope.service";
+import { ResolveRuntimeProviderRoutingService } from "./resolve-runtime-provider-routing.service";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -57,6 +58,7 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly resolveEffectiveToolAvailabilityService: ResolveEffectiveToolAvailabilityService,
     private readonly resolveOpenClawChannelSurfaceBindingsService: ResolveOpenClawChannelSurfaceBindingsService,
+    private readonly resolveRuntimeProviderRoutingService: ResolveRuntimeProviderRoutingService,
     private readonly resolveOpenClawCapabilityEnvelopeService: ResolveOpenClawCapabilityEnvelopeService
   ) {}
 
@@ -90,10 +92,15 @@ export class MaterializeAssistantPublishedVersionService {
         assistantId: assistant.id,
         effectiveCapabilities
       });
+    const runtimeProviderRouting = this.resolveRuntimeProviderRoutingService.execute({
+      effectiveCapabilities,
+      policyEnvelope: governance.policyEnvelope
+    });
     const openclawCapabilityEnvelope = this.resolveOpenClawCapabilityEnvelopeService.execute({
       effectiveCapabilities,
       effectiveToolAvailability: toolAvailability,
-      channelSurfaceBindings
+      channelSurfaceBindings,
+      runtimeProviderRouting
     });
 
     const layers = {

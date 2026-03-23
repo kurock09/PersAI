@@ -233,6 +233,20 @@ O6 defines a future adapter-only contract:
 - web remains primary assistant control surface; Telegram is treated as interaction/delivery surface binding
 - E4 does not add WhatsApp/MAX delivery and does not turn backend into runtime routing layer
 
+## Provider and fallback baseline boundary (Step 8 E6)
+
+- backend materialization now projects explicit runtime provider routing baseline:
+  - `runtimeProviderRouting` (`persai.runtimeProviderRouting.v1`)
+  - embedded inside `openclawCapabilityEnvelope`
+- routing baseline is runtime-managed and minimal:
+  - primary path: `openclaw_managed_default` + model key
+  - explicit fallback matrix for timeout/provider-failure, runtime-degraded, and cost-driving restriction cases
+- eligibility is aligned with control-plane governance truth:
+  - effective capabilities (interactive channels + text media)
+  - entitlement-derived cost-driving allowance/quota governance
+  - optional policy override via `policyEnvelope.runtimeProviderRouting` (model keys and fallback disable)
+- no user-facing provider picker and no provider marketplace logic are added in E6
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

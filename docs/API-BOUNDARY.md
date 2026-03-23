@@ -549,6 +549,20 @@ Behavior baseline:
 - E4 keeps web as primary control-plane surface and does not move deep assistant config into Telegram.
 - E4 does not add WhatsApp/MAX delivery implementation.
 
+## Step 8 E6 provider and fallback baseline
+
+- E6 adds no new public REST endpoints; this is control-plane materialization hardening.
+- Materialization now includes explicit runtime provider routing baseline:
+  - `runtimeProviderRouting` (`persai.runtimeProviderRouting.v1`)
+  - embedded into `openclawCapabilityEnvelope`.
+- Routing projection includes:
+  - primary provider/model path
+  - fallback matrix by runtime trigger (`provider_failure_or_timeout`, `runtime_degraded`, `cost_driving_restricted`)
+  - explicit governance-alignment fields from effective capabilities and entitlement-derived quota governance
+- Optional policy override is control-plane only:
+  - `policyEnvelope.runtimeProviderRouting` can override model keys and disable fallback path.
+- E6 does not introduce a user-facing provider picker, provider marketplace logic, or backend runtime routing execution.
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

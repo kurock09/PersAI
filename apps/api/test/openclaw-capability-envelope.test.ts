@@ -129,6 +129,34 @@ async function run(): Promise<void> {
         deniedSurfaceTypes: [],
         declaredSurfaceTypes: ["web_chat"]
       }
+    },
+    runtimeProviderRouting: {
+      schema: "persai.runtimeProviderRouting.v1",
+      derivedFrom: {
+        effectiveCapabilitiesSchema: "persai.effectiveCapabilities.v1",
+        policyEnvelopeSchema: null,
+        planCode: "starter_trial"
+      },
+      userFacingProviderPickerEnabled: false,
+      primaryPath: {
+        providerKey: "openclaw_managed_default",
+        modelKey: "text_standard_v1",
+        active: true,
+        inactiveReason: null
+      },
+      fallbackMatrix: [],
+      governanceAlignment: {
+        channelsEvaluated: {
+          webChat: true,
+          telegram: true,
+          whatsapp: false,
+          max: false
+        },
+        textMediaAllowed: true,
+        costDrivingAllowed: false,
+        costDrivingQuotaGoverned: true
+      },
+      notes: []
     }
   });
 

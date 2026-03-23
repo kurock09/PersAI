@@ -3,6 +3,7 @@ import type { EffectiveCapabilityState } from "./effective-capability.types";
 import type { EffectiveToolAvailabilityState } from "./effective-tool-availability.types";
 import type { OpenClawCapabilityEnvelopeState } from "./openclaw-capability-envelope.types";
 import type { OpenClawChannelSurfaceBindingsState } from "./openclaw-channel-surface-bindings.types";
+import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
 
 type ToolGroup = "knowledge" | "automation" | "communication" | "workspace_ops";
 
@@ -12,8 +13,14 @@ export class ResolveOpenClawCapabilityEnvelopeService {
     effectiveCapabilities: EffectiveCapabilityState;
     effectiveToolAvailability: EffectiveToolAvailabilityState;
     channelSurfaceBindings: OpenClawChannelSurfaceBindingsState;
+    runtimeProviderRouting: RuntimeProviderRoutingState;
   }): OpenClawCapabilityEnvelopeState {
-    const { effectiveCapabilities, effectiveToolAvailability, channelSurfaceBindings } = params;
+    const {
+      effectiveCapabilities,
+      effectiveToolAvailability,
+      channelSurfaceBindings,
+      runtimeProviderRouting
+    } = params;
 
     const tools = effectiveToolAvailability.tools.map((tool) => {
       const allowed = tool.effectiveActivation === "active";
@@ -67,6 +74,7 @@ export class ResolveOpenClawCapabilityEnvelopeService {
         max: { allowed: effectiveCapabilities.channelsAndSurfaces.max }
       },
       channelSurfaceBindings,
+      runtimeProviderRouting,
       toolClasses: {
         utility: effectiveToolAvailability.toolClasses.utility,
         costDriving: effectiveToolAvailability.toolClasses.costDriving
@@ -101,6 +109,7 @@ export class ResolveOpenClawCapabilityEnvelopeService {
       notes: [
         "E2 capability envelope provides explicit per-tool/per-group allow-deny truth.",
         "Any tool code outside catalog.declaredToolCodes is treated as unavailable.",
+        "Runtime provider baseline includes explicit primary and fallback paths without user-facing picker.",
         "Unavailable tools are explicitly denied so runtime cannot infer or invent them.",
         "Backend remains control-plane and does not route runtime tool execution."
       ]

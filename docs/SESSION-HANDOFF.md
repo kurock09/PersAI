@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 8 E6 provider and fallback baseline
+
+### What changed
+
+- Added explicit runtime provider/fallback projection service:
+  - `ResolveRuntimeProviderRoutingService`
+  - schema `persai.runtimeProviderRouting.v1`
+- Added runtime routing model type:
+  - `runtime-provider-routing.types.ts`
+- Materialization now resolves provider routing baseline from:
+  - effective capabilities
+  - optional `policyEnvelope.runtimeProviderRouting` overrides
+- Embedded `runtimeProviderRouting` into:
+  - `openclawCapabilityEnvelope`
+  - OpenClaw-facing materialization payloads (via existing envelope integration path)
+- Added API validation script and test coverage:
+  - `test:runtime-provider-routing`
+  - updated envelope test fixture wiring for `runtimeProviderRouting`
+- Docs updated: ADR-036, `ROADMAP`, `ARCHITECTURE`, `API-BOUNDARY`, `TEST-PLAN`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- E6 requires explicit, resilient runtime primary/fallback behavior while keeping user-facing complexity minimal and aligned with existing entitlement/governance truth.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/runtime-provider-routing.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-runtime-provider-routing.service.ts`
+- `apps/api/src/modules/workspace-management/application/openclaw-capability-envelope.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-capability-envelope.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/runtime-provider-routing.test.ts`
+- `apps/api/test/openclaw-capability-envelope.test.ts`
+- `apps/api/package.json`
+- `docs/ADR/036-provider-and-fallback-baseline-e6.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/api run test:runtime-provider-routing` — passed
+- `corepack pnpm --filter @persai/api run test:openclaw-capability-envelope` — passed
+- `corepack pnpm --filter @persai/api run test:openclaw-channel-surface-bindings` — passed
+- `corepack pnpm --filter @persai/api run test:telegram-integration` — passed
+
+### Known risks / intentional limits
+
+- E6 remains runtime-managed and provider-agnostic at execution level; it does not introduce vendor-level orchestration.
+- No user-facing provider picker is added.
+- No provider marketplace/plan-commerce provider packaging logic is added.
+
+### Next recommended step
+
+- Step 9 **F1** append-only audit log hardening.
+
+### Ready commit message
+
+- `feat(api): add step 8 e6 runtime provider fallback baseline routing`
+
 ## 2026-03-24 - Step 8 E5 integrations panel messenger presentation
 
 ### What changed
