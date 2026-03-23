@@ -196,6 +196,17 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     return messages.map((message) => this.mapMessageToDomain(message));
   }
 
+  async findMessageByIdForAssistant(
+    messageId: string,
+    assistantId: string
+  ): Promise<AssistantChatMessage | null> {
+    const message = await this.prisma.assistantChatMessage.findFirst({
+      where: { id: messageId, assistantId }
+    });
+
+    return message ? this.mapMessageToDomain(message) : null;
+  }
+
   private mapChatToDomain(chat: PrismaAssistantChat): AssistantChat {
     return {
       id: chat.id,

@@ -4,6 +4,11 @@
 
 ### Added
 
+- Step 6 slice D2 Memory Center MVP:
+  - added `assistant_memory_registry_items` for user-facing web-chat-derived summaries (post-success turn only)
+  - APIs: `GET /assistant/memory/items`, `POST /assistant/memory/items/{itemId}/forget`, `POST /assistant/memory/do-not-remember` (registry + `forgetRequestMarkers` append)
+  - web: Memory Center in assistant editor Memory section; web chat stream reconciles server message IDs on completion and adds “Do not remember this” on assistant turns
+  - ADR `docs/ADR/020-memory-center-mvp-d2.md`
 - Step 6 slice D1 memory control domain hardening:
   - added `assistant_governance.memory_control` JSON column with MVP default envelope `persai.memoryControl.v1` (policy, provenance hooks, visibility hooks, forget-request markers placeholder, audit routing)
   - migration backfills from legacy `policyEnvelope.memoryControl` when present

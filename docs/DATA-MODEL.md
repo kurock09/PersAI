@@ -115,6 +115,18 @@ Postgres with Prisma.
 - content
 - created_at
 
+### assistant_memory_registry_items (Step 6 D2 baseline)
+
+- id (UUID)
+- assistant_id, user_id, workspace_id (scoped like chats)
+- chat_id (nullable)
+- related_user_message_id, related_assistant_message_id (nullable UUIDs, correlation only)
+- summary (varchar 500) — user-facing one-line summary
+- source_type (`web_chat`)
+- source_label (nullable)
+- forgotten_at (nullable) — soft-remove from Memory Center list
+- created_at
+
 ## Prisma baseline (Step 1 slice 5)
 
 - `app_users`:
@@ -186,6 +198,13 @@ Postgres with Prisma.
     - `assistant_id -> assistants.id`
   - sorted-history index:
     - `(chat_id, created_at)`
+- `assistant_memory_registry_items`:
+  - primary key: `id`
+  - composite ownership:
+    - `(assistant_id, user_id) -> assistants(id, user_id)`
+    - `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
+  - optional correlation fields: `chat_id`, `related_user_message_id`, `related_assistant_message_id` (no FK to messages in D2)
+  - `forgotten_at` null = visible in Memory Center
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -209,6 +228,7 @@ Postgres with Prisma.
 - A7 adds deterministic materialization layer from user-owned + governance inputs to OpenClaw-native outputs
 - A8 executes runtime apply/reapply via infrastructure adapter using A7 materialized outputs and persists coarse apply error state
 - D1 adds first-class `memory_control` JSON on `assistant_governance` for memory policy/hooks/markers; runtime memory behavior stays outside backend tables
+- D2 adds `assistant_memory_registry_items` for Memory Center summaries (web chat derived); not a dump of OpenClaw runtime memory
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

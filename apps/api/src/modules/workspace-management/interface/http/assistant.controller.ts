@@ -27,6 +27,9 @@ import { SendWebChatTurnService } from "../../application/send-web-chat-turn.ser
 import { ManageWebChatListService } from "../../application/manage-web-chat-list.service";
 import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn.service";
 import { UpdateAssistantDraftService } from "../../application/update-assistant-draft.service";
+import { DoNotRememberAssistantMemoryService } from "../../application/do-not-remember-assistant-memory.service";
+import { ForgetAssistantMemoryItemService } from "../../application/forget-assistant-memory-item.service";
+import { ListAssistantMemoryItemsService } from "../../application/list-assistant-memory-items.service";
 import type {
   AssistantWebChatListItemState,
   AssistantWebChatTurnState
@@ -45,7 +48,10 @@ export class AssistantController {
     private readonly sendWebChatTurnService: SendWebChatTurnService,
     private readonly manageWebChatListService: ManageWebChatListService,
     private readonly streamWebChatTurnService: StreamWebChatTurnService,
-    private readonly updateAssistantDraftService: UpdateAssistantDraftService
+    private readonly updateAssistantDraftService: UpdateAssistantDraftService,
+    private readonly listAssistantMemoryItemsService: ListAssistantMemoryItemsService,
+    private readonly forgetAssistantMemoryItemService: ForgetAssistantMemoryItemService,
+    private readonly doNotRememberAssistantMemoryService: DoNotRememberAssistantMemoryService
   ) {}
 
   @Post("assistant")
@@ -190,6 +196,62 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       transport
+    };
+  }
+
+  @Get("assistant/memory/items")
+  async listMemoryItems(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    items: Array<{
+      id: string;
+      summary: string;
+      sourceType: "web_chat";
+      sourceLabel: string | null;
+      createdAt: string;
+      chatId: string | null;
+    }>;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const items = await this.listAssistantMemoryItemsService.execute(userId);
+
+    return {
+      requestId: req.requestId ?? null,
+      items
+    };
+  }
+
+  @Post("assistant/memory/items/:itemId/forget")
+  async forgetMemoryItem(
+    @Req() req: RequestWithPlatformContext,
+    @Param("itemId") itemId: string
+  ): Promise<{
+    requestId: string | null;
+    forgotten: true;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const result = await this.forgetAssistantMemoryItemService.execute(userId, itemId);
+
+    return {
+      requestId: req.requestId ?? null,
+      forgotten: result.forgotten
+    };
+  }
+
+  @Post("assistant/memory/do-not-remember")
+  async doNotRememberMemory(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    forgottenRegistryItems: number;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.doNotRememberAssistantMemoryService.parseInput(body);
+    const result = await this.doNotRememberAssistantMemoryService.execute(userId, input);
+
+    return {
+      requestId: req.requestId ?? null,
+      forgottenRegistryItems: result.forgottenRegistryItems
     };
   }
 

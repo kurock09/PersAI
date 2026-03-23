@@ -18,6 +18,7 @@ import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
+import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import type {
   AssistantWebChatMessageState,
   AssistantWebChatState,
@@ -29,6 +30,8 @@ export interface StreamWebChatTurnPrepared {
   userMessage: AssistantWebChatMessageState;
   assistantId: string;
   publishedVersionId: string;
+  userId: string;
+  workspaceId: string;
 }
 
 export interface StreamWebChatTurnRequest {
@@ -68,7 +71,8 @@ export class StreamWebChatTurnService {
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter
+    private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
+    private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService
   ) {}
 
   async prepare(userId: string, request: StreamWebChatTurnRequest): Promise<StreamWebChatTurnPrepared> {
@@ -150,7 +154,9 @@ export class StreamWebChatTurnService {
         createdAt: userMessage.createdAt.toISOString()
       },
       assistantId: assistant.id,
-      publishedVersionId: latestPublishedVersion.id
+      publishedVersionId: latestPublishedVersion.id,
+      userId: assistant.userId,
+      workspaceId: assistant.workspaceId
     };
   }
 
@@ -202,6 +208,16 @@ export class StreamWebChatTurnService {
         assistantId: prepared.assistantId,
         author: "assistant",
         content: accumulated
+      });
+      await this.recordWebChatMemoryTurnService.execute({
+        assistantId: prepared.assistantId,
+        userId: prepared.userId,
+        workspaceId: prepared.workspaceId,
+        chatId: prepared.chat.id,
+        userMessageId: prepared.userMessage.id,
+        assistantMessageId: assistantMessage.id,
+        userContent: prepared.userMessage.content,
+        assistantContent: accumulated
       });
       const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
       if (refreshedChat === null) {

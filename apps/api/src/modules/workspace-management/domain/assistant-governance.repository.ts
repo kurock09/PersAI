@@ -5,4 +5,8 @@ export const ASSISTANT_GOVERNANCE_REPOSITORY = Symbol("ASSISTANT_GOVERNANCE_REPO
 export interface AssistantGovernanceRepository {
   findByAssistantId(assistantId: string): Promise<AssistantGovernance | null>;
   createBaseline(assistantId: string): Promise<AssistantGovernance>;
+  appendMemoryControlForgetMarker(
+    assistantId: string,
+    marker: Record<string, unknown>
+  ): Promise<void>;
 }

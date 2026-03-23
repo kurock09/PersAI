@@ -2,14 +2,21 @@
 
 import { SignOutButton, UserButton, useAuth } from "@clerk/nextjs";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { type AssistantLifecycleState, type AssistantWebChatListItemState } from "@persai/contracts";
+import {
+  type AssistantLifecycleState,
+  type AssistantMemoryRegistryItemState,
+  type AssistantWebChatListItemState
+} from "@persai/contracts";
 import {
   deleteAssistantWebChat,
   getAssistant,
+  getAssistantMemoryItems,
   getAssistantWebChats,
   patchAssistantDraft,
   patchAssistantWebChat,
   postAssistantCreate,
+  postAssistantMemoryDoNotRemember,
+  postAssistantMemoryItemForget,
   postAssistantPublish,
   postAssistantReset,
   postAssistantRollback,
@@ -70,6 +77,41 @@ type StreamingChatMessage = {
   content: string;
   status: "committed" | "streaming" | "partial";
 };
+
+function isMessageUuid(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    id
+  );
+}
+
+function findPreviousUserServerMessageId(
+  messages: StreamingChatMessage[],
+  assistantIndex: number
+): string | null {
+  for (let i = assistantIndex - 1; i >= 0; i -= 1) {
+    const entry = messages[i];
+    if (entry === undefined) {
+      continue;
+    }
+    if (entry.role === "user" && isMessageUuid(entry.id)) {
+      return entry.id;
+    }
+  }
+  return null;
+}
+
+function formatMemorySourceLine(
+  sourceType: AssistantMemoryRegistryItemState["sourceType"],
+  sourceLabel: AssistantMemoryRegistryItemState["sourceLabel"]
+): string {
+  if (sourceLabel !== null && sourceLabel.trim().length > 0) {
+    return sourceLabel.trim();
+  }
+  if (sourceType === "web_chat") {
+    return "Web chat";
+  }
+  return String(sourceType);
+}
 
 function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
   return {
@@ -242,7 +284,37 @@ export function AppFlowClient() {
     null
   );
   const [chatAbortController, setChatAbortController] = useState<AbortController | null>(null);
+  const [memoryItems, setMemoryItems] = useState<AssistantMemoryRegistryItemState[]>([]);
+  const [isLoadingMemoryItems, setIsLoadingMemoryItems] = useState(false);
+  const [memoryItemsFeedback, setMemoryItemsFeedback] = useState<string | null>(null);
+  const [memoryForgetWorkingId, setMemoryForgetWorkingId] = useState<string | null>(null);
+  const [chatDoNotRememberWorkingId, setChatDoNotRememberWorkingId] = useState<string | null>(null);
   const reachedActiveChatCap = streamingIssue?.classId === "active_chat_cap";
+
+  const loadMemoryItems = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      setMemoryItems([]);
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setIsLoadingMemoryItems(true);
+      const items = await getAssistantMemoryItems(token);
+      setMemoryItems(items);
+      setMemoryItemsFeedback(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load memory items.";
+      setMemoryItemsFeedback(message);
+    } finally {
+      setIsLoadingMemoryItems(false);
+    }
+  }, [flowState, getToken]);
 
   const loadWebChatList = useCallback(async () => {
     if (flowState.type !== "ready" || flowState.data.assistantState === null) {
@@ -344,6 +416,15 @@ export function AppFlowClient() {
 
     void loadWebChatList();
   }, [flowState, loadWebChatList]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      setMemoryItems([]);
+      return;
+    }
+
+    void loadMemoryItems();
+  }, [flowState, loadMemoryItems]);
 
   const onboardingRequired = useMemo(() => {
     return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
@@ -596,6 +677,58 @@ export function AppFlowClient() {
     }
   }
 
+  async function onForgetMemoryItem(itemId: string): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setMemoryForgetWorkingId(itemId);
+      await postAssistantMemoryItemForget(token, itemId);
+      setMemoryItemsFeedback("Removed from your Memory Center list.");
+      await loadMemoryItems();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not forget this item.";
+      setMemoryItemsFeedback(message);
+    } finally {
+      setMemoryForgetWorkingId(null);
+    }
+  }
+
+  async function onDoNotRememberChatTurn(
+    assistantMessageId: string,
+    userMessageId: string | null
+  ): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setChatDoNotRememberWorkingId(assistantMessageId);
+      const result = await postAssistantMemoryDoNotRemember(token, {
+        assistantMessageId,
+        userMessageId: userMessageId ?? null
+      });
+      setStreamingMeta(
+        `Preference saved. ${result.forgottenRegistryItems} related summary line(s) removed from Memory Center.`
+      );
+      await loadMemoryItems();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not apply do-not-remember.";
+      setStreamingIssue({
+        classId: "unknown",
+        message: "Do not remember could not be applied.",
+        guidance: message
+      });
+    } finally {
+      setChatDoNotRememberWorkingId(null);
+    }
+  }
+
   async function onSendStreamingChatMessage(): Promise<void> {
     if (flowState.type !== "ready" || flowState.data.assistantState === null || isStreamingChat) {
       return;
@@ -667,19 +800,29 @@ export function AppFlowClient() {
           onRuntimeDone: ({ respondedAt }) => {
             setStreamingMeta(`Runtime completed at ${respondedAt}. Finalizing records...`);
           },
-          onCompleted: () => {
+          onCompleted: ({ transport }) => {
+            const t = transport as {
+              userMessage?: { id?: string };
+              assistantMessage?: { id?: string };
+            } | null;
             setChatMessages((current) =>
-              current.map((message) =>
-                message.id === assistantMessageId
-                  ? {
-                      ...message,
-                      status: "committed"
-                    }
-                  : message
-              )
+              current.map((message) => {
+                if (message.id === assistantMessageId && typeof t?.assistantMessage?.id === "string") {
+                  return {
+                    ...message,
+                    id: t.assistantMessage.id,
+                    status: "committed" as const
+                  };
+                }
+                if (message.id === userMessageId && typeof t?.userMessage?.id === "string") {
+                  return { ...message, id: t.userMessage.id };
+                }
+                return message;
+              })
             );
             setStreamingMeta("Streaming completed and response persisted.");
             void loadWebChatList();
+            void loadMemoryItems();
           },
           onInterrupted: () => {
             setChatMessages((current) =>
@@ -1152,16 +1295,37 @@ export function AppFlowClient() {
           {chatMessages.length === 0 ? (
             <p>No chat turns yet.</p>
           ) : (
-            <ul>
-              {chatMessages.map((message) => (
-                <li key={message.id}>
-                  <strong>{message.role}</strong>
-                  {message.id === activeAssistantStreamMessageId && isStreamingChat
-                    ? " (streaming)"
-                    : message.status === "partial"
-                      ? " (partial)"
-                      : ""}
-                  : {message.content.length > 0 ? message.content : "..."}
+            <ul className="web-chat-turn-list">
+              {chatMessages.map((message, index) => (
+                <li key={message.id} className="web-chat-turn">
+                  <div>
+                    <strong>{message.role}</strong>
+                    {message.id === activeAssistantStreamMessageId && isStreamingChat
+                      ? " (streaming)"
+                      : message.status === "partial"
+                        ? " (partial)"
+                        : ""}
+                    : {message.content.length > 0 ? message.content : "..."}
+                  </div>
+                  {message.role === "assistant" &&
+                    message.status === "committed" &&
+                    isMessageUuid(message.id) && (
+                      <div className="web-chat-dnr-wrap">
+                        <button
+                          type="button"
+                          className="btn-quiet"
+                          disabled={chatDoNotRememberWorkingId !== null || isStreamingChat}
+                          onClick={() => {
+                            const prevUser = findPreviousUserServerMessageId(chatMessages, index);
+                            void onDoNotRememberChatTurn(message.id, prevUser);
+                          }}
+                        >
+                          {chatDoNotRememberWorkingId === message.id
+                            ? "Saving preference…"
+                            : "Do not remember this"}
+                        </button>
+                      </div>
+                    )}
                 </li>
               ))}
             </ul>
@@ -1384,9 +1548,48 @@ export function AppFlowClient() {
             </p>
           </section>
 
-          <section>
+          <section className="memory-center">
             <h3>Memory</h3>
-            <p>Placeholder in B2. Memory controls and policy UX are scheduled for Step 6.</p>
+            <p className="memory-center-lead">
+              Calm summaries from your web chats show here. This is your Memory Center—not a technical log
+              and not raw runtime internals.
+            </p>
+            {memoryItemsFeedback !== null && <p className="memory-feedback">{memoryItemsFeedback}</p>}
+            {isLoadingMemoryItems ? (
+              <p>Loading memory summaries…</p>
+            ) : memoryItems.length === 0 ? (
+              <p className="memory-empty">
+                No summaries yet. After a web chat reply finishes, a short one-line summary may appear
+                here. You can remove it anytime.
+              </p>
+            ) : (
+              <ul className="memory-item-list">
+                {memoryItems.map((item) => (
+                  <li key={item.id} className="memory-item-card">
+                    <p className="memory-item-summary">{item.summary}</p>
+                    <p className="memory-item-meta">
+                      <span className="memory-pill">
+                        {formatMemorySourceLine(item.sourceType, item.sourceLabel)}
+                      </span>
+                      <span className="memory-date">
+                        {new Date(item.createdAt).toLocaleString(undefined, {
+                          dateStyle: "medium",
+                          timeStyle: "short"
+                        })}
+                      </span>
+                    </p>
+                    <button
+                      type="button"
+                      className="btn-quiet"
+                      disabled={memoryForgetWorkingId !== null}
+                      onClick={() => void onForgetMemoryItem(item.id)}
+                    >
+                      {memoryForgetWorkingId === item.id ? "Removing…" : "Forget from list"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section>

@@ -4,10 +4,13 @@ import {
   type AssistantWebChatRenameRequest,
   type AssistantDraftUpdateRequest,
   type AssistantRollbackRequest,
+  type AssistantMemoryDoNotRememberRequest,
+  type AssistantMemoryRegistryItemState,
   ContractsApiError,
   type AssistantLifecycleState,
   deleteAssistantWebChat as deleteAssistantWebChatContract,
   getAssistant as getAssistantContract,
+  getAssistantMemoryItems as getAssistantMemoryItemsContract,
   getAssistantWebChats as getAssistantWebChatsContract,
   patchAssistantDraft as patchAssistantDraftContract,
   patchAssistantWebChat as patchAssistantWebChatContract,
@@ -15,7 +18,9 @@ import {
   postAssistantReset as postAssistantResetContract,
   postAssistantRollback as postAssistantRollbackContract,
   postAssistantWebChatArchive as postAssistantWebChatArchiveContract,
-  postAssistantCreate as postAssistantCreateContract
+  postAssistantCreate as postAssistantCreateContract,
+  postAssistantMemoryDoNotRemember as postAssistantMemoryDoNotRememberContract,
+  postAssistantMemoryItemForget as postAssistantMemoryItemForgetContract
 } from "@persai/contracts";
 
 function getAuthHeaders(token: string): HeadersInit {
@@ -342,7 +347,7 @@ export async function streamAssistantWebChatTurn(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
     if (done) {
       break;
@@ -564,6 +569,57 @@ export async function deleteAssistantWebChat(
     if (response.status !== 200 || response.data.deleted !== true) {
       throw new Error("Unexpected non-success response for DELETE /assistant/chats/web/:chatId.");
     }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export type { AssistantMemoryRegistryItemState };
+
+export async function getAssistantMemoryItems(token: string): Promise<AssistantMemoryRegistryItemState[]> {
+  try {
+    const response = await getAssistantMemoryItemsContract({
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /assistant/memory/items.");
+    }
+
+    return response.data.items;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantMemoryItemForget(token: string, itemId: string): Promise<void> {
+  try {
+    const response = await postAssistantMemoryItemForgetContract(itemId, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200 || response.data.forgotten !== true) {
+      throw new Error("Unexpected non-success response for POST /assistant/memory/items/:itemId/forget.");
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantMemoryDoNotRemember(
+  token: string,
+  payload: AssistantMemoryDoNotRememberRequest
+): Promise<{ forgottenRegistryItems: number }> {
+  try {
+    const response = await postAssistantMemoryDoNotRememberContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for POST /assistant/memory/do-not-remember.");
+    }
+
+    return { forgottenRegistryItems: response.data.forgottenRegistryItems };
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

@@ -326,6 +326,27 @@ Behavior baseline:
 - Materialization resolves `openclawWorkspace.memoryControl` from that column, with legacy fallback to `policyEnvelope.memoryControl`, then MVP defaults.
 - D1 does not add memory edit APIs or Memory Center UI; enforcement of provenance/write surfaces is deferred to later slices.
 
+## Step 6 D2 Memory Center API baseline
+
+### GET /api/v1/assistant/memory/items
+
+- authenticated caller only
+- returns active memory registry items for the user’s assistant (`forgottenAt` null), newest first
+- each item: `id`, `summary`, `sourceType` (`web_chat`), `sourceLabel`, `createdAt`, `chatId` (nullable)
+
+### POST /api/v1/assistant/memory/items/{itemId}/forget
+
+- authenticated caller only
+- sets `forgottenAt` on the item when owned by the caller’s assistant
+- idempotent from user perspective: missing/already forgotten → 404
+
+### POST /api/v1/assistant/memory/do-not-remember
+
+- request body: `assistantMessageId` (UUID, required), `userMessageId` (UUID, optional)
+- validates messages belong to the assistant; assistant message must be `author=assistant`
+- marks matching registry rows forgotten (by related message ids) and appends a marker to `governance.memoryControl.forgetRequestMarkers`
+- does not expose raw OpenClaw internals in responses
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

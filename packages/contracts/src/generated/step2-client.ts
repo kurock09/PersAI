@@ -6,19 +6,23 @@
  */
 import type {
   AssistantDraftUpdateRequest,
+  AssistantMemoryDoNotRememberRequest,
   AssistantRollbackRequest,
   AssistantWebChatDeleteRequest,
   AssistantWebChatRenameRequest,
   AssistantWebChatTurnRequest,
   DeleteAssistantWebChatResponse,
   ErrorEnvelope,
+  GetAssistantMemoryItemsResponse,
   GetAssistantResponse,
   GetAssistantRuntimePreflightResponse,
   GetAssistantWebChatListItemResponse,
   GetAssistantWebChatListResponse,
   GetAssistantWebChatTransportResponse,
   GetMeResponse,
-  OnboardingRequest
+  OnboardingRequest,
+  PostAssistantMemoryDoNotRememberResponse,
+  PostAssistantMemoryItemForgetResponse
 } from './model';
 
 import { customFetch } from '../mutator/custom-fetch';
@@ -818,6 +822,171 @@ export const postAssistantWebChatArchive = async (chatId: string, options?: Requ
     method: 'POST'
     
     
+  }
+);}
+
+
+
+/**
+ * @summary List active Memory Center items for the current assistant
+ */
+export type getAssistantMemoryItemsResponse200 = {
+  data: GetAssistantMemoryItemsResponse
+  status: 200
+}
+
+export type getAssistantMemoryItemsResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAssistantMemoryItemsResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type getAssistantMemoryItemsResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAssistantMemoryItemsResponseSuccess = (getAssistantMemoryItemsResponse200) & {
+  headers: Headers;
+};
+export type getAssistantMemoryItemsResponseError = (getAssistantMemoryItemsResponse401 | getAssistantMemoryItemsResponse404 | getAssistantMemoryItemsResponse500) & {
+  headers: Headers;
+};
+
+export type getAssistantMemoryItemsResponse = (getAssistantMemoryItemsResponseSuccess | getAssistantMemoryItemsResponseError)
+
+export const getGetAssistantMemoryItemsUrl = () => {
+
+
+  
+
+  return `/assistant/memory/items`
+}
+
+export const getAssistantMemoryItems = async ( options?: RequestInit): Promise<getAssistantMemoryItemsResponse> => {
+  
+  return customFetch<getAssistantMemoryItemsResponse>(getGetAssistantMemoryItemsUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Forget (soft-remove) one Memory Center item from the user's list
+ */
+export type postAssistantMemoryItemForgetResponse200 = {
+  data: PostAssistantMemoryItemForgetResponse
+  status: 200
+}
+
+export type postAssistantMemoryItemForgetResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantMemoryItemForgetResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantMemoryItemForgetResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantMemoryItemForgetResponseSuccess = (postAssistantMemoryItemForgetResponse200) & {
+  headers: Headers;
+};
+export type postAssistantMemoryItemForgetResponseError = (postAssistantMemoryItemForgetResponse401 | postAssistantMemoryItemForgetResponse404 | postAssistantMemoryItemForgetResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantMemoryItemForgetResponse = (postAssistantMemoryItemForgetResponseSuccess | postAssistantMemoryItemForgetResponseError)
+
+export const getPostAssistantMemoryItemForgetUrl = (itemId: string,) => {
+
+
+  
+
+  return `/assistant/memory/items/${itemId}/forget`
+}
+
+export const postAssistantMemoryItemForget = async (itemId: string, options?: RequestInit): Promise<postAssistantMemoryItemForgetResponse> => {
+  
+  return customFetch<postAssistantMemoryItemForgetResponse>(getPostAssistantMemoryItemForgetUrl(itemId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Request to stop treating a web chat turn as remembered; updates control-plane markers
+ */
+export type postAssistantMemoryDoNotRememberResponse200 = {
+  data: PostAssistantMemoryDoNotRememberResponse
+  status: 200
+}
+
+export type postAssistantMemoryDoNotRememberResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAssistantMemoryDoNotRememberResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantMemoryDoNotRememberResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantMemoryDoNotRememberResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantMemoryDoNotRememberResponseSuccess = (postAssistantMemoryDoNotRememberResponse200) & {
+  headers: Headers;
+};
+export type postAssistantMemoryDoNotRememberResponseError = (postAssistantMemoryDoNotRememberResponse400 | postAssistantMemoryDoNotRememberResponse401 | postAssistantMemoryDoNotRememberResponse404 | postAssistantMemoryDoNotRememberResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantMemoryDoNotRememberResponse = (postAssistantMemoryDoNotRememberResponseSuccess | postAssistantMemoryDoNotRememberResponseError)
+
+export const getPostAssistantMemoryDoNotRememberUrl = () => {
+
+
+  
+
+  return `/assistant/memory/do-not-remember`
+}
+
+export const postAssistantMemoryDoNotRemember = async (assistantMemoryDoNotRememberRequest: AssistantMemoryDoNotRememberRequest, options?: RequestInit): Promise<postAssistantMemoryDoNotRememberResponse> => {
+  
+  return customFetch<postAssistantMemoryDoNotRememberResponse>(getPostAssistantMemoryDoNotRememberUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantMemoryDoNotRememberRequest,)
   }
 );}
 

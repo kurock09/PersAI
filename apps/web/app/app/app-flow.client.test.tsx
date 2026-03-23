@@ -21,6 +21,7 @@ const apiMocks = vi.hoisted(() => {
 const assistantApiMocks = vi.hoisted(() => {
   return {
     getAssistant: vi.fn(),
+    getAssistantMemoryItems: vi.fn(),
     getAssistantWebChats: vi.fn(),
     postAssistantCreate: vi.fn(),
     patchAssistantDraft: vi.fn(),
@@ -30,6 +31,8 @@ const assistantApiMocks = vi.hoisted(() => {
     postAssistantReset: vi.fn(),
     postAssistantWebChatArchive: vi.fn(),
     deleteAssistantWebChat: vi.fn(),
+    postAssistantMemoryItemForget: vi.fn(),
+    postAssistantMemoryDoNotRemember: vi.fn(),
     streamAssistantWebChatTurn: vi.fn()
   };
 });
@@ -62,6 +65,7 @@ vi.mock("./assistant-api-client", async () => {
   return {
     ...actual,
     getAssistant: assistantApiMocks.getAssistant,
+    getAssistantMemoryItems: assistantApiMocks.getAssistantMemoryItems,
     getAssistantWebChats: assistantApiMocks.getAssistantWebChats,
     postAssistantCreate: assistantApiMocks.postAssistantCreate,
     patchAssistantDraft: assistantApiMocks.patchAssistantDraft,
@@ -71,6 +75,8 @@ vi.mock("./assistant-api-client", async () => {
     postAssistantReset: assistantApiMocks.postAssistantReset,
     postAssistantWebChatArchive: assistantApiMocks.postAssistantWebChatArchive,
     deleteAssistantWebChat: assistantApiMocks.deleteAssistantWebChat,
+    postAssistantMemoryItemForget: assistantApiMocks.postAssistantMemoryItemForget,
+    postAssistantMemoryDoNotRemember: assistantApiMocks.postAssistantMemoryDoNotRemember,
     streamAssistantWebChatTurn: assistantApiMocks.streamAssistantWebChatTurn
   };
 });
@@ -231,7 +237,11 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.postAssistantWebChatArchive.mockReset();
     assistantApiMocks.deleteAssistantWebChat.mockReset();
     assistantApiMocks.streamAssistantWebChatTurn.mockReset();
+    assistantApiMocks.getAssistantMemoryItems.mockReset();
+    assistantApiMocks.postAssistantMemoryItemForget.mockReset();
+    assistantApiMocks.postAssistantMemoryDoNotRemember.mockReset();
     assistantApiMocks.getAssistantWebChats.mockResolvedValue([]);
+    assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
   });
 
   it("shows onboarding gate when /me returns pending", async () => {

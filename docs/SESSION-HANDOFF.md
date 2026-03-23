@@ -1,5 +1,50 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - Step 6 D2 Memory Center MVP
+
+### What changed
+
+- Delivered Memory Center MVP (web): list of calm one-line summaries from completed web chat turns, source/type pill, forget-from-list, and “Do not remember this” on streamed assistant messages after IDs reconcile to server UUIDs.
+- Backend: table `assistant_memory_registry_items`, record hook after successful `SendWebChatTurnService` / `StreamWebChatTurnService` completion, list/forget/do-not-remember endpoints, governance `forgetRequestMarkers` append on do-not-remember.
+- Contracts/OpenAPI + Clerk middleware routes; minimal global CSS for memory cards and quiet buttons.
+- Docs: ADR-020, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `ROADMAP` (D2 done), `CHANGELOG`, this handoff.
+
+### Why changed
+
+- D2 requires a trustworthy user-facing memory surface without raw OpenClaw internals or an admin console.
+
+### Files touched (high level)
+
+- `apps/api/prisma/*`, new migration `20260324140000_step6_d2_memory_center_registry`
+- `apps/api/src/modules/workspace-management/**` (memory services, repos, controller, stream/send wiring)
+- `packages/contracts/openapi.yaml`, `packages/contracts/src/generated/*`
+- `apps/web/app/app/app-flow.client.tsx`, `assistant-api-client.ts`, `app-flow.client.test.tsx`, `globals.css`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `docs/ADR/020-memory-center-mvp-d2.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run typecheck` — passed
+- `corepack pnpm run prisma:migrate:check` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/web run lint` — passed
+- `corepack pnpm run test:step2` — passed
+- `corepack pnpm --filter @persai/web run build` — passed
+
+### Known risks / intentional limits
+
+- Summaries are derived from web chat transcripts, not a live export of OpenClaw runtime memory.
+- Interrupted/partial stream turns do not create registry rows.
+- Do-not-remember appends control-plane markers; runtime application in OpenClaw is not implemented in this slice.
+
+### Next recommended step
+
+- Step 6 `D3` memory source policy enforcement (ingest/write gates) building on registry + `memory_control`.
+
+### Ready commit message
+
+- `feat(api-web): add step 6 d2 memory center and web chat do-not-remember`
+
 ## 2026-03-23 - Step 6 D1 memory control domain hardening
 
 ### What changed

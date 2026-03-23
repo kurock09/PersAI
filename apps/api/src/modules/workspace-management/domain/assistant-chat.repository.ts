@@ -43,5 +43,9 @@ export interface AssistantChatRepository {
   hardDeleteChat(chatId: string, assistantId: string): Promise<boolean>;
   createMessage(input: CreateAssistantChatMessageInput): Promise<AssistantChatMessage>;
   listMessagesByChatId(chatId: string): Promise<AssistantChatMessage[]>;
+  findMessageByIdForAssistant(
+    messageId: string,
+    assistantId: string
+  ): Promise<AssistantChatMessage | null>;
 }
 

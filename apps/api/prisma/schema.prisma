@@ -42,6 +42,10 @@ enum AssistantChatMessageAuthor {
   system
 }
 
+enum AssistantMemoryRegistrySourceType {
+  web_chat
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -76,9 +80,10 @@ model WorkspaceMember {
   userId         String          @map("user_id") @db.Uuid
   role           WorkspaceRole
   createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  assistant      Assistant?      @relation("AssistantWorkspaceScope")
-  assistantChats AssistantChat[]
-  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant                   Assistant?                    @relation("AssistantWorkspaceScope")
+  assistantChats              AssistantChat[]
+  assistantMemoryRegistryItems AssistantMemoryRegistryItem[]
+  workspace                   Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   user           AppUser         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([workspaceId, userId])
@@ -110,8 +115,9 @@ model Assistant {
   governance       AssistantGovernance?
   materializedSpecs AssistantMaterializedSpec[]
   publishedVersions AssistantPublishedVersion[]
-  chats              AssistantChat[]
-  chatMessages       AssistantChatMessage[]
+  chats                 AssistantChat[]
+  chatMessages          AssistantChatMessage[]
+  memoryRegistryItems   AssistantMemoryRegistryItem[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -206,4 +212,24 @@ model AssistantChatMessage {
 
   @@index([chatId, createdAt])
   @@map("assistant_chat_messages")
+}
+
+model AssistantMemoryRegistryItem {
+  id                        String                           @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  assistantId               String                           @map("assistant_id") @db.Uuid
+  userId                    String                           @map("user_id") @db.Uuid
+  workspaceId               String                           @map("workspace_id") @db.Uuid
+  chatId                    String?                          @map("chat_id") @db.Uuid
+  relatedUserMessageId      String?                          @map("related_user_message_id") @db.Uuid
+  relatedAssistantMessageId String?                          @map("related_assistant_message_id") @db.Uuid
+  summary                   String                           @db.VarChar(500)
+  sourceType                AssistantMemoryRegistrySourceType @map("source_type")
+  sourceLabel               String?                          @map("source_label") @db.VarChar(64)
+  forgottenAt               DateTime?                        @map("forgotten_at") @db.Timestamptz(6)
+  createdAt                 DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant                 Assistant                        @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember           WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@map("assistant_memory_registry_items")
 }

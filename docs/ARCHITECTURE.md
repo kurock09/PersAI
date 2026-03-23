@@ -101,3 +101,9 @@ O6 defines a future adapter-only contract:
 - OpenClaw owns **runtime memory behavior** and consumption during assistant execution
 - materialized `openclawWorkspace.memoryControl` carries the resolved envelope so the runtime does not infer policy
 - legacy `policyEnvelope.memoryControl` is supported only as a migration/fallback path
+
+## Memory Center registry (Step 6 D2)
+
+- `assistant_memory_registry_items` stores user-facing **summaries** linked to web chat turns (control plane), not OpenClaw runtime memory contents
+- items are created on successful web chat completion (sync + stream paths); list/forget/do-not-remember APIs are assistant-scoped
+- “Do not remember” updates registry rows and appends to `memory_control.forgetRequestMarkers` for governance continuity

@@ -554,6 +554,118 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/memory/items:
+    get:
+      operationId: getAssistantMemoryItems
+      summary: List active Memory Center items for the current assistant
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Memory registry items (user-facing summaries, not raw runtime memory)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantMemoryItemsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/memory/items/{itemId}/forget:
+    post:
+      operationId: postAssistantMemoryItemForget
+      summary: Forget (soft-remove) one Memory Center item from the user's list
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Item forgotten
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantMemoryItemForgetResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or item not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/memory/do-not-remember:
+    post:
+      operationId: postAssistantMemoryDoNotRemember
+      summary: Request to stop treating a web chat turn as remembered; updates control-plane markers
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantMemoryDoNotRememberRequest"
+      responses:
+        "200":
+          description: Do-not-remember applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantMemoryDoNotRememberResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or messages not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me:
     get:
       operationId: getMe
@@ -922,6 +1034,87 @@ components:
         openclawWorkspaceDocument:
           type: string
           nullable: true
+    AssistantMemoryRegistrySourceType:
+      type: string
+      enum:
+        - web_chat
+    AssistantMemoryRegistryItemState:
+      type: object
+      required:
+        - id
+        - summary
+        - sourceType
+        - sourceLabel
+        - createdAt
+        - chatId
+      properties:
+        id:
+          type: string
+          format: uuid
+        summary:
+          type: string
+        sourceType:
+          $ref: "#/components/schemas/AssistantMemoryRegistrySourceType"
+        sourceLabel:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        chatId:
+          type: string
+          format: uuid
+          nullable: true
+    GetAssistantMemoryItemsResponse:
+      type: object
+      required:
+        - requestId
+        - items
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantMemoryRegistryItemState"
+    PostAssistantMemoryItemForgetResponse:
+      type: object
+      required:
+        - requestId
+        - forgotten
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        forgotten:
+          type: boolean
+          enum:
+            - true
+    AssistantMemoryDoNotRememberRequest:
+      type: object
+      required:
+        - assistantMessageId
+      properties:
+        assistantMessageId:
+          type: string
+          format: uuid
+        userMessageId:
+          type: string
+          format: uuid
+          nullable: true
+    PostAssistantMemoryDoNotRememberResponse:
+      type: object
+      required:
+        - requestId
+        - forgottenRegistryItems
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        forgottenRegistryItems:
+          type: integer
+          minimum: 0
     AssistantRuntimePreflightState:
       type: object
       required:
