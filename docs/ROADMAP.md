@@ -92,7 +92,7 @@ Foundation Phase
 - [x] P4 — capability resolution engine
 - [x] P5 — quota accounting baseline
 - [x] P6 — enforcement points
-- [ ] P7 — user/admin plan visibility
+- [x] P7 — user/admin plan visibility
 
 ## Step 8 Tools, Channels, and Integrations
 

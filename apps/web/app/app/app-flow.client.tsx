@@ -9,12 +9,16 @@ import {
   type AssistantWebChatListItemState
 } from "@persai/contracts";
 import {
+  type AdminPlanVisibilityState,
   type AdminPlanCreateRequest,
   type AdminPlanState,
   type AdminPlanUpdateRequest,
+  type UserPlanVisibilityState,
   deleteAssistantWebChat,
+  getAdminPlanVisibility,
   getAdminPlans,
   getAssistant,
+  getAssistantPlanVisibility,
   getAssistantMemoryItems,
   getAssistantTaskItems,
   getAssistantWebChats,
@@ -491,6 +495,18 @@ export function AppFlowClient() {
   const [editingPlanCode, setEditingPlanCode] = useState<string | null>(null);
   const [editingPlanDraft, setEditingPlanDraft] = useState<PlanDraft>(toPlanDraft());
   const [isSavingAdminPlan, setIsSavingAdminPlan] = useState(false);
+  const [assistantPlanVisibility, setAssistantPlanVisibility] = useState<UserPlanVisibilityState | null>(
+    null
+  );
+  const [isLoadingAssistantPlanVisibility, setIsLoadingAssistantPlanVisibility] = useState(false);
+  const [assistantPlanVisibilityFeedback, setAssistantPlanVisibilityFeedback] = useState<string | null>(
+    null
+  );
+  const [adminPlanVisibility, setAdminPlanVisibility] = useState<AdminPlanVisibilityState | null>(
+    null
+  );
+  const [isLoadingAdminPlanVisibility, setIsLoadingAdminPlanVisibility] = useState(false);
+  const [adminPlanVisibilityFeedback, setAdminPlanVisibilityFeedback] = useState<string | null>(null);
   const reachedActiveChatCap = streamingIssue?.classId === "active_chat_cap";
   const assistantIsLiveForWebChat =
     flowState.type === "ready" && flowState.data.assistantState !== null
@@ -569,6 +585,57 @@ export function AppFlowClient() {
       setAdminPlansFeedback(message);
     } finally {
       setIsLoadingAdminPlans(false);
+    }
+  }, [flowState, getToken]);
+
+  const loadAssistantPlanVisibility = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      setAssistantPlanVisibility(null);
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setIsLoadingAssistantPlanVisibility(true);
+      const visibility = await getAssistantPlanVisibility(token);
+      setAssistantPlanVisibility(visibility);
+      setAssistantPlanVisibilityFeedback(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load plan visibility.";
+      setAssistantPlanVisibilityFeedback(message);
+    } finally {
+      setIsLoadingAssistantPlanVisibility(false);
+    }
+  }, [flowState, getToken]);
+
+  const loadAdminPlanVisibility = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setAdminPlanVisibility(null);
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setIsLoadingAdminPlanVisibility(true);
+      const visibility = await getAdminPlanVisibility(token);
+      setAdminPlanVisibility(visibility);
+      setAdminPlanVisibilityFeedback(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to load admin plan visibility.";
+      setAdminPlanVisibilityFeedback(message);
+    } finally {
+      setIsLoadingAdminPlanVisibility(false);
     }
   }, [flowState, getToken]);
 
@@ -699,6 +766,22 @@ export function AppFlowClient() {
 
     void loadAdminPlans();
   }, [flowState, loadAdminPlans]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      setAssistantPlanVisibility(null);
+      return;
+    }
+    void loadAssistantPlanVisibility();
+  }, [flowState, loadAssistantPlanVisibility]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setAdminPlanVisibility(null);
+      return;
+    }
+    void loadAdminPlanVisibility();
+  }, [flowState, loadAdminPlanVisibility]);
 
   const onboardingRequired = useMemo(() => {
     return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
@@ -1578,6 +1661,45 @@ export function AppFlowClient() {
 
       {assistantState !== null && (
         <section>
+          <h2>Plan and limits visibility</h2>
+          <p>Your current plan and limit usage in a simple percentage view.</p>
+          {isLoadingAssistantPlanVisibility && <p>Loading plan visibility…</p>}
+          {assistantPlanVisibilityFeedback !== null && <p>{assistantPlanVisibilityFeedback}</p>}
+          {assistantPlanVisibility !== null && (
+            <>
+              <p>
+                <strong>Current plan:</strong>{" "}
+                {assistantPlanVisibility.effectivePlan.displayName ??
+                  assistantPlanVisibility.effectivePlan.code ??
+                  "Not configured"}
+              </p>
+              <p>
+                <strong>Plan state:</strong> {assistantPlanVisibility.effectivePlan.subscriptionStatus}
+              </p>
+              <p>
+                <strong>Token budget:</strong> {assistantPlanVisibility.limits.tokenBudgetPercent}%
+              </p>
+              <p>
+                <strong>Cost-driving tools:</strong>{" "}
+                {assistantPlanVisibility.limits.costDrivingToolsPercent}%
+              </p>
+              <p>
+                <strong>Active web chats:</strong>{" "}
+                {assistantPlanVisibility.limits.activeWebChatsPercent}%
+              </p>
+              <p>
+                <strong>Tasks/reminders commercial quota:</strong>{" "}
+                {assistantPlanVisibility.limits.tasksExcludedFromCommercialQuotas
+                  ? "excluded"
+                  : "included"}
+              </p>
+            </>
+          )}
+        </section>
+      )}
+
+      {assistantState !== null && (
+        <section>
           <h2>Web chats</h2>
           <p>GPT-style chat list with rename, archive, and explicit hard delete actions.</p>
           {isLoadingChatList && <p>Loading chat list...</p>}
@@ -2141,10 +2263,25 @@ export function AppFlowClient() {
 
           <section>
             <h3>Limits & Safety Summary</h3>
-            <p>Read-only summary placeholder in B2. Full policy/quota controls are not added yet.</p>
+            <p>Read-only summary with plan-aware percentage limits.</p>
             <p>
               <strong>Quota plan code:</strong> {assistantState.governance.quotaPlanCode ?? "not configured"}
             </p>
+            {assistantPlanVisibility !== null && (
+              <>
+                <p>
+                  <strong>Token budget usage:</strong> {assistantPlanVisibility.limits.tokenBudgetPercent}%
+                </p>
+                <p>
+                  <strong>Cost-driving tools usage:</strong>{" "}
+                  {assistantPlanVisibility.limits.costDrivingToolsPercent}%
+                </p>
+                <p>
+                  <strong>Active web chats usage:</strong>{" "}
+                  {assistantPlanVisibility.limits.activeWebChatsPercent}%
+                </p>
+              </>
+            )}
           </section>
 
           <section>
@@ -2161,6 +2298,60 @@ export function AppFlowClient() {
               {assistantState.latestPublishedVersion?.publishedAt ?? "n/a"}
             </p>
           </section>
+        </section>
+      )}
+
+      {me.workspace.role === "owner" && (
+        <section>
+          <h2>Admin plan visibility</h2>
+          <p>Current plan state, usage pressure, and effective entitlements for this workspace.</p>
+          {isLoadingAdminPlanVisibility && <p>Loading admin visibility…</p>}
+          {adminPlanVisibilityFeedback !== null && <p>{adminPlanVisibilityFeedback}</p>}
+          {adminPlanVisibility !== null && (
+            <>
+              <p>
+                <strong>Effective plan:</strong>{" "}
+                {adminPlanVisibility.planState.effectivePlanDisplayName ??
+                  adminPlanVisibility.planState.effectivePlanCode ??
+                  "Not configured"}
+              </p>
+              <p>
+                <strong>Catalog state:</strong> {adminPlanVisibility.planState.activePlans} active /{" "}
+                {adminPlanVisibility.planState.inactivePlans} inactive
+              </p>
+              <p>
+                <strong>Usage pressure:</strong> {adminPlanVisibility.usagePressure.pressureLevel}
+              </p>
+              <p>
+                <strong>Token budget pressure:</strong>{" "}
+                {adminPlanVisibility.usagePressure.tokenBudgetPercent}%
+              </p>
+              <p>
+                <strong>Cost-driving pressure:</strong>{" "}
+                {adminPlanVisibility.usagePressure.costDrivingToolsPercent}%
+              </p>
+              <p>
+                <strong>Web chats pressure:</strong>{" "}
+                {adminPlanVisibility.usagePressure.activeWebChatsPercent}%
+              </p>
+              {adminPlanVisibility.effectiveEntitlements !== null && (
+                <>
+                  <p>
+                    <strong>Effective web chat entitlement:</strong>{" "}
+                    {adminPlanVisibility.effectiveEntitlements.channelsAndSurfaces.webChat
+                      ? "enabled"
+                      : "disabled"}
+                  </p>
+                  <p>
+                    <strong>Effective cost-driving tools:</strong>{" "}
+                    {adminPlanVisibility.effectiveEntitlements.toolClasses.costDrivingAllowed
+                      ? "enabled"
+                      : "disabled"}
+                  </p>
+                </>
+              )}
+            </>
+          )}
         </section>
       )}
 

@@ -1,5 +1,67 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - Step 7 P7 plan visibility read models
+
+### What changed
+
+- Added user-facing plan visibility endpoint:
+  - `GET /api/v1/assistant/plan-visibility`
+  - returns effective plan state plus key commercial limits as percentages only
+- Added admin-facing plan visibility endpoint:
+  - `GET /api/v1/admin/plans/visibility`
+  - returns plan catalog state snapshot, usage pressure percentages/level, and effective entitlement snapshot
+- Added centralized read-model service:
+  - `ResolvePlanVisibilityService`
+  - resolves visibility from existing P1-P6 control-plane truth (plan catalog, subscription resolution, capability resolution, quota state)
+- Updated web `/app` to surface:
+  - user-facing "Plan and limits visibility" section
+  - owner-only "Admin plan visibility" section
+- Updated OpenAPI/contracts and web API client for the new endpoints/types.
+- Docs updated: ADR-030, `API-BOUNDARY`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- P7 requires plans/limits/entitlements to be visible in product-correct, calm UX language while preserving backend governance boundaries and avoiding a noisy billing dashboard.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/plan-visibility.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-plans.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/web/app/app/app-flow.client.test.tsx`
+- `docs/ADR/030-plan-visibility-read-models-p7.md`
+- `docs/API-BOUNDARY.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run lint` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/web run test` — passed
+
+### Known risks / intentional limits
+
+- P7 provides snapshot visibility read models, not historical BI/reporting timelines.
+- P7 keeps class-level tool visibility and does not introduce per-tool catalog UI.
+- No billing-provider workflow UI (checkout/invoices/payment/tax) is added.
+
+### Next recommended step
+
+- Step 8 **E1** tool catalog and activation model, using P7 visibility as the baseline operator/user read surface.
+
+### Ready commit message
+
+- `feat(api-web): add step 7 p7 user and admin plan visibility read models`
+
 ## 2026-03-26 - Step 7 P6 enforcement points baseline
 
 ### What changed

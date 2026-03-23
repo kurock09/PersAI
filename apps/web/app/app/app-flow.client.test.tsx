@@ -21,6 +21,7 @@ const apiMocks = vi.hoisted(() => {
 const assistantApiMocks = vi.hoisted(() => {
   return {
     getAssistant: vi.fn(),
+    getAssistantPlanVisibility: vi.fn(),
     getAssistantMemoryItems: vi.fn(),
     getAssistantWebChats: vi.fn(),
     postAssistantCreate: vi.fn(),
@@ -35,6 +36,7 @@ const assistantApiMocks = vi.hoisted(() => {
     postAssistantMemoryDoNotRemember: vi.fn(),
     getAssistantTaskItems: vi.fn(),
     getAdminPlans: vi.fn(),
+    getAdminPlanVisibility: vi.fn(),
     postAdminPlanCreate: vi.fn(),
     patchAdminPlan: vi.fn(),
     postAssistantTaskItemDisable: vi.fn(),
@@ -72,6 +74,7 @@ vi.mock("./assistant-api-client", async () => {
   return {
     ...actual,
     getAssistant: assistantApiMocks.getAssistant,
+    getAssistantPlanVisibility: assistantApiMocks.getAssistantPlanVisibility,
     getAssistantMemoryItems: assistantApiMocks.getAssistantMemoryItems,
     getAssistantWebChats: assistantApiMocks.getAssistantWebChats,
     postAssistantCreate: assistantApiMocks.postAssistantCreate,
@@ -86,6 +89,7 @@ vi.mock("./assistant-api-client", async () => {
     postAssistantMemoryDoNotRemember: assistantApiMocks.postAssistantMemoryDoNotRemember,
     getAssistantTaskItems: assistantApiMocks.getAssistantTaskItems,
     getAdminPlans: assistantApiMocks.getAdminPlans,
+    getAdminPlanVisibility: assistantApiMocks.getAdminPlanVisibility,
     postAdminPlanCreate: assistantApiMocks.postAdminPlanCreate,
     patchAdminPlan: assistantApiMocks.patchAdminPlan,
     postAssistantTaskItemDisable: assistantApiMocks.postAssistantTaskItemDisable,
@@ -234,6 +238,67 @@ function makeAssistantResponseWithoutVisibleUpdates(): AssistantLifecycleState {
   };
 }
 
+function makeUserPlanVisibility() {
+  return {
+    effectivePlan: {
+      code: "starter_trial",
+      displayName: "Starter Trial",
+      status: "active" as const,
+      source: "workspace_subscription" as const,
+      subscriptionStatus: "trialing" as const,
+      trialEndsAt: null,
+      currentPeriodEndsAt: null,
+      isTrialPlan: true
+    },
+    limits: {
+      tokenBudgetPercent: 24,
+      costDrivingToolsPercent: 18,
+      activeWebChatsPercent: 30,
+      tasksExcludedFromCommercialQuotas: true
+    },
+    updatedAt: "2026-03-26T12:00:00.000Z"
+  };
+}
+
+function makeAdminPlanVisibility() {
+  return {
+    planState: {
+      effectivePlanCode: "starter_trial",
+      effectivePlanDisplayName: "Starter Trial",
+      effectivePlanStatus: "active" as const,
+      defaultRegistrationPlanCode: "starter_trial",
+      totalPlans: 2,
+      activePlans: 1,
+      inactivePlans: 1
+    },
+    usagePressure: {
+      tokenBudgetPercent: 24,
+      costDrivingToolsPercent: 18,
+      activeWebChatsPercent: 30,
+      pressureLevel: "low" as const
+    },
+    effectiveEntitlements: {
+      toolClasses: {
+        costDrivingAllowed: false,
+        utilityAllowed: true
+      },
+      channelsAndSurfaces: {
+        webChat: true,
+        telegram: true,
+        whatsapp: false,
+        max: false
+      },
+      governedFeatures: {
+        memoryCenter: true,
+        tasksCenter: true,
+        viewLimitPercentages: true,
+        tasksExcludedFromCommercialQuotas: true
+      }
+    },
+    updatedAt: "2026-03-26T12:00:00.000Z"
+  };
+}
+
 describe("AppFlowClient onboarding gate", () => {
   afterEach(() => {
     cleanup();
@@ -253,10 +318,12 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.deleteAssistantWebChat.mockReset();
     assistantApiMocks.streamAssistantWebChatTurn.mockReset();
     assistantApiMocks.getAssistantMemoryItems.mockReset();
+    assistantApiMocks.getAssistantPlanVisibility.mockReset();
     assistantApiMocks.postAssistantMemoryItemForget.mockReset();
     assistantApiMocks.postAssistantMemoryDoNotRemember.mockReset();
     assistantApiMocks.getAssistantTaskItems.mockReset();
     assistantApiMocks.getAdminPlans.mockReset();
+    assistantApiMocks.getAdminPlanVisibility.mockReset();
     assistantApiMocks.postAdminPlanCreate.mockReset();
     assistantApiMocks.patchAdminPlan.mockReset();
     assistantApiMocks.postAssistantTaskItemDisable.mockReset();
@@ -264,8 +331,10 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.postAssistantTaskItemCancel.mockReset();
     assistantApiMocks.getAssistantWebChats.mockResolvedValue([]);
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
+    assistantApiMocks.getAssistantPlanVisibility.mockResolvedValue(makeUserPlanVisibility());
     assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
     assistantApiMocks.getAdminPlans.mockResolvedValue([]);
+    assistantApiMocks.getAdminPlanVisibility.mockResolvedValue(makeAdminPlanVisibility());
   });
 
   it("shows onboarding gate when /me returns pending", async () => {
@@ -313,6 +382,11 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByRole("button", { name: "Rollback to selected version" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset assistant" })).toBeInTheDocument();
     expect(screen.getByText("Assistant activity and updates")).toBeInTheDocument();
+    expect(screen.getByText("Plan and limits visibility")).toBeInTheDocument();
+    expect(screen.getByText("Token budget:")).toBeInTheDocument();
+    expect(screen.getAllByText("24%").length).toBeGreaterThan(0);
+    expect(screen.getByText("Admin plan visibility")).toBeInTheDocument();
+    expect(screen.getByText("Usage pressure:")).toBeInTheDocument();
     expect(screen.getByText("Update:")).toBeInTheDocument();
     expect(screen.getByText("Assistant is live after the latest apply.")).toBeInTheDocument();
     expect(screen.getByTestId("user-button")).toBeInTheDocument();

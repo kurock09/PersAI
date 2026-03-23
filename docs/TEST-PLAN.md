@@ -87,3 +87,14 @@ Required in CI:
   - quota limit gate behavior
 - Web chat send/stream boundaries compile and run through the enforcement layer (no ad hoc duplicate checks).
 - Materialization compiles with explicit `toolAvailability` snapshot included for OpenClaw-facing documents.
+
+## Step 7 P7 focus
+
+- Contracts/OpenAPI generation includes new visibility read-model endpoints:
+  - `GET /assistant/plan-visibility`
+  - `GET /admin/plans/visibility`
+- API lint/typecheck validate visibility services and owner-gated admin visibility path.
+- Web `/app` renders:
+  - user-facing plan state + percentage-only limits section
+  - owner/admin visibility section for plan state, usage pressure, and effective entitlements
+- Existing app flow regressions remain green with the new visibility surfaces.

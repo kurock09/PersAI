@@ -16,6 +16,7 @@ import {
   ResponseWithPlatformContext
 } from "../../../platform-core/interface/http/request-http.types";
 import type { AssistantLifecycleState } from "../../application/assistant-lifecycle.types";
+import type { UserPlanVisibilityState } from "../../application/plan-visibility.types";
 import { CreateAssistantService } from "../../application/create-assistant.service";
 import { GetAssistantByUserIdService } from "../../application/get-assistant-by-user-id.service";
 import { PublishAssistantDraftService } from "../../application/publish-assistant-draft.service";
@@ -27,6 +28,7 @@ import { SendWebChatTurnService } from "../../application/send-web-chat-turn.ser
 import { ManageWebChatListService } from "../../application/manage-web-chat-list.service";
 import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn.service";
 import { UpdateAssistantDraftService } from "../../application/update-assistant-draft.service";
+import { ResolvePlanVisibilityService } from "../../application/resolve-plan-visibility.service";
 import { DoNotRememberAssistantMemoryService } from "../../application/do-not-remember-assistant-memory.service";
 import { ForgetAssistantMemoryItemService } from "../../application/forget-assistant-memory-item.service";
 import { ListAssistantMemoryItemsService } from "../../application/list-assistant-memory-items.service";
@@ -53,6 +55,7 @@ export class AssistantController {
     private readonly manageWebChatListService: ManageWebChatListService,
     private readonly streamWebChatTurnService: StreamWebChatTurnService,
     private readonly updateAssistantDraftService: UpdateAssistantDraftService,
+    private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
     private readonly listAssistantMemoryItemsService: ListAssistantMemoryItemsService,
     private readonly forgetAssistantMemoryItemService: ForgetAssistantMemoryItemService,
     private readonly doNotRememberAssistantMemoryService: DoNotRememberAssistantMemoryService,
@@ -108,6 +111,20 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       assistant
+    };
+  }
+
+  @Get("assistant/plan-visibility")
+  async getAssistantPlanVisibility(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    visibility: UserPlanVisibilityState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const visibility = await this.resolvePlanVisibilityService.getUserVisibility(userId);
+
+    return {
+      requestId: req.requestId ?? null,
+      visibility
     };
   }
 

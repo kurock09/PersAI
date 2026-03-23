@@ -3,6 +3,7 @@ import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
+import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -64,6 +65,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManageAdminPlansService,
     ResolveEffectiveSubscriptionStateService,
     ResolveEffectiveCapabilityStateService,
+    ResolvePlanVisibilityService,
     EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,
     ManageWebChatListService,

@@ -4,6 +4,16 @@
 
 ### Added
 
+- Step 7 slice P7 plan/limit visibility read models:
+  - added user-facing visibility endpoint:
+    - `GET /api/v1/assistant/plan-visibility`
+    - returns effective plan state and key limits as percentages only (token budget, cost-driving tools, active web chats)
+  - added admin-facing visibility endpoint:
+    - `GET /api/v1/admin/plans/visibility`
+    - returns effective plan state, catalog state snapshot, usage pressure percentages, pressure band, and effective entitlement snapshot
+  - added `ResolvePlanVisibilityService` as centralized read-model resolver over existing subscription/capability/quota truth
+  - added owner/admin and user UI sections in `apps/web` `/app` for calm non-technical plan visibility
+  - added ADR `docs/ADR/030-plan-visibility-read-models-p7.md`
 - Step 7 slice P6 enforcement points baseline:
   - added centralized enforcement service (`EnforceAssistantCapabilityAndQuotaService`) for control-plane rule gates
   - activated enforcement at web chat boundaries (`/assistant/chat/web`, `/assistant/chat/web/stream` prepare path)

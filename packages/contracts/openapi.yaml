@@ -36,6 +36,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/plan-visibility:
+    get:
+      operationId: getAssistantPlanVisibility
+      summary: Get user-facing effective plan and limit visibility
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User-facing plan visibility
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantPlanVisibilityResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
     post:
       operationId: postAssistantCreate
       summary: Create assistant for current authenticated user
@@ -860,6 +891,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/plans/visibility:
+    get:
+      operationId: getAdminPlanVisibility
+      summary: Get admin-facing plan visibility and usage pressure
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Admin visibility snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminPlanVisibilityResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (workspace owner required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
     post:
       operationId: postAdminPlanCreate
       summary: Create plan catalog entry with entitlement controls
@@ -1572,6 +1640,223 @@ components:
         updatedAt:
           type: string
           format: date-time
+    UserPlanVisibilityEffectivePlan:
+      type: object
+      required:
+        - code
+        - displayName
+        - status
+        - source
+        - subscriptionStatus
+        - trialEndsAt
+        - currentPeriodEndsAt
+        - isTrialPlan
+      properties:
+        code:
+          type: string
+          nullable: true
+        displayName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+          nullable: true
+        source:
+          type: string
+          enum:
+            - workspace_subscription
+            - assistant_plan_fallback
+            - catalog_default_fallback
+            - none
+        subscriptionStatus:
+          type: string
+          enum:
+            - trialing
+            - active
+            - grace_period
+            - past_due
+            - paused
+            - canceled
+            - expired
+            - unconfigured
+        trialEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        currentPeriodEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        isTrialPlan:
+          type: boolean
+    UserPlanVisibilityLimits:
+      type: object
+      required:
+        - tokenBudgetPercent
+        - costDrivingToolsPercent
+        - activeWebChatsPercent
+        - tasksExcludedFromCommercialQuotas
+      properties:
+        tokenBudgetPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        costDrivingToolsPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        activeWebChatsPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        tasksExcludedFromCommercialQuotas:
+          type: boolean
+    UserPlanVisibilityState:
+      type: object
+      required:
+        - effectivePlan
+        - limits
+        - updatedAt
+      properties:
+        effectivePlan:
+          $ref: "#/components/schemas/UserPlanVisibilityEffectivePlan"
+        limits:
+          $ref: "#/components/schemas/UserPlanVisibilityLimits"
+        updatedAt:
+          type: string
+          format: date-time
+    AdminPlanVisibilityPlanState:
+      type: object
+      required:
+        - effectivePlanCode
+        - effectivePlanDisplayName
+        - effectivePlanStatus
+        - defaultRegistrationPlanCode
+        - totalPlans
+        - activePlans
+        - inactivePlans
+      properties:
+        effectivePlanCode:
+          type: string
+          nullable: true
+        effectivePlanDisplayName:
+          type: string
+          nullable: true
+        effectivePlanStatus:
+          type: string
+          enum:
+            - active
+            - inactive
+          nullable: true
+        defaultRegistrationPlanCode:
+          type: string
+          nullable: true
+        totalPlans:
+          type: integer
+          minimum: 0
+        activePlans:
+          type: integer
+          minimum: 0
+        inactivePlans:
+          type: integer
+          minimum: 0
+    AdminPlanVisibilityUsagePressure:
+      type: object
+      required:
+        - tokenBudgetPercent
+        - costDrivingToolsPercent
+        - activeWebChatsPercent
+        - pressureLevel
+      properties:
+        tokenBudgetPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        costDrivingToolsPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        activeWebChatsPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        pressureLevel:
+          type: string
+          enum:
+            - low
+            - elevated
+            - high
+    AdminPlanVisibilityEffectiveEntitlements:
+      type: object
+      required:
+        - toolClasses
+        - channelsAndSurfaces
+        - governedFeatures
+      properties:
+        toolClasses:
+          type: object
+          required:
+            - costDrivingAllowed
+            - utilityAllowed
+          properties:
+            costDrivingAllowed:
+              type: boolean
+            utilityAllowed:
+              type: boolean
+        channelsAndSurfaces:
+          type: object
+          required:
+            - webChat
+            - telegram
+            - whatsapp
+            - max
+          properties:
+            webChat:
+              type: boolean
+            telegram:
+              type: boolean
+            whatsapp:
+              type: boolean
+            max:
+              type: boolean
+        governedFeatures:
+          type: object
+          required:
+            - memoryCenter
+            - tasksCenter
+            - viewLimitPercentages
+            - tasksExcludedFromCommercialQuotas
+          properties:
+            memoryCenter:
+              type: boolean
+            tasksCenter:
+              type: boolean
+            viewLimitPercentages:
+              type: boolean
+            tasksExcludedFromCommercialQuotas:
+              type: boolean
+    AdminPlanVisibilityState:
+      type: object
+      required:
+        - planState
+        - usagePressure
+        - effectiveEntitlements
+        - updatedAt
+      properties:
+        planState:
+          $ref: "#/components/schemas/AdminPlanVisibilityPlanState"
+        usagePressure:
+          $ref: "#/components/schemas/AdminPlanVisibilityUsagePressure"
+        effectiveEntitlements:
+          allOf:
+            - $ref: "#/components/schemas/AdminPlanVisibilityEffectiveEntitlements"
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
     AssistantDraftUpdateRequest:
       type: object
       minProperties: 1
@@ -1743,6 +2028,16 @@ components:
           nullable: true
         assistant:
           $ref: "#/components/schemas/AssistantLifecycleState"
+    GetAssistantPlanVisibilityResponse:
+      type: object
+      required:
+        - visibility
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        visibility:
+          $ref: "#/components/schemas/UserPlanVisibilityState"
     GetAssistantRuntimePreflightResponse:
       type: object
       required:
@@ -1981,6 +2276,16 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminPlanState"
+    GetAdminPlanVisibilityResponse:
+      type: object
+      required:
+        - visibility
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        visibility:
+          $ref: "#/components/schemas/AdminPlanVisibilityState"
     PostAdminPlanResponse:
       type: object
       required:

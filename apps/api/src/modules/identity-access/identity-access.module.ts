@@ -30,6 +30,7 @@ export class IdentityAccessModule implements NestModule {
         { path: "api/v1/me", method: RequestMethod.GET },
         { path: "api/v1/me/onboarding", method: RequestMethod.POST },
         { path: "api/v1/assistant", method: RequestMethod.GET },
+        { path: "api/v1/assistant/plan-visibility", method: RequestMethod.GET },
         { path: "api/v1/assistant", method: RequestMethod.POST },
         { path: "api/v1/assistant/draft", method: RequestMethod.PATCH },
         { path: "api/v1/assistant/publish", method: RequestMethod.POST },
@@ -51,6 +52,7 @@ export class IdentityAccessModule implements NestModule {
         { path: "api/v1/assistant/tasks/items/:itemId/enable", method: RequestMethod.POST },
         { path: "api/v1/assistant/tasks/items/:itemId/cancel", method: RequestMethod.POST },
         { path: "api/v1/admin/plans", method: RequestMethod.GET },
+        { path: "api/v1/admin/plans/visibility", method: RequestMethod.GET },
         { path: "api/v1/admin/plans", method: RequestMethod.POST },
         { path: "api/v1/admin/plans/:code", method: RequestMethod.PATCH }
       );

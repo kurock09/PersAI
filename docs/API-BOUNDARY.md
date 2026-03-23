@@ -462,6 +462,31 @@ Behavior baseline:
   - cost/token-driving tool-class quota limit when class is quota-governed
 - Materialization now carries explicit `toolAvailability` (`persai.effectiveToolAvailability.v1`) for OpenClaw alongside `effectiveCapabilities`.
 
+## Step 7 P7 plan visibility read models
+
+### GET /api/v1/assistant/plan-visibility
+
+- authenticated caller only
+- returns user-facing plan visibility snapshot:
+  - effective plan identity/state
+  - key limit usage percentages only:
+    - token budget
+    - cost-driving tool-class usage
+    - active web chats usage
+  - tasks/reminders commercial-quota exclusion flag
+- no raw quota counters, billing-provider internals, or technical storage details are exposed
+
+### GET /api/v1/admin/plans/visibility
+
+- authenticated caller only
+- workspace owner role required
+- returns admin-facing visibility snapshot:
+  - effective plan state + catalog state (`active/inactive` counts, default registration plan)
+  - usage pressure percentages for core dimensions
+  - derived pressure level (`low|elevated|high`)
+  - effective entitlement snapshot (tool classes, channels/surfaces, governed features)
+- this is a control-plane visibility model, not a billing console
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

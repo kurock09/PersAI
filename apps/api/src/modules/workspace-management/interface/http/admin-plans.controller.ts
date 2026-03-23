@@ -1,15 +1,20 @@
 import { Body, Controller, Get, Param, Patch, Post, Req, UnauthorizedException } from "@nestjs/common";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import { ManageAdminPlansService } from "../../application/manage-admin-plans.service";
+import { ResolvePlanVisibilityService } from "../../application/resolve-plan-visibility.service";
 import type {
   AdminCreatePlanInput,
   AdminPlanInput,
   AdminPlanState
 } from "../../application/admin-plan-management.types";
+import type { AdminPlanVisibilityState } from "../../application/plan-visibility.types";
 
 @Controller("api/v1/admin/plans")
 export class AdminPlansController {
-  constructor(private readonly manageAdminPlansService: ManageAdminPlansService) {}
+  constructor(
+    private readonly manageAdminPlansService: ManageAdminPlansService,
+    private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService
+  ) {}
 
   @Get()
   async listPlans(@Req() req: RequestWithPlatformContext): Promise<{
@@ -21,6 +26,19 @@ export class AdminPlansController {
     return {
       requestId: req.requestId ?? null,
       plans
+    };
+  }
+
+  @Get("visibility")
+  async getAdminVisibility(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    visibility: AdminPlanVisibilityState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const visibility = await this.resolvePlanVisibilityService.getAdminVisibility(userId);
+    return {
+      requestId: req.requestId ?? null,
+      visibility
     };
   }
 

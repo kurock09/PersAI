@@ -1,5 +1,6 @@
 import {
   type AdminPlanCreateRequest,
+  type AdminPlanVisibilityState,
   type AdminPlanState,
   type AdminPlanUpdateRequest,
   type AssistantWebChatDeleteRequest,
@@ -12,6 +13,7 @@ import {
   type AssistantTaskRegistryItemState,
   ContractsApiError,
   type AssistantLifecycleState,
+  type UserPlanVisibilityState,
   deleteAssistantWebChat as deleteAssistantWebChatContract,
   getAssistant as getAssistantContract,
   getAssistantMemoryItems as getAssistantMemoryItemsContract,
@@ -32,6 +34,9 @@ import {
   postAssistantTaskItemDisable as postAssistantTaskItemDisableContract,
   postAssistantTaskItemEnable as postAssistantTaskItemEnableContract,
   getAdminPlans as getAdminPlansContract
+  ,
+  getAdminPlanVisibility as getAdminPlanVisibilityContract,
+  getAssistantPlanVisibility as getAssistantPlanVisibilityContract
 } from "@persai/contracts";
 
 function getAuthHeaders(token: string): HeadersInit {
@@ -755,6 +760,7 @@ export async function postAssistantMemoryDoNotRemember(
 }
 
 export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
+export type { UserPlanVisibilityState, AdminPlanVisibilityState };
 
 export async function getAdminPlans(token: string): Promise<AdminPlanState[]> {
   try {
@@ -767,6 +773,34 @@ export async function getAdminPlans(token: string): Promise<AdminPlanState[]> {
     }
 
     return response.data.plans;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAssistantPlanVisibility(token: string): Promise<UserPlanVisibilityState> {
+  try {
+    const response = await getAssistantPlanVisibilityContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /assistant/plan-visibility.");
+    }
+    return response.data.visibility;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAdminPlanVisibility(token: string): Promise<AdminPlanVisibilityState> {
+  try {
+    const response = await getAdminPlanVisibilityContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/plans/visibility.");
+    }
+    return response.data.visibility;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

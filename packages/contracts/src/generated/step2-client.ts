@@ -15,8 +15,10 @@ import type {
   AssistantWebChatTurnRequest,
   DeleteAssistantWebChatResponse,
   ErrorEnvelope,
+  GetAdminPlanVisibilityResponse,
   GetAdminPlansResponse,
   GetAssistantMemoryItemsResponse,
+  GetAssistantPlanVisibilityResponse,
   GetAssistantResponse,
   GetAssistantRuntimePreflightResponse,
   GetAssistantTaskItemsResponse,
@@ -89,6 +91,59 @@ export const getAssistant = async ( options?: RequestInit): Promise<getAssistant
 
 
 /**
+ * @summary Get user-facing effective plan and limit visibility
+ */
+export type getAssistantPlanVisibilityResponse200 = {
+  data: GetAssistantPlanVisibilityResponse
+  status: 200
+}
+
+export type getAssistantPlanVisibilityResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAssistantPlanVisibilityResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type getAssistantPlanVisibilityResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAssistantPlanVisibilityResponseSuccess = (getAssistantPlanVisibilityResponse200) & {
+  headers: Headers;
+};
+export type getAssistantPlanVisibilityResponseError = (getAssistantPlanVisibilityResponse401 | getAssistantPlanVisibilityResponse404 | getAssistantPlanVisibilityResponse500) & {
+  headers: Headers;
+};
+
+export type getAssistantPlanVisibilityResponse = (getAssistantPlanVisibilityResponseSuccess | getAssistantPlanVisibilityResponseError)
+
+export const getGetAssistantPlanVisibilityUrl = () => {
+
+
+  
+
+  return `/assistant/plan-visibility`
+}
+
+export const getAssistantPlanVisibility = async ( options?: RequestInit): Promise<getAssistantPlanVisibilityResponse> => {
+  
+  return customFetch<getAssistantPlanVisibilityResponse>(getGetAssistantPlanVisibilityUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
  * @summary Create assistant for current authenticated user
  */
 export type postAssistantCreateResponse200 = {
@@ -130,7 +185,7 @@ export const getPostAssistantCreateUrl = () => {
 
   
 
-  return `/assistant`
+  return `/assistant/plan-visibility`
 }
 
 export const postAssistantCreate = async ( options?: RequestInit): Promise<postAssistantCreateResponse> => {
@@ -1281,6 +1336,64 @@ export const getAdminPlans = async ( options?: RequestInit): Promise<getAdminPla
 
 
 /**
+ * @summary Get admin-facing plan visibility and usage pressure
+ */
+export type getAdminPlanVisibilityResponse200 = {
+  data: GetAdminPlanVisibilityResponse
+  status: 200
+}
+
+export type getAdminPlanVisibilityResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAdminPlanVisibilityResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type getAdminPlanVisibilityResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type getAdminPlanVisibilityResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAdminPlanVisibilityResponseSuccess = (getAdminPlanVisibilityResponse200) & {
+  headers: Headers;
+};
+export type getAdminPlanVisibilityResponseError = (getAdminPlanVisibilityResponse401 | getAdminPlanVisibilityResponse403 | getAdminPlanVisibilityResponse404 | getAdminPlanVisibilityResponse500) & {
+  headers: Headers;
+};
+
+export type getAdminPlanVisibilityResponse = (getAdminPlanVisibilityResponseSuccess | getAdminPlanVisibilityResponseError)
+
+export const getGetAdminPlanVisibilityUrl = () => {
+
+
+  
+
+  return `/admin/plans/visibility`
+}
+
+export const getAdminPlanVisibility = async ( options?: RequestInit): Promise<getAdminPlanVisibilityResponse> => {
+  
+  return customFetch<getAdminPlanVisibilityResponse>(getGetAdminPlanVisibilityUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
  * @summary Create plan catalog entry with entitlement controls
  */
 export type postAdminPlanCreateResponse200 = {
@@ -1327,7 +1440,7 @@ export const getPostAdminPlanCreateUrl = () => {
 
   
 
-  return `/admin/plans`
+  return `/admin/plans/visibility`
 }
 
 export const postAdminPlanCreate = async (adminPlanCreateRequest: AdminPlanCreateRequest, options?: RequestInit): Promise<postAdminPlanCreateResponse> => {
