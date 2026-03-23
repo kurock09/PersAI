@@ -158,3 +158,13 @@ Required in CI:
   - policy marker append (`do-not-remember` -> memory forget marker)
   - Telegram binding/config and token-fingerprint update events
 - API lint/typecheck and existing Step 8 baseline tests remain green.
+
+## Step 9 F2 focus
+
+- Prisma schema/migration validates admin RBAC persistence model (`app_user_admin_roles`).
+- Admin read authorization is validated for role-based access (`ops|business|security|super-admin`) with legacy owner fallback.
+- Dangerous admin writes are validated for step-up token requirement on:
+  - `POST /admin/plans`
+  - `PATCH /admin/plans/{code}`
+- Step-up challenge issuance path validates action scoping and short-lived token generation (`POST /admin/step-up/challenge`).
+- Admin audit events include actor role context and step-up verification metadata for dangerous writes.

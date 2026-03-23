@@ -17,6 +17,13 @@ enum WorkspaceRole {
   member
 }
 
+enum AppUserAdminRoleCode {
+  ops_admin
+  business_admin
+  security_admin
+  super_admin
+}
+
 enum AssistantApplyStatus {
   not_requested
   pending
@@ -133,6 +140,7 @@ model AppUser {
   workspaceLinks            WorkspaceMember[]
   publishedAssistantVersion AssistantPublishedVersion[] @relation("AssistantVersionPublisher")
   assistantAuditEvents      AssistantAuditEvent[]      @relation("AssistantAuditActor")
+  adminRoles                AppUserAdminRole[]
 
   @@map("app_users")
 }
@@ -151,6 +159,7 @@ model Workspace {
   quotaAccountingState WorkspaceQuotaAccountingState?
   quotaUsageEvents WorkspaceQuotaUsageEvent[]
   assistantAuditEvents AssistantAuditEvent[]
+  adminRoles AppUserAdminRole[]
 
   @@map("workspaces")
 }
@@ -265,6 +274,21 @@ model AssistantGovernance {
   assistant          Assistant @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("assistant_governance")
+}
+
+model AppUserAdminRole {
+  id          String               @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  userId      String               @map("user_id") @db.Uuid
+  workspaceId String?              @map("workspace_id") @db.Uuid
+  roleCode    AppUserAdminRoleCode @map("role_code")
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user        AppUser              @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace   Workspace?           @relation(fields: [workspaceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([userId, workspaceId, roleCode])
+  @@index([workspaceId, roleCode])
+  @@map("app_user_admin_roles")
 }
 
 model AssistantAuditEvent {

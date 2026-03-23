@@ -52,7 +52,11 @@ export class AdminPlansController {
   }> {
     const userId = this.resolveRequestUserId(req);
     const input: AdminCreatePlanInput = this.manageAdminPlansService.parseCreateInput(body);
-    const plan = await this.manageAdminPlansService.createPlan(userId, input);
+    const plan = await this.manageAdminPlansService.createPlan(
+      userId,
+      input,
+      this.resolveStepUpToken(req)
+    );
     return {
       requestId: req.requestId ?? null,
       plan
@@ -70,7 +74,12 @@ export class AdminPlansController {
   }> {
     const userId = this.resolveRequestUserId(req);
     const input: AdminPlanInput = this.manageAdminPlansService.parseUpdateInput(body);
-    const plan = await this.manageAdminPlansService.updatePlan(userId, code, input);
+    const plan = await this.manageAdminPlansService.updatePlan(
+      userId,
+      code,
+      input,
+      this.resolveStepUpToken(req)
+    );
     return {
       requestId: req.requestId ?? null,
       plan
@@ -83,5 +92,13 @@ export class AdminPlansController {
     }
 
     return req.resolvedAppUser.id;
+  }
+
+  private resolveStepUpToken(req: RequestWithPlatformContext): string | null {
+    const header = req.headers["x-persai-step-up-token"];
+    if (Array.isArray(header)) {
+      return header[0] ?? null;
+    }
+    return typeof header === "string" ? header : null;
   }
 }

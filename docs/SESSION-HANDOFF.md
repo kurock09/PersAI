@@ -1,5 +1,82 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 9 F2 admin RBAC and dangerous-action step-up
+
+### What changed
+
+- Added explicit admin RBAC persistence model:
+  - `app_user_admin_roles`
+  - roles:
+    - `ops_admin`
+    - `business_admin`
+    - `security_admin`
+    - `super_admin`
+- Added centralized admin authorization/step-up service:
+  - `AdminAuthorizationService`
+  - role-gated admin read access
+  - dangerous admin action enforcement with signed short-lived step-up tokens
+- Added admin step-up challenge endpoint:
+  - `POST /api/v1/admin/step-up/challenge`
+  - action-scoped challenge for:
+    - `admin.plan.create`
+    - `admin.plan.update`
+- Hardened dangerous admin writes:
+  - `POST /api/v1/admin/plans` requires `x-persai-step-up-token` for `admin.plan.create`
+  - `PATCH /api/v1/admin/plans/{code}` requires `x-persai-step-up-token` for `admin.plan.update`
+- Upgraded admin read auth checks from owner-only to role-based (with narrow owner fallback compatibility):
+  - `GET /api/v1/admin/plans`
+  - `GET /api/v1/admin/plans/visibility`
+- Added audit role/actor context for admin actions:
+  - new event: `admin.step_up_challenge_issued`
+  - enriched events: `admin.plan_created`, `admin.plan_updated` with actor roles + step-up verified flags
+- Contracts/OpenAPI updated for:
+  - `POST /admin/step-up/challenge`
+  - required step-up header on dangerous plan write operations
+- Docs updated: ADR-038, `ROADMAP`, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- F2 requires explicit non-collapsed admin role model and hardened dangerous-action confirmation flow so privileged admin operations are role-scoped and step-up protected.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260328140000_step9_f2_admin_rbac_stepup/migration.sql`
+- `apps/api/src/modules/workspace-management/application/admin-authorization.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-plans.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-security.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/web/app/app/assistant-api-client.ts`
+- `docs/ADR/038-admin-rbac-and-stepup-f2.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run prisma:generate` — passed
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+
+### Known risks / intentional limits
+
+- F2 does not add admin-role management API/UI (assignment/revocation workflows remain future scope).
+- Step-up currently protects agreed dangerous plan write actions only; broader privileged-action matrix is future scope.
+- Compatibility fallback (`workspace owner` -> implicit `business_admin`) remains intentionally narrow and transitional.
+
+### Next recommended step
+
+- Step 9 **F3** ops cockpit baseline using the F1/F2 audit + RBAC model as authorization and visibility foundation.
+
+### Ready commit message
+
+- `feat(api-web): add step 9 f2 admin rbac model and dangerous-action step-up enforcement`
+
 ## 2026-03-24 - Step 9 F1 append-only audit log hardening
 
 ### What changed

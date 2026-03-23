@@ -1,5 +1,6 @@
 import {
   type AdminPlanCreateRequest,
+  type AdminDangerousActionCode,
   type AdminPlanVisibilityState,
   type AdminPlanState,
   type AdminPlanUpdateRequest,
@@ -30,13 +31,13 @@ import {
   postAssistantWebChatArchive as postAssistantWebChatArchiveContract,
   postAssistantCreate as postAssistantCreateContract,
   postAdminPlanCreate as postAdminPlanCreateContract,
+  postAdminStepUpChallenge as postAdminStepUpChallengeContract,
   postAssistantMemoryDoNotRemember as postAssistantMemoryDoNotRememberContract,
   postAssistantMemoryItemForget as postAssistantMemoryItemForgetContract,
   postAssistantTaskItemCancel as postAssistantTaskItemCancelContract,
   postAssistantTaskItemDisable as postAssistantTaskItemDisableContract,
   postAssistantTaskItemEnable as postAssistantTaskItemEnableContract,
-  getAdminPlans as getAdminPlansContract
-  ,
+  getAdminPlans as getAdminPlansContract,
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
@@ -48,6 +49,31 @@ function getAuthHeaders(token: string): HeadersInit {
   return {
     Authorization: `Bearer ${token}`
   };
+}
+
+async function issueAdminStepUpToken(
+  token: string,
+  action: AdminDangerousActionCode
+): Promise<string> {
+  const challengeResponse = await postAdminStepUpChallengeContract(
+    { action },
+    {
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (
+    challengeResponse.status !== 200 ||
+    typeof challengeResponse.data !== "object" ||
+    challengeResponse.data === null ||
+    !("challenge" in challengeResponse.data) ||
+    typeof challengeResponse.data.challenge !== "object" ||
+    challengeResponse.data.challenge === null ||
+    !("token" in challengeResponse.data.challenge) ||
+    typeof challengeResponse.data.challenge.token !== "string"
+  ) {
+    throw new Error("Unexpected non-success response for POST /admin/step-up/challenge.");
+  }
+  return challengeResponse.data.challenge.token;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -837,7 +863,12 @@ export async function postAssistantTelegramConnect(
     const response = await postAssistantTelegramConnectContract(payload, {
       headers: getAuthHeaders(token)
     });
-    if (response.status !== 200) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("integration" in response.data)
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/integrations/telegram/connect.");
     }
     return response.data.integration;
@@ -868,8 +899,12 @@ export async function postAdminPlanCreate(
   payload: AdminPlanCreateRequest
 ): Promise<AdminPlanState> {
   try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.create");
     const response = await postAdminPlanCreateContract(payload, {
-      headers: getAuthHeaders(token)
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
     });
 
     if (
@@ -893,8 +928,12 @@ export async function patchAdminPlan(
   payload: AdminPlanUpdateRequest
 ): Promise<AdminPlanState> {
   try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
     const response = await patchAdminPlanContract(code, payload, {
-      headers: getAuthHeaders(token)
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
     });
 
     if (response.status !== 200) {

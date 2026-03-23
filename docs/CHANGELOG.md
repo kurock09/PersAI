@@ -4,6 +4,25 @@
 
 ### Added
 
+- Step 9 slice F2 admin RBAC and dangerous-action step-up:
+  - added explicit admin role persistence:
+    - `app_user_admin_roles`
+    - role codes: `ops_admin|business_admin|security_admin|super_admin`
+  - added centralized admin authorization + step-up service:
+    - role-based read/write checks for admin surfaces
+    - short-lived signed step-up challenge issuance and verification scoped by actor/workspace/action
+  - added new endpoint:
+    - `POST /api/v1/admin/step-up/challenge`
+  - hardened dangerous admin write actions:
+    - `POST /api/v1/admin/plans` now requires `x-persai-step-up-token` for `admin.plan.create`
+    - `PATCH /api/v1/admin/plans/{code}` now requires `x-persai-step-up-token` for `admin.plan.update`
+  - admin read surfaces now use role-based checks (with narrow legacy owner compatibility fallback):
+    - `GET /api/v1/admin/plans`
+    - `GET /api/v1/admin/plans/visibility`
+  - admin audit coverage now includes role and step-up context:
+    - `admin.step_up_challenge_issued`
+    - enriched `admin.plan_created|admin.plan_updated` details (`actorRoles`, `stepUpVerified`, compatibility fallback flag)
+  - added ADR `docs/ADR/038-admin-rbac-and-stepup-f2.md`
 - Step 9 slice F1 append-only audit log hardening:
   - added canonical append-only audit persistence:
     - `assistant_audit_events`

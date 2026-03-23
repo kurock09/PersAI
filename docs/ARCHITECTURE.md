@@ -259,6 +259,17 @@ O6 defines a future adapter-only contract:
   - policy/binding critical changes (memory forget-marker append, Telegram binding/config, token fingerprint update)
 - audit remains control-plane telemetry; backend still does not become runtime behavior router
 
+## Admin RBAC and step-up boundary (Step 9 F2)
+
+- backend owns explicit admin authorization model in control plane:
+  - `app_user_admin_roles` (`ops_admin|business_admin|security_admin|super_admin`)
+- admin read surfaces are role-gated and remain separate from end-user assistant ownership flows
+- dangerous admin write actions require step-up token verification:
+  - `admin.plan.create`
+  - `admin.plan.update`
+- role/context and step-up verification outcomes are written to append-only audit events
+- compatibility fallback is narrow: workspace `owner` maps to legacy `business_admin` access only
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

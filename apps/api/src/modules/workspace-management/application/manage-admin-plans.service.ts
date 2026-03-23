@@ -1,25 +1,26 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException
 } from "@nestjs/common";
-import { WorkspaceRole } from "@prisma/client";
 import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository,
   type AssistantPlanCatalogWriteInput
 } from "../domain/assistant-plan-catalog.repository";
 import type { AssistantPlanCatalog } from "../domain/assistant-plan-catalog.entity";
-import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import type {
   AdminCreatePlanInput,
   AdminPlanInput,
   AdminPlanState
 } from "./admin-plan-management.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import {
+  AdminAuthorizationService,
+  type DangerousAdminActionCode
+} from "./admin-authorization.service";
 
 function toBoolean(value: unknown): boolean {
   return value === true;
@@ -108,12 +109,12 @@ export class ManageAdminPlansService {
   constructor(
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly planCatalogRepository: AssistantPlanCatalogRepository,
-    private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly adminAuthorizationService: AdminAuthorizationService
   ) {}
 
   async listPlans(userId: string): Promise<AdminPlanState[]> {
-    await this.assertWorkspaceOwner(userId);
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const plans = await this.planCatalogRepository.listAll();
     return plans.map((plan) => this.toAdminPlanState(plan));
   }
@@ -131,8 +132,16 @@ export class ManageAdminPlansService {
     return this.parsePlanInput(parsed);
   }
 
-  async createPlan(userId: string, input: AdminCreatePlanInput): Promise<AdminPlanState> {
-    const ownerMembership = await this.assertWorkspaceOwner(userId);
+  async createPlan(
+    userId: string,
+    input: AdminCreatePlanInput,
+    stepUpToken: string | null
+  ): Promise<AdminPlanState> {
+    const access = await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.plan.create",
+      stepUpToken
+    );
     const existing = await this.planCatalogRepository.findByCode(input.code);
     if (existing !== null) {
       throw new ConflictException("Plan code already exists.");
@@ -140,13 +149,17 @@ export class ManageAdminPlansService {
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
     await this.appendAssistantAuditEventService.execute({
-      workspaceId: ownerMembership.workspaceId,
+      workspaceId: access.workspaceId,
       assistantId: null,
       actorUserId: userId,
       eventCategory: "admin_action",
       eventCode: "admin.plan_created",
       summary: "Admin plan created.",
       details: {
+        action: "admin.plan.create" as DangerousAdminActionCode,
+        actorRoles: access.roles,
+        legacyOwnerFallback: access.hasLegacyOwnerFallback,
+        stepUpVerified: true,
         code: created.code,
         status: created.status,
         defaultOnRegistration: created.isDefaultFirstRegistrationPlan,
@@ -156,8 +169,17 @@ export class ManageAdminPlansService {
     return this.toAdminPlanState(created);
   }
 
-  async updatePlan(userId: string, code: string, input: AdminPlanInput): Promise<AdminPlanState> {
-    const ownerMembership = await this.assertWorkspaceOwner(userId);
+  async updatePlan(
+    userId: string,
+    code: string,
+    input: AdminPlanInput,
+    stepUpToken: string | null
+  ): Promise<AdminPlanState> {
+    const access = await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.plan.update",
+      stepUpToken
+    );
     const normalizedCode = parseRequiredString(code, "code").toLowerCase();
     const updated = await this.planCatalogRepository.updateByCode(
       normalizedCode,
@@ -167,13 +189,17 @@ export class ManageAdminPlansService {
       throw new NotFoundException("Plan not found.");
     }
     await this.appendAssistantAuditEventService.execute({
-      workspaceId: ownerMembership.workspaceId,
+      workspaceId: access.workspaceId,
       assistantId: null,
       actorUserId: userId,
       eventCategory: "admin_action",
       eventCode: "admin.plan_updated",
       summary: "Admin plan updated.",
       details: {
+        action: "admin.plan.update" as DangerousAdminActionCode,
+        actorRoles: access.roles,
+        legacyOwnerFallback: access.hasLegacyOwnerFallback,
+        stepUpVerified: true,
         code: updated.code,
         status: updated.status,
         defaultOnRegistration: updated.isDefaultFirstRegistrationPlan,
@@ -350,14 +376,4 @@ export class ManageAdminPlansService {
     };
   }
 
-  private async assertWorkspaceOwner(userId: string): Promise<{ workspaceId: string }> {
-    const ownerMembership = await this.prisma.workspaceMember.findFirst({
-      where: { userId, role: WorkspaceRole.owner },
-      select: { workspaceId: true }
-    });
-    if (ownerMembership === null) {
-      throw new ForbiddenException("Admin plan management requires workspace owner role.");
-    }
-    return ownerMembership;
-  }
 }

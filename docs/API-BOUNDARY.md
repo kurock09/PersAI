@@ -569,6 +569,43 @@ Behavior baseline:
 - Backend writes high-signal append-only audit events for critical control-plane and runtime transition actions.
 - Audit storage is immutable at DB level (`assistant_audit_events` update/delete rejected).
 
+## Step 9 F2 admin RBAC and dangerous-action step-up
+
+### POST /api/v1/admin/step-up/challenge
+
+- authenticated caller only
+- requires admin write-capable role (`business_admin|super_admin`) or legacy owner fallback
+- request body:
+  - `action`:
+    - `admin.plan.create`
+    - `admin.plan.update`
+- returns short-lived signed step-up token scoped to:
+  - actor user
+  - workspace
+  - action code
+  - expiration
+
+### POST /api/v1/admin/plans
+
+- authenticated caller only
+- requires dangerous-action role (`business_admin|super_admin`) or legacy owner fallback
+- requires `x-persai-step-up-token` header issued for action `admin.plan.create`
+- existing create behavior remains unchanged after authorization/step-up validation
+
+### PATCH /api/v1/admin/plans/{code}
+
+- authenticated caller only
+- requires dangerous-action role (`business_admin|super_admin`) or legacy owner fallback
+- requires `x-persai-step-up-token` header issued for action `admin.plan.update`
+- existing update behavior remains unchanged after authorization/step-up validation
+
+### GET /api/v1/admin/plans and GET /api/v1/admin/plans/visibility
+
+- authenticated caller only
+- requires admin read role:
+  - `ops_admin|business_admin|security_admin|super_admin`
+  - or legacy owner fallback
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

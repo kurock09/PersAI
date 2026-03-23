@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
+import { AdminSecurityController } from "./interface/http/admin-security.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
@@ -12,6 +13,7 @@ import { ConnectTelegramIntegrationService } from "./application/connect-telegra
 import { UpdateTelegramIntegrationConfigService } from "./application/update-telegram-integration-config.service";
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
 import { AppendAssistantAuditEventService } from "./application/append-assistant-audit-event.service";
+import { AdminAuthorizationService } from "./application/admin-authorization.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -67,10 +69,11 @@ import { PrismaAssistantRepository } from "./infrastructure/persistence/prisma-a
 import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/workspace-management-prisma.service";
 
 @Module({
-  controllers: [AssistantController, AdminPlansController],
+  controllers: [AssistantController, AdminPlansController, AdminSecurityController],
   providers: [
     WorkspaceManagementPrismaService,
     AppendAssistantAuditEventService,
+    AdminAuthorizationService,
     GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,

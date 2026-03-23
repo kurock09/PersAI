@@ -1,5 +1,4 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { WorkspaceRole } from "@prisma/client";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
@@ -14,10 +13,10 @@ import {
   WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
   type WorkspaceQuotaAccountingRepository
 } from "../domain/workspace-quota-accounting.repository";
-import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import type { AdminPlanVisibilityState, UserPlanVisibilityState } from "./plan-visibility.types";
+import { AdminAuthorizationService } from "./admin-authorization.service";
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -64,7 +63,7 @@ export class ResolvePlanVisibilityService {
     private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly adminAuthorizationService: AdminAuthorizationService
   ) {}
 
   async getUserVisibility(userId: string): Promise<UserPlanVisibilityState> {
@@ -124,12 +123,7 @@ export class ResolvePlanVisibilityService {
   }
 
   async getAdminVisibility(userId: string): Promise<AdminPlanVisibilityState> {
-    const ownerMembership = await this.prisma.workspaceMember.findFirst({
-      where: { userId, role: WorkspaceRole.owner }
-    });
-    if (ownerMembership === null) {
-      throw new ForbiddenException("Admin plan visibility requires workspace owner role.");
-    }
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
 
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {

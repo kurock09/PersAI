@@ -7,6 +7,7 @@
 import type {
   AdminPlanCreateRequest,
   AdminPlanUpdateRequest,
+  AdminStepUpChallengeRequest,
   AssistantDraftUpdateRequest,
   AssistantMemoryDoNotRememberRequest,
   AssistantRollbackRequest,
@@ -31,6 +32,7 @@ import type {
   GetMeResponse,
   OnboardingRequest,
   PostAdminPlanResponse,
+  PostAdminStepUpChallengeResponse,
   PostAssistantMemoryDoNotRememberResponse,
   PostAssistantMemoryItemForgetResponse,
   PostAssistantTaskItemCancelResponse,
@@ -1701,6 +1703,65 @@ export const patchAdminPlan = async (code: string,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       adminPlanUpdateRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Issue short-lived step-up challenge token for dangerous admin actions
+ */
+export type postAdminStepUpChallengeResponse200 = {
+  data: PostAdminStepUpChallengeResponse
+  status: 200
+}
+
+export type postAdminStepUpChallengeResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAdminStepUpChallengeResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAdminStepUpChallengeResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type postAdminStepUpChallengeResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAdminStepUpChallengeResponseSuccess = (postAdminStepUpChallengeResponse200) & {
+  headers: Headers;
+};
+export type postAdminStepUpChallengeResponseError = (postAdminStepUpChallengeResponse400 | postAdminStepUpChallengeResponse401 | postAdminStepUpChallengeResponse403 | postAdminStepUpChallengeResponse500) & {
+  headers: Headers;
+};
+
+export type postAdminStepUpChallengeResponse = (postAdminStepUpChallengeResponseSuccess | postAdminStepUpChallengeResponseError)
+
+export const getPostAdminStepUpChallengeUrl = () => {
+
+
+  
+
+  return `/admin/step-up/challenge`
+}
+
+export const postAdminStepUpChallenge = async (adminStepUpChallengeRequest: AdminStepUpChallengeRequest, options?: RequestInit): Promise<postAdminStepUpChallengeResponse> => {
+  
+  return customFetch<postAdminStepUpChallengeResponse>(getPostAdminStepUpChallengeUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      adminStepUpChallengeRequest,)
   }
 );}
 

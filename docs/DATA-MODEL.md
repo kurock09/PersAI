@@ -219,6 +219,15 @@ Postgres with Prisma.
 - details (jsonb; bounded event metadata)
 - created_at
 
+### app_user_admin_roles (Step 9 F2 baseline)
+
+- id (UUID)
+- user_id (UUID FK -> `app_users.id`)
+- workspace_id (nullable UUID FK -> `workspaces.id`; `null` means global role scope)
+- role_code (`ops_admin|business_admin|security_admin|super_admin`)
+- created_at
+- updated_at
+
 ### workspace_subscriptions (Step 7 P3 baseline)
 
 - id (UUID)
@@ -382,6 +391,11 @@ Postgres with Prisma.
     - `(event_category, created_at DESC)`
   - immutable row policy enforced by DB trigger (no `UPDATE`, no `DELETE`)
   - stores high-signal append-only control-plane/runtime-transition audit events
+- `app_user_admin_roles`:
+  - primary key: `id`
+  - unique tuple: `(user_id, workspace_id, role_code)`
+  - index: `(workspace_id, role_code)`
+  - stores explicit admin RBAC assignments without collapsing all admin surfaces into one broad role
 - `workspace_subscriptions`:
   - primary key: `id`
   - unique: `workspace_id` (one current subscription state row per workspace in P3)
@@ -433,6 +447,7 @@ Postgres with Prisma.
 - E3 hardens materialized channel/surface binding model (`openclawChannelSurfaceBindings`) with provider+surface+assistant-binding structure; no new persistence table in E3
 - E4 adds canonical assistant-scoped provider/surface binding persistence for Telegram connect/config (`assistant_channel_surface_bindings`) and keeps web as primary control-plane surface
 - F1 adds append-only `assistant_audit_events` with immutable rows for critical lifecycle/runtime/admin/policy/binding transitions only (no unbounded raw event dump)
+- F2 adds explicit `app_user_admin_roles` RBAC model and dangerous-action step-up gating for admin writes; legacy owner fallback remains narrow compatibility path
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

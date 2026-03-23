@@ -1025,6 +1025,13 @@ paths:
       summary: Create plan catalog entry with entitlement controls
       security:
         - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.plan.create.
       requestBody:
         required: true
         content:
@@ -1051,7 +1058,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "403":
-          description: Forbidden (workspace owner required)
+          description: Forbidden (business-admin/super-admin role and valid step-up required)
           content:
             application/json:
               schema:
@@ -1117,6 +1124,12 @@ paths:
           required: true
           schema:
             type: string
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.plan.update.
       requestBody:
         required: true
         content:
@@ -1143,13 +1156,56 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "403":
-          description: Forbidden (workspace owner required)
+          description: Forbidden (business-admin/super-admin role and valid step-up required)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Plan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/step-up/challenge:
+    post:
+      operationId: postAdminStepUpChallenge
+      summary: Issue short-lived step-up challenge token for dangerous admin actions
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminStepUpChallengeRequest"
+      responses:
+        "200":
+          description: Step-up challenge issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminStepUpChallengeResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (business-admin/super-admin role required)
           content:
             application/json:
               schema:
@@ -2574,6 +2630,42 @@ components:
           nullable: true
         plan:
           $ref: "#/components/schemas/AdminPlanState"
+    AdminDangerousActionCode:
+      type: string
+      enum:
+        - admin.plan.create
+        - admin.plan.update
+    AdminStepUpChallengeRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          $ref: "#/components/schemas/AdminDangerousActionCode"
+    AdminStepUpChallengeState:
+      type: object
+      required:
+        - action
+        - token
+        - expiresAt
+      properties:
+        action:
+          $ref: "#/components/schemas/AdminDangerousActionCode"
+        token:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+    PostAdminStepUpChallengeResponse:
+      type: object
+      required:
+        - challenge
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        challenge:
+          $ref: "#/components/schemas/AdminStepUpChallengeState"
     ErrorEnvelope:
       type: object
       required:
