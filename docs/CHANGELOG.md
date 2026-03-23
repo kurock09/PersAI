@@ -4,6 +4,26 @@
 
 ### Added
 
+- Step 9 slice F5 admin system notifications baseline:
+  - added workspace-scoped admin notification channel persistence:
+    - `workspace_admin_notification_channels`
+    - baseline channel type: `webhook`
+  - added admin notification delivery log persistence:
+    - `admin_notification_deliveries`
+  - added admin notification APIs:
+    - `GET /api/v1/admin/notifications/channels`
+    - `PATCH /api/v1/admin/notifications/channels/webhook`
+  - added bounded admin notification channel management authorization:
+    - read: existing admin read roles
+    - write/manage webhook channel: `ops_admin|security_admin|super_admin` (+ narrow owner fallback)
+  - added best-effort non-blocking webhook delivery from selected high-signal audit events:
+    - `assistant.runtime.apply_failed`
+    - `assistant.runtime.apply_degraded`
+    - `assistant.runtime.apply_succeeded`
+    - `admin.plan_created`
+    - `admin.plan_updated`
+  - added `/app` admin system-notifications section for channel configuration and last-delivery visibility
+  - added ADR `docs/ADR/041-admin-system-notifications-f5.md`
 - Step 9 slice F4 business cockpit baseline:
   - added role-gated admin business cockpit endpoint:
     - `GET /api/v1/admin/business/cockpit`

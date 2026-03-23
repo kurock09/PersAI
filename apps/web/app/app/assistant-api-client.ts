@@ -1,5 +1,7 @@
 import {
   type AdminBusinessCockpitState,
+  type AdminNotificationChannelState,
+  type PatchAdminNotificationWebhookChannelRequest,
   type AdminPlanCreateRequest,
   type AdminDangerousActionCode,
   type AdminOpsCockpitState,
@@ -42,11 +44,13 @@ import {
   postAssistantTaskItemEnable as postAssistantTaskItemEnableContract,
   getAdminPlans as getAdminPlansContract,
   getAdminBusinessCockpit as getAdminBusinessCockpitContract,
+  getAdminNotificationChannels as getAdminNotificationChannelsContract,
   getAdminOpsCockpit as getAdminOpsCockpitContract,
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
+  patchAdminNotificationWebhookChannel as patchAdminNotificationWebhookChannelContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract
 } from "@persai/contracts";
 
@@ -801,6 +805,7 @@ export async function postAssistantMemoryDoNotRemember(
 export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
 export type { AdminBusinessCockpitState };
 export type { AdminOpsCockpitState };
+export type { AdminNotificationChannelState, PatchAdminNotificationWebhookChannelRequest };
 export type { UserPlanVisibilityState, AdminPlanVisibilityState };
 export type { TelegramIntegrationState, AssistantTelegramConfigUpdateRequest };
 
@@ -857,6 +862,41 @@ export async function getAdminBusinessCockpit(token: string): Promise<AdminBusin
       throw new Error("Unexpected non-success response for GET /admin/business/cockpit.");
     }
     return response.data.cockpit;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAdminNotificationChannels(
+  token: string
+): Promise<AdminNotificationChannelState[]> {
+  try {
+    const response = await getAdminNotificationChannelsContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/notifications/channels.");
+    }
+    return response.data.channels;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchAdminNotificationWebhookChannel(
+  token: string,
+  input: PatchAdminNotificationWebhookChannelRequest
+): Promise<AdminNotificationChannelState> {
+  try {
+    const response = await patchAdminNotificationWebhookChannelContract(input, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for PATCH /admin/notifications/channels/webhook."
+      );
+    }
+    return response.data.channel;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

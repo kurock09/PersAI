@@ -37,11 +37,13 @@ const assistantApiMocks = vi.hoisted(() => {
     postAssistantMemoryDoNotRemember: vi.fn(),
     getAssistantTaskItems: vi.fn(),
     getAdminPlans: vi.fn(),
+    getAdminNotificationChannels: vi.fn(),
     getAdminBusinessCockpit: vi.fn(),
     getAdminOpsCockpit: vi.fn(),
     getAdminPlanVisibility: vi.fn(),
     postAdminPlanCreate: vi.fn(),
     patchAdminPlan: vi.fn(),
+    patchAdminNotificationWebhookChannel: vi.fn(),
     postAssistantReapply: vi.fn(),
     postAssistantTaskItemDisable: vi.fn(),
     postAssistantTaskItemEnable: vi.fn(),
@@ -96,11 +98,13 @@ vi.mock("./assistant-api-client", async () => {
     postAssistantMemoryDoNotRemember: assistantApiMocks.postAssistantMemoryDoNotRemember,
     getAssistantTaskItems: assistantApiMocks.getAssistantTaskItems,
     getAdminPlans: assistantApiMocks.getAdminPlans,
+    getAdminNotificationChannels: assistantApiMocks.getAdminNotificationChannels,
     getAdminBusinessCockpit: assistantApiMocks.getAdminBusinessCockpit,
     getAdminOpsCockpit: assistantApiMocks.getAdminOpsCockpit,
     getAdminPlanVisibility: assistantApiMocks.getAdminPlanVisibility,
     postAdminPlanCreate: assistantApiMocks.postAdminPlanCreate,
     patchAdminPlan: assistantApiMocks.patchAdminPlan,
+    patchAdminNotificationWebhookChannel: assistantApiMocks.patchAdminNotificationWebhookChannel,
     postAssistantReapply: assistantApiMocks.postAssistantReapply,
     postAssistantTaskItemDisable: assistantApiMocks.postAssistantTaskItemDisable,
     postAssistantTaskItemEnable: assistantApiMocks.postAssistantTaskItemEnable,
@@ -450,6 +454,23 @@ function makeAdminBusinessCockpit() {
   };
 }
 
+function makeAdminNotificationChannels() {
+  return [
+    {
+      channelType: "webhook" as const,
+      status: "active" as const,
+      endpointUrl: "https://ops.example.com/persai/admin-alerts",
+      hasSigningSecret: true,
+      updatedAt: "2026-03-26T12:00:00.000Z",
+      lastDelivery: {
+        deliveryStatus: "succeeded" as const,
+        attemptedAt: "2026-03-26T12:10:00.000Z",
+        errorMessage: null
+      }
+    }
+  ];
+}
+
 describe("AppFlowClient onboarding gate", () => {
   afterEach(() => {
     cleanup();
@@ -475,11 +496,13 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.postAssistantMemoryDoNotRemember.mockReset();
     assistantApiMocks.getAssistantTaskItems.mockReset();
     assistantApiMocks.getAdminPlans.mockReset();
+    assistantApiMocks.getAdminNotificationChannels.mockReset();
     assistantApiMocks.getAdminBusinessCockpit.mockReset();
     assistantApiMocks.getAdminOpsCockpit.mockReset();
     assistantApiMocks.getAdminPlanVisibility.mockReset();
     assistantApiMocks.postAdminPlanCreate.mockReset();
     assistantApiMocks.patchAdminPlan.mockReset();
+    assistantApiMocks.patchAdminNotificationWebhookChannel.mockReset();
     assistantApiMocks.postAssistantReapply.mockReset();
     assistantApiMocks.postAssistantTaskItemDisable.mockReset();
     assistantApiMocks.postAssistantTaskItemEnable.mockReset();
@@ -492,6 +515,7 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.getAssistantPlanVisibility.mockResolvedValue(makeUserPlanVisibility());
     assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
     assistantApiMocks.getAdminPlans.mockResolvedValue([]);
+    assistantApiMocks.getAdminNotificationChannels.mockResolvedValue(makeAdminNotificationChannels());
     assistantApiMocks.getAdminBusinessCockpit.mockResolvedValue(makeAdminBusinessCockpit());
     assistantApiMocks.getAdminOpsCockpit.mockResolvedValue(makeAdminOpsCockpit());
     assistantApiMocks.getAdminPlanVisibility.mockResolvedValue(makeAdminPlanVisibility());
@@ -546,6 +570,8 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getAllByText("Token budget:").length).toBeGreaterThan(0);
     expect(screen.getAllByText("24%").length).toBeGreaterThan(0);
     expect(screen.getByText("Admin plan visibility")).toBeInTheDocument();
+    expect(screen.getByText("Admin system notifications")).toBeInTheDocument();
+    expect(screen.getByText("Configured channels")).toBeInTheDocument();
     expect(screen.getByText("Business cockpit")).toBeInTheDocument();
     expect(screen.getByText("Channel split")).toBeInTheDocument();
     expect(screen.getByText("Ops cockpit")).toBeInTheDocument();
@@ -682,6 +708,34 @@ describe("AppFlowClient onboarding gate", () => {
 
     await waitFor(() => {
       expect(assistantApiMocks.postAdminPlanCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("updates admin webhook notification channel", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.patchAdminNotificationWebhookChannel.mockResolvedValue({
+      channelType: "webhook",
+      status: "active",
+      endpointUrl: "https://ops.example.com/persai/updated",
+      hasSigningSecret: true,
+      updatedAt: "2026-03-26T12:30:00.000Z",
+      lastDelivery: null
+    });
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Admin system notifications")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Webhook endpoint URL"), {
+      target: { value: "https://ops.example.com/persai/updated" }
+    });
+    fireEvent.change(screen.getByLabelText("Signing secret (optional)"), {
+      target: { value: "secret-123" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save webhook channel" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.patchAdminNotificationWebhookChannel).toHaveBeenCalledTimes(1);
     });
   });
 

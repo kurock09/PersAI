@@ -1174,6 +1174,80 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/channels:
+    get:
+      operationId: getAdminNotificationChannels
+      summary: List admin system-notification channels
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Admin system-notification channels
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminNotificationChannelsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/channels/webhook:
+    patch:
+      operationId: patchAdminNotificationWebhookChannel
+      summary: Create or update admin system-notification webhook channel
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchAdminNotificationWebhookChannelRequest"
+      responses:
+        "200":
+          description: Updated webhook notification channel state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatchAdminNotificationWebhookChannelResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/plans/{code}:
     patch:
       operationId: patchAdminPlan
@@ -2941,6 +3015,94 @@ components:
           nullable: true
         cockpit:
           $ref: "#/components/schemas/AdminBusinessCockpitState"
+    AdminNotificationChannelType:
+      type: string
+      enum:
+        - webhook
+    AdminNotificationChannelStatus:
+      type: string
+      enum:
+        - active
+        - inactive
+    AdminNotificationDeliveryStatus:
+      type: string
+      enum:
+        - succeeded
+        - failed
+        - skipped
+    AdminNotificationChannelState:
+      type: object
+      required:
+        - channelType
+        - status
+        - endpointUrl
+        - hasSigningSecret
+        - updatedAt
+        - lastDelivery
+      properties:
+        channelType:
+          $ref: "#/components/schemas/AdminNotificationChannelType"
+        status:
+          $ref: "#/components/schemas/AdminNotificationChannelStatus"
+        endpointUrl:
+          type: string
+          nullable: true
+        hasSigningSecret:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+        lastDelivery:
+          type: object
+          nullable: true
+          required:
+            - deliveryStatus
+            - attemptedAt
+            - errorMessage
+          properties:
+            deliveryStatus:
+              $ref: "#/components/schemas/AdminNotificationDeliveryStatus"
+            attemptedAt:
+              type: string
+              format: date-time
+            errorMessage:
+              type: string
+              nullable: true
+    GetAdminNotificationChannelsResponse:
+      type: object
+      required:
+        - channels
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminNotificationChannelState"
+    PatchAdminNotificationWebhookChannelRequest:
+      type: object
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+        endpointUrl:
+          type: string
+          nullable: true
+        signingSecret:
+          type: string
+          nullable: true
+    PatchAdminNotificationWebhookChannelResponse:
+      type: object
+      required:
+        - channel
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        channel:
+          $ref: "#/components/schemas/AdminNotificationChannelState"
     PostAdminPlanResponse:
       type: object
       required:

@@ -184,3 +184,16 @@ Required in CI:
 - API lint/typecheck validate business cockpit resolver/controller wiring and role-gated read path.
 - Web app-flow tests validate business cockpit section rendering alongside existing admin surfaces.
 - Existing F3 ops cockpit behavior and Step 2 baseline regressions remain green.
+
+## Step 9 F5 focus
+
+- Prisma schema/migration validates admin notification channel and delivery models:
+  - `workspace_admin_notification_channels`
+  - `admin_notification_deliveries`
+- Contracts/OpenAPI generation includes admin notifications endpoints:
+  - `GET /admin/notifications/channels`
+  - `PATCH /admin/notifications/channels/webhook`
+- API lint/typecheck validate:
+  - admin notification channel RBAC enforcement
+  - non-blocking delivery wiring from selected high-signal audit events
+- Web app-flow tests validate admin notification channel section rendering and webhook update action.

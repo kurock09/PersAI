@@ -19,6 +19,7 @@ import type {
   DeleteAssistantWebChatResponse,
   ErrorEnvelope,
   GetAdminBusinessCockpitResponse,
+  GetAdminNotificationChannelsResponse,
   GetAdminOpsCockpitResponse,
   GetAdminPlanVisibilityResponse,
   GetAdminPlansResponse,
@@ -33,6 +34,8 @@ import type {
   GetAssistantWebChatTransportResponse,
   GetMeResponse,
   OnboardingRequest,
+  PatchAdminNotificationWebhookChannelRequest,
+  PatchAdminNotificationWebhookChannelResponse,
   PostAdminPlanResponse,
   PostAdminStepUpChallengeResponse,
   PostAssistantMemoryDoNotRememberResponse,
@@ -1746,6 +1749,118 @@ export const getAdminBusinessCockpit = async ( options?: RequestInit): Promise<g
     method: 'GET'
     
     
+  }
+);}
+
+
+
+/**
+ * @summary List admin system-notification channels
+ */
+export type getAdminNotificationChannelsResponse200 = {
+  data: GetAdminNotificationChannelsResponse
+  status: 200
+}
+
+export type getAdminNotificationChannelsResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAdminNotificationChannelsResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type getAdminNotificationChannelsResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAdminNotificationChannelsResponseSuccess = (getAdminNotificationChannelsResponse200) & {
+  headers: Headers;
+};
+export type getAdminNotificationChannelsResponseError = (getAdminNotificationChannelsResponse401 | getAdminNotificationChannelsResponse403 | getAdminNotificationChannelsResponse500) & {
+  headers: Headers;
+};
+
+export type getAdminNotificationChannelsResponse = (getAdminNotificationChannelsResponseSuccess | getAdminNotificationChannelsResponseError)
+
+export const getGetAdminNotificationChannelsUrl = () => {
+
+
+  
+
+  return `/admin/notifications/channels`
+}
+
+export const getAdminNotificationChannels = async ( options?: RequestInit): Promise<getAdminNotificationChannelsResponse> => {
+  
+  return customFetch<getAdminNotificationChannelsResponse>(getGetAdminNotificationChannelsUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Create or update admin system-notification webhook channel
+ */
+export type patchAdminNotificationWebhookChannelResponse200 = {
+  data: PatchAdminNotificationWebhookChannelResponse
+  status: 200
+}
+
+export type patchAdminNotificationWebhookChannelResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type patchAdminNotificationWebhookChannelResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type patchAdminNotificationWebhookChannelResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type patchAdminNotificationWebhookChannelResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type patchAdminNotificationWebhookChannelResponseSuccess = (patchAdminNotificationWebhookChannelResponse200) & {
+  headers: Headers;
+};
+export type patchAdminNotificationWebhookChannelResponseError = (patchAdminNotificationWebhookChannelResponse400 | patchAdminNotificationWebhookChannelResponse401 | patchAdminNotificationWebhookChannelResponse403 | patchAdminNotificationWebhookChannelResponse500) & {
+  headers: Headers;
+};
+
+export type patchAdminNotificationWebhookChannelResponse = (patchAdminNotificationWebhookChannelResponseSuccess | patchAdminNotificationWebhookChannelResponseError)
+
+export const getPatchAdminNotificationWebhookChannelUrl = () => {
+
+
+  
+
+  return `/admin/notifications/channels/webhook`
+}
+
+export const patchAdminNotificationWebhookChannel = async (patchAdminNotificationWebhookChannelRequest: PatchAdminNotificationWebhookChannelRequest, options?: RequestInit): Promise<patchAdminNotificationWebhookChannelResponse> => {
+  
+  return customFetch<patchAdminNotificationWebhookChannelResponse>(getPatchAdminNotificationWebhookChannelUrl(),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      patchAdminNotificationWebhookChannelRequest,)
   }
 );}
 

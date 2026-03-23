@@ -109,7 +109,7 @@ Foundation Phase
 - [x] F2 — admin RBAC and step-up actions
 - [x] F3 — ops cockpit baseline
 - [x] F4 — business cockpit baseline
-- [ ] F5 — admin system notifications
+- [x] F5 — admin system notifications
 - [ ] F6 — progressive rollout and rollback controls
 
 ## Step 10 Hardening and Recovery

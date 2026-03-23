@@ -301,6 +301,16 @@ O6 defines a future adapter-only contract:
   - ops cockpit = operational/runtime truth
   - business cockpit = commercial/product visibility
 
+## Admin system-notification boundary (Step 9 F5)
+
+- backend now owns explicit workspace-scoped admin notification channel model and delivery logs:
+  - `workspace_admin_notification_channels`
+  - `admin_notification_deliveries`
+- channel management stays in admin control-plane APIs and web admin workspace; notifications do not replace console workflows
+- F5 baseline delivery transport is webhook (system-oriented payload, optional signing secret)
+- notification trigger scope is intentionally bounded to selected high-signal admin/runtime events
+- delivery is best-effort and non-blocking to primary control-plane actions
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

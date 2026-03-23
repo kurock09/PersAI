@@ -1,5 +1,79 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 9 F5 admin system notifications baseline
+
+### What changed
+
+- Added admin system-notification channel persistence model:
+  - `workspace_admin_notification_channels`
+  - baseline channel type: `webhook`
+- Added admin notification delivery log model:
+  - `admin_notification_deliveries`
+- Added admin notifications API surface:
+  - `GET /api/v1/admin/notifications/channels`
+  - `PATCH /api/v1/admin/notifications/channels/webhook`
+- Added bounded admin notification channel RBAC rules:
+  - read/list uses existing admin read surface authorization
+  - webhook channel write/manage requires `ops_admin|security_admin|super_admin` (legacy owner fallback preserved)
+- Added best-effort non-blocking webhook delivery integration on selected high-signal audit events:
+  - `assistant.runtime.apply_failed`
+  - `assistant.runtime.apply_degraded`
+  - `assistant.runtime.apply_succeeded`
+  - `admin.plan_created`
+  - `admin.plan_updated`
+- Added `/app` admin system-notifications section:
+  - webhook channel enable/config form
+  - channel state list with latest delivery summary
+- Added ADR-041 and updated roadmap/docs for F5.
+
+### Why changed
+
+- F5 requires a mandatory admin notification channel so critical system signals can reach admins outside web UI while preserving web as the primary admin workspace.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260328190000_step9_f5_admin_system_notifications/migration.sql`
+- `apps/api/src/modules/workspace-management/application/admin-system-notification.types.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-notification-channels.service.ts`
+- `apps/api/src/modules/workspace-management/application/deliver-admin-system-notification.service.ts`
+- `apps/api/src/modules/workspace-management/application/append-assistant-audit-event.service.ts`
+- `apps/api/src/modules/workspace-management/application/admin-authorization.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-notifications.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/web/app/app/app-flow.client.test.tsx`
+- `docs/ADR/041-admin-system-notifications-f5.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run prisma:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` — passed
+- `corepack pnpm run test:step2` — passed
+
+### Known risks / intentional limits
+
+- F5 supports webhook channel baseline only; no provider matrix, escalation policies, or digest scheduling.
+- Delivery is best-effort and non-blocking; retries/backoff orchestration is intentionally out of scope.
+- Signal set is intentionally bounded to selected high-signal events in this slice.
+
+### Next recommended step
+
+- Step 9 **F6** progressive rollout and rollback controls baseline.
+
+### Ready commit message
+
+- `feat(api-web): add step 9 f5 admin system-notification channel baseline with webhook delivery`
+
 ## 2026-03-24 - Step 9 F4 business cockpit baseline
 
 ### What changed

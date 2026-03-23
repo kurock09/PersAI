@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { DeliverAdminSystemNotificationService } from "./deliver-admin-system-notification.service";
 
 export type AssistantAuditOutcome = "succeeded" | "failed" | "degraded" | "denied";
 
@@ -17,10 +18,13 @@ export interface AppendAssistantAuditEventInput {
 
 @Injectable()
 export class AppendAssistantAuditEventService {
-  constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
+  constructor(
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly deliverAdminSystemNotificationService: DeliverAdminSystemNotificationService
+  ) {}
 
   async execute(input: AppendAssistantAuditEventInput): Promise<void> {
-    await this.prisma.assistantAuditEvent.create({
+    const created = await this.prisma.assistantAuditEvent.create({
       data: {
         workspaceId: input.workspaceId,
         assistantId: input.assistantId,
@@ -32,5 +36,16 @@ export class AppendAssistantAuditEventService {
         details: (input.details ?? {}) as Prisma.InputJsonValue
       }
     });
+    void this.deliverAdminSystemNotificationService
+      .executeFromAuditEvent({
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        actorUserId: input.actorUserId,
+        eventCode: input.eventCode,
+        summary: input.summary,
+        details: input.details ?? {},
+        createdAt: created.createdAt.toISOString()
+      })
+      .catch(() => undefined);
   }
 }

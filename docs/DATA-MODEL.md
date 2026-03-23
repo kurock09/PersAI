@@ -228,6 +228,29 @@ Postgres with Prisma.
 - created_at
 - updated_at
 
+### workspace_admin_notification_channels (Step 9 F5 baseline)
+
+- id (UUID)
+- workspace_id (UUID FK -> `workspaces.id`)
+- channel_type (`webhook`)
+- status (`active|inactive`)
+- endpoint_url (nullable varchar 512)
+- signing_secret (nullable varchar 256)
+- created_by_user_id (nullable UUID FK -> `app_users.id`)
+- created_at
+- updated_at
+
+### admin_notification_deliveries (Step 9 F5 baseline)
+
+- id (UUID)
+- workspace_id (UUID FK -> `workspaces.id`)
+- channel_id (UUID FK -> `workspace_admin_notification_channels.id`)
+- signal_code (varchar 128)
+- delivery_status (`succeeded|failed|skipped`)
+- payload (jsonb)
+- error_message (nullable varchar 512)
+- attempted_at
+
 ### workspace_subscriptions (Step 7 P3 baseline)
 
 - id (UUID)
@@ -396,6 +419,17 @@ Postgres with Prisma.
   - unique tuple: `(user_id, workspace_id, role_code)`
   - index: `(workspace_id, role_code)`
   - stores explicit admin RBAC assignments without collapsing all admin surfaces into one broad role
+- `workspace_admin_notification_channels`:
+  - primary key: `id`
+  - unique tuple: `(workspace_id, channel_type)`
+  - index: `(workspace_id, status)`
+  - stores workspace-scoped admin notification channel state for system-oriented delivery outside web UI
+- `admin_notification_deliveries`:
+  - primary key: `id`
+  - indexes:
+    - `(workspace_id, attempted_at DESC)`
+    - `(channel_id, attempted_at DESC)`
+  - stores append-only delivery outcomes per signal/channel attempt
 - `workspace_subscriptions`:
   - primary key: `id`
   - unique: `workspace_id` (one current subscription state row per workspace in P3)
@@ -448,6 +482,7 @@ Postgres with Prisma.
 - E4 adds canonical assistant-scoped provider/surface binding persistence for Telegram connect/config (`assistant_channel_surface_bindings`) and keeps web as primary control-plane surface
 - F1 adds append-only `assistant_audit_events` with immutable rows for critical lifecycle/runtime/admin/policy/binding transitions only (no unbounded raw event dump)
 - F2 adds explicit `app_user_admin_roles` RBAC model and dangerous-action step-up gating for admin writes; legacy owner fallback remains narrow compatibility path
+- F5 adds workspace-scoped admin system-notification channel and delivery-log tables; delivery is system-oriented and does not replace admin console workflows
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

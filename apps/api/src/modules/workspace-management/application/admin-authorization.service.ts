@@ -57,6 +57,16 @@ export class AdminAuthorizationService {
     return context;
   }
 
+  async assertCanManageAdminSystemNotifications(userId: string): Promise<AdminAccessContext> {
+    const context = await this.resolveAdminAccessContext(userId);
+    if (!this.hasAnyRole(context, ["ops_admin", "security_admin", "super_admin"])) {
+      throw new ForbiddenException(
+        "Admin system-notification channel management requires ops/security/super-admin role or legacy owner fallback."
+      );
+    }
+    return context;
+  }
+
   async assertCanPerformDangerousAdminAction(
     userId: string,
     action: DangerousAdminActionCode,

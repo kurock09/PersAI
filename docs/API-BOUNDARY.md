@@ -642,6 +642,28 @@ Behavior baseline:
   - plan usage snapshot
 - this endpoint is a baseline business cockpit, not a heavy BI/reporting platform
 
+## Step 9 F5 admin system notifications
+
+### GET /api/v1/admin/notifications/channels
+
+- authenticated caller only
+- requires admin read role:
+  - `ops_admin|business_admin|security_admin|super_admin`
+  - or legacy owner fallback
+- returns configured admin notification channels and latest delivery summary
+
+### PATCH /api/v1/admin/notifications/channels/webhook
+
+- authenticated caller only
+- requires admin notification-management role:
+  - `ops_admin|security_admin|super_admin`
+  - or legacy owner fallback
+- upserts workspace webhook notification channel with:
+  - `enabled`
+  - `endpointUrl`
+  - optional `signingSecret`
+- payload validates URL shape and ensures endpoint is present when enabling
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

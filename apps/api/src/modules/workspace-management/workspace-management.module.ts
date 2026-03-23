@@ -4,6 +4,7 @@ import { AdminPlansController } from "./interface/http/admin-plans.controller";
 import { AdminSecurityController } from "./interface/http/admin-security.controller";
 import { AdminOpsController } from "./interface/http/admin-ops.controller";
 import { AdminBusinessController } from "./interface/http/admin-business.controller";
+import { AdminNotificationsController } from "./interface/http/admin-notifications.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
@@ -18,6 +19,8 @@ import { AppendAssistantAuditEventService } from "./application/append-assistant
 import { AdminAuthorizationService } from "./application/admin-authorization.service";
 import { ResolveAdminOpsCockpitService } from "./application/resolve-admin-ops-cockpit.service";
 import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-business-cockpit.service";
+import { ManageAdminNotificationChannelsService } from "./application/manage-admin-notification-channels.service";
+import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -78,7 +81,8 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminPlansController,
     AdminSecurityController,
     AdminOpsController,
-    AdminBusinessController
+    AdminBusinessController,
+    AdminNotificationsController
   ],
   providers: [
     WorkspaceManagementPrismaService,
@@ -86,6 +90,8 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminAuthorizationService,
     ResolveAdminOpsCockpitService,
     ResolveAdminBusinessCockpitService,
+    ManageAdminNotificationChannelsService,
+    DeliverAdminSystemNotificationService,
     GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,

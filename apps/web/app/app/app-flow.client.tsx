@@ -10,6 +10,8 @@ import {
 } from "@persai/contracts";
 import {
   type AdminBusinessCockpitState,
+  type AdminNotificationChannelState,
+  type PatchAdminNotificationWebhookChannelRequest,
   type AdminOpsCockpitState,
   type AdminPlanVisibilityState,
   type AdminPlanCreateRequest,
@@ -20,6 +22,7 @@ import {
   type UserPlanVisibilityState,
   deleteAssistantWebChat,
   getAdminBusinessCockpit,
+  getAdminNotificationChannels,
   getAdminOpsCockpit,
   getAdminPlanVisibility,
   getAdminPlans,
@@ -30,6 +33,7 @@ import {
   getAssistantTaskItems,
   getAssistantWebChats,
   patchAssistantDraft,
+  patchAdminNotificationWebhookChannel,
   patchAdminPlan,
   patchAssistantWebChat,
   patchAssistantTelegramConfig,
@@ -532,6 +536,17 @@ export function AppFlowClient() {
   );
   const [isLoadingAdminPlanVisibility, setIsLoadingAdminPlanVisibility] = useState(false);
   const [adminPlanVisibilityFeedback, setAdminPlanVisibilityFeedback] = useState<string | null>(null);
+  const [adminNotificationChannels, setAdminNotificationChannels] = useState<
+    AdminNotificationChannelState[]
+  >([]);
+  const [isLoadingAdminNotificationChannels, setIsLoadingAdminNotificationChannels] = useState(false);
+  const [adminNotificationChannelsFeedback, setAdminNotificationChannelsFeedback] = useState<
+    string | null
+  >(null);
+  const [adminNotificationWebhookEnabled, setAdminNotificationWebhookEnabled] = useState(false);
+  const [adminNotificationWebhookEndpointUrl, setAdminNotificationWebhookEndpointUrl] = useState("");
+  const [adminNotificationWebhookSigningSecret, setAdminNotificationWebhookSigningSecret] = useState("");
+  const [isSavingAdminNotificationWebhook, setIsSavingAdminNotificationWebhook] = useState(false);
   const [adminBusinessCockpit, setAdminBusinessCockpit] =
     useState<AdminBusinessCockpitState | null>(null);
   const [isLoadingAdminBusinessCockpit, setIsLoadingAdminBusinessCockpit] = useState(false);
@@ -754,6 +769,34 @@ export function AppFlowClient() {
     }
   }, [flowState, getToken]);
 
+  const loadAdminNotificationChannels = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setAdminNotificationChannels([]);
+      return;
+    }
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+    try {
+      setIsLoadingAdminNotificationChannels(true);
+      const channels = await getAdminNotificationChannels(token);
+      setAdminNotificationChannels(channels);
+      const webhookChannel = channels.find((entry) => entry.channelType === "webhook") ?? null;
+      if (webhookChannel !== null) {
+        setAdminNotificationWebhookEnabled(webhookChannel.status === "active");
+        setAdminNotificationWebhookEndpointUrl(webhookChannel.endpointUrl ?? "");
+      }
+      setAdminNotificationChannelsFeedback(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load admin notifications.";
+      setAdminNotificationChannelsFeedback(message);
+    } finally {
+      setIsLoadingAdminNotificationChannels(false);
+    }
+  }, [flowState, getToken]);
+
   const loadWebChatList = useCallback(async () => {
     if (flowState.type !== "ready" || flowState.data.assistantState === null) {
       setChatList([]);
@@ -921,6 +964,14 @@ export function AppFlowClient() {
     }
     void loadAdminBusinessCockpit();
   }, [flowState, loadAdminBusinessCockpit]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setAdminNotificationChannels([]);
+      return;
+    }
+    void loadAdminNotificationChannels();
+  }, [flowState, loadAdminNotificationChannels]);
 
   const onboardingRequired = useMemo(() => {
     return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
@@ -1246,6 +1297,38 @@ export function AppFlowClient() {
       setAdminOpsCockpitFeedback(message);
     } finally {
       setIsReapplying(false);
+    }
+  }
+
+  async function onSaveAdminNotificationWebhook(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+    const input: PatchAdminNotificationWebhookChannelRequest = {
+      enabled: adminNotificationWebhookEnabled,
+      endpointUrl:
+        adminNotificationWebhookEndpointUrl.trim().length > 0
+          ? adminNotificationWebhookEndpointUrl.trim()
+          : null,
+      signingSecret:
+        adminNotificationWebhookSigningSecret.trim().length > 0
+          ? adminNotificationWebhookSigningSecret.trim()
+          : null
+    };
+    try {
+      setIsSavingAdminNotificationWebhook(true);
+      await patchAdminNotificationWebhookChannel(token, input);
+      setAdminNotificationWebhookSigningSecret("");
+      await loadAdminNotificationChannels();
+      setAdminNotificationChannelsFeedback("Admin notification webhook updated.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update notification webhook.";
+      setAdminNotificationChannelsFeedback(message);
+    } finally {
+      setIsSavingAdminNotificationWebhook(false);
     }
   }
 
@@ -2766,6 +2849,76 @@ export function AppFlowClient() {
               </section>
             </>
           )}
+        </section>
+      )}
+
+      {me.workspace.role === "owner" && (
+        <section>
+          <h2>Admin system notifications</h2>
+          <p>
+            System-oriented alert delivery for critical admin/platform signals outside the web UI.
+            Web remains the primary admin workspace.
+          </p>
+          {isLoadingAdminNotificationChannels && <p>Loading notification channels…</p>}
+          {adminNotificationChannelsFeedback !== null && <p>{adminNotificationChannelsFeedback}</p>}
+          <button
+            type="button"
+            disabled={isLoadingAdminNotificationChannels}
+            onClick={() => void loadAdminNotificationChannels()}
+          >
+            Refresh notification channels
+          </button>
+          <section>
+            <h3>Webhook channel</h3>
+            <form onSubmit={(event) => void onSaveAdminNotificationWebhook(event)}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={adminNotificationWebhookEnabled}
+                  onChange={(event) => setAdminNotificationWebhookEnabled(event.target.checked)}
+                />
+                Enable webhook notifications
+              </label>
+              <label htmlFor="adminNotificationWebhookEndpoint">Webhook endpoint URL</label>
+              <input
+                id="adminNotificationWebhookEndpoint"
+                value={adminNotificationWebhookEndpointUrl}
+                onChange={(event) => setAdminNotificationWebhookEndpointUrl(event.target.value)}
+                placeholder="https://ops.example.com/persai/admin-alerts"
+              />
+              <label htmlFor="adminNotificationWebhookSigningSecret">
+                Signing secret (optional)
+              </label>
+              <input
+                id="adminNotificationWebhookSigningSecret"
+                value={adminNotificationWebhookSigningSecret}
+                onChange={(event) => setAdminNotificationWebhookSigningSecret(event.target.value)}
+                placeholder="shared-secret"
+                type="password"
+              />
+              <button type="submit" disabled={isSavingAdminNotificationWebhook}>
+                {isSavingAdminNotificationWebhook ? "Saving..." : "Save webhook channel"}
+              </button>
+            </form>
+          </section>
+          <section>
+            <h3>Configured channels</h3>
+            {adminNotificationChannels.length === 0 ? (
+              <p>No admin notification channels configured yet.</p>
+            ) : (
+              <ul>
+                {adminNotificationChannels.map((channel) => (
+                  <li key={channel.channelType}>
+                    <strong>{channel.channelType}</strong>: {channel.status}
+                    {channel.endpointUrl !== null ? `, endpoint ${channel.endpointUrl}` : ", no endpoint"}
+                    {channel.lastDelivery !== null
+                      ? `, last delivery ${channel.lastDelivery.deliveryStatus} at ${channel.lastDelivery.attemptedAt}`
+                      : ", no deliveries yet"}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </section>
       )}
 
