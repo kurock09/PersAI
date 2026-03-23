@@ -4,6 +4,13 @@
 
 ### Added
 
+- Step 6 slice D4 tasks control domain hardening:
+  - added `assistant_governance.tasks_control` JSON column with MVP default envelope `persai.tasksControl.v1` (ownership, source/surface hooks, control lifecycle labels, enable/disable/cancel, explicit tasks-excluded-from-commercial-quotas, audit routing)
+  - migration backfills from legacy `policyEnvelope.tasksControl` when present
+  - materialization resolves `openclawWorkspace.tasksControl` from the new column with legacy fallback
+  - `GET /api/v1/assistant` governance block now includes `tasksControl` (OpenAPI + generated contracts)
+  - API script `test:tasks-control` for resolve/unit assertions
+  - ADR `docs/ADR/022-tasks-control-domain-d4.md`
 - Step 6 slice D3 memory source policy enforcement:
   - evaluates `memory_control` on Memory Center read paths (list, forget, do-not-remember) via `globalMemoryReadAllSurfaces`
   - evaluates global registry write policy on web chat turn completion (`trusted_1to1` + allowed/trusted surfaces; denies `group` for global registry)

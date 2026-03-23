@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
+import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
@@ -68,6 +69,7 @@ export class MaterializeAssistantPublishedVersionService {
       (await this.assistantGovernanceRepository.createBaseline(assistant.id));
 
     const memoryControl = resolveEffectiveMemoryControlFromGovernance(governance);
+    const tasksControl = resolveEffectiveTasksControlFromGovernance(governance);
 
     const layers = {
       schema: MATERIALIZATION_SCHEMA,
@@ -124,7 +126,8 @@ export class MaterializeAssistantPublishedVersionService {
         displayName: publishedVersion.snapshotDisplayName,
         instructions: publishedVersion.snapshotInstructions
       },
-      memoryControl
+      memoryControl,
+      tasksControl
     };
 
     const layersDocument = toDeterministicDocument(layers);
@@ -155,6 +158,7 @@ export class MaterializeAssistantPublishedVersionService {
       secretRefs: governance.secretRefs,
       policyEnvelope: governance.policyEnvelope,
       memoryControl: governance.memoryControl,
+      tasksControl: governance.tasksControl,
       quota: {
         planCode: governance.quotaPlanCode,
         hook: governance.quotaHook

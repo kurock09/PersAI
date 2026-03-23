@@ -44,6 +44,7 @@ export * from "./workspaceSummaryStatus";
 export * from './assistantChatMessageAuthor';
 export * from './assistantChatSurface';
 export * from './assistantGovernanceStateMemoryControl';
+export * from './assistantGovernanceStateTasksControl';
 export * from './assistantMemoryDoNotRememberRequest';
 export * from './assistantMemoryRegistryItemState';
 export * from './assistantMemoryRegistrySourceType';

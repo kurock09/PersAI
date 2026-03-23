@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { AssistantGovernance as PrismaAssistantGovernance, Prisma } from "@prisma/client";
 import { createDefaultMemoryControlEnvelope } from "../../domain/assistant-memory-control.defaults";
+import { createDefaultTasksControlEnvelope } from "../../domain/assistant-tasks-control.defaults";
 import type { AssistantGovernanceRepository } from "../../domain/assistant-governance.repository";
 import type { AssistantGovernance } from "../../domain/assistant-governance.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
@@ -21,7 +22,8 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
     const governance = await this.prisma.assistantGovernance.create({
       data: {
         assistantId,
-        memoryControl: createDefaultMemoryControlEnvelope() as Prisma.InputJsonValue
+        memoryControl: createDefaultMemoryControlEnvelope() as Prisma.InputJsonValue,
+        tasksControl: createDefaultTasksControlEnvelope() as Prisma.InputJsonValue
       }
     });
 
@@ -70,6 +72,7 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
       secretRefs: governance.secretRefs,
       policyEnvelope: governance.policyEnvelope,
       memoryControl: governance.memoryControl,
+      tasksControl: governance.tasksControl,
       quotaPlanCode: governance.quotaPlanCode,
       quotaHook: governance.quotaHook,
       auditHook: governance.auditHook,

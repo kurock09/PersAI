@@ -198,6 +198,7 @@ Behavior baseline:
     - `secretRefs`
     - `policyEnvelope`
     - `memoryControl` (Step 6 D1: control-plane memory governance envelope; not raw runtime memory)
+    - `tasksControl` (Step 6 D4: control-plane tasks/reminders/triggers envelope; not execution/scheduling)
     - `quotaPlanCode`
     - `quotaHook`
     - `auditHook`
@@ -353,6 +354,12 @@ Behavior baseline:
 - **Read** (`policy.globalMemoryReadAllSurfaces`): when `false`, `GET /api/v1/assistant/memory/items`, `POST .../forget`, and `POST .../do-not-remember` return **409 Conflict** (global memory surfaced/actioned via these endpoints is disabled).
 - **Write** (registry row after successful web chat turn): requires `trusted_1to1` source classification, `group` is denied for global registry writes; transport must be in `policy.allowedGlobalWriteSurfaces` and `policy.trustedOneToOneGlobalWriteSurfaces` (defaults: `web` only). Denied writes **do not fail** the chat turn; the record hook **skips** registry insert (no error response on the chat endpoint).
 - Trust/surface vocabulary is also stored under `governance.memoryControl.sourceClassification` for explicit control-model documentation; evaluation uses the typed policy module in `apps/api` (ADR-021).
+
+## Step 6 D4 tasks control envelope rule
+
+- Canonical tasks control JSON lives in `assistant_governance.tasks_control` and is exposed as `governance.tasksControl` on assistant lifecycle reads.
+- Materialization resolves `openclawWorkspace.tasksControl` from that column, with legacy fallback to `policyEnvelope.tasksControl`, then MVP defaults (`resolveEffectiveTasksControlFromGovernance`).
+- The envelope defines ownership, source/surface hooks, control lifecycle **labels**, user enable/disable/cancel affordances, **explicit exclusion of tasks from commercial plan quotas**, and audit delegation — not runtime schedules or execution routing (OpenClaw-owned). See ADR-022.
 
 ## Step 3 A7 materialization rule
 

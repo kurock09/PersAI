@@ -8,6 +8,7 @@ import type { AssistantGovernanceStateCapabilityEnvelope } from './assistantGove
 import type { AssistantGovernanceStateSecretRefs } from './assistantGovernanceStateSecretRefs';
 import type { AssistantGovernanceStatePolicyEnvelope } from './assistantGovernanceStatePolicyEnvelope';
 import type { AssistantGovernanceStateMemoryControl } from './assistantGovernanceStateMemoryControl';
+import type { AssistantGovernanceStateTasksControl } from './assistantGovernanceStateTasksControl';
 import type { AssistantGovernanceStateQuotaHook } from './assistantGovernanceStateQuotaHook';
 import type { AssistantGovernanceStateAuditHook } from './assistantGovernanceStateAuditHook';
 
@@ -24,6 +25,12 @@ export interface AssistantGovernanceState {
    * @nullable
    */
   memoryControl: AssistantGovernanceStateMemoryControl;
+  /**
+   * Step 6 D4 control-plane tasks/reminders/triggers governance (ownership, source/surface hooks, control lifecycle labels, enable/disable/cancel flags, commercial quota exclusion for tasks, audit routing). OpenClaw owns execution and scheduling; PersAI does not run a backend scheduler here.
+
+   * @nullable
+   */
+  tasksControl: AssistantGovernanceStateTasksControl;
   /** @nullable */
   quotaPlanCode: string | null;
   /** @nullable */

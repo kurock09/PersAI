@@ -149,6 +149,7 @@ model AssistantGovernance {
   secretRefs         Json?     @map("secret_refs")
   policyEnvelope     Json?     @map("policy_envelope")
   memoryControl      Json?     @map("memory_control")
+  tasksControl       Json?     @map("tasks_control")
   quotaPlanCode      String?   @map("quota_plan_code")
   quotaHook          Json?     @map("quota_hook")
   auditHook          Json?     @map("audit_hook")

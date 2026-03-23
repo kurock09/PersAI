@@ -108,6 +108,12 @@ O6 defines a future adapter-only contract:
 - items are created on successful web chat completion (sync + stream paths); list/forget/do-not-remember APIs are assistant-scoped
 - “Do not remember” updates registry rows and appends to `memory_control.forgetRequestMarkers` for governance continuity
 
+## Tasks control boundary (Step 6 D4)
+
+- backend owns **`tasks_control`** on `assistant_governance` (`persai.tasksControl.v1`): ownership model, source/surface tagging hooks, control-plane lifecycle labels, user enable/disable/cancel flags, **explicit `commercialQuota.tasksExcludedFromPlanQuotas`** (tasks are not a billable quota dimension), audit delegation
+- OpenClaw owns **execution, scheduling, and trigger routing**; PersAI does not implement a backend scheduler in D4
+- materialized `openclawWorkspace.tasksControl` carries the resolved envelope for runtime alignment without inferring policy locally
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

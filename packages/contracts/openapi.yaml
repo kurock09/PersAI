@@ -952,6 +952,7 @@ components:
         - secretRefs
         - policyEnvelope
         - memoryControl
+        - tasksControl
         - quotaPlanCode
         - quotaHook
         - auditHook
@@ -973,6 +974,14 @@ components:
           description: >
             Step 6 D1 control-plane memory governance envelope (policy, provenance hooks,
             visibility hooks, forget-request markers, audit routing). Not raw OpenClaw/runtime memory.
+          type: object
+          additionalProperties: true
+          nullable: true
+        tasksControl:
+          description: >
+            Step 6 D4 control-plane tasks/reminders/triggers governance (ownership, source/surface hooks,
+            control lifecycle labels, enable/disable/cancel flags, commercial quota exclusion for tasks,
+            audit routing). OpenClaw owns execution and scheduling; PersAI does not run a backend scheduler here.
           type: object
           additionalProperties: true
           nullable: true

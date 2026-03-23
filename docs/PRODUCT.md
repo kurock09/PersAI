@@ -360,11 +360,11 @@ Tasks are part of the assistant product, not just hidden runtime magic.
 
 ### Backend control layer includes
 - ownership
-- source/surface
-- status
+- source/surface (metadata for user-facing Tasks Center; execution routing stays OpenClaw)
+- status (control-plane labels for visibility; runtime execution state stays OpenClaw)
 - enable/disable
 - cancel
-- quotas
+- commercial plan quotas **must not** use tasks/reminders/triggers as a billable dimension (see `tasks_control.commercialQuota.tasksExcludedFromPlanQuotas` in backend governance)
 - audit
 - visibility
 

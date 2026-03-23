@@ -1,5 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - Step 6 D4 tasks control domain hardening
+
+### What changed
+
+- Added canonical **`tasks_control`** on `assistant_governance` with default **`persai.tasksControl.v1`**: ownership (`user_assistant_owner`), source/surface hooks (`knownSurfaces`, `requireSurfaceTag`), control lifecycle **labels** (`statusKinds` + `executionOwnedBy: openclaw_runtime`), enable/disable and cancel flags, **`commercialQuota.tasksExcludedFromPlanQuotas: true`**, audit delegation to governance `auditHook`.
+- Resolution + materialization: **`openclawWorkspace.tasksControl`** uses column → `policyEnvelope.tasksControl` → defaults; governance layer snapshot includes raw `tasksControl`.
+- API/OpenAPI/contracts: **`governance.tasksControl`** on assistant lifecycle reads.
+- **PRODUCT.md** corrected: tasks/reminders are not a commercial quota dimension (aligned with envelope).
+- Docs: ADR-022, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- D4 hardens the hybrid model: PersAI owns control/visibility metadata; OpenClaw owns execution — without a backend scheduler or task router.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`, migration `20260325120000_step6_d4_tasks_control_domain`
+- `apps/api/src/modules/workspace-management/domain/assistant-tasks-control.defaults.ts`, `tasks-control-resolve.ts`, `assistant-governance.entity.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-governance.repository.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`, `assistant-lifecycle.mapper.ts`, `assistant-lifecycle.types.ts`
+- `packages/contracts/openapi.yaml`, `packages/contracts/src/generated/*`
+- `apps/api/test/tasks-control-resolve.test.ts`, `apps/api/package.json`
+- `apps/web/app/app/app-flow.client.test.tsx`
+- `docs/ADR/022-tasks-control-domain-d4.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/PRODUCT.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run typecheck` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run test:tasks-control` — passed
+- `corepack pnpm run test:step2` — passed
+- `corepack pnpm run prisma:migrate:check` — not run in this session (requires Postgres)
+
+### Known risks / intentional limits
+
+- No task rows, list APIs, or UI (D5); envelope is control-plane only.
+- OpenClaw must still interpret `openclawWorkspace.tasksControl` if/when runtime integration needs it.
+
+### Next recommended step
+
+- Step 6 **D5** Tasks Center MVP (per `docs/ROADMAP.md`).
+
+### Ready commit message
+
+- `feat(api): add step 6 d4 tasks control envelope and materialization`
+
 ## 2026-03-24 - Step 6 D3 memory source policy enforcement
 
 ### What changed
@@ -37,7 +83,7 @@
 
 ### Next recommended step
 
-- Step 6 **D4** tasks control domain hardening (per `docs/ROADMAP.md`).
+- Step 6 **D5** Tasks Center MVP (per `docs/ROADMAP.md`).
 
 ### Ready commit message
 

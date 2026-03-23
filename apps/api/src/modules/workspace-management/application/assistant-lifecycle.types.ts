@@ -46,6 +46,8 @@ export interface AssistantGovernanceState {
   policyEnvelope: unknown | null;
   /** Step 6 D1: memory control-plane envelope (not runtime memory contents). */
   memoryControl: unknown | null;
+  /** Step 6 D4: tasks/reminders/triggers control-plane envelope (not execution or scheduling). */
+  tasksControl: unknown | null;
   quotaPlanCode: string | null;
   quotaHook: unknown | null;
   auditHook: unknown | null;

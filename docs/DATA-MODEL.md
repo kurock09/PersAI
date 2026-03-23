@@ -70,6 +70,7 @@ Postgres with Prisma.
 - secret_refs (jsonb, nullable)
 - policy_envelope (jsonb, nullable)
 - memory_control (jsonb, nullable) — Step 6 D1/D3: canonical memory control-plane envelope (`persai.memoryControl.v1` baseline), including `policy` (read/write surfaces, deny group-sourced global writes, trusted 1:1 write surfaces) and `sourceClassification` (named trust classes for global registry; D3)
+- tasks_control (jsonb, nullable) — Step 6 D4: canonical tasks/reminders/triggers control-plane envelope (`persai.tasksControl.v1` baseline: ownership, source/surface hooks, control lifecycle labels, enablement/cancellation, commercial quota exclusion for tasks, audit routing)
 - quota_plan_code (nullable)
 - quota_hook (jsonb, nullable)
 - audit_hook (jsonb, nullable)
@@ -168,6 +169,7 @@ Postgres with Prisma.
     - secret refs
     - policy envelope
     - memory control envelope (policy, provenance hooks, visibility hooks, forget-request markers, audit routing)
+    - tasks control envelope (ownership, source/surface hooks, control lifecycle labels, enablement/cancellation, tasks excluded from commercial quotas, audit routing)
     - quota plan/hook placeholders
     - audit hook placeholder
 - `assistant_materialized_specs`:
@@ -230,6 +232,7 @@ Postgres with Prisma.
 - D1 adds first-class `memory_control` JSON on `assistant_governance` for memory policy/hooks/markers; runtime memory behavior stays outside backend tables
 - D2 adds `assistant_memory_registry_items` for Memory Center summaries (web chat derived); not a dump of OpenClaw runtime memory
 - D3 adds explicit `sourceClassification` + `trustedOneToOneGlobalWriteSurfaces` in the envelope (with SQL backfill) and server-side evaluation of global registry read/write policy
+- D4 adds first-class `tasks_control` JSON on `assistant_governance` for task/reminder/trigger **control** metadata; execution and scheduling remain outside PersAI backend
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1
