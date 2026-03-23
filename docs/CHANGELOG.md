@@ -64,6 +64,18 @@
   - rollback availability remains tied to backend truth (`latestPublishedVersion.version > 1`)
   - preserved B1-B4 lifecycle/apply status model and kept raw runtime diagnostics hidden
   - updated web tests for rollback request flow and reset confirmation + reset execution flows
+- Step 4 slice B6 assistant activity/update markers:
+  - added lightweight `Assistant activity and updates` markers in `apps/web` control surface
+  - markers are intentionally non-intrusive and limited to meaningful user-level lifecycle signals
+  - ordinary soft markers now include:
+    - assistant live after latest apply
+    - soft platform-managed update applied (when platform-managed timestamp is present)
+  - recovery-worthy markers now include:
+    - apply needs attention (`failed|degraded`)
+    - recent rollback/reset recovery action markers
+  - when no meaningful signal exists, UI shows a quiet no-update message instead of noisy alerts
+  - admin/debug internals remain hidden from user-facing markers
+  - updated web tests for ordinary markers, recovery-worthy markers, and no-update branch
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

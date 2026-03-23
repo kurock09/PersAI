@@ -64,7 +64,7 @@ Foundation Phase
 - [x] B3 — quick start and advanced setup
 - [x] B4 — publish/apply UX states
 - [x] B5 — rollback/reset UX
-- [ ] B6 — assistant activity/update markers
+- [x] B6 — assistant activity/update markers
 
 ## Step 5 Web Chat Core
 

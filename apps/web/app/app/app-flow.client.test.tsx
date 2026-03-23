@@ -175,6 +175,33 @@ function makeAssistantResponseWithApplyStatus(
   };
 }
 
+function makeAssistantResponseWithoutVisibleUpdates(): AssistantLifecycleState {
+  const state = makeAssistantResponse();
+  return {
+    ...state,
+    draft: {
+      displayName: null,
+      instructions: null,
+      updatedAt: null
+    },
+    latestPublishedVersion: null,
+    runtimeApply: {
+      ...state.runtimeApply,
+      status: "not_requested",
+      finishedAt: null,
+      error: null
+    },
+    governance: {
+      ...state.governance,
+      platformManagedUpdatedAt: null
+    },
+    materialization: {
+      ...state.materialization,
+      sourceAction: null
+    }
+  };
+}
+
 describe("AppFlowClient onboarding gate", () => {
   afterEach(() => {
     cleanup();
@@ -233,6 +260,9 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByText("Lifecycle safety controls")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rollback to selected version" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset assistant" })).toBeInTheDocument();
+    expect(screen.getByText("Assistant activity and updates")).toBeInTheDocument();
+    expect(screen.getByText("Update:")).toBeInTheDocument();
+    expect(screen.getByText("Assistant is live after the latest apply.")).toBeInTheDocument();
     expect(screen.getByTestId("user-button")).toBeInTheDocument();
   });
 
@@ -324,6 +354,29 @@ describe("AppFlowClient onboarding gate", () => {
     });
     expect(screen.getByText("Publish requested. Apply state is tracked separately.")).toBeInTheDocument();
     expect(screen.getByText("Applying")).toBeInTheDocument();
+  });
+
+  it("shows recovery-worthy update marker when apply fails", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponseWithApplyStatus("failed"));
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Assistant activity and updates")).toBeInTheDocument();
+    expect(screen.getByText("Attention:")).toBeInTheDocument();
+    expect(
+      screen.getByText("Latest apply needs attention. Consider rollback if a previous version was stable.")
+    ).toBeInTheDocument();
+  });
+
+  it("shows no visible marker message when no meaningful update exists", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponseWithoutVisibleUpdates());
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Assistant activity and updates")).toBeInTheDocument();
+    expect(screen.getByText("No visible assistant updates right now.")).toBeInTheDocument();
   });
 
   it("rolls back to selected published version", async () => {

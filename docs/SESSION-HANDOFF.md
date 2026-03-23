@@ -2,6 +2,17 @@
 
 ## What changed
 
+- Completed Step 4 slice `B6` only (assistant activity/update markers in `apps/web`):
+  - added lightweight `Assistant activity and updates` block to the user control surface
+  - added non-intrusive ordinary markers for meaningful user-facing lifecycle updates
+  - added recovery-worthy markers for apply failure/degraded outcomes and recent rollback/reset actions
+  - added quiet no-update branch (`No visible assistant updates right now.`) to avoid notification noise
+  - kept markers read-only and aligned with control-plane truth (no draft/version mutation side effects)
+  - kept admin/debug runtime internals hidden from marker UI
+  - updated web tests for:
+    - ordinary marker visibility
+    - recovery-worthy marker visibility
+    - no-meaningful-update branch
 - Completed Step 4 slice `B5` only (rollback/reset UX in `apps/web`):
   - added `Lifecycle safety controls` block with user-facing rollback and reset actions
   - rollback UX:
@@ -160,6 +171,9 @@
 
 ## Why changed
 
+- Platform-managed updates should be visible enough to feel trustworthy, but not noisy enough to feel intrusive.
+- B6 introduces lightweight markers that separate ordinary updates from recovery-worthy events while preserving the soft auto-update model.
+- This keeps user-facing transparency high without leaking admin/support diagnostics or turning the UI into an alert feed.
 - Step 4 requires safe lifecycle recovery controls in user-facing UI before deeper activity/history work.
 - B5 provides rollback/reset controls that match backend semantics and force explicit reset confirmation to prevent accidental destructive assistant-content resets.
 - The UI now communicates rollback vs reset consequences without introducing account-deletion behavior or hiding meaningful impact.
@@ -225,6 +239,11 @@
 
 ## Files touched
 
+- apps/web/app/app/app-flow.client.tsx
+- apps/web/app/app/app-flow.client.test.tsx
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
 - apps/web/app/app/assistant-api-client.ts
 - apps/web/app/app/app-flow.client.tsx
 - apps/web/app/app/app-flow.client.test.tsx

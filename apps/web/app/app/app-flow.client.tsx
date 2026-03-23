@@ -47,6 +47,13 @@ type AdvancedSetupPayload = {
 
 type PublishStateLabel = "Draft has changes" | "Publishing" | "Published" | "Draft only";
 type ApplyStateLabel = "Applying" | "Live" | "Failed" | "Not requested";
+type UpdateMarkerTone = "info" | "attention";
+
+type UpdateMarker = {
+  id: string;
+  tone: UpdateMarkerTone;
+  message: string;
+};
 
 function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
   return {
@@ -116,6 +123,64 @@ function toApplyStateLabel(assistantState: AssistantLifecycleState): ApplyStateL
     default:
       return "Not requested";
   }
+}
+
+function buildUpdateMarkers(
+  assistantState: AssistantLifecycleState,
+  draftHasChanges: boolean
+): UpdateMarker[] {
+  const markers: UpdateMarker[] = [];
+
+  if (assistantState.runtimeApply.status === "failed" || assistantState.runtimeApply.status === "degraded") {
+    markers.push({
+      id: "apply-needs-attention",
+      tone: "attention",
+      message: "Latest apply needs attention. Consider rollback if a previous version was stable."
+    });
+  }
+
+  if (assistantState.materialization.sourceAction === "rollback") {
+    markers.push({
+      id: "recent-rollback",
+      tone: "attention",
+      message: "Recent recovery event: rollback created a new latest published baseline."
+    });
+  }
+
+  if (assistantState.materialization.sourceAction === "reset") {
+    markers.push({
+      id: "recent-reset",
+      tone: "attention",
+      message: "Recent recovery event: reset created a new blank assistant baseline."
+    });
+  }
+
+  if (
+    assistantState.governance.platformManagedUpdatedAt !== null &&
+    assistantState.runtimeApply.status !== "failed" &&
+    assistantState.runtimeApply.status !== "degraded"
+  ) {
+    markers.push({
+      id: "soft-platform-update",
+      tone: "info",
+      message:
+        "A soft platform update was applied in the background. Your draft ownership remains unchanged."
+    });
+  }
+
+  if (
+    assistantState.runtimeApply.status === "succeeded" &&
+    assistantState.runtimeApply.finishedAt !== null &&
+    !draftHasChanges
+  ) {
+    markers.push({
+      id: "assistant-live",
+      tone: "info",
+      message: "Assistant is live after the latest apply."
+    });
+  }
+
+  return markers.slice(0, 3);
 }
 
 export function AppFlowClient() {
@@ -490,6 +555,8 @@ export function AppFlowClient() {
     assistantState !== null &&
     assistantState.latestPublishedVersion !== null &&
     assistantState.latestPublishedVersion.version > 1;
+  const updateMarkers =
+    assistantState !== null ? buildUpdateMarkers(assistantState, draftHasChanges) : [];
 
   if (onboardingRequired) {
     return (
@@ -647,6 +714,25 @@ export function AppFlowClient() {
         )}
         {publishFeedback !== null && <p>{publishFeedback}</p>}
       </section>
+
+      {assistantState !== null && (
+        <section>
+          <h2>Assistant activity and updates</h2>
+          <p>Lightweight lifecycle signals. No internal runtime traces are shown here.</p>
+          {updateMarkers.length === 0 ? (
+            <p>No visible assistant updates right now.</p>
+          ) : (
+            <ul>
+              {updateMarkers.map((marker) => (
+                <li key={marker.id}>
+                  <strong>{marker.tone === "attention" ? "Attention" : "Update"}:</strong>{" "}
+                  {marker.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {assistantState !== null && (
         <section>
