@@ -218,6 +218,38 @@ Expected baseline:
 - `/api/v1/me/onboarding` returns onboarding `completed` and workspace summary.
 - repeated onboarding call with same payload remains stable (idempotent state).
 
+21. Verify OpenClaw O4 standalone runtime health from inside cluster:
+
+```bash
+# Deployment/service/pod status
+kubectl -n persai-dev get deploy/openclaw
+kubectl -n persai-dev get svc/openclaw
+kubectl -n persai-dev get pods -l app.kubernetes.io/name=openclaw -o wide
+
+# Probe behavior configured on deployment
+kubectl -n persai-dev describe deploy openclaw
+
+# Runtime listener confirmation
+kubectl -n persai-dev logs deployment/openclaw --tail=80
+
+# In-cluster HTTP health/readiness against service DNS name
+kubectl -n persai-dev run openclaw-healthcheck-o4 --image=curlimages/curl:8.10.1 --restart=Never --command -- \
+  sh -c "curl -fsS http://openclaw:18789/healthz && echo && curl -fsS http://openclaw:18789/readyz"
+kubectl -n persai-dev wait --for=jsonpath='{.status.phase}'=Succeeded pod/openclaw-healthcheck-o4 --timeout=90s
+kubectl -n persai-dev logs pod/openclaw-healthcheck-o4
+kubectl -n persai-dev delete pod openclaw-healthcheck-o4 --wait=true
+```
+
+Expected O4 signals:
+
+- `deploy/openclaw` shows `READY 1/1` and `AVAILABLE 1`.
+- `pod` for OpenClaw shows `1/1 Running`.
+- deployment describe includes readiness `GET /readyz` and liveness `GET /healthz` on port `18789`.
+- logs show gateway listening on `ws://0.0.0.0:18789`.
+- in-cluster health pod returns:
+  - `{"ok":true,"status":"live"}`
+  - `{"ready":true}`
+
 ## OpenClaw Rule
 
 - OpenClaw is enabled in O3 dev wiring as a standalone service.

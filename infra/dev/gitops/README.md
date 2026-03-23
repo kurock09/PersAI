@@ -154,3 +154,23 @@ Remaining known blocker before first successful pod start:
 ## Manual procedures
 
 - Cleanup/reset and first deploy runbook: `infra/dev/gke/RUNBOOK.md`
+
+## OpenClaw O4 runtime verification result (dev)
+
+Observed verification baseline in `persai-dev`:
+
+- deployment: `openclaw` is `1/1` available
+- pod selector `app.kubernetes.io/name=openclaw`: `1/1 Running`
+- service: `openclaw` (`ClusterIP`) on `18789/TCP`
+- runtime logs: gateway listening on `ws://0.0.0.0:18789`
+- in-cluster HTTP checks:
+  - `GET /healthz` -> `{"ok":true,"status":"live"}`
+  - `GET /readyz` -> `{"ready":true}`
+
+Exact in-cluster address baseline for later consumers:
+
+- service DNS: `openclaw.persai-dev.svc.cluster.local`
+- gateway HTTP base: `http://openclaw.persai-dev.svc.cluster.local:18789`
+- gateway WebSocket base: `ws://openclaw.persai-dev.svc.cluster.local:18789`
+- health path: `/healthz`
+- readiness path: `/readyz`

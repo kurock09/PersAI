@@ -257,6 +257,21 @@
     - set `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback=false`
   - updated runbooks/docs for manual sync and validation steps
   - marked `O3` complete in `docs/ROADMAP.md`
+- Step 3 slice O4 OpenClaw health/runtime verification (docs + operational checks):
+  - verified OpenClaw in `persai-dev` as standalone runtime with observable checks:
+    - `deploy/openclaw` available (`1/1`)
+    - pod selector `app.kubernetes.io/name=openclaw` running (`1/1`)
+    - service `openclaw` exposed as `ClusterIP` on `18789/TCP`
+  - verified readiness/liveness behavior:
+    - deployment probes configured to `GET /readyz` and `GET /healthz` on port `18789`
+    - in-cluster checks returned:
+      - `{"ok":true,"status":"live"}`
+      - `{"ready":true}`
+  - verified runtime gateway behavior from logs:
+    - gateway listens on `ws://0.0.0.0:18789`
+  - documented exact O4 verification commands in `infra/dev/gke/RUNBOOK.md`
+  - documented in-cluster OpenClaw address/port/path baseline in `infra/dev/gitops/README.md`
+  - marked `O4` complete in `docs/ROADMAP.md`
 
 ### Changed
 
