@@ -33,6 +33,14 @@ Postgres with Prisma.
 - role
 - created_at
 
+### assistants (Step 3 A1 baseline)
+
+- id (UUID)
+- user_id (unique)
+- workspace_id
+- created_at
+- updated_at
+
 ## Prisma baseline (Step 1 slice 5)
 
 - `app_users`:
@@ -46,6 +54,12 @@ Postgres with Prisma.
   - foreign keys: `workspace_id -> workspaces.id`, `user_id -> app_users.id`
   - `role` enum: `owner | member`
   - unique membership pair: `(workspace_id, user_id)`
+- `assistants`:
+  - primary key: `id`
+  - unique: `user_id` (**enforces MVP: 1 user = 1 assistant**)
+  - foreign keys: `user_id -> app_users.id`, `workspace_id -> workspaces.id`
+  - scoped-membership FK: `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
+  - unique pair: `(workspace_id, user_id)` to keep assistant bound to one concrete user-workspace membership record
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -60,6 +74,8 @@ Postgres with Prisma.
 - membership model exists from day one
 - no OpenClaw runtime fields in domain tables
 - no manual schema changes; Prisma migrations only
+- assistant is a first-class domain entity (not embedded in `app_users` or `workspaces`)
+- Step 3 A1 supports assistant data model only (no publish/version, runtime apply, chat, channels, or OpenClaw calls)
 
 ## Step 2 onboarding write baseline (slice 3)
 

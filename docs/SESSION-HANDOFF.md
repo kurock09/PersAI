@@ -2,81 +2,87 @@
 
 ## What changed
 
-- Completed Step 3 O6 backend-to-OpenClaw integration contract definition (docs-only).
-- Added ADR:
-  - `docs/ADR/013-openclaw-backend-integration-contract.md`
-- Defined intended future `apps/api -> OpenClaw` boundary:
-  - calls allowed only through dedicated infrastructure adapter
-  - no direct OpenClaw coupling in domain/application layers
-- Selected transport for first integration step:
-  - **HTTP** (WebSocket deferred)
-- Defined first minimal supported interaction for future thin adapter:
-  - runtime preflight only:
-    - `GET /healthz`
-    - `GET /readyz`
-- Defined boundary failure model:
-  - `runtime_unreachable`
-  - `auth_failure`
-  - `timeout`
-  - `invalid_response`
-  - `runtime_degraded`
-- Defined config responsibility split:
-  - backend owns adapter enablement + timeout/retry + failure mapping
-  - infra owns service routing + token delivery + deploy baseline
-  - OpenClaw owns runtime internals and internal endpoint behavior
-- Updated architecture/API boundary docs and roadmap:
-  - `docs/ARCHITECTURE.md`
-  - `docs/API-BOUNDARY.md`
-  - `docs/ROADMAP.md` (`O6` marked complete)
+- Completed Step 3 slice `A1` (assistant domain model baseline) with minimal scope.
+- Added first-class assistant persistence model in backend control plane:
+  - Prisma model/table: `assistants`
+  - fields: `id`, `user_id`, `workspace_id`, `created_at`, `updated_at`
+- Enforced MVP rule `1 user = 1 assistant` in DB:
+  - unique constraint on `assistants.user_id`
+- Enforced assistant as user-primary and workspace-scoped in DB:
+  - FK `assistants.user_id -> app_users.id`
+  - FK `assistants.workspace_id -> workspaces.id`
+  - scoped-membership FK `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
+- Added Prisma migration for this model:
+  - `apps/api/prisma/migrations/20260323120000_step3_a1_assistant_domain_model/migration.sql`
+- Added minimal assistant backend module baseline in `workspace-management` (no API routes):
+  - domain entity/type
+  - repository contract
+  - Prisma repository implementation
+  - read service (`GetAssistantByUserIdService`)
+- Updated docs:
+  - `docs/DATA-MODEL.md`
+  - `docs/ROADMAP.md` (`A1` marked complete)
   - `docs/CHANGELOG.md`
   - `docs/SESSION-HANDOFF.md`
 
 ## Why changed
 
-- O6 requires contract formalization before any backend runtime coupling.
-- The contract keeps `apps/api` control-plane oriented and prevents leakage of OpenClaw runtime internals into domain/business modules.
+- A1 requires introducing assistant as a standalone control-plane entity before any lifecycle/runtime/chat features.
+- This establishes strict ownership truth in `apps/api` while keeping OpenClaw and chat concerns out of scope.
 
 ## Decisions made
 
-- `apps/api -> OpenClaw` integration is adapter-only at infrastructure boundary.
-- Transport choice for first integration step: HTTP.
-- First adapter capability is preflight-only (`/healthz`, `/readyz`), no business command dispatch.
-- Backend may know only base URL/token wiring, timeout/retry policy, and coarse runtime state.
-- Forbidden leakage into backend/domain:
-  - provider/channel/tool internals
-  - memory/reasoning/runtime behavior internals
-  - OpenClaw internal endpoint/state semantics outside approved contract
-- Error model at boundary is fixed to five classes:
-  - `runtime_unreachable`
-  - `auth_failure`
-  - `timeout`
-  - `invalid_response`
-  - `runtime_degraded`
+- Assistant remains independent from `app_users` and `workspaces` as its own domain entity/table.
+- Enforce `1 user = 1 assistant` at DB level (not by controller/runtime logic).
+- Assistant is explicitly scoped to a workspace membership pair `(workspace_id, user_id)`.
+- No API or behavior expansion in A1:
+  - no lifecycle endpoints
+  - no publish/version model
+  - no runtime apply state
+  - no OpenClaw calls
+  - no chat/channels/Telegram/tool routing logic
 
 ## Files touched
 
-- docs/ADR/013-openclaw-backend-integration-contract.md
-- docs/ARCHITECTURE.md
-- docs/API-BOUNDARY.md
+- apps/api/prisma/schema.prisma
+- apps/api/prisma/migrations/20260323120000_step3_a1_assistant_domain_model/migration.sql
+- apps/api/src/modules/workspace-management/workspace-management.module.ts
+- apps/api/src/modules/workspace-management/domain/assistant.entity.ts
+- apps/api/src/modules/workspace-management/domain/assistant.repository.ts
+- apps/api/src/modules/workspace-management/application/get-assistant-by-user-id.service.ts
+- apps/api/src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service.ts
+- apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant.repository.ts
+- docs/DATA-MODEL.md
 - docs/ROADMAP.md
 - docs/CHANGELOG.md
 - docs/SESSION-HANDOFF.md
 
 ## Migrations run
 
-- Not run.
+- Added new Prisma migration file for A1:
+  - `20260323120000_step3_a1_assistant_domain_model`
+- Migration apply command was not executed in this slice (file added only).
 
 ## Tests run / result
 
-- Docs-only slice; no code/runtime changes applied in O6.
-- No additional runtime tests run in this slice.
+- `corepack pnpm run prisma:generate` - passed
+- `corepack pnpm --filter @persai/api run lint` - passed
+- `corepack pnpm run typecheck` - passed
+- `corepack pnpm run test:step2` - passed
+- `corepack pnpm run build` - passed
+- `corepack pnpm run lint` (full repo) - not clean due pre-existing Prettier issues in unrelated files:
+  - `.github/workflows/openclaw-dev-image-publish.yml`
+  - `infra/dev/gitops/README.md`
+  - `infra/dev/gke/README.md`
+  - `infra/dev/gke/RUNBOOK.md`
+  - `README.md`
 
 ## Known risks
 
-- Future adapter implementation must enforce the boundary strictly; direct module-level leakage is still possible if not reviewed.
-- HTTP-first decision keeps integration simple but may require later extension for streaming use cases.
-- Contract currently scopes only preflight interaction; product interaction semantics remain deferred.
+- Current backend module baseline is intentionally minimal and not yet exposed via API.
+- Migration introduces new table and constraints; environments must run Prisma migration before using assistant persistence.
+- Multi-module Prisma client usage exists (`identity-access` and `workspace-management`) and should be revisited when A2 introduces lifecycle API wiring.
 
 ## Next recommended step
 
-- Implement the thin infrastructure adapter stub in `apps/api` using this ADR contract, still without exposing product features.
+- Implement Step 3 slice `A2` only: assistant lifecycle API skeleton over existing A1 persistence model, while keeping OpenClaw integration and publish/version logic out of scope.

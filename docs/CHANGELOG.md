@@ -289,6 +289,18 @@
   - defined config responsibility split between backend, infra, and OpenClaw runtime
   - updated boundary docs in `docs/ARCHITECTURE.md` and `docs/API-BOUNDARY.md`
   - marked `O6` complete in `docs/ROADMAP.md`
+- Step 3 slice A1 assistant domain model baseline:
+  - added first-class `assistants` domain table/model in Prisma with fields:
+    - `id`, `user_id`, `workspace_id`, `created_at`, `updated_at`
+  - enforced MVP rule `1 user = 1 assistant` via unique `assistants.user_id`
+  - enforced user-primary + workspace-scoped binding with FK constraints:
+    - `assistants.user_id -> app_users.id`
+    - `assistants.workspace_id -> workspaces.id`
+    - `(assistants.workspace_id, assistants.user_id) -> workspace_members(workspace_id, user_id)`
+  - added minimal assistant domain/application/infrastructure baseline in `apps/api` `workspace-management` module (no new API routes)
+  - kept Step 2 auth/onboarding/workspace flows unchanged
+  - kept OpenClaw O1-O6 contract assumptions unchanged and introduced no runtime/OpenClaw calls
+  - marked `A1` complete in `docs/ROADMAP.md`
 
 ### Changed
 

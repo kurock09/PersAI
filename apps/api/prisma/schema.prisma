@@ -24,6 +24,7 @@ model AppUser {
   displayName    String?           @map("display_name")
   createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant      Assistant?
   workspaceLinks WorkspaceMember[]
 
   @@map("app_users")
@@ -37,6 +38,7 @@ model Workspace {
   status    WorkspaceStatus
   createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistants Assistant[]
   members   WorkspaceMember[]
 
   @@map("workspaces")
@@ -48,9 +50,24 @@ model WorkspaceMember {
   userId      String        @map("user_id") @db.Uuid
   role        WorkspaceRole
   createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant   Assistant?    @relation("AssistantWorkspaceScope")
   workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   user        AppUser       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([workspaceId, userId])
   @@map("workspace_members")
+}
+
+model Assistant {
+  id              String          @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  userId          String          @unique @map("user_id") @db.Uuid
+  workspaceId     String          @map("workspace_id") @db.Uuid
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user            AppUser         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace       Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember WorkspaceMember @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("assistants")
 }
