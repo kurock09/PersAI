@@ -55,6 +55,15 @@
   - added `Publish draft` action wired to `POST /assistant/publish` with explicit copy that apply tracking remains separate
   - preserved strict publish/apply separation and avoided exposing raw runtime traces
   - updated web tests to validate publish/apply mapping and publish action behavior
+- Step 4 slice B5 rollback/reset UX:
+  - added user-facing lifecycle safety controls in `apps/web`:
+    - rollback control with target version input (`POST /assistant/rollback`)
+    - reset control with explicit confirmation checkbox + `RESET` text confirmation (`POST /assistant/reset`)
+  - added user-facing explanation of rollback vs reset semantics in control surface copy
+  - reset copy explicitly states reset does not delete account/ownership and focuses on assistant content reset
+  - rollback availability remains tied to backend truth (`latestPublishedVersion.version > 1`)
+  - preserved B1-B4 lifecycle/apply status model and kept raw runtime diagnostics hidden
+  - updated web tests for rollback request flow and reset confirmation + reset execution flows
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

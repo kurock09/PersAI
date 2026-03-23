@@ -1,10 +1,13 @@
 import {
   type AssistantDraftUpdateRequest,
+  type AssistantRollbackRequest,
   ContractsApiError,
   type AssistantLifecycleState,
   getAssistant as getAssistantContract,
   patchAssistantDraft as patchAssistantDraftContract,
   postAssistantPublish as postAssistantPublishContract,
+  postAssistantReset as postAssistantResetContract,
+  postAssistantRollback as postAssistantRollbackContract,
   postAssistantCreate as postAssistantCreateContract
 } from "@persai/contracts";
 
@@ -89,6 +92,41 @@ export async function postAssistantPublish(token: string): Promise<AssistantLife
 
     if (response.status !== 200) {
       throw new Error("Unexpected non-success response for POST /assistant/publish.");
+    }
+
+    return response.data.assistant;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantRollback(
+  token: string,
+  payload: AssistantRollbackRequest
+): Promise<AssistantLifecycleState> {
+  try {
+    const response = await postAssistantRollbackContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for POST /assistant/rollback.");
+    }
+
+    return response.data.assistant;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantReset(token: string): Promise<AssistantLifecycleState> {
+  try {
+    const response = await postAssistantResetContract({
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for POST /assistant/reset.");
     }
 
     return response.data.assistant;

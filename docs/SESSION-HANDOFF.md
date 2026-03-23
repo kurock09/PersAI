@@ -2,6 +2,22 @@
 
 ## What changed
 
+- Completed Step 4 slice `B5` only (rollback/reset UX in `apps/web`):
+  - added `Lifecycle safety controls` block with user-facing rollback and reset actions
+  - rollback UX:
+    - target-version input
+    - explicit rollback action wired to `POST /assistant/rollback`
+    - human-readable feedback after request
+  - reset UX:
+    - explicit semantics copy (reset assistant content; not account deletion)
+    - required confirmation checkbox
+    - required `RESET` typed confirmation
+    - reset action wired to `POST /assistant/reset`
+  - preserved lifecycle semantics from backend model:
+    - rollback creates a new latest published snapshot from selected version
+    - reset creates a new blank assistant content baseline while preserving ownership/workspace scope
+  - preserved B1-B4 dashboard/editor/publish-apply state behavior
+  - updated web tests for rollback flow and reset confirmation/execution flow
 - Completed Step 4 slice `B4` only (publish/apply UX state model in `apps/web`):
   - added explicit publish/apply state labels in global status area
   - publish-state labels surfaced:
@@ -144,6 +160,9 @@
 
 ## Why changed
 
+- Step 4 requires safe lifecycle recovery controls in user-facing UI before deeper activity/history work.
+- B5 provides rollback/reset controls that match backend semantics and force explicit reset confirmation to prevent accidental destructive assistant-content resets.
+- The UI now communicates rollback vs reset consequences without introducing account-deletion behavior or hiding meaningful impact.
 - Step 4 requires a user-friendly but honest lifecycle model where users can understand publish and apply as separate truths.
 - B4 makes publish/apply progress and failure outcomes visible without exposing raw runtime internals.
 - This keeps lifecycle transparency aligned with control-plane state and prepares rollback/reset UX work in B5.
@@ -206,6 +225,12 @@
 
 ## Files touched
 
+- apps/web/app/app/assistant-api-client.ts
+- apps/web/app/app/app-flow.client.tsx
+- apps/web/app/app/app-flow.client.test.tsx
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
 - apps/web/app/app/assistant-api-client.ts
 - apps/web/app/app/app-flow.client.tsx
 - apps/web/app/app/app-flow.client.test.tsx

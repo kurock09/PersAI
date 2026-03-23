@@ -7,7 +7,9 @@ import {
   getAssistant,
   patchAssistantDraft,
   postAssistantCreate,
-  postAssistantPublish
+  postAssistantPublish,
+  postAssistantReset,
+  postAssistantRollback
 } from "./assistant-api-client";
 import { CurrentMeResponse, OnboardingPayload, getMe, postOnboarding } from "./me-api-client";
 
@@ -126,9 +128,16 @@ export function AppFlowClient() {
   const [isCreatingAssistant, setIsCreatingAssistant] = useState(false);
   const [isApplyingSetup, setIsApplyingSetup] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isRollingBack, setIsRollingBack] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [setupMode, setSetupMode] = useState<SetupMode>("quick_start");
   const [setupFeedback, setSetupFeedback] = useState<string | null>(null);
   const [publishFeedback, setPublishFeedback] = useState<string | null>(null);
+  const [rollbackFeedback, setRollbackFeedback] = useState<string | null>(null);
+  const [resetFeedback, setResetFeedback] = useState<string | null>(null);
+  const [rollbackTargetVersion, setRollbackTargetVersion] = useState<string>("1");
+  const [resetConfirmChecked, setResetConfirmChecked] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState("");
   const [quickStartPayload, setQuickStartPayload] = useState<QuickStartPayload>({
     displayName: "",
     primaryGoal: ""
@@ -198,6 +207,11 @@ export function AppFlowClient() {
       displayName: draft?.displayName ?? "",
       instructions: draft?.instructions ?? ""
     });
+
+    const latestVersion = flowState.data.assistantState?.latestPublishedVersion?.version ?? 1;
+    setRollbackTargetVersion(String(Math.max(1, latestVersion - 1)));
+    setResetConfirmChecked(false);
+    setResetConfirmText("");
   }, [flowState]);
 
   const onboardingRequired = useMemo(() => {
@@ -283,6 +297,8 @@ export function AppFlowClient() {
       setIsApplyingSetup(true);
       setSetupFeedback(null);
       setPublishFeedback(null);
+      setRollbackFeedback(null);
+      setResetFeedback(null);
 
       const existingAssistant = flowState.data.assistantState;
       const assistantForUpdate =
@@ -342,6 +358,8 @@ export function AppFlowClient() {
     try {
       setIsPublishing(true);
       setPublishFeedback(null);
+      setRollbackFeedback(null);
+      setResetFeedback(null);
       const updatedAssistant = await postAssistantPublish(token);
 
       setFlowState({
@@ -357,6 +375,87 @@ export function AppFlowClient() {
       setPublishFeedback(message);
     } finally {
       setIsPublishing(false);
+    }
+  }
+
+  async function onRollbackToVersion(): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      return;
+    }
+
+    const parsedTargetVersion = Number.parseInt(rollbackTargetVersion, 10);
+    if (!Number.isFinite(parsedTargetVersion) || parsedTargetVersion < 1) {
+      setRollbackFeedback("Rollback target version must be a number greater than or equal to 1.");
+      return;
+    }
+
+    try {
+      setIsRollingBack(true);
+      setRollbackFeedback(null);
+      setResetFeedback(null);
+      const updatedAssistant = await postAssistantRollback(token, {
+        targetVersion: parsedTargetVersion
+      });
+
+      setFlowState({
+        type: "ready",
+        data: {
+          meState: flowState.data.meState,
+          assistantState: updatedAssistant
+        }
+      });
+      setRollbackFeedback("Rollback requested. A new published version was created from the selected target.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Rollback request failed.";
+      setRollbackFeedback(message);
+    } finally {
+      setIsRollingBack(false);
+    }
+  }
+
+  async function onResetAssistant(): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      return;
+    }
+
+    if (!resetConfirmChecked || resetConfirmText.trim() !== "RESET") {
+      setResetFeedback("Confirm reset by checking the box and typing RESET.");
+      return;
+    }
+
+    try {
+      setIsResetting(true);
+      setResetFeedback(null);
+      setRollbackFeedback(null);
+      const updatedAssistant = await postAssistantReset(token);
+
+      setFlowState({
+        type: "ready",
+        data: {
+          meState: flowState.data.meState,
+          assistantState: updatedAssistant
+        }
+      });
+      setResetFeedback(
+        "Reset requested. Draft and published content were reset; account and ownership were preserved."
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Reset request failed.";
+      setResetFeedback(message);
+    } finally {
+      setIsResetting(false);
     }
   }
 
@@ -548,6 +647,74 @@ export function AppFlowClient() {
         )}
         {publishFeedback !== null && <p>{publishFeedback}</p>}
       </section>
+
+      {assistantState !== null && (
+        <section>
+          <h2>Lifecycle safety controls</h2>
+          <p>
+            <strong>Rollback</strong> returns assistant content to a selected published version by
+            creating a new latest published snapshot.
+          </p>
+          <p>
+            <strong>Reset</strong> clears assistant content to a new blank state while preserving
+            account ownership and workspace attachment.
+          </p>
+
+          <section>
+            <h3>Rollback</h3>
+            <p>
+              Use rollback when a previous version worked better and you want to recover it as the
+              new latest published state.
+            </p>
+            <label htmlFor="rollbackTargetVersion">Target version</label>
+            <input
+              id="rollbackTargetVersion"
+              type="number"
+              min={1}
+              value={rollbackTargetVersion}
+              onChange={(event) => setRollbackTargetVersion(event.target.value)}
+            />
+            <button
+              type="button"
+              disabled={isRollingBack || !rollbackAvailable}
+              onClick={() => void onRollbackToVersion()}
+            >
+              {isRollingBack ? "Rolling back..." : "Rollback to selected version"}
+            </button>
+            {!rollbackAvailable && (
+              <p>Rollback becomes available after at least two published versions exist.</p>
+            )}
+            {rollbackFeedback !== null && <p>{rollbackFeedback}</p>}
+          </section>
+
+          <section>
+            <h3>Reset</h3>
+            <p>
+              Reset does not delete your account. It resets assistant draft/published content and
+              creates a new blank published baseline.
+            </p>
+            <label htmlFor="resetConfirmCheckbox">
+              <input
+                id="resetConfirmCheckbox"
+                type="checkbox"
+                checked={resetConfirmChecked}
+                onChange={(event) => setResetConfirmChecked(event.target.checked)}
+              />
+              I understand reset changes assistant content and cannot be undone from this screen.
+            </label>
+            <label htmlFor="resetConfirmText">Type RESET to confirm</label>
+            <input
+              id="resetConfirmText"
+              value={resetConfirmText}
+              onChange={(event) => setResetConfirmText(event.target.value)}
+            />
+            <button type="button" disabled={isResetting} onClick={() => void onResetAssistant()}>
+              {isResetting ? "Resetting..." : "Reset assistant"}
+            </button>
+            {resetFeedback !== null && <p>{resetFeedback}</p>}
+          </section>
+        </section>
+      )}
 
       <section>
         <h2>Assistant summary</h2>

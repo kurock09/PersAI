@@ -23,7 +23,9 @@ const assistantApiMocks = vi.hoisted(() => {
     getAssistant: vi.fn(),
     postAssistantCreate: vi.fn(),
     patchAssistantDraft: vi.fn(),
-    postAssistantPublish: vi.fn()
+    postAssistantPublish: vi.fn(),
+    postAssistantRollback: vi.fn(),
+    postAssistantReset: vi.fn()
   };
 });
 
@@ -57,7 +59,9 @@ vi.mock("./assistant-api-client", async () => {
     getAssistant: assistantApiMocks.getAssistant,
     postAssistantCreate: assistantApiMocks.postAssistantCreate,
     patchAssistantDraft: assistantApiMocks.patchAssistantDraft,
-    postAssistantPublish: assistantApiMocks.postAssistantPublish
+    postAssistantPublish: assistantApiMocks.postAssistantPublish,
+    postAssistantRollback: assistantApiMocks.postAssistantRollback,
+    postAssistantReset: assistantApiMocks.postAssistantReset
   };
 });
 
@@ -182,6 +186,8 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.postAssistantCreate.mockReset();
     assistantApiMocks.patchAssistantDraft.mockReset();
     assistantApiMocks.postAssistantPublish.mockReset();
+    assistantApiMocks.postAssistantRollback.mockReset();
+    assistantApiMocks.postAssistantReset.mockReset();
   });
 
   it("shows onboarding gate when /me returns pending", async () => {
@@ -224,6 +230,9 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByRole("heading", { name: "Quick start", level: 3 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Quick start path" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Advanced setup path" })).toBeInTheDocument();
+    expect(screen.getByText("Lifecycle safety controls")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rollback to selected version" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset assistant" })).toBeInTheDocument();
     expect(screen.getByTestId("user-button")).toBeInTheDocument();
   });
 
@@ -315,5 +324,67 @@ describe("AppFlowClient onboarding gate", () => {
     });
     expect(screen.getByText("Publish requested. Apply state is tracked separately.")).toBeInTheDocument();
     expect(screen.getByText("Applying")).toBeInTheDocument();
+  });
+
+  it("rolls back to selected published version", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.postAssistantRollback.mockResolvedValue(makeAssistantResponseWithApplyStatus("pending"));
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Lifecycle safety controls")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Target version"), {
+      target: { value: "1" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Rollback to selected version" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantRollback).toHaveBeenCalledTimes(1);
+    });
+    expect(assistantApiMocks.postAssistantRollback).toHaveBeenCalledWith("token-user-1", {
+      targetVersion: 1
+    });
+    expect(
+      screen.getByText("Rollback requested. A new published version was created from the selected target.")
+    ).toBeInTheDocument();
+  });
+
+  it("requires explicit confirmation before reset", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Lifecycle safety controls")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reset assistant" }));
+    expect(await screen.findByText(/Confirm reset by checking the box and typing RESET/)).toBeInTheDocument();
+    expect(assistantApiMocks.postAssistantReset).not.toHaveBeenCalled();
+  });
+
+  it("resets assistant after explicit confirmation", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.postAssistantReset.mockResolvedValue(
+      makeAssistantResponseWithDraft(null, null)
+    );
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Lifecycle safety controls")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByLabelText(
+        "I understand reset changes assistant content and cannot be undone from this screen."
+      )
+    );
+    fireEvent.change(screen.getByLabelText("Type RESET to confirm"), {
+      target: { value: "RESET" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reset assistant" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantReset).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByText(/Reset requested\./)).toBeInTheDocument();
   });
 });
