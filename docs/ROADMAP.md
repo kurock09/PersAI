@@ -65,6 +65,7 @@ Foundation Phase
 - [x] B4 — publish/apply UX states
 - [x] B5 — rollback/reset UX
 - [x] B6 — assistant activity/update markers
+- [x] Step 4 closure stabilization (live hybrid validation + client status handling + minimal visual baseline)
 
 ## Step 5 Web Chat Core
 

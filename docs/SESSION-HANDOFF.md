@@ -1,5 +1,57 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - Step 4 closure stabilization slice
+
+### What changed
+
+- Closed Step 4 validation loop with a narrow web/docs stabilization slice:
+  - hardened browser/runtime API base URL resolution in `packages/contracts/src/mutator/custom-fetch.ts`
+  - normalized first-time assistant state handling in `apps/web/app/app/assistant-api-client.ts` (`GET /assistant` `404` -> `null`)
+  - accepted `200|201` for onboarding/assistant create-publish-rollback-reset flows in web API clients
+  - applied minimal visual baseline in `apps/web/app/globals.css` (cards, spacing, form/button states, typography)
+  - aligned hybrid live-test config to same-origin API pathing in `apps/web/.env.local` (`/api/v1` + rewrite target)
+- Updated docs for Step 4 closure and stabilization:
+  - `docs/CHANGELOG.md`
+  - `docs/ROADMAP.md`
+  - `docs/SESSION-HANDOFF.md`
+
+### Why changed
+
+- Live validation across two accounts surfaced stability gaps after onboarding/assistant bootstrap:
+  - false-fatal `404` handling for assistant-not-created state
+  - browser-side fetch fallback that could bypass same-origin proxy and fail in hybrid mode
+- A minimal style baseline was required to make Step 4 control surface usable without waiting for full design/polish phases.
+- Goal: close Step 4 as functionally complete and operationally verifiable without backend/API scope expansion.
+
+### Files touched
+
+- packages/contracts/src/mutator/custom-fetch.ts
+- apps/web/app/app/assistant-api-client.ts
+- apps/web/app/app/me-api-client.ts
+- apps/web/app/globals.css
+- docs/CHANGELOG.md
+- docs/ROADMAP.md
+- docs/SESSION-HANDOFF.md
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` - passed
+- Manual live checks in hybrid mode (`local web + GKE api port-forward`) - passed for onboarding/assistant create/publish/apply paths
+
+### Known risks
+
+- Hybrid mode remains dependent on a stable local `kubectl port-forward` session for `svc/api` on `localhost:3001`.
+- Full visual polish/design-system scope is intentionally deferred; current styling is baseline-only.
+
+### Next recommended step
+
+- Start Step 5 `Web Chat Core` (`C1`) while preserving Step 4 closure behavior.
+- Optionally define a dedicated `Step 4.5 UI polish` milestone if design polish should be tracked independently before Step 5 expansion.
+
+### Ready commit message
+
+- `docs: close step 4 with hybrid stability fixes and minimal web styling baseline`
+
 ## What changed
 
 - Completed Step 4 slice `B6` only (assistant activity/update markers in `apps/web`):

@@ -76,6 +76,13 @@
   - when no meaningful signal exists, UI shows a quiet no-update message instead of noisy alerts
   - admin/debug internals remain hidden from user-facing markers
   - updated web tests for ordinary markers, recovery-worthy markers, and no-update branch
+- Step 4 closure stabilization slice (web-only + docs):
+  - added minimal visual baseline in `apps/web/app/globals.css` (spacing, cards, form controls, buttons, typography)
+  - kept backend/API behavior unchanged while improving first-use readability of `/` and `/app`
+  - finalized local+GKE hybrid live-test web config:
+    - `NEXT_PUBLIC_API_BASE_URL=/api/v1`
+    - `PERSAI_WEB_API_PROXY_TARGET=http://127.0.0.1:3001/api/v1`
+  - this keeps browser requests same-origin through web rewrites and avoids cross-origin fetch instability during hybrid testing
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build
@@ -526,6 +533,22 @@
 - None.
 
 ### Fixed
+
+- Step 4 closure blockers observed in live hybrid validation (`local web + GKE api`):
+  - fixed contracts mutator runtime base URL resolution in `packages/contracts/src/mutator/custom-fetch.ts`:
+    - now reads `process.env.NEXT_PUBLIC_API_BASE_URL` directly
+    - browser fallback now defaults to `/api/v1` (same-origin) instead of hard-coding `http://localhost:3001/api/v1`
+  - fixed assistant onboarding-to-dashboard transition for first-time users:
+    - `GET /assistant` `404` now maps to `assistantState=null` in `apps/web/app/app/assistant-api-client.ts`
+    - `POST` response handling now accepts `200|201` for:
+      - `POST /me/onboarding`
+      - `POST /assistant`
+      - `POST /assistant/publish`
+      - `POST /assistant/rollback`
+      - `POST /assistant/reset`
+  - this removes false UI-fatal errors:
+    - `Unable to load state: Request failed with status 404`
+    - `Unable to load state: Failed to fetch` caused by incorrect browser-side API base fallback
 
 - Step 3 A8 OpenClaw runtime apply contract gap:
   - added a build-time compatibility patch for OpenClaw source in `.github/workflows/openclaw-dev-image-publish.yml`
