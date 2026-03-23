@@ -13,6 +13,8 @@ import type { AssistantLifecycleState } from "../../application/assistant-lifecy
 import { CreateAssistantService } from "../../application/create-assistant.service";
 import { GetAssistantByUserIdService } from "../../application/get-assistant-by-user-id.service";
 import { PublishAssistantDraftService } from "../../application/publish-assistant-draft.service";
+import { ResetAssistantService } from "../../application/reset-assistant.service";
+import { RollbackAssistantService } from "../../application/rollback-assistant.service";
 import { UpdateAssistantDraftService } from "../../application/update-assistant-draft.service";
 
 @Controller("api/v1")
@@ -21,6 +23,8 @@ export class AssistantController {
     private readonly createAssistantService: CreateAssistantService,
     private readonly getAssistantByUserIdService: GetAssistantByUserIdService,
     private readonly publishAssistantDraftService: PublishAssistantDraftService,
+    private readonly rollbackAssistantService: RollbackAssistantService,
+    private readonly resetAssistantService: ResetAssistantService,
     private readonly updateAssistantDraftService: UpdateAssistantDraftService
   ) {}
 
@@ -80,6 +84,38 @@ export class AssistantController {
   }> {
     const userId = this.resolveRequestUserId(req);
     const assistant = await this.publishAssistantDraftService.execute(userId);
+
+    return {
+      requestId: req.requestId ?? null,
+      assistant
+    };
+  }
+
+  @Post("assistant/rollback")
+  async rollbackAssistant(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    assistant: AssistantLifecycleState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.rollbackAssistantService.parseInput(body);
+    const assistant = await this.rollbackAssistantService.execute(userId, input);
+
+    return {
+      requestId: req.requestId ?? null,
+      assistant
+    };
+  }
+
+  @Post("assistant/reset")
+  async resetAssistant(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    assistant: AssistantLifecycleState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const assistant = await this.resetAssistantService.execute(userId);
 
     return {
       requestId: req.requestId ?? null,

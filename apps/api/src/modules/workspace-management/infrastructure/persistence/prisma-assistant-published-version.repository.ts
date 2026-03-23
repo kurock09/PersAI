@@ -21,6 +21,22 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
     return publishedVersion ? this.mapToDomain(publishedVersion) : null;
   }
 
+  async findByAssistantIdAndVersion(
+    assistantId: string,
+    version: number
+  ): Promise<AssistantPublishedVersion | null> {
+    const publishedVersion = await this.prisma.assistantPublishedVersion.findUnique({
+      where: {
+        assistantId_version: {
+          assistantId,
+          version
+        }
+      }
+    });
+
+    return publishedVersion ? this.mapToDomain(publishedVersion) : null;
+  }
+
   async create(input: CreateAssistantPublishedVersionInput): Promise<AssistantPublishedVersion> {
     try {
       const publishedVersion = await this.prisma.$transaction(async (tx) => {

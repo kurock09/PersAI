@@ -25,4 +25,5 @@ export * from './assistantLifecycleState';
 export * from './assistantLifecycleStateLatestPublishedVersion';
 export * from './assistantPublishedVersionSnapshotState';
 export * from './assistantPublishedVersionState';
+export * from './assistantRollbackRequest';
 export * from './getAssistantResponse';

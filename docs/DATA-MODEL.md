@@ -97,7 +97,8 @@ Postgres with Prisma.
 - assistant is a first-class domain entity (not embedded in `app_users` or `workspaces`)
 - A2 supports assistant create/get/draft-update control-plane entrypoints only
 - A3 adds publish/version snapshot model only (control-plane)
-- runtime apply, rollback/reset semantics, chat, channels, and integrations remain unsupported
+- A4 adds rollback/reset actions over existing A3 model without deleting attachment layers
+- runtime apply, chat, channels, and integrations remain unsupported
 
 ## Step 2 onboarding write baseline (slice 3)
 

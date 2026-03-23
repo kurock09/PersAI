@@ -152,6 +152,86 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/rollback:
+    post:
+      operationId: postAssistantRollback
+      summary: Rollback assistant by publishing a snapshot of a previous version
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantRollbackRequest"
+      responses:
+        "200":
+          description: Assistant state with new rolled-back latest published version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or target version not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Rollback conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/reset:
+    post:
+      operationId: postAssistantReset
+      summary: Reset assistant to a new blank state while preserving attachments
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Assistant state with new reset latest published version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me:
     get:
       operationId: getMe
@@ -415,6 +495,14 @@ components:
         instructions:
           type: string
           nullable: true
+    AssistantRollbackRequest:
+      type: object
+      required:
+        - targetVersion
+      properties:
+        targetVersion:
+          type: integer
+          minimum: 1
     GetAssistantResponse:
       type: object
       required:

@@ -13,5 +13,9 @@ export interface CreateAssistantPublishedVersionInput {
 
 export interface AssistantPublishedVersionRepository {
   findLatestByAssistantId(assistantId: string): Promise<AssistantPublishedVersion | null>;
+  findByAssistantIdAndVersion(
+    assistantId: string,
+    version: number
+  ): Promise<AssistantPublishedVersion | null>;
   create(input: CreateAssistantPublishedVersionInput): Promise<AssistantPublishedVersion>;
 }

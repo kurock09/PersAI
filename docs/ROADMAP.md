@@ -51,7 +51,7 @@ Foundation Phase
 - [x] A1 — assistant domain model
 - [x] A2 — assistant lifecycle API skeleton
 - [x] A3 — draft/publish/version model
-- [ ] A4 — rollback/reset semantics
+- [x] A4 — rollback/reset semantics
 - [ ] A5 — runtime apply state model
 - [ ] A6 — assistant governance baseline
 - [ ] A7 — materialized runtime spec

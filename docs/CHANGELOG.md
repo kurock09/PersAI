@@ -347,6 +347,25 @@
     - no rollback/reset semantics
     - no chat/channels integrations
   - marked `A3` complete in `docs/ROADMAP.md`
+- Step 3 slice A4 rollback/reset semantics:
+  - added lifecycle control-plane entrypoints:
+    - `POST /api/v1/assistant/rollback`
+    - `POST /api/v1/assistant/reset`
+  - rollback behavior:
+    - accepts `targetVersion`
+    - creates new latest published version snapshot copied from target version
+    - updates draft to rolled-back snapshot values
+    - does not mutate historical published version rows
+  - reset behavior:
+    - creates new latest published version with blank snapshot values
+    - clears mutable draft values to blank state
+    - preserves assistant identity and workspace/user ownership scope
+    - does not delete secrets/integrations/attachment layer
+  - kept scope intentionally narrow:
+    - no runtime apply implementation
+    - no account deletion logic
+    - no chat retention changes
+  - marked `A4` complete in `docs/ROADMAP.md`
 
 ### Changed
 

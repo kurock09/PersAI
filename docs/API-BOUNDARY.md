@@ -23,6 +23,8 @@ Path versioning: /api/v1/...
 - GET /api/v1/assistant
 - PATCH /api/v1/assistant/draft
 - POST /api/v1/assistant/publish
+- POST /api/v1/assistant/rollback
+- POST /api/v1/assistant/reset
 
 ### POST /api/v1/assistant
 
@@ -72,6 +74,37 @@ Behavior baseline:
 - returns assistant lifecycle state with `latestPublishedVersion` set to newly published version
 - does not perform runtime apply/openclaw actions
 - does not mutate historical published versions
+
+### POST /api/v1/assistant/rollback (Step 3 A4 baseline)
+
+Request body fields:
+
+- `targetVersion` (integer, >= 1)
+
+Behavior baseline:
+
+- authenticated caller only
+- requires existing assistant and existing published target version
+- **does not mutate** old published rows
+- creates a new latest published version snapshot copied from `targetVersion`
+- updates current draft to the same rolled-back snapshot values
+- no runtime apply/openclaw actions
+
+### POST /api/v1/assistant/reset (Step 3 A4 baseline)
+
+Behavior baseline:
+
+- authenticated caller only
+- requires existing assistant
+- creates new assistant state without deleting platform attachment layer
+- creates new latest published version with blank snapshot (`displayName=null`, `instructions=null`)
+- resets draft to blank values (`displayName=null`, `instructions=null`)
+- preserves:
+  - ownership/user binding
+  - workspace scope
+  - billing scope (not modified in this slice)
+  - secret bindings/integration attachment layer (not modified in this slice)
+- no runtime apply/openclaw actions
 
 ### GET /api/v1/me (slice 2 baseline response)
 

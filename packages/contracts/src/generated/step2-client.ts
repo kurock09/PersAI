@@ -6,6 +6,7 @@
  */
 import type {
   AssistantDraftUpdateRequest,
+  AssistantRollbackRequest,
   ErrorEnvelope,
   GetAssistantResponse,
   GetMeResponse,
@@ -232,6 +233,123 @@ export const getPostAssistantPublishUrl = () => {
 export const postAssistantPublish = async ( options?: RequestInit): Promise<postAssistantPublishResponse> => {
   
   return customFetch<postAssistantPublishResponse>(getPostAssistantPublishUrl(),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Rollback assistant by publishing a snapshot of a previous version
+ */
+export type postAssistantRollbackResponse200 = {
+  data: GetAssistantResponse
+  status: 200
+}
+
+export type postAssistantRollbackResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAssistantRollbackResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantRollbackResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantRollbackResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantRollbackResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantRollbackResponseSuccess = (postAssistantRollbackResponse200) & {
+  headers: Headers;
+};
+export type postAssistantRollbackResponseError = (postAssistantRollbackResponse400 | postAssistantRollbackResponse401 | postAssistantRollbackResponse404 | postAssistantRollbackResponse409 | postAssistantRollbackResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantRollbackResponse = (postAssistantRollbackResponseSuccess | postAssistantRollbackResponseError)
+
+export const getPostAssistantRollbackUrl = () => {
+
+
+  
+
+  return `/assistant/rollback`
+}
+
+export const postAssistantRollback = async (assistantRollbackRequest: AssistantRollbackRequest, options?: RequestInit): Promise<postAssistantRollbackResponse> => {
+  
+  return customFetch<postAssistantRollbackResponse>(getPostAssistantRollbackUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantRollbackRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Reset assistant to a new blank state while preserving attachments
+ */
+export type postAssistantResetResponse200 = {
+  data: GetAssistantResponse
+  status: 200
+}
+
+export type postAssistantResetResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantResetResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantResetResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantResetResponseSuccess = (postAssistantResetResponse200) & {
+  headers: Headers;
+};
+export type postAssistantResetResponseError = (postAssistantResetResponse401 | postAssistantResetResponse404 | postAssistantResetResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantResetResponse = (postAssistantResetResponseSuccess | postAssistantResetResponseError)
+
+export const getPostAssistantResetUrl = () => {
+
+
+  
+
+  return `/assistant/reset`
+}
+
+export const postAssistantReset = async ( options?: RequestInit): Promise<postAssistantResetResponse> => {
+  
+  return customFetch<postAssistantResetResponse>(getPostAssistantResetUrl(),
   {      
     ...options,
     method: 'POST'
