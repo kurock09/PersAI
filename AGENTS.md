@@ -64,6 +64,9 @@ Foundation Phase only.
 - no git push
 - no dead stubs or TODO scaffolding
 
+## Live test guidance for agents
+- for local-frontend + GKE-backend validation, read `docs/LIVE-TEST-HYBRID.md` before running live checks
+
 ## Required session ending output
 - what changed
 - why changed

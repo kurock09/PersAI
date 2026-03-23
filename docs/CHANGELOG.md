@@ -83,6 +83,10 @@
     - `NEXT_PUBLIC_API_BASE_URL=/api/v1`
     - `PERSAI_WEB_API_PROXY_TARGET=http://127.0.0.1:3001/api/v1`
   - this keeps browser requests same-origin through web rewrites and avoids cross-origin fetch instability during hybrid testing
+- Hybrid live-test guide for agents:
+  - added `docs/LIVE-TEST-HYBRID.md` with exact run sequence for `local web + GKE api`
+  - documented required web env values, quick health checks, and common failure signatures
+  - linked guidance from `AGENTS.md` and `README.md` so future sessions can reproduce the same live-test mode consistently
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

@@ -208,3 +208,13 @@ Manual runbooks:
 
 - One-time reset script skeleton: `infra/bootstrap/dev-gke-reset.sh`
 - Dev cleanup/reset + first deploy procedure: `infra/dev/gke/RUNBOOK.md`
+
+## Hybrid live test (local web + GKE API)
+
+For fast UI validation against real dev backend state without web redeploy:
+
+- run local web on `http://localhost:3000`
+- forward dev GKE API to `http://localhost:3001`
+- keep browser requests same-origin via `/api/v1` web rewrite
+
+Guide: `docs/LIVE-TEST-HYBRID.md`

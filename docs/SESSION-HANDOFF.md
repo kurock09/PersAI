@@ -14,6 +14,11 @@
   - `docs/CHANGELOG.md`
   - `docs/ROADMAP.md`
   - `docs/SESSION-HANDOFF.md`
+- Added agent-facing hybrid live-test runbook:
+  - created `docs/LIVE-TEST-HYBRID.md` for `local web + GKE api` validation flow
+  - linked this runbook from:
+    - `AGENTS.md`
+    - `README.md`
 
 ### Why changed
 
@@ -29,6 +34,9 @@
 - apps/web/app/app/assistant-api-client.ts
 - apps/web/app/app/me-api-client.ts
 - apps/web/app/globals.css
+- docs/LIVE-TEST-HYBRID.md
+- AGENTS.md
+- README.md
 - docs/CHANGELOG.md
 - docs/ROADMAP.md
 - docs/SESSION-HANDOFF.md
