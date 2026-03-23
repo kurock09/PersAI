@@ -45,6 +45,9 @@ export async function getAssistant(token: string): Promise<AssistantLifecycleSta
 
     return response.data.assistant;
   } catch (error) {
+    if (error instanceof ContractsApiError && error.status === 404) {
+      return null;
+    }
     throw new Error(toErrorMessage(error));
   }
 }
@@ -55,7 +58,7 @@ export async function postAssistantCreate(token: string): Promise<AssistantLifec
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200) {
+    if (response.status !== 200 && response.status !== 201) {
       throw new Error("Unexpected non-success response for POST /assistant.");
     }
 
@@ -90,7 +93,7 @@ export async function postAssistantPublish(token: string): Promise<AssistantLife
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200) {
+    if (response.status !== 200 && response.status !== 201) {
       throw new Error("Unexpected non-success response for POST /assistant/publish.");
     }
 
@@ -109,7 +112,7 @@ export async function postAssistantRollback(
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200) {
+    if (response.status !== 200 && response.status !== 201) {
       throw new Error("Unexpected non-success response for POST /assistant/rollback.");
     }
 
@@ -125,7 +128,7 @@ export async function postAssistantReset(token: string): Promise<AssistantLifecy
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200) {
+    if (response.status !== 200 && response.status !== 201) {
       throw new Error("Unexpected non-success response for POST /assistant/reset.");
     }
 

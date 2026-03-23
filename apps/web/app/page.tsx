@@ -1,29 +1,20 @@
-import Link from "next/link";
-import { SignInButton, SignOutButton, UserButton } from "@clerk/nextjs";
+import { SignInButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 
 export default async function HomePage() {
   const { userId } = await auth();
+  if (userId !== null) {
+    redirect("/app");
+  }
 
   return (
     <main>
-      <h1>PersAI v2 Foundation</h1>
-      <p>Step 2 slice 1: Clerk login/logout + protected route baseline.</p>
-      {userId === null ? (
-        <SignInButton mode="modal">
-          <button type="button">Sign in with Clerk</button>
-        </SignInButton>
-      ) : (
-        <>
-          <p>
-            Signed in. Continue to the protected app area: <Link href="/app">/app</Link>
-          </p>
-          <UserButton />
-          <SignOutButton>
-            <button type="button">Sign out</button>
-          </SignOutButton>
-        </>
-      )}
+      <h1>PersAI</h1>
+      <p>Sign in to open your assistant control surface.</p>
+      <SignInButton mode="modal">
+        <button type="button">Sign in with Clerk</button>
+      </SignInButton>
     </main>
   );
 }

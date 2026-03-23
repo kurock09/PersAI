@@ -16,15 +16,13 @@ interface ApiErrorEnvelope {
 }
 
 function getApiBaseUrl(): string {
-  const runtimeGlobal = globalThis as {
-    process?: {
-      env?: Record<string, string | undefined>;
-    };
-  };
-
-  const fromEnv = runtimeGlobal.process?.env?.NEXT_PUBLIC_API_BASE_URL;
+  const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL;
   if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
     return fromEnv.trim().replace(/\/$/, "");
+  }
+
+  if (typeof window !== "undefined") {
+    return "/api/v1";
   }
 
   return "http://localhost:3001/api/v1";

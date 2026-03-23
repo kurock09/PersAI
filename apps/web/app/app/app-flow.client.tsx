@@ -1007,9 +1007,7 @@ export function AppFlowClient() {
       </section>
 
       <UserButton />
-      <SignOutButton>
-        <button type="button">Sign out</button>
-      </SignOutButton>
+      <SignOutButton />
     </main>
   );
 }

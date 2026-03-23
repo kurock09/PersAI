@@ -52,7 +52,7 @@ export async function postOnboarding(
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200) {
+    if (response.status !== 200 && response.status !== 201) {
       throw new Error("Unexpected non-success response for POST /me/onboarding.");
     }
 
