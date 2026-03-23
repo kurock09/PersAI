@@ -2,6 +2,18 @@
 
 ## What changed
 
+- Applied a narrow OpenClaw deploy automation slice:
+  - extended `.github/workflows/openclaw-dev-image-publish.yml` to auto-update `infra/helm/values-dev.yaml` `openclaw.image.tag` to `OPENCLAW_APPROVED_SHA` after successful image publish on `main`
+  - added `paths-ignore` for `infra/helm/values-dev.yaml` to prevent self-trigger loops from workflow-generated commits
+- This removes the manual OpenClaw GitOps tag promotion step after push.
+- Applied a narrow post-A8 deploy-automation hotfix to keep dev auto-deploy stable after `main` pushes.
+- Fixed dev image pinning workflow behavior in `.github/workflows/dev-image-publish.yml`:
+  - now updates only `global.images.tag` in `infra/helm/values-dev.yaml`
+  - no longer rewrites every YAML `tag` field
+- Restored dev values tag strategy in `infra/helm/values-dev.yaml`:
+  - `api.image.tag=""` and `web.image.tag=""` (inherit `global.images.tag`)
+  - `openclaw.image.tag` pinned back to approved OpenClaw SHA `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+- This removes the recurring failure mode where OpenClaw was forced to non-existent app commit tags.
 - Completed Step 3 slice `A8` only (OpenClaw thin adapter for preflight + apply/reapply).
 - Added dedicated runtime adapter boundary:
   - application-level adapter interface + coarse DTO/error model
@@ -33,6 +45,16 @@
 
 ## Why changed
 
+- User requirement: no manual OpenClaw deploy/tag step after push.
+- OpenClaw image build was automated, but tag promotion in GitOps values was still manual.
+- The new workflow step closes this gap while preserving separation:
+  - app workflow controls `global.images.tag`
+  - OpenClaw workflow controls `openclaw.image.tag`
+- The previous broad `sed` replacement rewrote all `tag:` lines in dev values, including OpenClaw pinning.
+- That caused `openclaw` rollout failures (`ImagePullBackOff`) when app commit SHA tags did not exist for OpenClaw image.
+- The hotfix makes image pinning deterministic and aligned with intended ownership:
+  - app deploys follow `${GITHUB_SHA}` via `global.images.tag`
+  - OpenClaw remains pinned to approved source SHA
 - A8 activates the first real runtime bridge while preserving control-plane boundaries from O6/A7.
 - Materialized spec is now not only stored but also consumed by a thin adapter for runtime apply/reapply.
 - Coarse failure outcomes are explicitly surfaced in apply state for later UX/admin use.
@@ -54,6 +76,11 @@
 
 ## Files touched
 
+- .github/workflows/openclaw-dev-image-publish.yml
+- README.md
+- infra/dev/gitops/README.md
+- .github/workflows/dev-image-publish.yml
+- infra/helm/values-dev.yaml
 - apps/api/.env.dev.example
 - apps/api/.env.local.example
 - apps/api/src/modules/identity-access/identity-access.module.ts
@@ -102,4 +129,7 @@
 
 ## Next recommended step
 
-- Run A8 smoke verification and OpenClaw dev integration check for endpoint compatibility.
+- Run one `main` push verification cycle:
+  - confirm workflow updates only `global.images.tag`
+  - confirm OpenClaw workflow updates `openclaw.image.tag` to approved SHA
+  - confirm Argo sync rolls api/web while OpenClaw stays healthy.

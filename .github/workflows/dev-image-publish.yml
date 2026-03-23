@@ -84,7 +84,19 @@ jobs:
       - name: Pin dev Helm image tag to current commit SHA
         run: |
           set -eu
-          sed -i "s/^    tag: .*/    tag: ${GITHUB_SHA}/" infra/helm/values-dev.yaml
+          awk -v sha="${GITHUB_SHA}" '
+            /^global:$/ { in_global=1 }
+            in_global && /^[^ ]/ && $0 !~ /^global:$/ { in_global=0 }
+            in_global && /^    tag:/ { sub(/^    tag:.*/, "    tag: " sha); replaced+=1 }
+            { print }
+            END {
+              if (replaced != 1) {
+                print "Expected to update exactly one global.images.tag line, updated " replaced "." > "/dev/stderr"
+                exit 1
+              }
+            }
+          ' infra/helm/values-dev.yaml > infra/helm/values-dev.yaml.tmp
+          mv infra/helm/values-dev.yaml.tmp infra/helm/values-dev.yaml
 
       - name: Commit and push values-dev tag update
         run: |

@@ -458,7 +458,16 @@
 
 ### Fixed
 
-- None.
+- Dev GitOps tag pinning drift after `main` push:
+  - narrowed `.github/workflows/dev-image-publish.yml` tag update logic to update only `global.images.tag`
+  - prevented accidental overwrite of `openclaw.image.tag` by api/web image publish workflow
+  - restored `infra/helm/values-dev.yaml` tag intent:
+    - `api.image.tag=""` and `web.image.tag=""` inherit `global.images.tag`
+    - `openclaw.image.tag` remains pinned to approved OpenClaw SHA (`aa6b962a3ab0d59f73fd34df58c0f8815070eadd`)
+- OpenClaw deploy automation gap after push:
+  - extended `.github/workflows/openclaw-dev-image-publish.yml` to auto-pin `infra/helm/values-dev.yaml` `openclaw.image.tag` to `OPENCLAW_APPROVED_SHA` after successful image publish on `main`
+  - added `paths-ignore` guard for `infra/helm/values-dev.yaml` to avoid self-trigger loops from workflow-generated GitOps commit
+  - this removes manual OpenClaw tag-promotion step in GitOps values
 
 ### Removed
 

@@ -137,7 +137,8 @@ OpenClaw image publish workflow (Step 3 O2):
 - pushes image `openclaw` with tags:
   - immutable source tag: `<OPENCLAW_APPROVED_SHA>`
   - moving dev tag: `dev-main`
-- no deploy/sync step in this workflow (build/push only)
+- on `main` push success, CI also updates `infra/helm/values-dev.yaml` `openclaw.image.tag` to `<OPENCLAW_APPROVED_SHA>` and pushes that GitOps commit
+- no direct cluster deploy/sync step in this workflow
 
 Artifact Registry naming pattern:
 

@@ -34,6 +34,8 @@ Dev image publish behavior:
 
 - CI publishes both `${GITHUB_SHA}` and `dev-main` tags to GAR.
 - CI then updates `infra/helm/values-dev.yaml` -> `global.images.tag: <GITHUB_SHA>` and pushes that commit to `main`.
+- OpenClaw CI publishes both `<OPENCLAW_APPROVED_SHA>` and `dev-main` tags to GAR.
+- OpenClaw CI then updates `infra/helm/values-dev.yaml` -> `openclaw.image.tag: <OPENCLAW_APPROVED_SHA>` and pushes that commit to `main`.
 - Argo CD deploys the pinned SHA tag from GitOps values, avoiding stale-node-cache issues with moving tags.
 
 ## Scope in this phase
@@ -85,8 +87,8 @@ Dev image publish behavior:
   - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw:${OPENCLAW_APPROVED_SHA}`
   - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw:dev-main`
 - Scope guard:
-  - workflow performs build/push only
-  - no deploy/sync operation is executed in O2
+  - workflow performs build/push + GitOps values pin update only
+  - no direct cluster deploy/sync operation is executed
 
 ## OpenClaw dev config/secrets baseline (Step 3 O5)
 

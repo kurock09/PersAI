@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - infra/helm/values-dev.yaml
   workflow_dispatch:
 
 jobs:
   build-and-push-openclaw:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     env:
       GAR_REGION: ${{ vars.GAR_REGION }}
@@ -85,3 +87,41 @@ jobs:
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/openclaw:${{ env.OPENCLAW_MAIN_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Pin OpenClaw Helm image tag to approved SHA
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -eu
+          awk -v sha="${OPENCLAW_APPROVED_SHA}" '
+            /^openclaw:$/ { in_openclaw=1; in_image=0 }
+            in_openclaw && /^[^ ]/ && $0 !~ /^openclaw:$/ { in_openclaw=0; in_image=0 }
+            in_openclaw && /^  image:$/ { in_image=1 }
+            in_openclaw && in_image && /^  [^ ]/ && $0 !~ /^  image:$/ { in_image=0 }
+            in_openclaw && in_image && /^    tag:/ {
+              sub(/^    tag:.*/, "    tag: " sha)
+              replaced+=1
+            }
+            { print }
+            END {
+              if (replaced != 1) {
+                print "Expected to update exactly one openclaw.image.tag line, updated " replaced "." > "/dev/stderr"
+                exit 1
+              }
+            }
+          ' infra/helm/values-dev.yaml > infra/helm/values-dev.yaml.tmp
+          mv infra/helm/values-dev.yaml.tmp infra/helm/values-dev.yaml
+
+      - name: Commit and push OpenClaw values tag update
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -eu
+          if git diff --quiet -- infra/helm/values-dev.yaml; then
+            echo "No OpenClaw values-dev tag change to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/helm/values-dev.yaml
+          git commit -m "chore(dev-gitops): pin openclaw image tag to ${OPENCLAW_APPROVED_SHA}"
+          git push origin HEAD:main
