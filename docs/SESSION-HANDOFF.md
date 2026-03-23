@@ -7,6 +7,13 @@
   - added patch file `infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch`
   - patch injects auth-protected endpoint `POST /api/v1/runtime/spec/apply` into OpenClaw gateway HTTP server
   - endpoint validates minimal payload shape and returns JSON ack instead of `404`
+- Added deterministic OpenClaw rollout wiring for patched images:
+  - introduced `openclaw.image.digest` in Helm values and deployment template (digest-aware image ref)
+  - OpenClaw workflow now reads docker build digest output and updates both:
+    - `openclaw.image.tag`
+    - `openclaw.image.digest`
+    in `infra/helm/values-dev.yaml`
+  - this ensures Argo applies a real OpenClaw rollout after each patched image build, even when approved SHA tag string is unchanged
 - Added OpenClaw pre-session guidance baseline for agent startup discipline:
   - created `docs/OPENCLAW-PRESESSION.md` with mandatory OpenClaw docs pack, role-based optional links, and a 60-second pre-session checklist
   - updated `AGENTS.md` mandatory startup reading order to include `docs/OPENCLAW-PRESESSION.md`
@@ -80,6 +87,10 @@
 - Live A8 check after runtime wiring fix showed one final blocker before Step 4:
   - preflight was healthy, but `publish/reapply` still failed because OpenClaw returned `404` on `/api/v1/runtime/spec/apply`
 - This slice restores the exact A8 route contract while keeping domain/application boundaries and avoiding behavior-level runtime expansion.
+- Post-fix live check showed patched OpenClaw route was still absent because deployment did not roll:
+  - OpenClaw image tag remained text-identical (`approved SHA`) and `IfNotPresent` prevented guaranteed refresh
+  - deployment spec therefore stayed effectively unchanged and existing pod/image digest remained old
+- Digest pinning closes this rollout gap without changing the approved-SHA governance model.
 - Team requested a single source for OpenClaw pre-session reading so every new agent session starts with consistent runtime/ops assumptions.
 - This reduces session drift when working on Step 4+ slices that depend on stable control-plane/runtime boundary understanding.
 - Live A1-A8 validation showed A8 runtime drift in dev:
@@ -125,6 +136,9 @@
 
 - .github/workflows/openclaw-dev-image-publish.yml
 - infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch
+- infra/helm/templates/openclaw-deployment.yaml
+- infra/helm/values.yaml
+- infra/helm/values-dev.yaml
 - AGENTS.md
 - docs/OPENCLAW-PRESESSION.md
 - docs/CHANGELOG.md

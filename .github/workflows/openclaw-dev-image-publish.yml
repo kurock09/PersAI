@@ -83,6 +83,7 @@ jobs:
           password: ${{ steps.auth.outputs.access_token }}
 
       - name: Build and push OpenClaw image
+        id: build_openclaw
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.OPENCLAW_SERVICE_PATH }}
@@ -98,19 +99,31 @@ jobs:
         if: ${{ github.event_name == 'push' }}
         run: |
           set -eu
-          awk -v sha="${OPENCLAW_APPROVED_SHA}" '
+          OPENCLAW_IMAGE_DIGEST="${{ steps.build_openclaw.outputs.digest }}"
+          test -n "${OPENCLAW_IMAGE_DIGEST}" || (echo "Missing OpenClaw image digest output from build step" && exit 1)
+          echo "${OPENCLAW_IMAGE_DIGEST}" | grep -Eq '^sha256:[0-9a-f]{64}$' || (echo "Invalid OpenClaw image digest format: ${OPENCLAW_IMAGE_DIGEST}" && exit 1)
+
+          awk -v sha="${OPENCLAW_APPROVED_SHA}" -v digest="${OPENCLAW_IMAGE_DIGEST}" '
             /^openclaw:$/ { in_openclaw=1; in_image=0 }
             in_openclaw && /^[^ ]/ && $0 !~ /^openclaw:$/ { in_openclaw=0; in_image=0 }
             in_openclaw && /^  image:$/ { in_image=1 }
             in_openclaw && in_image && /^  [^ ]/ && $0 !~ /^  image:$/ { in_image=0 }
             in_openclaw && in_image && /^    tag:/ {
               sub(/^    tag:.*/, "    tag: " sha)
-              replaced+=1
+              replaced_tag+=1
+            }
+            in_openclaw && in_image && /^    digest:/ {
+              sub(/^    digest:.*/, "    digest: " digest)
+              replaced_digest+=1
             }
             { print }
             END {
-              if (replaced != 1) {
-                print "Expected to update exactly one openclaw.image.tag line, updated " replaced "." > "/dev/stderr"
+              if (replaced_tag != 1) {
+                print "Expected to update exactly one openclaw.image.tag line, updated " replaced_tag "." > "/dev/stderr"
+                exit 1
+              }
+              if (replaced_digest != 1) {
+                print "Expected to update exactly one openclaw.image.digest line, updated " replaced_digest "." > "/dev/stderr"
                 exit 1
               }
             }

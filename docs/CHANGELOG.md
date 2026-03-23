@@ -466,6 +466,10 @@
   - patch injects auth-protected HTTP endpoint `POST /api/v1/runtime/spec/apply` into OpenClaw gateway runtime
   - endpoint validates minimal A8 payload contract and returns structured JSON ack instead of `404`
   - this restores A8 `apps/api -> OpenClaw` apply/reapply route compatibility without widening into behavior-level runtime integration
+- OpenClaw rollout determinism hardening after A8 route fix:
+  - added `openclaw.image.digest` support in Helm values/templates so deployment image reference can be pinned by digest (`repo@sha256:...`)
+  - updated OpenClaw publish workflow to capture build digest and auto-update both `openclaw.image.tag` and `openclaw.image.digest` in `infra/helm/values-dev.yaml`
+  - this guarantees Argo/Kubernetes sees a deployment spec change and performs a real rollout even when approved SHA tag text remains unchanged
 - Step 3 A8 runtime wiring hardening (narrow slice):
   - wired OpenClaw adapter env/secret into API Helm values:
     - `OPENCLAW_ADAPTER_ENABLED`

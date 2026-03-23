@@ -1,5 +1,11 @@
 {{- if .Values.openclaw.enabled }}
 {{- $openclawTag := default .Values.global.images.tag .Values.openclaw.image.tag }}
+{{- $openclawDigest := default "" .Values.openclaw.image.digest }}
+{{- $openclawRepository := printf "%s/%s/%s/%s" .Values.global.images.registryHost .Values.global.images.projectId .Values.global.images.repository .Values.openclaw.image.name }}
+{{- $openclawImage := printf "%s:%s" $openclawRepository $openclawTag }}
+{{- if ne $openclawDigest "" }}
+{{- $openclawImage = printf "%s@%s" $openclawRepository $openclawDigest }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,7 +29,7 @@ spec:
             name: openclaw-config
       containers:
         - name: openclaw
-          image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.openclaw.image.name }}:{{ $openclawTag }}"
+          image: "{{ $openclawImage }}"
           imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
 {{- if .Values.openclaw.command }}
           command:

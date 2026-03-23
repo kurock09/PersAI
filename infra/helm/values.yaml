@@ -71,6 +71,7 @@ openclaw:
   image:
     name: openclaw
     tag: ""
+    digest: ""
     pullPolicy: IfNotPresent
   configPath: /app/openclaw-dev.json
   controlUi:
