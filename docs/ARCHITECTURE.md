@@ -197,6 +197,17 @@ O6 defines a future adapter-only contract:
 - materialization now projects explicit per-tool availability from catalog + activation + effective capability class guardrail
 - backend still does not execute or route runtime tool behavior; OpenClaw remains execution owner
 
+## OpenClaw capability envelope boundary (Step 8 E2)
+
+- backend materialization produces explicit runtime-facing capability envelope:
+  - `openclawCapabilityEnvelope` (`persai.openclawCapabilityEnvelope.v1`)
+- envelope includes:
+  - per-tool and per-group allow/deny truth
+  - per-surface allowances
+  - quota-related class restrictions for cost-driving/utility features
+  - explicit suppression list for unavailable tools
+- envelope is projection-only governance truth; backend still does not become runtime routing layer
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

@@ -16,6 +16,7 @@ import type { AssistantPublishedVersion } from "../domain/assistant-published-ve
 import type { Assistant } from "../domain/assistant.entity";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./resolve-effective-tool-availability.service";
+import { ResolveOpenClawCapabilityEnvelopeService } from "./resolve-openclaw-capability-envelope.service";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -53,7 +54,8 @@ export class MaterializeAssistantPublishedVersionService {
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
-    private readonly resolveEffectiveToolAvailabilityService: ResolveEffectiveToolAvailabilityService
+    private readonly resolveEffectiveToolAvailabilityService: ResolveEffectiveToolAvailabilityService,
+    private readonly resolveOpenClawCapabilityEnvelopeService: ResolveOpenClawCapabilityEnvelopeService
   ) {}
 
   async execute(
@@ -81,6 +83,10 @@ export class MaterializeAssistantPublishedVersionService {
     const toolAvailability = await this.resolveEffectiveToolAvailabilityService.execute({
       effectiveCapabilities
     });
+    const openclawCapabilityEnvelope = this.resolveOpenClawCapabilityEnvelopeService.execute({
+      effectiveCapabilities,
+      effectiveToolAvailability: toolAvailability
+    });
 
     const layers = {
       schema: MATERIALIZATION_SCHEMA,
@@ -99,7 +105,12 @@ export class MaterializeAssistantPublishedVersionService {
             instructions: publishedVersion.snapshotInstructions
           }
         },
-        governance: this.toGovernanceLayer(governance, effectiveCapabilities, toolAvailability),
+        governance: this.toGovernanceLayer(
+          governance,
+          effectiveCapabilities,
+          toolAvailability,
+          openclawCapabilityEnvelope
+        ),
         applyState: {
           status: assistant.applyStatus,
           targetPublishedVersionId: assistant.applyTargetVersionId,
@@ -123,6 +134,7 @@ export class MaterializeAssistantPublishedVersionService {
         },
         effectiveCapabilities,
         toolAvailability,
+        openclawCapabilityEnvelope,
         secretRefs: governance.secretRefs,
         auditHook: governance.auditHook
       }
@@ -141,6 +153,7 @@ export class MaterializeAssistantPublishedVersionService {
       },
       effectiveCapabilities,
       toolAvailability,
+      openclawCapabilityEnvelope,
       memoryControl,
       tasksControl
     };
@@ -170,7 +183,8 @@ export class MaterializeAssistantPublishedVersionService {
   private toGovernanceLayer(
     governance: AssistantGovernance,
     effectiveCapabilities: Record<string, unknown>,
-    toolAvailability: Record<string, unknown>
+    toolAvailability: Record<string, unknown>,
+    openclawCapabilityEnvelope: Record<string, unknown>
   ): Record<string, unknown> {
     return {
       capabilityEnvelope: governance.capabilityEnvelope,
@@ -178,6 +192,7 @@ export class MaterializeAssistantPublishedVersionService {
       policyEnvelope: governance.policyEnvelope,
       effectiveCapabilities,
       toolAvailability,
+      openclawCapabilityEnvelope,
       memoryControl: governance.memoryControl,
       tasksControl: governance.tasksControl,
       quota: {

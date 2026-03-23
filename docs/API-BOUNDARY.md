@@ -499,6 +499,20 @@ Behavior baseline:
   - per-tool activation list derived from catalog status + plan activation + effective class guardrail
 - Backend still does not execute tool behavior or route plugin/runtime internals.
 
+## Step 8 E2 OpenClaw capability envelope hardening
+
+- E2 adds no new public REST endpoints; this is materialization boundary hardening.
+- Materialization now includes explicit OpenClaw-facing capability envelope:
+  - `openclawCapabilityEnvelope` (`persai.openclawCapabilityEnvelope.v1`)
+- Envelope provides non-ambiguous runtime truth:
+  - per-tool and per-group allow/deny
+  - canonical declared tool set (`catalog.declaredToolCodes`) for "exists vs does not exist" truth
+  - per-surface allowances (`webChat`, `telegram`, `whatsapp`, `max`)
+  - quota-related class restrictions for cost-driving and utility features
+  - explicit suppression list for denied/unavailable tools
+- Tasks/reminders remain explicitly non-commercial-quota class in the envelope (`tasksAndRemindersExcludedFromCommercialQuotas`).
+- Backend still does not route runtime execution behavior.
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

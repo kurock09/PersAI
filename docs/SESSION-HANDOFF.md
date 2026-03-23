@@ -1,5 +1,65 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 8 E2 OpenClaw capability envelope hardening
+
+### What changed
+
+- Added explicit OpenClaw-facing capability envelope resolver:
+  - `ResolveOpenClawCapabilityEnvelopeService`
+  - schema `persai.openclawCapabilityEnvelope.v1`
+- Materialization now projects `openclawCapabilityEnvelope` into:
+  - governance layer snapshot
+  - `openclawBootstrap`
+  - `openclawWorkspace`
+- Envelope now contains explicit runtime truth:
+  - per-tool allow/deny + deny reason
+  - per-group allow/deny lists
+  - canonical declared tool set (`catalog.declaredToolCodes`) for exists/non-exists truth
+  - per-surface allowances (`webChat|telegram|whatsapp|max`)
+  - quota-related class restrictions for utility/cost-driving classes
+  - explicit unavailable-tool suppression list (`deniedToolCodes`)
+- Preserved tasks/reminders as non-commercial quota class in envelope restrictions:
+  - `tasksAndRemindersExcludedFromCommercialQuotas`
+- Added API test script `test:openclaw-capability-envelope`.
+- Docs updated: ADR-032, `ARCHITECTURE`, `API-BOUNDARY`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- E2 requires one explicit OpenClaw-facing capability envelope so runtime knows what exists, what is denied, and what is unavailable without relying on implied defaults.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/openclaw-capability-envelope.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-capability-envelope.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/openclaw-capability-envelope.test.ts`
+- `apps/api/package.json`
+- `docs/ADR/032-openclaw-capability-envelope-e2.md`
+- `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/api run test:openclaw-capability-envelope` — passed
+- `corepack pnpm --filter @persai/api run test:tool-catalog-activation` — passed
+- `corepack pnpm --filter @persai/api run test:capability-resolution` — passed
+
+### Known risks / intentional limits
+
+- E2 is projection hardening only; no backend runtime routing or tool execution framework is added.
+- No per-tool admin UI control surface is added in E2.
+- E2 does not introduce endpoint-by-endpoint per-tool enforcement expansion beyond existing control-plane gates.
+
+### Next recommended step
+
+- Step 8 **E3** channel/surface binding model hardening over the E1/E2 governance baseline.
+
+### Ready commit message
+
+- `feat(api): add step 8 e2 openclaw capability envelope with explicit suppression truth`
+
 ## 2026-03-24 - Step 8 E1 tool catalog and activation model
 
 ### What changed

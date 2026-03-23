@@ -97,7 +97,7 @@ Foundation Phase
 ## Step 8 Tools, Channels, and Integrations
 
 - [x] E1 — tool catalog and activation model
-- [ ] E2 — tool policy and OpenClaw capability envelope
+- [x] E2 — tool policy and OpenClaw capability envelope
 - [ ] E3 — channel and surface binding model hardening
 - [ ] E4 — Telegram connection and delivery surface
 - [ ] E5 — integrations panel and messenger binding UX

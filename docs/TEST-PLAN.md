@@ -107,3 +107,13 @@ Required in CI:
 - Plan create/update flows synchronize activation rows from tool-class entitlement controls (no scattered ad hoc writes).
 - Materialization compiles with `persai.effectiveToolAvailability.v2` projection including per-tool activation truth for OpenClaw-facing documents.
 - API lint/typecheck and Step 2 regression baseline remain green.
+
+## Step 8 E2 focus
+
+- OpenClaw-facing capability envelope projection is validated in API test script (`test:openclaw-capability-envelope`) for:
+  - per-tool/per-group allow-deny truth
+  - explicit denied tool suppression list
+  - per-surface allowance propagation
+  - quota-related restriction flags and tasks/reminders non-commercial-quota rule
+- Materialization compiles with envelope included in governance layer snapshot + OpenClaw bootstrap/workspace documents.
+- Existing E1 and Step 2 baselines remain green.

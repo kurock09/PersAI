@@ -18,6 +18,20 @@
     - includes class-level activation and per-tool activation list for OpenClaw truth projection
   - added API test script `test:tool-catalog-activation`
   - added ADR `docs/ADR/031-tool-catalog-and-activation-model-e1.md`
+- Step 8 slice E2 OpenClaw capability envelope hardening:
+  - added materialized OpenClaw-facing envelope:
+    - `openclawCapabilityEnvelope`
+    - schema `persai.openclawCapabilityEnvelope.v1`
+  - envelope now includes explicit runtime truth:
+    - per-tool allow/deny with deny reason
+    - per-group allow/deny lists
+    - canonical declared tool set (`catalog.declaredToolCodes`) for exists/non-exists boundary
+    - per-surface allowances (`webChat|telegram|whatsapp|max`)
+    - quota-related class restriction flags for utility/cost-driving tool classes
+  - added explicit unavailable-tool suppression list (`deniedToolCodes`) so runtime does not infer/invent unavailable tools
+  - preserved non-commercial quota rule for tasks/reminders via envelope field `tasksAndRemindersExcludedFromCommercialQuotas`
+  - added API test script `test:openclaw-capability-envelope`
+  - added ADR `docs/ADR/032-openclaw-capability-envelope-e2.md`
 - Post-deploy live validation snapshot for Step 7 P1-P7 on dev GKE:
   - verified API + web deployments on aligned image tag
   - verified user/admin visibility endpoints and UI sections:
