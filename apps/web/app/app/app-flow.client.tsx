@@ -2,12 +2,20 @@
 
 import { SignOutButton, UserButton, useAuth } from "@clerk/nextjs";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type AssistantLifecycleState } from "@persai/contracts";
+import { getAssistant, postAssistantCreate } from "./assistant-api-client";
 import { CurrentMeResponse, OnboardingPayload, getMe, postOnboarding } from "./me-api-client";
 
 type FlowState =
   | { type: "loading" }
   | { type: "error"; message: string }
-  | { type: "ready"; data: CurrentMeResponse };
+  | {
+      type: "ready";
+      data: {
+        meState: CurrentMeResponse;
+        assistantState: AssistantLifecycleState | null;
+      };
+    };
 
 function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
   return {
@@ -25,6 +33,22 @@ export function AppFlowClient() {
     toInitialPayload(null)
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCreatingAssistant, setIsCreatingAssistant] = useState(false);
+
+  const loadAssistantState = useCallback(
+    async (token: string, meState: CurrentMeResponse): Promise<AssistantLifecycleState | null> => {
+      if (meState.me.onboarding.status === "pending") {
+        return null;
+      }
+
+      if (meState.me.workspace === null) {
+        return null;
+      }
+
+      return getAssistant(token);
+    },
+    []
+  );
 
   const loadMe = useCallback(async () => {
     setFlowState({ type: "loading" });
@@ -36,21 +60,29 @@ export function AppFlowClient() {
     }
 
     try {
-      const me = await getMe(token);
-      setFlowState({ type: "ready", data: me });
-      setOnboardingPayload(toInitialPayload(me));
+      const meState = await getMe(token);
+      const assistantState = await loadAssistantState(token, meState);
+
+      setFlowState({
+        type: "ready",
+        data: {
+          meState,
+          assistantState
+        }
+      });
+      setOnboardingPayload(toInitialPayload(meState));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to load current user state.";
       setFlowState({ type: "error", message });
     }
-  }, [getToken]);
+  }, [getToken, loadAssistantState]);
 
   useEffect(() => {
     void loadMe();
   }, [loadMe]);
 
   const onboardingRequired = useMemo(() => {
-    return flowState.type === "ready" && flowState.data.me.onboarding.status === "pending";
+    return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
   }, [flowState]);
 
   async function onSubmitOnboarding(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -64,14 +96,51 @@ export function AppFlowClient() {
 
     try {
       setIsSubmitting(true);
-      const updated = await postOnboarding(token, onboardingPayload);
-      setFlowState({ type: "ready", data: updated });
-      setOnboardingPayload(toInitialPayload(updated));
+      const meState = await postOnboarding(token, onboardingPayload);
+      const assistantState = await loadAssistantState(token, meState);
+
+      setFlowState({
+        type: "ready",
+        data: {
+          meState,
+          assistantState
+        }
+      });
+      setOnboardingPayload(toInitialPayload(meState));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Onboarding submission failed.";
       setFlowState({ type: "error", message });
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function onCreateAssistant(): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    if (flowState.type !== "ready") {
+      return;
+    }
+
+    try {
+      setIsCreatingAssistant(true);
+      const assistantState = await postAssistantCreate(token);
+      setFlowState({
+        type: "ready",
+        data: {
+          meState: flowState.data.meState,
+          assistantState
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Assistant creation failed.";
+      setFlowState({ type: "error", message });
+    } finally {
+      setIsCreatingAssistant(false);
     }
   }
 
@@ -96,7 +165,8 @@ export function AppFlowClient() {
     );
   }
 
-  const { me } = flowState.data;
+  const { meState, assistantState } = flowState.data;
+  const { me } = meState;
 
   if (onboardingRequired) {
     return (
@@ -178,24 +248,109 @@ export function AppFlowClient() {
 
   return (
     <main>
-      <h1>Me</h1>
-      <p>Authenticated app user and workspace baseline.</p>
-      <p>
-        <strong>User:</strong> {me.appUser.email}
-      </p>
-      <p>
-        <strong>Display name:</strong> {me.appUser.displayName ?? "not set"}
-      </p>
-      <p>
-        <strong>Onboarding:</strong> {me.onboarding.status}
-      </p>
-      <p>
-        <strong>Workspace:</strong> {me.workspace.name} ({me.workspace.locale},{" "}
-        {me.workspace.timezone})
-      </p>
-      <p>
-        <strong>Workspace role:</strong> {me.workspace.role}
-      </p>
+      <h1>Assistant dashboard</h1>
+      <p>Minimal control-plane shell for managed assistant lifecycle state.</p>
+
+      <section>
+        <h2>Primary status and controls</h2>
+        <p>
+          <strong>Onboarding:</strong> {me.onboarding.status}
+        </p>
+        <p>
+          <strong>Assistant entity:</strong>{" "}
+          {assistantState === null ? "not created" : "created"}
+        </p>
+        <p>
+          <strong>Draft truth:</strong>{" "}
+          {assistantState === null
+            ? "unavailable"
+            : assistantState.draft.updatedAt === null
+              ? "no recorded draft update"
+              : `updated at ${assistantState.draft.updatedAt}`}
+        </p>
+        <p>
+          <strong>Published truth:</strong>{" "}
+          {assistantState?.latestPublishedVersion === null || assistantState === null
+            ? "no published version"
+            : `v${assistantState.latestPublishedVersion.version}`}
+        </p>
+        <p>
+          <strong>Apply truth:</strong>{" "}
+          {assistantState === null ? "not_requested" : assistantState.runtimeApply.status}
+        </p>
+        {assistantState !== null &&
+          assistantState.runtimeApply.error !== null &&
+          assistantState.runtimeApply.error.message !== null && (
+            <p>
+              <strong>Apply error:</strong> {assistantState.runtimeApply.error.message}
+            </p>
+          )}
+
+        <button type="button" onClick={() => void loadMe()}>
+          Refresh dashboard
+        </button>
+        {assistantState === null && (
+          <button type="button" disabled={isCreatingAssistant} onClick={() => void onCreateAssistant()}>
+            {isCreatingAssistant ? "Creating assistant..." : "Create assistant"}
+          </button>
+        )}
+      </section>
+
+      <section>
+        <h2>Assistant summary</h2>
+        {assistantState === null ? (
+          <p>No assistant exists yet for this account.</p>
+        ) : (
+          <>
+            <p>
+              <strong>Assistant ID:</strong> {assistantState.id}
+            </p>
+            <p>
+              <strong>User ID:</strong> {assistantState.userId}
+            </p>
+            <p>
+              <strong>Workspace ID:</strong> {assistantState.workspaceId}
+            </p>
+            <p>
+              <strong>Draft display name:</strong> {assistantState.draft.displayName ?? "not set"}
+            </p>
+            <p>
+              <strong>Draft instructions:</strong>{" "}
+              {assistantState.draft.instructions ?? "not set"}
+            </p>
+            <p>
+              <strong>Latest published version ID:</strong>{" "}
+              {assistantState.latestPublishedVersion?.id ?? "none"}
+            </p>
+            <p>
+              <strong>Apply target version ID:</strong>{" "}
+              {assistantState.runtimeApply.targetPublishedVersionId ?? "none"}
+            </p>
+            <p>
+              <strong>Applied version ID:</strong>{" "}
+              {assistantState.runtimeApply.appliedPublishedVersionId ?? "none"}
+            </p>
+          </>
+        )}
+      </section>
+
+      <section>
+        <h2>Account context</h2>
+        <p>
+          <strong>User:</strong> {me.appUser.email}
+        </p>
+        <p>
+          <strong>Display name:</strong> {me.appUser.displayName ?? "not set"}
+        </p>
+        <p>
+          <strong>Workspace:</strong> {me.workspace.name} ({me.workspace.locale}, {me.workspace.timezone}
+          )
+        </p>
+        <p>
+          <strong>Workspace role:</strong> {me.workspace.role}
+        </p>
+      </section>
+
       <UserButton />
       <SignOutButton>
         <button type="button">Sign out</button>

@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AssistantLifecycleState } from "@persai/contracts";
 import { AppFlowClient } from "./app-flow.client";
 import { CurrentMeResponse } from "./me-api-client";
 
@@ -14,6 +15,13 @@ const apiMocks = vi.hoisted(() => {
   return {
     getMe: vi.fn(),
     postOnboarding: vi.fn()
+  };
+});
+
+const assistantApiMocks = vi.hoisted(() => {
+  return {
+    getAssistant: vi.fn(),
+    postAssistantCreate: vi.fn()
   };
 });
 
@@ -34,6 +42,18 @@ vi.mock("./me-api-client", async () => {
     ...actual,
     getMe: apiMocks.getMe,
     postOnboarding: apiMocks.postOnboarding
+  };
+});
+
+vi.mock("./assistant-api-client", async () => {
+  const actual = await vi.importActual<typeof import("./assistant-api-client")>(
+    "./assistant-api-client"
+  );
+
+  return {
+    ...actual,
+    getAssistant: assistantApiMocks.getAssistant,
+    postAssistantCreate: assistantApiMocks.postAssistantCreate
   };
 });
 
@@ -66,10 +86,64 @@ function makeMeResponse(status: "pending" | "completed"): CurrentMeResponse {
   };
 }
 
+function makeAssistantResponse(): AssistantLifecycleState {
+  return {
+    id: "assistant-1",
+    userId: "user-1",
+    workspaceId: "ws-1",
+    draft: {
+      displayName: "Operator Assistant",
+      instructions: "Use short, useful answers.",
+      updatedAt: "2026-03-23T10:00:00.000Z"
+    },
+    latestPublishedVersion: {
+      id: "pub-2",
+      version: 2,
+      publishedByUserId: "user-1",
+      publishedAt: "2026-03-23T10:05:00.000Z",
+      snapshot: {
+        displayName: "Operator Assistant",
+        instructions: "Use short, useful answers."
+      }
+    },
+    runtimeApply: {
+      status: "succeeded",
+      targetPublishedVersionId: "pub-2",
+      appliedPublishedVersionId: "pub-2",
+      requestedAt: "2026-03-23T10:05:01.000Z",
+      startedAt: "2026-03-23T10:05:02.000Z",
+      finishedAt: "2026-03-23T10:05:03.000Z",
+      error: null
+    },
+    governance: {
+      capabilityEnvelope: null,
+      secretRefs: null,
+      policyEnvelope: null,
+      quotaPlanCode: null,
+      quotaHook: null,
+      auditHook: null,
+      platformManagedUpdatedAt: null
+    },
+    materialization: {
+      latestSpecId: "spec-2",
+      publishedVersionId: "pub-2",
+      sourceAction: "publish",
+      algorithmVersion: 1,
+      contentHash: "hash-2",
+      generatedAt: "2026-03-23T10:05:01.000Z",
+      openclawBootstrapDocument: "{}",
+      openclawWorkspaceDocument: "{}"
+    },
+    createdAt: "2026-03-23T10:00:00.000Z",
+    updatedAt: "2026-03-23T10:05:03.000Z"
+  };
+}
+
 describe("AppFlowClient onboarding gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clerkMocks.getToken.mockResolvedValue("token-user-1");
+    assistantApiMocks.postAssistantCreate.mockReset();
   });
 
   it("shows onboarding gate when /me returns pending", async () => {
@@ -82,15 +156,30 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.queryByText("Me")).not.toBeInTheDocument();
   });
 
-  it("shows me screen when /me returns completed", async () => {
+  it("shows assistant dashboard when /me returns completed", async () => {
     apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
 
     render(<AppFlowClient />);
 
-    expect(await screen.findByText("Me")).toBeInTheDocument();
+    expect(await screen.findByText("Assistant dashboard")).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText(/Workspace A/)).toBeInTheDocument();
+      expect(screen.getByText("Primary status and controls")).toBeInTheDocument();
     });
+    expect(screen.getByText("Assistant summary")).toBeInTheDocument();
+    expect(screen.getByText("v2")).toBeInTheDocument();
+    expect(screen.getByText("succeeded")).toBeInTheDocument();
     expect(screen.getByTestId("user-button")).toBeInTheDocument();
+  });
+
+  it("shows create assistant control when assistant is absent", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(null);
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Assistant entity:")).toBeInTheDocument();
+    expect(screen.getByText("not created")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create assistant" })).toBeInTheDocument();
   });
 });

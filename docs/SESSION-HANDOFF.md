@@ -2,6 +2,18 @@
 
 ## What changed
 
+- Completed Step 4 slice `B1` only (assistant dashboard shell in `apps/web`):
+  - replaced completed-onboarding `/app` "Me" view with a minimal assistant-first dashboard shell
+  - added primary status/control block that surfaces control-plane truth:
+    - draft truth (`draft.updatedAt`)
+    - published truth (`latestPublishedVersion`)
+    - apply truth (`runtimeApply.status` + optional apply error message)
+  - added basic assistant summary block with assistant identity, draft summary, and apply version pointers
+  - preserved existing protected route + onboarding gate behavior
+  - added web assistant API client wiring:
+    - `GET /assistant` returns `null` on `404` for assistant-not-created state
+    - `POST /assistant` creates assistant from the dashboard when absent
+  - updated web tests for dashboard completed branch and assistant-absent branch
 - Closed the remaining A8 apply-route compatibility gap:
   - added workflow-driven OpenClaw source patching in `.github/workflows/openclaw-dev-image-publish.yml`
   - added patch file `infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch`
@@ -84,6 +96,9 @@
 
 ## Why changed
 
+- Step 4 product order requires assistant control surface visibility before chat expansion.
+- Prior `/app` completed branch showed account/workspace baseline only, so assistant lifecycle/apply truth was not visible to users.
+- B1 introduces a minimal assistant-managed shell that keeps control-plane lifecycle truth explicit without expanding into full editor/chat/tasks/memory scope.
 - Live A8 check after runtime wiring fix showed one final blocker before Step 4:
   - preflight was healthy, but `publish/reapply` still failed because OpenClaw returned `404` on `/api/v1/runtime/spec/apply`
 - This slice restores the exact A8 route contract while keeping domain/application boundaries and avoiding behavior-level runtime expansion.
@@ -134,6 +149,12 @@
 
 ## Files touched
 
+- apps/web/app/app/assistant-api-client.ts
+- apps/web/app/app/app-flow.client.tsx
+- apps/web/app/app/app-flow.client.test.tsx
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
 - .github/workflows/openclaw-dev-image-publish.yml
 - infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch
 - infra/helm/templates/openclaw-deployment.yaml

@@ -10,6 +10,13 @@
 - OpenClaw pre-session docs pack baseline:
   - added `docs/OPENCLAW-PRESESSION.md` with mandatory and role-based OpenClaw reading links plus a 60-second checklist
   - updated `AGENTS.md` mandatory startup reading order to include `docs/OPENCLAW-PRESESSION.md`
+- Step 4 slice B1 assistant dashboard shell:
+  - updated `apps/web` protected `/app` completed-onboarding view from raw `Me` screen to a minimal assistant-first dashboard shell
+  - added primary status/control block showing control-plane truth (`draft`, `latestPublishedVersion`, `runtimeApply.status`) and refresh/create controls
+  - added assistant summary block with baseline assistant identity + draft/published/apply pointers
+  - kept onboarding gate and protected route behavior unchanged
+  - added assistant API client wiring in web for `GET /assistant` (404 -> no assistant yet) and `POST /assistant` create action
+  - added/updated web tests for completed onboarding dashboard and assistant-absent state
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

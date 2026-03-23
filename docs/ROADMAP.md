@@ -59,7 +59,7 @@ Foundation Phase
 
 ## Step 4 Assistant User Control Surface
 
-- [ ] B1 — assistant dashboard shell
+- [x] B1 — assistant dashboard shell
 - [ ] B2 — assistant editor sections
 - [ ] B3 — quick start and advanced setup
 - [ ] B4 — publish/apply UX states
