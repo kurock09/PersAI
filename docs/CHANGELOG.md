@@ -57,6 +57,16 @@
   - integrated Telegram active binding truth into channel/surface envelope resolver so runtime projection reflects actual connect state
   - added API test script `test:telegram-integration` and web app-flow coverage for integration connect interaction
   - added ADR `docs/ADR/034-telegram-connection-and-delivery-surface-e4.md`
+- Step 8 slice E5 integrations panel messenger presentation:
+  - hardened main `/app` integrations area into explicit messenger panel with three cards:
+    - Telegram
+    - MAX
+    - WhatsApp
+  - Telegram card now reflects real E4 integration truth (`connected` vs connectable/not-allowed) and preserves connect + post-connect config panel behavior
+  - MAX and WhatsApp cards are explicitly muted `Coming soon` states (no fake active/connect behavior)
+  - added warm, uncluttered card styling for premium baseline presentation while keeping truthful state signaling
+  - updated web app-flow test assertions for coming-soon messenger states
+  - added ADR `docs/ADR/035-integrations-panel-messenger-presentation-e5.md`
 - Post-deploy live validation snapshot for Step 7 P1-P7 on dev GKE:
   - verified API + web deployments on aligned image tag
   - verified user/admin visibility endpoints and UI sections:

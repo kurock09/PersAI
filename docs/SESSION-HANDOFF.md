@@ -1,5 +1,59 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 8 E5 integrations panel messenger presentation
+
+### What changed
+
+- Hardened `/app` user desktop integrations area into a messenger panel with three explicit cards:
+  - Telegram
+  - MAX
+  - WhatsApp
+- Telegram card now reflects real integration truth from E4:
+  - `connected` state when binding exists
+  - connectable state when allowed but not connected
+  - not-allowed state when plan capability denies Telegram
+- Preserved Telegram connect flow + post-connect configuration panel in the same card.
+- MAX and WhatsApp are intentionally non-active in E5:
+  - visually muted cards
+  - explicit `Coming soon` labels
+  - no connect action wired
+- Added lightweight premium/warm card styling for uncluttered messenger presentation.
+- Updated web app-flow tests to assert coming-soon state rendering.
+- Docs updated: ADR-035, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- E5 requires an honest user-facing integrations panel that matches messenger strategy and real binding truth without faking unsupported integrations.
+
+### Files touched (high level)
+
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/web/app/app/app-flow.client.test.tsx`
+- `apps/web/app/globals.css`
+- `docs/ADR/035-integrations-panel-messenger-presentation-e5.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/web run lint` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/web run test -- app/app/app-flow.client.test.tsx` — passed
+
+### Known risks / intentional limits
+
+- MAX and WhatsApp remain presentation-only in E5; connection and delivery are intentionally unsupported.
+- Telegram card styling is premium baseline only; deeper polish belongs to later UX polish steps.
+
+### Next recommended step
+
+- Step 8 **E6** provider and fallback baseline over E1-E5 integration truths.
+
+### Ready commit message
+
+- `feat(web): add step 8 e5 messenger integrations panel with truthful states`
+
 ## 2026-03-24 - Step 8 E4 Telegram connection and delivery surface
 
 ### What changed

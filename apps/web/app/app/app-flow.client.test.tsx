@@ -738,5 +738,6 @@ describe("AppFlowClient onboarding gate", () => {
     });
     expect(screen.getByText("Telegram bot connected.")).toBeInTheDocument();
     expect(screen.getByText("PersAI Bot")).toBeInTheDocument();
+    expect(screen.getAllByText("Coming soon").length).toBeGreaterThanOrEqual(2);
   });
 });

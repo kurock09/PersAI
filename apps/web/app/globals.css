@@ -323,3 +323,55 @@ ul {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+.integration-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.integration-card {
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.integration-card-active {
+  background: linear-gradient(180deg, #fffaf2 0%, #ffffff 100%);
+  border-color: #f1e3c8;
+}
+
+.integration-card-coming-soon {
+  background: #f9fafb;
+  border-color: #e5e7eb;
+  opacity: 0.82;
+}
+
+.integration-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #111827;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 8px;
+}
+
+.integration-state-line {
+  margin: 4px 0 8px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.integration-note {
+  margin: 4px 0;
+  color: #6b7280;
+  font-size: 0.9rem;
+}

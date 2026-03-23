@@ -2366,35 +2366,32 @@ export function AppFlowClient() {
 
           <section>
             <h3>Tools & Integrations</h3>
-            <p>Connect external delivery surfaces while keeping web as the main control plane.</p>
+            <p>Messenger integrations panel. Web remains the primary control-plane surface.</p>
             {isLoadingTelegramIntegration && <p>Loading Telegram integration…</p>}
             {telegramIntegrationFeedback !== null && <p>{telegramIntegrationFeedback}</p>}
             {telegramIntegration === null ? (
               <p>Telegram integration state is not available yet.</p>
             ) : (
-              <>
-                <article className="task-item-card">
-                  <h4>Telegram bot</h4>
-                  <p>
-                    <strong>Capability:</strong>{" "}
-                    {telegramIntegration.capabilityAllowed ? "allowed" : "not allowed by plan"}
-                  </p>
-                  <p>
-                    <strong>Status:</strong>{" "}
-                    {telegramIntegration.connectionStatus === "connected" ? "Connected" : "Not connected"}
+              <div className="integration-panel-grid">
+                <article className="integration-card integration-card-active">
+                  <div className="integration-icon">TG</div>
+                  <h4>Telegram</h4>
+                  <p className="integration-state-line">
+                    {telegramIntegration.connectionStatus === "connected"
+                      ? "Connected"
+                      : telegramIntegration.capabilityAllowed
+                        ? "Available to connect"
+                        : "Not available on current plan"}
                   </p>
                   {telegramIntegration.connectionStatus === "connected" && (
                     <>
-                      <p>
-                        <strong>Bot:</strong>{" "}
+                      <p className="integration-note">
                         {telegramIntegration.bot.displayName ??
                           telegramIntegration.bot.username ??
-                          "Unnamed bot"}
+                          "Connected bot"}
                       </p>
                       {telegramIntegration.bot.username !== null && (
-                        <p>
-                          <strong>Username:</strong> @{telegramIntegration.bot.username}
-                        </p>
+                        <p className="integration-note">@{telegramIntegration.bot.username}</p>
                       )}
                       {telegramIntegration.bot.avatarUrl !== null && (
                         <img
@@ -2408,9 +2405,8 @@ export function AppFlowClient() {
                   )}
                   {telegramIntegration.connectionStatus !== "connected" && (
                     <form onSubmit={(event) => void onConnectTelegram(event)}>
-                      <p>
-                        1) Open Telegram and create/get your bot via @BotFather. 2) Paste bot token.
-                        3) Connect.
+                      <p className="integration-note">
+                        Open @BotFather, copy token, paste below, and connect.
                       </p>
                       <label htmlFor="telegramBotTokenInput">Telegram bot token</label>
                       <input
@@ -2502,7 +2498,21 @@ export function AppFlowClient() {
                     </>
                   )}
                 </article>
-              </>
+
+                <article className="integration-card integration-card-coming-soon">
+                  <div className="integration-icon">MX</div>
+                  <h4>MAX</h4>
+                  <p className="integration-state-line">Coming soon</p>
+                  <p className="integration-note">Bot and mini-app delivery will be added in later slices.</p>
+                </article>
+
+                <article className="integration-card integration-card-coming-soon">
+                  <div className="integration-icon">WA</div>
+                  <h4>WhatsApp</h4>
+                  <p className="integration-state-line">Coming soon</p>
+                  <p className="integration-note">Business channel connection is planned, not active yet.</p>
+                </article>
+              </div>
             )}
           </section>
 
