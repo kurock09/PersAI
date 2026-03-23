@@ -32,6 +32,8 @@ api:
     LOG_LEVEL: info
     GCP_PROJECT_ID: ""
     GCP_REGION: ""
+    OPENCLAW_ADAPTER_ENABLED: "false"
+    OPENCLAW_BASE_URL: "http://openclaw:18789"
   secretEnv:
     DATABASE_URL:
       secretName: persai-api-secrets
@@ -39,6 +41,9 @@ api:
     CLERK_SECRET_KEY:
       secretName: persai-api-secrets
       secretKey: CLERK_SECRET_KEY
+    OPENCLAW_GATEWAY_TOKEN:
+      secretName: persai-openclaw-secrets
+      secretKey: OPENCLAW_GATEWAY_TOKEN
   service:
     type: ClusterIP
     port: 3001

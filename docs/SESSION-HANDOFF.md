@@ -2,6 +2,10 @@
 
 ## What changed
 
+- Applied a narrow A8 runtime stabilization slice before Step 4:
+  - added missing API runtime adapter wiring in Helm values (`OPENCLAW_ADAPTER_ENABLED`, `OPENCLAW_BASE_URL`, `OPENCLAW_GATEWAY_TOKEN`)
+  - enabled adapter in dev values with in-cluster OpenClaw URL (`http://openclaw:18789`)
+  - hardened `AssistantRuntimePreflightService` to return degraded preflight state (`live=false`, `ready=false`) on adapter-level failures instead of surfacing unhandled `500`
 - Fixed the `api-migrate` Argo PreSync hook lifecycle deadlock:
   - changed `cloud-sql-proxy` from a regular Job sidecar container to a sidecar-style `initContainer` with `restartPolicy: Always`
   - added explicit proxy readiness wait in `api-migrate` before Prisma commands run
@@ -64,6 +68,10 @@
 
 ## Why changed
 
+- Live A1-A8 validation showed A8 runtime drift in dev:
+  - adapter env/secret wiring was absent in API runtime values, so apply path failed as configuration-disabled
+  - preflight endpoint surfaced adapter exceptions as `500`, making operator/UX checks noisy
+- This slice keeps A8 boundary/scope unchanged while making runtime status reporting stable and explicit.
 - User-required turnkey deploy path was still blocked by one recurring issue: successful migration SQL with non-terminating hook lifecycle.
 - The previous Job-sidecar pattern left `api-migrate` in `Running/Terminating`, which blocked Argo sync completion and required manual cleanup.
 - The fix keeps the same migration guarantees but removes the hook completion deadlock.
@@ -101,8 +109,10 @@
 
 ## Files touched
 
-- infra/helm/templates/api-migrate-job.yaml
+- apps/api/src/modules/workspace-management/application/assistant-runtime-preflight.service.ts
 - infra/helm/values.yaml
+- infra/helm/values-dev.yaml
+- infra/helm/templates/api-migrate-job.yaml
 - infra/dev/gitops/argocd/application-dev.yaml
 - .github/workflows/openclaw-dev-image-publish.yml
 - README.md

@@ -458,6 +458,13 @@
 
 ### Fixed
 
+- Step 3 A8 runtime wiring hardening (narrow slice):
+  - wired OpenClaw adapter env/secret into API Helm values:
+    - `OPENCLAW_ADAPTER_ENABLED`
+    - `OPENCLAW_BASE_URL`
+    - `OPENCLAW_GATEWAY_TOKEN`
+  - enabled adapter in dev values (`OPENCLAW_ADAPTER_ENABLED=true`) with in-cluster OpenClaw base URL (`http://openclaw:18789`)
+  - hardened runtime preflight service to return a stable degraded preflight shape (`live=false`, `ready=false`) on adapter-layer failures instead of bubbling an unhandled `500`
 - Dev Argo PreSync migration hook hang:
   - updated `infra/helm/templates/api-migrate-job.yaml` to use `cloud-sql-proxy` as a sidecar-style `initContainer` (`restartPolicy: Always`) instead of a regular long-running Job sidecar container
   - added explicit local proxy readiness wait (`127.0.0.1:<port>`) before running Prisma commands in `api-migrate`
