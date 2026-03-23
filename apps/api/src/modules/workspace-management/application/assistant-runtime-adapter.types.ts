@@ -44,10 +44,19 @@ export interface AssistantRuntimeWebChatTurnResult {
   respondedAt: string;
 }
 
+export interface AssistantRuntimeWebChatTurnStreamChunk {
+  type: "delta" | "done";
+  delta?: string;
+  respondedAt?: string;
+}
+
 export interface AssistantRuntimeAdapter {
   preflight(): Promise<AssistantRuntimePreflightResult>;
   applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void>;
   sendWebChatTurn(input: AssistantRuntimeWebChatTurnInput): Promise<AssistantRuntimeWebChatTurnResult>;
+  streamWebChatTurn(
+    input: AssistantRuntimeWebChatTurnInput
+  ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk>;
 }
 
 export const ASSISTANT_RUNTIME_ADAPTER = Symbol("ASSISTANT_RUNTIME_ADAPTER");

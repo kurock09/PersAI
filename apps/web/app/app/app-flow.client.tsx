@@ -9,7 +9,8 @@ import {
   postAssistantCreate,
   postAssistantPublish,
   postAssistantReset,
-  postAssistantRollback
+  postAssistantRollback,
+  streamAssistantWebChatTurn
 } from "./assistant-api-client";
 import { CurrentMeResponse, OnboardingPayload, getMe, postOnboarding } from "./me-api-client";
 
@@ -53,6 +54,15 @@ type UpdateMarker = {
   id: string;
   tone: UpdateMarkerTone;
   message: string;
+};
+
+type StreamingChatMessageRole = "user" | "assistant" | "system";
+
+type StreamingChatMessage = {
+  id: string;
+  role: StreamingChatMessageRole;
+  content: string;
+  status: "committed" | "streaming" | "partial";
 };
 
 function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
@@ -211,6 +221,16 @@ export function AppFlowClient() {
     displayName: "",
     instructions: ""
   });
+  const [chatThreadKey, setChatThreadKey] = useState("web-main");
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<StreamingChatMessage[]>([]);
+  const [streamingError, setStreamingError] = useState<string | null>(null);
+  const [streamingMeta, setStreamingMeta] = useState<string | null>(null);
+  const [isStreamingChat, setIsStreamingChat] = useState(false);
+  const [activeAssistantStreamMessageId, setActiveAssistantStreamMessageId] = useState<string | null>(
+    null
+  );
+  const [chatAbortController, setChatAbortController] = useState<AbortController | null>(null);
 
   const loadAssistantState = useCallback(
     async (token: string, meState: CurrentMeResponse): Promise<AssistantLifecycleState | null> => {
@@ -524,6 +544,147 @@ export function AppFlowClient() {
     }
   }
 
+  function stopStreamingChat(): void {
+    if (chatAbortController !== null) {
+      chatAbortController.abort();
+    }
+  }
+
+  async function onSendStreamingChatMessage(): Promise<void> {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null || isStreamingChat) {
+      return;
+    }
+
+    const trimmedMessage = chatInput.trim();
+    const trimmedThreadKey = chatThreadKey.trim();
+    if (trimmedMessage.length === 0) {
+      setStreamingError("Message cannot be empty.");
+      return;
+    }
+    if (trimmedThreadKey.length === 0) {
+      setStreamingError("Thread key cannot be empty.");
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    const userMessageId = `local-user-${Date.now()}`;
+    const assistantMessageId = `local-assistant-${Date.now()}`;
+    const controller = new AbortController();
+    setChatAbortController(controller);
+    setIsStreamingChat(true);
+    setStreamingError(null);
+    setStreamingMeta("Streaming reply...");
+    setActiveAssistantStreamMessageId(assistantMessageId);
+    setChatInput("");
+    setChatMessages((current) => [
+      ...current,
+      {
+        id: userMessageId,
+        role: "user",
+        content: trimmedMessage,
+        status: "committed"
+      },
+      {
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+        status: "streaming"
+      }
+    ]);
+
+    try {
+      await streamAssistantWebChatTurn(
+        token,
+        {
+          surfaceThreadKey: trimmedThreadKey,
+          message: trimmedMessage
+        },
+        {
+          onDelta: ({ delta }) => {
+            setChatMessages((current) =>
+              current.map((message) =>
+                message.id === assistantMessageId
+                  ? {
+                      ...message,
+                      content: `${message.content}${delta}`,
+                      status: "streaming"
+                    }
+                  : message
+              )
+            );
+          },
+          onRuntimeDone: ({ respondedAt }) => {
+            setStreamingMeta(`Runtime completed at ${respondedAt}. Finalizing records...`);
+          },
+          onCompleted: () => {
+            setChatMessages((current) =>
+              current.map((message) =>
+                message.id === assistantMessageId
+                  ? {
+                      ...message,
+                      status: "committed"
+                    }
+                  : message
+              )
+            );
+            setStreamingMeta("Streaming completed and response persisted.");
+          },
+          onInterrupted: () => {
+            setChatMessages((current) =>
+              current.map((message) =>
+                message.id === assistantMessageId
+                  ? {
+                      ...message,
+                      status: message.content.trim().length > 0 ? "partial" : "streaming"
+                    }
+                  : message
+              )
+            );
+            setStreamingMeta("Streaming interrupted. Partial output was preserved if any text arrived.");
+          },
+          onFailed: ({ message }) => {
+            setChatMessages((current) =>
+              current.map((entry) =>
+                entry.id === assistantMessageId
+                  ? {
+                      ...entry,
+                      status: entry.content.trim().length > 0 ? "partial" : "streaming"
+                    }
+                  : entry
+              )
+            );
+            setStreamingError(message);
+            setStreamingMeta("Streaming failed. Any partial output shown is preserved as-is.");
+          }
+        },
+        controller.signal
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Streaming request failed.";
+      setStreamingError(message);
+      setStreamingMeta("Streaming failed before completion.");
+      setChatMessages((current) =>
+        current.map((entry) =>
+          entry.id === assistantMessageId
+            ? {
+                ...entry,
+                status: entry.content.trim().length > 0 ? "partial" : "streaming"
+              }
+            : entry
+        )
+      );
+    } finally {
+      setChatAbortController(null);
+      setIsStreamingChat(false);
+      setActiveAssistantStreamMessageId(null);
+    }
+  }
+
   if (flowState.type === "loading") {
     return (
       <main>
@@ -727,6 +888,58 @@ export function AppFlowClient() {
                 <li key={marker.id}>
                   <strong>{marker.tone === "attention" ? "Attention" : "Update"}:</strong>{" "}
                   {marker.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {assistantState !== null && (
+        <section>
+          <h2>Web chat stream</h2>
+          <p>Streaming-first transport path for web chat. Request/response is not the default path.</p>
+          <p>
+            <strong>Thread key:</strong>
+          </p>
+          <input
+            aria-label="Web chat thread key"
+            value={chatThreadKey}
+            onChange={(event) => setChatThreadKey(event.target.value)}
+            disabled={isStreamingChat}
+          />
+          <p>
+            <strong>Message</strong>
+          </p>
+          <textarea
+            aria-label="Web chat message input"
+            value={chatInput}
+            onChange={(event) => setChatInput(event.target.value)}
+            disabled={isStreamingChat}
+          />
+          <div>
+            <button type="button" disabled={isStreamingChat} onClick={() => void onSendStreamingChatMessage()}>
+              {isStreamingChat ? "Streaming..." : "Send message (stream)"}
+            </button>
+            <button type="button" disabled={!isStreamingChat} onClick={stopStreamingChat}>
+              Stop streaming
+            </button>
+          </div>
+          {streamingMeta !== null && <p>{streamingMeta}</p>}
+          {streamingError !== null && <p>{streamingError}</p>}
+          {chatMessages.length === 0 ? (
+            <p>No chat turns yet.</p>
+          ) : (
+            <ul>
+              {chatMessages.map((message) => (
+                <li key={message.id}>
+                  <strong>{message.role}</strong>
+                  {message.id === activeAssistantStreamMessageId && isStreamingChat
+                    ? " (streaming)"
+                    : message.status === "partial"
+                      ? " (partial)"
+                      : ""}
+                  : {message.content.length > 0 ? message.content : "..."}
                 </li>
               ))}
             </ul>

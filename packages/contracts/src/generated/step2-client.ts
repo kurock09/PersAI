@@ -529,6 +529,70 @@ export const postAssistantWebChatTurn = async (assistantWebChatTurnRequest: Assi
 
 
 /**
+ * @summary Send one web chat turn via streaming-first transport
+ */
+export type postAssistantWebChatTurnStreamResponse200 = {
+  data: string
+  status: 200
+}
+
+export type postAssistantWebChatTurnStreamResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAssistantWebChatTurnStreamResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantWebChatTurnStreamResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantWebChatTurnStreamResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantWebChatTurnStreamResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantWebChatTurnStreamResponseSuccess = (postAssistantWebChatTurnStreamResponse200) & {
+  headers: Headers;
+};
+export type postAssistantWebChatTurnStreamResponseError = (postAssistantWebChatTurnStreamResponse400 | postAssistantWebChatTurnStreamResponse401 | postAssistantWebChatTurnStreamResponse404 | postAssistantWebChatTurnStreamResponse409 | postAssistantWebChatTurnStreamResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantWebChatTurnStreamResponse = (postAssistantWebChatTurnStreamResponseSuccess | postAssistantWebChatTurnStreamResponseError)
+
+export const getPostAssistantWebChatTurnStreamUrl = () => {
+
+
+  
+
+  return `/assistant/chat/web/stream`
+}
+
+export const postAssistantWebChatTurnStream = async (assistantWebChatTurnRequest: AssistantWebChatTurnRequest, options?: RequestInit): Promise<postAssistantWebChatTurnStreamResponse> => {
+  
+  return customFetch<postAssistantWebChatTurnStreamResponse>(getPostAssistantWebChatTurnStreamUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantWebChatTurnRequest,)
+  }
+);}
+
+
+
+/**
  * @summary Get current authenticated app user state
  */
 export type getMeResponse200 = {

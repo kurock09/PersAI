@@ -119,6 +119,23 @@
   - added OpenClaw compatibility patch support for runtime web chat transport endpoint in dev image workflow source patch
   - no streaming transport in C2
   - no Telegram transport/domain in C2
+- Step 5 slice C3 streaming web chat baseline:
+  - added streaming-first web chat backend endpoint:
+    - `POST /api/v1/assistant/chat/web/stream`
+  - added streaming adapter boundary call:
+    - `POST /api/v1/runtime/chat/web/stream`
+  - added streaming orchestration service with honest completion/interruption/failure outcomes:
+    - emits `started|delta|runtime_done|completed|interrupted|failed` events
+    - persists canonical records around stream lifecycle
+  - record correctness during streaming:
+    - user message persisted before runtime stream
+    - full assistant message persisted on successful completion
+    - partial assistant output persisted on interrupted/failed streams when partial text exists
+    - explicit system marker message persisted for interrupted/failed partial outcomes
+  - updated web UI to use streaming path as primary send/happy path (request/response is no longer default UX path)
+  - extended OpenClaw compatibility patch with `POST /api/v1/runtime/chat/web/stream` NDJSON stream endpoint
+  - no Telegram support added
+  - no lifecycle/apply truth bypass added
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

@@ -28,6 +28,7 @@ Path versioning: /api/v1/...
 - POST /api/v1/assistant/reapply
 - GET /api/v1/assistant/runtime/preflight
 - POST /api/v1/assistant/chat/web
+- POST /api/v1/assistant/chat/web/stream
 
 ## Step 5 C1 backend boundary note
 
@@ -56,6 +57,34 @@ Behavior baseline:
 - persists assistant message record in backend chat history
 - returns transport result with chat + user message + assistant message records
 - no streaming in C2
+
+## Step 5 C3 streaming web chat baseline
+
+### POST /api/v1/assistant/chat/web/stream
+
+Request body fields:
+
+- `surfaceThreadKey` (string, required)
+- `message` (string, required)
+- `title` (string | null, optional)
+
+Behavior baseline:
+
+- authenticated caller only
+- web surface only in C3
+- streaming-first path for web chat UX
+- preserves lifecycle/apply gate from C2 before stream starts
+- persists canonical user message before runtime stream begins
+- emits stream events to client:
+  - `started`
+  - `delta`
+  - `runtime_done`
+  - `completed`
+  - `interrupted`
+  - `failed`
+- on completed stream, persists full assistant message record
+- on interruption/failure with partial output, persists partial assistant output + explicit system marker record
+- no Telegram transport in C3
 
 ### POST /api/v1/assistant
 
@@ -307,6 +336,9 @@ First supported adapter interactions:
 - runtime web chat transport (C2):
   - `POST /api/v1/runtime/chat/web`
   - payload source is backend canonical turn context (`assistantId`, published version ID, chat/thread identity, persisted user message data)
+- runtime web chat streaming transport (C3):
+  - `POST /api/v1/runtime/chat/web/stream`
+  - payload source remains backend canonical turn context and persisted user message data
 
 Allowed backend knowledge:
 

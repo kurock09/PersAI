@@ -8,6 +8,7 @@ index dd5a659..91960fe 100644
  ]);
 +const RUNTIME_SPEC_APPLY_PATH = "/api/v1/runtime/spec/apply";
 +const RUNTIME_CHAT_WEB_PATH = "/api/v1/runtime/chat/web";
++const RUNTIME_CHAT_WEB_STREAM_PATH = "/api/v1/runtime/chat/web/stream";
  const MATTERMOST_SLASH_CALLBACK_PATH = "/api/channels/mattermost/command";
  
  function resolveMattermostSlashCallbackPaths(
@@ -178,6 +179,92 @@ index dd5a659..91960fe 100644
 +  return true;
 +}
 +
++async function handleRuntimeChatWebStreamHttpRequest(
++  req: IncomingMessage,
++  res: ServerResponse,
++  requestPath: string,
++  resolvedAuth: ResolvedGatewayAuth,
++  trustedProxies: string[],
++  allowRealIpFallback: boolean,
++): Promise<boolean> {
++  if (requestPath !== RUNTIME_CHAT_WEB_STREAM_PATH) {
++    return false;
++  }
++
++  const method = (req.method ?? "GET").toUpperCase();
++  if (method !== "POST") {
++    res.statusCode = 405;
++    res.setHeader("Allow", "POST");
++    res.setHeader("Content-Type", "text/plain; charset=utf-8");
++    res.end("Method Not Allowed");
++    return true;
++  }
++
++  const bearerToken = getBearerToken(req);
++  const auth = await authorizeHttpGatewayConnect({
++    auth: resolvedAuth,
++    connectAuth: bearerToken ? { token: bearerToken, password: bearerToken } : null,
++    req,
++    trustedProxies,
++    allowRealIpFallback,
++  });
++  if (!auth.ok) {
++    sendGatewayAuthFailure(res, auth);
++    return true;
++  }
++
++  const parsed = await readJsonBody(req, 1_000_000);
++  if (!parsed.ok) {
++    const status =
++      parsed.error === "payload too large"
++        ? 413
++        : parsed.error === "request body timeout"
++          ? 408
++          : 400;
++    sendJson(res, status, { ok: false, error: parsed.error });
++    return true;
++  }
++
++  const payload = isRecord(parsed.value) ? parsed.value : {};
++  const assistantId = typeof payload.assistantId === "string" ? payload.assistantId.trim() : "";
++  const publishedVersionId =
++    typeof payload.publishedVersionId === "string" ? payload.publishedVersionId.trim() : "";
++  const chatId = typeof payload.chatId === "string" ? payload.chatId.trim() : "";
++  const surfaceThreadKey =
++    typeof payload.surfaceThreadKey === "string" ? payload.surfaceThreadKey.trim() : "";
++  const userMessageId = typeof payload.userMessageId === "string" ? payload.userMessageId.trim() : "";
++  const userMessage = typeof payload.userMessage === "string" ? payload.userMessage.trim() : "";
++
++  if (
++    !assistantId ||
++    !publishedVersionId ||
++    !chatId ||
++    !surfaceThreadKey ||
++    !userMessageId ||
++    !userMessage
++  ) {
++    sendJson(res, 400, {
++      ok: false,
++      error:
++        "Invalid runtime web chat stream payload. Required fields: assistantId, publishedVersionId, chatId, surfaceThreadKey, userMessageId, userMessage.",
++    });
++    return true;
++  }
++
++  const answer = `[openclaw-compat-stream] ${userMessage}`;
++  const chunks = answer.split(" ");
++  res.statusCode = 200;
++  res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
++  res.setHeader("Cache-Control", "no-cache");
++  for (let index = 0; index < chunks.length; index += 1) {
++    const text = index === chunks.length - 1 ? chunks[index] : `${chunks[index]} `;
++    res.write(`${JSON.stringify({ type: "delta", delta: text })}\n`);
++  }
++  res.write(`${JSON.stringify({ type: "done", respondedAt: new Date().toISOString() })}\n`);
++  res.end();
++  return true;
++}
++
  function writeUpgradeAuthFailure(
    socket: { write: (chunk: string) => void },
    auth: GatewayAuthResult,
@@ -201,6 +288,18 @@ index dd5a659..91960fe 100644
 +        name: "runtime-chat-web",
 +        run: () =>
 +          handleRuntimeChatWebHttpRequest(
++            req,
++            res,
++            requestPath,
++            resolvedAuth,
++            trustedProxies,
++            allowRealIpFallback,
++          ),
++      });
++      requestStages.push({
++        name: "runtime-chat-web-stream",
++        run: () =>
++          handleRuntimeChatWebStreamHttpRequest(
 +            req,
 +            res,
 +            requestPath,

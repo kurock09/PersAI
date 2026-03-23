@@ -58,6 +58,15 @@ O6 defines a future adapter-only contract:
 - backend persists canonical chat/message records before/after runtime turn
 - transport is synchronous in C2 (no streaming)
 
+## Chat streaming boundary (Step 5 C3)
+
+- primary web chat UX path is streaming-first:
+  - `POST /api/v1/assistant/chat/web/stream`
+- backend streams transport events to web UI and keeps canonical record ownership
+- adapter boundary remains explicit for runtime stream:
+  - `POST /api/v1/runtime/chat/web/stream`
+- interruption/failure is represented honestly and partial output can be persisted with explicit marker records
+
 ## Frontend/backend boundary
 
 - contracts-first

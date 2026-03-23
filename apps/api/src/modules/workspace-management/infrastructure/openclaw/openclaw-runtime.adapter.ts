@@ -4,6 +4,7 @@ import type {
   AssistantRuntimeAdapter,
   AssistantRuntimeApplyInput,
   AssistantRuntimePreflightResult,
+  AssistantRuntimeWebChatTurnStreamChunk,
   AssistantRuntimeWebChatTurnInput,
   AssistantRuntimeWebChatTurnResult
 } from "../../application/assistant-runtime-adapter.types";
@@ -174,6 +175,87 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     };
   }
 
+  async *streamWebChatTurn(
+    input: AssistantRuntimeWebChatTurnInput
+  ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError(
+        "runtime_unreachable",
+        "OpenClaw adapter is disabled by configuration."
+      );
+    }
+
+    const preflight = await this.preflight();
+    if (!preflight.live || !preflight.ready) {
+      throw new AssistantRuntimeAdapterError(
+        "runtime_degraded",
+        `OpenClaw runtime degraded: live=${preflight.live}, ready=${preflight.ready}.`
+      );
+    }
+
+    const streamResponse = await this.requestStream(
+      "/api/v1/runtime/chat/web/stream",
+      {
+        assistantId: input.assistantId,
+        publishedVersionId: input.publishedVersionId,
+        chatId: input.chatId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        userMessageId: input.userMessageId,
+        userMessage: input.userMessage
+      },
+      config
+    );
+
+    let hasDone = false;
+    for await (const payload of this.readNdjsonStream(streamResponse)) {
+      if (!isObject(payload)) {
+        throw new AssistantRuntimeAdapterError(
+          "invalid_response",
+          "OpenClaw streaming payload is not a JSON object."
+        );
+      }
+
+      const type = payload.type;
+      if (type === "delta") {
+        const delta = payload.delta;
+        if (typeof delta !== "string") {
+          throw new AssistantRuntimeAdapterError(
+            "invalid_response",
+            "OpenClaw stream delta payload is missing delta string."
+          );
+        }
+        yield { type: "delta", delta };
+        continue;
+      }
+
+      if (type === "done") {
+        const respondedAt = payload.respondedAt;
+        if (typeof respondedAt !== "string" || respondedAt.trim().length === 0) {
+          throw new AssistantRuntimeAdapterError(
+            "invalid_response",
+            "OpenClaw stream done payload is missing respondedAt."
+          );
+        }
+        hasDone = true;
+        yield { type: "done", respondedAt: respondedAt.trim() };
+        break;
+      }
+
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw streaming payload has unsupported type."
+      );
+    }
+
+    if (!hasDone) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw stream completed without done event."
+      );
+    }
+  }
+
   private async requestWithRetries(
     method: "GET" | "POST",
     path: string,
@@ -275,6 +357,121 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     } finally {
       clearTimeout(timeoutId);
+    }
+  }
+
+  private async requestStream(
+    path: string,
+    body: unknown,
+    config: OpenClawAdapterConfig
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
+
+    try {
+      const response = await fetch(`${config.baseUrl}${path}`, {
+        method: "POST",
+        headers: {
+          ...(config.token.length > 0 ? { Authorization: `Bearer ${config.token}` } : {}),
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson"
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        throw new AssistantRuntimeAdapterError(
+          "auth_failure",
+          `OpenClaw auth failure (${response.status}).`
+        );
+      }
+
+      if (!response.ok) {
+        throw new AssistantRuntimeAdapterError(
+          "invalid_response",
+          `OpenClaw response status ${response.status} is not successful.`
+        );
+      }
+
+      if (response.body === null) {
+        throw new AssistantRuntimeAdapterError(
+          "invalid_response",
+          "OpenClaw stream response has no body."
+        );
+      }
+
+      return response;
+    } catch (error) {
+      if (error instanceof AssistantRuntimeAdapterError) {
+        throw error;
+      }
+
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new AssistantRuntimeAdapterError(
+          "timeout",
+          `OpenClaw request timed out after ${config.timeoutMs}ms.`
+        );
+      }
+
+      throw new AssistantRuntimeAdapterError(
+        "runtime_unreachable",
+        "OpenClaw runtime is unreachable."
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private async *readNdjsonStream(response: Response): AsyncGenerator<unknown> {
+    if (response.body === null) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw stream response has no readable body."
+      );
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) {
+          continue;
+        }
+
+        try {
+          yield JSON.parse(trimmed) as unknown;
+        } catch {
+          throw new AssistantRuntimeAdapterError(
+            "invalid_response",
+            "OpenClaw stream chunk is not valid JSON."
+          );
+        }
+      }
+    }
+
+    const tail = buffer.trim();
+    if (tail.length > 0) {
+      try {
+        yield JSON.parse(tail) as unknown;
+      } catch {
+        throw new AssistantRuntimeAdapterError(
+          "invalid_response",
+          "OpenClaw stream tail chunk is not valid JSON."
+        );
+      }
     }
   }
 }

@@ -1,5 +1,87 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - Step 5 C3 streaming web chat slice
+
+### What changed
+
+- Completed Step 5 slice `C3` only (streaming-first web chat transport and UI path):
+  - added backend streaming endpoint:
+    - `POST /api/v1/assistant/chat/web/stream`
+  - added streaming application service orchestration:
+    - pre-stream lifecycle/apply gate enforcement
+    - canonical user message persistence before stream starts
+    - runtime stream delta handling
+    - explicit completion/interruption/failure outcomes
+  - added OpenClaw adapter streaming boundary method:
+    - calls `POST /api/v1/runtime/chat/web/stream`
+    - parses NDJSON runtime stream chunks (`delta|done`)
+  - extended OpenClaw compatibility patch with streaming runtime endpoint:
+    - `POST /api/v1/runtime/chat/web/stream`
+  - kept C2 request/response transport endpoint in place for compatibility, but switched web UX to streaming-first path
+  - updated web `/app` chat behavior:
+    - primary send path is streaming (`Send message (stream)`)
+    - live delta rendering
+    - user-triggered interruption (`Stop streaming`)
+    - honest partial-output state visibility
+  - preserved canonical record truth during streaming:
+    - on completion: assistant full message persisted
+    - on interrupted/failed with partial text: partial assistant message persisted + system marker persisted
+  - updated docs:
+    - `docs/ADR/017-web-chat-streaming-first-transport.md`
+    - `docs/ARCHITECTURE.md`
+    - `docs/API-BOUNDARY.md`
+    - `docs/ROADMAP.md` (`C3` marked complete)
+    - `docs/CHANGELOG.md`
+    - `docs/SESSION-HANDOFF.md`
+
+### Why changed
+
+- C3 requirement is streaming-first web chat as the primary happy path.
+- Streaming needed to preserve transparency for interruption/failure and avoid pretending full completion when runtime output is partial.
+- Existing C1/C2 record-vs-runtime boundary is preserved by persisting records in backend while keeping runtime session truth in OpenClaw.
+
+### Files touched
+
+- apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts
+- apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts
+- apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts
+- apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts
+- apps/api/src/modules/workspace-management/workspace-management.module.ts
+- apps/api/src/modules/identity-access/identity-access.module.ts
+- apps/web/app/app/assistant-api-client.ts
+- apps/web/app/app/app-flow.client.tsx
+- infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch
+- packages/contracts/openapi.yaml
+- packages/contracts/src/generated/*
+- docs/ADR/017-web-chat-streaming-first-transport.md
+- docs/ARCHITECTURE.md
+- docs/API-BOUNDARY.md
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` - passed
+- `corepack pnpm --filter @persai/api run lint` - passed
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` - passed
+- `corepack pnpm run typecheck` - passed
+- `corepack pnpm --filter @persai/web run build` - passed
+
+### Known risks
+
+- Streaming protocol is currently SSE from API and NDJSON from adapter/runtime; advanced resume/replay semantics are not implemented.
+- Runtime streaming behavior in dev depends on OpenClaw compatibility patch path.
+- C4 chat list/actions and persistence-backed chat history UX are not implemented yet.
+
+### Next recommended step
+
+- Proceed to Step 5 `C4` (chat list and chat actions) while keeping streaming-first path and record-vs-runtime split intact.
+
+### Ready commit message
+
+- `feat(web-api): add step 5 c3 streaming-first web chat transport and ui path`
+
 ## 2026-03-23 - Step 5 C2 web chat backend transport slice
 
 ### What changed
