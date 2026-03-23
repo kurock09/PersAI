@@ -58,7 +58,7 @@ export async function postAssistantCreate(token: string): Promise<AssistantLifec
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200 && response.status !== 201) {
+    if (response.status !== 200) {
       throw new Error("Unexpected non-success response for POST /assistant.");
     }
 
@@ -93,7 +93,7 @@ export async function postAssistantPublish(token: string): Promise<AssistantLife
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200 && response.status !== 201) {
+    if (response.status !== 200) {
       throw new Error("Unexpected non-success response for POST /assistant/publish.");
     }
 
@@ -112,7 +112,7 @@ export async function postAssistantRollback(
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200 && response.status !== 201) {
+    if (response.status !== 200) {
       throw new Error("Unexpected non-success response for POST /assistant/rollback.");
     }
 
@@ -128,7 +128,7 @@ export async function postAssistantReset(token: string): Promise<AssistantLifecy
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200 && response.status !== 201) {
+    if (response.status !== 200) {
       throw new Error("Unexpected non-success response for POST /assistant/reset.");
     }
 
