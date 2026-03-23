@@ -324,6 +324,29 @@
     - no runtime/OpenClaw calls
     - no chat APIs
   - marked `A2` complete in `docs/ROADMAP.md`
+- Step 3 slice A3 draft/publish/version model:
+  - added immutable published version persistence model:
+    - table/model `assistant_published_versions`
+    - per-assistant sequential unique version (`assistant_id`, `version`)
+    - snapshot payload fields: `snapshot_display_name`, `snapshot_instructions`
+    - publish actor tracking: `published_by_user_id`
+  - enforced published snapshot immutability at DB level:
+    - trigger rejects `UPDATE` and `DELETE` on `assistant_published_versions`
+  - extended assistant lifecycle API with publish entrypoint:
+    - `POST /api/v1/assistant/publish`
+  - extended assistant lifecycle read model:
+    - includes `latestPublishedVersion` (nullable) in assistant state
+  - implemented minimal publish use-case in backend domain/application layers:
+    - publish creates immutable snapshot from current draft
+    - no runtime/apply coupling
+  - updated contracts-first artifacts:
+    - `packages/contracts/openapi.yaml`
+    - regenerated `packages/contracts/src/generated/*`
+  - kept scope intentionally narrow:
+    - no runtime apply state
+    - no rollback/reset semantics
+    - no chat/channels integrations
+  - marked `A3` complete in `docs/ROADMAP.md`
 
 ### Changed
 

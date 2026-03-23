@@ -1,5 +1,9 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
+  type AssistantPublishedVersionRepository
+} from "../domain/assistant-published-version.repository";
+import {
   ASSISTANT_REPOSITORY,
   type AssistantRepository,
   type UpdateAssistantDraftInput
@@ -32,7 +36,9 @@ function normalizeOptionalDraftField(value: unknown, fieldName: string): string 
 export class UpdateAssistantDraftService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository
+    private readonly assistantRepository: AssistantRepository,
+    @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
+    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository
   ) {}
 
   parseInput(payload: unknown): UpdateAssistantDraftRequest {
@@ -79,6 +85,9 @@ export class UpdateAssistantDraftService {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
-    return toAssistantLifecycleState(updatedAssistant);
+    const latestPublishedVersion =
+      await this.assistantPublishedVersionRepository.findLatestByAssistantId(updatedAssistant.id);
+
+    return toAssistantLifecycleState(updatedAssistant, latestPublishedVersion);
   }
 }

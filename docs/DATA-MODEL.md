@@ -44,6 +44,16 @@ Postgres with Prisma.
 - created_at
 - updated_at
 
+### assistant_published_versions (Step 3 A3 baseline)
+
+- id (UUID)
+- assistant_id
+- version (integer, per-assistant sequential)
+- snapshot_display_name (nullable)
+- snapshot_instructions (nullable)
+- published_by_user_id
+- created_at
+
 ## Prisma baseline (Step 1 slice 5)
 
 - `app_users`:
@@ -64,6 +74,12 @@ Postgres with Prisma.
   - scoped-membership FK: `(workspace_id, user_id) -> workspace_members(workspace_id, user_id)`
   - unique pair: `(workspace_id, user_id)` to keep assistant bound to one concrete user-workspace membership record
   - A2 draft columns (all nullable): `draft_display_name`, `draft_instructions`, `draft_updated_at`
+- `assistant_published_versions`:
+  - primary key: `id`
+  - foreign keys: `assistant_id -> assistants.id`, `published_by_user_id -> app_users.id`
+  - unique per-assistant version: `(assistant_id, version)`
+  - immutable snapshot fields: `snapshot_display_name`, `snapshot_instructions`
+  - immutable row policy enforced by DB trigger (no UPDATE, no DELETE)
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -80,7 +96,8 @@ Postgres with Prisma.
 - no manual schema changes; Prisma migrations only
 - assistant is a first-class domain entity (not embedded in `app_users` or `workspaces`)
 - A2 supports assistant create/get/draft-update control-plane entrypoints only
-- publish/version, rollback/reset, runtime apply/OpenClaw calls, chat, channels, and integrations remain unsupported
+- A3 adds publish/version snapshot model only (control-plane)
+- runtime apply, rollback/reset semantics, chat, channels, and integrations remain unsupported
 
 ## Step 2 onboarding write baseline (slice 3)
 

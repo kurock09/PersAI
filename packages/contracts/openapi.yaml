@@ -115,6 +115,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/publish:
+    post:
+      operationId: postAssistantPublish
+      summary: Publish current authenticated user assistant draft to immutable version
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Assistant state with latest published version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Concurrent publish conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me:
     get:
       operationId: getMe
@@ -301,6 +338,41 @@ components:
           type: string
           format: date-time
           nullable: true
+    AssistantPublishedVersionSnapshotState:
+      type: object
+      required:
+        - displayName
+        - instructions
+      properties:
+        displayName:
+          type: string
+          nullable: true
+        instructions:
+          type: string
+          nullable: true
+    AssistantPublishedVersionState:
+      type: object
+      required:
+        - id
+        - version
+        - publishedByUserId
+        - publishedAt
+        - snapshot
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          minimum: 1
+        publishedByUserId:
+          type: string
+          format: uuid
+        publishedAt:
+          type: string
+          format: date-time
+        snapshot:
+          $ref: "#/components/schemas/AssistantPublishedVersionSnapshotState"
     AssistantLifecycleState:
       type: object
       required:
@@ -308,6 +380,7 @@ components:
         - userId
         - workspaceId
         - draft
+        - latestPublishedVersion
         - createdAt
         - updatedAt
       properties:
@@ -322,6 +395,10 @@ components:
           format: uuid
         draft:
           $ref: "#/components/schemas/AssistantDraftState"
+        latestPublishedVersion:
+          allOf:
+            - $ref: "#/components/schemas/AssistantPublishedVersionState"
+          nullable: true
         createdAt:
           type: string
           format: date-time

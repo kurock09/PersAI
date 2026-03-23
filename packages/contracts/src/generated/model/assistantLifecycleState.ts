@@ -5,12 +5,15 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantDraftState } from './assistantDraftState';
+import type { AssistantLifecycleStateLatestPublishedVersion } from './assistantLifecycleStateLatestPublishedVersion';
 
 export interface AssistantLifecycleState {
   id: string;
   userId: string;
   workspaceId: string;
   draft: AssistantDraftState;
+  /** @nullable */
+  latestPublishedVersion: AssistantLifecycleStateLatestPublishedVersion;
   createdAt: string;
   updatedAt: string;
 }

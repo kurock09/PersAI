@@ -41,6 +41,6 @@ export class CreateAssistantService {
     }
 
     const assistant = await this.assistantRepository.create(userId, membership.workspaceId);
-    return toAssistantLifecycleState(assistant);
+    return toAssistantLifecycleState(assistant, null);
   }
 }

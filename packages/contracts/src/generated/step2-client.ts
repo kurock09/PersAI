@@ -185,6 +185,64 @@ export const patchAssistantDraft = async (assistantDraftUpdateRequest: Assistant
 
 
 /**
+ * @summary Publish current authenticated user assistant draft to immutable version
+ */
+export type postAssistantPublishResponse200 = {
+  data: GetAssistantResponse
+  status: 200
+}
+
+export type postAssistantPublishResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantPublishResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantPublishResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantPublishResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantPublishResponseSuccess = (postAssistantPublishResponse200) & {
+  headers: Headers;
+};
+export type postAssistantPublishResponseError = (postAssistantPublishResponse401 | postAssistantPublishResponse404 | postAssistantPublishResponse409 | postAssistantPublishResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantPublishResponse = (postAssistantPublishResponseSuccess | postAssistantPublishResponseError)
+
+export const getPostAssistantPublishUrl = () => {
+
+
+  
+
+  return `/assistant/publish`
+}
+
+export const postAssistantPublish = async ( options?: RequestInit): Promise<postAssistantPublishResponse> => {
+  
+  return customFetch<postAssistantPublishResponse>(getPostAssistantPublishUrl(),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
+  }
+);}
+
+
+
+/**
  * @summary Get current authenticated app user state
  */
 export type getMeResponse200 = {

@@ -31,7 +31,8 @@ export class IdentityAccessModule implements NestModule {
         { path: "api/v1/me/onboarding", method: RequestMethod.POST },
         { path: "api/v1/assistant", method: RequestMethod.GET },
         { path: "api/v1/assistant", method: RequestMethod.POST },
-        { path: "api/v1/assistant/draft", method: RequestMethod.PATCH }
+        { path: "api/v1/assistant/draft", method: RequestMethod.PATCH },
+        { path: "api/v1/assistant/publish", method: RequestMethod.POST }
       );
   }
 }

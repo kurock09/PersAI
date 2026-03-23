@@ -22,6 +22,7 @@ Path versioning: /api/v1/...
 - POST /api/v1/assistant
 - GET /api/v1/assistant
 - PATCH /api/v1/assistant/draft
+- POST /api/v1/assistant/publish
 
 ### POST /api/v1/assistant
 
@@ -41,6 +42,7 @@ Behavior baseline:
 - returns assistant lifecycle skeleton state:
   - `id`, `userId`, `workspaceId`
   - `draft.displayName`, `draft.instructions`, `draft.updatedAt`
+  - `latestPublishedVersion` (nullable)
   - `createdAt`, `updatedAt`
 - returns not found if assistant has not been created yet
 
@@ -58,6 +60,18 @@ Behavior baseline:
 - does not create published versions
 - does not perform runtime apply/openclaw actions
 - returns not found when assistant does not exist
+
+### POST /api/v1/assistant/publish (Step 3 A3 baseline)
+
+Behavior baseline:
+
+- authenticated caller only
+- requires existing assistant for caller
+- creates new immutable published snapshot version from current draft
+- version number is per-assistant incremental (`1,2,3,...`)
+- returns assistant lifecycle state with `latestPublishedVersion` set to newly published version
+- does not perform runtime apply/openclaw actions
+- does not mutate historical published versions
 
 ### GET /api/v1/me (slice 2 baseline response)
 
@@ -108,7 +122,7 @@ Behavior baseline:
 }
 ```
 
-## Contract source of truth (Step 2 + Step 3 A2)
+## Contract source of truth (Step 2 + Step 3 A2/A3)
 
 - OpenAPI spec: `packages/contracts/openapi.yaml`
 - Generated typed client (Orval): `packages/contracts/src/generated/*`

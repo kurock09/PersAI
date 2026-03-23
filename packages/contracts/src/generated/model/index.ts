@@ -22,4 +22,7 @@ export * from "./workspaceSummaryStatus";
 export * from './assistantDraftState';
 export * from './assistantDraftUpdateRequest';
 export * from './assistantLifecycleState';
+export * from './assistantLifecycleStateLatestPublishedVersion';
+export * from './assistantPublishedVersionSnapshotState';
+export * from './assistantPublishedVersionState';
 export * from './getAssistantResponse';
