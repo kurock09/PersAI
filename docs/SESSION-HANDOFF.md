@@ -1,5 +1,89 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - Step 5 C4 web chat list and actions slice
+
+### What changed
+
+- Completed Step 5 slice `C4` only (GPT-style web chat list and core chat actions):
+  - added backend web chat list endpoint:
+    - `GET /api/v1/assistant/chats/web`
+  - added backend chat actions:
+    - rename: `PATCH /api/v1/assistant/chats/web/:chatId`
+    - archive: `POST /api/v1/assistant/chats/web/:chatId/archive`
+    - hard delete: `DELETE /api/v1/assistant/chats/web/:chatId`
+  - hard delete requires explicit confirmation payload:
+    - `confirmText=DELETE`
+  - implemented hard delete as true destructive delete:
+    - removes chat row
+    - removes related chat message rows
+    - no soft-delete aliasing
+  - added list metadata projection from canonical records:
+    - `messageCount`
+    - `lastMessagePreview`
+    - timestamps and archive state
+  - updated web `/app` with GPT-style chat list UI and actions:
+    - open thread in composer
+    - rename
+    - archive
+    - hard delete with explicit typed confirmation
+  - updated contracts/docs:
+    - OpenAPI + generated contract client/models
+    - ADR `docs/ADR/018-web-chat-list-and-destructive-actions.md`
+    - `docs/ARCHITECTURE.md`
+    - `docs/API-BOUNDARY.md`
+    - `docs/ROADMAP.md` (`C4` marked complete)
+    - `docs/CHANGELOG.md`
+    - `docs/SESSION-HANDOFF.md`
+
+### Why changed
+
+- C4 requires user-facing chat management controls, not only transport/send UX.
+- GPT-style chat list actions are now mapped to canonical backend records introduced in C1.
+- Delete behavior is kept explicit and honest: destructive delete must not be masked as archive.
+
+### Files touched
+
+- apps/api/src/modules/workspace-management/domain/assistant-chat.repository.ts
+- apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository.ts
+- apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts
+- apps/api/src/modules/workspace-management/application/web-chat.types.ts
+- apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts
+- apps/api/src/modules/workspace-management/workspace-management.module.ts
+- apps/api/src/modules/identity-access/identity-access.module.ts
+- apps/web/app/app/assistant-api-client.ts
+- apps/web/app/app/app-flow.client.tsx
+- apps/web/app/app/app-flow.client.test.tsx
+- packages/contracts/openapi.yaml
+- packages/contracts/src/generated/*
+- docs/ADR/018-web-chat-list-and-destructive-actions.md
+- docs/ARCHITECTURE.md
+- docs/API-BOUNDARY.md
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` - passed
+- `corepack pnpm --filter @persai/api run lint` - passed
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` - passed
+- `corepack pnpm run typecheck` - passed
+- `corepack pnpm --filter @persai/web run build` - passed
+
+### Known risks
+
+- C4 list metadata preview is basic text projection (no rich excerpt formatting yet).
+- Hard delete is irreversible by design and removes persisted history records.
+- Telegram chat management remains out of scope.
+
+### Next recommended step
+
+- Proceed to Step 5 `C5` (active web chats cap) while preserving explicit archive/delete semantics from C4.
+
+### Ready commit message
+
+- `feat(web-api): add step 5 c4 web chat list with rename archive and hard delete`
+
 ## 2026-03-23 - Step 5 C3 streaming web chat slice
 
 ### What changed

@@ -38,7 +38,11 @@ export class IdentityAccessModule implements NestModule {
         { path: "api/v1/assistant/reapply", method: RequestMethod.POST },
         { path: "api/v1/assistant/runtime/preflight", method: RequestMethod.GET },
         { path: "api/v1/assistant/chat/web", method: RequestMethod.POST },
-        { path: "api/v1/assistant/chat/web/stream", method: RequestMethod.POST }
+        { path: "api/v1/assistant/chat/web/stream", method: RequestMethod.POST },
+        { path: "api/v1/assistant/chats/web", method: RequestMethod.GET },
+        { path: "api/v1/assistant/chats/web/:chatId", method: RequestMethod.PATCH },
+        { path: "api/v1/assistant/chats/web/:chatId/archive", method: RequestMethod.POST },
+        { path: "api/v1/assistant/chats/web/:chatId", method: RequestMethod.DELETE }
       );
   }
 }

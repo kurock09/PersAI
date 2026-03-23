@@ -72,7 +72,7 @@ Foundation Phase
 - [x] C1 — chat domain model
 - [x] C2 — web chat backend transport
 - [x] C3 — streaming web chat
-- [ ] C4 — chat list and chat actions
+- [x] C4 — chat list and chat actions
 - [ ] C5 — active web chats cap
 - [ ] C6 — chat error/degradation UX
 

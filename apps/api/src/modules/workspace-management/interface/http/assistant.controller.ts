@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   NotFoundException,
+  Param,
   Patch,
   Post,
   Req,
@@ -22,9 +24,13 @@ import { ResetAssistantService } from "../../application/reset-assistant.service
 import { RollbackAssistantService } from "../../application/rollback-assistant.service";
 import { AssistantRuntimePreflightService } from "../../application/assistant-runtime-preflight.service";
 import { SendWebChatTurnService } from "../../application/send-web-chat-turn.service";
+import { ManageWebChatListService } from "../../application/manage-web-chat-list.service";
 import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn.service";
 import { UpdateAssistantDraftService } from "../../application/update-assistant-draft.service";
-import type { AssistantWebChatTurnState } from "../../application/web-chat.types";
+import type {
+  AssistantWebChatListItemState,
+  AssistantWebChatTurnState
+} from "../../application/web-chat.types";
 
 @Controller("api/v1")
 export class AssistantController {
@@ -37,6 +43,7 @@ export class AssistantController {
     private readonly resetAssistantService: ResetAssistantService,
     private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
     private readonly sendWebChatTurnService: SendWebChatTurnService,
+    private readonly manageWebChatListService: ManageWebChatListService,
     private readonly streamWebChatTurnService: StreamWebChatTurnService,
     private readonly updateAssistantDraftService: UpdateAssistantDraftService
   ) {}
@@ -183,6 +190,75 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       transport
+    };
+  }
+
+  @Get("assistant/chats/web")
+  async listWebChats(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    chats: AssistantWebChatListItemState[];
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const chats = await this.manageWebChatListService.listChats(userId);
+
+    return {
+      requestId: req.requestId ?? null,
+      chats
+    };
+  }
+
+  @Patch("assistant/chats/web/:chatId")
+  async renameWebChat(
+    @Req() req: RequestWithPlatformContext,
+    @Param("chatId") chatId: string,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    chat: AssistantWebChatListItemState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageWebChatListService.parseRenameInput(body);
+    const chat = await this.manageWebChatListService.renameChat(userId, chatId, input);
+
+    return {
+      requestId: req.requestId ?? null,
+      chat
+    };
+  }
+
+  @Post("assistant/chats/web/:chatId/archive")
+  async archiveWebChat(
+    @Req() req: RequestWithPlatformContext,
+    @Param("chatId") chatId: string
+  ): Promise<{
+    requestId: string | null;
+    chat: AssistantWebChatListItemState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const chat = await this.manageWebChatListService.archiveChat(userId, chatId);
+
+    return {
+      requestId: req.requestId ?? null,
+      chat
+    };
+  }
+
+  @Delete("assistant/chats/web/:chatId")
+  async hardDeleteWebChat(
+    @Req() req: RequestWithPlatformContext,
+    @Param("chatId") chatId: string,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    deleted: true;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageWebChatListService.parseDeleteInput(body);
+    await this.manageWebChatListService.hardDeleteChat(userId, chatId, input);
+
+    return {
+      requestId: req.requestId ?? null,
+      deleted: true
     };
   }
 

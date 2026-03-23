@@ -21,11 +21,16 @@ const apiMocks = vi.hoisted(() => {
 const assistantApiMocks = vi.hoisted(() => {
   return {
     getAssistant: vi.fn(),
+    getAssistantWebChats: vi.fn(),
     postAssistantCreate: vi.fn(),
     patchAssistantDraft: vi.fn(),
+    patchAssistantWebChat: vi.fn(),
     postAssistantPublish: vi.fn(),
     postAssistantRollback: vi.fn(),
-    postAssistantReset: vi.fn()
+    postAssistantReset: vi.fn(),
+    postAssistantWebChatArchive: vi.fn(),
+    deleteAssistantWebChat: vi.fn(),
+    streamAssistantWebChatTurn: vi.fn()
   };
 });
 
@@ -57,11 +62,16 @@ vi.mock("./assistant-api-client", async () => {
   return {
     ...actual,
     getAssistant: assistantApiMocks.getAssistant,
+    getAssistantWebChats: assistantApiMocks.getAssistantWebChats,
     postAssistantCreate: assistantApiMocks.postAssistantCreate,
     patchAssistantDraft: assistantApiMocks.patchAssistantDraft,
+    patchAssistantWebChat: assistantApiMocks.patchAssistantWebChat,
     postAssistantPublish: assistantApiMocks.postAssistantPublish,
     postAssistantRollback: assistantApiMocks.postAssistantRollback,
-    postAssistantReset: assistantApiMocks.postAssistantReset
+    postAssistantReset: assistantApiMocks.postAssistantReset,
+    postAssistantWebChatArchive: assistantApiMocks.postAssistantWebChatArchive,
+    deleteAssistantWebChat: assistantApiMocks.deleteAssistantWebChat,
+    streamAssistantWebChatTurn: assistantApiMocks.streamAssistantWebChatTurn
   };
 });
 
@@ -211,10 +221,16 @@ describe("AppFlowClient onboarding gate", () => {
     vi.clearAllMocks();
     clerkMocks.getToken.mockResolvedValue("token-user-1");
     assistantApiMocks.postAssistantCreate.mockReset();
+    assistantApiMocks.getAssistantWebChats.mockReset();
     assistantApiMocks.patchAssistantDraft.mockReset();
+    assistantApiMocks.patchAssistantWebChat.mockReset();
     assistantApiMocks.postAssistantPublish.mockReset();
     assistantApiMocks.postAssistantRollback.mockReset();
     assistantApiMocks.postAssistantReset.mockReset();
+    assistantApiMocks.postAssistantWebChatArchive.mockReset();
+    assistantApiMocks.deleteAssistantWebChat.mockReset();
+    assistantApiMocks.streamAssistantWebChatTurn.mockReset();
+    assistantApiMocks.getAssistantWebChats.mockResolvedValue([]);
   });
 
   it("shows onboarding gate when /me returns pending", async () => {

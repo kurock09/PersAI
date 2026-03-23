@@ -32,3 +32,10 @@ export interface AssistantWebChatTurnState {
   };
 }
 
+export interface AssistantWebChatListItemState {
+  chat: AssistantWebChatState;
+  messageCount: number;
+  lastMessagePreview: string | null;
+}
+
+

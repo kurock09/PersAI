@@ -1,13 +1,20 @@
 import {
+  type AssistantWebChatDeleteRequest,
+  type AssistantWebChatListItemState,
+  type AssistantWebChatRenameRequest,
   type AssistantDraftUpdateRequest,
   type AssistantRollbackRequest,
   ContractsApiError,
   type AssistantLifecycleState,
+  deleteAssistantWebChat as deleteAssistantWebChatContract,
   getAssistant as getAssistantContract,
+  getAssistantWebChats as getAssistantWebChatsContract,
   patchAssistantDraft as patchAssistantDraftContract,
+  patchAssistantWebChat as patchAssistantWebChatContract,
   postAssistantPublish as postAssistantPublishContract,
   postAssistantReset as postAssistantResetContract,
   postAssistantRollback as postAssistantRollbackContract,
+  postAssistantWebChatArchive as postAssistantWebChatArchiveContract,
   postAssistantCreate as postAssistantCreateContract
 } from "@persai/contracts";
 
@@ -339,6 +346,79 @@ export async function postAssistantReset(token: string): Promise<AssistantLifecy
     }
 
     return response.data.assistant;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAssistantWebChats(token: string): Promise<AssistantWebChatListItemState[]> {
+  try {
+    const response = await getAssistantWebChatsContract({
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /assistant/chats/web.");
+    }
+
+    return response.data.chats;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchAssistantWebChat(
+  token: string,
+  chatId: string,
+  payload: AssistantWebChatRenameRequest
+): Promise<AssistantWebChatListItemState> {
+  try {
+    const response = await patchAssistantWebChatContract(chatId, payload, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for PATCH /assistant/chats/web/:chatId.");
+    }
+
+    return response.data.chat;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantWebChatArchive(
+  token: string,
+  chatId: string
+): Promise<AssistantWebChatListItemState> {
+  try {
+    const response = await postAssistantWebChatArchiveContract(chatId, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for POST /assistant/chats/web/:chatId/archive.");
+    }
+
+    return response.data.chat;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function deleteAssistantWebChat(
+  token: string,
+  chatId: string,
+  payload: AssistantWebChatDeleteRequest
+): Promise<void> {
+  try {
+    const response = await deleteAssistantWebChatContract(chatId, payload, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200 || response.data.deleted !== true) {
+      throw new Error("Unexpected non-success response for DELETE /assistant/chats/web/:chatId.");
+    }
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

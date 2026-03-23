@@ -7,10 +7,15 @@
 import type {
   AssistantDraftUpdateRequest,
   AssistantRollbackRequest,
+  AssistantWebChatDeleteRequest,
+  AssistantWebChatRenameRequest,
   AssistantWebChatTurnRequest,
+  DeleteAssistantWebChatResponse,
   ErrorEnvelope,
   GetAssistantResponse,
   GetAssistantRuntimePreflightResponse,
+  GetAssistantWebChatListItemResponse,
+  GetAssistantWebChatListResponse,
   GetAssistantWebChatTransportResponse,
   GetMeResponse,
   OnboardingRequest
@@ -587,6 +592,232 @@ export const postAssistantWebChatTurnStream = async (assistantWebChatTurnRequest
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       assistantWebChatTurnRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary List web chat records for current assistant
+ */
+export type getAssistantWebChatsResponse200 = {
+  data: GetAssistantWebChatListResponse
+  status: 200
+}
+
+export type getAssistantWebChatsResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type getAssistantWebChatsResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type getAssistantWebChatsResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type getAssistantWebChatsResponseSuccess = (getAssistantWebChatsResponse200) & {
+  headers: Headers;
+};
+export type getAssistantWebChatsResponseError = (getAssistantWebChatsResponse401 | getAssistantWebChatsResponse404 | getAssistantWebChatsResponse500) & {
+  headers: Headers;
+};
+
+export type getAssistantWebChatsResponse = (getAssistantWebChatsResponseSuccess | getAssistantWebChatsResponseError)
+
+export const getGetAssistantWebChatsUrl = () => {
+
+
+  
+
+  return `/assistant/chats/web`
+}
+
+export const getAssistantWebChats = async ( options?: RequestInit): Promise<getAssistantWebChatsResponse> => {
+  
+  return customFetch<getAssistantWebChatsResponse>(getGetAssistantWebChatsUrl(),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+/**
+ * @summary Rename web chat record
+ */
+export type patchAssistantWebChatResponse200 = {
+  data: GetAssistantWebChatListItemResponse
+  status: 200
+}
+
+export type patchAssistantWebChatResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type patchAssistantWebChatResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type patchAssistantWebChatResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type patchAssistantWebChatResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type patchAssistantWebChatResponseSuccess = (patchAssistantWebChatResponse200) & {
+  headers: Headers;
+};
+export type patchAssistantWebChatResponseError = (patchAssistantWebChatResponse400 | patchAssistantWebChatResponse401 | patchAssistantWebChatResponse404 | patchAssistantWebChatResponse500) & {
+  headers: Headers;
+};
+
+export type patchAssistantWebChatResponse = (patchAssistantWebChatResponseSuccess | patchAssistantWebChatResponseError)
+
+export const getPatchAssistantWebChatUrl = (chatId: string,) => {
+
+
+  
+
+  return `/assistant/chats/web/${chatId}`
+}
+
+export const patchAssistantWebChat = async (chatId: string,
+    assistantWebChatRenameRequest: AssistantWebChatRenameRequest, options?: RequestInit): Promise<patchAssistantWebChatResponse> => {
+  
+  return customFetch<patchAssistantWebChatResponse>(getPatchAssistantWebChatUrl(chatId),
+  {      
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantWebChatRenameRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Hard delete web chat with explicit confirmation
+ */
+export type deleteAssistantWebChatResponse200 = {
+  data: DeleteAssistantWebChatResponse
+  status: 200
+}
+
+export type deleteAssistantWebChatResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type deleteAssistantWebChatResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type deleteAssistantWebChatResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type deleteAssistantWebChatResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type deleteAssistantWebChatResponseSuccess = (deleteAssistantWebChatResponse200) & {
+  headers: Headers;
+};
+export type deleteAssistantWebChatResponseError = (deleteAssistantWebChatResponse400 | deleteAssistantWebChatResponse401 | deleteAssistantWebChatResponse404 | deleteAssistantWebChatResponse500) & {
+  headers: Headers;
+};
+
+export type deleteAssistantWebChatResponse = (deleteAssistantWebChatResponseSuccess | deleteAssistantWebChatResponseError)
+
+export const getDeleteAssistantWebChatUrl = (chatId: string,) => {
+
+
+  
+
+  return `/assistant/chats/web/${chatId}`
+}
+
+export const deleteAssistantWebChat = async (chatId: string,
+    assistantWebChatDeleteRequest: AssistantWebChatDeleteRequest, options?: RequestInit): Promise<deleteAssistantWebChatResponse> => {
+  
+  return customFetch<deleteAssistantWebChatResponse>(getDeleteAssistantWebChatUrl(chatId),
+  {      
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantWebChatDeleteRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Archive web chat record
+ */
+export type postAssistantWebChatArchiveResponse200 = {
+  data: GetAssistantWebChatListItemResponse
+  status: 200
+}
+
+export type postAssistantWebChatArchiveResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantWebChatArchiveResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantWebChatArchiveResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantWebChatArchiveResponseSuccess = (postAssistantWebChatArchiveResponse200) & {
+  headers: Headers;
+};
+export type postAssistantWebChatArchiveResponseError = (postAssistantWebChatArchiveResponse401 | postAssistantWebChatArchiveResponse404 | postAssistantWebChatArchiveResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantWebChatArchiveResponse = (postAssistantWebChatArchiveResponseSuccess | postAssistantWebChatArchiveResponseError)
+
+export const getPostAssistantWebChatArchiveUrl = (chatId: string,) => {
+
+
+  
+
+  return `/assistant/chats/web/${chatId}/archive`
+}
+
+export const postAssistantWebChatArchive = async (chatId: string, options?: RequestInit): Promise<postAssistantWebChatArchiveResponse> => {
+  
+  return customFetch<postAssistantWebChatArchiveResponse>(getPostAssistantWebChatArchiveUrl(chatId),
+  {      
+    ...options,
+    method: 'POST'
+    
+    
   }
 );}
 

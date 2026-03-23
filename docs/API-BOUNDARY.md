@@ -29,6 +29,10 @@ Path versioning: /api/v1/...
 - GET /api/v1/assistant/runtime/preflight
 - POST /api/v1/assistant/chat/web
 - POST /api/v1/assistant/chat/web/stream
+- GET /api/v1/assistant/chats/web
+- PATCH /api/v1/assistant/chats/web/{chatId}
+- POST /api/v1/assistant/chats/web/{chatId}/archive
+- DELETE /api/v1/assistant/chats/web/{chatId}
 
 ## Step 5 C1 backend boundary note
 
@@ -85,6 +89,54 @@ Behavior baseline:
 - on completed stream, persists full assistant message record
 - on interruption/failure with partial output, persists partial assistant output + explicit system marker record
 - no Telegram transport in C3
+
+## Step 5 C4 web chat list and actions baseline
+
+### GET /api/v1/assistant/chats/web
+
+Behavior baseline:
+
+- authenticated caller only
+- returns web chat list backed by canonical C1 records
+- includes basic metadata per chat:
+  - title
+  - archived state
+  - created/updated/last-message timestamps
+  - message count
+  - last message preview
+
+### PATCH /api/v1/assistant/chats/web/{chatId}
+
+Request body fields:
+
+- `title` (string | null)
+
+Behavior baseline:
+
+- authenticated caller only
+- renames chat record title (or clears title when `null`)
+- updates canonical backend record directly
+
+### POST /api/v1/assistant/chats/web/{chatId}/archive
+
+Behavior baseline:
+
+- authenticated caller only
+- marks chat as archived (`archivedAt` set)
+- keeps chat/messages in canonical history
+
+### DELETE /api/v1/assistant/chats/web/{chatId}
+
+Request body fields:
+
+- `confirmText` (must equal `DELETE`)
+
+Behavior baseline:
+
+- authenticated caller only
+- performs **hard delete** only (no soft-delete aliasing)
+- removes chat record and all related message records permanently
+- requires explicit delete confirmation payload
 
 ### POST /api/v1/assistant
 

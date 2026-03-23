@@ -5,6 +5,7 @@ import { AssistantRuntimePreflightService } from "./application/assistant-runtim
 import { CreateAssistantService } from "./application/create-assistant.service";
 import { GetAssistantByUserIdService } from "./application/get-assistant-by-user-id.service";
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
+import { ManageWebChatListService } from "./application/manage-web-chat-list.service";
 import { PublishAssistantDraftService } from "./application/publish-assistant-draft.service";
 import { ReapplyAssistantService } from "./application/reapply-assistant.service";
 import { ResetAssistantService } from "./application/reset-assistant.service";
@@ -34,6 +35,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,
     MaterializeAssistantPublishedVersionService,
+    ManageWebChatListService,
     CreateAssistantService,
     PublishAssistantDraftService,
     ReapplyAssistantService,

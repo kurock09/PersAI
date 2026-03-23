@@ -19,6 +19,11 @@ export type CreateAssistantChatMessageInput = {
   content: string;
 };
 
+export type AssistantChatListMetadata = {
+  messageCount: number;
+  lastMessagePreview: string | null;
+};
+
 export interface AssistantChatRepository {
   createChat(input: CreateAssistantChatInput): Promise<AssistantChat>;
   findChatById(chatId: string): Promise<AssistantChat | null>;
@@ -28,6 +33,10 @@ export interface AssistantChatRepository {
     surfaceThreadKey: string
   ): Promise<AssistantChat | null>;
   listChatsByAssistantId(assistantId: string): Promise<AssistantChat[]>;
+  getChatListMetadata(chatId: string): Promise<AssistantChatListMetadata>;
+  renameChat(chatId: string, title: string | null): Promise<AssistantChat | null>;
+  archiveChat(chatId: string): Promise<AssistantChat | null>;
+  hardDeleteChat(chatId: string, assistantId: string): Promise<boolean>;
   createMessage(input: CreateAssistantChatMessageInput): Promise<AssistantChatMessage>;
   listMessagesByChatId(chatId: string): Promise<AssistantChatMessage[]>;
 }

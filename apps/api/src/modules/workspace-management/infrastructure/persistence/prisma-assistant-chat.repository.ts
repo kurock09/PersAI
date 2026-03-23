@@ -6,6 +6,7 @@ import type {
 import type { AssistantChatMessage } from "../../domain/assistant-chat-message.entity";
 import type { AssistantChat, AssistantChatSurface } from "../../domain/assistant-chat.entity";
 import type {
+  AssistantChatListMetadata,
   AssistantChatRepository,
   CreateAssistantChatInput,
   CreateAssistantChatMessageInput
@@ -64,6 +65,91 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     });
 
     return chats.map((chat) => this.mapChatToDomain(chat));
+  }
+
+  async getChatListMetadata(chatId: string): Promise<AssistantChatListMetadata> {
+    const [messageCount, latestMessage] = await this.prisma.$transaction([
+      this.prisma.assistantChatMessage.count({
+        where: { chatId }
+      }),
+      this.prisma.assistantChatMessage.findFirst({
+        where: { chatId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { content: true }
+      })
+    ]);
+
+    return {
+      messageCount,
+      lastMessagePreview: latestMessage?.content ?? null
+    };
+  }
+
+  async renameChat(chatId: string, title: string | null): Promise<AssistantChat | null> {
+    const existingChat = await this.prisma.assistantChat.findUnique({
+      where: { id: chatId },
+      select: { id: true }
+    });
+
+    if (existingChat === null) {
+      return null;
+    }
+
+    const chat = await this.prisma.assistantChat.update({
+      where: { id: chatId },
+      data: { title }
+    });
+
+    return this.mapChatToDomain(chat);
+  }
+
+  async archiveChat(chatId: string): Promise<AssistantChat | null> {
+    const existingChat = await this.prisma.assistantChat.findUnique({
+      where: { id: chatId },
+      select: { id: true }
+    });
+
+    if (existingChat === null) {
+      return null;
+    }
+
+    const chat = await this.prisma.assistantChat.update({
+      where: { id: chatId },
+      data: {
+        archivedAt: new Date()
+      }
+    });
+
+    return this.mapChatToDomain(chat);
+  }
+
+  async hardDeleteChat(chatId: string, assistantId: string): Promise<boolean> {
+    const existingChat = await this.prisma.assistantChat.findUnique({
+      where: { id: chatId },
+      select: { id: true, assistantId: true }
+    });
+    if (existingChat === null || existingChat.assistantId !== assistantId) {
+      return false;
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.assistantChatMessage.deleteMany({
+        where: {
+          chatId,
+          assistantId
+        }
+      }),
+      this.prisma.assistantChat.delete({
+        where: {
+          id_assistantId: {
+            id: chatId,
+            assistantId
+          }
+        }
+      })
+    ]);
+
+    return true;
   }
 
   async createMessage(input: CreateAssistantChatMessageInput): Promise<AssistantChatMessage> {

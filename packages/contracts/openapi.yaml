@@ -386,6 +386,174 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chats/web:
+    get:
+      operationId: getAssistantWebChats
+      summary: List web chat records for current assistant
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Web chat list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantWebChatListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chats/web/{chatId}:
+    patch:
+      operationId: patchAssistantWebChat
+      summary: Rename web chat record
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: chatId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantWebChatRenameRequest"
+      responses:
+        "200":
+          description: Updated web chat list item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantWebChatListItemResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or web chat not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAssistantWebChat
+      summary: Hard delete web chat with explicit confirmation
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: chatId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantWebChatDeleteRequest"
+      responses:
+        "200":
+          description: Hard delete completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAssistantWebChatResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or web chat not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chats/web/{chatId}/archive:
+    post:
+      operationId: postAssistantWebChatArchive
+      summary: Archive web chat record
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: chatId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Archived web chat list item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantWebChatListItemResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or web chat not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me:
     get:
       operationId: getMe
@@ -932,6 +1100,36 @@ components:
           $ref: "#/components/schemas/AssistantWebChatMessageState"
         runtime:
           $ref: "#/components/schemas/AssistantWebChatRuntimeState"
+    AssistantWebChatListItemState:
+      type: object
+      required:
+        - chat
+        - messageCount
+        - lastMessagePreview
+      properties:
+        chat:
+          $ref: "#/components/schemas/AssistantWebChatState"
+        messageCount:
+          type: integer
+          minimum: 0
+        lastMessagePreview:
+          type: string
+          nullable: true
+    AssistantWebChatRenameRequest:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          nullable: true
+    AssistantWebChatDeleteRequest:
+      type: object
+      required:
+        - confirmText
+      properties:
+        confirmText:
+          type: string
     GetAssistantResponse:
       type: object
       required:
@@ -962,6 +1160,40 @@ components:
           nullable: true
         transport:
           $ref: "#/components/schemas/AssistantWebChatTurnState"
+    GetAssistantWebChatListResponse:
+      type: object
+      required:
+        - chats
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        chats:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatListItemState"
+    GetAssistantWebChatListItemResponse:
+      type: object
+      required:
+        - chat
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        chat:
+          $ref: "#/components/schemas/AssistantWebChatListItemState"
+    DeleteAssistantWebChatResponse:
+      type: object
+      required:
+        - deleted
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        deleted:
+          type: boolean
+          enum:
+            - true
     ErrorEnvelope:
       type: object
       required:

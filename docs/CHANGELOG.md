@@ -136,6 +136,23 @@
   - extended OpenClaw compatibility patch with `POST /api/v1/runtime/chat/web/stream` NDJSON stream endpoint
   - no Telegram support added
   - no lifecycle/apply truth bypass added
+- Step 5 slice C4 web chat list and actions baseline:
+  - added GPT-style web chat list backend path:
+    - `GET /api/v1/assistant/chats/web`
+  - added core user-facing chat actions:
+    - rename: `PATCH /api/v1/assistant/chats/web/{chatId}`
+    - archive: `POST /api/v1/assistant/chats/web/{chatId}/archive`
+    - hard delete: `DELETE /api/v1/assistant/chats/web/{chatId}` with explicit `confirmText=DELETE`
+  - added chat metadata projection for list UI:
+    - message count
+    - last message preview
+    - created/updated/last-message timestamps
+  - archive/delete semantics kept explicit:
+    - archive retains chat/message records
+    - delete permanently removes chat and related message records
+  - web `/app` now renders chat list and exposes rename/archive/hard-delete controls
+  - destructive behavior is explicit in UI copy; delete is not implemented as soft archive
+  - no Telegram thread management added
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

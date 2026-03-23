@@ -67,6 +67,17 @@ O6 defines a future adapter-only contract:
   - `POST /api/v1/runtime/chat/web/stream`
 - interruption/failure is represented honestly and partial output can be persisted with explicit marker records
 
+## Chat list/actions boundary (Step 5 C4)
+
+- GPT-style web chat list/actions are backed by canonical backend records
+- supported C4 actions:
+  - rename
+  - archive
+  - hard delete (explicit confirmation)
+- archive and delete are intentionally distinct:
+  - archive keeps records/history
+  - delete permanently removes chat + message records
+
 ## Frontend/backend boundary
 
 - contracts-first

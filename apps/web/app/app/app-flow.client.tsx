@@ -2,14 +2,18 @@
 
 import { SignOutButton, UserButton, useAuth } from "@clerk/nextjs";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { type AssistantLifecycleState } from "@persai/contracts";
+import { type AssistantLifecycleState, type AssistantWebChatListItemState } from "@persai/contracts";
 import {
+  deleteAssistantWebChat,
   getAssistant,
+  getAssistantWebChats,
   patchAssistantDraft,
+  patchAssistantWebChat,
   postAssistantCreate,
   postAssistantPublish,
   postAssistantReset,
   postAssistantRollback,
+  postAssistantWebChatArchive,
   streamAssistantWebChatTurn
 } from "./assistant-api-client";
 import { CurrentMeResponse, OnboardingPayload, getMe, postOnboarding } from "./me-api-client";
@@ -224,6 +228,11 @@ export function AppFlowClient() {
   const [chatThreadKey, setChatThreadKey] = useState("web-main");
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<StreamingChatMessage[]>([]);
+  const [chatList, setChatList] = useState<AssistantWebChatListItemState[]>([]);
+  const [isLoadingChatList, setIsLoadingChatList] = useState(false);
+  const [chatListFeedback, setChatListFeedback] = useState<string | null>(null);
+  const [chatRenameDraftById, setChatRenameDraftById] = useState<Record<string, string>>({});
+  const [deleteConfirmById, setDeleteConfirmById] = useState<Record<string, string>>({});
   const [streamingError, setStreamingError] = useState<string | null>(null);
   const [streamingMeta, setStreamingMeta] = useState<string | null>(null);
   const [isStreamingChat, setIsStreamingChat] = useState(false);
@@ -231,6 +240,31 @@ export function AppFlowClient() {
     null
   );
   const [chatAbortController, setChatAbortController] = useState<AbortController | null>(null);
+
+  const loadWebChatList = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      setChatList([]);
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setIsLoadingChatList(true);
+      const chats = await getAssistantWebChats(token);
+      setChatList(chats);
+      setChatListFeedback(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load web chat list.";
+      setChatListFeedback(message);
+    } finally {
+      setIsLoadingChatList(false);
+    }
+  }, [flowState, getToken]);
 
   const loadAssistantState = useCallback(
     async (token: string, meState: CurrentMeResponse): Promise<AssistantLifecycleState | null> => {
@@ -298,6 +332,15 @@ export function AppFlowClient() {
     setResetConfirmChecked(false);
     setResetConfirmText("");
   }, [flowState]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+      setChatList([]);
+      return;
+    }
+
+    void loadWebChatList();
+  }, [flowState, loadWebChatList]);
 
   const onboardingRequired = useMemo(() => {
     return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
@@ -633,6 +676,7 @@ export function AppFlowClient() {
               )
             );
             setStreamingMeta("Streaming completed and response persisted.");
+            void loadWebChatList();
           },
           onInterrupted: () => {
             setChatMessages((current) =>
@@ -646,6 +690,7 @@ export function AppFlowClient() {
               )
             );
             setStreamingMeta("Streaming interrupted. Partial output was preserved if any text arrived.");
+            void loadWebChatList();
           },
           onFailed: ({ message }) => {
             setChatMessages((current) =>
@@ -660,6 +705,7 @@ export function AppFlowClient() {
             );
             setStreamingError(message);
             setStreamingMeta("Streaming failed. Any partial output shown is preserved as-is.");
+            void loadWebChatList();
           }
         },
         controller.signal
@@ -678,10 +724,83 @@ export function AppFlowClient() {
             : entry
         )
       );
+      void loadWebChatList();
     } finally {
       setChatAbortController(null);
       setIsStreamingChat(false);
       setActiveAssistantStreamMessageId(null);
+    }
+  }
+
+  async function onRenameChat(chatId: string): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    const title = (chatRenameDraftById[chatId] ?? "").trim();
+    if (title.length === 0) {
+      setChatListFeedback("Rename requires a non-empty title.");
+      return;
+    }
+
+    try {
+      const updatedChat = await patchAssistantWebChat(token, chatId, { title });
+      setChatList((current) =>
+        current.map((item) => (item.chat.id === chatId ? updatedChat : item))
+      );
+      setChatListFeedback("Chat renamed.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Rename failed.";
+      setChatListFeedback(message);
+    }
+  }
+
+  async function onArchiveChat(chatId: string): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      const updatedChat = await postAssistantWebChatArchive(token, chatId);
+      setChatList((current) =>
+        current.map((item) => (item.chat.id === chatId ? updatedChat : item))
+      );
+      setChatListFeedback("Chat archived (removed from active list, retained in history).");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Archive failed.";
+      setChatListFeedback(message);
+    }
+  }
+
+  async function onHardDeleteChat(chatId: string): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    const confirmText = (deleteConfirmById[chatId] ?? "").trim();
+    if (confirmText !== "DELETE") {
+      setChatListFeedback("Hard delete requires typing DELETE exactly.");
+      return;
+    }
+
+    try {
+      await deleteAssistantWebChat(token, chatId, { confirmText });
+      setChatList((current) => current.filter((item) => item.chat.id !== chatId));
+      setDeleteConfirmById((current) => {
+        const next = { ...current };
+        delete next[chatId];
+        return next;
+      });
+      setChatListFeedback("Chat hard deleted permanently with all message records.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Hard delete failed.";
+      setChatListFeedback(message);
     }
   }
 
@@ -890,6 +1009,97 @@ export function AppFlowClient() {
                   {marker.message}
                 </li>
               ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {assistantState !== null && (
+        <section>
+          <h2>Web chats</h2>
+          <p>GPT-style chat list with rename, archive, and explicit hard delete actions.</p>
+          {isLoadingChatList && <p>Loading chat list...</p>}
+          {chatListFeedback !== null && <p>{chatListFeedback}</p>}
+          <button type="button" onClick={() => void loadWebChatList()} disabled={isLoadingChatList}>
+            Refresh chat list
+          </button>
+          {chatList.length === 0 ? (
+            <p>No chat records yet.</p>
+          ) : (
+            <ul>
+              {chatList.map((item) => {
+                const chat = item.chat;
+                const renameDraft = chatRenameDraftById[chat.id] ?? chat.title ?? "";
+                return (
+                  <li key={chat.id}>
+                    <p>
+                      <strong>{chat.title ?? "Untitled chat"}</strong>{" "}
+                      {chat.archivedAt !== null ? "(archived)" : "(active)"}
+                    </p>
+                    <p>
+                      <strong>Thread:</strong> {chat.surfaceThreadKey}
+                    </p>
+                    <p>
+                      <strong>Messages:</strong> {item.messageCount}
+                    </p>
+                    <p>
+                      <strong>Last update:</strong> {chat.lastMessageAt ?? "n/a"}
+                    </p>
+                    <p>
+                      <strong>Preview:</strong> {item.lastMessagePreview ?? "n/a"}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setChatThreadKey(chat.surfaceThreadKey)}
+                      disabled={isStreamingChat}
+                    >
+                      Open thread in stream composer
+                    </button>
+                    <div>
+                      <input
+                        aria-label={`Rename chat ${chat.id}`}
+                        value={renameDraft}
+                        onChange={(event) =>
+                          setChatRenameDraftById((current) => ({
+                            ...current,
+                            [chat.id]: event.target.value
+                          }))
+                        }
+                      />
+                      <button type="button" onClick={() => void onRenameChat(chat.id)}>
+                        Rename
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void onArchiveChat(chat.id)}
+                      disabled={chat.archivedAt !== null}
+                    >
+                      {chat.archivedAt === null ? "Archive" : "Already archived"}
+                    </button>
+                    <div>
+                      <p>
+                        <strong>Hard delete:</strong> permanently removes this chat and all its
+                        messages.
+                      </p>
+                      <input
+                        aria-label={`Delete confirmation for chat ${chat.id}`}
+                        value={deleteConfirmById[chat.id] ?? ""}
+                        onChange={(event) =>
+                          setDeleteConfirmById((current) => ({
+                            ...current,
+                            [chat.id]: event.target.value
+                          }))
+                        }
+                        placeholder='Type "DELETE" to confirm'
+                      />
+                      <button type="button" onClick={() => void onHardDeleteChat(chat.id)}>
+                        Hard delete
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
