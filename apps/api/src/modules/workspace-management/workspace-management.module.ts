@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
+import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -25,6 +26,7 @@ import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.ser
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
 import { ASSISTANT_PLAN_CATALOG_REPOSITORY } from "./domain/assistant-plan-catalog.repository";
+import { WORKSPACE_SUBSCRIPTION_REPOSITORY } from "./domain/workspace-subscription.repository";
 import { ASSISTANT_MEMORY_REGISTRY_REPOSITORY } from "./domain/assistant-memory-registry.repository";
 import { ASSISTANT_TASK_REGISTRY_REPOSITORY } from "./domain/assistant-task-registry.repository";
 import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.repository";
@@ -33,8 +35,11 @@ import { ASSISTANT_PUBLISHED_VERSION_REPOSITORY } from "./domain/assistant-publi
 import { ASSISTANT_RUNTIME_ADAPTER } from "./application/assistant-runtime-adapter.types";
 import { ASSISTANT_REPOSITORY } from "./domain/assistant.repository";
 import { OpenClawRuntimeAdapter } from "./infrastructure/openclaw/openclaw-runtime.adapter";
+import { NullBillingProviderAdapter } from "./infrastructure/billing/null-billing-provider.adapter";
 import { PrismaAssistantGovernanceRepository } from "./infrastructure/persistence/prisma-assistant-governance.repository";
 import { PrismaAssistantPlanCatalogRepository } from "./infrastructure/persistence/prisma-assistant-plan-catalog.repository";
+import { PrismaWorkspaceSubscriptionRepository } from "./infrastructure/persistence/prisma-workspace-subscription.repository";
+import { BILLING_PROVIDER_PORT } from "./application/billing-provider.port";
 import { PrismaAssistantChatRepository } from "./infrastructure/persistence/prisma-assistant-chat.repository";
 import { PrismaAssistantMemoryRegistryRepository } from "./infrastructure/persistence/prisma-assistant-memory-registry.repository";
 import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persistence/prisma-assistant-task-registry.repository";
@@ -52,6 +57,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AssistantRuntimePreflightService,
     MaterializeAssistantPublishedVersionService,
     ManageAdminPlansService,
+    ResolveEffectiveSubscriptionStateService,
     ManageWebChatListService,
     CreateAssistantService,
     PublishAssistantDraftService,
@@ -80,6 +86,14 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     {
       provide: ASSISTANT_PLAN_CATALOG_REPOSITORY,
       useClass: PrismaAssistantPlanCatalogRepository
+    },
+    {
+      provide: WORKSPACE_SUBSCRIPTION_REPOSITORY,
+      useClass: PrismaWorkspaceSubscriptionRepository
+    },
+    {
+      provide: BILLING_PROVIDER_PORT,
+      useClass: NullBillingProviderAdapter
     },
     {
       provide: ASSISTANT_GOVERNANCE_REPOSITORY,

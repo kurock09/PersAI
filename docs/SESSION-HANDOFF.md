@@ -1,5 +1,68 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - Step 7 P3 subscription state and billing abstraction boundary
+
+### What changed
+
+- Added canonical subscription persistence model:
+  - Prisma enum `WorkspaceSubscriptionStatus`
+  - table/model `workspace_subscriptions` (workspace-scoped subscription state)
+- Added provider-agnostic billing boundary:
+  - `BillingProviderPort` + normalized snapshot contract
+  - null/no-op adapter baseline (`NullBillingProviderAdapter`) with no vendor integration
+- Added effective subscription resolution service:
+  - `ResolveEffectiveSubscriptionStateService`
+  - precedence: workspace subscription -> assistant `quotaPlanCode` -> catalog default -> none
+  - fallback status `unconfigured` for unresolved non-provider states
+- Added repository boundary for workspace subscriptions and Prisma implementation.
+- Added API test script `test:subscription-state` covering precedence behavior.
+- Seed baseline now includes workspace subscription state for seeded workspace (`starter_trial`, `trialing`).
+- Docs updated: ADR-026, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- P3 establishes provider-agnostic subscription truth and future billing integration hooks without redesigning P1/P2 plan structures.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- migration `20260326200000_step7_p3_subscription_state_and_billing_boundary`
+- `apps/api/prisma/seed.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-subscription.*`
+- `apps/api/src/modules/workspace-management/application/billing-provider.port.ts`
+- `apps/api/src/modules/workspace-management/application/effective-subscription.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-effective-subscription-state.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/billing/null-billing-provider.adapter.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-subscription.repository.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/subscription-state-resolve.test.ts`
+- `apps/api/package.json`
+- `docs/ADR/026-subscription-state-and-billing-abstraction-p3.md`
+- `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run prisma:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/api run test:subscription-state` — passed
+- `corepack pnpm run typecheck` — passed
+- `corepack pnpm run test:step2` — passed
+
+### Known risks / intentional limits
+
+- No concrete billing provider integration, webhooks, invoice/tax/payment flows in P3.
+- Subscription state is modeled and resolved in backend control plane; no new public subscription API surface in this slice.
+- Entitlement/quota enforcement engine remains out of scope.
+
+### Next recommended step
+
+- Step 7 **P4** capability resolution engine using P1/P2 catalog + P3 effective subscription resolution.
+
+### Ready commit message
+
+- `feat(api): add step 7 p3 workspace subscription state and billing abstraction boundary`
+
 ## 2026-03-26 - Step 7 P2 admin plan management UI/API
 
 ### What changed

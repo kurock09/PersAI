@@ -417,6 +417,16 @@ Behavior baseline:
 - updates existing plan by code with the same control set as create
 - keeps single default-on-registration truth by clearing previous default when a new default is set
 
+## Step 7 P3 subscription + billing boundary baseline
+
+- P3 introduces backend subscription modeling (`workspace_subscriptions`) and billing abstraction port/hooks only.
+- No new public API endpoints are added in P3.
+- Effective subscription resolution for assistant context is defined in backend service logic with precedence:
+  - workspace subscription
+  - assistant `quotaPlanCode` fallback
+  - catalog default fallback
+  - none (`unconfigured`)
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

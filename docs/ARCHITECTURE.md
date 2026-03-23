@@ -138,6 +138,17 @@ O6 defines a future adapter-only contract:
 - controls remain business-facing (name, metadata, default/trial flags, entitlement/limits toggles), not raw DB model editing
 - no billing provider console/workflow coupling in P2; provider selection/integration remains future scope
 
+## Subscription state and billing abstraction boundary (Step 7 P3)
+
+- canonical subscription state is workspace-scoped (`workspace_subscriptions`) and remains in backend control plane
+- provider integration boundary is application-layer port (`BillingProviderPort`) with provider-agnostic normalized snapshot contract
+- effective assistant subscription resolution uses precedence:
+  - workspace subscription
+  - assistant governance `quotaPlanCode` fallback
+  - catalog default first-registration fallback
+  - none
+- this slice adds no concrete billing provider integration and no invoice/tax workflow logic
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

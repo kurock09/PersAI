@@ -57,3 +57,9 @@ Required in CI:
 - Owner-gated admin endpoints validate create/update/list flows for plan management.
 - Web `/app` renders a dedicated admin plan management section for workspace owners and supports create/edit controls.
 - Baseline regression suite (`test:step2`) remains green after admin plan UI/API additions.
+
+## Step 7 P3 focus
+
+- Prisma schema/migration validates workspace subscription state model.
+- Effective subscription resolution precedence is tested in API test script (`test:subscription-state`).
+- Workspace-wide typecheck/lint and Step 2 regression baseline remain green.

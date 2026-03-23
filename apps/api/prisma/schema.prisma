@@ -61,6 +61,16 @@ enum PlanCatalogStatus {
   inactive
 }
 
+enum WorkspaceSubscriptionStatus {
+  trialing
+  active
+  grace_period
+  past_due
+  paused
+  canceled
+  expired
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -85,6 +95,7 @@ model Workspace {
   updatedAt DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
   assistants Assistant[]
   members   WorkspaceMember[]
+  subscription WorkspaceSubscription?
 
   @@map("workspaces")
 }
@@ -207,6 +218,28 @@ model PlanCatalogEntitlement {
   plan                         PlanCatalogPlan @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("plan_catalog_entitlements")
+}
+
+model WorkspaceSubscription {
+  id                     String                    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  workspaceId            String                    @unique @map("workspace_id") @db.Uuid
+  planCode               String                    @map("plan_code") @db.VarChar(64)
+  status                 WorkspaceSubscriptionStatus
+  trialStartedAt         DateTime?                 @map("trial_started_at") @db.Timestamptz(6)
+  trialEndsAt            DateTime?                 @map("trial_ends_at") @db.Timestamptz(6)
+  currentPeriodStartedAt DateTime?                 @map("current_period_started_at") @db.Timestamptz(6)
+  currentPeriodEndsAt    DateTime?                 @map("current_period_ends_at") @db.Timestamptz(6)
+  cancelAtPeriodEnd      Boolean                   @default(false) @map("cancel_at_period_end")
+  billingProvider        String?                   @map("billing_provider") @db.VarChar(64)
+  providerCustomerRef    String?                   @map("provider_customer_ref") @db.VarChar(128)
+  providerSubscriptionRef String?                  @map("provider_subscription_ref") @db.VarChar(128)
+  metadata               Json?                     @db.JsonB
+  createdAt              DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace              Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([planCode, status])
+  @@map("workspace_subscriptions")
 }
 
 model AssistantMaterializedSpec {

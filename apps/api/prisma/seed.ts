@@ -1,4 +1,10 @@
-import { PlanCatalogStatus, PrismaClient, WorkspaceRole, WorkspaceStatus } from "@prisma/client";
+import {
+  PlanCatalogStatus,
+  PrismaClient,
+  WorkspaceRole,
+  WorkspaceStatus,
+  WorkspaceSubscriptionStatus
+} from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -8,6 +14,7 @@ const SEED_WORKSPACE_MEMBER_ID = "33333333-3333-3333-3333-333333333333";
 const SEED_DEFAULT_PLAN_ID = "44444444-4444-4444-4444-444444444444";
 const SEED_DEFAULT_PLAN_ENTITLEMENT_ID = "55555555-5555-5555-5555-555555555555";
 const SEED_DEFAULT_PLAN_CODE = "starter_trial";
+const SEED_WORKSPACE_SUBSCRIPTION_ID = "66666666-6666-6666-6666-666666666666";
 
 async function main(): Promise<void> {
   await prisma.appUser.upsert({
@@ -144,6 +151,44 @@ async function main(): Promise<void> {
           { key: "view_limit_percentages", allowed: true },
           { key: "tasks_excluded_from_commercial_quotas", value: true }
         ]
+      }
+    });
+
+    await prisma.workspaceSubscription.upsert({
+      where: { workspaceId: SEED_WORKSPACE_ID },
+      update: {
+        planCode: SEED_DEFAULT_PLAN_CODE,
+        status: WorkspaceSubscriptionStatus.trialing,
+        trialStartedAt: new Date("2026-03-26T00:00:00.000Z"),
+        trialEndsAt: new Date("2026-04-09T00:00:00.000Z"),
+        currentPeriodStartedAt: new Date("2026-03-26T00:00:00.000Z"),
+        currentPeriodEndsAt: new Date("2026-04-09T00:00:00.000Z"),
+        cancelAtPeriodEnd: false,
+        billingProvider: null,
+        providerCustomerRef: null,
+        providerSubscriptionRef: null,
+        metadata: {
+          schema: "persai.subscriptionState.v1",
+          source: "seed_baseline"
+        }
+      },
+      create: {
+        id: SEED_WORKSPACE_SUBSCRIPTION_ID,
+        workspaceId: SEED_WORKSPACE_ID,
+        planCode: SEED_DEFAULT_PLAN_CODE,
+        status: WorkspaceSubscriptionStatus.trialing,
+        trialStartedAt: new Date("2026-03-26T00:00:00.000Z"),
+        trialEndsAt: new Date("2026-04-09T00:00:00.000Z"),
+        currentPeriodStartedAt: new Date("2026-03-26T00:00:00.000Z"),
+        currentPeriodEndsAt: new Date("2026-04-09T00:00:00.000Z"),
+        cancelAtPeriodEnd: false,
+        billingProvider: null,
+        providerCustomerRef: null,
+        providerSubscriptionRef: null,
+        metadata: {
+          schema: "persai.subscriptionState.v1",
+          source: "seed_baseline"
+        }
       }
     });
   }

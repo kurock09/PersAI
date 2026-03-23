@@ -167,6 +167,24 @@ Postgres with Prisma.
 - created_at
 - updated_at
 
+### workspace_subscriptions (Step 7 P3 baseline)
+
+- id (UUID)
+- workspace_id (UUID, unique FK -> `workspaces.id`)
+- plan_code (varchar 64)
+- status (`trialing|active|grace_period|past_due|paused|canceled|expired`)
+- trial_started_at (nullable timestamptz)
+- trial_ends_at (nullable timestamptz)
+- current_period_started_at (nullable timestamptz)
+- current_period_ends_at (nullable timestamptz)
+- cancel_at_period_end (bool)
+- billing_provider (nullable varchar 64)
+- provider_customer_ref (nullable varchar 128)
+- provider_subscription_ref (nullable varchar 128)
+- metadata (nullable jsonb)
+- created_at
+- updated_at
+
 ## Prisma baseline (Step 1 slice 5)
 
 - `app_users`:
@@ -261,6 +279,11 @@ Postgres with Prisma.
   - primary key: `id`
   - unique FK: `plan_id -> plan_catalog_plans.id` (1:1 model)
   - grouped entitlement JSON arrays: capabilities, tool classes, channels/surfaces, limits permissions
+- `workspace_subscriptions`:
+  - primary key: `id`
+  - unique: `workspace_id` (one current subscription state row per workspace in P3)
+  - index: `(plan_code, status)`
+  - provider references and metadata are optional/provider-agnostic in this slice
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -290,6 +313,7 @@ Postgres with Prisma.
 - D5 adds `assistant_task_registry_items` for Tasks Center rows (control plane); population from OpenClaw/sync is integration follow-up—MVP APIs + UI are honest when the list is empty
 - P1 adds canonical `plan_catalog_plans` + `plan_catalog_entitlements`; billing-vendor lifecycle and entitlement enforcement remain out of scope
 - P2 adds owner-gated admin create/edit surfaces over the same P1 tables; no new plan schema tables are added in P2
+- P3 adds canonical `workspace_subscriptions` and provider-agnostic billing abstraction hooks; no concrete billing vendor integration is added
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

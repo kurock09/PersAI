@@ -4,6 +4,26 @@
 
 ### Added
 
+- Step 7 slice P3 subscription state and billing abstraction boundary:
+  - added canonical workspace subscription state model `workspace_subscriptions` with statuses:
+    - `trialing`
+    - `active`
+    - `grace_period`
+    - `past_due`
+    - `paused`
+    - `canceled`
+    - `expired`
+  - added provider-agnostic billing abstraction port:
+    - `BillingProviderPort`
+    - `pullWorkspaceSubscription(workspaceId)` normalized snapshot hook
+    - null/no-op adapter baseline (no concrete provider integration)
+  - added effective subscription resolution service for assistant context with precedence:
+    - workspace subscription
+    - assistant `quotaPlanCode` fallback
+    - catalog default fallback
+    - none (`unconfigured`)
+  - added API test script `test:subscription-state`
+  - ADR `docs/ADR/026-subscription-state-and-billing-abstraction-p3.md`
 - Step 7 slice P2 admin plan management:
   - added owner-gated admin API endpoints:
     - `GET /api/v1/admin/plans`
