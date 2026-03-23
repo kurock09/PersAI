@@ -30,6 +30,15 @@
   - kept deep section functionality intentionally placeholder in this slice
   - kept onboarding gate, protected route behavior, and B1 assistant creation flow intact
   - updated web tests to assert editor sections and global status bar visibility
+- Step 4 slice B3 quick start and advanced setup:
+  - added dual-path setup surface in `apps/web` under `/app`:
+    - quick start path (guided baseline)
+    - advanced setup path (manual draft instructions)
+  - both setup paths now land in control-plane draft state via `PATCH /assistant/draft`
+  - when assistant does not exist yet, setup path auto-creates assistant first via `POST /assistant`, then applies draft update
+  - setup paths explicitly do not publish and do not bypass draft/publish lifecycle
+  - kept B1/B2 dashboard + sectioned editor behavior intact
+  - updated web tests for quick-start draft update and advanced-setup draft update (including assistant-absent auto-create path)
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

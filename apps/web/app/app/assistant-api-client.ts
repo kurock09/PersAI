@@ -1,7 +1,9 @@
 import {
+  type AssistantDraftUpdateRequest,
   ContractsApiError,
   type AssistantLifecycleState,
   getAssistant as getAssistantContract,
+  patchAssistantDraft as patchAssistantDraftContract,
   postAssistantCreate as postAssistantCreateContract
 } from "@persai/contracts";
 
@@ -51,6 +53,25 @@ export async function postAssistantCreate(token: string): Promise<AssistantLifec
 
     if (response.status !== 200) {
       throw new Error("Unexpected non-success response for POST /assistant.");
+    }
+
+    return response.data.assistant;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchAssistantDraft(
+  token: string,
+  payload: AssistantDraftUpdateRequest
+): Promise<AssistantLifecycleState> {
+  try {
+    const response = await patchAssistantDraftContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for PATCH /assistant/draft.");
     }
 
     return response.data.assistant;

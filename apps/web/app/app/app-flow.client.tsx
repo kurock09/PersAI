@@ -3,7 +3,7 @@
 import { SignOutButton, UserButton, useAuth } from "@clerk/nextjs";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { type AssistantLifecycleState } from "@persai/contracts";
-import { getAssistant, postAssistantCreate } from "./assistant-api-client";
+import { getAssistant, patchAssistantDraft, postAssistantCreate } from "./assistant-api-client";
 import { CurrentMeResponse, OnboardingPayload, getMe, postOnboarding } from "./me-api-client";
 
 type FlowState =
@@ -26,6 +26,18 @@ const EDITOR_SECTIONS = [
   "Publish History"
 ] as const;
 
+type SetupMode = "quick_start" | "advanced_setup";
+
+type QuickStartPayload = {
+  displayName: string;
+  primaryGoal: string;
+};
+
+type AdvancedSetupPayload = {
+  displayName: string;
+  instructions: string;
+};
+
 function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
   return {
     displayName: state?.me.appUser.displayName ?? "",
@@ -33,6 +45,20 @@ function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
     locale: state?.me.workspace?.locale ?? "en-US",
     timezone: state?.me.workspace?.timezone ?? "UTC"
   };
+}
+
+function toNullable(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function buildQuickStartInstructions(primaryGoal: string): string {
+  const goal = primaryGoal.trim();
+  return [
+    "Act as a personal assistant for the current user.",
+    goal.length > 0 ? `Primary goal: ${goal}.` : "Primary goal: general practical support.",
+    "Use concise, actionable responses and maintain continuity with prior draft context."
+  ].join(" ");
 }
 
 function hasDraftChanges(assistantState: AssistantLifecycleState): boolean {
@@ -54,6 +80,17 @@ export function AppFlowClient() {
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCreatingAssistant, setIsCreatingAssistant] = useState(false);
+  const [isApplyingSetup, setIsApplyingSetup] = useState(false);
+  const [setupMode, setSetupMode] = useState<SetupMode>("quick_start");
+  const [setupFeedback, setSetupFeedback] = useState<string | null>(null);
+  const [quickStartPayload, setQuickStartPayload] = useState<QuickStartPayload>({
+    displayName: "",
+    primaryGoal: ""
+  });
+  const [advancedSetupPayload, setAdvancedSetupPayload] = useState<AdvancedSetupPayload>({
+    displayName: "",
+    instructions: ""
+  });
 
   const loadAssistantState = useCallback(
     async (token: string, meState: CurrentMeResponse): Promise<AssistantLifecycleState | null> => {
@@ -100,6 +137,22 @@ export function AppFlowClient() {
   useEffect(() => {
     void loadMe();
   }, [loadMe]);
+
+  useEffect(() => {
+    if (flowState.type !== "ready") {
+      return;
+    }
+
+    const draft = flowState.data.assistantState?.draft;
+    setQuickStartPayload({
+      displayName: draft?.displayName ?? "",
+      primaryGoal: ""
+    });
+    setAdvancedSetupPayload({
+      displayName: draft?.displayName ?? "",
+      instructions: draft?.instructions ?? ""
+    });
+  }, [flowState]);
 
   const onboardingRequired = useMemo(() => {
     return flowState.type === "ready" && flowState.data.meState.me.onboarding.status === "pending";
@@ -162,6 +215,70 @@ export function AppFlowClient() {
     } finally {
       setIsCreatingAssistant(false);
     }
+  }
+
+  async function upsertAssistantDraft(
+    updater: (currentAssistant: AssistantLifecycleState | null) => {
+      displayName?: string | null;
+      instructions?: string | null;
+    }
+  ): Promise<void> {
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    if (flowState.type !== "ready") {
+      return;
+    }
+
+    try {
+      setIsApplyingSetup(true);
+      setSetupFeedback(null);
+
+      const existingAssistant = flowState.data.assistantState;
+      const assistantForUpdate =
+        existingAssistant ?? (await postAssistantCreate(token));
+
+      const updatedAssistant = await patchAssistantDraft(token, updater(assistantForUpdate));
+
+      setFlowState({
+        type: "ready",
+        data: {
+          meState: flowState.data.meState,
+          assistantState: updatedAssistant
+        }
+      });
+      setSetupFeedback("Draft setup saved. No publish has been performed.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Assistant setup update failed.";
+      setSetupFeedback(message);
+    } finally {
+      setIsApplyingSetup(false);
+    }
+  }
+
+  async function onSubmitQuickStart(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+
+    await upsertAssistantDraft(() => {
+      return {
+        displayName: toNullable(quickStartPayload.displayName),
+        instructions: buildQuickStartInstructions(quickStartPayload.primaryGoal)
+      };
+    });
+  }
+
+  async function onSubmitAdvancedSetup(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+
+    await upsertAssistantDraft(() => {
+      return {
+        displayName: toNullable(advancedSetupPayload.displayName),
+        instructions: toNullable(advancedSetupPayload.instructions)
+      };
+    });
   }
 
   if (flowState.type === "loading") {
@@ -363,6 +480,88 @@ export function AppFlowClient() {
             </p>
           </>
         )}
+      </section>
+
+      <section>
+        <h2>Assistant setup paths</h2>
+        <p>
+          Both paths save draft state only. Publish remains explicit and separate.
+        </p>
+        <p>
+          <strong>Active path:</strong>{" "}
+          {setupMode === "quick_start" ? "Quick start" : "Advanced setup"}
+        </p>
+        <button type="button" onClick={() => setSetupMode("quick_start")}>
+          Quick start path
+        </button>
+        <button type="button" onClick={() => setSetupMode("advanced_setup")}>
+          Advanced setup path
+        </button>
+
+        {setupMode === "quick_start" ? (
+          <form onSubmit={(event) => void onSubmitQuickStart(event)}>
+            <h3>Quick start</h3>
+            <p>Fast draft bootstrap with a guided baseline profile.</p>
+            <label htmlFor="quickStartDisplayName">Assistant display name</label>
+            <input
+              id="quickStartDisplayName"
+              value={quickStartPayload.displayName}
+              onChange={(event) =>
+                setQuickStartPayload({
+                  ...quickStartPayload,
+                  displayName: event.target.value
+                })
+              }
+            />
+            <label htmlFor="quickStartPrimaryGoal">Primary goal</label>
+            <input
+              id="quickStartPrimaryGoal"
+              value={quickStartPayload.primaryGoal}
+              onChange={(event) =>
+                setQuickStartPayload({
+                  ...quickStartPayload,
+                  primaryGoal: event.target.value
+                })
+              }
+              required
+            />
+            <button type="submit" disabled={isApplyingSetup}>
+              {isApplyingSetup ? "Saving draft..." : "Apply quick start to draft"}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={(event) => void onSubmitAdvancedSetup(event)}>
+            <h3>Advanced setup</h3>
+            <p>Manual draft setup path for explicit assistant instructions.</p>
+            <label htmlFor="advancedDisplayName">Assistant display name</label>
+            <input
+              id="advancedDisplayName"
+              value={advancedSetupPayload.displayName}
+              onChange={(event) =>
+                setAdvancedSetupPayload({
+                  ...advancedSetupPayload,
+                  displayName: event.target.value
+                })
+              }
+            />
+            <label htmlFor="advancedInstructions">Draft instructions</label>
+            <textarea
+              id="advancedInstructions"
+              value={advancedSetupPayload.instructions}
+              onChange={(event) =>
+                setAdvancedSetupPayload({
+                  ...advancedSetupPayload,
+                  instructions: event.target.value
+                })
+              }
+              required
+            />
+            <button type="submit" disabled={isApplyingSetup}>
+              {isApplyingSetup ? "Saving draft..." : "Apply advanced setup to draft"}
+            </button>
+          </form>
+        )}
+        {setupFeedback !== null && <p>{setupFeedback}</p>}
       </section>
 
       {assistantState !== null && (

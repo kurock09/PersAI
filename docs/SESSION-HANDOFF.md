@@ -2,6 +2,20 @@
 
 ## What changed
 
+- Completed Step 4 slice `B3` only (dual-path setup flow in `apps/web`):
+  - added `Assistant setup paths` block with two explicit branches:
+    - quick start path
+    - advanced setup path
+  - quick start path applies a guided baseline into draft fields
+  - advanced setup path applies manual display name + instructions into draft fields
+  - both paths now write through control-plane draft API only:
+    - `PATCH /assistant/draft`
+  - when assistant is absent, setup path auto-creates assistant first via:
+    - `POST /assistant`
+    then applies draft update
+  - setup flow explicitly does not publish and does not change runtime apply state directly
+  - preserved B1/B2 behavior: onboarding gate, global publish/status bar, sectioned editor shell
+  - updated web tests for quick-start and advanced-setup draft flow
 - Completed Step 4 slice `B2` only (assistant editor sections in `apps/web`):
   - added sectioned assistant editor shell (not a wizard) under `/app` completed-onboarding branch
   - introduced visible editor sections:
@@ -113,6 +127,9 @@
 
 ## Why changed
 
+- Step 4 requires setup UX that supports both fast-start users and advanced users while preserving explicit lifecycle truth.
+- B3 introduces two setup paths that always land in draft state, preventing hidden live-state mutation and avoiding accidental publish side effects.
+- This keeps control-plane consistency with B1/B2 and prepares B4 publish/apply UX without widening into full persona/memory feature depth.
 - Step 4 requires a sectioned control surface so assistant management does not collapse into one oversized settings page.
 - B2 establishes editor information architecture and keeps lifecycle status globally visible while preserving draft/publish/apply control-plane truth.
 - This creates a stable foundation for B3-B6 without introducing chat-first drift or raw runtime file exposure.
@@ -169,6 +186,12 @@
 
 ## Files touched
 
+- apps/web/app/app/assistant-api-client.ts
+- apps/web/app/app/app-flow.client.tsx
+- apps/web/app/app/app-flow.client.test.tsx
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
 - apps/web/app/app/app-flow.client.tsx
 - apps/web/app/app/app-flow.client.test.tsx
 - docs/ROADMAP.md

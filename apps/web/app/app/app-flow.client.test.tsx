@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantLifecycleState } from "@persai/contracts";
@@ -21,7 +21,8 @@ const apiMocks = vi.hoisted(() => {
 const assistantApiMocks = vi.hoisted(() => {
   return {
     getAssistant: vi.fn(),
-    postAssistantCreate: vi.fn()
+    postAssistantCreate: vi.fn(),
+    patchAssistantDraft: vi.fn()
   };
 });
 
@@ -53,7 +54,8 @@ vi.mock("./assistant-api-client", async () => {
   return {
     ...actual,
     getAssistant: assistantApiMocks.getAssistant,
-    postAssistantCreate: assistantApiMocks.postAssistantCreate
+    postAssistantCreate: assistantApiMocks.postAssistantCreate,
+    patchAssistantDraft: assistantApiMocks.patchAssistantDraft
   };
 });
 
@@ -139,6 +141,21 @@ function makeAssistantResponse(): AssistantLifecycleState {
   };
 }
 
+function makeAssistantResponseWithDraft(
+  draftDisplayName: string | null,
+  draftInstructions: string | null
+): AssistantLifecycleState {
+  const state = makeAssistantResponse();
+  return {
+    ...state,
+    draft: {
+      ...state.draft,
+      displayName: draftDisplayName,
+      instructions: draftInstructions
+    }
+  };
+}
+
 describe("AppFlowClient onboarding gate", () => {
   afterEach(() => {
     cleanup();
@@ -148,6 +165,7 @@ describe("AppFlowClient onboarding gate", () => {
     vi.clearAllMocks();
     clerkMocks.getToken.mockResolvedValue("token-user-1");
     assistantApiMocks.postAssistantCreate.mockReset();
+    assistantApiMocks.patchAssistantDraft.mockReset();
   });
 
   it("shows onboarding gate when /me returns pending", async () => {
@@ -180,6 +198,10 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByText("Assistant summary")).toBeInTheDocument();
     expect(screen.getAllByText("v2").length).toBeGreaterThan(0);
     expect(screen.getByText("succeeded")).toBeInTheDocument();
+    expect(screen.getByText("Assistant setup paths")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Quick start", level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Quick start path" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Advanced setup path" })).toBeInTheDocument();
     expect(screen.getByTestId("user-button")).toBeInTheDocument();
   });
 
@@ -193,5 +215,62 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByText("not created")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create assistant" })).toBeInTheDocument();
     expect(screen.queryByText("Assistant editor")).not.toBeInTheDocument();
+  });
+
+  it("applies quick start path to assistant draft without publishing", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.patchAssistantDraft.mockResolvedValue(
+      makeAssistantResponseWithDraft("Field Ops Copilot", "Act as a personal assistant for the current user.")
+    );
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Assistant setup paths")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Assistant display name"), {
+      target: { value: "Field Ops Copilot" }
+    });
+    fireEvent.change(screen.getByLabelText("Primary goal"), {
+      target: { value: "Keep me focused on priority tasks" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply quick start to draft" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
+    });
+    expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
+      "token-user-1",
+      expect.objectContaining({
+        displayName: "Field Ops Copilot"
+      })
+    );
+    expect(screen.getByText("Draft setup saved. No publish has been performed.")).toBeInTheDocument();
+  });
+
+  it("applies advanced setup path to draft and auto-creates assistant when absent", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(null);
+    assistantApiMocks.postAssistantCreate.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.patchAssistantDraft.mockResolvedValue(
+      makeAssistantResponseWithDraft("Analyst Assistant", "Follow explicit daily planning instructions.")
+    );
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Assistant setup paths")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Advanced setup path" }));
+    fireEvent.change(screen.getByLabelText("Assistant display name"), {
+      target: { value: "Analyst Assistant" }
+    });
+    fireEvent.change(screen.getByLabelText("Draft instructions"), {
+      target: { value: "Follow explicit daily planning instructions." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply advanced setup to draft" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledTimes(1);
+      expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByText("Draft setup saved. No publish has been performed.")).toBeInTheDocument();
   });
 });
