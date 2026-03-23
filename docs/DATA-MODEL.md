@@ -165,6 +165,7 @@ Postgres with Prisma.
 - A5 adds runtime apply state tracking model only (no runtime call execution)
 - A6 adds platform-managed governance layer separate from user-owned draft/version truth
 - A7 adds deterministic materialization layer from user-owned + governance inputs to OpenClaw-native outputs
+- A8 executes runtime apply/reapply via infrastructure adapter using A7 materialized outputs and persists coarse apply error state
 - chat, channels, and integrations remain unsupported
 
 ## Step 2 onboarding write baseline (slice 3)

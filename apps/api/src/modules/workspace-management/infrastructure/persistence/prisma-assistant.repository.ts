@@ -79,6 +79,114 @@ export class PrismaAssistantRepository implements AssistantRepository {
     return this.mapToDomain(assistant);
   }
 
+  async markApplyInProgress(userId: string, targetVersionId: string): Promise<Assistant | null> {
+    const existingAssistant = await this.prisma.assistant.findUnique({
+      where: { userId },
+      select: { id: true }
+    });
+
+    if (existingAssistant === null) {
+      return null;
+    }
+
+    const assistant = await this.prisma.assistant.update({
+      where: { userId },
+      data: {
+        applyStatus: "in_progress",
+        applyTargetVersionId: targetVersionId,
+        applyRequestedAt: new Date(),
+        applyStartedAt: new Date(),
+        applyFinishedAt: null,
+        applyErrorCode: null,
+        applyErrorMessage: null
+      }
+    });
+
+    return this.mapToDomain(assistant);
+  }
+
+  async markApplySucceeded(userId: string, appliedVersionId: string): Promise<Assistant | null> {
+    const existingAssistant = await this.prisma.assistant.findUnique({
+      where: { userId },
+      select: { id: true }
+    });
+
+    if (existingAssistant === null) {
+      return null;
+    }
+
+    const assistant = await this.prisma.assistant.update({
+      where: { userId },
+      data: {
+        applyStatus: "succeeded",
+        applyAppliedVersionId: appliedVersionId,
+        applyFinishedAt: new Date(),
+        applyErrorCode: null,
+        applyErrorMessage: null
+      }
+    });
+
+    return this.mapToDomain(assistant);
+  }
+
+  async markApplyFailed(
+    userId: string,
+    targetVersionId: string,
+    errorCode: string,
+    errorMessage: string
+  ): Promise<Assistant | null> {
+    const existingAssistant = await this.prisma.assistant.findUnique({
+      where: { userId },
+      select: { id: true }
+    });
+
+    if (existingAssistant === null) {
+      return null;
+    }
+
+    const assistant = await this.prisma.assistant.update({
+      where: { userId },
+      data: {
+        applyStatus: "failed",
+        applyTargetVersionId: targetVersionId,
+        applyFinishedAt: new Date(),
+        applyErrorCode: errorCode,
+        applyErrorMessage: errorMessage
+      }
+    });
+
+    return this.mapToDomain(assistant);
+  }
+
+  async markApplyDegraded(
+    userId: string,
+    targetVersionId: string,
+    errorCode: string,
+    errorMessage: string
+  ): Promise<Assistant | null> {
+    const existingAssistant = await this.prisma.assistant.findUnique({
+      where: { userId },
+      select: { id: true }
+    });
+
+    if (existingAssistant === null) {
+      return null;
+    }
+
+    const assistant = await this.prisma.assistant.update({
+      where: { userId },
+      data: {
+        applyStatus: "degraded",
+        applyTargetVersionId: targetVersionId,
+        applyFinishedAt: new Date(),
+        applyErrorCode: errorCode,
+        applyErrorMessage: errorMessage
+      }
+    });
+
+    return this.mapToDomain(assistant);
+  }
+
   private mapToDomain(assistant: PrismaAssistant): Assistant {
     return {
       id: assistant.id,

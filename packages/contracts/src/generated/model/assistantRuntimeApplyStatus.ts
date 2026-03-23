@@ -5,15 +5,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantRuntimeApplyStatus = typeof AssistantRuntimeApplyStatus[keyof typeof AssistantRuntimeApplyStatus];
-
+export type AssistantRuntimeApplyStatus =
+  (typeof AssistantRuntimeApplyStatus)[keyof typeof AssistantRuntimeApplyStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantRuntimeApplyStatus = {
-  not_requested: 'not_requested',
-  pending: 'pending',
-  in_progress: 'in_progress',
-  succeeded: 'succeeded',
-  failed: 'failed',
-  degraded: 'degraded',
+  not_requested: "not_requested",
+  pending: "pending",
+  in_progress: "in_progress",
+  succeeded: "succeeded",
+  failed: "failed",
+  degraded: "degraded"
 } as const;

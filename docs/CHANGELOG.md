@@ -422,6 +422,35 @@
     - no second custom bootstrap framework
     - no raw bootstrap editing endpoint
   - marked `A7` complete in `docs/ROADMAP.md`
+- Step 3 slice A8 OpenClaw apply/reapply adapter baseline:
+  - added first real `apps/api -> OpenClaw` thin infrastructure adapter with HTTP transport only
+  - implemented adapter interactions:
+    - runtime preflight probes via `GET /healthz` and `GET /readyz`
+    - runtime apply/reapply via `POST /api/v1/runtime/spec/apply` using A7 materialized outputs only
+  - added adapter configuration/env model:
+    - `OPENCLAW_ADAPTER_ENABLED`
+    - `OPENCLAW_BASE_URL`
+    - `OPENCLAW_GATEWAY_TOKEN`
+    - `OPENCLAW_ADAPTER_TIMEOUT_MS`
+    - `OPENCLAW_ADAPTER_MAX_RETRIES`
+  - implemented coarse adapter error classification and apply-state mapping:
+    - `runtime_unreachable`, `auth_failure`, `timeout`, `invalid_response`, `runtime_degraded`
+    - apply-state transitions now driven by runtime attempt:
+      - `pending -> in_progress -> succeeded|failed|degraded`
+  - integrated runtime apply attempt into lifecycle actions that create new published versions:
+    - publish
+    - rollback
+    - reset
+  - added explicit reapply control-plane endpoint:
+    - `POST /api/v1/assistant/reapply`
+  - added explicit runtime preflight endpoint:
+    - `GET /api/v1/assistant/runtime/preflight`
+  - kept boundary constraints intact:
+    - domain/application layers remain OpenClaw-agnostic
+    - no chat relay, no Telegram/channels integration
+    - no behavior-level runtime integration
+  - added ADR `docs/ADR/014-openclaw-apply-reapply-adapter.md`
+  - updated contracts/docs and marked `A8` complete in `docs/ROADMAP.md`
 
 ### Changed
 

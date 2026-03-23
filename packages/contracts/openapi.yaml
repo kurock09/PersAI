@@ -232,6 +232,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/reapply:
+    post:
+      operationId: postAssistantReapply
+      summary: Reapply latest materialized published assistant spec to runtime
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Assistant state after reapply attempt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or published version not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/runtime/preflight:
+    get:
+      operationId: getAssistantRuntimePreflight
+      summary: Check OpenClaw runtime preflight health/readiness via adapter
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Runtime preflight state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantRuntimePreflightResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me:
     get:
       operationId: getMe
@@ -592,6 +648,20 @@ components:
         openclawWorkspaceDocument:
           type: string
           nullable: true
+    AssistantRuntimePreflightState:
+      type: object
+      required:
+        - live
+        - ready
+        - checkedAt
+      properties:
+        live:
+          type: boolean
+        ready:
+          type: boolean
+        checkedAt:
+          type: string
+          format: date-time
     AssistantLifecycleState:
       type: object
       required:
@@ -661,6 +731,16 @@ components:
           nullable: true
         assistant:
           $ref: "#/components/schemas/AssistantLifecycleState"
+    GetAssistantRuntimePreflightResponse:
+      type: object
+      required:
+        - preflight
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        preflight:
+          $ref: "#/components/schemas/AssistantRuntimePreflightState"
     ErrorEnvelope:
       type: object
       required:

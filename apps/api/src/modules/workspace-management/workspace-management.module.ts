@@ -1,16 +1,21 @@
 import { Module } from "@nestjs/common";
 import { AssistantController } from "./interface/http/assistant.controller";
+import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
+import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
 import { GetAssistantByUserIdService } from "./application/get-assistant-by-user-id.service";
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
 import { PublishAssistantDraftService } from "./application/publish-assistant-draft.service";
+import { ReapplyAssistantService } from "./application/reapply-assistant.service";
 import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.repository";
 import { ASSISTANT_MATERIALIZED_SPEC_REPOSITORY } from "./domain/assistant-materialized-spec.repository";
 import { ASSISTANT_PUBLISHED_VERSION_REPOSITORY } from "./domain/assistant-published-version.repository";
+import { ASSISTANT_RUNTIME_ADAPTER } from "./application/assistant-runtime-adapter.types";
 import { ASSISTANT_REPOSITORY } from "./domain/assistant.repository";
+import { OpenClawRuntimeAdapter } from "./infrastructure/openclaw/openclaw-runtime.adapter";
 import { PrismaAssistantGovernanceRepository } from "./infrastructure/persistence/prisma-assistant-governance.repository";
 import { PrismaAssistantMaterializedSpecRepository } from "./infrastructure/persistence/prisma-assistant-materialized-spec.repository";
 import { PrismaAssistantPublishedVersionRepository } from "./infrastructure/persistence/prisma-assistant-published-version.repository";
@@ -22,9 +27,12 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
   providers: [
     WorkspaceManagementPrismaService,
     GetAssistantByUserIdService,
+    ApplyAssistantPublishedVersionService,
+    AssistantRuntimePreflightService,
     MaterializeAssistantPublishedVersionService,
     CreateAssistantService,
     PublishAssistantDraftService,
+    ReapplyAssistantService,
     RollbackAssistantService,
     ResetAssistantService,
     UpdateAssistantDraftService,
@@ -41,14 +49,21 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
       useClass: PrismaAssistantGovernanceRepository
     },
     {
+      provide: ASSISTANT_RUNTIME_ADAPTER,
+      useClass: OpenClawRuntimeAdapter
+    },
+    {
       provide: ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
       useClass: PrismaAssistantMaterializedSpecRepository
     }
   ],
   exports: [
     GetAssistantByUserIdService,
+    ApplyAssistantPublishedVersionService,
+    AssistantRuntimePreflightService,
     CreateAssistantService,
     PublishAssistantDraftService,
+    ReapplyAssistantService,
     RollbackAssistantService,
     ResetAssistantService,
     UpdateAssistantDraftService,

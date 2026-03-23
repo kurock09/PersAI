@@ -12,4 +12,18 @@ export interface AssistantRepository {
   create(userId: string, workspaceId: string): Promise<Assistant>;
   updateDraft(userId: string, input: UpdateAssistantDraftInput): Promise<Assistant | null>;
   markApplyPending(userId: string, targetVersionId: string): Promise<Assistant | null>;
+  markApplyInProgress(userId: string, targetVersionId: string): Promise<Assistant | null>;
+  markApplySucceeded(userId: string, appliedVersionId: string): Promise<Assistant | null>;
+  markApplyFailed(
+    userId: string,
+    targetVersionId: string,
+    errorCode: string,
+    errorMessage: string
+  ): Promise<Assistant | null>;
+  markApplyDegraded(
+    userId: string,
+    targetVersionId: string,
+    errorCode: string,
+    errorMessage: string
+  ): Promise<Assistant | null>;
 }

@@ -8,7 +8,12 @@ const baseApiConfigSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
   DATABASE_URL: z.string().min(1),
-  CLERK_SECRET_KEY: z.string().min(1)
+  CLERK_SECRET_KEY: z.string().min(1),
+  OPENCLAW_ADAPTER_ENABLED: z.coerce.boolean().default(false),
+  OPENCLAW_BASE_URL: z.string().url().default("http://openclaw.persai-dev.svc.cluster.local:18789"),
+  OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
+  OPENCLAW_ADAPTER_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
+  OPENCLAW_ADAPTER_MAX_RETRIES: z.coerce.number().int().nonnegative().default(1)
 });
 
 const localApiConfigSchema = baseApiConfigSchema.extend({
@@ -41,6 +46,12 @@ export function loadApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
 
   if (!parsed.success) {
     throw new Error(`Invalid API environment configuration: ${formatIssues(parsed.error.issues)}`);
+  }
+
+  if (parsed.data.OPENCLAW_ADAPTER_ENABLED && !parsed.data.OPENCLAW_GATEWAY_TOKEN) {
+    throw new Error(
+      "Invalid API environment configuration: OPENCLAW_GATEWAY_TOKEN is required when OPENCLAW_ADAPTER_ENABLED=true."
+    );
   }
 
   return parsed.data;

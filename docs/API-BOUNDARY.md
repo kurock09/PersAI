@@ -25,6 +25,8 @@ Path versioning: /api/v1/...
 - POST /api/v1/assistant/publish
 - POST /api/v1/assistant/rollback
 - POST /api/v1/assistant/reset
+- POST /api/v1/assistant/reapply
+- GET /api/v1/assistant/runtime/preflight
 
 ### POST /api/v1/assistant
 
@@ -95,8 +97,8 @@ Behavior baseline:
 - creates new immutable published snapshot version from current draft
 - version number is per-assistant incremental (`1,2,3,...`)
 - returns assistant lifecycle state with `latestPublishedVersion` set to newly published version
-- sets `runtimeApply.status = pending` with target pointing to the new published version
-- does not perform runtime apply/openclaw actions
+- sets `runtimeApply` target to the newly published version and executes runtime apply through adapter
+- final apply state is explicit in response (`succeeded|failed|degraded`, or `in_progress` if runtime is still ongoing)
 - does not mutate historical published versions
 
 ### POST /api/v1/assistant/rollback (Step 3 A4 baseline)
@@ -112,8 +114,8 @@ Behavior baseline:
 - **does not mutate** old published rows
 - creates a new latest published version snapshot copied from `targetVersion`
 - updates current draft to the same rolled-back snapshot values
-- sets `runtimeApply.status = pending` with target pointing to rollback-created published version
-- no runtime apply/openclaw actions
+- sets `runtimeApply` target to rollback-created published version and executes runtime apply through adapter
+- final apply state is explicit in response (`succeeded|failed|degraded`, or `in_progress` if runtime is still ongoing)
 
 ### POST /api/v1/assistant/reset (Step 3 A4 baseline)
 
@@ -124,21 +126,45 @@ Behavior baseline:
 - creates new assistant state without deleting platform attachment layer
 - creates new latest published version with blank snapshot (`displayName=null`, `instructions=null`)
 - resets draft to blank values (`displayName=null`, `instructions=null`)
-- sets `runtimeApply.status = pending` with target pointing to reset-created published version
+- sets `runtimeApply` target to reset-created published version and executes runtime apply through adapter
 - preserves:
   - ownership/user binding
   - workspace scope
   - billing scope (not modified in this slice)
   - secret bindings/integration attachment layer (not modified in this slice)
-- no runtime apply/openclaw actions
+- final apply state is explicit in response (`succeeded|failed|degraded`, or `in_progress` if runtime is still ongoing)
+
+### POST /api/v1/assistant/reapply (Step 3 A8 baseline)
+
+Behavior baseline:
+
+- authenticated caller only
+- requires existing assistant and existing latest published version
+- does not create a new published version
+- executes runtime apply against latest materialized published spec with `reapply=true`
+- updates `runtimeApply` state with explicit lifecycle outcome
+
+### GET /api/v1/assistant/runtime/preflight (Step 3 A8 baseline)
+
+Behavior baseline:
+
+- authenticated caller only
+- executes adapter preflight probes:
+  - `GET /healthz`
+  - `GET /readyz`
+- returns minimal preflight state:
+  - `live`
+  - `ready`
+  - `checkedAt`
 
 ## Step 3 A5 apply-state separation rule
 
 - Publish truth and apply truth are distinct:
   - publish/rollback/reset produce published version truth in `latestPublishedVersion`
   - runtime apply progress/outcome is tracked separately in `runtimeApply`
-- In A5, backend stores apply-state transitions to `pending` only for lifecycle actions.
-- No runtime execution call is made in this slice, so `succeeded/failed/degraded` are represented model states but not produced by runtime integration yet.
+- In A8, runtime adapter now drives apply-state transitions:
+  - `pending -> in_progress -> succeeded|failed|degraded`
+- runtime failures are persisted with coarse stable error code/message in `runtimeApply.error`.
 
 ## Step 3 A6 governance separation rule
 
@@ -166,7 +192,7 @@ Behavior baseline:
   - stored per published version (`published_version_id` unique)
   - deterministic diff documents (`layers_document`, `openclaw_*_document`)
   - integrity hash (`content_hash`)
-- No runtime apply call is made in A7.
+- A8 consumes these materialized artifacts for runtime apply/reapply.
 
 ### GET /api/v1/me (slice 2 baseline response)
 
@@ -217,16 +243,16 @@ Behavior baseline:
 }
 ```
 
-## Contract source of truth (Step 2 + Step 3 A2-A7)
+## Contract source of truth (Step 2 + Step 3 A2-A8)
 
 - OpenAPI spec: `packages/contracts/openapi.yaml`
 - Generated typed client (Orval): `packages/contracts/src/generated/*`
 - Frontend consumption baseline remains typed-client only via `@persai/contracts`
 
-## OpenClaw integration contract baseline (Step 3 O6, docs-only)
+## OpenClaw integration contract baseline (Step 3 O6 + A8)
 
-This section defines backend-to-OpenClaw boundary rules only.  
-No runtime calls are implemented in this slice.
+This section defines backend-to-OpenClaw adapter rules.
+Runtime calls are implemented only through dedicated infrastructure adapter.
 
 Transport choice for first adapter step:
 
@@ -236,7 +262,7 @@ Transport choice for first adapter step:
   - timeout/retry/failure mapping is deterministic
   - aligns with already verified dev endpoints (`/healthz`, `/readyz`)
 
-First minimal supported interaction (future thin adapter):
+First supported adapter interactions:
 
 - runtime preflight:
   - `GET /healthz`
@@ -245,6 +271,10 @@ First minimal supported interaction (future thin adapter):
   - `live: boolean`
   - `ready: boolean`
   - `checkedAt: string` (timestamp)
+- runtime apply/reapply:
+  - `POST /api/v1/runtime/spec/apply`
+  - payload source is A7 materialized documents (`openclawBootstrap`, `openclawWorkspace`, `contentHash`)
+  - `reapply` flag is explicit in request body
 
 Allowed backend knowledge:
 

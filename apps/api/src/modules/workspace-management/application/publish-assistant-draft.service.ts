@@ -12,6 +12,7 @@ import {
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
@@ -27,7 +28,8 @@ export class PublishAssistantDraftService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
-    private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService
+    private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
+    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
@@ -56,16 +58,22 @@ export class PublishAssistantDraftService {
       publishedVersion,
       "publish"
     );
+    await this.applyAssistantPublishedVersionService.execute(userId, publishedVersion, false);
+
+    const refreshedAssistant = await this.assistantRepository.findByUserId(userId);
+    if (refreshedAssistant === null) {
+      throw new NotFoundException("Assistant does not exist for this user.");
+    }
 
     const governance = await this.assistantGovernanceRepository.findByAssistantId(
-      assistantWithPendingApply.id
+      refreshedAssistant.id
     );
     const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
-      assistantWithPendingApply.id
+      refreshedAssistant.id
     );
 
     return toAssistantLifecycleState(
-      assistantWithPendingApply,
+      refreshedAssistant,
       publishedVersion,
       governance,
       materialization
