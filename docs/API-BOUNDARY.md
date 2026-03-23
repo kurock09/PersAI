@@ -59,6 +59,15 @@ Behavior baseline:
     - `quotaHook`
     - `auditHook`
     - `platformManagedUpdatedAt`
+  - `materialization`:
+    - `latestSpecId`
+    - `publishedVersionId`
+    - `sourceAction`
+    - `algorithmVersion`
+    - `contentHash`
+    - `generatedAt`
+    - `openclawBootstrapDocument`
+    - `openclawWorkspaceDocument`
   - `createdAt`, `updatedAt`
 - returns not found if assistant has not been created yet
 
@@ -144,6 +153,21 @@ Behavior baseline:
 - Platform-managed governance truth is separate:
   - envelopes/hooks in `assistant_governance`
 
+## Step 3 A7 materialization rule
+
+- Backend materializes assistant deterministically from layered inputs:
+  - user-owned published version layer
+  - platform governance layer
+  - ownership/apply context layer
+- Materialization is projected into OpenClaw-native outputs:
+  - `openclaw_bootstrap`
+  - `openclaw_workspace`
+- Materialization artifacts are versionable/auditable:
+  - stored per published version (`published_version_id` unique)
+  - deterministic diff documents (`layers_document`, `openclaw_*_document`)
+  - integrity hash (`content_hash`)
+- No runtime apply call is made in A7.
+
 ### GET /api/v1/me (slice 2 baseline response)
 
 - Returns current internal app user (`app_users`) for authenticated caller.
@@ -193,7 +217,7 @@ Behavior baseline:
 }
 ```
 
-## Contract source of truth (Step 2 + Step 3 A2/A3)
+## Contract source of truth (Step 2 + Step 3 A2-A7)
 
 - OpenAPI spec: `packages/contracts/openapi.yaml`
 - Generated typed client (Orval): `packages/contracts/src/generated/*`

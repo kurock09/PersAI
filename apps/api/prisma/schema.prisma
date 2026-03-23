@@ -26,6 +26,12 @@ enum AssistantApplyStatus {
   degraded
 }
 
+enum AssistantMaterializationSourceAction {
+  publish
+  rollback
+  reset
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -91,6 +97,7 @@ model Assistant {
   applyTargetVersion AssistantPublishedVersion? @relation("AssistantApplyTargetVersion", fields: [applyTargetVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   applyAppliedVersion AssistantPublishedVersion? @relation("AssistantApplyAppliedVersion", fields: [applyAppliedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   governance       AssistantGovernance?
+  materializedSpecs AssistantMaterializedSpec[]
   publishedVersions AssistantPublishedVersion[]
 
   @@unique([workspaceId, userId])
@@ -109,6 +116,7 @@ model AssistantPublishedVersion {
   publishedByUser       AppUser     @relation("AssistantVersionPublisher", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   applyTargetAssistants Assistant[] @relation("AssistantApplyTargetVersion")
   applyAppliedAssistants Assistant[] @relation("AssistantApplyAppliedVersion")
+  materializedSpec       AssistantMaterializedSpec?
 
   @@unique([assistantId, version])
   @@map("assistant_published_versions")
@@ -128,4 +136,24 @@ model AssistantGovernance {
   assistant          Assistant @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("assistant_governance")
+}
+
+model AssistantMaterializedSpec {
+  id                        String                              @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  assistantId               String                              @map("assistant_id") @db.Uuid
+  publishedVersionId        String                              @unique @map("published_version_id") @db.Uuid
+  sourceAction              AssistantMaterializationSourceAction @map("source_action")
+  algorithmVersion          Int                                 @default(1) @map("algorithm_version")
+  layers                    Json                                @map("layers")
+  openclawBootstrap         Json                                @map("openclaw_bootstrap")
+  openclawWorkspace         Json                                @map("openclaw_workspace")
+  layersDocument            String                              @map("layers_document") @db.Text
+  openclawBootstrapDocument String                              @map("openclaw_bootstrap_document") @db.Text
+  openclawWorkspaceDocument String                              @map("openclaw_workspace_document") @db.Text
+  contentHash               String                              @map("content_hash")
+  createdAt                 DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant                 Assistant                           @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publishedVersion          AssistantPublishedVersion           @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("assistant_materialized_specs")
 }

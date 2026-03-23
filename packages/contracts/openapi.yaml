@@ -549,6 +549,49 @@ components:
           type: string
           format: date-time
           nullable: true
+    AssistantMaterializationState:
+      type: object
+      required:
+        - latestSpecId
+        - publishedVersionId
+        - sourceAction
+        - algorithmVersion
+        - contentHash
+        - generatedAt
+        - openclawBootstrapDocument
+        - openclawWorkspaceDocument
+      properties:
+        latestSpecId:
+          type: string
+          format: uuid
+          nullable: true
+        publishedVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        sourceAction:
+          type: string
+          enum:
+            - publish
+            - rollback
+            - reset
+          nullable: true
+        algorithmVersion:
+          type: integer
+          nullable: true
+        contentHash:
+          type: string
+          nullable: true
+        generatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        openclawBootstrapDocument:
+          type: string
+          nullable: true
+        openclawWorkspaceDocument:
+          type: string
+          nullable: true
     AssistantLifecycleState:
       type: object
       required:
@@ -559,6 +602,7 @@ components:
         - latestPublishedVersion
         - runtimeApply
         - governance
+        - materialization
         - createdAt
         - updatedAt
       properties:
@@ -581,6 +625,8 @@ components:
           $ref: "#/components/schemas/AssistantRuntimeApplyState"
         governance:
           $ref: "#/components/schemas/AssistantGovernanceState"
+        materialization:
+          $ref: "#/components/schemas/AssistantMaterializationState"
         createdAt:
           type: string
           format: date-time

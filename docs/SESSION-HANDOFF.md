@@ -2,53 +2,66 @@
 
 ## What changed
 
-- Completed Step 3 slice `A6` only (assistant governance baseline).
-- Added platform-managed governance persistence model:
-  - table/model: `assistant_governance`
-  - one governance row per assistant (`assistant_id` unique)
-  - fields:
-    - `capability_envelope`
-    - `secret_refs`
-    - `policy_envelope`
-    - `quota_plan_code`
-    - `quota_hook`
-    - `audit_hook`
+- Completed Step 3 slice `A7` only (materialized runtime spec baseline).
+- Added deterministic materialization storage model:
+  - table/model: `assistant_materialized_specs`
+  - unique by `published_version_id` (one materialization per published version)
+  - stores layered payload, OpenClaw-native outputs, deterministic documents, and content hash
 - Added DB migration:
-  - `apps/api/prisma/migrations/20260323160000_step3_a6_assistant_governance_baseline/migration.sql`
-- Added governance domain/repository/infrastructure baseline in `workspace-management`.
-- Assistant create now initializes baseline governance row.
-- Extended assistant lifecycle response with `governance` block.
-- Preserved A1-A5 behavior and boundaries:
-  - no runtime/OpenClaw calls
-  - no backend behavior routing
-  - no tools/quotas engines implemented in this slice
+  - `apps/api/prisma/migrations/20260323170000_step3_a7_materialized_runtime_spec/migration.sql`
+- Added backend materialization service:
+  - deterministic layer assembly
+  - deterministic JSON documents
+  - SHA-256 content hash
+- Added domain/repository/infrastructure baseline for materialized spec persistence.
+- Materialization now runs on lifecycle actions that create a new published version:
+  - publish
+  - rollback
+  - reset
+- Extended assistant lifecycle response with `materialization` block:
+  - latest materialization id/version linkage/hash/timestamp
+  - OpenClaw bootstrap/workspace deterministic documents
+- Preserved A1-A6 behavior and boundaries:
+  - no OpenClaw apply/runtime call
+  - no custom parallel bootstrap framework
+  - no raw bootstrap editing endpoint
 - Updated docs:
   - `docs/API-BOUNDARY.md`
   - `docs/DATA-MODEL.md`
-  - `docs/ROADMAP.md` (`A6` marked complete)
+  - `docs/ROADMAP.md` (`A7` marked complete)
   - `docs/CHANGELOG.md`
   - `docs/SESSION-HANDOFF.md`
 
 ## Why changed
 
-- A6 introduces baseline governance structure around assistants while keeping backend as control-plane, not behavior engine.
-- Governance must be separated from user-owned draft/version truth to keep lifecycle and platform overlays decoupled.
+- A7 introduces runtime-ready spec materialization as deterministic control-plane projection, keeping source-of-truth in backend lifecycle/governance layers.
+- This avoids ad hoc/parallel bootstrap systems and prepares diffable/versionable/auditable artifacts for later apply flow.
 
 ## Decisions made
 
-- Governance is modeled in dedicated platform-managed storage (`assistant_governance`), separate from:
-  - user draft state (`assistants.draft_*`)
-  - immutable user-owned published versions (`assistant_published_versions`)
-- Governance is exposed as lifecycle read-model data only in this slice.
-- No runtime enforcement/behavior execution is attached to governance yet.
+- Materialization layers are assembled deterministically from:
+  - ownership/lifecycle context
+  - user-owned published snapshot
+  - governance envelope layer
+  - apply-state context
+- OpenClaw-native outputs are persisted directly as:
+  - `openclaw_bootstrap`
+  - `openclaw_workspace`
+- Deterministic text documents and hash are persisted for diff/audit use:
+  - `layers_document`
+  - `openclaw_bootstrap_document`
+  - `openclaw_workspace_document`
+  - `content_hash`
+- No runtime apply execution is introduced in this slice.
 
 ## Files touched
 
 - apps/api/prisma/schema.prisma
-- apps/api/prisma/migrations/20260323160000_step3_a6_assistant_governance_baseline/migration.sql
-- apps/api/src/modules/workspace-management/domain/assistant-governance.entity.ts
-- apps/api/src/modules/workspace-management/domain/assistant-governance.repository.ts
-- apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-governance.repository.ts
+- apps/api/prisma/migrations/20260323170000_step3_a7_materialized_runtime_spec/migration.sql
+- apps/api/src/modules/workspace-management/domain/assistant-materialized-spec.entity.ts
+- apps/api/src/modules/workspace-management/domain/assistant-materialized-spec.repository.ts
+- apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-materialized-spec.repository.ts
+- apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts
 - apps/api/src/modules/workspace-management/application/assistant-lifecycle.types.ts
 - apps/api/src/modules/workspace-management/application/assistant-lifecycle.mapper.ts
 - apps/api/src/modules/workspace-management/application/create-assistant.service.ts
@@ -69,8 +82,8 @@
 
 ## Migrations run
 
-- Added new Prisma migration file for A6:
-  - `20260323160000_step3_a6_assistant_governance_baseline`
+- Added new Prisma migration file for A7:
+  - `20260323170000_step3_a7_materialized_runtime_spec`
 - Migration apply command was not executed in this slice (file added only).
 
 ## Tests run / result
@@ -84,10 +97,10 @@
 
 ## Known risks
 
-- Governance envelopes/hooks are placeholders and not enforced by dedicated engines yet.
-- Assistants created before A6 may not yet have governance row until backfill or lifecycle write path.
-- Quotas/tools/audit implementations remain deferred and must consume this governance model later.
+- Materialization is deterministic and persisted, but runtime apply integration is still deferred.
+- Existing published versions from before A7 are not auto-materialized unless explicitly materialized/backfilled later.
+- OpenClaw-native output schema is baseline and may need controlled extension in later slices.
 
 ## Next recommended step
 
-- Implement Step 3 slice `A7` only: materialized runtime spec derived from user-owned lifecycle truth plus platform-managed governance envelopes.
+- Implement Step 3 slice `A8` only: OpenClaw apply/reapply adapter consuming A7 materialized outputs.

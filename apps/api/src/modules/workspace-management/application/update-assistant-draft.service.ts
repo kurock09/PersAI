@@ -4,6 +4,10 @@ import {
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
 import {
+  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
+  type AssistantMaterializedSpecRepository
+} from "../domain/assistant-materialized-spec.repository";
+import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
@@ -44,7 +48,9 @@ export class UpdateAssistantDraftService {
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
-    private readonly assistantGovernanceRepository: AssistantGovernanceRepository
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
+    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
+    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository
   ) {}
 
   parseInput(payload: unknown): UpdateAssistantDraftRequest {
@@ -96,7 +102,15 @@ export class UpdateAssistantDraftService {
     const governance = await this.assistantGovernanceRepository.findByAssistantId(
       updatedAssistant.id
     );
+    const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
+      updatedAssistant.id
+    );
 
-    return toAssistantLifecycleState(updatedAssistant, latestPublishedVersion, governance);
+    return toAssistantLifecycleState(
+      updatedAssistant,
+      latestPublishedVersion,
+      governance,
+      materialization
+    );
   }
 }

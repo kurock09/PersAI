@@ -4,10 +4,15 @@ import {
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
 import {
+  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
+  type AssistantMaterializedSpecRepository
+} from "../domain/assistant-materialized-spec.repository";
+import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 
@@ -19,7 +24,10 @@ export class PublishAssistantDraftService {
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
-    private readonly assistantGovernanceRepository: AssistantGovernanceRepository
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
+    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
+    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
+    private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
@@ -43,10 +51,24 @@ export class PublishAssistantDraftService {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
+    await this.materializeAssistantPublishedVersionService.execute(
+      assistantWithPendingApply,
+      publishedVersion,
+      "publish"
+    );
+
     const governance = await this.assistantGovernanceRepository.findByAssistantId(
       assistantWithPendingApply.id
     );
+    const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
+      assistantWithPendingApply.id
+    );
 
-    return toAssistantLifecycleState(assistantWithPendingApply, publishedVersion, governance);
+    return toAssistantLifecycleState(
+      assistantWithPendingApply,
+      publishedVersion,
+      governance,
+      materialization
+    );
   }
 }

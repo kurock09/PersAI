@@ -1,5 +1,6 @@
 import type { Assistant } from "../domain/assistant.entity";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
+import type { AssistantMaterializedSpec } from "../domain/assistant-materialized-spec.entity";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import type {
   AssistantGovernanceState,
@@ -25,7 +26,8 @@ export function toAssistantPublishedVersionState(
 export function toAssistantLifecycleState(
   assistant: Assistant,
   latestPublishedVersion: AssistantPublishedVersion | null,
-  governance: AssistantGovernance | null
+  governance: AssistantGovernance | null,
+  materialization: AssistantMaterializedSpec | null
 ): AssistantLifecycleState {
   const governanceState: AssistantGovernanceState = {
     capabilityEnvelope: governance?.capabilityEnvelope ?? null,
@@ -66,6 +68,16 @@ export function toAssistantLifecycleState(
             }
     },
     governance: governanceState,
+    materialization: {
+      latestSpecId: materialization?.id ?? null,
+      publishedVersionId: materialization?.publishedVersionId ?? null,
+      sourceAction: materialization?.sourceAction ?? null,
+      algorithmVersion: materialization?.algorithmVersion ?? null,
+      contentHash: materialization?.contentHash ?? null,
+      generatedAt: materialization?.createdAt?.toISOString() ?? null,
+      openclawBootstrapDocument: materialization?.openclawBootstrapDocument ?? null,
+      openclawWorkspaceDocument: materialization?.openclawWorkspaceDocument ?? null
+    },
     createdAt: assistant.createdAt.toISOString(),
     updatedAt: assistant.updatedAt.toISOString()
   };

@@ -3,6 +3,10 @@ import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
+import {
+  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
+  type AssistantMaterializedSpecRepository
+} from "../domain/assistant-materialized-spec.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
@@ -19,7 +23,9 @@ export class GetAssistantByUserIdService {
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
-    private readonly assistantGovernanceRepository: AssistantGovernanceRepository
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
+    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
+    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState | null> {
@@ -31,6 +37,14 @@ export class GetAssistantByUserIdService {
     const latestPublishedVersion =
       await this.assistantPublishedVersionRepository.findLatestByAssistantId(assistant.id);
     const governance = await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
-    return toAssistantLifecycleState(assistant, latestPublishedVersion, governance);
+    const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
+      assistant.id
+    );
+    return toAssistantLifecycleState(
+      assistant,
+      latestPublishedVersion,
+      governance,
+      materialization
+    );
   }
 }

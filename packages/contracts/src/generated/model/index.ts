@@ -29,6 +29,8 @@ export * from './assistantGovernanceStateQuotaHook';
 export * from './assistantGovernanceStateSecretRefs';
 export * from './assistantLifecycleState';
 export * from './assistantLifecycleStateLatestPublishedVersion';
+export * from './assistantMaterializationState';
+export * from './assistantMaterializationStateSourceAction';
 export * from './assistantPublishedVersionSnapshotState';
 export * from './assistantPublishedVersionState';
 export * from './assistantRollbackRequest';

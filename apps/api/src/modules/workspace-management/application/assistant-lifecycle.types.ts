@@ -50,6 +50,17 @@ export interface AssistantGovernanceState {
   platformManagedUpdatedAt: string | null;
 }
 
+export interface AssistantMaterializationState {
+  latestSpecId: string | null;
+  publishedVersionId: string | null;
+  sourceAction: "publish" | "rollback" | "reset" | null;
+  algorithmVersion: number | null;
+  contentHash: string | null;
+  generatedAt: string | null;
+  openclawBootstrapDocument: string | null;
+  openclawWorkspaceDocument: string | null;
+}
+
 export interface AssistantLifecycleState {
   id: string;
   userId: string;
@@ -58,6 +69,7 @@ export interface AssistantLifecycleState {
   latestPublishedVersion: AssistantPublishedVersionState | null;
   runtimeApply: AssistantRuntimeApplyState;
   governance: AssistantGovernanceState;
+  materialization: AssistantMaterializationState;
   createdAt: string;
   updatedAt: string;
 }

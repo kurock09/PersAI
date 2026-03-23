@@ -8,6 +8,7 @@ import type { AssistantDraftState } from './assistantDraftState';
 import type { AssistantLifecycleStateLatestPublishedVersion } from './assistantLifecycleStateLatestPublishedVersion';
 import type { AssistantRuntimeApplyState } from './assistantRuntimeApplyState';
 import type { AssistantGovernanceState } from './assistantGovernanceState';
+import type { AssistantMaterializationState } from './assistantMaterializationState';
 
 export interface AssistantLifecycleState {
   id: string;
@@ -18,6 +19,7 @@ export interface AssistantLifecycleState {
   latestPublishedVersion: AssistantLifecycleStateLatestPublishedVersion;
   runtimeApply: AssistantRuntimeApplyState;
   governance: AssistantGovernanceState;
+  materialization: AssistantMaterializationState;
   createdAt: string;
   updatedAt: string;
 }

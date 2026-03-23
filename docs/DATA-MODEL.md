@@ -75,6 +75,22 @@ Postgres with Prisma.
 - created_at
 - updated_at
 
+### assistant_materialized_specs (Step 3 A7 baseline)
+
+- id (UUID)
+- assistant_id
+- published_version_id (unique)
+- source_action (`publish|rollback|reset`)
+- algorithm_version
+- layers (jsonb)
+- openclaw_bootstrap (jsonb)
+- openclaw_workspace (jsonb)
+- layers_document (text)
+- openclaw_bootstrap_document (text)
+- openclaw_workspace_document (text)
+- content_hash
+- created_at
+
 ## Prisma baseline (Step 1 slice 5)
 
 - `app_users`:
@@ -117,6 +133,17 @@ Postgres with Prisma.
     - policy envelope
     - quota plan/hook placeholders
     - audit hook placeholder
+- `assistant_materialized_specs`:
+  - primary key: `id`
+  - foreign keys:
+    - `assistant_id -> assistants.id`
+    - `published_version_id -> assistant_published_versions.id`
+  - unique: `published_version_id` (one deterministic materialization per published version)
+  - stores:
+    - layered materialization structure (`layers`)
+    - OpenClaw-native outputs (`openclaw_bootstrap`, `openclaw_workspace`)
+    - deterministic diff documents (`*_document`)
+    - integrity hash (`content_hash`)
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -137,6 +164,7 @@ Postgres with Prisma.
 - A4 adds rollback/reset actions over existing A3 model without deleting attachment layers
 - A5 adds runtime apply state tracking model only (no runtime call execution)
 - A6 adds platform-managed governance layer separate from user-owned draft/version truth
+- A7 adds deterministic materialization layer from user-owned + governance inputs to OpenClaw-native outputs
 - chat, channels, and integrations remain unsupported
 
 ## Step 2 onboarding write baseline (slice 3)

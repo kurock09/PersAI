@@ -402,6 +402,26 @@
     - no backend behavior routing
     - no runtime/OpenClaw calls
   - marked `A6` complete in `docs/ROADMAP.md`
+- Step 3 slice A7 materialized runtime spec baseline:
+  - added deterministic materialization pipeline in backend control-plane:
+    - layered inputs from ownership/lifecycle/governance/apply context
+    - deterministic documents + SHA-256 content hash
+  - added materialization persistence model:
+    - table/model `assistant_materialized_specs`
+    - one materialization per published version (`published_version_id` unique)
+  - projected materialization into OpenClaw-native outputs:
+    - `openclaw_bootstrap`
+    - `openclaw_workspace`
+  - integrated materialization on lifecycle actions that create published versions:
+    - publish
+    - rollback
+    - reset
+  - extended assistant lifecycle response with `materialization` summary block
+  - kept scope intentionally narrow:
+    - no OpenClaw apply call
+    - no second custom bootstrap framework
+    - no raw bootstrap editing endpoint
+  - marked `A7` complete in `docs/ROADMAP.md`
 
 ### Changed
 

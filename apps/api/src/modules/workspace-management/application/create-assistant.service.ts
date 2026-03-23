@@ -4,6 +4,10 @@ import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
+import {
+  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
+  type AssistantMaterializedSpecRepository
+} from "../domain/assistant-materialized-spec.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
@@ -16,6 +20,8 @@ export class CreateAssistantService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
+    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
+    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -48,6 +54,9 @@ export class CreateAssistantService {
 
     const assistant = await this.assistantRepository.create(userId, membership.workspaceId);
     const governance = await this.assistantGovernanceRepository.createBaseline(assistant.id);
-    return toAssistantLifecycleState(assistant, null, governance);
+    const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
+      assistant.id
+    );
+    return toAssistantLifecycleState(assistant, null, governance, materialization);
   }
 }
