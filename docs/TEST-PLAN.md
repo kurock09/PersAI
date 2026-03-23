@@ -69,3 +69,12 @@ Required in CI:
 - Capability resolution precedence and governance guardrails are validated in API test script (`test:capability-resolution`).
 - Materialization integration compiles/typechecks with effective capability payload included.
 - Baseline Step 2 regressions remain green.
+
+## Step 7 P5 focus
+
+- Prisma schema/migration validates quota accounting persistence model (`workspace_quota_accounting_state`, `workspace_quota_usage_events`).
+- Quota accounting service behavior is validated in API test script (`test:quota-accounting`), including:
+  - token budget usage increments
+  - cost/token-driving tool-class usage increments
+  - active web chats usage refresh
+- Web chat/send/stream and chat list archive/delete compile with centralized quota tracking hooks and preserve prior regressions.

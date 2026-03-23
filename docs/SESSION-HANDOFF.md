@@ -1,5 +1,73 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - Step 7 P5 quota accounting baseline
+
+### What changed
+
+- Added canonical quota accounting persistence in API Prisma model:
+  - `workspace_quota_accounting_state` (workspace latest counters/limits)
+  - `workspace_quota_usage_events` (append-only usage/snapshot events)
+- Added explicit quota dimensions enum:
+  - `token_budget`
+  - `cost_or_token_driving_tool_class`
+  - `active_web_chats_cap`
+- Added centralized `TrackWorkspaceQuotaUsageService` in `workspace-management` application layer to avoid scattered/runtime-hidden quota logic.
+- Wired quota tracking into existing control-plane flows:
+  - sync web chat turn (token + cost/token-driving usage)
+  - stream web chat turn completed/partial outcomes (token + cost/token-driving usage)
+  - active web chats snapshot refresh on prepare/archive/hard-delete paths
+- Added workspace quota repository boundary + Prisma implementation.
+- Added provider-agnostic quota default config values:
+  - `QUOTA_TOKEN_BUDGET_DEFAULT`
+  - `QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT`
+  - with existing `WEB_ACTIVE_CHATS_CAP` for active chat cap limit
+- Added `test:quota-accounting` API script.
+- Docs updated: ADR-028, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `ROADMAP`, `CHANGELOG`, this handoff.
+
+### Why changed
+
+- P5 requires explicit quota accounting for commercially meaningful dimensions while keeping tasks/reminders outside commercial quota limits and preserving P1-P4 architecture boundaries.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260326220000_step7_p5_quota_accounting/migration.sql`
+- `apps/api/src/modules/workspace-management/domain/workspace-quota-accounting.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-quota-accounting.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-quota-accounting.repository.ts`
+- `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/quota-accounting.test.ts`
+- `apps/api/package.json`
+- `packages/config/src/api-config.ts`
+- `apps/api/.env.local.example`, `apps/api/.env.dev.example`
+- `infra/helm/values.yaml`, `infra/helm/values-dev.yaml`
+- `docs/ADR/028-quota-accounting-baseline-p5.md`
+- `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- pending in current session
+
+### Known risks / intentional limits
+
+- No billing provider integration, invoicing/tax flows, or BI/reporting expansion in P5.
+- No new public quota API endpoints in this slice.
+- Token budget in P5 uses deterministic estimator (`chars_div_4_ceil_v1`) until runtime token telemetry is formalized.
+- Enforcement matrix is not added in P5 (next slice scope).
+- Tasks/reminders remain intentionally excluded from commercial quota accounting.
+
+### Next recommended step
+
+- Step 7 **P6** enforcement points using P4 effective capability state + P5 accounting counters.
+
+### Ready commit message
+
+- `feat(api): add step 7 p5 quota accounting baseline for token toolclass and active-web-chat dimensions`
+
 ## 2026-03-26 - Step 7 P4 capability resolution engine
 
 ### What changed

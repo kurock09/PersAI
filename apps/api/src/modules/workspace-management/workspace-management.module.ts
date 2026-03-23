@@ -24,10 +24,12 @@ import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
+import { TrackWorkspaceQuotaUsageService } from "./application/track-workspace-quota-usage.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
 import { ASSISTANT_PLAN_CATALOG_REPOSITORY } from "./domain/assistant-plan-catalog.repository";
 import { WORKSPACE_SUBSCRIPTION_REPOSITORY } from "./domain/workspace-subscription.repository";
+import { WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY } from "./domain/workspace-quota-accounting.repository";
 import { ASSISTANT_MEMORY_REGISTRY_REPOSITORY } from "./domain/assistant-memory-registry.repository";
 import { ASSISTANT_TASK_REGISTRY_REPOSITORY } from "./domain/assistant-task-registry.repository";
 import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.repository";
@@ -40,6 +42,7 @@ import { NullBillingProviderAdapter } from "./infrastructure/billing/null-billin
 import { PrismaAssistantGovernanceRepository } from "./infrastructure/persistence/prisma-assistant-governance.repository";
 import { PrismaAssistantPlanCatalogRepository } from "./infrastructure/persistence/prisma-assistant-plan-catalog.repository";
 import { PrismaWorkspaceSubscriptionRepository } from "./infrastructure/persistence/prisma-workspace-subscription.repository";
+import { PrismaWorkspaceQuotaAccountingRepository } from "./infrastructure/persistence/prisma-workspace-quota-accounting.repository";
 import { BILLING_PROVIDER_PORT } from "./application/billing-provider.port";
 import { PrismaAssistantChatRepository } from "./infrastructure/persistence/prisma-assistant-chat.repository";
 import { PrismaAssistantMemoryRegistryRepository } from "./infrastructure/persistence/prisma-assistant-memory-registry.repository";
@@ -60,6 +63,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManageAdminPlansService,
     ResolveEffectiveSubscriptionStateService,
     ResolveEffectiveCapabilityStateService,
+    TrackWorkspaceQuotaUsageService,
     ManageWebChatListService,
     CreateAssistantService,
     PublishAssistantDraftService,
@@ -92,6 +96,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     {
       provide: WORKSPACE_SUBSCRIPTION_REPOSITORY,
       useClass: PrismaWorkspaceSubscriptionRepository
+    },
+    {
+      provide: WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
+      useClass: PrismaWorkspaceQuotaAccountingRepository
     },
     {
       provide: BILLING_PROVIDER_PORT,

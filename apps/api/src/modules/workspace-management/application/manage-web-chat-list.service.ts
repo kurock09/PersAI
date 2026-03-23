@@ -4,6 +4,7 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatListItemState } from "./web-chat.types";
 
 export interface RenameWebChatRequest {
@@ -44,7 +45,8 @@ export class ManageWebChatListService {
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
-    private readonly assistantChatRepository: AssistantChatRepository
+    private readonly assistantChatRepository: AssistantChatRepository,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   parseRenameInput(payload: unknown): RenameWebChatRequest {
@@ -153,6 +155,15 @@ export class ManageWebChatListService {
     if (archived === null) {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
+    const activeWebChatsCurrent = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+      assistant.id,
+      "web"
+    );
+    await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
+      assistant,
+      activeWebChatsCurrent,
+      source: "web_chat_archive"
+    });
 
     const metadata = await this.assistantChatRepository.getChatListMetadata(chatId);
     return {
@@ -181,6 +192,15 @@ export class ManageWebChatListService {
     if (!deleted) {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
+    const activeWebChatsCurrent = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+      assistant.id,
+      "web"
+    );
+    await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
+      assistant,
+      activeWebChatsCurrent,
+      source: "web_chat_hard_delete"
+    });
   }
 }
 

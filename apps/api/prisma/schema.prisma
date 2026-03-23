@@ -71,6 +71,12 @@ enum WorkspaceSubscriptionStatus {
   expired
 }
 
+enum WorkspaceQuotaDimension {
+  token_budget
+  cost_or_token_driving_tool_class
+  active_web_chats_cap
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -96,6 +102,8 @@ model Workspace {
   assistants Assistant[]
   members   WorkspaceMember[]
   subscription WorkspaceSubscription?
+  quotaAccountingState WorkspaceQuotaAccountingState?
+  quotaUsageEvents WorkspaceQuotaUsageEvent[]
 
   @@map("workspaces")
 }
@@ -240,6 +248,41 @@ model WorkspaceSubscription {
 
   @@index([planCode, status])
   @@map("workspace_subscriptions")
+}
+
+model WorkspaceQuotaAccountingState {
+  id                                   String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  workspaceId                          String   @unique @map("workspace_id") @db.Uuid
+  tokenBudgetUsed                      BigInt   @default(0) @map("token_budget_used")
+  tokenBudgetLimit                     BigInt?  @map("token_budget_limit")
+  costOrTokenDrivingToolClassUnitsUsed Int      @default(0) @map("cost_or_token_driving_tool_class_units_used")
+  costOrTokenDrivingToolClassUnitsLimit Int?    @map("cost_or_token_driving_tool_class_units_limit")
+  activeWebChatsCurrent                Int      @default(0) @map("active_web_chats_current")
+  activeWebChatsLimit                  Int?     @map("active_web_chats_limit")
+  lastComputedAt                       DateTime @default(now()) @map("last_computed_at") @db.Timestamptz(6)
+  createdAt                            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace                            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("workspace_quota_accounting_state")
+}
+
+model WorkspaceQuotaUsageEvent {
+  id           String                @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  workspaceId  String                @map("workspace_id") @db.Uuid
+  assistantId  String?               @map("assistant_id") @db.Uuid
+  userId       String?               @map("user_id") @db.Uuid
+  dimension    WorkspaceQuotaDimension
+  delta        BigInt                @default(0)
+  currentValue BigInt?               @map("current_value")
+  limitValue   BigInt?               @map("limit_value")
+  source       String                @db.VarChar(64)
+  metadata     Json?                 @db.JsonB
+  createdAt    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace    Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([workspaceId, dimension, createdAt])
+  @@map("workspace_quota_usage_events")
 }
 
 model AssistantMaterializedSpec {

@@ -185,6 +185,34 @@ Postgres with Prisma.
 - created_at
 - updated_at
 
+### workspace_quota_accounting_state (Step 7 P5 baseline)
+
+- id (UUID)
+- workspace_id (UUID, unique FK -> `workspaces.id`)
+- token_budget_used (bigint)
+- token_budget_limit (nullable bigint)
+- cost_or_token_driving_tool_class_units_used (int)
+- cost_or_token_driving_tool_class_units_limit (nullable int)
+- active_web_chats_current (int)
+- active_web_chats_limit (nullable int)
+- last_computed_at (timestamptz)
+- created_at
+- updated_at
+
+### workspace_quota_usage_events (Step 7 P5 baseline)
+
+- id (UUID)
+- workspace_id (UUID FK -> `workspaces.id`)
+- assistant_id (nullable UUID)
+- user_id (nullable UUID)
+- dimension (`token_budget|cost_or_token_driving_tool_class|active_web_chats_cap`)
+- delta (bigint)
+- current_value (nullable bigint)
+- limit_value (nullable bigint)
+- source (varchar 64)
+- metadata (nullable jsonb)
+- created_at
+
 ## Prisma baseline (Step 1 slice 5)
 
 - `app_users`:
@@ -284,6 +312,14 @@ Postgres with Prisma.
   - unique: `workspace_id` (one current subscription state row per workspace in P3)
   - index: `(plan_code, status)`
   - provider references and metadata are optional/provider-agnostic in this slice
+- `workspace_quota_accounting_state`:
+  - primary key: `id`
+  - unique: `workspace_id` (one latest quota accounting state row per workspace in P5)
+  - stores normalized latest usage/limit state for percentage-based UI calculations
+- `workspace_quota_usage_events`:
+  - primary key: `id`
+  - index: `(workspace_id, dimension, created_at)`
+  - append-only event log for usage increments and snapshot refreshes by quota dimension
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -315,6 +351,7 @@ Postgres with Prisma.
 - P2 adds owner-gated admin create/edit surfaces over the same P1 tables; no new plan schema tables are added in P2
 - P3 adds canonical `workspace_subscriptions` and provider-agnostic billing abstraction hooks; no concrete billing vendor integration is added
 - P4 adds centralized capability resolution service from P1-P3 models + governance; no new persistence table in P4
+- P5 adds canonical quota accounting state + usage event tables for token budget, cost/token-driving tool class usage, and active web chats cap; tasks/reminders remain intentionally non-commercial-quota dimensions
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

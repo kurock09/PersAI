@@ -14,7 +14,9 @@ const baseApiConfigSchema = z.object({
   OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
   OPENCLAW_ADAPTER_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
   OPENCLAW_ADAPTER_MAX_RETRIES: z.coerce.number().int().nonnegative().default(1),
-  WEB_ACTIVE_CHATS_CAP: z.coerce.number().int().positive().default(20)
+  WEB_ACTIVE_CHATS_CAP: z.coerce.number().int().positive().default(20),
+  QUOTA_TOKEN_BUDGET_DEFAULT: z.coerce.number().int().positive().default(200_000),
+  QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT: z.coerce.number().int().positive().default(1_000)
 });
 
 const localApiConfigSchema = baseApiConfigSchema.extend({

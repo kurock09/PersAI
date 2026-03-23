@@ -90,7 +90,7 @@ Foundation Phase
 - [x] P2 — admin plan management UI
 - [x] P3 — subscription state and billing abstraction
 - [x] P4 — capability resolution engine
-- [ ] P5 — quota accounting baseline
+- [x] P5 — quota accounting baseline
 - [ ] P6 — enforcement points
 - [ ] P7 — user/admin plan visibility
 

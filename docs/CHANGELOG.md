@@ -4,6 +4,25 @@
 
 ### Added
 
+- Step 7 slice P5 quota accounting baseline:
+  - added canonical quota accounting persistence model:
+    - `workspace_quota_accounting_state` (latest usage + limits per workspace)
+    - `workspace_quota_usage_events` (append-only usage/snapshot events)
+  - added explicit tracked quota dimensions:
+    - `token_budget`
+    - `cost_or_token_driving_tool_class`
+    - `active_web_chats_cap`
+  - added centralized control-plane quota accounting service (`TrackWorkspaceQuotaUsageService`) integrated into:
+    - sync web chat turn flow
+    - stream web chat turn flow (completed and partial outcomes)
+    - active web chat lifecycle refresh points (prepare, archive, hard-delete)
+  - quota limits resolve from provider-agnostic plan hints + config fallbacks:
+    - `QUOTA_TOKEN_BUDGET_DEFAULT`
+    - `QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT`
+    - `WEB_ACTIVE_CHATS_CAP`
+  - tasks/reminders remain explicitly excluded from commercial quota accounting dimensions
+  - added API test script `test:quota-accounting`
+  - ADR `docs/ADR/028-quota-accounting-baseline-p5.md`
 - Step 7 slice P4 capability resolution engine:
   - added centralized effective capability resolver (`persai.effectiveCapabilities.v1`) based on:
     - effective subscription state

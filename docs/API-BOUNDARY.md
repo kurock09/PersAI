@@ -436,6 +436,19 @@ Behavior baseline:
   - assistant governance capability envelope
 - Materialization now carries `effectiveCapabilities` into OpenClaw-facing documents for explicit runtime availability truth.
 
+## Step 7 P5 quota accounting baseline
+
+- P5 introduces backend quota accounting model/service and persistence only; no new public API endpoints are added in this slice.
+- Tracked dimensions:
+  - `token_budget`
+  - `cost_or_token_driving_tool_class`
+  - `active_web_chats_cap`
+- Usage tracking hooks are control-plane and explicit:
+  - web chat turn sync/stream outcomes update token + tool-class usage
+  - web chat prepare/archive/hard-delete refresh active web chats usage
+- Limit sources are provider-agnostic plan hints + entitlement limit keys with config fallback defaults.
+- Tasks/reminders are intentionally excluded from commercial quota accounting.
+
 ## Step 3 A7 materialization rule
 
 - Backend materializes assistant deterministically from layered inputs:

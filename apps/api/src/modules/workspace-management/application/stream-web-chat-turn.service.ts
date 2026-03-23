@@ -20,6 +20,8 @@ import {
 } from "./assistant-runtime-adapter.types";
 import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import type { Assistant } from "../domain/assistant.entity";
 import type {
   AssistantWebChatMessageState,
   AssistantWebChatState,
@@ -29,6 +31,7 @@ import type {
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
   userMessage: AssistantWebChatMessageState;
+  assistant: Assistant;
   assistantId: string;
   publishedVersionId: string;
   userId: string;
@@ -73,7 +76,8 @@ export class StreamWebChatTurnService {
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
-    private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService
+    private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   async prepare(userId: string, request: StreamWebChatTurnRequest): Promise<StreamWebChatTurnPrepared> {
@@ -134,6 +138,16 @@ export class StreamWebChatTurnService {
       content: request.message
     });
 
+    const activeWebChatsCurrent = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+      assistant.id,
+      "web"
+    );
+    await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
+      assistant,
+      activeWebChatsCurrent,
+      source: "web_chat_turn_prepare"
+    });
+
     return {
       chat: {
         id: chat.id,
@@ -154,6 +168,7 @@ export class StreamWebChatTurnService {
         content: userMessage.content,
         createdAt: userMessage.createdAt.toISOString()
       },
+      assistant,
       assistantId: assistant.id,
       publishedVersionId: latestPublishedVersion.id,
       userId: assistant.userId,
@@ -220,6 +235,12 @@ export class StreamWebChatTurnService {
         userContent: prepared.userMessage.content,
         assistantContent: accumulated,
         memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
+      });
+      await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
+        assistant: prepared.assistant,
+        userContent: prepared.userMessage.content,
+        assistantContent: accumulated,
+        source: "web_chat_turn_stream_completed"
       });
       const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
       if (refreshedChat === null) {
@@ -295,6 +316,12 @@ export class StreamWebChatTurnService {
     if (refreshedChat === null) {
       throw new NotFoundException("Chat does not exist for this assistant.");
     }
+    await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
+      assistant: prepared.assistant,
+      userContent: prepared.userMessage.content,
+      assistantContent: partialOutput,
+      source: "web_chat_turn_stream_partial"
+    });
 
     return {
       status: "interrupted",

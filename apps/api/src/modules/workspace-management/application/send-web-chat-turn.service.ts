@@ -21,6 +21,7 @@ import {
 } from "./assistant-runtime-adapter.types";
 import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatTurnState } from "./web-chat.types";
 
 export interface SendWebChatTurnRequest {
@@ -56,7 +57,8 @@ export class SendWebChatTurnService {
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
-    private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService
+    private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   parseInput(payload: unknown): SendWebChatTurnRequest {
@@ -167,6 +169,21 @@ export class SendWebChatTurnService {
       userContent: userMessage.content,
       assistantContent: runtimeResponse.assistantMessage,
       memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
+    });
+    await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
+      assistant,
+      userContent: userMessage.content,
+      assistantContent: assistantMessage.content,
+      source: "web_chat_turn_sync"
+    });
+    const activeWebChatsCurrent = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+      assistant.id,
+      "web"
+    );
+    await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
+      assistant,
+      activeWebChatsCurrent,
+      source: "web_chat_turn_prepare"
     });
 
     const refreshedChat = await this.assistantChatRepository.findChatById(chat.id);

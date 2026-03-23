@@ -159,6 +159,20 @@ O6 defines a future adapter-only contract:
 - backend applies governance as a restrictive guardrail over plan-derived baseline and does not become runtime behavior router
 - materialization includes `effectiveCapabilities` so OpenClaw receives explicit availability truth (tools/channels/media/governed features)
 
+## Quota accounting boundary (Step 7 P5)
+
+- quota accounting is centralized in backend control plane (`TrackWorkspaceQuotaUsageService`) and persisted per workspace
+- tracked commercial dimensions in P5:
+  - token budget usage
+  - cost/token-driving tool class usage units
+  - active web chats cap current usage
+- tracked counters and append-only events are stored separately:
+  - latest state (`workspace_quota_accounting_state`)
+  - usage/snapshot event log (`workspace_quota_usage_events`)
+- quota limits resolve from provider-agnostic plan hints with config fallback defaults; no billing vendor coupling
+- tasks/reminders remain explicitly non-commercial-quota dimensions in this slice
+- no backend behavior routing and no BI/reporting expansion in P5
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

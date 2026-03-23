@@ -32,6 +32,8 @@ api:
     OPENCLAW_ADAPTER_ENABLED: "true"
     OPENCLAW_BASE_URL: "http://openclaw:18789"
     WEB_ACTIVE_CHATS_CAP: "20"
+    QUOTA_TOKEN_BUDGET_DEFAULT: "200000"
+    QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT: "1000"
   secretEnv:
     DATABASE_URL:
       secretName: persai-api-secrets

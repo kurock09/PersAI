@@ -19,7 +19,8 @@
     "test:tasks-control": "tsx test/tasks-control-resolve.test.ts",
     "test:tasks-user-controls": "tsx test/tasks-user-controls.test.ts",
     "test:subscription-state": "tsx test/subscription-state-resolve.test.ts",
-    "test:capability-resolution": "tsx test/capability-resolution.test.ts"
+    "test:capability-resolution": "tsx test/capability-resolution.test.ts",
+    "test:quota-accounting": "tsx test/quota-accounting.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
