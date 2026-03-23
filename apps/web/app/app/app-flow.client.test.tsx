@@ -318,7 +318,7 @@ describe("AppFlowClient onboarding gate", () => {
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
       "token-user-1",
       expect.objectContaining({
-        displayName: "Field Ops Copilot"
+        instructions: expect.stringContaining("Primary goal: Keep me focused on priority tasks.")
       })
     );
     expect(screen.getByText("Draft setup saved. No publish has been performed.")).toBeInTheDocument();

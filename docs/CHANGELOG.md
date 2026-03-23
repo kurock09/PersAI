@@ -164,6 +164,20 @@
     - or continue in an existing thread
   - web UI now surfaces explicit cap guidance when limit is reached
   - no automatic hard-delete/archive side effects introduced
+- Step 5 slice C6 chat error/degradation UX baseline:
+  - added user-facing web chat error/degradation classification layer in web client
+  - normalized runtime/transport failures into human-friendly UX classes with actionable guidance
+  - classes now surfaced in UX include:
+    - auth/session
+    - input validation
+    - assistant not live
+    - active chat cap
+    - runtime unreachable/timeout/degraded/auth
+    - provider/tool/channel-style failures
+    - stream incomplete/partial
+  - normal user path no longer exposes raw runtime internals in visible chat error copy
+  - preserved honest partial-output messaging for interrupted/failed stream outcomes
+  - admin/support-only depth remains out of normal user-facing path in this slice
 - Step 1 slice 1 monorepo scaffold baseline:
   - `pnpm-workspace.yaml`
   - root `package.json` scripts for lint/typecheck/test/build

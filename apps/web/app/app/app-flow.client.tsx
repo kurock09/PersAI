@@ -14,7 +14,9 @@ import {
   postAssistantReset,
   postAssistantRollback,
   postAssistantWebChatArchive,
-  streamAssistantWebChatTurn
+  streamAssistantWebChatTurn,
+  toWebChatUxIssue,
+  type WebChatUxIssue
 } from "./assistant-api-client";
 import { CurrentMeResponse, OnboardingPayload, getMe, postOnboarding } from "./me-api-client";
 
@@ -233,15 +235,14 @@ export function AppFlowClient() {
   const [chatListFeedback, setChatListFeedback] = useState<string | null>(null);
   const [chatRenameDraftById, setChatRenameDraftById] = useState<Record<string, string>>({});
   const [deleteConfirmById, setDeleteConfirmById] = useState<Record<string, string>>({});
-  const [streamingError, setStreamingError] = useState<string | null>(null);
+  const [streamingIssue, setStreamingIssue] = useState<WebChatUxIssue | null>(null);
   const [streamingMeta, setStreamingMeta] = useState<string | null>(null);
   const [isStreamingChat, setIsStreamingChat] = useState(false);
   const [activeAssistantStreamMessageId, setActiveAssistantStreamMessageId] = useState<string | null>(
     null
   );
   const [chatAbortController, setChatAbortController] = useState<AbortController | null>(null);
-  const reachedActiveChatCap =
-    streamingError !== null && streamingError.toLowerCase().includes("active web chats cap reached");
+  const reachedActiveChatCap = streamingIssue?.classId === "active_chat_cap";
 
   const loadWebChatList = useCallback(async () => {
     if (flowState.type !== "ready" || flowState.data.assistantState === null) {
@@ -603,11 +604,11 @@ export function AppFlowClient() {
     const trimmedMessage = chatInput.trim();
     const trimmedThreadKey = chatThreadKey.trim();
     if (trimmedMessage.length === 0) {
-      setStreamingError("Message cannot be empty.");
+      setStreamingIssue(toWebChatUxIssue("message must be a non-empty string"));
       return;
     }
     if (trimmedThreadKey.length === 0) {
-      setStreamingError("Thread key cannot be empty.");
+      setStreamingIssue(toWebChatUxIssue("surfaceThreadKey must be a non-empty string"));
       return;
     }
 
@@ -622,7 +623,7 @@ export function AppFlowClient() {
     const controller = new AbortController();
     setChatAbortController(controller);
     setIsStreamingChat(true);
-    setStreamingError(null);
+    setStreamingIssue(null);
     setStreamingMeta("Streaming reply...");
     setActiveAssistantStreamMessageId(assistantMessageId);
     setChatInput("");
@@ -705,7 +706,7 @@ export function AppFlowClient() {
                   : entry
               )
             );
-            setStreamingError(message);
+            setStreamingIssue(toWebChatUxIssue(message));
             setStreamingMeta("Streaming failed. Any partial output shown is preserved as-is.");
             void loadWebChatList();
           }
@@ -713,8 +714,7 @@ export function AppFlowClient() {
         controller.signal
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Streaming request failed.";
-      setStreamingError(message);
+      setStreamingIssue(toWebChatUxIssue(error));
       setStreamingMeta("Streaming failed before completion.");
       setChatMessages((current) =>
         current.map((entry) =>
@@ -1138,7 +1138,11 @@ export function AppFlowClient() {
             </button>
           </div>
           {streamingMeta !== null && <p>{streamingMeta}</p>}
-          {streamingError !== null && <p>{streamingError}</p>}
+          {streamingIssue !== null && (
+            <p>
+              <strong>{streamingIssue.message}</strong> {streamingIssue.guidance}
+            </p>
+          )}
           {reachedActiveChatCap && (
             <p>
               Active chat limit reached for new threads. Archive an existing active chat from the list

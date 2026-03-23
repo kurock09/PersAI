@@ -72,6 +72,151 @@ export interface AssistantWebChatStreamHandlers {
   onFailed?: (payload: { message: string; transport: unknown }) => void;
 }
 
+export type WebChatUxIssueClass =
+  | "auth_session"
+  | "input_validation"
+  | "assistant_not_live"
+  | "active_chat_cap"
+  | "runtime_unreachable"
+  | "runtime_timeout"
+  | "runtime_degraded"
+  | "runtime_auth"
+  | "provider_failure"
+  | "tool_failure"
+  | "channel_failure"
+  | "stream_incomplete"
+  | "unknown";
+
+export interface WebChatUxIssue {
+  classId: WebChatUxIssueClass;
+  message: string;
+  guidance: string;
+}
+
+function normalizeRawErrorMessage(source: string): string {
+  return source.trim().toLowerCase();
+}
+
+export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
+  const rawMessage =
+    typeof error === "string"
+      ? error
+      : error instanceof ContractsApiError
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : "Web chat request failed.";
+
+  const normalized = normalizeRawErrorMessage(rawMessage);
+  const status = error instanceof ContractsApiError ? error.status : null;
+
+  if (status === 401) {
+    return {
+      classId: "auth_session",
+      message: "Your session has expired for chat actions.",
+      guidance: "Sign in again, then retry the message."
+    };
+  }
+
+  if (status === 400 || normalized.includes("must be") || normalized.includes("payload")) {
+    return {
+      classId: "input_validation",
+      message: "This chat request has invalid input.",
+      guidance: "Check message text and thread key, then try again."
+    };
+  }
+
+  if (normalized.includes("active web chats cap reached")) {
+    return {
+      classId: "active_chat_cap",
+      message: "You reached the active chat limit for new threads.",
+      guidance: "Archive an active chat or continue in an existing thread."
+    };
+  }
+
+  if (
+    normalized.includes("latest published version") ||
+    normalized.includes("successfully applied") ||
+    normalized.includes("until at least one version is published")
+  ) {
+    return {
+      classId: "assistant_not_live",
+      message: "Chat is unavailable until your assistant is live on the latest publish.",
+      guidance: "Publish/apply the assistant first, then retry."
+    };
+  }
+
+  if (normalized.includes("provider")) {
+    return {
+      classId: "provider_failure",
+      message: "A model provider issue interrupted this chat turn.",
+      guidance: "Wait a moment and retry the same thread."
+    };
+  }
+
+  if (normalized.includes("tool")) {
+    return {
+      classId: "tool_failure",
+      message: "A tool action failed during this chat turn.",
+      guidance: "Retry your request or rephrase without the failing tool action."
+    };
+  }
+
+  if (normalized.includes("channel")) {
+    return {
+      classId: "channel_failure",
+      message: "A channel delivery step failed for this chat turn.",
+      guidance: "Retry in the current web thread."
+    };
+  }
+
+  if (normalized.includes("auth failure")) {
+    return {
+      classId: "runtime_auth",
+      message: "Runtime authorization failed for this chat turn.",
+      guidance: "Try again shortly. If it persists, contact support."
+    };
+  }
+
+  if (normalized.includes("timed out") || normalized.includes("timeout")) {
+    return {
+      classId: "runtime_timeout",
+      message: "The chat response timed out before completion.",
+      guidance: "Retry the message. Partial output may already be preserved."
+    };
+  }
+
+  if (normalized.includes("degraded")) {
+    return {
+      classId: "runtime_degraded",
+      message: "Chat runtime is currently degraded.",
+      guidance: "Retry shortly, or continue with a simpler request."
+    };
+  }
+
+  if (normalized.includes("unreachable")) {
+    return {
+      classId: "runtime_unreachable",
+      message: "Chat runtime is temporarily unreachable.",
+      guidance: "Retry in a moment. Your chat history is preserved."
+    };
+  }
+
+  if (normalized.includes("stream") || normalized.includes("partial")) {
+    return {
+      classId: "stream_incomplete",
+      message: "Streaming ended before a full answer was completed.",
+      guidance: "Use the partial response as context and retry in the same thread."
+    };
+  }
+
+  return {
+    classId: "unknown",
+    message: "Chat could not complete this turn.",
+    guidance: "Retry in the same thread. If it keeps failing, contact support."
+  };
+}
+
 function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent | null {
   if (typeof payload !== "object" || payload === null) {
     return null;

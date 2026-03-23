@@ -149,6 +149,25 @@ Behavior baseline:
   - existing threads remain usable for continued chat turns
   - no automatic deletion/archive side effects are performed
 
+## Step 5 C6 chat degradation/error UX baseline
+
+- web chat UX maps transport/runtime failures into user-facing classes with non-technical guidance.
+- user-facing classes include:
+  - session/auth issue
+  - input validation issue
+  - assistant not live yet
+  - active chat cap reached
+  - runtime unreachable
+  - runtime timeout
+  - runtime degraded
+  - runtime auth failure
+  - provider-style failure
+  - tool-style failure
+  - channel-style failure
+  - stream incomplete / partial outcome
+- normal user path does not expose raw runtime internals, stack traces, or low-level transport details.
+- support/admin depth remains outside this user-facing C6 slice.
+
 ### POST /api/v1/assistant
 
 Behavior baseline:

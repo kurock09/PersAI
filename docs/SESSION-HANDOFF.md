@@ -1,5 +1,67 @@
 # SESSION-HANDOFF
 
+## 2026-03-23 - Step 5 C6 chat error/degradation UX slice
+
+### What changed
+
+- Completed Step 5 slice `C6` only (human-friendly chat error/degradation UX):
+  - added web chat UX error-classification layer in `apps/web` API client
+  - mapped transport/runtime failures to user-facing classes with guidance:
+    - auth/session
+    - input validation
+    - assistant-not-live lifecycle gate
+    - active chat cap
+    - runtime unreachable
+    - runtime timeout
+    - runtime degraded
+    - runtime auth failure
+    - provider/tool/channel-style failures
+    - stream incomplete/partial outcomes
+  - updated web chat UI to show friendly issue message + next-step guidance instead of raw error text
+  - preserved honest streaming behavior:
+    - partial outputs remain visible and preserved
+    - failure/degradation guidance remains explicit but non-technical
+  - updated docs:
+    - `docs/API-BOUNDARY.md`
+    - `docs/ROADMAP.md` (`C6` marked complete)
+    - `docs/CHANGELOG.md`
+    - `docs/SESSION-HANDOFF.md`
+
+### Why changed
+
+- C6 requires user-facing clarity for chat degradation/error states without leaking runtime internals.
+- Prior path could surface raw backend/runtime message text directly.
+- New layer keeps messaging honest and actionable while preserving admin/support depth separation.
+
+### Files touched
+
+- apps/web/app/app/assistant-api-client.ts
+- apps/web/app/app/app-flow.client.tsx
+- docs/API-BOUNDARY.md
+- docs/ROADMAP.md
+- docs/CHANGELOG.md
+- docs/SESSION-HANDOFF.md
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run lint` - passed
+- `corepack pnpm --filter @persai/web run test -- app-flow.client.test.tsx` - passed
+- `corepack pnpm run typecheck` - passed
+- `corepack pnpm --filter @persai/web run build` - passed
+
+### Known risks
+
+- C6 classification is rule-based message/status mapping, not a dedicated centralized taxonomy service.
+- Support/admin diagnostic depth remains intentionally outside normal user path and is not surfaced in this UI slice.
+
+### Next recommended step
+
+- Start Step 6 `D1` memory control domain while preserving C1-C6 chat boundary and UX behavior.
+
+### Ready commit message
+
+- `feat(web): add step 5 c6 human-friendly chat degradation and error UX classes`
+
 ## 2026-03-23 - Step 5 C5 active web chats cap slice
 
 ### What changed
