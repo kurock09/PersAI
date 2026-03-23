@@ -51,6 +51,14 @@ Behavior baseline:
     - `appliedPublishedVersionId`
     - `requestedAt`, `startedAt`, `finishedAt`
     - `error` (`code`, `message`) nullable
+  - `governance`:
+    - `capabilityEnvelope`
+    - `secretRefs`
+    - `policyEnvelope`
+    - `quotaPlanCode`
+    - `quotaHook`
+    - `auditHook`
+    - `platformManagedUpdatedAt`
   - `createdAt`, `updatedAt`
 - returns not found if assistant has not been created yet
 
@@ -122,6 +130,19 @@ Behavior baseline:
   - runtime apply progress/outcome is tracked separately in `runtimeApply`
 - In A5, backend stores apply-state transitions to `pending` only for lifecycle actions.
 - No runtime execution call is made in this slice, so `succeeded/failed/degraded` are represented model states but not produced by runtime integration yet.
+
+## Step 3 A6 governance separation rule
+
+- Governance is modeled as platform-managed control-plane layer, separate from user-owned draft/version truth.
+- Governance baseline is storage + response shape only:
+  - no behavior routing engine
+  - no runtime/OpenClaw calls
+  - no full quotas/tools engines
+- User-owned lifecycle truth remains:
+  - draft state in `assistants`
+  - immutable published versions in `assistant_published_versions`
+- Platform-managed governance truth is separate:
+  - envelopes/hooks in `assistant_governance`
 
 ### GET /api/v1/me (slice 2 baseline response)
 

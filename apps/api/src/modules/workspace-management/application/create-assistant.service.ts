@@ -1,5 +1,9 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from "@nestjs/common";
 import { WorkspaceStatus } from "@prisma/client";
+import {
+  ASSISTANT_GOVERNANCE_REPOSITORY,
+  type AssistantGovernanceRepository
+} from "../domain/assistant-governance.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
@@ -10,6 +14,8 @@ export class CreateAssistantService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
+    @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -41,6 +47,7 @@ export class CreateAssistantService {
     }
 
     const assistant = await this.assistantRepository.create(userId, membership.workspaceId);
-    return toAssistantLifecycleState(assistant, null);
+    const governance = await this.assistantGovernanceRepository.createBaseline(assistant.id);
+    return toAssistantLifecycleState(assistant, null, governance);
   }
 }

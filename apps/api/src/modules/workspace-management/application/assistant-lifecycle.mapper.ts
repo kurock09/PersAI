@@ -1,6 +1,8 @@
 import type { Assistant } from "../domain/assistant.entity";
+import type { AssistantGovernance } from "../domain/assistant-governance.entity";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import type {
+  AssistantGovernanceState,
   AssistantLifecycleState,
   AssistantPublishedVersionState
 } from "./assistant-lifecycle.types";
@@ -22,8 +24,19 @@ export function toAssistantPublishedVersionState(
 
 export function toAssistantLifecycleState(
   assistant: Assistant,
-  latestPublishedVersion: AssistantPublishedVersion | null
+  latestPublishedVersion: AssistantPublishedVersion | null,
+  governance: AssistantGovernance | null
 ): AssistantLifecycleState {
+  const governanceState: AssistantGovernanceState = {
+    capabilityEnvelope: governance?.capabilityEnvelope ?? null,
+    secretRefs: governance?.secretRefs ?? null,
+    policyEnvelope: governance?.policyEnvelope ?? null,
+    quotaPlanCode: governance?.quotaPlanCode ?? null,
+    quotaHook: governance?.quotaHook ?? null,
+    auditHook: governance?.auditHook ?? null,
+    platformManagedUpdatedAt: governance?.updatedAt?.toISOString() ?? null
+  };
+
   return {
     id: assistant.id,
     userId: assistant.userId,
@@ -52,6 +65,7 @@ export function toAssistantLifecycleState(
               message: assistant.applyErrorMessage
             }
     },
+    governance: governanceState,
     createdAt: assistant.createdAt.toISOString(),
     updatedAt: assistant.updatedAt.toISOString()
   };

@@ -53,7 +53,7 @@ Foundation Phase
 - [x] A3 — draft/publish/version model
 - [x] A4 — rollback/reset semantics
 - [x] A5 — runtime apply state model
-- [ ] A6 — assistant governance baseline
+- [x] A6 — assistant governance baseline
 - [ ] A7 — materialized runtime spec
 - [ ] A8 — OpenClaw apply/reapply adapter
 

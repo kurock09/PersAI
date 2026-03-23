@@ -511,6 +511,44 @@ components:
           allOf:
             - $ref: "#/components/schemas/AssistantRuntimeApplyErrorState"
           nullable: true
+    AssistantGovernanceState:
+      type: object
+      required:
+        - capabilityEnvelope
+        - secretRefs
+        - policyEnvelope
+        - quotaPlanCode
+        - quotaHook
+        - auditHook
+        - platformManagedUpdatedAt
+      properties:
+        capabilityEnvelope:
+          type: object
+          additionalProperties: true
+          nullable: true
+        secretRefs:
+          type: object
+          additionalProperties: true
+          nullable: true
+        policyEnvelope:
+          type: object
+          additionalProperties: true
+          nullable: true
+        quotaPlanCode:
+          type: string
+          nullable: true
+        quotaHook:
+          type: object
+          additionalProperties: true
+          nullable: true
+        auditHook:
+          type: object
+          additionalProperties: true
+          nullable: true
+        platformManagedUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
     AssistantLifecycleState:
       type: object
       required:
@@ -520,6 +558,7 @@ components:
         - draft
         - latestPublishedVersion
         - runtimeApply
+        - governance
         - createdAt
         - updatedAt
       properties:
@@ -540,6 +579,8 @@ components:
           nullable: true
         runtimeApply:
           $ref: "#/components/schemas/AssistantRuntimeApplyState"
+        governance:
+          $ref: "#/components/schemas/AssistantGovernanceState"
         createdAt:
           type: string
           format: date-time

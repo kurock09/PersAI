@@ -1,5 +1,9 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  ASSISTANT_GOVERNANCE_REPOSITORY,
+  type AssistantGovernanceRepository
+} from "../domain/assistant-governance.repository";
+import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
@@ -13,7 +17,9 @@ export class ResetAssistantService {
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
-    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository
+    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
+    @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
@@ -45,6 +51,10 @@ export class ResetAssistantService {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
-    return toAssistantLifecycleState(assistantWithPendingApply, resetVersion);
+    const governance = await this.assistantGovernanceRepository.findByAssistantId(
+      assistantWithPendingApply.id
+    );
+
+    return toAssistantLifecycleState(assistantWithPendingApply, resetVersion, governance);
   }
 }

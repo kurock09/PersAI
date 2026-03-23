@@ -2,70 +2,62 @@
 
 ## What changed
 
-- Completed Step 3 slice `A5` only (runtime apply state model).
-- Added assistant runtime apply state model to control-plane:
-  - apply status enum (`not_requested`, `pending`, `in_progress`, `succeeded`, `failed`, `degraded`)
-  - apply target/applied published version ids
-  - apply timestamps (`requestedAt`, `startedAt`, `finishedAt`)
-  - apply error fields (`code`, `message`)
-- Added DB migration for apply-state fields:
-  - `apps/api/prisma/migrations/20260323150000_step3_a5_runtime_apply_state_model/migration.sql`
-- Extended assistant lifecycle API response shape with `runtimeApply` block.
-- Made publish and apply explicitly separate truths:
-  - publish truth stays in `latestPublishedVersion`
-  - runtime truth stays in `runtimeApply`
-- Updated lifecycle actions to mark apply as pending:
-  - `POST /api/v1/assistant/publish`
-  - `POST /api/v1/assistant/rollback`
-  - `POST /api/v1/assistant/reset`
-  - all set `runtimeApply.status=pending` with target set to newly produced published version
-- Preserved A1-A4 behavior:
-  - no OpenClaw runtime calls
-  - no chat/channel additions
+- Completed Step 3 slice `A6` only (assistant governance baseline).
+- Added platform-managed governance persistence model:
+  - table/model: `assistant_governance`
+  - one governance row per assistant (`assistant_id` unique)
+  - fields:
+    - `capability_envelope`
+    - `secret_refs`
+    - `policy_envelope`
+    - `quota_plan_code`
+    - `quota_hook`
+    - `audit_hook`
+- Added DB migration:
+  - `apps/api/prisma/migrations/20260323160000_step3_a6_assistant_governance_baseline/migration.sql`
+- Added governance domain/repository/infrastructure baseline in `workspace-management`.
+- Assistant create now initializes baseline governance row.
+- Extended assistant lifecycle response with `governance` block.
+- Preserved A1-A5 behavior and boundaries:
+  - no runtime/OpenClaw calls
+  - no backend behavior routing
+  - no tools/quotas engines implemented in this slice
 - Updated docs:
   - `docs/API-BOUNDARY.md`
   - `docs/DATA-MODEL.md`
-  - `docs/ROADMAP.md` (`A5` marked complete)
+  - `docs/ROADMAP.md` (`A6` marked complete)
   - `docs/CHANGELOG.md`
   - `docs/SESSION-HANDOFF.md`
 
 ## Why changed
 
-- A5 requires observable separation between "published config truth" and "runtime apply truth".
-- UX/admin need explicit apply progress/outcome state even before runtime adapter integration exists.
+- A6 introduces baseline governance structure around assistants while keeping backend as control-plane, not behavior engine.
+- Governance must be separated from user-owned draft/version truth to keep lifecycle and platform overlays decoupled.
 
 ## Decisions made
 
-- Apply states are modeled in backend control-plane and returned in assistant lifecycle response.
-- Publish does not imply apply success; it only sets apply state to `pending`.
-- No best-effort runtime success simulation is introduced.
-- Failure/degraded states are represented in schema and response model; runtime setting of those states is deferred.
+- Governance is modeled in dedicated platform-managed storage (`assistant_governance`), separate from:
+  - user draft state (`assistants.draft_*`)
+  - immutable user-owned published versions (`assistant_published_versions`)
+- Governance is exposed as lifecycle read-model data only in this slice.
+- No runtime enforcement/behavior execution is attached to governance yet.
 
 ## Files touched
 
 - apps/api/prisma/schema.prisma
-- apps/api/prisma/migrations/20260323120000_step3_a1_assistant_domain_model/migration.sql
-- apps/api/prisma/migrations/20260323130000_step3_a2_assistant_lifecycle_api_skeleton/migration.sql
-- apps/api/prisma/migrations/20260323140000_step3_a3_draft_publish_version_model/migration.sql
-- apps/api/prisma/migrations/20260323150000_step3_a5_runtime_apply_state_model/migration.sql
-- apps/api/src/modules/identity-access/identity-access.module.ts
-- apps/api/src/modules/workspace-management/workspace-management.module.ts
-- apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts
-- apps/api/src/modules/workspace-management/domain/assistant-published-version.entity.ts
-- apps/api/src/modules/workspace-management/domain/assistant-published-version.repository.ts
-- apps/api/src/modules/workspace-management/domain/assistant.entity.ts
-- apps/api/src/modules/workspace-management/domain/assistant.repository.ts
+- apps/api/prisma/migrations/20260323160000_step3_a6_assistant_governance_baseline/migration.sql
+- apps/api/src/modules/workspace-management/domain/assistant-governance.entity.ts
+- apps/api/src/modules/workspace-management/domain/assistant-governance.repository.ts
+- apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-governance.repository.ts
 - apps/api/src/modules/workspace-management/application/assistant-lifecycle.types.ts
 - apps/api/src/modules/workspace-management/application/assistant-lifecycle.mapper.ts
 - apps/api/src/modules/workspace-management/application/create-assistant.service.ts
 - apps/api/src/modules/workspace-management/application/get-assistant-by-user-id.service.ts
+- apps/api/src/modules/workspace-management/application/update-assistant-draft.service.ts
 - apps/api/src/modules/workspace-management/application/publish-assistant-draft.service.ts
 - apps/api/src/modules/workspace-management/application/rollback-assistant.service.ts
 - apps/api/src/modules/workspace-management/application/reset-assistant.service.ts
-- apps/api/src/modules/workspace-management/application/update-assistant-draft.service.ts
-- apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-published-version.repository.ts
-- apps/api/src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service.ts
-- apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant.repository.ts
+- apps/api/src/modules/workspace-management/workspace-management.module.ts
 - packages/contracts/openapi.yaml
 - packages/contracts/src/generated/step2-client.ts
 - packages/contracts/src/generated/model/\*
@@ -77,20 +69,25 @@
 
 ## Migrations run
 
-- Added new Prisma migration file for A5:
-  - `20260323150000_step3_a5_runtime_apply_state_model`
+- Added new Prisma migration file for A6:
+  - `20260323160000_step3_a6_assistant_governance_baseline`
 - Migration apply command was not executed in this slice (file added only).
 
 ## Tests run / result
 
-- Pending update after running A5 validation commands.
+- `corepack pnpm run prisma:generate` - passed
+- `corepack pnpm run contracts:generate` - passed
+- `corepack pnpm --filter @persai/api run lint` - passed
+- `corepack pnpm run typecheck` - passed
+- `corepack pnpm run test:step2` - passed
+- `corepack pnpm run build` - passed
 
 ## Known risks
 
-- A5 introduces apply-state shape only; runtime adapter is still absent, so `in_progress/succeeded/failed/degraded` are not runtime-driven yet.
-- Pending state can remain unresolved until next slice wires runtime apply execution path.
-- Migration must be applied in environments to expose apply-state fields in DB.
+- Governance envelopes/hooks are placeholders and not enforced by dedicated engines yet.
+- Assistants created before A6 may not yet have governance row until backfill or lifecycle write path.
+- Quotas/tools/audit implementations remain deferred and must consume this governance model later.
 
 ## Next recommended step
 
-- Implement Step 3 slice `A8` only: OpenClaw apply/reapply adapter to drive real apply transitions while keeping boundaries strict.
+- Implement Step 3 slice `A7` only: materialized runtime spec derived from user-owned lifecycle truth plus platform-managed governance envelopes.

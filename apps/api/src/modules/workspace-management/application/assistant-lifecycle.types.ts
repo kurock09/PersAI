@@ -40,6 +40,16 @@ export interface AssistantRuntimeApplyState {
   error: AssistantRuntimeApplyErrorState | null;
 }
 
+export interface AssistantGovernanceState {
+  capabilityEnvelope: unknown | null;
+  secretRefs: unknown | null;
+  policyEnvelope: unknown | null;
+  quotaPlanCode: string | null;
+  quotaHook: unknown | null;
+  auditHook: unknown | null;
+  platformManagedUpdatedAt: string | null;
+}
+
 export interface AssistantLifecycleState {
   id: string;
   userId: string;
@@ -47,6 +57,7 @@ export interface AssistantLifecycleState {
   draft: AssistantDraftState;
   latestPublishedVersion: AssistantPublishedVersionState | null;
   runtimeApply: AssistantRuntimeApplyState;
+  governance: AssistantGovernanceState;
   createdAt: string;
   updatedAt: string;
 }

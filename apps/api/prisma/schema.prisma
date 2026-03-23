@@ -90,6 +90,7 @@ model Assistant {
   workspaceMember    WorkspaceMember           @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
   applyTargetVersion AssistantPublishedVersion? @relation("AssistantApplyTargetVersion", fields: [applyTargetVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   applyAppliedVersion AssistantPublishedVersion? @relation("AssistantApplyAppliedVersion", fields: [applyAppliedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  governance       AssistantGovernance?
   publishedVersions AssistantPublishedVersion[]
 
   @@unique([workspaceId, userId])
@@ -111,4 +112,20 @@ model AssistantPublishedVersion {
 
   @@unique([assistantId, version])
   @@map("assistant_published_versions")
+}
+
+model AssistantGovernance {
+  id                 String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  assistantId        String    @unique @map("assistant_id") @db.Uuid
+  capabilityEnvelope Json?     @map("capability_envelope")
+  secretRefs         Json?     @map("secret_refs")
+  policyEnvelope     Json?     @map("policy_envelope")
+  quotaPlanCode      String?   @map("quota_plan_code")
+  quotaHook          Json?     @map("quota_hook")
+  auditHook          Json?     @map("audit_hook")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant          Assistant @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("assistant_governance")
 }

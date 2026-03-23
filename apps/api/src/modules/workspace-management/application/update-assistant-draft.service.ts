@@ -1,5 +1,9 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  ASSISTANT_GOVERNANCE_REPOSITORY,
+  type AssistantGovernanceRepository
+} from "../domain/assistant-governance.repository";
+import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
@@ -38,7 +42,9 @@ export class UpdateAssistantDraftService {
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
-    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository
+    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
+    @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository
   ) {}
 
   parseInput(payload: unknown): UpdateAssistantDraftRequest {
@@ -87,7 +93,10 @@ export class UpdateAssistantDraftService {
 
     const latestPublishedVersion =
       await this.assistantPublishedVersionRepository.findLatestByAssistantId(updatedAssistant.id);
+    const governance = await this.assistantGovernanceRepository.findByAssistantId(
+      updatedAssistant.id
+    );
 
-    return toAssistantLifecycleState(updatedAssistant, latestPublishedVersion);
+    return toAssistantLifecycleState(updatedAssistant, latestPublishedVersion, governance);
   }
 }

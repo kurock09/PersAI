@@ -7,6 +7,7 @@
 import type { AssistantDraftState } from './assistantDraftState';
 import type { AssistantLifecycleStateLatestPublishedVersion } from './assistantLifecycleStateLatestPublishedVersion';
 import type { AssistantRuntimeApplyState } from './assistantRuntimeApplyState';
+import type { AssistantGovernanceState } from './assistantGovernanceState';
 
 export interface AssistantLifecycleState {
   id: string;
@@ -16,6 +17,7 @@ export interface AssistantLifecycleState {
   /** @nullable */
   latestPublishedVersion: AssistantLifecycleStateLatestPublishedVersion;
   runtimeApply: AssistantRuntimeApplyState;
+  governance: AssistantGovernanceState;
   createdAt: string;
   updatedAt: string;
 }

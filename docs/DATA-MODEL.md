@@ -62,6 +62,19 @@ Postgres with Prisma.
 - published_by_user_id
 - created_at
 
+### assistant_governance (Step 3 A6 baseline)
+
+- id (UUID)
+- assistant_id (unique)
+- capability_envelope (jsonb, nullable)
+- secret_refs (jsonb, nullable)
+- policy_envelope (jsonb, nullable)
+- quota_plan_code (nullable)
+- quota_hook (jsonb, nullable)
+- audit_hook (jsonb, nullable)
+- created_at
+- updated_at
+
 ## Prisma baseline (Step 1 slice 5)
 
 - `app_users`:
@@ -94,6 +107,16 @@ Postgres with Prisma.
   - unique per-assistant version: `(assistant_id, version)`
   - immutable snapshot fields: `snapshot_display_name`, `snapshot_instructions`
   - immutable row policy enforced by DB trigger (no UPDATE, no DELETE)
+- `assistant_governance`:
+  - primary key: `id`
+  - unique: `assistant_id` (1 governance row per assistant)
+  - foreign key: `assistant_id -> assistants.id`
+  - platform-managed governance envelopes/hooks:
+    - capability envelope
+    - secret refs
+    - policy envelope
+    - quota plan/hook placeholders
+    - audit hook placeholder
 
 ## Seed baseline (Step 1 slice 5)
 
@@ -113,6 +136,7 @@ Postgres with Prisma.
 - A3 adds publish/version snapshot model only (control-plane)
 - A4 adds rollback/reset actions over existing A3 model without deleting attachment layers
 - A5 adds runtime apply state tracking model only (no runtime call execution)
+- A6 adds platform-managed governance layer separate from user-owned draft/version truth
 - chat, channels, and integrations remain unsupported
 
 ## Step 2 onboarding write baseline (slice 3)

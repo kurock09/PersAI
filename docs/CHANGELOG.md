@@ -382,6 +382,26 @@
     - `runtimeApply` = runtime apply progress/outcome truth
   - no OpenClaw/runtime calls introduced and no success simulation added
   - marked `A5` complete in `docs/ROADMAP.md`
+- Step 3 slice A6 assistant governance baseline:
+  - added platform-managed governance persistence model:
+    - table/model `assistant_governance` (1 row per assistant)
+    - fields for:
+      - capability envelope
+      - secret refs
+      - policy envelope
+      - quota plan/hook placeholders
+      - audit hook placeholder
+  - created governance baseline row on assistant creation
+  - extended assistant lifecycle response with `governance` block
+  - kept governance explicitly separate from user-owned lifecycle truth:
+    - user-owned: draft + immutable published versions
+    - platform-managed: governance envelopes/hooks
+  - kept scope intentionally narrow:
+    - no quotas engine implementation
+    - no tools system implementation
+    - no backend behavior routing
+    - no runtime/OpenClaw calls
+  - marked `A6` complete in `docs/ROADMAP.md`
 
 ### Changed
 

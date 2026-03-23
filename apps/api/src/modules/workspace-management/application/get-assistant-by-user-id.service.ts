@@ -1,4 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
+import {
+  ASSISTANT_GOVERNANCE_REPOSITORY,
+  type AssistantGovernanceRepository
+} from "../domain/assistant-governance.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
@@ -13,7 +17,9 @@ export class GetAssistantByUserIdService {
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
-    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository
+    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
+    @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState | null> {
@@ -24,6 +30,7 @@ export class GetAssistantByUserIdService {
 
     const latestPublishedVersion =
       await this.assistantPublishedVersionRepository.findLatestByAssistantId(assistant.id);
-    return toAssistantLifecycleState(assistant, latestPublishedVersion);
+    const governance = await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
+    return toAssistantLifecycleState(assistant, latestPublishedVersion, governance);
   }
 }
