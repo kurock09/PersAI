@@ -2369,151 +2369,155 @@ export function AppFlowClient() {
             <p>Messenger integrations panel. Web remains the primary control-plane surface.</p>
             {isLoadingTelegramIntegration && <p>Loading Telegram integration…</p>}
             {telegramIntegrationFeedback !== null && <p>{telegramIntegrationFeedback}</p>}
-            {telegramIntegration === null ? (
-              <p>Telegram integration state is not available yet.</p>
-            ) : (
-              <div className="integration-panel-grid">
-                <article className="integration-card integration-card-active">
-                  <div className="integration-icon">TG</div>
-                  <h4>Telegram</h4>
-                  <p className="integration-state-line">
-                    {telegramIntegration.connectionStatus === "connected"
+            <div className="integration-panel-grid">
+              <article className="integration-card integration-card-active">
+                <div className="integration-icon">TG</div>
+                <h4>Telegram</h4>
+                <p className="integration-state-line">
+                  {telegramIntegration === null
+                    ? "State unavailable"
+                    : telegramIntegration.connectionStatus === "connected"
                       ? "Connected"
                       : telegramIntegration.capabilityAllowed
                         ? "Available to connect"
                         : "Not available on current plan"}
-                  </p>
-                  {telegramIntegration.connectionStatus === "connected" && (
-                    <>
-                      <p className="integration-note">
-                        {telegramIntegration.bot.displayName ??
-                          telegramIntegration.bot.username ??
-                          "Connected bot"}
-                      </p>
-                      {telegramIntegration.bot.username !== null && (
-                        <p className="integration-note">@{telegramIntegration.bot.username}</p>
-                      )}
-                      {telegramIntegration.bot.avatarUrl !== null && (
-                        <img
-                          src={telegramIntegration.bot.avatarUrl}
-                          alt="Telegram bot avatar"
-                          width={48}
-                          height={48}
-                        />
-                      )}
-                    </>
-                  )}
-                  {telegramIntegration.connectionStatus !== "connected" && (
-                    <form onSubmit={(event) => void onConnectTelegram(event)}>
-                      <p className="integration-note">
-                        Open @BotFather, copy token, paste below, and connect.
-                      </p>
-                      <label htmlFor="telegramBotTokenInput">Telegram bot token</label>
-                      <input
-                        id="telegramBotTokenInput"
-                        type="password"
-                        value={telegramBotTokenInput}
-                        onChange={(event) => setTelegramBotTokenInput(event.target.value)}
-                        placeholder="123456789:AA..."
-                        required
-                      />
-                      <button
-                        type="submit"
-                        disabled={!telegramIntegration.capabilityAllowed || isConnectingTelegram}
-                      >
-                        {isConnectingTelegram ? "Connecting…" : "Connect Telegram"}
-                      </button>
-                    </form>
-                  )}
-                  {telegramIntegration.connectionStatus === "connected" && (
-                    <>
-                      <button
-                        type="button"
-                        className="btn-quiet"
-                        onClick={() => setIsTelegramConfigPanelOpen((current) => !current)}
-                      >
-                        {isTelegramConfigPanelOpen
-                          ? "Close Telegram configuration panel"
-                          : "Open Telegram configuration panel"}
-                      </button>
-                      {isTelegramConfigPanelOpen && (
-                        <form onSubmit={(event) => void onSaveTelegramConfig(event)}>
-                          <label htmlFor="telegramParseMode">Default parse mode</label>
-                          <select
-                            id="telegramParseMode"
-                            value={telegramConfigDraft.defaultParseMode ?? "plain_text"}
-                            onChange={(event) =>
-                              setTelegramConfigDraft((current) => ({
-                                ...current,
-                                defaultParseMode:
-                                  event.target.value === "markdown" ? "markdown" : "plain_text"
-                              }))
-                            }
-                          >
-                            <option value="plain_text">Plain text</option>
-                            <option value="markdown">Markdown</option>
-                          </select>
-                          <label>
-                            <input
-                              type="checkbox"
-                              checked={telegramConfigDraft.inboundUserMessagesEnabled ?? true}
-                              onChange={(event) =>
-                                setTelegramConfigDraft((current) => ({
-                                  ...current,
-                                  inboundUserMessagesEnabled: event.target.checked
-                                }))
-                              }
-                            />
-                            Inbound user messages enabled
-                          </label>
-                          <label>
-                            <input
-                              type="checkbox"
-                              checked={telegramConfigDraft.outboundAssistantMessagesEnabled ?? true}
-                              onChange={(event) =>
-                                setTelegramConfigDraft((current) => ({
-                                  ...current,
-                                  outboundAssistantMessagesEnabled: event.target.checked
-                                }))
-                              }
-                            />
-                            Outbound assistant messages enabled
-                          </label>
-                          <label htmlFor="telegramConfigNotes">Notes</label>
-                          <textarea
-                            id="telegramConfigNotes"
-                            value={telegramConfigDraft.notes ?? ""}
-                            onChange={(event) =>
-                              setTelegramConfigDraft((current) => ({
-                                ...current,
-                                notes: event.target.value
-                              }))
-                            }
+                </p>
+                {telegramIntegration === null ? (
+                  <p className="integration-note">Sign in again and refresh to load Telegram state.</p>
+                ) : (
+                  <>
+                    {telegramIntegration.connectionStatus === "connected" && (
+                      <>
+                        <p className="integration-note">
+                          {telegramIntegration.bot.displayName ??
+                            telegramIntegration.bot.username ??
+                            "Connected bot"}
+                        </p>
+                        {telegramIntegration.bot.username !== null && (
+                          <p className="integration-note">@{telegramIntegration.bot.username}</p>
+                        )}
+                        {telegramIntegration.bot.avatarUrl !== null && (
+                          <img
+                            src={telegramIntegration.bot.avatarUrl}
+                            alt="Telegram bot avatar"
+                            width={48}
+                            height={48}
                           />
-                          <button type="submit" disabled={isSavingTelegramConfig}>
-                            {isSavingTelegramConfig ? "Saving…" : "Save Telegram configuration"}
-                          </button>
-                        </form>
-                      )}
-                    </>
-                  )}
-                </article>
+                        )}
+                      </>
+                    )}
+                    {telegramIntegration.connectionStatus !== "connected" && (
+                      <form onSubmit={(event) => void onConnectTelegram(event)}>
+                        <p className="integration-note">
+                          Open @BotFather, copy token, paste below, and connect.
+                        </p>
+                        <label htmlFor="telegramBotTokenInput">Telegram bot token</label>
+                        <input
+                          id="telegramBotTokenInput"
+                          type="password"
+                          value={telegramBotTokenInput}
+                          onChange={(event) => setTelegramBotTokenInput(event.target.value)}
+                          placeholder="123456789:AA..."
+                          required
+                        />
+                        <button
+                          type="submit"
+                          disabled={!telegramIntegration.capabilityAllowed || isConnectingTelegram}
+                        >
+                          {isConnectingTelegram ? "Connecting…" : "Connect Telegram"}
+                        </button>
+                      </form>
+                    )}
+                    {telegramIntegration.connectionStatus === "connected" && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-quiet"
+                          onClick={() => setIsTelegramConfigPanelOpen((current) => !current)}
+                        >
+                          {isTelegramConfigPanelOpen
+                            ? "Close Telegram configuration panel"
+                            : "Open Telegram configuration panel"}
+                        </button>
+                        {isTelegramConfigPanelOpen && (
+                          <form onSubmit={(event) => void onSaveTelegramConfig(event)}>
+                            <label htmlFor="telegramParseMode">Default parse mode</label>
+                            <select
+                              id="telegramParseMode"
+                              value={telegramConfigDraft.defaultParseMode ?? "plain_text"}
+                              onChange={(event) =>
+                                setTelegramConfigDraft((current) => ({
+                                  ...current,
+                                  defaultParseMode:
+                                    event.target.value === "markdown" ? "markdown" : "plain_text"
+                                }))
+                              }
+                            >
+                              <option value="plain_text">Plain text</option>
+                              <option value="markdown">Markdown</option>
+                            </select>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={telegramConfigDraft.inboundUserMessagesEnabled ?? true}
+                                onChange={(event) =>
+                                  setTelegramConfigDraft((current) => ({
+                                    ...current,
+                                    inboundUserMessagesEnabled: event.target.checked
+                                  }))
+                                }
+                              />
+                              Inbound user messages enabled
+                            </label>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={telegramConfigDraft.outboundAssistantMessagesEnabled ?? true}
+                                onChange={(event) =>
+                                  setTelegramConfigDraft((current) => ({
+                                    ...current,
+                                    outboundAssistantMessagesEnabled: event.target.checked
+                                  }))
+                                }
+                              />
+                              Outbound assistant messages enabled
+                            </label>
+                            <label htmlFor="telegramConfigNotes">Notes</label>
+                            <textarea
+                              id="telegramConfigNotes"
+                              value={telegramConfigDraft.notes ?? ""}
+                              onChange={(event) =>
+                                setTelegramConfigDraft((current) => ({
+                                  ...current,
+                                  notes: event.target.value
+                                }))
+                              }
+                            />
+                            <button type="submit" disabled={isSavingTelegramConfig}>
+                              {isSavingTelegramConfig ? "Saving…" : "Save Telegram configuration"}
+                            </button>
+                          </form>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </article>
 
-                <article className="integration-card integration-card-coming-soon">
-                  <div className="integration-icon">MX</div>
-                  <h4>MAX</h4>
-                  <p className="integration-state-line">Coming soon</p>
-                  <p className="integration-note">Bot and mini-app delivery will be added in later slices.</p>
-                </article>
+              <article className="integration-card integration-card-coming-soon">
+                <div className="integration-icon">MX</div>
+                <h4>MAX</h4>
+                <p className="integration-state-line">Coming soon</p>
+                <p className="integration-note">Bot and mini-app delivery will be added in later slices.</p>
+              </article>
 
-                <article className="integration-card integration-card-coming-soon">
-                  <div className="integration-icon">WA</div>
-                  <h4>WhatsApp</h4>
-                  <p className="integration-state-line">Coming soon</p>
-                  <p className="integration-note">Business channel connection is planned, not active yet.</p>
-                </article>
-              </div>
-            )}
+              <article className="integration-card integration-card-coming-soon">
+                <div className="integration-icon">WA</div>
+                <h4>WhatsApp</h4>
+                <p className="integration-state-line">Coming soon</p>
+                <p className="integration-note">Business channel connection is planned, not active yet.</p>
+              </article>
+            </div>
           </section>
 
           <section>

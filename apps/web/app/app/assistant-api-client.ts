@@ -52,6 +52,9 @@ function getAuthHeaders(token: string): HeadersInit {
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof ContractsApiError) {
+    if (error.status === 401) {
+      return "Session expired. Sign in again and refresh the page.";
+    }
     return error.message;
   }
 
