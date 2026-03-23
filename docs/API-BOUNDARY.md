@@ -71,3 +71,46 @@ Behavior baseline:
 - OpenAPI spec: `packages/contracts/openapi.yaml`
 - Generated typed client (Orval): `packages/contracts/src/generated/*`
 - Frontend consumption baseline: `apps/web/app/app/me-api-client.ts` via `@persai/contracts`
+
+## OpenClaw integration contract baseline (Step 3 O6, docs-only)
+
+This section defines backend-to-OpenClaw boundary rules only.  
+No runtime calls are implemented in this slice.
+
+Transport choice for first adapter step:
+
+- **HTTP** (not WebSocket) for first integration boundary.
+- Why:
+  - control-plane request/response shape is easier to bound
+  - timeout/retry/failure mapping is deterministic
+  - aligns with already verified dev endpoints (`/healthz`, `/readyz`)
+
+First minimal supported interaction (future thin adapter):
+
+- runtime preflight:
+  - `GET /healthz`
+  - `GET /readyz`
+- minimal adapter output to backend:
+  - `live: boolean`
+  - `ready: boolean`
+  - `checkedAt: string` (timestamp)
+
+Allowed backend knowledge:
+
+- OpenClaw base URL and token config references
+- timeout/retry settings
+- coarse runtime status (`live`, `ready`, degraded)
+
+Forbidden leakage into backend/domain language:
+
+- provider/channel/tool execution internals
+- memory/reasoning/runtime-behavior internals
+- OpenClaw-specific internal endpoint or state semantics outside approved boundary
+
+Expected boundary error classes:
+
+- `runtime_unreachable`
+- `auth_failure`
+- `timeout`
+- `invalid_response`
+- `runtime_degraded`

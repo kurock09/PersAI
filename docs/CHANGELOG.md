@@ -272,6 +272,23 @@
   - documented exact O4 verification commands in `infra/dev/gke/RUNBOOK.md`
   - documented in-cluster OpenClaw address/port/path baseline in `infra/dev/gitops/README.md`
   - marked `O4` complete in `docs/ROADMAP.md`
+- Step 3 slice O6 backend-to-OpenClaw integration contract (docs-only):
+  - added ADR `docs/ADR/013-openclaw-backend-integration-contract.md`
+  - defined explicit future `apps/api -> OpenClaw` adapter boundary:
+    - infrastructure adapter only
+    - no OpenClaw leakage into domain/application modules
+  - selected transport for first integration step: **HTTP** (WebSocket deferred)
+  - defined first minimal supported interaction for future thin adapter:
+    - runtime preflight via `GET /healthz` and `GET /readyz`
+  - defined explicit boundary error model:
+    - `runtime_unreachable`
+    - `auth_failure`
+    - `timeout`
+    - `invalid_response`
+    - `runtime_degraded`
+  - defined config responsibility split between backend, infra, and OpenClaw runtime
+  - updated boundary docs in `docs/ARCHITECTURE.md` and `docs/API-BOUNDARY.md`
+  - marked `O6` complete in `docs/ROADMAP.md`
 
 ### Changed
 
