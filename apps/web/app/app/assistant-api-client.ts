@@ -76,7 +76,7 @@ async function issueAdminStepUpToken(
     }
   );
   if (
-    challengeResponse.status !== 200 ||
+    !isSuccessStatus(challengeResponse.status) ||
     typeof challengeResponse.data !== "object" ||
     challengeResponse.data === null ||
     !("challenge" in challengeResponse.data) ||

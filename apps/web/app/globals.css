@@ -97,6 +97,13 @@ select {
   background: #ffffff;
 }
 
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  padding: 0;
+  margin-right: 8px;
+}
+
 textarea {
   min-height: 110px;
   resize: vertical;

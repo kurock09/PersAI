@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  HttpCode,
   Post,
   Req,
   UnauthorizedException
@@ -45,6 +46,7 @@ export class AdminSecurityController {
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
+  @HttpCode(200)
   @Post("challenge")
   async createStepUpChallenge(
     @Req() req: RequestWithPlatformContext,
