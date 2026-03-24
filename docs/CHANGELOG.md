@@ -4,6 +4,16 @@
 
 ### Added
 
+- Step 10 slice G5 WhatsApp and MAX readiness hardening:
+  - hardened provider/surface readiness projection to remove remaining Telegram-only configured-state assumption:
+    - `whatsapp` and `max` provider configured state now resolve from canonical `assistant_channel_surface_bindings`
+    - Telegram retains managed SecretRef lifecycle gate on top of binding readiness
+  - preserved non-flat surface taxonomy required for future rollout:
+    - WhatsApp: `whatsapp_business`
+    - MAX: `max_bot` and `max_mini_app` (distinct)
+  - added targeted readiness test coverage:
+    - `test/openclaw-channel-surface-bindings-g5.test.ts`
+  - added ADR `docs/ADR/047-whatsapp-max-readiness-hardening-g5.md`
 - Step 10 slice G4 retention/delete/compliance baseline:
   - finalized explicit MVP compliance acceptance behavior in onboarding:
     - `acceptTermsOfService=true`

@@ -106,24 +106,31 @@ export class ResolveOpenClawChannelSurfaceBindingsService {
   }): Promise<OpenClawChannelSurfaceBindingsState> {
     const { assistantId, effectiveCapabilities } = params;
 
-    const telegramConfigured =
-      await this.assistantChannelSurfaceBindingRepository.hasActiveBindingForProvider(
+    const [telegramConfiguredRaw, whatsappConfigured, maxConfigured] = await Promise.all([
+      this.assistantChannelSurfaceBindingRepository.hasActiveBindingForProvider(
         assistantId,
         "telegram"
-      );
+      ),
+      this.assistantChannelSurfaceBindingRepository.hasActiveBindingForProvider(
+        assistantId,
+        "whatsapp"
+      ),
+      this.assistantChannelSurfaceBindingRepository.hasActiveBindingForProvider(assistantId, "max")
+    ]);
     const governance = await this.assistantGovernanceRepository.findByAssistantId(assistantId);
     const telegramSecretLifecycle = resolveTelegramSecretLifecycleState(governance?.secretRefs ?? null, {
-      legacyFallbackWhenMissing: telegramConfigured
+      legacyFallbackWhenMissing: telegramConfiguredRaw
     });
     const telegramSecretUsable =
       telegramSecretLifecycle.status === "active" ||
       telegramSecretLifecycle.status === "legacy_unmanaged";
+    const telegramConfigured = telegramConfiguredRaw && telegramSecretUsable;
 
     const providerConfigured: Record<OpenClawProviderKey, boolean> = {
       web_internal: true,
-      telegram: telegramConfigured && telegramSecretUsable,
-      whatsapp: false,
-      max: false,
+      telegram: telegramConfigured,
+      whatsapp: whatsappConfigured,
+      max: maxConfigured,
       system_notifications: true
     };
 

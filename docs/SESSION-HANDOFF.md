@@ -1,5 +1,55 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 10 G5 WhatsApp and MAX readiness hardening
+
+### What changed
+
+- Hardened OpenClaw provider/surface readiness projection so configured state now resolves from canonical provider binding repository for:
+  - `telegram`
+  - `whatsapp`
+  - `max`
+- Removed remaining Telegram-only configured-state assumption for future providers:
+  - `whatsapp` and `max` are no longer hardcoded as unconfigured in projection
+- Preserved explicit non-flat surface model:
+  - WhatsApp surface remains `whatsapp_business`
+  - MAX remains split into `max_bot` and `max_mini_app`
+- Kept Telegram managed SecretRef lifecycle usability gate intact on top of binding readiness.
+- Added targeted G5 test coverage for provider-configured readiness and MAX split-surface behavior.
+- Added ADR-047 and updated roadmap/docs for G5.
+
+### Why changed
+
+- G5 requires architecture-only hardening so WhatsApp and MAX can be implemented later without redesign, while preserving existing web/Telegram/system-notification behavior.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-channel-surface-bindings.service.ts`
+- `apps/api/test/openclaw-channel-surface-bindings-g5.test.ts`
+- `docs/ADR/047-whatsapp-max-readiness-hardening-g5.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/openclaw-channel-surface-bindings.test.ts` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/openclaw-channel-surface-bindings-g5.test.ts` — passed
+
+### Known risks / intentional limits
+
+- G5 does not implement WhatsApp runtime delivery flow yet.
+- G5 does not implement MAX bot or MAX mini-app runtime delivery flow yet.
+- Non-Telegram secret lifecycle policies for WhatsApp/MAX remain future work.
+
+### Next recommended step
+
+- Step 11 **H1** design language and product shell alignment.
+
+### Ready commit message
+
+- `refactor(api): harden step 10 g5 provider-surface readiness for whatsapp and max without delivery rollout`
+
 ## 2026-03-24 - Step 10 G4 retention/delete/compliance baseline
 
 ### What changed

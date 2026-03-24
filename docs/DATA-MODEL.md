@@ -583,6 +583,8 @@ Postgres with Prisma.
 - G2 adds canonical abuse/rate-limit state tables for per-user/per-assistant throttles, channel-aware hooks, temporary slowdown/block windows, and admin unblock override tracking
 - G4 adds explicit legal-acceptance and compliance baseline persistence on `app_users` for MVP ToS/Privacy acceptance state; onboarding completion now depends on workspace membership + required legal acceptance
 - G4 retains explicit action-based delete model and no hidden TTL auto-purge behavior for chat/memory/task registry records in MVP
+- G5 does not add new persistence tables; it hardens readiness usage of existing `assistant_channel_surface_bindings` so WhatsApp and MAX provider configured state can be resolved without redesign
+- G5 preserves explicit non-flat surface taxonomy for MAX (`max_bot` vs `max_mini_app`) and WhatsApp (`whatsapp_business`)
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

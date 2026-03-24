@@ -880,6 +880,17 @@ Behavior baseline:
 - ownership transfer/recovery remains non-delete ownership action.
 - audit model remains append-only immutable rows.
 
+## Step 10 G5 WhatsApp/MAX readiness hardening
+
+- G5 adds no new public REST endpoints.
+- readiness hardening is in control-plane projection logic:
+  - provider configured state for `whatsapp` and `max` now resolves from canonical assistant provider bindings (same pattern as Telegram provider binding readiness)
+  - Telegram keeps additional managed SecretRef lifecycle gate
+- projection remains non-flat:
+  - WhatsApp surface remains `whatsapp_business`
+  - MAX remains split into `max_bot` and `max_mini_app`
+- G5 does not add transport/runtime delivery implementation for WhatsApp or MAX.
+
 ## Auth model
 
 - web protects routes

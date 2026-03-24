@@ -270,3 +270,13 @@ Required in CI:
   - retention/delete baseline is explicit in API contract state model (no hidden TTL delete semantics)
 - Regression coverage validates onboarding flow with explicit legal acceptance:
   - `test/step2-auth-foundation.e2e.test.ts`
+
+## Step 10 G5 focus
+
+- API lint/typecheck validate provider/surface readiness projection hardening:
+  - `ResolveOpenClawChannelSurfaceBindingsService` resolves configured state from canonical provider bindings for `telegram|whatsapp|max`
+  - Telegram retains managed SecretRef lifecycle gate while WhatsApp/MAX remain architecture-ready binding-gated paths
+  - MAX remains split by surfaces (`max_bot`, `max_mini_app`) with no flattening
+- Targeted API tests validate G5 behavior:
+  - `test/openclaw-channel-surface-bindings.test.ts`
+  - `test/openclaw-channel-surface-bindings-g5.test.ts`

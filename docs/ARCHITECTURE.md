@@ -396,6 +396,21 @@ O6 defines a future adapter-only contract:
   - ownership transfer/recovery remains non-delete ownership action
 - audit baseline remains append-only and immutable; G4 does not introduce audit-row mutation/deletion paths
 
+## Provider/surface readiness hardening (Step 10 G5)
+
+- channel/surface model remains provider + surface explicit (no flat channel collapse):
+  - `whatsapp` -> `whatsapp_business`
+  - `max` -> `max_bot` + `max_mini_app` (distinct surfaces)
+- OpenClaw channel/surface binding projection now resolves provider configured state from canonical assistant bindings for:
+  - `telegram`
+  - `whatsapp`
+  - `max`
+- Telegram keeps additional managed SecretRef lifecycle gate; WhatsApp/MAX currently use binding readiness only.
+- this slice is architecture hardening only:
+  - no WhatsApp delivery implementation
+  - no MAX bot/mini-app delivery implementation
+  - no collapse of bot and mini-app into one MAX surface
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.
