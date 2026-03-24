@@ -1,5 +1,71 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 10 G4 retention/delete/compliance baseline
+
+### What changed
+
+- Finalized explicit MVP legal acceptance behavior:
+  - onboarding now requires `acceptTermsOfService=true` and `acceptPrivacyPolicy=true`
+  - persisted acceptance version/timestamp fields on `app_users`
+- Extended `GET /api/v1/me` read model with explicit `compliance` state:
+  - required/accepted ToS and Privacy versions
+  - acceptance timestamps
+  - retention/delete/audit baseline mode summary
+- Tightened onboarding completion semantics:
+  - `completed` now requires workspace presence + required legal acceptance
+  - `pending` is returned when either workspace or legal acceptance is missing
+- Finalized MVP retention/delete baseline as explicit platform behavior:
+  - no hidden TTL auto-purge behavior
+  - delete remains explicit action-only
+  - reset and ownership transfer/recovery stay non-delete actions
+- Added ADR-046 and updated roadmap/docs for G4.
+- Applied minimal corrective middleware route coverage for existing protected endpoints added in previous slices (Telegram secret lifecycle, admin abuse unblock, admin ownership transfer/recovery).
+
+### Why changed
+
+- G4 requires unambiguous real-platform retention/delete/compliance behavior with explicit user trust boundaries and no hidden retention surprises.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260329130000_step10_g4_retention_delete_compliance_baseline/migration.sql`
+- `apps/api/src/modules/identity-access/application/compliance-baseline.ts`
+- `apps/api/src/modules/identity-access/application/current-user-state.types.ts`
+- `apps/api/src/modules/identity-access/application/get-current-user-state.service.ts`
+- `apps/api/src/modules/identity-access/application/upsert-onboarding.service.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/test/step2-auth-foundation.e2e.test.ts`
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/web/app/app/app-flow.client.test.tsx`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `docs/ADR/046-retention-delete-compliance-baseline-g4.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run prisma:generate` — passed
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/step2-auth-foundation.e2e.test.ts` — passed
+- `corepack pnpm --filter @persai/web run test -- --run app/app/app-flow.client.test.tsx` — passed
+
+### Known risks / intentional limits
+
+- G4 does not introduce enterprise retention scheduler/legal hold/regional retention matrix.
+- G4 does not add full account/workspace erasure orchestration endpoint.
+- Retention remains explicit user/action-driven in MVP; no silent background purge jobs.
+
+### Next recommended step
+
+- Step 10 **G5** WhatsApp and MAX readiness hardening.
+
+### Ready commit message
+
+- `feat(api-web-contracts): add step 10 g4 explicit retention-delete-compliance baseline with legal acceptance state`
+
 ## 2026-03-24 - Step 10 G3 recovery and ownership transfer baseline
 
 ### What changed

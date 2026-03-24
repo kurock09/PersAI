@@ -10,4 +10,16 @@ export interface OnboardingRequest {
   workspaceName: string;
   locale: string;
   timezone: string;
+  acceptTermsOfService: boolean;
+  acceptPrivacyPolicy: boolean;
+  /**
+   * @maxLength 64
+   * @nullable
+   */
+  termsOfServiceVersion?: string | null;
+  /**
+   * @maxLength 64
+   * @nullable
+   */
+  privacyPolicyVersion?: string | null;
 }

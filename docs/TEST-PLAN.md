@@ -258,3 +258,15 @@ Required in CI:
   - explicit non-overlap of transfer/recovery vs reset/delete semantics in response/audit consequences
 - Targeted API test validates ownership flow service behavior:
   - `test/manage-admin-assistant-ownership.test.ts`
+
+## Step 10 G4 focus
+
+- Prisma schema/migration validates MVP compliance acceptance fields on `app_users`:
+  - `terms_of_service_accepted_at`, `terms_of_service_version`
+  - `privacy_policy_accepted_at`, `privacy_policy_version`
+- API lint/typecheck validate:
+  - onboarding payload now requires explicit legal acceptance flags
+  - `/me` response includes compliance baseline state and onboarding completion reflects legal acceptance + workspace membership
+  - retention/delete baseline is explicit in API contract state model (no hidden TTL delete semantics)
+- Regression coverage validates onboarding flow with explicit legal acceptance:
+  - `test/step2-auth-foundation.e2e.test.ts`

@@ -615,6 +615,14 @@ The product must define:
 - audit baseline
 - secret handling baseline
 
+MVP baseline behavior is explicit:
+
+- onboarding requires explicit acceptance of current Terms of Service and Privacy Policy versions
+- retention is user-controlled with no silent background TTL purge in MVP
+- delete remains explicit action-based (chat hard delete, memory forget/do-not-remember)
+- reset and ownership transfer/recovery are not delete actions
+- audit remains append-only immutable
+
 It is acceptable for MVP to stop short of full enterprise-grade compliance, but it is not acceptable to leave core data handling undefined.
 
 ---

@@ -225,11 +225,16 @@ function taskStatusLabel(controlStatus: AssistantTaskRegistryItemState["controlS
 }
 
 function toInitialPayload(state: CurrentMeResponse | null): OnboardingPayload {
+  const compliance = state?.me.compliance;
   return {
     displayName: state?.me.appUser.displayName ?? "",
     workspaceName: state?.me.workspace?.name ?? "",
     locale: state?.me.workspace?.locale ?? "en-US",
-    timezone: state?.me.workspace?.timezone ?? "UTC"
+    timezone: state?.me.workspace?.timezone ?? "UTC",
+    acceptTermsOfService: compliance?.termsOfService.accepted ?? false,
+    acceptPrivacyPolicy: compliance?.privacyPolicy.accepted ?? false,
+    termsOfServiceVersion: compliance?.termsOfService.requiredVersion ?? null,
+    privacyPolicyVersion: compliance?.privacyPolicy.requiredVersion ?? null
   };
 }
 
@@ -1962,6 +1967,41 @@ export function AppFlowClient() {
             }
             required
           />
+
+          <label>
+            <input
+              type="checkbox"
+              checked={onboardingPayload.acceptTermsOfService}
+              onChange={(event) =>
+                setOnboardingPayload({
+                  ...onboardingPayload,
+                  acceptTermsOfService: event.target.checked
+                })
+              }
+              required
+            />
+            I accept Terms of Service (MVP baseline).
+          </label>
+
+          <label>
+            <input
+              type="checkbox"
+              checked={onboardingPayload.acceptPrivacyPolicy}
+              onChange={(event) =>
+                setOnboardingPayload({
+                  ...onboardingPayload,
+                  acceptPrivacyPolicy: event.target.checked
+                })
+              }
+              required
+            />
+            I accept Privacy Policy (MVP baseline).
+          </label>
+
+          <p>
+            Data handling baseline is explicit: no silent auto-purge TTL, chat delete is explicit hard
+            delete, and audit records are append-only.
+          </p>
 
           <button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Saving..." : "Complete onboarding"}

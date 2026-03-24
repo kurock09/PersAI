@@ -377,6 +377,25 @@ O6 defines a future adapter-only contract:
   - channel bindings and governance SecretRef metadata remain attached to assistant
   - append-only audit history is preserved; transfer/recovery adds new admin action events only
 
+## Retention/delete/compliance baseline (Step 10 G4)
+
+- MVP compliance baseline is explicit and enforced at product boundary, not implied:
+  - Terms of Service acceptance
+  - Privacy Policy acceptance
+  - retention/delete/audit model visibility
+- onboarding completion now requires both:
+  - workspace membership
+  - acceptance of current MVP ToS/Privacy versions
+- retention model is explicit "no silent TTL purge":
+  - chats stay until user archive/hard-delete actions
+  - memory registry items stay until forget/do-not-remember actions
+  - task registry rows stay until user control changes (disable/cancel) or future explicit delete flows
+- delete semantics remain action-scoped and explicit:
+  - chat hard delete remains irreversible and confirmation-gated
+  - reset remains non-delete lifecycle action
+  - ownership transfer/recovery remains non-delete ownership action
+- audit baseline remains append-only and immutable; G4 does not introduce audit-row mutation/deletion paths
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

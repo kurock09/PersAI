@@ -1895,6 +1895,8 @@ components:
         - workspaceName
         - locale
         - timezone
+        - acceptTermsOfService
+        - acceptPrivacyPolicy
       properties:
         displayName:
           type: string
@@ -1904,6 +1906,20 @@ components:
           type: string
         timezone:
           type: string
+        acceptTermsOfService:
+          type: boolean
+          enum: [true]
+        acceptPrivacyPolicy:
+          type: boolean
+          enum: [true]
+        termsOfServiceVersion:
+          type: string
+          maxLength: 64
+          nullable: true
+        privacyPolicyVersion:
+          type: string
+          maxLength: 64
+          nullable: true
     WorkspaceSummary:
       type: object
       required:
@@ -1963,17 +1979,86 @@ components:
           enum:
             - completed
             - pending
+    ComplianceLegalAcceptanceState:
+      type: object
+      required:
+        - requiredVersion
+        - acceptedVersion
+        - acceptedAt
+        - accepted
+      properties:
+        requiredVersion:
+          type: string
+        acceptedVersion:
+          type: string
+          nullable: true
+        acceptedAt:
+          type: string
+          format: date-time
+          nullable: true
+        accepted:
+          type: boolean
+    ComplianceRetentionDeleteBaselineState:
+      type: object
+      required:
+        - retentionModel
+        - chatRetention
+        - memoryRegistryRetention
+        - taskRegistryRetention
+        - deleteModel
+        - auditModel
+      properties:
+        retentionModel:
+          type: string
+          enum:
+            - user_controlled_no_silent_ttl
+        chatRetention:
+          type: string
+          enum:
+            - retained_until_archive_or_hard_delete
+        memoryRegistryRetention:
+          type: string
+          enum:
+            - retained_until_forget_or_do_not_remember
+        taskRegistryRetention:
+          type: string
+          enum:
+            - retained_until_user_control_change
+        deleteModel:
+          type: string
+          enum:
+            - explicit_action_only
+        auditModel:
+          type: string
+          enum:
+            - append_only_immutable
+    ComplianceState:
+      type: object
+      required:
+        - termsOfService
+        - privacyPolicy
+        - retentionAndDeleteBaseline
+      properties:
+        termsOfService:
+          $ref: "#/components/schemas/ComplianceLegalAcceptanceState"
+        privacyPolicy:
+          $ref: "#/components/schemas/ComplianceLegalAcceptanceState"
+        retentionAndDeleteBaseline:
+          $ref: "#/components/schemas/ComplianceRetentionDeleteBaselineState"
     CurrentMeState:
       type: object
       required:
         - appUser
         - onboarding
+        - compliance
         - workspace
       properties:
         appUser:
           $ref: "#/components/schemas/AppUserSummary"
         onboarding:
           $ref: "#/components/schemas/OnboardingState"
+        compliance:
+          $ref: "#/components/schemas/ComplianceState"
         workspace:
           allOf:
             - $ref: "#/components/schemas/WorkspaceSummary"

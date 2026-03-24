@@ -4,6 +4,25 @@
 
 ### Added
 
+- Step 10 slice G4 retention/delete/compliance baseline:
+  - finalized explicit MVP compliance acceptance behavior in onboarding:
+    - `acceptTermsOfService=true`
+    - `acceptPrivacyPolicy=true`
+    - persisted accepted version/timestamp on `app_users`
+  - extended `GET /api/v1/me` response with explicit compliance state:
+    - required + accepted versions/timestamps for ToS/Privacy
+    - retention/delete/audit baseline model summary
+  - formalized retention/delete policy as real runtime behavior:
+    - no hidden TTL auto-purge behavior in MVP
+    - delete remains explicit action-only (`chat hard delete`, memory forget/do-not-remember)
+    - reset and ownership transfer/recovery remain non-delete actions
+  - preserved audit policy alignment:
+    - append-only immutable audit rows remain in force
+  - applied minimal corrective auth-coverage hardening in middleware route map for previously added endpoints:
+    - Telegram secret lifecycle endpoints (`rotate|revoke|emergency-revoke`)
+    - admin abuse unblock endpoint
+    - admin ownership transfer/recovery endpoints
+  - added ADR `docs/ADR/046-retention-delete-compliance-baseline-g4.md`
 - Step 10 slice G3 recovery and ownership transfer baseline:
   - added admin-governed ownership flow APIs:
     - `POST /api/v1/admin/assistants/ownership/transfer`

@@ -171,6 +171,10 @@ model AppUser {
   clerkUserId               String?                    @unique @map("clerk_user_id")
   email                     String                     @unique
   displayName               String?                    @map("display_name")
+  termsOfServiceAcceptedAt  DateTime?                  @map("terms_of_service_accepted_at") @db.Timestamptz(6)
+  termsOfServiceVersion     String?                    @map("terms_of_service_version") @db.VarChar(64)
+  privacyPolicyAcceptedAt   DateTime?                  @map("privacy_policy_accepted_at") @db.Timestamptz(6)
+  privacyPolicyVersion      String?                    @map("privacy_policy_version") @db.VarChar(64)
   createdAt                 DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                 DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
   assistant                 Assistant?

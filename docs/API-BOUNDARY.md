@@ -836,8 +836,12 @@ Behavior baseline:
 
 - Returns current internal app user (`app_users`) for authenticated caller.
 - Includes onboarding status:
-  - `completed` when a workspace membership exists
-  - `pending` when no workspace membership exists yet
+  - `completed` when workspace membership exists **and** required MVP legal acceptance is present
+  - `pending` when workspace membership is missing or legal acceptance is incomplete
+- Includes compliance baseline snapshot:
+  - Terms of Service acceptance (`requiredVersion`, `acceptedVersion`, `acceptedAt`, `accepted`)
+  - Privacy Policy acceptance (`requiredVersion`, `acceptedVersion`, `acceptedAt`, `accepted`)
+  - retention/delete/audit baseline summary model
 - Includes current workspace summary if one exists:
   - `id`, `name`, `locale`, `timezone`, `status`, `role`
 
@@ -849,15 +853,32 @@ Request body fields:
 - `workspaceName`
 - `locale`
 - `timezone`
+- `acceptTermsOfService` (must be `true`)
+- `acceptPrivacyPolicy` (must be `true`)
+- `termsOfServiceVersion` (optional)
+- `privacyPolicyVersion` (optional)
 
 Behavior baseline:
 
 - authenticated caller only
 - idempotent upsert-style flow
 - updates `app_users.display_name`
+- records legal acceptance baseline fields on `app_users`:
+  - `terms_of_service_version`, `terms_of_service_accepted_at`
+  - `privacy_policy_version`, `privacy_policy_accepted_at`
 - creates workspace if user has no membership yet
 - creates/updates workspace membership for caller
 - updates current workspace summary fields (`name`, `locale`, `timezone`) consistently
+
+## Step 10 G4 retention/delete/compliance baseline
+
+- retention model: user-controlled; no hidden TTL auto-purge behavior in MVP.
+- delete model is explicit action-only:
+  - chat hard delete is confirmation-gated + irreversible
+  - memory forget / do-not-remember are explicit user actions
+- reset remains non-delete lifecycle action.
+- ownership transfer/recovery remains non-delete ownership action.
+- audit model remains append-only immutable rows.
 
 ## Auth model
 

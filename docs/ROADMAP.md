@@ -117,7 +117,7 @@ Foundation Phase
 - [x] G1 — secret lifecycle hardening
 - [x] G2 — abuse and rate limit enforcement
 - [x] G3 — recovery and ownership transfer flows
-- [ ] G4 — retention/delete/compliance baseline
+- [x] G4 — retention/delete/compliance baseline
 - [ ] G5 — WhatsApp and MAX readiness hardening
 
 ## Step 11 Product Experience and Visual Polish

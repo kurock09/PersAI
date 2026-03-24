@@ -135,6 +135,28 @@ function makeMeResponse(status: "pending" | "completed"): CurrentMeResponse {
         isComplete: status === "completed",
         status
       },
+      compliance: {
+        termsOfService: {
+          requiredVersion: "persai_tos_mvp_v1",
+          acceptedVersion: status === "completed" ? "persai_tos_mvp_v1" : null,
+          acceptedAt: status === "completed" ? "2026-03-29T10:00:00.000Z" : null,
+          accepted: status === "completed"
+        },
+        privacyPolicy: {
+          requiredVersion: "persai_privacy_mvp_v1",
+          acceptedVersion: status === "completed" ? "persai_privacy_mvp_v1" : null,
+          acceptedAt: status === "completed" ? "2026-03-29T10:00:00.000Z" : null,
+          accepted: status === "completed"
+        },
+        retentionAndDeleteBaseline: {
+          retentionModel: "user_controlled_no_silent_ttl",
+          chatRetention: "retained_until_archive_or_hard_delete",
+          memoryRegistryRetention: "retained_until_forget_or_do_not_remember",
+          taskRegistryRetention: "retained_until_user_control_change",
+          deleteModel: "explicit_action_only",
+          auditModel: "append_only_immutable"
+        }
+      },
       workspace:
         status === "completed"
           ? {

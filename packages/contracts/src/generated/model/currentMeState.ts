@@ -6,11 +6,13 @@
  */
 import type { AppUserSummary } from './appUserSummary';
 import type { OnboardingState } from './onboardingState';
+import type { ComplianceState } from './complianceState';
 import type { CurrentMeStateWorkspace } from './currentMeStateWorkspace';
 
 export interface CurrentMeState {
   appUser: AppUserSummary;
   onboarding: OnboardingState;
+  compliance: ComplianceState;
   /** @nullable */
   workspace: CurrentMeStateWorkspace;
 }

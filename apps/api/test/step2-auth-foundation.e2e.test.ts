@@ -21,6 +21,10 @@ interface AppUserRecord {
   clerkUserId: string | null;
   email: string;
   displayName: string | null;
+  termsOfServiceAcceptedAt: Date | null;
+  termsOfServiceVersion: string | null;
+  privacyPolicyAcceptedAt: Date | null;
+  privacyPolicyVersion: string | null;
 }
 
 interface WorkspaceRecord {
@@ -74,7 +78,17 @@ class InMemoryPrisma {
       data
     }: {
       where: { id: string };
-      data: Partial<Pick<AppUserRecord, "clerkUserId" | "displayName">>;
+      data: Partial<
+        Pick<
+          AppUserRecord,
+          | "clerkUserId"
+          | "displayName"
+          | "termsOfServiceAcceptedAt"
+          | "termsOfServiceVersion"
+          | "privacyPolicyAcceptedAt"
+          | "privacyPolicyVersion"
+        >
+      >;
     }) => {
       const target = this.appUsers.find((item) => item.id === where.id);
       if (!target) {
@@ -86,6 +100,18 @@ class InMemoryPrisma {
       }
       if (data.displayName !== undefined) {
         target.displayName = data.displayName;
+      }
+      if (data.termsOfServiceAcceptedAt !== undefined) {
+        target.termsOfServiceAcceptedAt = data.termsOfServiceAcceptedAt;
+      }
+      if (data.termsOfServiceVersion !== undefined) {
+        target.termsOfServiceVersion = data.termsOfServiceVersion;
+      }
+      if (data.privacyPolicyAcceptedAt !== undefined) {
+        target.privacyPolicyAcceptedAt = data.privacyPolicyAcceptedAt;
+      }
+      if (data.privacyPolicyVersion !== undefined) {
+        target.privacyPolicyVersion = data.privacyPolicyVersion;
       }
 
       return target;
@@ -294,7 +320,9 @@ async function runStep2AuthFoundationSmoke(): Promise<void> {
     displayName: "User One Updated",
     workspaceName: "Workspace A",
     locale: "en-US",
-    timezone: "UTC"
+    timezone: "UTC",
+    acceptTermsOfService: true,
+    acceptPrivacyPolicy: true
   };
 
   const onboardingReq1 = await authorizeRequest("req-onboarding-1");
@@ -302,6 +330,8 @@ async function runStep2AuthFoundationSmoke(): Promise<void> {
   assert.equal(onboarding1.me.onboarding.status, "completed");
   assert.equal(onboarding1.me.workspace?.name, "Workspace A");
   assert.equal(onboarding1.me.workspace?.role, "owner");
+  assert.equal(onboarding1.me.compliance.termsOfService.accepted, true);
+  assert.equal(onboarding1.me.compliance.privacyPolicy.accepted, true);
 
   const onboardingReq2 = await authorizeRequest("req-onboarding-2");
   const onboarding2 = await meController.upsertOnboarding(onboardingReq2, onboardingPayload);
