@@ -164,6 +164,8 @@ enum AbuseSurface {
   telegram
   whatsapp
   max
+
+  @@map("abuse_surface")
 }
 
 model AppUser {

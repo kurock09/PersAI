@@ -121,14 +121,3 @@ Foundation Phase
 - [x] G5 — WhatsApp and MAX readiness hardening
 
 ## Step 11 Product Experience and Visual Polish
-
-- [ ] H1 — design language and product shell alignment
-- [ ] H2 — first registration welcome flow polish
-- [ ] H3 — main user desktop polish
-- [ ] H4 — assistant card and settings modal polish
-- [ ] H5 — chats and messenger panels polish
-- [ ] H6 — integrations panel and Telegram setup polish
-- [ ] H7 — web chat premium polish
-- [ ] H8 — admin shell and cockpit polish
-- [ ] H9 — responsive, accessibility, and motion polish
-- [ ] H10 — final consistency and cleanup pass

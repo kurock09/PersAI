@@ -7,42 +7,26 @@ This is not the full product yet.
 
 ## Current scope
 
-### Step 1
+The repository is still in foundation phase, but it has progressed well beyond the initial Step 1/Step 2 baseline.
 
-- monorepo scaffold
-- docs baseline
-- CI baseline
-- infra baseline
-- local/dev baseline
-- logger/config/request context baseline
-- Prisma baseline
-- app skeletons
-- health/readiness/metrics baseline
+Current implemented foundation slices include:
 
-### Step 2
+- backend/web control-plane baseline for assistants, publish/apply, chat, admin, and ops flows
+- OpenClaw runtime integration through a thin backend infrastructure adapter
+- dev GitOps image publish and Argo-driven deploy flow for `api`, `web`, and `openclaw`
+- quota, audit, admin RBAC/step-up, and platform rollout baselines
 
-- Clerk auth integration
-- internal app user model
-- `GET /api/v1/me`
-- `POST /api/v1/me/onboarding`
-- workspace create/update flow
-- protected `/app`
-- onboarding gate
-- smoke/e2e for this flow
+For the full slice map, see `docs/ROADMAP.md`.
 
 ## Out of scope
 
-- chat
-- OpenClaw runtime integration
-- channels
-- Telegram
-- billing provider integration
-- knowledge retrieval
-- admin console
-- background jobs implementation
+- broad billing-provider workflow implementation (checkout, invoices, webhooks, taxes)
+- knowledge retrieval / RAG productization
+- generalized background jobs engine in backend
 - GraphQL
 - WebSockets in `apps/api`
 - product feature flags
+- OpenClaw runtime internals living inside backend domain/application layers
 
 ## Repository structure
 
@@ -50,9 +34,6 @@ This is not the full product yet.
 apps/
   web/
   api/
-
-services/
-  openclaw/
 
 packages/
   contracts/
@@ -66,6 +47,8 @@ infra/
 docs/
 .github/
 ```
+
+OpenClaw remains a separate neighboring runtime boundary, but its authoritative source is the external fork and the CI workflow materializes it into `services/openclaw` only during image build.
 
 ## Local database bootstrap (Step 1 baseline)
 
@@ -94,7 +77,7 @@ If `pnpm` is not globally installed in your shell, use `corepack pnpm ...`.
 
 ## Dev GKE infra baseline (Step 1)
 
-Infra skeleton files are present but are not applied in this phase:
+The dev GKE/Helm baseline is active through GitOps-managed deploys:
 
 - `infra/dev/gke/namespace.yaml`
 - `infra/helm/Chart.yaml`
@@ -130,14 +113,17 @@ OpenClaw image publish workflow (Step 3 O2):
 - triggers on `push` to `main` and manual `workflow_dispatch`
 - uses the same WIF/OIDC variables as `api`/`web` workflows
 - reads approved OpenClaw SHA from machine-readable pin file `infra/dev/gitops/openclaw-approved-sha.txt`
-- materializes OpenClaw source from fork into CI path `services/openclaw` at that approved SHA
+- materializes OpenClaw source from fork into temporary CI path `services/openclaw` at that approved SHA
 - builds using:
   - context: `services/openclaw`
   - Dockerfile: `services/openclaw/Dockerfile`
 - pushes image `openclaw` with tags:
   - immutable source tag: `<OPENCLAW_APPROVED_SHA>`
   - moving dev tag: `dev-main`
-- on `main` push success, CI also updates `infra/helm/values-dev.yaml` `openclaw.image.tag` to `<OPENCLAW_APPROVED_SHA>` and pushes that GitOps commit
+- on `main` push success, CI also updates `infra/helm/values-dev.yaml`:
+  - `openclaw.image.tag` -> `<OPENCLAW_APPROVED_SHA>`
+  - `openclaw.image.digest` -> built image digest
+  and pushes that GitOps commit
 - no direct cluster deploy/sync step in this workflow
 
 Artifact Registry naming pattern:
@@ -193,7 +179,7 @@ Helm dev values are wired to the same pattern:
 
 ## Dev GitOps / Argo CD baseline (Step 1)
 
-Skeleton only; not applied in this phase:
+GitOps wiring is active for the dev environment:
 
 - `infra/dev/gitops/argocd/project-dev.yaml`
 - `infra/dev/gitops/argocd/application-dev.yaml`

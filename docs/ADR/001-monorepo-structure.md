@@ -10,7 +10,7 @@ The project requires a clean greenfield foundation with clear boundaries for app
 Use pnpm workspaces with this structure:
 - apps/web
 - apps/api
-- services/openclaw
+- external OpenClaw runtime boundary (CI materialized to `services/openclaw` for image builds)
 - packages/contracts
 - packages/config
 - packages/logger
@@ -23,7 +23,7 @@ Use pnpm workspaces with this structure:
 ## Consequences
 ### Positive
 - Clear separation of deployable apps, shared packages, and neighboring services.
-- OpenClaw can live рядом in repo without contaminating backend domain.
+- OpenClaw stays separate from backend domain even though its authoritative source is managed outside this repository.
 
 ### Negative
 - Slightly more upfront structure work.

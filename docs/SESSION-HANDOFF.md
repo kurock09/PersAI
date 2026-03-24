@@ -1,5 +1,40 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - Prisma AbuseSurface enum mapping (web chat stream 500)
+
+### What changed
+
+- Added `@@map("abuse_surface")` to `enum AbuseSurface` in `apps/api/prisma/schema.prisma` so generated SQL uses the existing Postgres enum from Step 10 G2 migrations.
+- Regenerated Prisma client (`pnpm --filter @persai/api run prisma:generate`).
+- Restored `apps/web/next-env.d.ts` to reference `./.next/types/routes.d.ts` (avoid dev-only path).
+- Dropped spurious working-tree noise via `git restore` on `app-flow.client.tsx`, `app-flow.client.test.tsx`, and `assistant-governance.entity.ts` where diffs were empty.
+
+### Why changed
+
+- Live `POST .../assistant/chat/web/stream` returned 500: Prisma referenced non-existent type `public.AbuseSurface` while the DB defines `abuse_surface`.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/web/next-env.d.ts`
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run prisma:generate` — passed
+
+### Known risks / intentional limits
+
+- Deploy `api` required for production; no DB migration change (schema already matched DB naming).
+
+### Next recommended step
+
+- Deploy API and re-verify web chat streaming end-to-end.
+
+### Ready commit message
+
+- `fix(api): map AbuseSurface prisma enum to abuse_surface for stream abuse upserts`
+
 ## 2026-03-24 - Step 10 G5 WhatsApp and MAX readiness hardening
 
 ### What changed

@@ -5,20 +5,20 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
 ## Scope in this phase
 
 - namespace skeleton
-- Helm chart skeleton for `apps/api`, `apps/web`, and `services/openclaw`
+- Helm chart baseline for `apps/api`, `apps/web`, and the separately built `openclaw` runtime image
 - Docker build baseline for `apps/api` and `apps/web`
 - CI image publish baseline to Artifact Registry
-- no deployment execution
+- no direct cluster mutation from CI workflows
 - no cleanup/reset execution
 
 ## OpenClaw rule
 
-- OpenClaw remains a neighboring service skeleton.
+- OpenClaw remains a separate neighboring runtime boundary.
 - OpenClaw is enabled in dev values for O3 deploy baseline.
 
 ## Notes
 
-- Runtime rollout in dev remains manual-only via runbook.
+- Initial bootstrap/reset remains manual via runbook, but routine dev rollout follows GitOps pin updates plus Argo CD auto-sync.
 - Argo CD wiring skeleton lives in `infra/dev/gitops/argocd`.
 - Cleanup/reset and first deploy manual procedures live in `infra/dev/gke/RUNBOOK.md`.
 - CI now pins `infra/helm/values-dev.yaml` `global.images.tag` to immutable commit SHA on each `main` push after successful image publish.

@@ -8,7 +8,7 @@ Modular monolith for apps/api, with strict module and layer boundaries.
 
 - apps/web
 - apps/api
-- services/openclaw
+- external OpenClaw fork (materialized in CI to `services/openclaw` for image builds)
 - packages/\*
 - infra
 - docs
@@ -28,16 +28,19 @@ Modular monolith for apps/api, with strict module and layer boundaries.
 
 ## OpenClaw boundary
 
-OpenClaw is a neighboring service in services/openclaw.
-It is not part of the foundation runtime and not part of backend domain logic.
-`apps/api` must not call OpenClaw in Step 1/Step 2 and O1.
-O6 defines a future adapter-only contract:
+OpenClaw is a neighboring runtime boundary with source-of-truth in the external fork.
+For dev image builds, CI materializes the approved fork revision into `services/openclaw`.
+It is not part of backend domain logic.
+`apps/api` talks to OpenClaw only through the infrastructure adapter boundary:
 
 - OpenClaw calls are allowed only via infrastructure adapter boundary in `apps/api`
 - domain/application modules remain OpenClaw-agnostic
-- first implemented interactions (A8):
+- currently implemented interactions:
   - runtime preflight (`/healthz`, `/readyz`)
-  - apply/reapply of A7 materialized published specs through adapter
+  - apply/reapply of materialized published specs through adapter
+  - sync web chat transport
+  - streaming web chat transport
+- adapter boundary started in A8 with runtime preflight and apply/reapply, then expanded later for web chat sync/stream transport
 
 ## Chat boundary (Step 5 C1)
 

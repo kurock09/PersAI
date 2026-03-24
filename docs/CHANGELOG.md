@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Mapped Prisma `AbuseSurface` enum to Postgres `abuse_surface` (`@@map("abuse_surface")`) so web chat stream prepare path abuse-state upserts no longer fail with missing type `public.AbuseSurface` against live databases created from Step 10 G2 migrations.
+
 ### Added
 
 - Step 10 slice G5 WhatsApp and MAX readiness hardening:

@@ -1,6 +1,6 @@
 # Dev GitOps Baseline
 
-This directory contains the Step 1 GitOps/Argo CD skeleton for dev.
+This directory contains the dev GitOps/Argo CD baseline for `persai-dev`.
 
 ## Deploy path (explicit)
 
@@ -35,7 +35,9 @@ Dev image publish behavior:
 - CI publishes both `${GITHUB_SHA}` and `dev-main` tags to GAR.
 - CI then updates `infra/helm/values-dev.yaml` -> `global.images.tag: <GITHUB_SHA>` and pushes that commit to `main`.
 - OpenClaw CI publishes both `<OPENCLAW_APPROVED_SHA>` and `dev-main` tags to GAR.
-- OpenClaw CI then updates `infra/helm/values-dev.yaml` -> `openclaw.image.tag: <OPENCLAW_APPROVED_SHA>` and pushes that commit to `main`.
+- OpenClaw CI then updates `infra/helm/values-dev.yaml` and pushes that commit to `main`:
+  - `openclaw.image.tag: <OPENCLAW_APPROVED_SHA>`
+  - `openclaw.image.digest: <built image digest>`
 - Argo CD deploys the pinned SHA tag from GitOps values, avoiding stale-node-cache issues with moving tags.
 - Argo CD auto-sync is enabled for `persai-dev`, so new GitOps commits are applied automatically.
 
@@ -50,9 +52,10 @@ Database migration behavior on every deploy sync:
 
 ## Scope in this phase
 
-- skeleton manifests only
-- no automatic apply/sync execution
-- no GKE cleanup/reset
+- GitOps manifests remain intentionally small and environment-specific
+- Argo CD auto-sync is active for routine dev deploys
+- CI updates Git-tracked image pins but does not call cluster APIs directly
+- GKE cleanup/reset remains manual via runbook/scripts
 
 ## OpenClaw rule
 
@@ -62,7 +65,7 @@ Database migration behavior on every deploy sync:
 ## OpenClaw source/deploy boundary (Step 3 O1)
 
 - Source-of-truth strategy: **fork-sync** from `https://github.com/kurock09/openclaw` (`main`).
-- O1 stays docs-only: no OpenClaw code integration into backend modules and no runtime calls from `apps/api`.
+- OpenClaw source-of-truth stays outside this repository; CI materializes the approved fork revision into `services/openclaw` only for image build.
 - Build context for OpenClaw image: fork root (`.`), Dockerfile path `./Dockerfile`.
 - Runtime command for this fork image uses Dockerfile default:
   - `node openclaw.mjs gateway --allow-unconfigured`
@@ -127,8 +130,16 @@ Optional dev values (not required for pod boot):
 Intentionally not configured yet in this slice:
 
 - channels/provider credentials beyond baseline gateway startup/auth
-- OpenClaw runtime integration with `apps/api`
-- deploy/sync enablement
+- native fork-side implementation of the PersAI runtime contract without the current dev compatibility patch
+
+Current integration status:
+
+- `apps/api` now talks to OpenClaw through the thin infrastructure adapter boundary for:
+  - runtime preflight
+  - spec apply/reapply
+  - web chat sync transport
+  - web chat streaming transport
+- dev deploy/sync is active through GitOps pin updates plus Argo CD auto-sync
 
 Source-of-truth mapping in dev policy:
 

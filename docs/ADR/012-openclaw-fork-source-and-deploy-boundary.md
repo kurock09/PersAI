@@ -6,7 +6,7 @@ Accepted
 ## Context
 Step 3 O1 requires a clear deploy boundary for OpenClaw without widening Step 2 product scope and without coupling `apps/api` to OpenClaw runtime.
 
-We need one explicit source-of-truth strategy for `services/openclaw` and one explicit runtime assumption for dev image build/deploy.
+We need one explicit source-of-truth strategy for OpenClaw build input and one explicit runtime assumption for dev image build/deploy.
 
 The selected fork is:
 - `https://github.com/kurock09/openclaw`
@@ -16,7 +16,7 @@ The selected fork is:
 Use **fork-sync** as the source-of-truth strategy.
 
 - Canonical source is the fork repository (`kurock09/openclaw`), not code authored inside `apps/api`.
-- `services/openclaw` is a neighboring service boundary in this monorepo and represents that external fork lineage.
+- CI materializes the approved fork revision into `services/openclaw` for image build; this path is a build workspace, not the authoritative source-of-truth.
 - O1 remains docs-only: no backend integration, no runtime calls from `apps/api`, no domain coupling.
 
 Deploy/runtime boundary for this fork is fixed as:
@@ -47,6 +47,6 @@ Drift rule (before O2):
 - Operational sync discipline with the fork branch is required.
 
 ## Alternatives considered
-- Vendor snapshot in `services/openclaw` (rejected: increases monorepo churn and diverges from fork faster).
+- Vendor snapshot in the repository under `services/openclaw` (rejected: increases monorepo churn and diverges from fork faster).
 - Git subtree import in O1 (rejected for this slice: larger repo change than needed for boundary formalization).
 - Direct `apps/api` integration now (rejected: out of scope for O1 and violates boundary intent).
