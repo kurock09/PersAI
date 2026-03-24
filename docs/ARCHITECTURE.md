@@ -359,6 +359,24 @@ O6 defines a future adapter-only contract:
   - unblock/override endpoint for abuse states
 - this is not a moderation/semantic trust-safety system; it is rate/abuse control hardening at control-plane boundaries
 
+## Recovery and ownership transfer boundary (Step 10 G3)
+
+- reset, deletion, and ownership recovery/transfer remain distinct semantics:
+  - reset mutates assistant content lifecycle only
+  - hard delete removes chat history only where explicit delete APIs are invoked
+  - ownership transfer/recovery rebinds assistant owner identity without content reset or chat deletion side effects
+- ownership transfer/recovery is admin-governed and audited dangerous action flow with step-up:
+  - `admin.assistant.transfer_ownership`
+  - `admin.assistant.recover_ownership`
+- ownership boundary guardrails:
+  - target owner must be in same workspace
+  - target owner must not already hold another assistant under MVP one-user-one-assistant rule
+  - operation scope is limited to admin workspace boundary
+- resource consequences are explicit and controlled:
+  - memory/chat/task ownership linkage rebinds with assistant owner relation
+  - channel bindings and governance SecretRef metadata remain attached to assistant
+  - append-only audit history is preserved; transfer/recovery adds new admin action events only
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

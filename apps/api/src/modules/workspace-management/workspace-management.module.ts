@@ -3,6 +3,7 @@ import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
 import { AdminSecurityController } from "./interface/http/admin-security.controller";
 import { AdminAbuseControlsController } from "./interface/http/admin-abuse-controls.controller";
+import { AdminAssistantOwnershipController } from "./interface/http/admin-assistant-ownership.controller";
 import { AdminOpsController } from "./interface/http/admin-ops.controller";
 import { AdminBusinessController } from "./interface/http/admin-business.controller";
 import { AdminNotificationsController } from "./interface/http/admin-notifications.controller";
@@ -27,6 +28,7 @@ import { DeliverAdminSystemNotificationService } from "./application/deliver-adm
 import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
 import { EnforceAbuseRateLimitService } from "./application/enforce-abuse-rate-limit.service";
 import { ManageAdminAbuseControlsService } from "./application/manage-admin-abuse-controls.service";
+import { ManageAdminAssistantOwnershipService } from "./application/manage-admin-assistant-ownership.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -89,6 +91,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminPlansController,
     AdminSecurityController,
     AdminAbuseControlsController,
+    AdminAssistantOwnershipController,
     AdminOpsController,
     AdminBusinessController,
     AdminNotificationsController,
@@ -105,6 +108,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManagePlatformRolloutsService,
     EnforceAbuseRateLimitService,
     ManageAdminAbuseControlsService,
+    ManageAdminAssistantOwnershipService,
     GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,

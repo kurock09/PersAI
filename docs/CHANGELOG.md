@@ -4,6 +4,27 @@
 
 ### Added
 
+- Step 10 slice G3 recovery and ownership transfer baseline:
+  - added admin-governed ownership flow APIs:
+    - `POST /api/v1/admin/assistants/ownership/transfer`
+    - `POST /api/v1/admin/assistants/ownership/recover`
+  - extended dangerous action set and step-up challenge scope:
+    - `admin.assistant.transfer_ownership`
+    - `admin.assistant.recover_ownership`
+  - enforced ownership guardrails:
+    - operation constrained to admin workspace scope
+    - target owner must be existing workspace member
+    - target owner cannot already own another assistant in MVP one-user-one-assistant model
+  - formalized ownership-flow consequences in API/audit payload:
+    - reset and deletion are not triggered
+    - lifecycle versions remain preserved
+    - memory/chat/task ownership links rebind through assistant ownership relation
+    - channel bindings + SecretRef lifecycle metadata remain assistant-attached
+    - prior audit history remains immutable and preserved
+  - added ownership-flow audit events:
+    - `assistant.ownership_transferred`
+    - `assistant.ownership_recovered`
+  - added ADR `docs/ADR/045-recovery-and-ownership-transfer-g3.md`
 - Step 10 slice G2 abuse and rate-limit enforcement baseline:
   - added canonical abuse state persistence:
     - `assistant_abuse_guard_states` (per assistant+user+surface)

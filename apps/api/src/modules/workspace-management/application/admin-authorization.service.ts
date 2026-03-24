@@ -9,7 +9,9 @@ export type DangerousAdminActionCode =
   | "admin.plan.create"
   | "admin.plan.update"
   | "admin.rollout.apply"
-  | "admin.rollout.rollback";
+  | "admin.rollout.rollback"
+  | "admin.assistant.transfer_ownership"
+  | "admin.assistant.recover_ownership";
 
 export interface AdminAccessContext {
   userId: string;
@@ -36,6 +38,12 @@ interface StepUpTokenPayload {
 const STEP_UP_TTL_SECONDS = 10 * 60;
 
 function requiredRolesForDangerousAction(action: DangerousAdminActionCode): SupportedAdminRole[] {
+  if (
+    action === "admin.assistant.transfer_ownership" ||
+    action === "admin.assistant.recover_ownership"
+  ) {
+    return ["ops_admin", "super_admin"];
+  }
   if (action === "admin.rollout.apply" || action === "admin.rollout.rollback") {
     return ["ops_admin", "super_admin"];
   }

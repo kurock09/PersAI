@@ -14,4 +14,6 @@ export const AdminDangerousActionCode = {
   adminplanupdate: 'admin.plan.update',
   adminrolloutapply: 'admin.rollout.apply',
   adminrolloutrollback: 'admin.rollout.rollback',
+  adminassistanttransfer_ownership: 'admin.assistant.transfer_ownership',
+  adminassistantrecover_ownership: 'admin.assistant.recover_ownership',
 } as const;

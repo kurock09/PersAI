@@ -1,5 +1,73 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 10 G3 recovery and ownership transfer baseline
+
+### What changed
+
+- Added admin-governed ownership flow service and API surfaces:
+  - `POST /api/v1/admin/assistants/ownership/transfer`
+  - `POST /api/v1/admin/assistants/ownership/recover`
+- Added dedicated admin controller/service wiring for ownership transfer and ownership recovery with explicit guarded parsing and conflict checks.
+- Extended dangerous admin action scope and step-up action parsing with:
+  - `admin.assistant.transfer_ownership`
+  - `admin.assistant.recover_ownership`
+- Implemented ownership guardrails:
+  - assistant must be in admin workspace scope
+  - transfer flow requires `currentOwnerUserId` match
+  - target owner must be member of assistant workspace
+  - target owner must not already own another assistant (MVP one-user-one-assistant rule)
+- Defined and returned explicit consequences for attached resources:
+  - `resetTriggered=false`
+  - `deletionTriggered=false`
+  - lifecycle versions preserved
+  - memory/chat/task ownership links rebound via assistant owner relation
+  - bindings + SecretRef lifecycle metadata preserved
+  - prior audit history preserved
+- Added ownership-flow audit events:
+  - `assistant.ownership_transferred`
+  - `assistant.ownership_recovered`
+- Added ADR-045 and updated roadmap/docs for G3.
+
+### Why changed
+
+- G3 requires explicit recovery and ownership transfer flows that remain separate from reset/delete semantics, enforce ownership boundaries through governed rules, and preserve audit/RBAC assumptions.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/manage-admin-assistant-ownership.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-assistant-ownership.controller.ts`
+- `apps/api/src/modules/workspace-management/application/admin-authorization.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-security.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/manage-admin-assistant-ownership.test.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `docs/ADR/045-recovery-and-ownership-transfer-g3.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-assistant-ownership.test.ts` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-abuse-controls.test.ts` — passed
+
+### Known risks / intentional limits
+
+- No end-user self-service ownership transfer path in G3 (admin-governed flows only).
+- No cross-workspace ownership migration in G3.
+- Ownership transfer/recovery does not introduce automatic publish/reset/delete behavior and does not broaden into retention/compliance deletion workflows.
+
+### Next recommended step
+
+- Step 10 **G4** retention/delete/compliance baseline.
+
+### Ready commit message
+
+- `feat(api-contracts): add step 10 g3 admin ownership recovery and transfer flows with explicit resource consequences`
+
 ## 2026-03-24 - Step 10 G2 abuse and rate-limit enforcement baseline
 
 ### What changed

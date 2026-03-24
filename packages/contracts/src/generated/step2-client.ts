@@ -6,6 +6,8 @@
  */
 import type {
   AdminAbuseUnblockRequest,
+  AdminAssistantOwnershipRecoveryRequest,
+  AdminAssistantOwnershipTransferRequest,
   AdminPlanCreateRequest,
   AdminPlanUpdateRequest,
   AdminStepUpChallengeRequest,
@@ -41,6 +43,7 @@ import type {
   PatchAdminNotificationWebhookChannelRequest,
   PatchAdminNotificationWebhookChannelResponse,
   PostAdminAbuseUnblockResponse,
+  PostAdminAssistantOwnershipResponse,
   PostAdminPlanResponse,
   PostAdminPlatformRolloutRequest,
   PostAdminPlatformRolloutResponse,
@@ -1124,6 +1127,144 @@ export const postAdminAbuseControlsUnblock = async (adminAbuseUnblockRequest: Ad
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       adminAbuseUnblockRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Transfer assistant ownership between workspace members
+ */
+export type postAdminAssistantOwnershipTransferResponse200 = {
+  data: PostAdminAssistantOwnershipResponse
+  status: 200
+}
+
+export type postAdminAssistantOwnershipTransferResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAdminAssistantOwnershipTransferResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAdminAssistantOwnershipTransferResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type postAdminAssistantOwnershipTransferResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAdminAssistantOwnershipTransferResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAdminAssistantOwnershipTransferResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAdminAssistantOwnershipTransferResponseSuccess = (postAdminAssistantOwnershipTransferResponse200) & {
+  headers: Headers;
+};
+export type postAdminAssistantOwnershipTransferResponseError = (postAdminAssistantOwnershipTransferResponse400 | postAdminAssistantOwnershipTransferResponse401 | postAdminAssistantOwnershipTransferResponse403 | postAdminAssistantOwnershipTransferResponse404 | postAdminAssistantOwnershipTransferResponse409 | postAdminAssistantOwnershipTransferResponse500) & {
+  headers: Headers;
+};
+
+export type postAdminAssistantOwnershipTransferResponse = (postAdminAssistantOwnershipTransferResponseSuccess | postAdminAssistantOwnershipTransferResponseError)
+
+export const getPostAdminAssistantOwnershipTransferUrl = () => {
+
+
+  
+
+  return `/admin/assistants/ownership/transfer`
+}
+
+export const postAdminAssistantOwnershipTransfer = async (adminAssistantOwnershipTransferRequest: AdminAssistantOwnershipTransferRequest, options?: RequestInit): Promise<postAdminAssistantOwnershipTransferResponse> => {
+  
+  return customFetch<postAdminAssistantOwnershipTransferResponse>(getPostAdminAssistantOwnershipTransferUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      adminAssistantOwnershipTransferRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Recover assistant ownership to designated workspace member
+ */
+export type postAdminAssistantOwnershipRecoverResponse200 = {
+  data: PostAdminAssistantOwnershipResponse
+  status: 200
+}
+
+export type postAdminAssistantOwnershipRecoverResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAdminAssistantOwnershipRecoverResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAdminAssistantOwnershipRecoverResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type postAdminAssistantOwnershipRecoverResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAdminAssistantOwnershipRecoverResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAdminAssistantOwnershipRecoverResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAdminAssistantOwnershipRecoverResponseSuccess = (postAdminAssistantOwnershipRecoverResponse200) & {
+  headers: Headers;
+};
+export type postAdminAssistantOwnershipRecoverResponseError = (postAdminAssistantOwnershipRecoverResponse400 | postAdminAssistantOwnershipRecoverResponse401 | postAdminAssistantOwnershipRecoverResponse403 | postAdminAssistantOwnershipRecoverResponse404 | postAdminAssistantOwnershipRecoverResponse409 | postAdminAssistantOwnershipRecoverResponse500) & {
+  headers: Headers;
+};
+
+export type postAdminAssistantOwnershipRecoverResponse = (postAdminAssistantOwnershipRecoverResponseSuccess | postAdminAssistantOwnershipRecoverResponseError)
+
+export const getPostAdminAssistantOwnershipRecoverUrl = () => {
+
+
+  
+
+  return `/admin/assistants/ownership/recover`
+}
+
+export const postAdminAssistantOwnershipRecover = async (adminAssistantOwnershipRecoveryRequest: AdminAssistantOwnershipRecoveryRequest, options?: RequestInit): Promise<postAdminAssistantOwnershipRecoverResponse> => {
+  
+  return customFetch<postAdminAssistantOwnershipRecoverResponse>(getPostAdminAssistantOwnershipRecoverUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      adminAssistantOwnershipRecoveryRequest,)
   }
 );}
 

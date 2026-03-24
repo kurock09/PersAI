@@ -621,6 +621,40 @@ Behavior baseline:
   - applies temporary admin override window
   - writes audit event `admin.abuse_unblock_applied`
 
+## Step 10 G3 recovery and ownership transfer flows
+
+### POST /api/v1/admin/assistants/ownership/transfer
+
+- authenticated caller only.
+- requires dangerous-action role (`ops_admin|super_admin`) or legacy owner fallback.
+- requires `x-persai-step-up-token` header issued for action `admin.assistant.transfer_ownership`.
+- request body:
+  - `assistantId` (required)
+  - `currentOwnerUserId` (required; must match current assistant owner)
+  - `targetOwnerUserId` (required; must be workspace member and must not already own another assistant)
+  - `reason` (optional)
+- behavior:
+  - rebinds assistant owner from current owner to target owner
+  - keeps lifecycle versions and governance/bindings/SecretRef metadata attached to assistant
+  - does not trigger reset or delete semantics
+  - writes audit event `assistant.ownership_transferred`
+
+### POST /api/v1/admin/assistants/ownership/recover
+
+- authenticated caller only.
+- requires dangerous-action role (`ops_admin|super_admin`) or legacy owner fallback.
+- requires `x-persai-step-up-token` header issued for action `admin.assistant.recover_ownership`.
+- request body:
+  - `assistantId` (required)
+  - `recoveredOwnerUserId` (required; must be workspace member and must not already own another assistant)
+  - `supportTicketRef` (optional)
+  - `reason` (optional)
+- behavior:
+  - applies governed recovery rebind when direct owner-driven transfer is not available
+  - preserves assistant-attached resources (memory/chat/task bindings, integration bindings, SecretRef metadata)
+  - preserves existing audit history and appends new admin recovery event
+  - writes audit event `assistant.ownership_recovered`
+
 ## Step 8 E6 provider and fallback baseline
 
 - E6 adds no new public REST endpoints; this is control-plane materialization hardening.
@@ -649,12 +683,15 @@ Behavior baseline:
 - requires action-scoped dangerous-write role or legacy owner fallback:
   - `admin.plan.create|admin.plan.update` -> `business_admin|super_admin`
   - `admin.rollout.apply|admin.rollout.rollback` -> `ops_admin|super_admin`
+  - `admin.assistant.transfer_ownership|admin.assistant.recover_ownership` -> `ops_admin|super_admin`
 - request body:
   - `action`:
     - `admin.plan.create`
     - `admin.plan.update`
     - `admin.rollout.apply`
     - `admin.rollout.rollback`
+    - `admin.assistant.transfer_ownership`
+    - `admin.assistant.recover_ownership`
 - returns short-lived signed step-up token scoped to:
   - actor user
   - workspace

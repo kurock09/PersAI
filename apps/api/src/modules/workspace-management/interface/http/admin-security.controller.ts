@@ -18,12 +18,14 @@ function parseStepUpAction(value: unknown): DangerousAdminActionCode {
     value === "admin.plan.create" ||
     value === "admin.plan.update" ||
     value === "admin.rollout.apply" ||
-    value === "admin.rollout.rollback"
+    value === "admin.rollout.rollback" ||
+    value === "admin.assistant.transfer_ownership" ||
+    value === "admin.assistant.recover_ownership"
   ) {
     return value;
   }
   throw new BadRequestException(
-    "action must be one of: admin.plan.create, admin.plan.update, admin.rollout.apply, admin.rollout.rollback."
+    "action must be one of: admin.plan.create, admin.plan.update, admin.rollout.apply, admin.rollout.rollback, admin.assistant.transfer_ownership, admin.assistant.recover_ownership."
   );
 }
 

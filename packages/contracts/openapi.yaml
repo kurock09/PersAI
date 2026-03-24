@@ -754,6 +754,130 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/assistants/ownership/transfer:
+    post:
+      operationId: postAdminAssistantOwnershipTransfer
+      summary: Transfer assistant ownership between workspace members
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: false
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.assistant.transfer_ownership.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminAssistantOwnershipTransferRequest"
+      responses:
+        "200":
+          description: Ownership transfer completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminAssistantOwnershipResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (dangerous admin action + step-up required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found in admin workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Ownership transfer conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/assistants/ownership/recover:
+    post:
+      operationId: postAdminAssistantOwnershipRecover
+      summary: Recover assistant ownership to designated workspace member
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: false
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.assistant.recover_ownership.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminAssistantOwnershipRecoveryRequest"
+      responses:
+        "200":
+          description: Ownership recovery completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminAssistantOwnershipResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (dangerous admin action + step-up required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found in admin workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Ownership recovery conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/chats/web:
     get:
       operationId: getAssistantWebChats
@@ -3689,6 +3813,126 @@ components:
           nullable: true
         unblock:
           $ref: "#/components/schemas/AdminAbuseUnblockState"
+    AdminAssistantOwnershipTransferRequest:
+      type: object
+      required:
+        - assistantId
+        - currentOwnerUserId
+        - targetOwnerUserId
+      properties:
+        assistantId:
+          type: string
+          format: uuid
+        currentOwnerUserId:
+          type: string
+          format: uuid
+        targetOwnerUserId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          nullable: true
+          maxLength: 255
+    AdminAssistantOwnershipRecoveryRequest:
+      type: object
+      required:
+        - assistantId
+        - recoveredOwnerUserId
+      properties:
+        assistantId:
+          type: string
+          format: uuid
+        recoveredOwnerUserId:
+          type: string
+          format: uuid
+        supportTicketRef:
+          type: string
+          nullable: true
+          maxLength: 255
+        reason:
+          type: string
+          nullable: true
+          maxLength: 255
+    AssistantOwnershipFlowMode:
+      type: string
+      enum:
+        - transfer
+        - recovery
+    AssistantOwnershipConsequencesState:
+      type: object
+      required:
+        - resetTriggered
+        - deletionTriggered
+        - lifecycleVersionsPreserved
+        - memoryRegistryOwnershipRebound
+        - chatOwnershipRebound
+        - taskRegistryOwnershipRebound
+        - bindingsPreserved
+        - secretRefsPreserved
+        - auditHistoryPreserved
+      properties:
+        resetTriggered:
+          type: boolean
+        deletionTriggered:
+          type: boolean
+        lifecycleVersionsPreserved:
+          type: boolean
+        memoryRegistryOwnershipRebound:
+          type: boolean
+        chatOwnershipRebound:
+          type: boolean
+        taskRegistryOwnershipRebound:
+          type: boolean
+        bindingsPreserved:
+          type: boolean
+        secretRefsPreserved:
+          type: boolean
+        auditHistoryPreserved:
+          type: boolean
+    AdminAssistantOwnershipState:
+      type: object
+      required:
+        - mode
+        - assistantId
+        - workspaceId
+        - previousOwnerUserId
+        - newOwnerUserId
+        - supportTicketRef
+        - reason
+        - consequences
+      properties:
+        mode:
+          $ref: "#/components/schemas/AssistantOwnershipFlowMode"
+        assistantId:
+          type: string
+          format: uuid
+        workspaceId:
+          type: string
+          format: uuid
+        previousOwnerUserId:
+          type: string
+          format: uuid
+        newOwnerUserId:
+          type: string
+          format: uuid
+        supportTicketRef:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        consequences:
+          $ref: "#/components/schemas/AssistantOwnershipConsequencesState"
+    PostAdminAssistantOwnershipResponse:
+      type: object
+      required:
+        - ownership
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        ownership:
+          $ref: "#/components/schemas/AdminAssistantOwnershipState"
     GetAdminPlatformRolloutsResponse:
       type: object
       required:
@@ -3718,6 +3962,8 @@ components:
         - admin.plan.update
         - admin.rollout.apply
         - admin.rollout.rollback
+        - admin.assistant.transfer_ownership
+        - admin.assistant.recover_ownership
     AdminStepUpChallengeRequest:
       type: object
       required:

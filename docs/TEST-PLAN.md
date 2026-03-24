@@ -246,3 +246,15 @@ Required in CI:
   - `test/manage-admin-abuse-controls.test.ts`
 - Existing enforcement baseline remains valid:
   - `test/enforcement-points.test.ts`
+
+## Step 10 G3 focus
+
+- Contracts/OpenAPI generation includes admin ownership flow endpoints:
+  - `POST /admin/assistants/ownership/transfer`
+  - `POST /admin/assistants/ownership/recover`
+- API lint/typecheck validate:
+  - dangerous-action step-up extension (`admin.assistant.transfer_ownership|admin.assistant.recover_ownership`)
+  - workspace-bound ownership guardrails (same-workspace membership + MVP one-user-one-assistant constraint)
+  - explicit non-overlap of transfer/recovery vs reset/delete semantics in response/audit consequences
+- Targeted API test validates ownership flow service behavior:
+  - `test/manage-admin-assistant-ownership.test.ts`

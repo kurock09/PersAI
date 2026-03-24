@@ -51,6 +51,10 @@ Postgres with Prisma.
 - apply_error_message (nullable)
 - created_at
 - updated_at
+- Step 10 G3 ownership transfer/recovery semantics:
+  - `user_id` can be admin-rebound under governed transfer/recovery flow
+  - one-user-one-assistant uniqueness remains enforced (`user_id` unique)
+  - ownership rebind is not reset/delete and does not mutate published version history
 
 ### assistant_published_versions (Step 3 A3 baseline)
 
@@ -568,6 +572,10 @@ Postgres with Prisma.
 - F5 adds workspace-scoped admin system-notification channel and delivery-log tables; delivery is system-oriented and does not replace admin console workflows
 - F6 adds explicit platform rollout operation tables with per-assistant governance snapshots so progressive rollout and rollback remain platform-managed and do not mutate user-owned draft/published-version truth
 - G1 hardens assistant managed SecretRef lifecycle in `assistant_governance.secret_refs` with rotation/revoke/emergency-revoke metadata and TTL-derived expiration status; secret values remain out of broad domain/UI surfaces
+- G3 adds governed ownership transfer/recovery flow over `assistants.user_id` with explicit resource-consequence policy:
+  - memory/chat/task owner-scoped links rebind through assistant ownership relation
+  - channel bindings and `assistant_governance.secret_refs` remain assistant-attached
+  - prior audit rows remain immutable; transfer/recovery adds append-only admin-action events
 - G2 adds canonical abuse/rate-limit state tables for per-user/per-assistant throttles, channel-aware hooks, temporary slowdown/block windows, and admin unblock override tracking
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
