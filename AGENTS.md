@@ -7,40 +7,6 @@ The goal is to build a clean platform baseline, not product breadth.
 ## Current phase
 Foundation Phase only.
 
-### Step 1
-- monorepo scaffold
-- docs baseline
-- CI baseline
-- infra baseline
-- local/dev baseline
-- logger/config/request context baseline
-- Prisma baseline
-- app skeletons
-- health/readiness/metrics baseline
-
-### Step 2
-- Clerk auth integration
-- internal app user model
-- GET /api/v1/me
-- POST /api/v1/me/onboarding
-- workspace create/update flow
-- protected /app
-- onboarding gate
-- smoke/e2e for this flow
-
-## Out of scope
-- chat
-- OpenClaw runtime integration
-- channels
-- Telegram
-- billing provider integration
-- knowledge retrieval
-- admin console
-- background jobs implementation
-- GraphQL
-- WebSockets in apps/api
-- product feature flags
-- dead placeholder code
 
 ## Mandatory startup reading order
 1. AGENTS.md

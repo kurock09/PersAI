@@ -1,5 +1,74 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 10 G1 secret lifecycle hardening baseline
+
+### What changed
+
+- Added canonical managed SecretRef lifecycle hardening in assistant governance `secret_refs` (`persai.secretRefs.v1`) with Telegram baseline entry `refs.telegram_bot_token`.
+- Added Telegram secret lifecycle APIs:
+  - `POST /api/v1/assistant/integrations/telegram/rotate`
+  - `POST /api/v1/assistant/integrations/telegram/revoke`
+  - `POST /api/v1/assistant/integrations/telegram/emergency-revoke`
+- Extended Telegram connect payload to accept optional `ttlDays` (`1..365`) and rotate SecretRef lifecycle metadata during connect/rotate.
+- Extended Telegram integration state response with non-sensitive `secretLifecycle` metadata:
+  - lifecycle status (`active|revoked|emergency_revoked|expired|legacy_unmanaged`)
+  - ref key / manager / version
+  - rotate/revoke/expiration timestamps and legacy fallback marker
+- Hardened OpenClaw channel/surface projection so Telegram provider readiness now checks binding + SecretRef lifecycle usability (with narrow legacy compatibility fallback for pre-G1 active bindings).
+- Added secret lifecycle audit events:
+  - `assistant.secret_ref_rotated`
+  - `assistant.secret_ref_revoked`
+  - `assistant.secret_ref_emergency_revoked`
+- Added ADR-043 and updated roadmap/docs for G1.
+
+### Why changed
+
+- Product baseline requires managed secret lifecycle properties (rotation, revoke, TTL, audit, emergency revoke) while preserving SecretRef delivery discipline and avoiding secret-value exposure across UI/domain surfaces.
+
+### Files touched (high level)
+
+- `apps/api/src/modules/workspace-management/application/assistant-secret-refs-lifecycle.ts`
+- `apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts`
+- `apps/api/src/modules/workspace-management/application/revoke-telegram-integration-secret.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-telegram-integration-state.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-channel-surface-bindings.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-integration.types.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-governance.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-governance.repository.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/telegram-integration.test.ts`
+- `apps/api/test/openclaw-channel-surface-bindings.test.ts`
+- `apps/api/test/assistant-secret-refs-lifecycle.test.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `docs/ADR/043-secret-lifecycle-hardening-g1.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-integration.test.ts` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/openclaw-channel-surface-bindings.test.ts` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-secret-refs-lifecycle.test.ts` — passed
+
+### Known risks / intentional limits
+
+- G1 lifecycle hardening is implemented for assistant managed SecretRefs (Telegram baseline); broad provider matrix expansion is deferred.
+- TTL is enforced at read/evaluation time (computed `expired` status); no background scheduler is added in this slice.
+- Existing admin notification webhook `signingSecret` storage model is unchanged in G1.
+
+### Next recommended step
+
+- Step 10 **G2** abuse and rate limit enforcement.
+
+### Ready commit message
+
+- `feat(api-contracts): add step 10 g1 managed secret lifecycle rotation revoke ttl and emergency revoke for telegram secret refs`
+
 ## 2026-03-24 - Step 9 F6 progressive rollout and rollback controls baseline
 
 ### What changed

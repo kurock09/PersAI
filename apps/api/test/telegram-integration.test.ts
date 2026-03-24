@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { ConnectTelegramIntegrationService } from "../src/modules/workspace-management/application/connect-telegram-integration.service";
 import { ResolveTelegramIntegrationStateService } from "../src/modules/workspace-management/application/resolve-telegram-integration-state.service";
 import { UpdateTelegramIntegrationConfigService } from "../src/modules/workspace-management/application/update-telegram-integration-config.service";
+import { RevokeTelegramIntegrationSecretService } from "../src/modules/workspace-management/application/revoke-telegram-integration-secret.service";
 import type { Assistant } from "../src/modules/workspace-management/domain/assistant.entity";
 import type { AssistantGovernance } from "../src/modules/workspace-management/domain/assistant-governance.entity";
 
@@ -24,7 +25,7 @@ const assistant: Assistant = {
   updatedAt: new Date()
 };
 
-const governance: AssistantGovernance = {
+let governance: AssistantGovernance = {
   id: "gov-1",
   assistantId: assistant.id,
   capabilityEnvelope: null,
@@ -64,7 +65,14 @@ async function run(): Promise<void> {
   };
   const governanceRepository = {
     findByAssistantId: async () => governance,
-    createBaseline: async () => governance
+    createBaseline: async () => governance,
+    updateSecretRefs: async (_assistantId: string, secretRefs: Record<string, unknown> | null) => {
+      governance = {
+        ...governance,
+        secretRefs
+      };
+      return governance;
+    }
   };
   const capabilityResolver = {
     execute: async () => ({
@@ -155,6 +163,13 @@ async function run(): Promise<void> {
     resolveStateService,
     auditEventService as never
   );
+  const revokeService = new RevokeTelegramIntegrationSecretService(
+    assistantRepository as never,
+    governanceRepository as never,
+    bindingRepository as never,
+    resolveStateService,
+    auditEventService as never
+  );
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () =>
@@ -164,6 +179,8 @@ async function run(): Promise<void> {
   try {
     const connected = await connectService.execute("user-1", { botToken: "123456:ABCDEF01234567890123" });
     assert.equal(connected.connectionStatus, "connected");
+    assert.equal(connected.secretLifecycle.status, "active");
+    assert.equal(connected.secretLifecycle.version, 1);
     assert.equal(connected.bot.displayName, "PersAI Bot");
     assert.equal(connected.bot.username, "persai_bot");
     assert.equal(connected.configPanel.available, true);
@@ -177,6 +194,19 @@ async function run(): Promise<void> {
     assert.equal(updated.configPanel.settings.defaultParseMode, "markdown");
     assert.equal(updated.configPanel.settings.outboundAssistantMessagesEnabled, false);
     assert.equal(updated.configPanel.settings.notes, "Only outbound notifications for now");
+
+    const revoked = await revokeService.execute("user-1", { reason: "token leaked" }, false);
+    assert.equal(revoked.connectionStatus, "not_connected");
+    assert.equal(revoked.secretLifecycle.status, "revoked");
+    assert.equal(revoked.secretLifecycle.revokeReason, "token leaked");
+
+    const emergencyRevoked = await revokeService.execute(
+      "user-1",
+      { reason: "incident response" },
+      true
+    );
+    assert.equal(emergencyRevoked.secretLifecycle.status, "emergency_revoked");
+    assert.equal(emergencyRevoked.secretLifecycle.revokeReason, "incident response");
   } finally {
     globalThis.fetch = originalFetch;
   }

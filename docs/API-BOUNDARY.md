@@ -551,6 +551,44 @@ Behavior baseline:
 - E4 keeps web as primary control-plane surface and does not move deep assistant config into Telegram.
 - E4 does not add WhatsApp/MAX delivery implementation.
 
+## Step 10 G1 secret lifecycle hardening
+
+### POST /api/v1/assistant/integrations/telegram/connect
+
+- request now supports optional `ttlDays` (`1..365`) for managed SecretRef lifecycle.
+- successful connect rotates/creates managed Telegram SecretRef metadata in governance (`secret_refs`) and keeps secret values out of response payloads.
+
+### POST /api/v1/assistant/integrations/telegram/rotate
+
+- authenticated caller only.
+- request body:
+  - `botToken` (required)
+  - `ttlDays` (optional, `1..365`)
+- verifies token and rotates managed Telegram SecretRef version/lifecycle metadata.
+
+### POST /api/v1/assistant/integrations/telegram/revoke
+
+- authenticated caller only.
+- optional request body:
+  - `reason` (string|null)
+- revokes managed Telegram SecretRef and disables Telegram binding usage.
+
+### POST /api/v1/assistant/integrations/telegram/emergency-revoke
+
+- authenticated caller only.
+- optional request body:
+  - `reason` (string|null)
+- emergency-revokes managed Telegram SecretRef and disables Telegram binding usage immediately.
+
+### GET /api/v1/assistant/integrations/telegram
+
+- response now includes non-sensitive `secretLifecycle` metadata:
+  - lifecycle status (`active|revoked|emergency_revoked|expired|legacy_unmanaged`)
+  - ref key / manager / version
+  - rotate/revoke/expiration timestamps
+  - legacy compatibility fallback flag
+- secret values are not returned.
+
 ## Step 8 E6 provider and fallback baseline
 
 - E6 adds no new public REST endpoints; this is control-plane materialization hardening.

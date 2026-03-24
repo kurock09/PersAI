@@ -10,6 +10,11 @@ import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
 } from "../domain/assistant-channel-surface-binding.repository";
+import {
+  ASSISTANT_GOVERNANCE_REPOSITORY,
+  type AssistantGovernanceRepository
+} from "../domain/assistant-governance.repository";
+import { resolveTelegramSecretLifecycleState } from "./assistant-secret-refs-lifecycle";
 
 type SurfaceSeed = {
   provider: OpenClawProviderKey;
@@ -90,7 +95,9 @@ const PROVIDERS: OpenClawProviderKey[] = [
 export class ResolveOpenClawChannelSurfaceBindingsService {
   constructor(
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
-    private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository
+    private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
+    @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository
   ) {}
 
   async execute(params: {
@@ -104,10 +111,17 @@ export class ResolveOpenClawChannelSurfaceBindingsService {
         assistantId,
         "telegram"
       );
+    const governance = await this.assistantGovernanceRepository.findByAssistantId(assistantId);
+    const telegramSecretLifecycle = resolveTelegramSecretLifecycleState(governance?.secretRefs ?? null, {
+      legacyFallbackWhenMissing: telegramConfigured
+    });
+    const telegramSecretUsable =
+      telegramSecretLifecycle.status === "active" ||
+      telegramSecretLifecycle.status === "legacy_unmanaged";
 
     const providerConfigured: Record<OpenClawProviderKey, boolean> = {
       web_internal: true,
-      telegram: telegramConfigured,
+      telegram: telegramConfigured && telegramSecretUsable,
       whatsapp: false,
       max: false,
       system_notifications: true

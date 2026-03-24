@@ -4,6 +4,29 @@
 
 ### Added
 
+- Step 10 slice G1 secret lifecycle hardening baseline:
+  - hardened canonical assistant SecretRef lifecycle envelope in governance:
+    - `assistant_governance.secret_refs` schema `persai.secretRefs.v1`
+    - Telegram managed entry baseline: `refs.telegram_bot_token`
+    - lifecycle metadata includes version, status, rotate/revoke timestamps, TTL expiration timestamp, and revoke reason (no secret values exposed)
+  - extended Telegram integration API with lifecycle controls:
+    - `POST /api/v1/assistant/integrations/telegram/rotate`
+    - `POST /api/v1/assistant/integrations/telegram/revoke`
+    - `POST /api/v1/assistant/integrations/telegram/emergency-revoke`
+  - upgraded `POST /api/v1/assistant/integrations/telegram/connect` to support optional managed secret TTL (`ttlDays`)
+  - enriched Telegram integration read model with non-sensitive lifecycle state:
+    - status (`active|revoked|emergency_revoked|expired|legacy_unmanaged`)
+    - ref key/manager/version
+    - rotation/revoke/expiration timestamps
+    - legacy compatibility fallback marker for pre-G1 bindings
+  - hardened OpenClaw channel/surface readiness projection for Telegram:
+    - provider considered configured only when binding and SecretRef lifecycle are usable
+    - narrow legacy compatibility fallback preserved for pre-G1 active bindings
+  - added secret lifecycle audit events:
+    - `assistant.secret_ref_rotated`
+    - `assistant.secret_ref_revoked`
+    - `assistant.secret_ref_emergency_revoked`
+  - added ADR `docs/ADR/043-secret-lifecycle-hardening-g1.md`
 - Step 9 slice F6 progressive rollout and rollback controls baseline:
   - added canonical platform rollout persistence:
     - `assistant_platform_rollouts`

@@ -15,6 +15,7 @@ import { ResolveRuntimeProviderRoutingService } from "./application/resolve-runt
 import { ResolveTelegramIntegrationStateService } from "./application/resolve-telegram-integration-state.service";
 import { ConnectTelegramIntegrationService } from "./application/connect-telegram-integration.service";
 import { UpdateTelegramIntegrationConfigService } from "./application/update-telegram-integration-config.service";
+import { RevokeTelegramIntegrationSecretService } from "./application/revoke-telegram-integration-secret.service";
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
 import { AppendAssistantAuditEventService } from "./application/append-assistant-audit-event.service";
 import { AdminAuthorizationService } from "./application/admin-authorization.service";
@@ -110,6 +111,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ResolveTelegramIntegrationStateService,
     ConnectTelegramIntegrationService,
     UpdateTelegramIntegrationConfigService,
+    RevokeTelegramIntegrationSecretService,
     ResolvePlanVisibilityService,
     EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,

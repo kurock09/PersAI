@@ -214,3 +214,19 @@ Required in CI:
 - Web app-flow tests validate platform rollout controls section rendering and apply/rollback action wiring.
 - Full regression baseline remains green:
   - `pnpm run test:step2`
+
+## Step 10 G1 focus
+
+- Contracts/OpenAPI generation includes Telegram secret lifecycle endpoints:
+  - `POST /assistant/integrations/telegram/rotate`
+  - `POST /assistant/integrations/telegram/revoke`
+  - `POST /assistant/integrations/telegram/emergency-revoke`
+- API lint/typecheck validate:
+  - managed SecretRef lifecycle envelope resolution from governance `secret_refs`
+  - TTL-driven lifecycle status evaluation (`active` vs computed `expired`)
+  - revoke and emergency-revoke behavior with binding disable
+  - audit events for rotate/revoke/emergency-revoke actions
+- Targeted API tests validate lifecycle behavior:
+  - `test/telegram-integration.test.ts`
+  - `test/openclaw-channel-surface-bindings.test.ts`
+  - `test/assistant-secret-refs-lifecycle.test.ts`

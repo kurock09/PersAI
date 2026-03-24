@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import type { AssistantGovernance as PrismaAssistantGovernance, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { AssistantGovernance as PrismaAssistantGovernance } from "@prisma/client";
 import { createDefaultMemoryControlEnvelope } from "../../domain/assistant-memory-control.defaults";
 import { createDefaultTasksControlEnvelope } from "../../domain/assistant-tasks-control.defaults";
 import type { AssistantGovernanceRepository } from "../../domain/assistant-governance.repository";
@@ -30,6 +31,33 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
     });
 
     return this.mapToDomain(governance);
+  }
+
+  async updateSecretRefs(
+    assistantId: string,
+    secretRefs: Record<string, unknown> | null
+  ): Promise<AssistantGovernance> {
+    let row = await this.prisma.assistantGovernance.findUnique({
+      where: { assistantId }
+    });
+    if (row === null) {
+      row = await this.prisma.assistantGovernance.create({
+        data: {
+          assistantId,
+          memoryControl: createDefaultMemoryControlEnvelope() as Prisma.InputJsonValue,
+          tasksControl: createDefaultTasksControlEnvelope() as Prisma.InputJsonValue,
+          quotaPlanCode: await this.resolveDefaultFirstRegistrationPlanCode()
+        }
+      });
+    }
+    const updated = await this.prisma.assistantGovernance.update({
+      where: { assistantId: row.assistantId },
+      data: {
+        secretRefs:
+          secretRefs === null ? Prisma.DbNull : (secretRefs as Prisma.InputJsonValue)
+      }
+    });
+    return this.mapToDomain(updated);
   }
 
   private async resolveDefaultFirstRegistrationPlanCode(): Promise<string | null> {

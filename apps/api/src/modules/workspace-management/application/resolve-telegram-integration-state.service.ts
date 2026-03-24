@@ -10,6 +10,7 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import type { TelegramIntegrationState } from "./telegram-integration.types";
+import { resolveTelegramSecretLifecycleState } from "./assistant-secret-refs-lifecycle";
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -65,11 +66,15 @@ export class ResolveTelegramIntegrationStateService {
     const inboundUserMessagesEnabled = policy?.inboundUserMessages === true;
     const outboundAssistantMessagesEnabled = policy?.outboundAssistantMessages !== false;
 
+    const secretLifecycle = resolveTelegramSecretLifecycleState(governance.secretRefs, {
+      legacyFallbackWhenMissing: binding !== null && binding.bindingState === "active"
+    });
     const hasConnectedBinding =
       binding !== null &&
       binding.bindingState === "active" &&
       binding.connectedAt !== null &&
-      binding.disconnectedAt === null;
+      binding.disconnectedAt === null &&
+      (secretLifecycle.status === "active" || secretLifecycle.status === "legacy_unmanaged");
 
     return {
       schema: "persai.telegramIntegration.v1",
@@ -88,6 +93,7 @@ export class ResolveTelegramIntegrationStateService {
       tokenHint: {
         lastFour: binding?.tokenLastFour ?? null
       },
+      secretLifecycle,
       configPanel: {
         available: hasConnectedBinding,
         settings: {

@@ -5,7 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface AssistantTelegramConnectRequest {
+export interface AssistantTelegramRotateRequest {
   botToken: string;
   /**
    * @minimum 1

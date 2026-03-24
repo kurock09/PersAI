@@ -399,6 +399,153 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/telegram/rotate:
+    post:
+      operationId: postAssistantTelegramRotate
+      summary: Rotate Telegram bot secret reference and reconnect current assistant binding
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantTelegramRotateRequest"
+      responses:
+        "200":
+          description: Telegram integration state after secret rotation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantTelegramIntegrationResponse"
+        "400":
+          description: Validation or verification error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Telegram channel not allowed by effective capability
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/telegram/revoke:
+    post:
+      operationId: postAssistantTelegramRevoke
+      summary: Revoke Telegram secret reference and disable Telegram binding
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantTelegramSecretRevokeRequest"
+      responses:
+        "200":
+          description: Telegram integration state after revoke
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantTelegramIntegrationResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Managed Telegram secret reference is not available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/telegram/emergency-revoke:
+    post:
+      operationId: postAssistantTelegramEmergencyRevoke
+      summary: Emergency revoke Telegram secret reference and disable Telegram binding immediately
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantTelegramSecretRevokeRequest"
+      responses:
+        "200":
+          description: Telegram integration state after emergency revoke
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantTelegramIntegrationResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Managed Telegram secret reference is not available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/integrations/telegram/config:
     patch:
       operationId: patchAssistantTelegramConfig
@@ -2094,6 +2241,63 @@ components:
         lastFour:
           type: string
           nullable: true
+    TelegramSecretLifecycleStatus:
+      type: string
+      enum:
+        - active
+        - revoked
+        - emergency_revoked
+        - expired
+        - legacy_unmanaged
+    TelegramSecretLifecycleState:
+      type: object
+      required:
+        - status
+        - refKey
+        - manager
+        - version
+        - rotatedAt
+        - expiresAt
+        - revokedAt
+        - emergencyRevokedAt
+        - revokeReason
+        - legacyFallbackUsed
+      properties:
+        status:
+          $ref: "#/components/schemas/TelegramSecretLifecycleStatus"
+        refKey:
+          type: string
+          nullable: true
+        manager:
+          type: string
+          nullable: true
+          enum:
+            - backend_vault_kms
+        version:
+          type: integer
+          minimum: 1
+          nullable: true
+        rotatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+        emergencyRevokedAt:
+          type: string
+          format: date-time
+          nullable: true
+        revokeReason:
+          type: string
+          nullable: true
+        legacyFallbackUsed:
+          type: boolean
     TelegramIntegrationConfigSettings:
       type: object
       required:
@@ -2136,6 +2340,7 @@ components:
         - connectedAt
         - bot
         - tokenHint
+        - secretLifecycle
         - configPanel
         - notes
       properties:
@@ -2165,6 +2370,8 @@ components:
           $ref: "#/components/schemas/TelegramIntegrationBotState"
         tokenHint:
           $ref: "#/components/schemas/TelegramIntegrationTokenHint"
+        secretLifecycle:
+          $ref: "#/components/schemas/TelegramSecretLifecycleState"
         configPanel:
           $ref: "#/components/schemas/TelegramIntegrationConfigPanel"
         notes:
@@ -2178,6 +2385,29 @@ components:
       properties:
         botToken:
           type: string
+        ttlDays:
+          type: integer
+          minimum: 1
+          maximum: 365
+          nullable: true
+    AssistantTelegramRotateRequest:
+      type: object
+      required:
+        - botToken
+      properties:
+        botToken:
+          type: string
+        ttlDays:
+          type: integer
+          minimum: 1
+          maximum: 365
+          nullable: true
+    AssistantTelegramSecretRevokeRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          nullable: true
     AssistantTelegramConfigUpdateRequest:
       type: object
       minProperties: 1

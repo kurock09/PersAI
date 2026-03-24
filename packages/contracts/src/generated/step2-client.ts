@@ -13,6 +13,8 @@ import type {
   AssistantRollbackRequest,
   AssistantTelegramConfigUpdateRequest,
   AssistantTelegramConnectRequest,
+  AssistantTelegramRotateRequest,
+  AssistantTelegramSecretRevokeRequest,
   AssistantWebChatDeleteRequest,
   AssistantWebChatRenameRequest,
   AssistantWebChatTurnRequest,
@@ -662,6 +664,198 @@ export const postAssistantTelegramConnect = async (assistantTelegramConnectReque
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       assistantTelegramConnectRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Rotate Telegram bot secret reference and reconnect current assistant binding
+ */
+export type postAssistantTelegramRotateResponse200 = {
+  data: GetAssistantTelegramIntegrationResponse
+  status: 200
+}
+
+export type postAssistantTelegramRotateResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAssistantTelegramRotateResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantTelegramRotateResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantTelegramRotateResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantTelegramRotateResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantTelegramRotateResponseSuccess = (postAssistantTelegramRotateResponse200) & {
+  headers: Headers;
+};
+export type postAssistantTelegramRotateResponseError = (postAssistantTelegramRotateResponse400 | postAssistantTelegramRotateResponse401 | postAssistantTelegramRotateResponse404 | postAssistantTelegramRotateResponse409 | postAssistantTelegramRotateResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantTelegramRotateResponse = (postAssistantTelegramRotateResponseSuccess | postAssistantTelegramRotateResponseError)
+
+export const getPostAssistantTelegramRotateUrl = () => {
+
+
+  
+
+  return `/assistant/integrations/telegram/rotate`
+}
+
+export const postAssistantTelegramRotate = async (assistantTelegramRotateRequest: AssistantTelegramRotateRequest, options?: RequestInit): Promise<postAssistantTelegramRotateResponse> => {
+  
+  return customFetch<postAssistantTelegramRotateResponse>(getPostAssistantTelegramRotateUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantTelegramRotateRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Revoke Telegram secret reference and disable Telegram binding
+ */
+export type postAssistantTelegramRevokeResponse200 = {
+  data: GetAssistantTelegramIntegrationResponse
+  status: 200
+}
+
+export type postAssistantTelegramRevokeResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAssistantTelegramRevokeResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantTelegramRevokeResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantTelegramRevokeResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantTelegramRevokeResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantTelegramRevokeResponseSuccess = (postAssistantTelegramRevokeResponse200) & {
+  headers: Headers;
+};
+export type postAssistantTelegramRevokeResponseError = (postAssistantTelegramRevokeResponse400 | postAssistantTelegramRevokeResponse401 | postAssistantTelegramRevokeResponse404 | postAssistantTelegramRevokeResponse409 | postAssistantTelegramRevokeResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantTelegramRevokeResponse = (postAssistantTelegramRevokeResponseSuccess | postAssistantTelegramRevokeResponseError)
+
+export const getPostAssistantTelegramRevokeUrl = () => {
+
+
+  
+
+  return `/assistant/integrations/telegram/revoke`
+}
+
+export const postAssistantTelegramRevoke = async (assistantTelegramSecretRevokeRequest?: AssistantTelegramSecretRevokeRequest, options?: RequestInit): Promise<postAssistantTelegramRevokeResponse> => {
+  
+  return customFetch<postAssistantTelegramRevokeResponse>(getPostAssistantTelegramRevokeUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantTelegramSecretRevokeRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Emergency revoke Telegram secret reference and disable Telegram binding immediately
+ */
+export type postAssistantTelegramEmergencyRevokeResponse200 = {
+  data: GetAssistantTelegramIntegrationResponse
+  status: 200
+}
+
+export type postAssistantTelegramEmergencyRevokeResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAssistantTelegramEmergencyRevokeResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAssistantTelegramEmergencyRevokeResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAssistantTelegramEmergencyRevokeResponse409 = {
+  data: ErrorEnvelope
+  status: 409
+}
+
+export type postAssistantTelegramEmergencyRevokeResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAssistantTelegramEmergencyRevokeResponseSuccess = (postAssistantTelegramEmergencyRevokeResponse200) & {
+  headers: Headers;
+};
+export type postAssistantTelegramEmergencyRevokeResponseError = (postAssistantTelegramEmergencyRevokeResponse400 | postAssistantTelegramEmergencyRevokeResponse401 | postAssistantTelegramEmergencyRevokeResponse404 | postAssistantTelegramEmergencyRevokeResponse409 | postAssistantTelegramEmergencyRevokeResponse500) & {
+  headers: Headers;
+};
+
+export type postAssistantTelegramEmergencyRevokeResponse = (postAssistantTelegramEmergencyRevokeResponseSuccess | postAssistantTelegramEmergencyRevokeResponseError)
+
+export const getPostAssistantTelegramEmergencyRevokeUrl = () => {
+
+
+  
+
+  return `/assistant/integrations/telegram/emergency-revoke`
+}
+
+export const postAssistantTelegramEmergencyRevoke = async (assistantTelegramSecretRevokeRequest?: AssistantTelegramSecretRevokeRequest, options?: RequestInit): Promise<postAssistantTelegramEmergencyRevokeResponse> => {
+  
+  return customFetch<postAssistantTelegramEmergencyRevokeResponse>(getPostAssistantTelegramEmergencyRevokeUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assistantTelegramSecretRevokeRequest,)
   }
 );}
 

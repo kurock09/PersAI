@@ -333,6 +333,20 @@ O6 defines a future adapter-only contract:
   - `admin.rollout.rollback`
 - F6 is an operator control baseline, not a full staged-orchestration or auto-remediation engine
 
+## Secret lifecycle hardening boundary (Step 10 G1)
+
+- backend keeps canonical assistant SecretRef lifecycle state in control-plane governance (`assistant_governance.secret_refs`, schema `persai.secretRefs.v1`)
+- lifecycle metadata is explicit and non-secret:
+  - version
+  - status (`active|revoked|emergency_revoked`, with computed `expired` at read/evaluation time)
+  - rotation/revoke timestamps
+  - TTL-derived expiration timestamp
+- Telegram integration is the G1 baseline managed SecretRef path:
+  - connect/rotate writes managed SecretRef lifecycle metadata
+  - revoke and emergency-revoke explicitly disable binding usage
+- OpenClaw-facing channel/surface readiness stays projection-based and now checks SecretRef lifecycle state, with narrow legacy compatibility fallback for pre-G1 active Telegram bindings
+- backend still does not expose secret values in broad domain/UI surfaces and does not reimplement runtime secret behavior in OpenClaw
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

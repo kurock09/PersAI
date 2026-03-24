@@ -15,6 +15,18 @@ export type TelegramIntegrationState = {
   tokenHint: {
     lastFour: string | null;
   };
+  secretLifecycle: {
+    status: "active" | "revoked" | "emergency_revoked" | "expired" | "legacy_unmanaged";
+    refKey: string | null;
+    manager: "backend_vault_kms" | null;
+    version: number | null;
+    rotatedAt: string | null;
+    expiresAt: string | null;
+    revokedAt: string | null;
+    emergencyRevokedAt: string | null;
+    revokeReason: string | null;
+    legacyFallbackUsed: boolean;
+  };
   configPanel: {
     available: boolean;
     settings: {
@@ -29,6 +41,11 @@ export type TelegramIntegrationState = {
 
 export type TelegramConnectInput = {
   botToken: string;
+  ttlDays?: number | null;
+};
+
+export type TelegramSecretRevokeInput = {
+  reason: string | null;
 };
 
 export type TelegramConfigUpdateInput = {

@@ -11,6 +11,7 @@ import type { TelegramIntegrationConnectionStatus } from './telegramIntegrationC
 import type { TelegramIntegrationBindingState } from './telegramIntegrationBindingState';
 import type { TelegramIntegrationBotState } from './telegramIntegrationBotState';
 import type { TelegramIntegrationTokenHint } from './telegramIntegrationTokenHint';
+import type { TelegramSecretLifecycleState } from './telegramSecretLifecycleState';
 import type { TelegramIntegrationConfigPanel } from './telegramIntegrationConfigPanel';
 
 export interface TelegramIntegrationState {
@@ -24,6 +25,7 @@ export interface TelegramIntegrationState {
   connectedAt: string | null;
   bot: TelegramIntegrationBotState;
   tokenHint: TelegramIntegrationTokenHint;
+  secretLifecycle: TelegramSecretLifecycleState;
   configPanel: TelegramIntegrationConfigPanel;
   notes: string[];
 }

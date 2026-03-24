@@ -67,7 +67,7 @@ Postgres with Prisma.
 - id (UUID)
 - assistant_id (unique)
 - capability_envelope (jsonb, nullable)
-- secret_refs (jsonb, nullable)
+- secret_refs (jsonb, nullable) — Step 10 G1 canonical managed SecretRef lifecycle envelope (`persai.secretRefs.v1` baseline; no secret values), including Telegram `refs.telegram_bot_token` metadata: `refKey`, `version`, `status`, `rotatedAt`, `expiresAt`, `revokedAt`, `emergencyRevokedAt`, `revokeReason`, and non-sensitive hints
 - policy_envelope (jsonb, nullable)
 - memory_control (jsonb, nullable) — Step 6 D1/D3: canonical memory control-plane envelope (`persai.memoryControl.v1` baseline), including `policy` (read/write surfaces, deny group-sourced global writes, trusted 1:1 write surfaces) and `sourceClassification` (named trust classes for global registry; D3)
 - tasks_control (jsonb, nullable) — Step 6 D4: canonical tasks/reminders/triggers control-plane envelope (`persai.tasksControl.v1` baseline: ownership, source/surface hooks, control lifecycle labels, enablement/cancellation, commercial quota exclusion for tasks, audit routing)
@@ -370,7 +370,7 @@ Postgres with Prisma.
   - foreign key: `assistant_id -> assistants.id`
   - platform-managed governance envelopes/hooks:
     - capability envelope
-    - secret refs
+    - secret refs with managed lifecycle metadata (rotation/revoke/TTL/audit-ready metadata; no secret value payload)
     - policy envelope
     - memory control envelope (policy, provenance hooks, visibility hooks, forget-request markers, audit routing)
     - tasks control envelope (ownership, source/surface hooks, control lifecycle labels, enablement/cancellation, tasks excluded from commercial quotas, audit routing)
@@ -528,6 +528,7 @@ Postgres with Prisma.
 - F2 adds explicit `app_user_admin_roles` RBAC model and dangerous-action step-up gating for admin writes; legacy owner fallback remains narrow compatibility path
 - F5 adds workspace-scoped admin system-notification channel and delivery-log tables; delivery is system-oriented and does not replace admin console workflows
 - F6 adds explicit platform rollout operation tables with per-assistant governance snapshots so progressive rollout and rollback remain platform-managed and do not mutate user-owned draft/published-version truth
+- G1 hardens assistant managed SecretRef lifecycle in `assistant_governance.secret_refs` with rotation/revoke/emergency-revoke metadata and TTL-derived expiration status; secret values remain out of broad domain/UI surfaces
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

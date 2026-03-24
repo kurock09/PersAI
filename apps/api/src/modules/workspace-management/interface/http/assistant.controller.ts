@@ -32,6 +32,7 @@ import { ResolvePlanVisibilityService } from "../../application/resolve-plan-vis
 import { ResolveTelegramIntegrationStateService } from "../../application/resolve-telegram-integration-state.service";
 import { ConnectTelegramIntegrationService } from "../../application/connect-telegram-integration.service";
 import { UpdateTelegramIntegrationConfigService } from "../../application/update-telegram-integration-config.service";
+import { RevokeTelegramIntegrationSecretService } from "../../application/revoke-telegram-integration-secret.service";
 import { DoNotRememberAssistantMemoryService } from "../../application/do-not-remember-assistant-memory.service";
 import { ForgetAssistantMemoryItemService } from "../../application/forget-assistant-memory-item.service";
 import { ListAssistantMemoryItemsService } from "../../application/list-assistant-memory-items.service";
@@ -63,6 +64,7 @@ export class AssistantController {
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly connectTelegramIntegrationService: ConnectTelegramIntegrationService,
     private readonly updateTelegramIntegrationConfigService: UpdateTelegramIntegrationConfigService,
+    private readonly revokeTelegramIntegrationSecretService: RevokeTelegramIntegrationSecretService,
     private readonly listAssistantMemoryItemsService: ListAssistantMemoryItemsService,
     private readonly forgetAssistantMemoryItemService: ForgetAssistantMemoryItemService,
     private readonly doNotRememberAssistantMemoryService: DoNotRememberAssistantMemoryService,
@@ -159,6 +161,57 @@ export class AssistantController {
     const userId = this.resolveRequestUserId(req);
     const input = this.connectTelegramIntegrationService.parseInput(body);
     const integration = await this.connectTelegramIntegrationService.execute(userId, input);
+    return {
+      requestId: req.requestId ?? null,
+      integration
+    };
+  }
+
+  @Post("assistant/integrations/telegram/rotate")
+  async rotateTelegramIntegrationSecret(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    integration: TelegramIntegrationState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.connectTelegramIntegrationService.parseInput(body);
+    const integration = await this.connectTelegramIntegrationService.execute(userId, input);
+    return {
+      requestId: req.requestId ?? null,
+      integration
+    };
+  }
+
+  @Post("assistant/integrations/telegram/revoke")
+  async revokeTelegramIntegrationSecret(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    integration: TelegramIntegrationState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.revokeTelegramIntegrationSecretService.parseInput(body);
+    const integration = await this.revokeTelegramIntegrationSecretService.execute(userId, input, false);
+    return {
+      requestId: req.requestId ?? null,
+      integration
+    };
+  }
+
+  @Post("assistant/integrations/telegram/emergency-revoke")
+  async emergencyRevokeTelegramIntegrationSecret(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    integration: TelegramIntegrationState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.revokeTelegramIntegrationSecretService.parseInput(body);
+    const integration = await this.revokeTelegramIntegrationSecretService.execute(userId, input, true);
     return {
       requestId: req.requestId ?? null,
       integration

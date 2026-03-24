@@ -13,6 +13,7 @@ import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capa
 import { ResolveTelegramIntegrationStateService } from "./resolve-telegram-integration-state.service";
 import type { TelegramConnectInput, TelegramIntegrationState } from "./telegram-integration.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { rotateTelegramBotSecretRef } from "./assistant-secret-refs-lifecycle";
 
 type TelegramGetMeResult = {
   id: number;
@@ -53,7 +54,15 @@ export class ConnectTelegramIntegrationService {
     if (trimmed.length < 20 || !trimmed.includes(":")) {
       throw new BadRequestException("botToken format is invalid.");
     }
-    return { botToken: trimmed };
+    const ttlDaysRaw = (body as { ttlDays?: unknown }).ttlDays;
+    let ttlDays: number | null = null;
+    if (ttlDaysRaw !== undefined) {
+      if (!Number.isInteger(ttlDaysRaw) || (ttlDaysRaw as number) < 1 || (ttlDaysRaw as number) > 365) {
+        throw new BadRequestException("ttlDays must be an integer between 1 and 365.");
+      }
+      ttlDays = ttlDaysRaw as number;
+    }
+    return ttlDays === null ? { botToken: trimmed } : { botToken: trimmed, ttlDays };
   }
 
   async execute(userId: string, input: TelegramConnectInput): Promise<TelegramIntegrationState> {
@@ -100,6 +109,26 @@ export class ConnectTelegramIntegrationService {
       connectedAt: new Date(),
       disconnectedAt: null
     });
+    const nextSecretRefs = rotateTelegramBotSecretRef(
+      governance.secretRefs,
+      input.ttlDays === undefined
+        ? {
+            assistantId: assistant.id,
+            tokenFingerprintPrefix: tokenFingerprint.slice(0, 12),
+            tokenLastFour
+          }
+        : {
+            assistantId: assistant.id,
+            tokenFingerprintPrefix: tokenFingerprint.slice(0, 12),
+            tokenLastFour,
+            ttlDays: input.ttlDays
+          }
+    );
+    const updatedGovernance = await this.assistantGovernanceRepository.updateSecretRefs(
+      assistant.id,
+      nextSecretRefs as unknown as Record<string, unknown>
+    );
+    const nextTelegramSecret = (nextSecretRefs.refs.telegram_bot_token ?? null);
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,
@@ -113,6 +142,23 @@ export class ConnectTelegramIntegrationService {
         username: bot.username ?? null,
         tokenFingerprintPrefix: tokenFingerprint.slice(0, 12),
         tokenLastFour
+      }
+    });
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      actorUserId: userId,
+      eventCategory: "secret_change",
+      eventCode: "assistant.secret_ref_rotated",
+      summary: "Assistant secret reference rotated for Telegram bot token.",
+      details: {
+        refKey: nextTelegramSecret?.refKey ?? null,
+        providerKey: "telegram",
+        surfaceType: "telegram_bot",
+        lifecycleStatus: nextTelegramSecret?.status ?? null,
+        version: nextTelegramSecret?.version ?? null,
+        expiresAt: nextTelegramSecret?.expiresAt ?? null,
+        legacySecretRefsReplaced: governance.secretRefs !== updatedGovernance.secretRefs
       }
     });
     await this.appendAssistantAuditEventService.execute({

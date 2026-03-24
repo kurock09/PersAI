@@ -114,7 +114,7 @@ Foundation Phase
 
 ## Step 10 Hardening and Recovery
 
-- [ ] G1 — secret lifecycle hardening
+- [x] G1 — secret lifecycle hardening
 - [ ] G2 — abuse and rate limit enforcement
 - [ ] G3 — recovery and ownership transfer flows
 - [ ] G4 — retention/delete/compliance baseline
