@@ -4,6 +4,25 @@
 
 ### Added
 
+- Step 10 slice G2 abuse and rate-limit enforcement baseline:
+  - added canonical abuse state persistence:
+    - `assistant_abuse_guard_states` (per assistant+user+surface)
+    - `assistant_abuse_assistant_states` (per assistant+surface aggregate)
+  - added centralized multi-layer abuse/rate-limit enforcement service for web chat transport boundaries:
+    - per-user throttle window
+    - per-assistant aggregate throttle window
+    - channel-aware surface hooks (`web_chat` active baseline; model-ready for `telegram|whatsapp|max`)
+    - quota-pressure-aware slowdown/temporary block behavior
+  - hardened web chat entry boundaries to return `429` when abuse slowdown/block is active:
+    - `POST /api/v1/assistant/chat/web`
+    - `POST /api/v1/assistant/chat/web/stream` (prepare path)
+  - added admin abuse control surface:
+    - `POST /api/v1/admin/abuse-controls/unblock`
+    - role gate: `ops_admin|security_admin|super_admin` (+ narrow owner fallback)
+    - applies unblock + temporary admin override window
+  - added audit event:
+    - `admin.abuse_unblock_applied`
+  - added ADR `docs/ADR/044-abuse-and-rate-limit-enforcement-g2.md`
 - Step 10 slice G1 secret lifecycle hardening baseline:
   - hardened canonical assistant SecretRef lifecycle envelope in governance:
     - `assistant_governance.secret_refs` schema `persai.secretRefs.v1`

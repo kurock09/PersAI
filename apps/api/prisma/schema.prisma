@@ -159,6 +159,13 @@ enum PlatformRolloutItemOutcome {
   skipped
 }
 
+enum AbuseSurface {
+  web_chat
+  telegram
+  whatsapp
+  max
+}
+
 model AppUser {
   id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   clerkUserId               String?                    @unique @map("clerk_user_id")
@@ -174,6 +181,7 @@ model AppUser {
   createdAdminNotificationChannels WorkspaceAdminNotificationChannel[]
   createdPlatformRollouts AssistantPlatformRollout[]
   platformRolloutItems      AssistantPlatformRolloutItem[]
+  abuseGuardStates          AssistantAbuseGuardState[]
 
   @@map("app_users")
 }
@@ -196,6 +204,7 @@ model Workspace {
   adminNotificationChannels WorkspaceAdminNotificationChannel[]
   adminNotificationDeliveries AdminNotificationDelivery[]
   platformRollouts AssistantPlatformRollout[]
+  abuseGuardStates AssistantAbuseGuardState[]
 
   @@map("workspaces")
 }
@@ -210,6 +219,7 @@ model WorkspaceMember {
   assistantChats              AssistantChat[]
   assistantMemoryRegistryItems AssistantMemoryRegistryItem[]
   assistantTaskRegistryItems  AssistantTaskRegistryItem[]
+  abuseGuardStates            AssistantAbuseGuardState[]
   workspace                   Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   user           AppUser         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
@@ -249,6 +259,8 @@ model Assistant {
   channelSurfaceBindings AssistantChannelSurfaceBinding[]
   auditEvents            AssistantAuditEvent[]
   platformRolloutItems   AssistantPlatformRolloutItem[]
+  abuseGuardStates       AssistantAbuseGuardState[]
+  abuseAssistantStates   AssistantAbuseAssistantState[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -433,6 +445,51 @@ model AssistantPlatformRolloutItem {
   @@unique([rolloutId, assistantId])
   @@index([assistantId, createdAt(sort: Desc)])
   @@map("assistant_platform_rollout_items")
+}
+
+model AssistantAbuseGuardState {
+  id                  String       @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  assistantId         String       @map("assistant_id") @db.Uuid
+  userId              String       @map("user_id") @db.Uuid
+  workspaceId         String       @map("workspace_id") @db.Uuid
+  surface             AbuseSurface
+  windowStartedAt     DateTime     @map("window_started_at") @db.Timestamptz(6)
+  requestCount        Int          @default(0) @map("request_count")
+  slowedUntil         DateTime?    @map("slowed_until") @db.Timestamptz(6)
+  blockedUntil        DateTime?    @map("blocked_until") @db.Timestamptz(6)
+  blockReason         String?      @map("block_reason") @db.VarChar(255)
+  adminOverrideUntil  DateTime?    @map("admin_override_until") @db.Timestamptz(6)
+  lastSeenAt          DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant           Assistant    @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember     WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  user                AppUser      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace           Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([assistantId, userId, surface])
+  @@index([workspaceId, surface, blockedUntil])
+  @@map("assistant_abuse_guard_states")
+}
+
+model AssistantAbuseAssistantState {
+  id                  String       @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  assistantId         String       @map("assistant_id") @db.Uuid
+  surface             AbuseSurface
+  windowStartedAt     DateTime     @map("window_started_at") @db.Timestamptz(6)
+  requestCount        Int          @default(0) @map("request_count")
+  slowedUntil         DateTime?    @map("slowed_until") @db.Timestamptz(6)
+  blockedUntil        DateTime?    @map("blocked_until") @db.Timestamptz(6)
+  blockReason         String?      @map("block_reason") @db.VarChar(255)
+  adminOverrideUntil  DateTime?    @map("admin_override_until") @db.Timestamptz(6)
+  lastSeenAt          DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant           Assistant    @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([assistantId, surface])
+  @@index([surface, blockedUntil])
+  @@map("assistant_abuse_assistant_states")
 }
 
 model PlanCatalogPlan {

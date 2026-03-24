@@ -16,7 +16,16 @@ const baseApiConfigSchema = z.object({
   OPENCLAW_ADAPTER_MAX_RETRIES: z.coerce.number().int().nonnegative().default(1),
   WEB_ACTIVE_CHATS_CAP: z.coerce.number().int().positive().default(20),
   QUOTA_TOKEN_BUDGET_DEFAULT: z.coerce.number().int().positive().default(200_000),
-  QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT: z.coerce.number().int().positive().default(1_000)
+  QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT: z.coerce.number().int().positive().default(1_000),
+  ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(8),
+  ABUSE_USER_BLOCK_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(20),
+  ABUSE_ASSISTANT_SLOWDOWN_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(40),
+  ABUSE_ASSISTANT_BLOCK_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(120),
+  ABUSE_SLOWDOWN_SECONDS: z.coerce.number().int().positive().default(15),
+  ABUSE_TEMP_BLOCK_SECONDS: z.coerce.number().int().positive().default(300),
+  ABUSE_QUOTA_SLOWDOWN_PERCENT: z.coerce.number().int().min(1).max(100).default(90),
+  ABUSE_QUOTA_BLOCK_PERCENT: z.coerce.number().int().min(1).max(100).default(100),
+  ABUSE_ADMIN_OVERRIDE_MINUTES_DEFAULT: z.coerce.number().int().positive().default(30)
 });
 
 const localApiConfigSchema = baseApiConfigSchema.extend({

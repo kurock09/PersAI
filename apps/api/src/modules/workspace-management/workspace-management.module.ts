@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
 import { AdminSecurityController } from "./interface/http/admin-security.controller";
+import { AdminAbuseControlsController } from "./interface/http/admin-abuse-controls.controller";
 import { AdminOpsController } from "./interface/http/admin-ops.controller";
 import { AdminBusinessController } from "./interface/http/admin-business.controller";
 import { AdminNotificationsController } from "./interface/http/admin-notifications.controller";
@@ -24,6 +25,8 @@ import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-
 import { ManageAdminNotificationChannelsService } from "./application/manage-admin-notification-channels.service";
 import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
 import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
+import { EnforceAbuseRateLimitService } from "./application/enforce-abuse-rate-limit.service";
+import { ManageAdminAbuseControlsService } from "./application/manage-admin-abuse-controls.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -49,6 +52,7 @@ import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.ser
 import { TrackWorkspaceQuotaUsageService } from "./application/track-workspace-quota-usage.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
+import { ASSISTANT_ABUSE_GUARD_REPOSITORY } from "./domain/assistant-abuse-guard.repository";
 import { ASSISTANT_PLAN_CATALOG_REPOSITORY } from "./domain/assistant-plan-catalog.repository";
 import { TOOL_CATALOG_REPOSITORY } from "./domain/tool-catalog.repository";
 import { WORKSPACE_SUBSCRIPTION_REPOSITORY } from "./domain/workspace-subscription.repository";
@@ -70,6 +74,7 @@ import { PrismaWorkspaceSubscriptionRepository } from "./infrastructure/persiste
 import { PrismaWorkspaceQuotaAccountingRepository } from "./infrastructure/persistence/prisma-workspace-quota-accounting.repository";
 import { BILLING_PROVIDER_PORT } from "./application/billing-provider.port";
 import { PrismaAssistantChatRepository } from "./infrastructure/persistence/prisma-assistant-chat.repository";
+import { PrismaAssistantAbuseGuardRepository } from "./infrastructure/persistence/prisma-assistant-abuse-guard.repository";
 import { PrismaAssistantMemoryRegistryRepository } from "./infrastructure/persistence/prisma-assistant-memory-registry.repository";
 import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persistence/prisma-assistant-task-registry.repository";
 import { PrismaAssistantChannelSurfaceBindingRepository } from "./infrastructure/persistence/prisma-assistant-channel-surface-binding.repository";
@@ -83,6 +88,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AssistantController,
     AdminPlansController,
     AdminSecurityController,
+    AdminAbuseControlsController,
     AdminOpsController,
     AdminBusinessController,
     AdminNotificationsController,
@@ -97,6 +103,8 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManageAdminNotificationChannelsService,
     DeliverAdminSystemNotificationService,
     ManagePlatformRolloutsService,
+    EnforceAbuseRateLimitService,
+    ManageAdminAbuseControlsService,
     GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,
@@ -167,6 +175,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     {
       provide: ASSISTANT_CHAT_REPOSITORY,
       useClass: PrismaAssistantChatRepository
+    },
+    {
+      provide: ASSISTANT_ABUSE_GUARD_REPOSITORY,
+      useClass: PrismaAssistantAbuseGuardRepository
     },
     {
       provide: ASSISTANT_MEMORY_REGISTRY_REPOSITORY,

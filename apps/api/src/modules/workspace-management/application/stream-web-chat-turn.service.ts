@@ -22,6 +22,7 @@ import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-c
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { Assistant } from "../domain/assistant.entity";
+import { EnforceAbuseRateLimitService } from "./enforce-abuse-rate-limit.service";
 import type {
   AssistantWebChatMessageState,
   AssistantWebChatState,
@@ -77,6 +78,7 @@ export class StreamWebChatTurnService {
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
+    private readonly enforceAbuseRateLimitService: EnforceAbuseRateLimitService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
@@ -117,6 +119,10 @@ export class StreamWebChatTurnService {
       assistant,
       isNewThread: existingChat === null,
       activeWebChatsCount: activeChatsCount
+    });
+    await this.enforceAbuseRateLimitService.enforceAndRegisterAttempt({
+      assistant,
+      surface: "web_chat"
     });
     const chat =
       existingChat ??

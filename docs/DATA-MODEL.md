@@ -286,6 +286,36 @@ Postgres with Prisma.
 - rolled_back_at (nullable timestamptz)
 - created_at
 
+### assistant_abuse_guard_states (Step 10 G2 baseline)
+
+- id (UUID)
+- assistant_id, user_id, workspace_id (ownership/scope constrained)
+- surface (`web_chat|telegram|whatsapp|max`)
+- window_started_at
+- request_count
+- slowed_until (nullable)
+- blocked_until (nullable)
+- block_reason (nullable)
+- admin_override_until (nullable)
+- last_seen_at
+- created_at
+- updated_at
+
+### assistant_abuse_assistant_states (Step 10 G2 baseline)
+
+- id (UUID)
+- assistant_id
+- surface (`web_chat|telegram|whatsapp|max`)
+- window_started_at
+- request_count
+- slowed_until (nullable)
+- blocked_until (nullable)
+- block_reason (nullable)
+- admin_override_until (nullable)
+- last_seen_at
+- created_at
+- updated_at
+
 ### workspace_subscriptions (Step 7 P3 baseline)
 
 - id (UUID)
@@ -474,6 +504,15 @@ Postgres with Prisma.
   - unique pair: `(rollout_id, assistant_id)`
   - index: `(assistant_id, created_at DESC)`
   - stores per-assistant governance snapshots + apply/rollback outcomes for explicit rollback support
+- `assistant_abuse_guard_states`:
+  - primary key: `id`
+  - unique tuple: `(assistant_id, user_id, surface)`
+  - indexes include workspace/surface/block visibility
+  - stores per-user + per-assistant + per-surface abuse/rate-limit enforcement state and admin override window
+- `assistant_abuse_assistant_states`:
+  - primary key: `id`
+  - unique tuple: `(assistant_id, surface)`
+  - stores per-assistant aggregate abuse/rate-limit state and admin override window
 - `workspace_subscriptions`:
   - primary key: `id`
   - unique: `workspace_id` (one current subscription state row per workspace in P3)
@@ -529,6 +568,7 @@ Postgres with Prisma.
 - F5 adds workspace-scoped admin system-notification channel and delivery-log tables; delivery is system-oriented and does not replace admin console workflows
 - F6 adds explicit platform rollout operation tables with per-assistant governance snapshots so progressive rollout and rollback remain platform-managed and do not mutate user-owned draft/published-version truth
 - G1 hardens assistant managed SecretRef lifecycle in `assistant_governance.secret_refs` with rotation/revoke/emergency-revoke metadata and TTL-derived expiration status; secret values remain out of broad domain/UI surfaces
+- G2 adds canonical abuse/rate-limit state tables for per-user/per-assistant throttles, channel-aware hooks, temporary slowdown/block windows, and admin unblock override tracking
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
 - runtime conversational/session context remains outside chat domain and is owned by OpenClaw
 - no streaming transport in C1

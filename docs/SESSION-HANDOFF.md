@@ -1,5 +1,79 @@
 # SESSION-HANDOFF
 
+## 2026-03-24 - Step 10 G2 abuse and rate-limit enforcement baseline
+
+### What changed
+
+- Added canonical abuse/rate-limit persistence model:
+  - `assistant_abuse_guard_states`
+  - `assistant_abuse_assistant_states`
+- Added centralized abuse protection service for web chat transport boundaries with explicit layered controls:
+  - per-user-per-assistant throttle window
+  - per-assistant aggregate throttle window
+  - surface-aware anti-flood hooks (`web_chat` active baseline)
+  - quota-pressure-aware slowdown and temporary block behavior
+- Hardened web chat boundaries to enforce G2 abuse decisions and return 429 when active:
+  - `POST /api/v1/assistant/chat/web`
+  - `POST /api/v1/assistant/chat/web/stream` (prepare path)
+- Added admin abuse override/unblock endpoint:
+  - `POST /api/v1/admin/abuse-controls/unblock`
+  - role gate: `ops_admin|security_admin|super_admin` (+ narrow owner fallback)
+  - clears active abuse blocks/slowdowns and applies temporary override window
+- Added audit event:
+  - `admin.abuse_unblock_applied`
+- Added ADR-044 and updated roadmap/docs for G2.
+
+### Why changed
+
+- G2 requires finalized multi-layer abuse/rate-limit protection that goes beyond one rule, preserves normal user flows, aligns with quotas, and gives operators explicit audited unblock recovery controls.
+
+### Files touched (high level)
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260329100000_step10_g2_abuse_rate_limit_enforcement/migration.sql`
+- `apps/api/src/modules/workspace-management/domain/assistant-abuse-guard.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-abuse-guard.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-abuse-guard.repository.ts`
+- `apps/api/src/modules/workspace-management/application/enforce-abuse-rate-limit.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-abuse-controls.service.ts`
+- `apps/api/src/modules/workspace-management/application/admin-authorization.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-abuse-controls.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/enforce-abuse-rate-limit.test.ts`
+- `apps/api/test/manage-admin-abuse-controls.test.ts`
+- `packages/config/src/api-config.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `docs/ADR/044-abuse-and-rate-limit-enforcement-g2.md`
+- `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- `corepack pnpm --filter @persai/api run prisma:generate` — passed
+- `corepack pnpm run contracts:generate` — passed
+- `corepack pnpm --filter @persai/api run lint` — passed
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/enforce-abuse-rate-limit.test.ts` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-abuse-controls.test.ts` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/enforcement-points.test.ts` — passed
+
+### Known risks / intentional limits
+
+- G2 activates abuse enforcement on web chat boundaries only; Telegram/WhatsApp/MAX transport-path activation remains future slice work.
+- Slowdown is implemented as temporary 429 response window (explicit retry friction), not delayed queue execution.
+- G2 intentionally does not add content-moderation or semantic abuse classification systems.
+
+### Next recommended step
+
+- Step 10 **G3** recovery and ownership transfer flows.
+
+### Ready commit message
+
+- `feat(api-contracts): add step 10 g2 multi-layer abuse and rate-limit enforcement with admin unblock override`
+
 ## 2026-03-24 - Step 10 G1 secret lifecycle hardening baseline
 
 ### What changed

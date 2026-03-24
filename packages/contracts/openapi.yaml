@@ -638,6 +638,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Request slowed or temporarily blocked by abuse/rate-limit protection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           description: Internal error
           content:
@@ -683,6 +689,61 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "409":
           description: Assistant transport unavailable due to lifecycle/apply state or active web chats cap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Request slowed or temporarily blocked by abuse/rate-limit protection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/abuse-controls/unblock:
+    post:
+      operationId: postAdminAbuseControlsUnblock
+      summary: Apply admin abuse/rate-limit unblock override for assistant scope
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminAbuseUnblockRequest"
+      responses:
+        "200":
+          description: Abuse/rate-limit unblock override applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminAbuseUnblockResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found in admin workspace
           content:
             application/json:
               schema:
@@ -3384,6 +3445,13 @@ components:
       type: string
       enum:
         - webhook
+    AbuseSurface:
+      type: string
+      enum:
+        - web_chat
+        - telegram
+        - whatsapp
+        - max
     AdminNotificationChannelStatus:
       type: string
       enum:
@@ -3562,6 +3630,65 @@ components:
           nullable: true
         rollout:
           $ref: "#/components/schemas/PlatformRolloutState"
+    AdminAbuseUnblockRequest:
+      type: object
+      required:
+        - assistantId
+      properties:
+        assistantId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+          nullable: true
+        surface:
+          allOf:
+            - $ref: "#/components/schemas/AbuseSurface"
+          nullable: true
+        overrideMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          nullable: true
+    AdminAbuseUnblockState:
+      type: object
+      required:
+        - assistantId
+        - userId
+        - surface
+        - adminOverrideUntil
+        - affectedUserRows
+        - affectedAssistantRows
+      properties:
+        assistantId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+          nullable: true
+        surface:
+          $ref: "#/components/schemas/AbuseSurface"
+        adminOverrideUntil:
+          type: string
+          format: date-time
+        affectedUserRows:
+          type: integer
+          minimum: 0
+        affectedAssistantRows:
+          type: integer
+          minimum: 0
+    PostAdminAbuseUnblockResponse:
+      type: object
+      required:
+        - unblock
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        unblock:
+          $ref: "#/components/schemas/AdminAbuseUnblockState"
     GetAdminPlatformRolloutsResponse:
       type: object
       required:

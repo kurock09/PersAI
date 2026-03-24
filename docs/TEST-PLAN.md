@@ -230,3 +230,19 @@ Required in CI:
   - `test/telegram-integration.test.ts`
   - `test/openclaw-channel-surface-bindings.test.ts`
   - `test/assistant-secret-refs-lifecycle.test.ts`
+
+## Step 10 G2 focus
+
+- Prisma schema/migration validates abuse/rate-limit persistence model:
+  - `assistant_abuse_guard_states`
+  - `assistant_abuse_assistant_states`
+- API lint/typecheck validate:
+  - multi-layer abuse enforcement service wiring on web chat send + stream prepare paths
+  - per-user and per-assistant-per-surface throttle behavior
+  - quota-aware slowdown/temporary block hook behavior
+  - admin unblock override endpoint wiring and RBAC gate
+- Targeted tests validate G2 behavior:
+  - `test/enforce-abuse-rate-limit.test.ts`
+  - `test/manage-admin-abuse-controls.test.ts`
+- Existing enforcement baseline remains valid:
+  - `test/enforcement-points.test.ts`

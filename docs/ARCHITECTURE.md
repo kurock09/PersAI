@@ -347,6 +347,18 @@ O6 defines a future adapter-only contract:
 - OpenClaw-facing channel/surface readiness stays projection-based and now checks SecretRef lifecycle state, with narrow legacy compatibility fallback for pre-G1 active Telegram bindings
 - backend still does not expose secret values in broad domain/UI surfaces and does not reimplement runtime secret behavior in OpenClaw
 
+## Abuse and rate-limit boundary (Step 10 G2)
+
+- abuse/rate-limit protection is centralized in backend control-plane entry boundaries for chat transport paths
+- enforcement is explicitly multi-layered:
+  - per-user + per-assistant-per-surface window thresholds
+  - per-assistant aggregate-per-surface thresholds
+  - quota-pressure-aware slowdown and temporary block hooks
+- active G2 enforcement surface is `web_chat`; channel-aware model includes future surfaces (`telegram|whatsapp|max`) without changing architecture
+- admin recovery capability is explicit and audited:
+  - unblock/override endpoint for abuse states
+- this is not a moderation/semantic trust-safety system; it is rate/abuse control hardening at control-plane boundaries
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

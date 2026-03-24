@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type {
+  AdminAbuseUnblockRequest,
   AdminPlanCreateRequest,
   AdminPlanUpdateRequest,
   AdminStepUpChallengeRequest,
@@ -39,6 +40,7 @@ import type {
   OnboardingRequest,
   PatchAdminNotificationWebhookChannelRequest,
   PatchAdminNotificationWebhookChannelResponse,
+  PostAdminAbuseUnblockResponse,
   PostAdminPlanResponse,
   PostAdminPlatformRolloutRequest,
   PostAdminPlatformRolloutResponse,
@@ -953,6 +955,11 @@ export type postAssistantWebChatTurnResponse409 = {
   status: 409
 }
 
+export type postAssistantWebChatTurnResponse429 = {
+  data: ErrorEnvelope
+  status: 429
+}
+
 export type postAssistantWebChatTurnResponse500 = {
   data: ErrorEnvelope
   status: 500
@@ -961,7 +968,7 @@ export type postAssistantWebChatTurnResponse500 = {
 export type postAssistantWebChatTurnResponseSuccess = (postAssistantWebChatTurnResponse200) & {
   headers: Headers;
 };
-export type postAssistantWebChatTurnResponseError = (postAssistantWebChatTurnResponse400 | postAssistantWebChatTurnResponse401 | postAssistantWebChatTurnResponse404 | postAssistantWebChatTurnResponse409 | postAssistantWebChatTurnResponse500) & {
+export type postAssistantWebChatTurnResponseError = (postAssistantWebChatTurnResponse400 | postAssistantWebChatTurnResponse401 | postAssistantWebChatTurnResponse404 | postAssistantWebChatTurnResponse409 | postAssistantWebChatTurnResponse429 | postAssistantWebChatTurnResponse500) & {
   headers: Headers;
 };
 
@@ -1017,6 +1024,11 @@ export type postAssistantWebChatTurnStreamResponse409 = {
   status: 409
 }
 
+export type postAssistantWebChatTurnStreamResponse429 = {
+  data: ErrorEnvelope
+  status: 429
+}
+
 export type postAssistantWebChatTurnStreamResponse500 = {
   data: ErrorEnvelope
   status: 500
@@ -1025,7 +1037,7 @@ export type postAssistantWebChatTurnStreamResponse500 = {
 export type postAssistantWebChatTurnStreamResponseSuccess = (postAssistantWebChatTurnStreamResponse200) & {
   headers: Headers;
 };
-export type postAssistantWebChatTurnStreamResponseError = (postAssistantWebChatTurnStreamResponse400 | postAssistantWebChatTurnStreamResponse401 | postAssistantWebChatTurnStreamResponse404 | postAssistantWebChatTurnStreamResponse409 | postAssistantWebChatTurnStreamResponse500) & {
+export type postAssistantWebChatTurnStreamResponseError = (postAssistantWebChatTurnStreamResponse400 | postAssistantWebChatTurnStreamResponse401 | postAssistantWebChatTurnStreamResponse404 | postAssistantWebChatTurnStreamResponse409 | postAssistantWebChatTurnStreamResponse429 | postAssistantWebChatTurnStreamResponse500) & {
   headers: Headers;
 };
 
@@ -1048,6 +1060,70 @@ export const postAssistantWebChatTurnStream = async (assistantWebChatTurnRequest
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
       assistantWebChatTurnRequest,)
+  }
+);}
+
+
+
+/**
+ * @summary Apply admin abuse/rate-limit unblock override for assistant scope
+ */
+export type postAdminAbuseControlsUnblockResponse200 = {
+  data: PostAdminAbuseUnblockResponse
+  status: 200
+}
+
+export type postAdminAbuseControlsUnblockResponse400 = {
+  data: ErrorEnvelope
+  status: 400
+}
+
+export type postAdminAbuseControlsUnblockResponse401 = {
+  data: ErrorEnvelope
+  status: 401
+}
+
+export type postAdminAbuseControlsUnblockResponse403 = {
+  data: ErrorEnvelope
+  status: 403
+}
+
+export type postAdminAbuseControlsUnblockResponse404 = {
+  data: ErrorEnvelope
+  status: 404
+}
+
+export type postAdminAbuseControlsUnblockResponse500 = {
+  data: ErrorEnvelope
+  status: 500
+}
+    
+export type postAdminAbuseControlsUnblockResponseSuccess = (postAdminAbuseControlsUnblockResponse200) & {
+  headers: Headers;
+};
+export type postAdminAbuseControlsUnblockResponseError = (postAdminAbuseControlsUnblockResponse400 | postAdminAbuseControlsUnblockResponse401 | postAdminAbuseControlsUnblockResponse403 | postAdminAbuseControlsUnblockResponse404 | postAdminAbuseControlsUnblockResponse500) & {
+  headers: Headers;
+};
+
+export type postAdminAbuseControlsUnblockResponse = (postAdminAbuseControlsUnblockResponseSuccess | postAdminAbuseControlsUnblockResponseError)
+
+export const getPostAdminAbuseControlsUnblockUrl = () => {
+
+
+  
+
+  return `/admin/abuse-controls/unblock`
+}
+
+export const postAdminAbuseControlsUnblock = async (adminAbuseUnblockRequest: AdminAbuseUnblockRequest, options?: RequestInit): Promise<postAdminAbuseControlsUnblockResponse> => {
+  
+  return customFetch<postAdminAbuseControlsUnblockResponse>(getPostAdminAbuseControlsUnblockUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      adminAbuseUnblockRequest,)
   }
 );}
 

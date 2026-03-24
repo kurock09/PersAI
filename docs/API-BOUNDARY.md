@@ -589,6 +589,38 @@ Behavior baseline:
   - legacy compatibility fallback flag
 - secret values are not returned.
 
+## Step 10 G2 abuse and rate-limit enforcement
+
+### POST /api/v1/assistant/chat/web
+
+- retains existing lifecycle/apply/capability/quota gating.
+- now also enforces multi-layer abuse/rate-limit guard:
+  - per-user-per-assistant-per-surface request window
+  - per-assistant-per-surface aggregate request window
+  - quota-pressure-aware slowdown/temporary block hook
+- when abuse slowdown/block is active, endpoint returns **429**.
+
+### POST /api/v1/assistant/chat/web/stream
+
+- same G2 abuse/rate-limit enforcement is applied in prepare path before runtime stream starts.
+- active slowdown/block returns **429** before opening stream.
+
+### POST /api/v1/admin/abuse-controls/unblock
+
+- authenticated caller only.
+- requires abuse-control admin role:
+  - `ops_admin|security_admin|super_admin`
+  - or narrow legacy owner fallback.
+- request body:
+  - `assistantId` (required)
+  - `userId` (optional; when set must match assistant owner)
+  - `surface` (optional; default `web_chat`)
+  - `overrideMinutes` (optional; `1..1440`)
+- behavior:
+  - clears active abuse slowdown/block for matching scope
+  - applies temporary admin override window
+  - writes audit event `admin.abuse_unblock_applied`
+
 ## Step 8 E6 provider and fallback baseline
 
 - E6 adds no new public REST endpoints; this is control-plane materialization hardening.
