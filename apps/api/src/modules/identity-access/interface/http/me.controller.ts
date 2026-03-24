@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UnauthorizedException } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Post, Req, UnauthorizedException } from "@nestjs/common";
 import { GetCurrentUserStateService } from "../../application/get-current-user-state.service";
 import { CurrentUserState } from "../../application/current-user-state.types";
 import { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
@@ -29,6 +29,7 @@ export class MeController {
   }
 
   @Post("me/onboarding")
+  @HttpCode(200)
   async upsertOnboarding(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown
