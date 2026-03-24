@@ -162,9 +162,7 @@ export class EnforceAssistantCapabilityAndQuotaService {
 
     return {
       tokenBudgetLimit: BigInt(
-        tokenLimitFromHints ??
-          tokenLimitFromEntitlements ??
-          config.QUOTA_TOKEN_BUDGET_DEFAULT
+        tokenLimitFromHints ?? tokenLimitFromEntitlements ?? config.QUOTA_TOKEN_BUDGET_DEFAULT
       ),
       costOrTokenDrivingToolClassUnitsLimit:
         costToolLimitFromHints ??

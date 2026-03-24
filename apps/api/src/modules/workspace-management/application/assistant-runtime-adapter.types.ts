@@ -53,7 +53,9 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
 export interface AssistantRuntimeAdapter {
   preflight(): Promise<AssistantRuntimePreflightResult>;
   applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void>;
-  sendWebChatTurn(input: AssistantRuntimeWebChatTurnInput): Promise<AssistantRuntimeWebChatTurnResult>;
+  sendWebChatTurn(
+    input: AssistantRuntimeWebChatTurnInput
+  ): Promise<AssistantRuntimeWebChatTurnResult>;
   streamWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk>;

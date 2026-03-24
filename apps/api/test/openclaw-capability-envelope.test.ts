@@ -163,29 +163,17 @@ async function run(): Promise<void> {
   assert.equal(resolved.schema, "persai.openclawCapabilityEnvelope.v1");
   assert.equal(resolved.catalog.declaredToolCodes.includes("memory_center_read"), true);
   assert.equal(resolved.channelsAndSurfaces.webChat.allowed, true);
-  assert.equal(
-    resolved.channelSurfaceBindings.providers[0]?.surfaces[0]?.surfaceType,
-    "web_chat"
-  );
+  assert.equal(resolved.channelSurfaceBindings.providers[0]?.surfaces[0]?.surfaceType, "web_chat");
   assert.equal(resolved.channelsAndSurfaces.whatsapp.allowed, false);
-  assert.equal(
-    resolved.tools.find((tool) => tool.code === "web_search")?.allowed,
-    false
-  );
+  assert.equal(resolved.tools.find((tool) => tool.code === "web_search")?.allowed, false);
   assert.equal(
     resolved.tools.find((tool) => tool.code === "web_search")?.denyReason,
     "class_not_allowed"
   );
-  assert.equal(
-    resolved.suppression.deniedToolCodes.includes("web_search"),
-    true
-  );
+  assert.equal(resolved.suppression.deniedToolCodes.includes("web_search"), true);
   assert.equal(resolved.quotaRestrictions.costDriving.restrictedByQuota, false);
   assert.equal(resolved.quotaRestrictions.utility.restrictedByQuota, true);
-  assert.equal(
-    resolved.quotaRestrictions.tasksAndRemindersExcludedFromCommercialQuotas,
-    true
-  );
+  assert.equal(resolved.quotaRestrictions.tasksAndRemindersExcludedFromCommercialQuotas, true);
 }
 
 void run();

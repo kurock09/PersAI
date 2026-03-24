@@ -54,8 +54,7 @@ import {
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
   patchAdminNotificationWebhookChannel as patchAdminNotificationWebhookChannelContract,
-  postAssistantTelegramConnect as postAssistantTelegramConnectContract
-  ,
+  postAssistantTelegramConnect as postAssistantTelegramConnectContract,
   postAdminPlatformRollout as postAdminPlatformRolloutContract,
   postAdminPlatformRolloutRollback as postAdminPlatformRolloutRollbackContract
 } from "@persai/contracts";
@@ -119,9 +118,7 @@ function getApiBaseUrl(): string {
   return "http://localhost:3001/api/v1";
 }
 
-function isSuccessStatus(
-  status: number
-): status is 200 | 201 {
+function isSuccessStatus(status: number): status is 200 | 201 {
   return status === 200 || status === 201;
 }
 
@@ -592,7 +589,9 @@ export async function postAssistantReset(token: string): Promise<AssistantLifecy
   }
 }
 
-export async function getAssistantWebChats(token: string): Promise<AssistantWebChatListItemState[]> {
+export async function getAssistantWebChats(
+  token: string
+): Promise<AssistantWebChatListItemState[]> {
   try {
     const response = await getAssistantWebChatsContract({
       headers: getAuthHeaders(token)
@@ -643,7 +642,9 @@ export async function postAssistantWebChatArchive(
       response.data === null ||
       !("chat" in response.data)
     ) {
-      throw new Error("Unexpected non-success response for POST /assistant/chats/web/:chatId/archive.");
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/chats/web/:chatId/archive."
+      );
     }
 
     return response.data.chat;
@@ -672,7 +673,9 @@ export async function deleteAssistantWebChat(
 
 export type { AssistantMemoryRegistryItemState, AssistantTaskRegistryItemState };
 
-export async function getAssistantMemoryItems(token: string): Promise<AssistantMemoryRegistryItemState[]> {
+export async function getAssistantMemoryItems(
+  token: string
+): Promise<AssistantMemoryRegistryItemState[]> {
   try {
     const response = await getAssistantMemoryItemsContract({
       headers: getAuthHeaders(token)
@@ -701,14 +704,18 @@ export async function postAssistantMemoryItemForget(token: string, itemId: strin
       !("forgotten" in response.data) ||
       response.data.forgotten !== true
     ) {
-      throw new Error("Unexpected non-success response for POST /assistant/memory/items/:itemId/forget.");
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/memory/items/:itemId/forget."
+      );
     }
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
 }
 
-export async function getAssistantTaskItems(token: string): Promise<AssistantTaskRegistryItemState[]> {
+export async function getAssistantTaskItems(
+  token: string
+): Promise<AssistantTaskRegistryItemState[]> {
   try {
     const response = await getAssistantTaskItemsContract({
       headers: getAuthHeaders(token)
@@ -737,7 +744,9 @@ export async function postAssistantTaskItemDisable(token: string, itemId: string
       !("disabled" in response.data) ||
       response.data.disabled !== true
     ) {
-      throw new Error("Unexpected non-success response for POST /assistant/tasks/items/:itemId/disable.");
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/tasks/items/:itemId/disable."
+      );
     }
   } catch (error) {
     throw new Error(toErrorMessage(error));
@@ -757,7 +766,9 @@ export async function postAssistantTaskItemEnable(token: string, itemId: string)
       !("enabled" in response.data) ||
       response.data.enabled !== true
     ) {
-      throw new Error("Unexpected non-success response for POST /assistant/tasks/items/:itemId/enable.");
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/tasks/items/:itemId/enable."
+      );
     }
   } catch (error) {
     throw new Error(toErrorMessage(error));
@@ -777,7 +788,9 @@ export async function postAssistantTaskItemCancel(token: string, itemId: string)
       !("cancelled" in response.data) ||
       response.data.cancelled !== true
     ) {
-      throw new Error("Unexpected non-success response for POST /assistant/tasks/items/:itemId/cancel.");
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/tasks/items/:itemId/cancel."
+      );
     }
   } catch (error) {
     throw new Error(toErrorMessage(error));
@@ -799,7 +812,9 @@ export async function postAssistantMemoryDoNotRemember(
       response.data === null ||
       !("forgottenRegistryItems" in response.data)
     ) {
-      throw new Error("Unexpected non-success response for POST /assistant/memory/do-not-remember.");
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/memory/do-not-remember."
+      );
     }
 
     return { forgottenRegistryItems: response.data.forgottenRegistryItems };
@@ -981,7 +996,9 @@ export async function getAdminOpsCockpit(token: string): Promise<AdminOpsCockpit
   }
 }
 
-export async function getAssistantTelegramIntegration(token: string): Promise<TelegramIntegrationState> {
+export async function getAssistantTelegramIntegration(
+  token: string
+): Promise<TelegramIntegrationState> {
   try {
     const response = await getAssistantTelegramIntegrationContract({
       headers: getAuthHeaders(token)
@@ -1009,7 +1026,9 @@ export async function postAssistantTelegramConnect(
       response.data === null ||
       !("integration" in response.data)
     ) {
-      throw new Error("Unexpected non-success response for POST /assistant/integrations/telegram/connect.");
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/integrations/telegram/connect."
+      );
     }
     return response.data.integration;
   } catch (error) {
@@ -1026,7 +1045,9 @@ export async function patchAssistantTelegramConfig(
       headers: getAuthHeaders(token)
     });
     if (response.status !== 200) {
-      throw new Error("Unexpected non-success response for PATCH /assistant/integrations/telegram/config.");
+      throw new Error(
+        "Unexpected non-success response for PATCH /assistant/integrations/telegram/config."
+      );
     }
     return response.data.integration;
   } catch (error) {

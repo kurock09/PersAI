@@ -93,11 +93,7 @@ function shouldDeny(
 function applyGovernance(
   planAllowed: boolean,
   envelope: GovernanceCapabilityEnvelope | null,
-  section:
-    | "toolClasses"
-    | "channelsAndSurfaces"
-    | "mediaClasses"
-    | "governedFeatures",
+  section: "toolClasses" | "channelsAndSurfaces" | "mediaClasses" | "governedFeatures",
   key: string
 ): boolean {
   if (shouldDeny(envelope, section, key)) {

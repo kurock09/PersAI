@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
@@ -93,7 +98,10 @@ export class ManageAdminAssistantOwnershipService {
     const row = body as Record<string, unknown>;
     return {
       assistantId: toTrimmedRequiredString(row.assistantId, "assistantId"),
-      recoveredOwnerUserId: toTrimmedRequiredString(row.recoveredOwnerUserId, "recoveredOwnerUserId"),
+      recoveredOwnerUserId: toTrimmedRequiredString(
+        row.recoveredOwnerUserId,
+        "recoveredOwnerUserId"
+      ),
       supportTicketRef: toOptionalTrimmedString(row.supportTicketRef, "supportTicketRef"),
       reason: toOptionalTrimmedString(row.reason, "reason")
     };
@@ -186,7 +194,9 @@ export class ManageAdminAssistantOwnershipService {
       where: { userId: params.targetOwnerUserId }
     });
     if (targetExistingAssistant !== null && targetExistingAssistant.id !== assistant.id) {
-      throw new ConflictException("Target owner already has an assistant in MVP (1 user = 1 assistant).");
+      throw new ConflictException(
+        "Target owner already has an assistant in MVP (1 user = 1 assistant)."
+      );
     }
 
     let updatedAssistantUserId = assistant.userId;
@@ -199,11 +209,10 @@ export class ManageAdminAssistantOwnershipService {
       });
       updatedAssistantUserId = updatedAssistant.userId;
     } catch (error) {
-      if (
-        error instanceof PrismaClientKnownRequestError &&
-        error.code === "P2002"
-      ) {
-        throw new ConflictException("Target owner already has an assistant in MVP (1 user = 1 assistant).");
+      if (error instanceof PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException(
+          "Target owner already has an assistant in MVP (1 user = 1 assistant)."
+        );
       }
       throw error;
     }

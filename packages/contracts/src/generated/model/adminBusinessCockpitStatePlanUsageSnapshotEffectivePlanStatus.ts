@@ -8,11 +8,12 @@
 /**
  * @nullable
  */
-export type AdminBusinessCockpitStatePlanUsageSnapshotEffectivePlanStatus = typeof AdminBusinessCockpitStatePlanUsageSnapshotEffectivePlanStatus[keyof typeof AdminBusinessCockpitStatePlanUsageSnapshotEffectivePlanStatus] | null;
-
+export type AdminBusinessCockpitStatePlanUsageSnapshotEffectivePlanStatus =
+  | (typeof AdminBusinessCockpitStatePlanUsageSnapshotEffectivePlanStatus)[keyof typeof AdminBusinessCockpitStatePlanUsageSnapshotEffectivePlanStatus]
+  | null;
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminBusinessCockpitStatePlanUsageSnapshotEffectivePlanStatus = {
-  active: 'active',
-  inactive: 'inactive',
+  active: "active",
+  inactive: "inactive"
 } as const;

@@ -3,7 +3,9 @@ import type {
   WorkspaceQuotaDimension
 } from "./workspace-quota-accounting.entity";
 
-export const WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY = Symbol("WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY");
+export const WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY = Symbol(
+  "WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY"
+);
 
 export type WorkspaceQuotaLimitsInput = {
   tokenBudgetLimit: bigint | null;

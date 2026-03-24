@@ -126,7 +126,9 @@ export class ManagePlatformRolloutsService {
     });
     const totalAssistants = assistants.length;
     const targetCount =
-      totalAssistants === 0 ? 0 : Math.max(1, Math.ceil((totalAssistants * input.rolloutPercent) / 100));
+      totalAssistants === 0
+        ? 0
+        : Math.max(1, Math.ceil((totalAssistants * input.rolloutPercent) / 100));
     const targetedAssistants = assistants.slice(0, targetCount);
 
     const rollout = await this.prisma.assistantPlatformRollout.create({
@@ -195,7 +197,11 @@ export class ManagePlatformRolloutsService {
       let applyErrorMessage: string | null = null;
 
       if (latestPublished !== null) {
-        await this.applyAssistantPublishedVersionService.execute(target.userId, latestPublished, true);
+        await this.applyAssistantPublishedVersionService.execute(
+          target.userId,
+          latestPublished,
+          true
+        );
         const afterApply = await this.prisma.assistant.findUnique({
           where: { id: target.id },
           select: {
@@ -318,7 +324,11 @@ export class ManagePlatformRolloutsService {
       let rollbackErrorCode: string | null = null;
       let rollbackErrorMessage: string | null = null;
       if (latestPublished !== null) {
-        await this.applyAssistantPublishedVersionService.execute(item.userId, latestPublished, true);
+        await this.applyAssistantPublishedVersionService.execute(
+          item.userId,
+          latestPublished,
+          true
+        );
         const afterApply = await this.prisma.assistant.findUnique({
           where: { id: item.assistantId },
           select: {

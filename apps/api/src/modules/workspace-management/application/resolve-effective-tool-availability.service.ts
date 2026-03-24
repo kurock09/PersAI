@@ -47,9 +47,7 @@ export class ResolveEffectiveToolAvailabilityService {
       tools: tools.map((tool) => {
         const classAllowed = tool.toolClass === "utility" ? utilityAllowed : costDrivingAllowed;
         const isActive =
-          tool.catalogStatus === "active" &&
-          tool.planActivationStatus === "active" &&
-          classAllowed;
+          tool.catalogStatus === "active" && tool.planActivationStatus === "active" && classAllowed;
         return {
           code: tool.toolCode,
           displayName: tool.displayName,

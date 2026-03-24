@@ -39,7 +39,10 @@ export class ListAssistantMemoryItemsService {
       );
     }
 
-    const items = await this.memoryRegistryRepository.listActiveByAssistantId(assistant.id, LIST_LIMIT);
+    const items = await this.memoryRegistryRepository.listActiveByAssistantId(
+      assistant.id,
+      LIST_LIMIT
+    );
 
     return items.map((item) => ({
       id: item.id,

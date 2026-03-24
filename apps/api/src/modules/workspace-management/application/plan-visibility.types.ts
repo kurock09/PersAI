@@ -3,7 +3,11 @@ export type UserPlanVisibilityState = {
     code: string | null;
     displayName: string | null;
     status: "active" | "inactive" | null;
-    source: "workspace_subscription" | "assistant_plan_fallback" | "catalog_default_fallback" | "none";
+    source:
+      | "workspace_subscription"
+      | "assistant_plan_fallback"
+      | "catalog_default_fallback"
+      | "none";
     subscriptionStatus:
       | "trialing"
       | "active"

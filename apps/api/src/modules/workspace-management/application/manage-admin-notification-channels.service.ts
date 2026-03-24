@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  Injectable
-} from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { AdminNotificationChannelStatus } from "@prisma/client";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
@@ -101,7 +98,8 @@ export class ManageAdminNotificationChannelsService {
     userId: string,
     input: UpdateAdminWebhookNotificationChannelInput
   ): Promise<AdminNotificationChannelState> {
-    const context = await this.adminAuthorizationService.assertCanManageAdminSystemNotifications(userId);
+    const context =
+      await this.adminAuthorizationService.assertCanManageAdminSystemNotifications(userId);
     const status: AdminNotificationChannelStatus = input.enabled ? "active" : "inactive";
 
     const channel = await this.prisma.workspaceAdminNotificationChannel.upsert({

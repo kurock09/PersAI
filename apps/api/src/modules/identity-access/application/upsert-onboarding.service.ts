@@ -4,10 +4,7 @@ import { PrismaService } from "../infrastructure/persistence/prisma.service";
 import { CurrentUserState } from "./current-user-state.types";
 import { GetCurrentUserStateService } from "./get-current-user-state.service";
 import { ResolvedAppUser } from "./resolved-auth-user.types";
-import {
-  MVP_PRIVACY_POLICY_VERSION,
-  MVP_TERMS_OF_SERVICE_VERSION
-} from "./compliance-baseline";
+import { MVP_PRIVACY_POLICY_VERSION, MVP_TERMS_OF_SERVICE_VERSION } from "./compliance-baseline";
 
 export interface OnboardingInput {
   displayName: string;

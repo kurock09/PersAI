@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Req,
-  UnauthorizedException
-} from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Req, UnauthorizedException } from "@nestjs/common";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import {
   ManagePlatformRolloutsService,
@@ -40,7 +32,8 @@ export class AdminPlatformRolloutsController {
     rollout: PlatformRolloutState;
   }> {
     const userId = this.resolveRequestUserId(req);
-    const input: CreatePlatformRolloutInput = this.managePlatformRolloutsService.parseCreateInput(body);
+    const input: CreatePlatformRolloutInput =
+      this.managePlatformRolloutsService.parseCreateInput(body);
     const rollout = await this.managePlatformRolloutsService.createRollout(
       userId,
       input,

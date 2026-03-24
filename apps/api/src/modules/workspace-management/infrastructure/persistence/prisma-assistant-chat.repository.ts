@@ -234,4 +234,3 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     };
   }
 }
-

@@ -155,10 +155,11 @@ export class ManageWebChatListService {
     if (archived === null) {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
-    const activeWebChatsCurrent = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
-      assistant.id,
-      "web"
-    );
+    const activeWebChatsCurrent =
+      await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+        assistant.id,
+        "web"
+      );
     await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
       assistant,
       activeWebChatsCurrent,
@@ -173,7 +174,11 @@ export class ManageWebChatListService {
     };
   }
 
-  async hardDeleteChat(userId: string, chatId: string, request: DeleteWebChatRequest): Promise<void> {
+  async hardDeleteChat(
+    userId: string,
+    chatId: string,
+    request: DeleteWebChatRequest
+  ): Promise<void> {
     if (request.confirmText !== "DELETE") {
       throw new BadRequestException("confirmText must equal DELETE for hard delete.");
     }
@@ -192,10 +197,11 @@ export class ManageWebChatListService {
     if (!deleted) {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
-    const activeWebChatsCurrent = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
-      assistant.id,
-      "web"
-    );
+    const activeWebChatsCurrent =
+      await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+        assistant.id,
+        "web"
+      );
     await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
       assistant,
       activeWebChatsCurrent,
@@ -203,4 +209,3 @@ export class ManageWebChatListService {
     });
   }
 }
-

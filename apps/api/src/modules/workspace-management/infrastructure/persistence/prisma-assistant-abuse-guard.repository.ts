@@ -3,9 +3,7 @@ import type {
   AssistantAbuseAssistantState as PrismaAssistantAbuseAssistantState,
   AssistantAbuseGuardState as PrismaAssistantAbuseGuardState
 } from "@prisma/client";
-import type {
-  AssistantAbuseGuardRepository
-} from "../../domain/assistant-abuse-guard.repository";
+import type { AssistantAbuseGuardRepository } from "../../domain/assistant-abuse-guard.repository";
 import type {
   AbuseSurface,
   AssistantAbuseAssistantState,

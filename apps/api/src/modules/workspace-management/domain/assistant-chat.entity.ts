@@ -13,4 +13,3 @@ export type AssistantChat = {
   createdAt: Date;
   updatedAt: Date;
 };
-

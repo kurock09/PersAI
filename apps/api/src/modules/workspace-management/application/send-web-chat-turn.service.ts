@@ -88,7 +88,10 @@ export class SendWebChatTurnService {
     };
   }
 
-  async execute(userId: string, request: SendWebChatTurnRequest): Promise<AssistantWebChatTurnState> {
+  async execute(
+    userId: string,
+    request: SendWebChatTurnRequest
+  ): Promise<AssistantWebChatTurnState> {
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");
@@ -116,10 +119,11 @@ export class SendWebChatTurnService {
       "web",
       request.surfaceThreadKey
     );
-    const activeChatsCount = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
-      assistant.id,
-      "web"
-    );
+    const activeChatsCount =
+      await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+        assistant.id,
+        "web"
+      );
     await this.enforceAssistantCapabilityAndQuotaService.enforceWebChatTurn({
       assistant,
       isNewThread: existingChat === null,
@@ -180,10 +184,11 @@ export class SendWebChatTurnService {
       assistantContent: assistantMessage.content,
       source: "web_chat_turn_sync"
     });
-    const activeWebChatsCurrent = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
-      assistant.id,
-      "web"
-    );
+    const activeWebChatsCurrent =
+      await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+        assistant.id,
+        "web"
+      );
     await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
       assistant,
       activeWebChatsCurrent,
@@ -229,4 +234,3 @@ export class SendWebChatTurnService {
     };
   }
 }
-

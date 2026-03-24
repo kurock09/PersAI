@@ -29,7 +29,10 @@ function asPositiveInt(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
 
-function readLimitFromEntitlements(limitsPermissions: unknown[] | undefined, key: string): number | null {
+function readLimitFromEntitlements(
+  limitsPermissions: unknown[] | undefined,
+  key: string
+): number | null {
   if (!Array.isArray(limitsPermissions)) {
     return null;
   }
@@ -93,7 +96,8 @@ export class ResolvePlanVisibilityService {
     const tokenLimit = Number(quotaState?.tokenBudgetLimit ?? BigInt(limits.tokenBudgetLimit));
     const tokenUsed = Number(quotaState?.tokenBudgetUsed ?? BigInt(0));
     const costLimit =
-      quotaState?.costOrTokenDrivingToolClassUnitsLimit ?? limits.costOrTokenDrivingToolClassUnitsLimit;
+      quotaState?.costOrTokenDrivingToolClassUnitsLimit ??
+      limits.costOrTokenDrivingToolClassUnitsLimit;
     const costUsed = quotaState?.costOrTokenDrivingToolClassUnitsUsed ?? 0;
     const chatsLimit = quotaState?.activeWebChatsLimit ?? limits.activeWebChatsLimit;
     const chatsUsed = quotaState?.activeWebChatsCurrent ?? 0;
@@ -135,7 +139,8 @@ export class ResolvePlanVisibilityService {
     }
 
     const plans = await this.assistantPlanCatalogRepository.listAll();
-    const defaultRegistrationPlan = plans.find((plan) => plan.isDefaultFirstRegistrationPlan) ?? null;
+    const defaultRegistrationPlan =
+      plans.find((plan) => plan.isDefaultFirstRegistrationPlan) ?? null;
     const activePlans = plans.filter((plan) => plan.status === "active").length;
     const inactivePlans = plans.length - activePlans;
 
@@ -161,7 +166,8 @@ export class ResolvePlanVisibilityService {
     const tokenLimit = Number(quotaState?.tokenBudgetLimit ?? BigInt(limits.tokenBudgetLimit));
     const tokenUsed = Number(quotaState?.tokenBudgetUsed ?? BigInt(0));
     const costLimit =
-      quotaState?.costOrTokenDrivingToolClassUnitsLimit ?? limits.costOrTokenDrivingToolClassUnitsLimit;
+      quotaState?.costOrTokenDrivingToolClassUnitsLimit ??
+      limits.costOrTokenDrivingToolClassUnitsLimit;
     const costUsed = quotaState?.costOrTokenDrivingToolClassUnitsUsed ?? 0;
     const chatsLimit = quotaState?.activeWebChatsLimit ?? limits.activeWebChatsLimit;
     const chatsUsed = quotaState?.activeWebChatsCurrent ?? 0;

@@ -15,7 +15,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-export function getTasksUserControlFlags(effectiveTasksControl: Record<string, unknown>): TasksUserControlFlags {
+export function getTasksUserControlFlags(
+  effectiveTasksControl: Record<string, unknown>
+): TasksUserControlFlags {
   const enablement = asRecord(effectiveTasksControl.enablement);
   const cancellation = asRecord(effectiveTasksControl.cancellation);
 

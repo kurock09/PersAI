@@ -78,9 +78,8 @@ vi.mock("./me-api-client", async () => {
 });
 
 vi.mock("./assistant-api-client", async () => {
-  const actual = await vi.importActual<typeof import("./assistant-api-client")>(
-    "./assistant-api-client"
-  );
+  const actual =
+    await vi.importActual<typeof import("./assistant-api-client")>("./assistant-api-client");
 
   return {
     ...actual,
@@ -565,11 +564,15 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.patchAssistantTelegramConfig.mockReset();
     assistantApiMocks.getAssistantWebChats.mockResolvedValue([]);
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
-    assistantApiMocks.getAssistantTelegramIntegration.mockResolvedValue(makeTelegramIntegrationState());
+    assistantApiMocks.getAssistantTelegramIntegration.mockResolvedValue(
+      makeTelegramIntegrationState()
+    );
     assistantApiMocks.getAssistantPlanVisibility.mockResolvedValue(makeUserPlanVisibility());
     assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
     assistantApiMocks.getAdminPlans.mockResolvedValue([]);
-    assistantApiMocks.getAdminNotificationChannels.mockResolvedValue(makeAdminNotificationChannels());
+    assistantApiMocks.getAdminNotificationChannels.mockResolvedValue(
+      makeAdminNotificationChannels()
+    );
     assistantApiMocks.getAdminPlatformRollouts.mockResolvedValue(makePlatformRollouts());
     assistantApiMocks.getAdminBusinessCockpit.mockResolvedValue(makeAdminBusinessCockpit());
     assistantApiMocks.getAdminOpsCockpit.mockResolvedValue(makeAdminOpsCockpit());
@@ -618,7 +621,9 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByRole("button", { name: "Quick start path" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Advanced setup path" })).toBeInTheDocument();
     expect(screen.getByText("Lifecycle safety controls")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Rollback to selected version" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Rollback to selected version" })
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset assistant" })).toBeInTheDocument();
     expect(screen.getByText("Assistant activity and updates")).toBeInTheDocument();
     expect(screen.getByText("Plan and limits visibility")).toBeInTheDocument();
@@ -691,7 +696,10 @@ describe("AppFlowClient onboarding gate", () => {
     apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
     assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
     assistantApiMocks.patchAssistantDraft.mockResolvedValue(
-      makeAssistantResponseWithDraft("Field Ops Copilot", "Act as a personal assistant for the current user.")
+      makeAssistantResponseWithDraft(
+        "Field Ops Copilot",
+        "Act as a personal assistant for the current user."
+      )
     );
 
     render(<AppFlowClient />);
@@ -714,7 +722,9 @@ describe("AppFlowClient onboarding gate", () => {
         instructions: expect.stringContaining("Primary goal: Keep me focused on priority tasks.")
       })
     );
-    expect(screen.getByText("Draft setup saved. No publish has been performed.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Draft setup saved. No publish has been performed.")
+    ).toBeInTheDocument();
   });
 
   it("shows admin plan management and creates a plan", async () => {
@@ -827,6 +837,12 @@ describe("AppFlowClient onboarding gate", () => {
     render(<AppFlowClient />);
 
     expect(await screen.findByText("Platform rollout controls")).toBeInTheDocument();
+    await screen.findByRole("option", {
+      name: /rollout-1 \(applied, 10%\)/i
+    });
+    fireEvent.change(screen.getByLabelText("Select rollout"), {
+      target: { value: "rollout-1" }
+    });
     fireEvent.click(screen.getByRole("button", { name: "Rollback selected rollout" }));
 
     await waitFor(() => {
@@ -839,7 +855,10 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.getAssistant.mockResolvedValue(null);
     assistantApiMocks.postAssistantCreate.mockResolvedValue(makeAssistantResponse());
     assistantApiMocks.patchAssistantDraft.mockResolvedValue(
-      makeAssistantResponseWithDraft("Analyst Assistant", "Follow explicit daily planning instructions.")
+      makeAssistantResponseWithDraft(
+        "Analyst Assistant",
+        "Follow explicit daily planning instructions."
+      )
     );
 
     render(<AppFlowClient />);
@@ -858,12 +877,16 @@ describe("AppFlowClient onboarding gate", () => {
       expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledTimes(1);
       expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getByText("Draft setup saved. No publish has been performed.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Draft setup saved. No publish has been performed.")
+    ).toBeInTheDocument();
   });
 
   it("publishes draft and keeps apply state separate", async () => {
     apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
-    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponseWithApplyStatus("failed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(
+      makeAssistantResponseWithApplyStatus("failed")
+    );
     assistantApiMocks.postAssistantPublish.mockResolvedValue(
       makeAssistantResponseWithApplyStatus("pending")
     );
@@ -878,14 +901,18 @@ describe("AppFlowClient onboarding gate", () => {
     await waitFor(() => {
       expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getByText("Publish requested. Apply state is tracked separately.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Publish requested. Apply state is tracked separately.")
+    ).toBeInTheDocument();
     expect(screen.getByText("Applying")).toBeInTheDocument();
   });
 
   it("reapplies latest published version from ops cockpit", async () => {
     apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
     assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
-    assistantApiMocks.postAssistantReapply.mockResolvedValue(makeAssistantResponseWithApplyStatus("pending"));
+    assistantApiMocks.postAssistantReapply.mockResolvedValue(
+      makeAssistantResponseWithApplyStatus("pending")
+    );
 
     render(<AppFlowClient />);
 
@@ -902,14 +929,18 @@ describe("AppFlowClient onboarding gate", () => {
 
   it("shows recovery-worthy update marker when apply fails", async () => {
     apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
-    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponseWithApplyStatus("failed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(
+      makeAssistantResponseWithApplyStatus("failed")
+    );
 
     render(<AppFlowClient />);
 
     expect(await screen.findByText("Assistant activity and updates")).toBeInTheDocument();
     expect(screen.getByText("Attention:")).toBeInTheDocument();
     expect(
-      screen.getByText("Latest apply needs attention. Consider rollback if a previous version was stable.")
+      screen.getByText(
+        "Latest apply needs attention. Consider rollback if a previous version was stable."
+      )
     ).toBeInTheDocument();
   });
 
@@ -926,7 +957,9 @@ describe("AppFlowClient onboarding gate", () => {
   it("rolls back to selected published version", async () => {
     apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
     assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
-    assistantApiMocks.postAssistantRollback.mockResolvedValue(makeAssistantResponseWithApplyStatus("pending"));
+    assistantApiMocks.postAssistantRollback.mockResolvedValue(
+      makeAssistantResponseWithApplyStatus("pending")
+    );
 
     render(<AppFlowClient />);
 
@@ -943,7 +976,9 @@ describe("AppFlowClient onboarding gate", () => {
       targetVersion: 1
     });
     expect(
-      screen.getByText("Rollback requested. A new published version was created from the selected target.")
+      screen.getByText(
+        "Rollback requested. A new published version was created from the selected target."
+      )
     ).toBeInTheDocument();
   });
 
@@ -955,7 +990,9 @@ describe("AppFlowClient onboarding gate", () => {
 
     expect(await screen.findByText("Lifecycle safety controls")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Reset assistant" }));
-    expect(await screen.findByText(/Confirm reset by checking the box and typing RESET/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Confirm reset by checking the box and typing RESET/)
+    ).toBeInTheDocument();
     expect(assistantApiMocks.postAssistantReset).not.toHaveBeenCalled();
   });
 

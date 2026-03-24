@@ -53,16 +53,16 @@ export class ResolveTelegramIntegrationStateService {
     });
     const capabilityAllowed = effectiveCapabilities.channelsAndSurfaces.telegram;
 
-    const binding = await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
-      assistant.id,
-      "telegram",
-      "telegram_bot"
-    );
+    const binding =
+      await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
+        assistant.id,
+        "telegram",
+        "telegram_bot"
+      );
     const metadata = asObject(binding?.metadata ?? null);
     const config = asObject(binding?.config ?? null);
     const policy = asObject(binding?.policy ?? null);
-    const defaultParseMode =
-      config?.defaultParseMode === "markdown" ? "markdown" : "plain_text";
+    const defaultParseMode = config?.defaultParseMode === "markdown" ? "markdown" : "plain_text";
     const inboundUserMessagesEnabled = policy?.inboundUserMessages === true;
     const outboundAssistantMessagesEnabled = policy?.outboundAssistantMessages !== false;
 

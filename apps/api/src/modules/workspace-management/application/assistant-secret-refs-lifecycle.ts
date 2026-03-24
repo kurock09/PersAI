@@ -131,7 +131,10 @@ function toExpiry(now: Date, ttlDays: number): string {
   return new Date(now.getTime() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function toComputedStatus(entry: AssistantSecretRefEntry, now: Date): SecretLifecycleComputedStatus {
+function toComputedStatus(
+  entry: AssistantSecretRefEntry,
+  now: Date
+): SecretLifecycleComputedStatus {
   if (entry.status !== "active") {
     return entry.status;
   }

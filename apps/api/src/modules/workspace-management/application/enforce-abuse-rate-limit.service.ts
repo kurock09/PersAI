@@ -73,7 +73,9 @@ export class EnforceAbuseRateLimitService {
       userState.blockedUntil !== null &&
       userState.blockedUntil.getTime() > now.getTime()
     ) {
-      throwTooManyRequests("Requests temporarily blocked for this user-assistant channel due to abuse protection.");
+      throwTooManyRequests(
+        "Requests temporarily blocked for this user-assistant channel due to abuse protection."
+      );
     }
     if (
       !assistantBypass &&
@@ -81,7 +83,9 @@ export class EnforceAbuseRateLimitService {
       assistantState.blockedUntil !== null &&
       assistantState.blockedUntil.getTime() > now.getTime()
     ) {
-      throwTooManyRequests("Requests temporarily blocked for this assistant channel due to abuse protection.");
+      throwTooManyRequests(
+        "Requests temporarily blocked for this assistant channel due to abuse protection."
+      );
     }
 
     const userWindowStartedAt =
@@ -89,7 +93,8 @@ export class EnforceAbuseRateLimitService {
         ? now
         : userState.windowStartedAt;
     const assistantWindowStartedAt =
-      assistantState === null || now.getTime() - assistantState.windowStartedAt.getTime() > WINDOW_MS
+      assistantState === null ||
+      now.getTime() - assistantState.windowStartedAt.getTime() > WINDOW_MS
         ? now
         : assistantState.windowStartedAt;
 
@@ -167,7 +172,7 @@ export class EnforceAbuseRateLimitService {
       slowedUntil: finalSlowedUntil,
       blockedUntil: finalBlockedUntil,
       blockReason: finalReason,
-      adminOverrideUntil: userBypass ? userState?.adminOverrideUntil ?? null : null,
+      adminOverrideUntil: userBypass ? (userState?.adminOverrideUntil ?? null) : null,
       lastSeenAt: now
     });
 
@@ -179,7 +184,7 @@ export class EnforceAbuseRateLimitService {
       slowedUntil: finalSlowedUntil,
       blockedUntil: finalBlockedUntil,
       blockReason: finalReason,
-      adminOverrideUntil: assistantBypass ? assistantState?.adminOverrideUntil ?? null : null,
+      adminOverrideUntil: assistantBypass ? (assistantState?.adminOverrideUntil ?? null) : null,
       lastSeenAt: now
     });
 
@@ -187,7 +192,9 @@ export class EnforceAbuseRateLimitService {
       throwTooManyRequests("Requests temporarily blocked due to abuse/rate-limit protection.");
     }
     if (finalSlowedUntil !== null && finalSlowedUntil.getTime() > now.getTime()) {
-      throwTooManyRequests("Requests temporarily slowed due to abuse/rate-limit and quota pressure protection.");
+      throwTooManyRequests(
+        "Requests temporarily slowed due to abuse/rate-limit and quota pressure protection."
+      );
     }
   }
 
@@ -196,7 +203,9 @@ export class EnforceAbuseRateLimitService {
     now: Date
   ): Promise<AbuseDecision> {
     const config = loadApiConfig(process.env);
-    const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(assistant.workspaceId);
+    const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(
+      assistant.workspaceId
+    );
     if (quotaState === null) {
       return {
         blockedUntil: null,

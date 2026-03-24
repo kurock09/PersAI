@@ -43,7 +43,9 @@ function getTrustedOneToOneGlobalWriteSurfaces(policy: Record<string, unknown>):
 /**
  * Global memory may be surfaced/read across product surfaces when policy allows.
  */
-export function isGlobalMemoryReadAllowed(effectiveMemoryControl: Record<string, unknown>): boolean {
+export function isGlobalMemoryReadAllowed(
+  effectiveMemoryControl: Record<string, unknown>
+): boolean {
   const policy = policySection(effectiveMemoryControl);
   if (policy.globalMemoryReadAllSurfaces === false) {
     return false;

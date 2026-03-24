@@ -94,7 +94,11 @@ export class DeliverAdminSystemNotificationService {
       channels.map(async (channel) => {
         const payload = envelope as unknown as Prisma.InputJsonValue;
         try {
-          const response = await this.postWebhook(channel.endpointUrl as string, envelope, channel.signingSecret);
+          const response = await this.postWebhook(
+            channel.endpointUrl as string,
+            envelope,
+            channel.signingSecret
+          );
           if (!response.ok) {
             await this.prisma.adminNotificationDelivery.create({
               data: {
@@ -118,7 +122,8 @@ export class DeliverAdminSystemNotificationService {
             }
           });
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Unknown webhook delivery failure.";
+          const message =
+            error instanceof Error ? error.message : "Unknown webhook delivery failure.";
           await this.prisma.adminNotificationDelivery.create({
             data: {
               workspaceId: input.workspaceId as string,

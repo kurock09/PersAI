@@ -118,9 +118,12 @@ export class ResolveOpenClawChannelSurfaceBindingsService {
       this.assistantChannelSurfaceBindingRepository.hasActiveBindingForProvider(assistantId, "max")
     ]);
     const governance = await this.assistantGovernanceRepository.findByAssistantId(assistantId);
-    const telegramSecretLifecycle = resolveTelegramSecretLifecycleState(governance?.secretRefs ?? null, {
-      legacyFallbackWhenMissing: telegramConfiguredRaw
-    });
+    const telegramSecretLifecycle = resolveTelegramSecretLifecycleState(
+      governance?.secretRefs ?? null,
+      {
+        legacyFallbackWhenMissing: telegramConfiguredRaw
+      }
+    );
     const telegramSecretUsable =
       telegramSecretLifecycle.status === "active" ||
       telegramSecretLifecycle.status === "legacy_unmanaged";
@@ -136,81 +139,77 @@ export class ResolveOpenClawChannelSurfaceBindingsService {
 
     const providers: OpenClawChannelSurfaceBindingsState["providers"] = PROVIDERS.map(
       (provider) => {
-      const configured = providerConfigured[provider];
-      const providerSurfaceSeeds = SURFACE_SEEDS.filter((seed) => seed.provider === provider);
-      const surfaces = providerSurfaceSeeds.map((seed) => {
-        const capabilityAllowed = seed.allowFromCapabilities(effectiveCapabilities);
-        const allowed = capabilityAllowed && configured;
-        const state: OpenClawBindingState = capabilityAllowed
-          ? configured
-            ? "active"
-            : "unconfigured"
-          : "inactive";
-        const denyReason: "capability_denied" | "provider_unconfigured" | null = allowed
-          ? null
-          : capabilityAllowed
-            ? "provider_unconfigured"
-            : "capability_denied";
-        return {
-          surfaceType: seed.surfaceType,
-          allowed,
-          state,
-          denyReason,
-          policy: {
-            interactionMode: seed.interactionMode,
-            inboundUserMessages: seed.inboundUserMessages,
-            outboundAssistantMessages: seed.outboundAssistantMessages
-          },
-          config: {
-            routingKey: seed.routingKey
-          }
-        };
-      });
-
-      const providerCapabilityAllowed = providerSurfaceSeeds.some((seed) =>
-        seed.allowFromCapabilities(effectiveCapabilities)
-      );
-      const providerAllowed = surfaces.some((surface) => surface.allowed);
-      return {
-        provider,
-        assistantBinding: {
-          assistantId,
-          bound: providerAllowed,
-          state: providerCapabilityAllowed
+        const configured = providerConfigured[provider];
+        const providerSurfaceSeeds = SURFACE_SEEDS.filter((seed) => seed.provider === provider);
+        const surfaces = providerSurfaceSeeds.map((seed) => {
+          const capabilityAllowed = seed.allowFromCapabilities(effectiveCapabilities);
+          const allowed = capabilityAllowed && configured;
+          const state: OpenClawBindingState = capabilityAllowed
             ? configured
               ? "active"
               : "unconfigured"
-            : "inactive"
-        },
-        policy: {
-          inboundUserMessages: surfaces.some((surface) => surface.policy.inboundUserMessages),
-          outboundAssistantMessages: surfaces.some(
-            (surface) => surface.policy.outboundAssistantMessages
-          ),
-          supportsInteractiveChat: surfaces.some(
-            (surface) => surface.policy.interactionMode === "chat"
-          )
-        },
-        config: {
-          mode:
-            provider === "web_internal"
-              ? "native"
-              : provider === "system_notifications"
-                ? "system"
-                : provider === "telegram"
-                  ? "token_secret"
-                  : "provider_api",
-          configRef:
-            provider === "telegram"
-              ? "secret_refs.telegram_bot_token"
-              : provider === "whatsapp"
-                ? "secret_refs.whatsapp_business"
-                : provider === "max"
-                  ? "secret_refs.max_provider"
-                  : null
-        },
-        surfaces
-      };
+            : "inactive";
+          const denyReason: "capability_denied" | "provider_unconfigured" | null = allowed
+            ? null
+            : capabilityAllowed
+              ? "provider_unconfigured"
+              : "capability_denied";
+          return {
+            surfaceType: seed.surfaceType,
+            allowed,
+            state,
+            denyReason,
+            policy: {
+              interactionMode: seed.interactionMode,
+              inboundUserMessages: seed.inboundUserMessages,
+              outboundAssistantMessages: seed.outboundAssistantMessages
+            },
+            config: {
+              routingKey: seed.routingKey
+            }
+          };
+        });
+
+        const providerCapabilityAllowed = providerSurfaceSeeds.some((seed) =>
+          seed.allowFromCapabilities(effectiveCapabilities)
+        );
+        const providerAllowed = surfaces.some((surface) => surface.allowed);
+        return {
+          provider,
+          assistantBinding: {
+            assistantId,
+            bound: providerAllowed,
+            state: providerCapabilityAllowed ? (configured ? "active" : "unconfigured") : "inactive"
+          },
+          policy: {
+            inboundUserMessages: surfaces.some((surface) => surface.policy.inboundUserMessages),
+            outboundAssistantMessages: surfaces.some(
+              (surface) => surface.policy.outboundAssistantMessages
+            ),
+            supportsInteractiveChat: surfaces.some(
+              (surface) => surface.policy.interactionMode === "chat"
+            )
+          },
+          config: {
+            mode:
+              provider === "web_internal"
+                ? "native"
+                : provider === "system_notifications"
+                  ? "system"
+                  : provider === "telegram"
+                    ? "token_secret"
+                    : "provider_api",
+            configRef:
+              provider === "telegram"
+                ? "secret_refs.telegram_bot_token"
+                : provider === "whatsapp"
+                  ? "secret_refs.whatsapp_business"
+                  : provider === "max"
+                    ? "secret_refs.max_provider"
+                    : null
+          },
+          surfaces
+        };
       }
     );
 

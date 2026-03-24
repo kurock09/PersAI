@@ -4,11 +4,11 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantDraftState } from './assistantDraftState';
-import type { AssistantLifecycleStateLatestPublishedVersion } from './assistantLifecycleStateLatestPublishedVersion';
-import type { AssistantRuntimeApplyState } from './assistantRuntimeApplyState';
-import type { AssistantGovernanceState } from './assistantGovernanceState';
-import type { AssistantMaterializationState } from './assistantMaterializationState';
+import type { AssistantDraftState } from "./assistantDraftState";
+import type { AssistantLifecycleStateLatestPublishedVersion } from "./assistantLifecycleStateLatestPublishedVersion";
+import type { AssistantRuntimeApplyState } from "./assistantRuntimeApplyState";
+import type { AssistantGovernanceState } from "./assistantGovernanceState";
+import type { AssistantMaterializationState } from "./assistantMaterializationState";
 
 export interface AssistantLifecycleState {
   id: string;

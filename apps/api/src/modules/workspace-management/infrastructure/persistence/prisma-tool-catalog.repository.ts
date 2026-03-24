@@ -7,7 +7,9 @@ import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.
 export class PrismaToolCatalogRepository implements ToolCatalogRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
-  async listToolsForPlanActivationView(planCode: string | null): Promise<ToolCatalogActivationView[]> {
+  async listToolsForPlanActivationView(
+    planCode: string | null
+  ): Promise<ToolCatalogActivationView[]> {
     const tools = await this.prisma.toolCatalogTool.findMany({
       where: {
         status: "active"

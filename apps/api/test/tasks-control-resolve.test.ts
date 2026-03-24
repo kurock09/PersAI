@@ -22,10 +22,7 @@ const baseGov = {
   updatedAt: new Date()
 } satisfies AssistantGovernance;
 
-assert.equal(
-  (resolveEffectiveTasksControlFromGovernance(baseGov) as { foo?: number }).foo,
-  1
-);
+assert.equal((resolveEffectiveTasksControlFromGovernance(baseGov) as { foo?: number }).foo, 1);
 
 const legacyGov: AssistantGovernance = {
   ...baseGov,

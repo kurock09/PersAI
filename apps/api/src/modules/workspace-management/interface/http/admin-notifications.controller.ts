@@ -32,7 +32,10 @@ export class AdminNotificationsController {
   }> {
     const userId = this.resolveRequestUserId(req);
     const input = this.manageAdminNotificationChannelsService.parseWebhookUpdateInput(body);
-    const channel = await this.manageAdminNotificationChannelsService.updateWebhookChannel(userId, input);
+    const channel = await this.manageAdminNotificationChannelsService.updateWebhookChannel(
+      userId,
+      input
+    );
     return {
       requestId: req.requestId ?? null,
       channel

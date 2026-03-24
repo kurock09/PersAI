@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TelegramIntegrationStateProvider = typeof TelegramIntegrationStateProvider[keyof typeof TelegramIntegrationStateProvider];
-
+export type TelegramIntegrationStateProvider =
+  (typeof TelegramIntegrationStateProvider)[keyof typeof TelegramIntegrationStateProvider];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TelegramIntegrationStateProvider = {
-  telegram: 'telegram',
+  telegram: "telegram"
 } as const;

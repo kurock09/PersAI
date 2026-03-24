@@ -5,13 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AbuseSurface = typeof AbuseSurface[keyof typeof AbuseSurface];
-
+export type AbuseSurface = (typeof AbuseSurface)[keyof typeof AbuseSurface];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AbuseSurface = {
-  web_chat: 'web_chat',
-  telegram: 'telegram',
-  whatsapp: 'whatsapp',
-  max: 'max',
+  web_chat: "web_chat",
+  telegram: "telegram",
+  whatsapp: "whatsapp",
+  max: "max"
 } as const;

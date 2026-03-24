@@ -77,7 +77,11 @@ async function run(): Promise<void> {
   const capabilityResolver = {
     execute: async () => ({
       schema: "persai.effectiveCapabilities.v1" as const,
-      derivedFrom: { planCode: "starter_trial", planStatus: "active" as const, governanceSchema: null },
+      derivedFrom: {
+        planCode: "starter_trial",
+        planStatus: "active" as const,
+        governanceSchema: null
+      },
       subscription: {
         source: "workspace_subscription" as const,
         status: "trialing" as const,
@@ -173,11 +177,19 @@ async function run(): Promise<void> {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ ok: true, result: { id: 777, first_name: "PersAI Bot", username: "persai_bot" } }), {
-      status: 200
-    })) as typeof fetch;
+    new Response(
+      JSON.stringify({
+        ok: true,
+        result: { id: 777, first_name: "PersAI Bot", username: "persai_bot" }
+      }),
+      {
+        status: 200
+      }
+    )) as typeof fetch;
   try {
-    const connected = await connectService.execute("user-1", { botToken: "123456:ABCDEF01234567890123" });
+    const connected = await connectService.execute("user-1", {
+      botToken: "123456:ABCDEF01234567890123"
+    });
     assert.equal(connected.connectionStatus, "connected");
     assert.equal(connected.secretLifecycle.status, "active");
     assert.equal(connected.secretLifecycle.version, 1);

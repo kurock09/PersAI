@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ComplianceRetentionDeleteBaselineStateAuditModel = typeof ComplianceRetentionDeleteBaselineStateAuditModel[keyof typeof ComplianceRetentionDeleteBaselineStateAuditModel];
-
+export type ComplianceRetentionDeleteBaselineStateAuditModel =
+  (typeof ComplianceRetentionDeleteBaselineStateAuditModel)[keyof typeof ComplianceRetentionDeleteBaselineStateAuditModel];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ComplianceRetentionDeleteBaselineStateAuditModel = {
-  append_only_immutable: 'append_only_immutable',
+  append_only_immutable: "append_only_immutable"
 } as const;

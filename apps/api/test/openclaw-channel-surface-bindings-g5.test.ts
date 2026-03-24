@@ -106,8 +106,14 @@ async function run(): Promise<void> {
   const maxProvider = resolved.providers.find((p) => p.provider === "max");
   assert.equal(maxProvider?.assistantBinding.state, "active");
   assert.equal(maxProvider?.surfaces.length, 2);
-  assert.equal(maxProvider?.surfaces.some((s) => s.surfaceType === "max_bot"), true);
-  assert.equal(maxProvider?.surfaces.some((s) => s.surfaceType === "max_mini_app"), true);
+  assert.equal(
+    maxProvider?.surfaces.some((s) => s.surfaceType === "max_bot"),
+    true
+  );
+  assert.equal(
+    maxProvider?.surfaces.some((s) => s.surfaceType === "max_mini_app"),
+    true
+  );
   assert.equal(
     maxProvider?.surfaces.every((s) => s.allowed),
     true

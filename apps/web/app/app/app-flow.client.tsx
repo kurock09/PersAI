@@ -138,9 +138,7 @@ type StreamingChatMessage = {
 };
 
 function isMessageUuid(id: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    id
-  );
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 }
 
 function findPreviousUserServerMessageId(
@@ -204,7 +202,9 @@ function formatTaskNextRunText(
   })}`;
 }
 
-function taskStatusPillClass(controlStatus: AssistantTaskRegistryItemState["controlStatus"]): string {
+function taskStatusPillClass(
+  controlStatus: AssistantTaskRegistryItemState["controlStatus"]
+): string {
   if (controlStatus === "active") {
     return "task-pill-status task-pill-status-active";
   }
@@ -349,8 +349,10 @@ function hasDraftChanges(assistantState: AssistantLifecycleState): boolean {
   }
 
   return (
-    assistantState.draft.displayName !== assistantState.latestPublishedVersion.snapshot.displayName ||
-    assistantState.draft.instructions !== assistantState.latestPublishedVersion.snapshot.instructions
+    assistantState.draft.displayName !==
+      assistantState.latestPublishedVersion.snapshot.displayName ||
+    assistantState.draft.instructions !==
+      assistantState.latestPublishedVersion.snapshot.instructions
   );
 }
 
@@ -361,7 +363,8 @@ function isAssistantLiveForWebChat(assistantState: AssistantLifecycleState): boo
 
   return (
     assistantState.runtimeApply.status === "succeeded" &&
-    assistantState.runtimeApply.appliedPublishedVersionId === assistantState.latestPublishedVersion.id
+    assistantState.runtimeApply.appliedPublishedVersionId ===
+      assistantState.latestPublishedVersion.id
   );
 }
 
@@ -407,7 +410,10 @@ function buildUpdateMarkers(
 ): UpdateMarker[] {
   const markers: UpdateMarker[] = [];
 
-  if (assistantState.runtimeApply.status === "failed" || assistantState.runtimeApply.status === "degraded") {
+  if (
+    assistantState.runtimeApply.status === "failed" ||
+    assistantState.runtimeApply.status === "degraded"
+  ) {
     markers.push({
       id: "apply-needs-attention",
       tone: "attention",
@@ -499,9 +505,9 @@ export function AppFlowClient() {
   const [streamingIssue, setStreamingIssue] = useState<WebChatUxIssue | null>(null);
   const [streamingMeta, setStreamingMeta] = useState<string | null>(null);
   const [isStreamingChat, setIsStreamingChat] = useState(false);
-  const [activeAssistantStreamMessageId, setActiveAssistantStreamMessageId] = useState<string | null>(
-    null
-  );
+  const [activeAssistantStreamMessageId, setActiveAssistantStreamMessageId] = useState<
+    string | null
+  >(null);
   const [chatAbortController, setChatAbortController] = useState<AbortController | null>(null);
   const [memoryItems, setMemoryItems] = useState<AssistantMemoryRegistryItemState[]>([]);
   const [isLoadingMemoryItems, setIsLoadingMemoryItems] = useState(false);
@@ -520,16 +526,19 @@ export function AppFlowClient() {
   const [editingPlanCode, setEditingPlanCode] = useState<string | null>(null);
   const [editingPlanDraft, setEditingPlanDraft] = useState<PlanDraft>(toPlanDraft());
   const [isSavingAdminPlan, setIsSavingAdminPlan] = useState(false);
-  const [assistantPlanVisibility, setAssistantPlanVisibility] = useState<UserPlanVisibilityState | null>(
-    null
-  );
+  const [assistantPlanVisibility, setAssistantPlanVisibility] =
+    useState<UserPlanVisibilityState | null>(null);
   const [isLoadingAssistantPlanVisibility, setIsLoadingAssistantPlanVisibility] = useState(false);
-  const [assistantPlanVisibilityFeedback, setAssistantPlanVisibilityFeedback] = useState<string | null>(
+  const [assistantPlanVisibilityFeedback, setAssistantPlanVisibilityFeedback] = useState<
+    string | null
+  >(null);
+  const [telegramIntegration, setTelegramIntegration] = useState<TelegramIntegrationState | null>(
     null
   );
-  const [telegramIntegration, setTelegramIntegration] = useState<TelegramIntegrationState | null>(null);
   const [isLoadingTelegramIntegration, setIsLoadingTelegramIntegration] = useState(false);
-  const [telegramIntegrationFeedback, setTelegramIntegrationFeedback] = useState<string | null>(null);
+  const [telegramIntegrationFeedback, setTelegramIntegrationFeedback] = useState<string | null>(
+    null
+  );
   const [telegramBotTokenInput, setTelegramBotTokenInput] = useState("");
   const [isConnectingTelegram, setIsConnectingTelegram] = useState(false);
   const [isTelegramConfigPanelOpen, setIsTelegramConfigPanelOpen] = useState(false);
@@ -545,17 +554,22 @@ export function AppFlowClient() {
     null
   );
   const [isLoadingAdminPlanVisibility, setIsLoadingAdminPlanVisibility] = useState(false);
-  const [adminPlanVisibilityFeedback, setAdminPlanVisibilityFeedback] = useState<string | null>(null);
+  const [adminPlanVisibilityFeedback, setAdminPlanVisibilityFeedback] = useState<string | null>(
+    null
+  );
   const [adminNotificationChannels, setAdminNotificationChannels] = useState<
     AdminNotificationChannelState[]
   >([]);
-  const [isLoadingAdminNotificationChannels, setIsLoadingAdminNotificationChannels] = useState(false);
+  const [isLoadingAdminNotificationChannels, setIsLoadingAdminNotificationChannels] =
+    useState(false);
   const [adminNotificationChannelsFeedback, setAdminNotificationChannelsFeedback] = useState<
     string | null
   >(null);
   const [adminNotificationWebhookEnabled, setAdminNotificationWebhookEnabled] = useState(false);
-  const [adminNotificationWebhookEndpointUrl, setAdminNotificationWebhookEndpointUrl] = useState("");
-  const [adminNotificationWebhookSigningSecret, setAdminNotificationWebhookSigningSecret] = useState("");
+  const [adminNotificationWebhookEndpointUrl, setAdminNotificationWebhookEndpointUrl] =
+    useState("");
+  const [adminNotificationWebhookSigningSecret, setAdminNotificationWebhookSigningSecret] =
+    useState("");
   const [isSavingAdminNotificationWebhook, setIsSavingAdminNotificationWebhook] = useState(false);
   const [platformRollouts, setPlatformRollouts] = useState<PlatformRolloutState[]>([]);
   const [isLoadingPlatformRollouts, setIsLoadingPlatformRollouts] = useState(false);
@@ -570,7 +584,9 @@ export function AppFlowClient() {
   const [adminBusinessCockpit, setAdminBusinessCockpit] =
     useState<AdminBusinessCockpitState | null>(null);
   const [isLoadingAdminBusinessCockpit, setIsLoadingAdminBusinessCockpit] = useState(false);
-  const [adminBusinessCockpitFeedback, setAdminBusinessCockpitFeedback] = useState<string | null>(null);
+  const [adminBusinessCockpitFeedback, setAdminBusinessCockpitFeedback] = useState<string | null>(
+    null
+  );
   const [adminOpsCockpit, setAdminOpsCockpit] = useState<AdminOpsCockpitState | null>(null);
   const [isLoadingAdminOpsCockpit, setIsLoadingAdminOpsCockpit] = useState(false);
   const [adminOpsCockpitFeedback, setAdminOpsCockpitFeedback] = useState<string | null>(null);
@@ -706,7 +722,8 @@ export function AppFlowClient() {
         setIsTelegramConfigPanelOpen(false);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load Telegram integration.";
+      const message =
+        error instanceof Error ? error.message : "Unable to load Telegram integration.";
       setTelegramIntegrationFeedback(message);
     } finally {
       setIsLoadingTelegramIntegration(false);
@@ -810,7 +827,8 @@ export function AppFlowClient() {
       }
       setAdminNotificationChannelsFeedback(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load admin notifications.";
+      const message =
+        error instanceof Error ? error.message : "Unable to load admin notifications.";
       setAdminNotificationChannelsFeedback(message);
     } finally {
       setIsLoadingAdminNotificationChannels(false);
@@ -1114,8 +1132,7 @@ export function AppFlowClient() {
       setResetFeedback(null);
 
       const existingAssistant = flowState.data.assistantState;
-      const assistantForUpdate =
-        existingAssistant ?? (await postAssistantCreate(token));
+      const assistantForUpdate = existingAssistant ?? (await postAssistantCreate(token));
 
       const updatedAssistant = await patchAssistantDraft(token, updater(assistantForUpdate));
 
@@ -1276,7 +1293,9 @@ export function AppFlowClient() {
           assistantState: updatedAssistant
         }
       });
-      setRollbackFeedback("Rollback requested. A new published version was created from the selected target.");
+      setRollbackFeedback(
+        "Rollback requested. A new published version was created from the selected target."
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Rollback request failed.";
       setRollbackFeedback(message);
@@ -1347,7 +1366,8 @@ export function AppFlowClient() {
       await loadAdminOpsCockpit();
       setAdminOpsCockpitFeedback("Reapply requested from ops cockpit.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not reapply from ops cockpit.";
+      const message =
+        error instanceof Error ? error.message : "Could not reapply from ops cockpit.";
       setAdminOpsCockpitFeedback(message);
     } finally {
       setIsReapplying(false);
@@ -1379,7 +1399,8 @@ export function AppFlowClient() {
       await loadAdminNotificationChannels();
       setAdminNotificationChannelsFeedback("Admin notification webhook updated.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not update notification webhook.";
+      const message =
+        error instanceof Error ? error.message : "Could not update notification webhook.";
       setAdminNotificationChannelsFeedback(message);
     } finally {
       setIsSavingAdminNotificationWebhook(false);
@@ -1418,7 +1439,10 @@ export function AppFlowClient() {
       setIsApplyingPlatformRollout(true);
       setPlatformRolloutsFeedback(null);
       const rollout = await postAdminPlatformRollout(token, input);
-      setPlatformRollouts((current) => [rollout, ...current.filter((entry) => entry.id !== rollout.id)]);
+      setPlatformRollouts((current) => [
+        rollout,
+        ...current.filter((entry) => entry.id !== rollout.id)
+      ]);
       setSelectedRollbackRolloutId(rollout.id);
       await loadPlatformRollouts();
       setPlatformRolloutsFeedback("Platform-managed rollout applied.");
@@ -1443,12 +1467,18 @@ export function AppFlowClient() {
     try {
       setIsRollingBackPlatformRollout(true);
       setPlatformRolloutsFeedback(null);
-      const rollout = await postAdminPlatformRolloutRollback(token, selectedRollbackRolloutId.trim());
-      setPlatformRollouts((current) => current.map((entry) => (entry.id === rollout.id ? rollout : entry)));
+      const rollout = await postAdminPlatformRolloutRollback(
+        token,
+        selectedRollbackRolloutId.trim()
+      );
+      setPlatformRollouts((current) =>
+        current.map((entry) => (entry.id === rollout.id ? rollout : entry))
+      );
       await loadPlatformRollouts();
       setPlatformRolloutsFeedback("Platform-managed rollout rollback executed.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not rollback platform rollout.";
+      const message =
+        error instanceof Error ? error.message : "Could not rollback platform rollout.";
       setPlatformRolloutsFeedback(message);
     } finally {
       setIsRollingBackPlatformRollout(false);
@@ -1494,7 +1524,8 @@ export function AppFlowClient() {
       setTaskItemsFeedback("That reminder is active again.");
       await loadTaskItems();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not turn this reminder back on.";
+      const message =
+        error instanceof Error ? error.message : "Could not turn this reminder back on.";
       setTaskItemsFeedback(message);
     } finally {
       setTaskActionWorkingId(null);
@@ -1661,7 +1692,10 @@ export function AppFlowClient() {
             } | null;
             setChatMessages((current) =>
               current.map((message) => {
-                if (message.id === assistantMessageId && typeof t?.assistantMessage?.id === "string") {
+                if (
+                  message.id === assistantMessageId &&
+                  typeof t?.assistantMessage?.id === "string"
+                ) {
                   return {
                     ...message,
                     id: t.assistantMessage.id,
@@ -1690,7 +1724,9 @@ export function AppFlowClient() {
                   : message
               )
             );
-            setStreamingMeta("Streaming interrupted. Partial output was preserved if any text arrived.");
+            setStreamingMeta(
+              "Streaming interrupted. Partial output was preserved if any text arrived."
+            );
             void loadWebChatList();
           },
           onFailed: ({ message }) => {
@@ -1833,7 +1869,10 @@ export function AppFlowClient() {
         code: newPlanCode.trim().toLowerCase(),
         ...toAdminPlanPayload(newPlanDraft)
       });
-      setAdminPlans((current) => [created, ...current.filter((plan) => plan.code !== created.code)]);
+      setAdminPlans((current) => [
+        created,
+        ...current.filter((plan) => plan.code !== created.code)
+      ]);
       setNewPlanCode("");
       setNewPlanDraft(toPlanDraft());
       setAdminPlansFeedback("Plan created.");
@@ -1865,7 +1904,9 @@ export function AppFlowClient() {
         editingPlanCode,
         toAdminPlanPayload(editingPlanDraft) as AdminPlanUpdateRequest
       );
-      setAdminPlans((current) => current.map((plan) => (plan.code === updated.code ? updated : plan)));
+      setAdminPlans((current) =>
+        current.map((plan) => (plan.code === updated.code ? updated : plan))
+      );
       setAdminPlansFeedback("Plan updated.");
       await loadAdminPlans();
     } catch (error) {
@@ -1901,7 +1942,9 @@ export function AppFlowClient() {
   const { me } = meState;
   const draftHasChanges = assistantState !== null ? hasDraftChanges(assistantState) : false;
   const publishStateLabel =
-    assistantState !== null ? toPublishStateLabel(assistantState, draftHasChanges, isPublishing) : null;
+    assistantState !== null
+      ? toPublishStateLabel(assistantState, draftHasChanges, isPublishing)
+      : null;
   const applyStateLabel = assistantState !== null ? toApplyStateLabel(assistantState) : null;
   const rollbackAvailable =
     assistantState !== null &&
@@ -1999,8 +2042,8 @@ export function AppFlowClient() {
           </label>
 
           <p>
-            Data handling baseline is explicit: no silent auto-purge TTL, chat delete is explicit hard
-            delete, and audit records are append-only.
+            Data handling baseline is explicit: no silent auto-purge TTL, chat delete is explicit
+            hard delete, and audit records are append-only.
           </p>
 
           <button type="submit" disabled={isSubmitting}>
@@ -2034,8 +2077,7 @@ export function AppFlowClient() {
           <strong>Onboarding:</strong> {me.onboarding.status}
         </p>
         <p>
-          <strong>Assistant entity:</strong>{" "}
-          {assistantState === null ? "not created" : "created"}
+          <strong>Assistant entity:</strong> {assistantState === null ? "not created" : "created"}
         </p>
         <p>
           <strong>Draft truth:</strong>{" "}
@@ -2090,7 +2132,11 @@ export function AppFlowClient() {
           Refresh dashboard
         </button>
         {assistantState === null && (
-          <button type="button" disabled={isCreatingAssistant} onClick={() => void onCreateAssistant()}>
+          <button
+            type="button"
+            disabled={isCreatingAssistant}
+            onClick={() => void onCreateAssistant()}
+          >
             {isCreatingAssistant ? "Creating assistant..." : "Create assistant"}
           </button>
         )}
@@ -2136,7 +2182,8 @@ export function AppFlowClient() {
                   "Not configured"}
               </p>
               <p>
-                <strong>Plan state:</strong> {assistantPlanVisibility.effectivePlan.subscriptionStatus}
+                <strong>Plan state:</strong>{" "}
+                {assistantPlanVisibility.effectivePlan.subscriptionStatus}
               </p>
               <p>
                 <strong>Token budget:</strong> {assistantPlanVisibility.limits.tokenBudgetPercent}%
@@ -2254,7 +2301,9 @@ export function AppFlowClient() {
       {assistantState !== null && (
         <section>
           <h2>Web chat stream</h2>
-          <p>Streaming-first transport path for web chat. Request/response is not the default path.</p>
+          <p>
+            Streaming-first transport path for web chat. Request/response is not the default path.
+          </p>
           <p>
             <strong>Thread key:</strong>
           </p>
@@ -2296,8 +2345,8 @@ export function AppFlowClient() {
           )}
           {reachedActiveChatCap && (
             <p>
-              Active chat limit reached for new threads. Archive an existing active chat from the list
-              or continue in an existing thread key.
+              Active chat limit reached for new threads. Archive an existing active chat from the
+              list or continue in an existing thread key.
             </p>
           )}
           {chatMessages.length === 0 ? (
@@ -2428,8 +2477,7 @@ export function AppFlowClient() {
               <strong>Draft display name:</strong> {assistantState.draft.displayName ?? "not set"}
             </p>
             <p>
-              <strong>Draft instructions:</strong>{" "}
-              {assistantState.draft.instructions ?? "not set"}
+              <strong>Draft instructions:</strong> {assistantState.draft.instructions ?? "not set"}
             </p>
             <p>
               <strong>Latest published version ID:</strong>{" "}
@@ -2449,9 +2497,7 @@ export function AppFlowClient() {
 
       <section>
         <h2>Assistant setup paths</h2>
-        <p>
-          Both paths save draft state only. Publish remains explicit and separate.
-        </p>
+        <p>Both paths save draft state only. Publish remains explicit and separate.</p>
         <p>
           <strong>Active path:</strong>{" "}
           {setupMode === "quick_start" ? "Quick start" : "Advanced setup"}
@@ -2559,16 +2605,18 @@ export function AppFlowClient() {
           <section className="memory-center">
             <h3>Memory</h3>
             <p className="memory-center-lead">
-              Calm summaries from your web chats show here. This is your Memory Center—not a technical log
-              and not raw runtime internals.
+              Calm summaries from your web chats show here. This is your Memory Center—not a
+              technical log and not raw runtime internals.
             </p>
-            {memoryItemsFeedback !== null && <p className="memory-feedback">{memoryItemsFeedback}</p>}
+            {memoryItemsFeedback !== null && (
+              <p className="memory-feedback">{memoryItemsFeedback}</p>
+            )}
             {isLoadingMemoryItems ? (
               <p>Loading memory summaries…</p>
             ) : memoryItems.length === 0 ? (
               <p className="memory-empty">
-                No summaries yet. After a web chat reply finishes, a short one-line summary may appear
-                here. You can remove it anytime.
+                No summaries yet. After a web chat reply finishes, a short one-line summary may
+                appear here. You can remove it anytime.
               </p>
             ) : (
               <ul className="memory-item-list">
@@ -2603,16 +2651,16 @@ export function AppFlowClient() {
           <section className="task-center">
             <h3>Tasks</h3>
             <p className="task-center-lead">
-              Your reminders and scheduled tasks in one calm place. This is a simple control panel—not a
-              workflow builder and not a technical runtime view.
+              Your reminders and scheduled tasks in one calm place. This is a simple control
+              panel—not a workflow builder and not a technical runtime view.
             </p>
             {taskItemsFeedback !== null && <p className="task-feedback">{taskItemsFeedback}</p>}
             {isLoadingTaskItems ? (
               <p>Loading reminders…</p>
             ) : taskItems.length === 0 ? (
               <p className="task-empty">
-                Nothing here yet. When your assistant sets up reminders or repeating tasks, they’ll show up
-                so you can pause or stop them anytime.
+                Nothing here yet. When your assistant sets up reminders or repeating tasks, they’ll
+                show up so you can pause or stop them anytime.
               </p>
             ) : (
               <>
@@ -2635,7 +2683,9 @@ export function AppFlowClient() {
                                 {taskStatusLabel(item.controlStatus)}
                               </span>
                             </p>
-                            <p className="task-item-next">{formatTaskNextRunText(item.nextRunAt, item.controlStatus)}</p>
+                            <p className="task-item-next">
+                              {formatTaskNextRunText(item.nextRunAt, item.controlStatus)}
+                            </p>
                             <div className="task-item-actions">
                               <button
                                 type="button"
@@ -2681,7 +2731,9 @@ export function AppFlowClient() {
                                 {taskStatusLabel(item.controlStatus)}
                               </span>
                             </p>
-                            <p className="task-item-next">{formatTaskNextRunText(item.nextRunAt, item.controlStatus)}</p>
+                            <p className="task-item-next">
+                              {formatTaskNextRunText(item.nextRunAt, item.controlStatus)}
+                            </p>
                             <div className="task-item-actions">
                               {item.controlStatus === "disabled" ? (
                                 <>
@@ -2732,7 +2784,9 @@ export function AppFlowClient() {
                         : "Not available on current plan"}
                 </p>
                 {telegramIntegration === null ? (
-                  <p className="integration-note">Sign in again and refresh to load Telegram state.</p>
+                  <p className="integration-note">
+                    Sign in again and refresh to load Telegram state.
+                  </p>
                 ) : (
                   <>
                     {telegramIntegration.connectionStatus === "connected" && (
@@ -2821,7 +2875,9 @@ export function AppFlowClient() {
                             <label>
                               <input
                                 type="checkbox"
-                                checked={telegramConfigDraft.outboundAssistantMessagesEnabled ?? true}
+                                checked={
+                                  telegramConfigDraft.outboundAssistantMessagesEnabled ?? true
+                                }
                                 onChange={(event) =>
                                   setTelegramConfigDraft((current) => ({
                                     ...current,
@@ -2857,14 +2913,18 @@ export function AppFlowClient() {
                 <div className="integration-icon">MX</div>
                 <h4>MAX</h4>
                 <p className="integration-state-line">Coming soon</p>
-                <p className="integration-note">Bot and mini-app delivery will be added in later slices.</p>
+                <p className="integration-note">
+                  Bot and mini-app delivery will be added in later slices.
+                </p>
               </article>
 
               <article className="integration-card integration-card-coming-soon">
                 <div className="integration-icon">WA</div>
                 <h4>WhatsApp</h4>
                 <p className="integration-state-line">Coming soon</p>
-                <p className="integration-note">Business channel connection is planned, not active yet.</p>
+                <p className="integration-note">
+                  Business channel connection is planned, not active yet.
+                </p>
               </article>
             </div>
           </section>
@@ -2872,8 +2932,8 @@ export function AppFlowClient() {
           <section>
             <h3>Channels</h3>
             <p>
-              Web remains primary for setup and governance. Telegram is an interaction/delivery surface
-              connected from Integrations.
+              Web remains primary for setup and governance. Telegram is an interaction/delivery
+              surface connected from Integrations.
             </p>
           </section>
 
@@ -2881,12 +2941,14 @@ export function AppFlowClient() {
             <h3>Limits & Safety Summary</h3>
             <p>Read-only summary with plan-aware percentage limits.</p>
             <p>
-              <strong>Quota plan code:</strong> {assistantState.governance.quotaPlanCode ?? "not configured"}
+              <strong>Quota plan code:</strong>{" "}
+              {assistantState.governance.quotaPlanCode ?? "not configured"}
             </p>
             {assistantPlanVisibility !== null && (
               <>
                 <p>
-                  <strong>Token budget usage:</strong> {assistantPlanVisibility.limits.tokenBudgetPercent}%
+                  <strong>Token budget usage:</strong>{" "}
+                  {assistantPlanVisibility.limits.tokenBudgetPercent}%
                 </p>
                 <p>
                   <strong>Cost-driving tools usage:</strong>{" "}
@@ -2936,7 +2998,8 @@ export function AppFlowClient() {
           {adminBusinessCockpit !== null && (
             <>
               <p>
-                <strong>Active assistants:</strong> {adminBusinessCockpit.activeAssistants.activeAssistants} /{" "}
+                <strong>Active assistants:</strong>{" "}
+                {adminBusinessCockpit.activeAssistants.activeAssistants} /{" "}
                 {adminBusinessCockpit.activeAssistants.totalAssistants}
               </p>
               <p>
@@ -2970,8 +3033,9 @@ export function AppFlowClient() {
                   {adminBusinessCockpit.publishApplySuccess.applySuccessPercent}%
                 </p>
                 <p>
-                  <strong>Apply outcomes:</strong> {adminBusinessCockpit.publishApplySuccess.applySucceeded}{" "}
-                  succeeded / {adminBusinessCockpit.publishApplySuccess.applyDegraded} degraded /{" "}
+                  <strong>Apply outcomes:</strong>{" "}
+                  {adminBusinessCockpit.publishApplySuccess.applySucceeded} succeeded /{" "}
+                  {adminBusinessCockpit.publishApplySuccess.applyDegraded} degraded /{" "}
                   {adminBusinessCockpit.publishApplySuccess.applyFailed} failed
                 </p>
               </section>
@@ -2981,7 +3045,8 @@ export function AppFlowClient() {
                   <strong>Pressure:</strong> {adminBusinessCockpit.quotaPressure.pressureLevel}
                 </p>
                 <p>
-                  <strong>Token budget:</strong> {adminBusinessCockpit.quotaPressure.tokenBudgetPercent}%
+                  <strong>Token budget:</strong>{" "}
+                  {adminBusinessCockpit.quotaPressure.tokenBudgetPercent}%
                 </p>
                 <p>
                   <strong>Cost-driving:</strong>{" "}
@@ -3001,8 +3066,8 @@ export function AppFlowClient() {
                     "Not configured"}
                 </p>
                 <p>
-                  <strong>Catalog mix:</strong> {adminBusinessCockpit.planUsageSnapshot.activePlans} active /{" "}
-                  {adminBusinessCockpit.planUsageSnapshot.inactivePlans} inactive
+                  <strong>Catalog mix:</strong> {adminBusinessCockpit.planUsageSnapshot.activePlans}{" "}
+                  active / {adminBusinessCockpit.planUsageSnapshot.inactivePlans} inactive
                 </p>
               </section>
             </>
@@ -3068,7 +3133,9 @@ export function AppFlowClient() {
                 {adminNotificationChannels.map((channel) => (
                   <li key={channel.channelType}>
                     <strong>{channel.channelType}</strong>: {channel.status}
-                    {channel.endpointUrl !== null ? `, endpoint ${channel.endpointUrl}` : ", no endpoint"}
+                    {channel.endpointUrl !== null
+                      ? `, endpoint ${channel.endpointUrl}`
+                      : ", no endpoint"}
                     {channel.lastDelivery !== null
                       ? `, last delivery ${channel.lastDelivery.deliveryStatus} at ${channel.lastDelivery.attemptedAt}`
                       : ", no deliveries yet"}
@@ -3150,10 +3217,10 @@ export function AppFlowClient() {
               <ul>
                 {platformRollouts.map((rollout) => (
                   <li key={rollout.id}>
-                    <strong>{rollout.id}</strong>: {rollout.status}, {rollout.rolloutPercent}% target,{" "}
-                    {rollout.targetedAssistants}/{rollout.totalAssistants} assistants, apply outcomes{" "}
-                    {rollout.applySucceededCount} succeeded / {rollout.applyDegradedCount} degraded /{" "}
-                    {rollout.applyFailedCount} failed
+                    <strong>{rollout.id}</strong>: {rollout.status}, {rollout.rolloutPercent}%
+                    target, {rollout.targetedAssistants}/{rollout.totalAssistants} assistants, apply
+                    outcomes {rollout.applySucceededCount} succeeded / {rollout.applyDegradedCount}{" "}
+                    degraded / {rollout.applyFailedCount} failed
                   </li>
                 ))}
               </ul>
@@ -3219,8 +3286,8 @@ export function AppFlowClient() {
               <section className="ops-cockpit-controls">
                 <h3>Ops controls</h3>
                 <p>
-                  Restart control is intentionally unsupported in this slice. Reapply is available when
-                  there is a published version.
+                  Restart control is intentionally unsupported in this slice. Reapply is available
+                  when there is a published version.
                 </p>
                 <button
                   type="button"
@@ -3307,12 +3374,16 @@ export function AppFlowClient() {
         <section>
           <h2>Admin plan management</h2>
           <p>
-            Create and edit commercial plan packaging in one place. This is control-plane configuration,
-            not a billing provider console.
+            Create and edit commercial plan packaging in one place. This is control-plane
+            configuration, not a billing provider console.
           </p>
           {adminPlansFeedback !== null && <p>{adminPlansFeedback}</p>}
           {isLoadingAdminPlans && <p>Loading plan catalog…</p>}
-          <button type="button" disabled={isLoadingAdminPlans} onClick={() => void loadAdminPlans()}>
+          <button
+            type="button"
+            disabled={isLoadingAdminPlans}
+            onClick={() => void loadAdminPlans()}
+          >
             Refresh plans
           </button>
 
@@ -3376,7 +3447,10 @@ export function AppFlowClient() {
                   type="checkbox"
                   checked={newPlanDraft.trialEnabled}
                   onChange={(event) =>
-                    setNewPlanDraft((current) => ({ ...current, trialEnabled: event.target.checked }))
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      trialEnabled: event.target.checked
+                    }))
                   }
                 />
                 Trial enabled
@@ -3391,7 +3465,9 @@ export function AppFlowClient() {
                   setNewPlanDraft((current) => ({
                     ...current,
                     trialDurationDays:
-                      event.target.value.trim().length === 0 ? null : Number.parseInt(event.target.value, 10)
+                      event.target.value.trim().length === 0
+                        ? null
+                        : Number.parseInt(event.target.value, 10)
                   }))
                 }
                 disabled={!newPlanDraft.trialEnabled}
@@ -3401,7 +3477,10 @@ export function AppFlowClient() {
                 id="adminPlanCommercialTag"
                 value={newPlanDraft.metadataCommercialTag}
                 onChange={(event) =>
-                  setNewPlanDraft((current) => ({ ...current, metadataCommercialTag: event.target.value }))
+                  setNewPlanDraft((current) => ({
+                    ...current,
+                    metadataCommercialTag: event.target.value
+                  }))
                 }
               />
               <label htmlFor="adminPlanNotes">Admin notes</label>
@@ -3433,7 +3512,10 @@ export function AppFlowClient() {
                   type="checkbox"
                   checked={newPlanDraft.capabilityMemoryCenter}
                   onChange={(event) =>
-                    setNewPlanDraft((current) => ({ ...current, capabilityMemoryCenter: event.target.checked }))
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      capabilityMemoryCenter: event.target.checked
+                    }))
                   }
                 />
                 Memory Center
@@ -3443,7 +3525,10 @@ export function AppFlowClient() {
                   type="checkbox"
                   checked={newPlanDraft.capabilityTasksCenter}
                   onChange={(event) =>
-                    setNewPlanDraft((current) => ({ ...current, capabilityTasksCenter: event.target.checked }))
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      capabilityTasksCenter: event.target.checked
+                    }))
                   }
                 />
                 Tasks Center
@@ -3453,7 +3538,10 @@ export function AppFlowClient() {
                   type="checkbox"
                   checked={newPlanDraft.toolCostDriving}
                   onChange={(event) =>
-                    setNewPlanDraft((current) => ({ ...current, toolCostDriving: event.target.checked }))
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      toolCostDriving: event.target.checked
+                    }))
                   }
                 />
                 Cost-driving tools available
@@ -3476,7 +3564,10 @@ export function AppFlowClient() {
                   type="checkbox"
                   checked={newPlanDraft.toolUtility}
                   onChange={(event) =>
-                    setNewPlanDraft((current) => ({ ...current, toolUtility: event.target.checked }))
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      toolUtility: event.target.checked
+                    }))
                   }
                 />
                 Utility tools available
@@ -3499,7 +3590,10 @@ export function AppFlowClient() {
                   type="checkbox"
                   checked={newPlanDraft.channelWebChat}
                   onChange={(event) =>
-                    setNewPlanDraft((current) => ({ ...current, channelWebChat: event.target.checked }))
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      channelWebChat: event.target.checked
+                    }))
                   }
                 />
                 Web chat surface
@@ -3509,7 +3603,10 @@ export function AppFlowClient() {
                   type="checkbox"
                   checked={newPlanDraft.channelTelegram}
                   onChange={(event) =>
-                    setNewPlanDraft((current) => ({ ...current, channelTelegram: event.target.checked }))
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      channelTelegram: event.target.checked
+                    }))
                   }
                 />
                 Telegram surface
@@ -3519,7 +3616,10 @@ export function AppFlowClient() {
                   type="checkbox"
                   checked={newPlanDraft.channelWhatsapp}
                   onChange={(event) =>
-                    setNewPlanDraft((current) => ({ ...current, channelWhatsapp: event.target.checked }))
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      channelWhatsapp: event.target.checked
+                    }))
                   }
                 />
                 WhatsApp surface
@@ -3539,7 +3639,10 @@ export function AppFlowClient() {
                   type="checkbox"
                   checked={newPlanDraft.limitsViewPercentages}
                   onChange={(event) =>
-                    setNewPlanDraft((current) => ({ ...current, limitsViewPercentages: event.target.checked }))
+                    setNewPlanDraft((current) => ({
+                      ...current,
+                      limitsViewPercentages: event.target.checked
+                    }))
                   }
                 />
                 Show limits as percentages
@@ -3591,7 +3694,10 @@ export function AppFlowClient() {
                   id="editPlanDisplayName"
                   value={editingPlanDraft.displayName}
                   onChange={(event) =>
-                    setEditingPlanDraft((current) => ({ ...current, displayName: event.target.value }))
+                    setEditingPlanDraft((current) => ({
+                      ...current,
+                      displayName: event.target.value
+                    }))
                   }
                   required
                 />
@@ -3600,7 +3706,10 @@ export function AppFlowClient() {
                   id="editPlanDescription"
                   value={editingPlanDraft.description}
                   onChange={(event) =>
-                    setEditingPlanDraft((current) => ({ ...current, description: event.target.value }))
+                    setEditingPlanDraft((current) => ({
+                      ...current,
+                      description: event.target.value
+                    }))
                   }
                 />
                 <label htmlFor="editPlanStatus">Status</label>
@@ -3653,7 +3762,9 @@ export function AppFlowClient() {
                     setEditingPlanDraft((current) => ({
                       ...current,
                       trialDurationDays:
-                        event.target.value.trim().length === 0 ? null : Number.parseInt(event.target.value, 10)
+                        event.target.value.trim().length === 0
+                          ? null
+                          : Number.parseInt(event.target.value, 10)
                     }))
                   }
                   disabled={!editingPlanDraft.trialEnabled}
@@ -3674,7 +3785,10 @@ export function AppFlowClient() {
                   id="editPlanNotes"
                   value={editingPlanDraft.metadataNotes}
                   onChange={(event) =>
-                    setEditingPlanDraft((current) => ({ ...current, metadataNotes: event.target.value }))
+                    setEditingPlanDraft((current) => ({
+                      ...current,
+                      metadataNotes: event.target.value
+                    }))
                   }
                 />
                 <label>
@@ -3721,7 +3835,10 @@ export function AppFlowClient() {
                     type="checkbox"
                     checked={editingPlanDraft.toolCostDriving}
                     onChange={(event) =>
-                      setEditingPlanDraft((current) => ({ ...current, toolCostDriving: event.target.checked }))
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        toolCostDriving: event.target.checked
+                      }))
                     }
                   />
                   Cost-driving tools available
@@ -3744,7 +3861,10 @@ export function AppFlowClient() {
                     type="checkbox"
                     checked={editingPlanDraft.toolUtility}
                     onChange={(event) =>
-                      setEditingPlanDraft((current) => ({ ...current, toolUtility: event.target.checked }))
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        toolUtility: event.target.checked
+                      }))
                     }
                   />
                   Utility tools available
@@ -3767,7 +3887,10 @@ export function AppFlowClient() {
                     type="checkbox"
                     checked={editingPlanDraft.channelWebChat}
                     onChange={(event) =>
-                      setEditingPlanDraft((current) => ({ ...current, channelWebChat: event.target.checked }))
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        channelWebChat: event.target.checked
+                      }))
                     }
                   />
                   Web chat surface
@@ -3777,7 +3900,10 @@ export function AppFlowClient() {
                     type="checkbox"
                     checked={editingPlanDraft.channelTelegram}
                     onChange={(event) =>
-                      setEditingPlanDraft((current) => ({ ...current, channelTelegram: event.target.checked }))
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        channelTelegram: event.target.checked
+                      }))
                     }
                   />
                   Telegram surface
@@ -3787,7 +3913,10 @@ export function AppFlowClient() {
                     type="checkbox"
                     checked={editingPlanDraft.channelWhatsapp}
                     onChange={(event) =>
-                      setEditingPlanDraft((current) => ({ ...current, channelWhatsapp: event.target.checked }))
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        channelWhatsapp: event.target.checked
+                      }))
                     }
                   />
                   WhatsApp surface
@@ -3797,7 +3926,10 @@ export function AppFlowClient() {
                     type="checkbox"
                     checked={editingPlanDraft.channelMax}
                     onChange={(event) =>
-                      setEditingPlanDraft((current) => ({ ...current, channelMax: event.target.checked }))
+                      setEditingPlanDraft((current) => ({
+                        ...current,
+                        channelMax: event.target.checked
+                      }))
                     }
                   />
                   MAX surface
@@ -3846,8 +3978,8 @@ export function AppFlowClient() {
           <strong>Display name:</strong> {me.appUser.displayName ?? "not set"}
         </p>
         <p>
-          <strong>Workspace:</strong> {me.workspace.name} ({me.workspace.locale}, {me.workspace.timezone}
-          )
+          <strong>Workspace:</strong> {me.workspace.name} ({me.workspace.locale},{" "}
+          {me.workspace.timezone})
         </p>
         <p>
           <strong>Workspace role:</strong> {me.workspace.role}

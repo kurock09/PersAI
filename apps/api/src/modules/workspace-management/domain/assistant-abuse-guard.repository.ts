@@ -12,7 +12,10 @@ export interface AssistantAbuseGuardRepository {
     userId: string,
     surface: AbuseSurface
   ): Promise<AssistantAbuseGuardState | null>;
-  findAssistantState(assistantId: string, surface: AbuseSurface): Promise<AssistantAbuseAssistantState | null>;
+  findAssistantState(
+    assistantId: string,
+    surface: AbuseSurface
+  ): Promise<AssistantAbuseAssistantState | null>;
   upsertUserState(input: {
     assistantId: string;
     userId: string;

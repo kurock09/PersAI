@@ -87,11 +87,10 @@ export class MaterializeAssistantPublishedVersionService {
     const toolAvailability = await this.resolveEffectiveToolAvailabilityService.execute({
       effectiveCapabilities
     });
-    const channelSurfaceBindings =
-      await this.resolveOpenClawChannelSurfaceBindingsService.execute({
-        assistantId: assistant.id,
-        effectiveCapabilities
-      });
+    const channelSurfaceBindings = await this.resolveOpenClawChannelSurfaceBindingsService.execute({
+      assistantId: assistant.id,
+      effectiveCapabilities
+    });
     const runtimeProviderRouting = this.resolveRuntimeProviderRoutingService.execute({
       effectiveCapabilities,
       policyEnvelope: governance.policyEnvelope
@@ -217,5 +216,4 @@ export class MaterializeAssistantPublishedVersionService {
       auditHook: governance.auditHook
     };
   }
-
 }

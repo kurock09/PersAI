@@ -13,12 +13,12 @@ import type {
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
 @Injectable()
-export class PrismaAssistantChannelSurfaceBindingRepository
-  implements AssistantChannelSurfaceBindingRepository
-{
+export class PrismaAssistantChannelSurfaceBindingRepository implements AssistantChannelSurfaceBindingRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
-  private toNullableJsonInput(value: Record<string, unknown> | null): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
+  private toNullableJsonInput(
+    value: Record<string, unknown> | null
+  ): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
     return value === null ? Prisma.DbNull : (value as Prisma.InputJsonValue);
   }
 

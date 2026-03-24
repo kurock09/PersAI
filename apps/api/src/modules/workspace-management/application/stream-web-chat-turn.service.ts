@@ -1,9 +1,4 @@
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException
-} from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -83,7 +78,10 @@ export class StreamWebChatTurnService {
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
-  async prepare(userId: string, request: StreamWebChatTurnRequest): Promise<StreamWebChatTurnPrepared> {
+  async prepare(
+    userId: string,
+    request: StreamWebChatTurnRequest
+  ): Promise<StreamWebChatTurnPrepared> {
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");
@@ -111,10 +109,11 @@ export class StreamWebChatTurnService {
       "web",
       request.surfaceThreadKey
     );
-    const activeChatsCount = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
-      assistant.id,
-      "web"
-    );
+    const activeChatsCount =
+      await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+        assistant.id,
+        "web"
+      );
     await this.enforceAssistantCapabilityAndQuotaService.enforceWebChatTurn({
       assistant,
       isNewThread: existingChat === null,
@@ -142,10 +141,11 @@ export class StreamWebChatTurnService {
       content: request.message
     });
 
-    const activeWebChatsCurrent = await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
-      assistant.id,
-      "web"
-    );
+    const activeWebChatsCurrent =
+      await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+        assistant.id,
+        "web"
+      );
     await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
       assistant,
       activeWebChatsCurrent,
@@ -282,7 +282,11 @@ export class StreamWebChatTurnService {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Runtime stream failed unexpectedly.";
-      const interruptedOutcome = await this.persistInterruptedOutcome(prepared, accumulated, respondedAt);
+      const interruptedOutcome = await this.persistInterruptedOutcome(
+        prepared,
+        accumulated,
+        respondedAt
+      );
       return {
         status: "failed",
         transport: interruptedOutcome.transport,
@@ -357,4 +361,3 @@ export class StreamWebChatTurnService {
     };
   }
 }
-

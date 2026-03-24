@@ -27,7 +27,8 @@ const assistant: Assistant = {
 
 function ensureApiConfigEnv(): void {
   process.env.APP_ENV = "local";
-  process.env.DATABASE_URL = process.env.DATABASE_URL ?? "postgres://local:test@localhost:5432/test";
+  process.env.DATABASE_URL =
+    process.env.DATABASE_URL ?? "postgres://local:test@localhost:5432/test";
   process.env.CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY ?? "clerk_test_secret";
   process.env.ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE = "2";
   process.env.ABUSE_USER_BLOCK_REQUESTS_PER_MINUTE = "6";

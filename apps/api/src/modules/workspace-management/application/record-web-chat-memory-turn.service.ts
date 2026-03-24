@@ -34,7 +34,9 @@ export class RecordWebChatMemoryTurnService {
     assistantContent: string;
     memoryWriteContext: GlobalMemoryWriteAttemptContext;
   }): Promise<void> {
-    const governance = await this.assistantGovernanceRepository.findByAssistantId(params.assistantId);
+    const governance = await this.assistantGovernanceRepository.findByAssistantId(
+      params.assistantId
+    );
     const envelope = resolveEffectiveMemoryControlFromGovernance(governance);
     const decision = evaluateGlobalMemoryWritePolicy(envelope, params.memoryWriteContext);
     if (!decision.allowed) {

@@ -58,7 +58,9 @@ export class ManageAdminAbuseControlsService {
             row.overrideMinutes <= 24 * 60
           ? row.overrideMinutes
           : (() => {
-              throw new BadRequestException("overrideMinutes must be an integer between 1 and 1440.");
+              throw new BadRequestException(
+                "overrideMinutes must be an integer between 1 and 1440."
+              );
             })();
     return {
       assistantId,

@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantMaterializationStateSourceAction } from './assistantMaterializationStateSourceAction';
+import type { AssistantMaterializationStateSourceAction } from "./assistantMaterializationStateSourceAction";
 
 export interface AssistantMaterializationState {
   /** @nullable */

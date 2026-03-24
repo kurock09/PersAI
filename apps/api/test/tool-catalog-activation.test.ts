@@ -4,7 +4,9 @@ import type { ToolCatalogRepository } from "../src/modules/workspace-management/
 
 type ToolCatalogRepoStub = Pick<ToolCatalogRepository, "listToolsForPlanActivationView">;
 
-function createService(toolCatalogRepo: ToolCatalogRepoStub): ResolveEffectiveToolAvailabilityService {
+function createService(
+  toolCatalogRepo: ToolCatalogRepoStub
+): ResolveEffectiveToolAvailabilityService {
   return new ResolveEffectiveToolAvailabilityService(toolCatalogRepo as ToolCatalogRepository);
 }
 

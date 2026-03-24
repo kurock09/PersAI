@@ -48,4 +48,3 @@ export interface AssistantChatRepository {
     assistantId: string
   ): Promise<AssistantChatMessage | null>;
 }
-

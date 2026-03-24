@@ -37,5 +37,3 @@ export interface AssistantWebChatListItemState {
   messageCount: number;
   lastMessagePreview: string | null;
 }
-
-

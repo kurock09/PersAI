@@ -16,7 +16,10 @@ export type CreateAssistantMemoryRegistryItemInput = {
 
 export interface AssistantMemoryRegistryRepository {
   create(input: CreateAssistantMemoryRegistryItemInput): Promise<AssistantMemoryRegistryItem>;
-  listActiveByAssistantId(assistantId: string, limit: number): Promise<AssistantMemoryRegistryItem[]>;
+  listActiveByAssistantId(
+    assistantId: string,
+    limit: number
+  ): Promise<AssistantMemoryRegistryItem[]>;
   findActiveByIdAndAssistantId(
     id: string,
     assistantId: string

@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
@@ -13,7 +19,10 @@ import {
   revokeTelegramBotSecretRef
 } from "./assistant-secret-refs-lifecycle";
 import { ResolveTelegramIntegrationStateService } from "./resolve-telegram-integration-state.service";
-import type { TelegramIntegrationState, TelegramSecretRevokeInput } from "./telegram-integration.types";
+import type {
+  TelegramIntegrationState,
+  TelegramSecretRevokeInput
+} from "./telegram-integration.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 @Injectable()
@@ -66,7 +75,8 @@ export class RevokeTelegramIntegrationSecretService {
     const lifecycleBefore = resolveTelegramSecretLifecycleState(governance.secretRefs, {
       legacyFallbackWhenMissing: true
     });
-    const hasManagedSecret = lifecycleBefore.status !== "legacy_unmanaged" && lifecycleBefore.refKey !== null;
+    const hasManagedSecret =
+      lifecycleBefore.status !== "legacy_unmanaged" && lifecycleBefore.refKey !== null;
     if (!hasManagedSecret) {
       throw new ConflictException(
         "Telegram secret reference is not managed yet. Rotate Telegram token first to enable managed lifecycle operations."

@@ -21,5 +21,7 @@ export type BillingProviderSubscriptionSnapshot = {
  * P3 introduces this port only; concrete provider integrations remain out of scope.
  */
 export interface BillingProviderPort {
-  pullWorkspaceSubscription(workspaceId: string): Promise<BillingProviderSubscriptionSnapshot | null>;
+  pullWorkspaceSubscription(
+    workspaceId: string
+  ): Promise<BillingProviderSubscriptionSnapshot | null>;
 }

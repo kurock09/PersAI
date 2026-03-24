@@ -8,4 +8,3 @@ export type AssistantChatMessage = {
   content: string;
   createdAt: Date;
 };
-

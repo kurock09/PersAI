@@ -58,7 +58,10 @@ function readQuotaHintFromLimitsPermissions(
   return null;
 }
 
-function parsePlanQuotaHints(planHints: unknown, limitsPermissions: unknown[] | undefined): PlanQuotaHints {
+function parsePlanQuotaHints(
+  planHints: unknown,
+  limitsPermissions: unknown[] | undefined
+): PlanQuotaHints {
   const objectHints = asObject(planHints);
   const quotaHints = asObject(objectHints?.quotaAccounting ?? null);
   const tokenBudgetLimit =
@@ -66,7 +69,10 @@ function parsePlanQuotaHints(planHints: unknown, limitsPermissions: unknown[] | 
     readQuotaHintFromLimitsPermissions(limitsPermissions, "token_budget_limit");
   const toolClassLimit =
     asPositiveInteger(quotaHints?.costOrTokenDrivingToolClassUnitsLimit) ??
-    readQuotaHintFromLimitsPermissions(limitsPermissions, "cost_or_token_driving_tool_class_units_limit");
+    readQuotaHintFromLimitsPermissions(
+      limitsPermissions,
+      "cost_or_token_driving_tool_class_units_limit"
+    );
 
   return {
     tokenBudgetLimit: tokenBudgetLimit === null ? null : BigInt(tokenBudgetLimit),
@@ -111,7 +117,9 @@ export class TrackWorkspaceQuotaUsageService {
       governance
     });
 
-    const tokenDelta = BigInt(estimateTokens(params.userContent) + estimateTokens(params.assistantContent));
+    const tokenDelta = BigInt(
+      estimateTokens(params.userContent) + estimateTokens(params.assistantContent)
+    );
     if (tokenDelta > BigInt(0)) {
       await this.workspaceQuotaAccountingRepository.incrementUsage({
         workspaceId: params.assistant.workspaceId,

@@ -1,5 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma, type WorkspaceQuotaAccountingState as PrismaWorkspaceQuotaAccountingState } from "@prisma/client";
+import {
+  Prisma,
+  type WorkspaceQuotaAccountingState as PrismaWorkspaceQuotaAccountingState
+} from "@prisma/client";
 import type {
   RefreshActiveWebChatsQuotaInput,
   IncrementWorkspaceQuotaUsageInput,
@@ -88,7 +91,9 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
           delta: BigInt(0),
           currentValue: BigInt(input.currentActiveWebChats),
           limitValue:
-            input.limits.activeWebChatsLimit === null ? null : BigInt(input.limits.activeWebChatsLimit),
+            input.limits.activeWebChatsLimit === null
+              ? null
+              : BigInt(input.limits.activeWebChatsLimit),
           source: input.source,
           metadata: Prisma.DbNull
         }
@@ -136,8 +141,7 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     "tokenBudgetLimit" | "costOrTokenDrivingToolClassUnitsLimit" | "activeWebChatsLimit"
   > {
     return {
-      tokenBudgetLimit:
-        limits.tokenBudgetLimit,
+      tokenBudgetLimit: limits.tokenBudgetLimit,
       costOrTokenDrivingToolClassUnitsLimit:
         limits.costOrTokenDrivingToolClassUnitsLimit === null
           ? null
@@ -153,8 +157,7 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     "tokenBudgetLimit" | "costOrTokenDrivingToolClassUnitsLimit" | "activeWebChatsLimit"
   > {
     return {
-      tokenBudgetLimit:
-        limits.tokenBudgetLimit,
+      tokenBudgetLimit: limits.tokenBudgetLimit,
       costOrTokenDrivingToolClassUnitsLimit:
         limits.costOrTokenDrivingToolClassUnitsLimit === null
           ? null

@@ -66,8 +66,8 @@ async function run(): Promise<void> {
   assert.equal(resolved.primaryPath.modelKey, "text_premium_primary");
   assert.equal(resolved.primaryPath.active, true);
   assert.equal(
-    resolved.fallbackMatrix.find((item) => item.trigger === "provider_failure_or_timeout")
-      ?.target.modelKey,
+    resolved.fallbackMatrix.find((item) => item.trigger === "provider_failure_or_timeout")?.target
+      .modelKey,
     "text_fast_alt"
   );
   assert.equal(

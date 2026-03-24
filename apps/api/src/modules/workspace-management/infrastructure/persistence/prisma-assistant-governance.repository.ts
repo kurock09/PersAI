@@ -53,8 +53,7 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
     const updated = await this.prisma.assistantGovernance.update({
       where: { assistantId: row.assistantId },
       data: {
-        secretRefs:
-          secretRefs === null ? Prisma.DbNull : (secretRefs as Prisma.InputJsonValue)
+        secretRefs: secretRefs === null ? Prisma.DbNull : (secretRefs as Prisma.InputJsonValue)
       }
     });
     return this.mapToDomain(updated);

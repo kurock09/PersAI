@@ -194,7 +194,11 @@ export class AssistantController {
   }> {
     const userId = this.resolveRequestUserId(req);
     const input = this.revokeTelegramIntegrationSecretService.parseInput(body);
-    const integration = await this.revokeTelegramIntegrationSecretService.execute(userId, input, false);
+    const integration = await this.revokeTelegramIntegrationSecretService.execute(
+      userId,
+      input,
+      false
+    );
     return {
       requestId: req.requestId ?? null,
       integration
@@ -211,7 +215,11 @@ export class AssistantController {
   }> {
     const userId = this.resolveRequestUserId(req);
     const input = this.revokeTelegramIntegrationSecretService.parseInput(body);
-    const integration = await this.revokeTelegramIntegrationSecretService.execute(userId, input, true);
+    const integration = await this.revokeTelegramIntegrationSecretService.execute(
+      userId,
+      input,
+      true
+    );
     return {
       requestId: req.requestId ?? null,
       integration

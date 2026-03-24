@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
@@ -57,7 +63,11 @@ export class ConnectTelegramIntegrationService {
     const ttlDaysRaw = (body as { ttlDays?: unknown }).ttlDays;
     let ttlDays: number | null = null;
     if (ttlDaysRaw !== undefined) {
-      if (!Number.isInteger(ttlDaysRaw) || (ttlDaysRaw as number) < 1 || (ttlDaysRaw as number) > 365) {
+      if (
+        !Number.isInteger(ttlDaysRaw) ||
+        (ttlDaysRaw as number) < 1 ||
+        (ttlDaysRaw as number) > 365
+      ) {
         throw new BadRequestException("ttlDays must be an integer between 1 and 365.");
       }
       ttlDays = ttlDaysRaw as number;
@@ -78,7 +88,9 @@ export class ConnectTelegramIntegrationService {
       governance
     });
     if (!effectiveCapabilities.channelsAndSurfaces.telegram) {
-      throw new ConflictException("Telegram channel is not allowed for the current effective plan.");
+      throw new ConflictException(
+        "Telegram channel is not allowed for the current effective plan."
+      );
     }
 
     const bot = await this.fetchBotProfile(input.botToken);
@@ -128,7 +140,7 @@ export class ConnectTelegramIntegrationService {
       assistant.id,
       nextSecretRefs as unknown as Record<string, unknown>
     );
-    const nextTelegramSecret = (nextSecretRefs.refs.telegram_bot_token ?? null);
+    const nextTelegramSecret = nextSecretRefs.refs.telegram_bot_token ?? null;
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,
@@ -188,7 +200,11 @@ export class ConnectTelegramIntegrationService {
       ok?: boolean;
       result?: TelegramGetMeResult;
     };
-    if (payload.ok !== true || payload.result === undefined || typeof payload.result.id !== "number") {
+    if (
+      payload.ok !== true ||
+      payload.result === undefined ||
+      typeof payload.result.id !== "number"
+    ) {
       throw new BadRequestException("Telegram token is invalid or cannot be verified.");
     }
     return payload.result;

@@ -43,11 +43,7 @@ export type OpenClawCapabilityEnvelopeState = {
     capabilityGroup: "knowledge" | "automation" | "communication" | "workspace_ops";
     toolClass: "cost_driving" | "utility";
     allowed: boolean;
-    denyReason:
-      | null
-      | "catalog_inactive"
-      | "plan_activation_inactive"
-      | "class_not_allowed";
+    denyReason: null | "catalog_inactive" | "plan_activation_inactive" | "class_not_allowed";
   }>;
   quotaRestrictions: {
     costDriving: {

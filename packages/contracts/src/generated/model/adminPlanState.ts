@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanStateStatus } from './adminPlanStateStatus';
-import type { AdminPlanMetadata } from './adminPlanMetadata';
-import type { AdminPlanEntitlements } from './adminPlanEntitlements';
+import type { AdminPlanStateStatus } from "./adminPlanStateStatus";
+import type { AdminPlanMetadata } from "./adminPlanMetadata";
+import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
 
 export interface AdminPlanState {
   code: string;

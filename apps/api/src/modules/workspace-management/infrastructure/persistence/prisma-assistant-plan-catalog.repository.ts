@@ -66,7 +66,8 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
               schemaVersion: input.entitlementModel.schemaVersion,
               capabilities: input.entitlementModel.capabilities as Prisma.InputJsonValue,
               toolClasses: input.entitlementModel.toolClasses as Prisma.InputJsonValue,
-              channelsAndSurfaces: input.entitlementModel.channelsAndSurfaces as Prisma.InputJsonValue,
+              channelsAndSurfaces: input.entitlementModel
+                .channelsAndSurfaces as Prisma.InputJsonValue,
               limitsPermissions: input.entitlementModel.limitsPermissions as Prisma.InputJsonValue
             }
           }
@@ -126,16 +127,16 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
                 schemaVersion: input.entitlementModel.schemaVersion,
                 capabilities: input.entitlementModel.capabilities as Prisma.InputJsonValue,
                 toolClasses: input.entitlementModel.toolClasses as Prisma.InputJsonValue,
-                channelsAndSurfaces:
-                  input.entitlementModel.channelsAndSurfaces as Prisma.InputJsonValue,
+                channelsAndSurfaces: input.entitlementModel
+                  .channelsAndSurfaces as Prisma.InputJsonValue,
                 limitsPermissions: input.entitlementModel.limitsPermissions as Prisma.InputJsonValue
               },
               update: {
                 schemaVersion: input.entitlementModel.schemaVersion,
                 capabilities: input.entitlementModel.capabilities as Prisma.InputJsonValue,
                 toolClasses: input.entitlementModel.toolClasses as Prisma.InputJsonValue,
-                channelsAndSurfaces:
-                  input.entitlementModel.channelsAndSurfaces as Prisma.InputJsonValue,
+                channelsAndSurfaces: input.entitlementModel
+                  .channelsAndSurfaces as Prisma.InputJsonValue,
                 limitsPermissions: input.entitlementModel.limitsPermissions as Prisma.InputJsonValue
               }
             }

@@ -142,7 +142,8 @@ async function main(): Promise<void> {
     where: { code: SEED_DEFAULT_PLAN_CODE },
     update: {
       displayName: "Starter Trial",
-      description: "Default first-registration trial plan (provider-agnostic control-plane baseline).",
+      description:
+        "Default first-registration trial plan (provider-agnostic control-plane baseline).",
       status: PlanCatalogStatus.active,
       isDefaultFirstRegistrationPlan: true,
       isTrialPlan: true,
@@ -156,7 +157,8 @@ async function main(): Promise<void> {
       id: SEED_DEFAULT_PLAN_ID,
       code: SEED_DEFAULT_PLAN_CODE,
       displayName: "Starter Trial",
-      description: "Default first-registration trial plan (provider-agnostic control-plane baseline).",
+      description:
+        "Default first-registration trial plan (provider-agnostic control-plane baseline).",
       status: PlanCatalogStatus.active,
       isDefaultFirstRegistrationPlan: true,
       isTrialPlan: true,

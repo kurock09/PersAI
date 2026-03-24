@@ -33,7 +33,10 @@ const surfaceRemoved = {
     trustedOneToOneGlobalWriteSurfaces: []
   }
 };
-const noSurface = evaluateGlobalMemoryWritePolicy(surfaceRemoved, WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT);
+const noSurface = evaluateGlobalMemoryWritePolicy(
+  surfaceRemoved,
+  WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
+);
 assert.equal(noSurface.allowed, false);
 
 console.log("memory-source-policy tests passed");

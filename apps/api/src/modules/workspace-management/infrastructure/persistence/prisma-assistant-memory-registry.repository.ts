@@ -11,7 +11,9 @@ import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.
 export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryRegistryRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
-  async create(input: CreateAssistantMemoryRegistryItemInput): Promise<AssistantMemoryRegistryItem> {
+  async create(
+    input: CreateAssistantMemoryRegistryItemInput
+  ): Promise<AssistantMemoryRegistryItem> {
     const row = await this.prisma.assistantMemoryRegistryItem.create({
       data: {
         assistantId: input.assistantId,

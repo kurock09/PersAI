@@ -1,8 +1,6 @@
 import { Body, Controller, Post, Req, UnauthorizedException } from "@nestjs/common";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
-import {
-  ManageAdminAbuseControlsService
-} from "../../application/manage-admin-abuse-controls.service";
+import { ManageAdminAbuseControlsService } from "../../application/manage-admin-abuse-controls.service";
 
 @Controller("api/v1/admin/abuse-controls")
 export class AdminAbuseControlsController {

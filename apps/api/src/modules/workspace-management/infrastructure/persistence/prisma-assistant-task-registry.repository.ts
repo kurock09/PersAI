@@ -11,7 +11,10 @@ import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.
 export class PrismaAssistantTaskRegistryRepository implements AssistantTaskRegistryRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
-  async listByAssistantId(assistantId: string, limit: number): Promise<AssistantTaskRegistryItem[]> {
+  async listByAssistantId(
+    assistantId: string,
+    limit: number
+  ): Promise<AssistantTaskRegistryItem[]> {
     const rows = await this.prisma.assistantTaskRegistryItem.findMany({
       where: { assistantId },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],

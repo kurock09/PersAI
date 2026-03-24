@@ -53,7 +53,9 @@ function parseTrialDuration(value: unknown, trialEnabled: boolean): number | nul
     return null;
   }
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-    throw new BadRequestException("trialDurationDays must be an integer greater than 0 when trialEnabled=true.");
+    throw new BadRequestException(
+      "trialDurationDays must be an integer greater than 0 when trialEnabled=true."
+    );
   }
   return value;
 }
@@ -281,7 +283,10 @@ export class ManageAdminPlansService {
       entitlementModel: {
         schemaVersion: 1,
         capabilities: [
-          { key: "assistant.lifecycle.publish_apply_rollback_reset", allowed: input.entitlements.capabilities.assistantLifecycle },
+          {
+            key: "assistant.lifecycle.publish_apply_rollback_reset",
+            allowed: input.entitlements.capabilities.assistantLifecycle
+          },
           { key: "assistant.memory.center", allowed: input.entitlements.capabilities.memoryCenter },
           { key: "assistant.tasks.center", allowed: input.entitlements.capabilities.tasksCenter }
         ],
@@ -375,5 +380,4 @@ export class ManageAdminPlansService {
       updatedAt: plan.updatedAt.toISOString()
     };
   }
-
 }

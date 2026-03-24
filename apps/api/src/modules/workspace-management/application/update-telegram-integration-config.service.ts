@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
@@ -69,16 +75,20 @@ export class UpdateTelegramIntegrationConfigService {
     return output;
   }
 
-  async execute(userId: string, input: TelegramConfigUpdateInput): Promise<TelegramIntegrationState> {
+  async execute(
+    userId: string,
+    input: TelegramConfigUpdateInput
+  ): Promise<TelegramIntegrationState> {
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
-    const binding = await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
-      assistant.id,
-      "telegram",
-      "telegram_bot"
-    );
+    const binding =
+      await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
+        assistant.id,
+        "telegram",
+        "telegram_bot"
+      );
     if (
       binding === null ||
       binding.bindingState !== "active" ||

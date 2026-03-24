@@ -68,7 +68,9 @@ export class AdminAuthorizationService {
 
   async assertCanReadAdminSurface(userId: string): Promise<AdminAccessContext> {
     const context = await this.resolveAdminAccessContext(userId);
-    if (!this.hasAnyRole(context, ["ops_admin", "business_admin", "security_admin", "super_admin"])) {
+    if (
+      !this.hasAnyRole(context, ["ops_admin", "business_admin", "security_admin", "super_admin"])
+    ) {
       throw new ForbiddenException(
         "Admin read surface requires ops/business/security/super-admin role or legacy owner fallback."
       );
