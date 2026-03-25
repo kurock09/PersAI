@@ -11,7 +11,7 @@ const SURFACES = [
   { value: "web_chat", label: "Web Chat" },
   { value: "telegram", label: "Telegram" },
   { value: "whatsapp", label: "WhatsApp" },
-  { value: "max", label: "MAX" },
+  { value: "max", label: "MAX" }
 ] as const;
 
 type Feedback = { type: "ok" | "err"; text: string } | null;
@@ -35,11 +35,11 @@ export default function AdminAbusePage() {
         assistantId: assistantId.trim(),
         userId: userId.trim() || null,
         surface: (surface as "web_chat" | "telegram" | "whatsapp" | "max") || null,
-        overrideMinutes: parseInt(overrideMinutes) || 60,
+        overrideMinutes: parseInt(overrideMinutes) || 60
       });
       setFeedback({
         type: "ok",
-        text: `Unblocked. Affected ${result.affectedUserRows} user rows, ${result.affectedAssistantRows} assistant rows.`,
+        text: `Unblocked. Affected ${result.affectedUserRows} user rows, ${result.affectedAssistantRows} assistant rows.`
       });
     } catch (e) {
       setFeedback({ type: "err", text: e instanceof Error ? e.message : "Unblock failed." });
@@ -57,7 +57,8 @@ export default function AdminAbusePage() {
       <div className="rounded-lg border border-border bg-surface-raised p-5 max-w-lg">
         <h2 className="text-sm font-semibold text-text mb-4">Unblock Assistant</h2>
         <p className="text-xs text-text-muted mb-4">
-          Temporarily override abuse blocks for a specific assistant. The override expires after the specified duration.
+          Temporarily override abuse blocks for a specific assistant. The override expires after the
+          specified duration.
         </p>
 
         <div className="space-y-3">
@@ -81,7 +82,9 @@ export default function AdminAbusePage() {
               className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
             >
               {SURFACES.map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
               ))}
             </select>
           </div>
@@ -106,16 +109,28 @@ export default function AdminAbusePage() {
             "disabled:opacity-50"
           )}
         >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldAlert className="h-3.5 w-3.5" />}
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <ShieldAlert className="h-3.5 w-3.5" />
+          )}
           Unblock
         </button>
 
         {feedback && (
-          <div className={cn(
-            "mt-3 flex items-start gap-2 rounded-lg px-3 py-2 text-xs",
-            feedback.type === "ok" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-          )}>
-            {feedback.type === "ok" ? <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />}
+          <div
+            className={cn(
+              "mt-3 flex items-start gap-2 rounded-lg px-3 py-2 text-xs",
+              feedback.type === "ok"
+                ? "bg-success/10 text-success"
+                : "bg-destructive/10 text-destructive"
+            )}
+          >
+            {feedback.type === "ok" ? (
+              <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            ) : (
+              <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            )}
             {feedback.text}
           </div>
         )}
@@ -129,7 +144,7 @@ function Field({
   value,
   onChange,
   placeholder,
-  type = "text",
+  type = "text"
 }: {
   label: string;
   value: string;

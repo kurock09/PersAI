@@ -1,8 +1,6 @@
 import { Body, Controller, Get, Put, Req, UnauthorizedException } from "@nestjs/common";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
-import {
-  ManageAdminToolCredentialsService
-} from "../../application/manage-admin-tool-credentials.service";
+import { ManageAdminToolCredentialsService } from "../../application/manage-admin-tool-credentials.service";
 import type { AdminToolCredentialsState } from "../../application/tool-credential-settings";
 
 @Controller("api/v1/admin/runtime/tool-credentials")

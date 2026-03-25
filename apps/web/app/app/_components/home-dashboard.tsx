@@ -1,13 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import {
-  Sparkles,
-  MessageSquarePlus,
-  Settings,
-  Send,
-  ArrowRight,
-} from "lucide-react";
+import { Sparkles, MessageSquarePlus, Settings, Send, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import type { AppData } from "./use-app-data";
 
@@ -17,26 +11,17 @@ interface HomeDashboardProps {
   onTelegramClick: () => void;
 }
 
-export function HomeDashboard({
-  data,
-  onSettingsClick,
-  onTelegramClick,
-}: HomeDashboardProps) {
+export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDashboardProps) {
   const router = useRouter();
-  const assistantName =
-    data.assistant?.draft.displayName ?? "Your assistant";
+  const assistantName = data.assistant?.draft.displayName ?? "Your assistant";
   const daysTogether = data.assistant?.createdAt
     ? Math.max(
         1,
-        Math.floor(
-          (Date.now() - new Date(data.assistant.createdAt).getTime()) /
-            86_400_000
-        )
+        Math.floor((Date.now() - new Date(data.assistant.createdAt).getTime()) / 86_400_000)
       )
     : null;
 
-  const telegramConnected =
-    data.telegram?.connectionStatus === "connected";
+  const telegramConnected = data.telegram?.connectionStatus === "connected";
 
   const recentChats = data.chats
     .filter((c) => c.chat.archivedAt === null)
@@ -51,10 +36,9 @@ export function HomeDashboard({
     "What's on your mind today?",
     "Ready to pick up where we left off?",
     "How can I help you today?",
-    "Good to see you!",
+    "Good to see you!"
   ];
-  const greeting =
-    greetings[Math.floor(Date.now() / 86_400_000) % greetings.length]!;
+  const greeting = greetings[Math.floor(Date.now() / 86_400_000) % greetings.length]!;
 
   return (
     <div className="flex h-full items-start justify-center overflow-y-auto">
@@ -64,14 +48,11 @@ export function HomeDashboard({
           <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-accent/10 text-accent">
             <Sparkles className="h-10 w-10" />
           </div>
-          <h1 className="text-2xl font-bold text-text sm:text-3xl">
-            {assistantName}
-          </h1>
+          <h1 className="text-2xl font-bold text-text sm:text-3xl">{assistantName}</h1>
           <p className="mt-2 text-sm text-text-muted">{greeting}</p>
           {daysTogether !== null && daysTogether > 1 && (
             <p className="mt-3 rounded-full bg-surface-raised px-4 py-1.5 text-[11px] text-text-subtle">
-              Together for {daysTogether}{" "}
-              {daysTogether === 1 ? "day" : "days"}
+              Together for {daysTogether} {daysTogether === 1 ? "day" : "days"}
             </p>
           )}
         </div>
@@ -82,16 +63,12 @@ export function HomeDashboard({
             "What can you help me with?",
             "Tell me something interesting",
             "Help me plan my day",
-            "Summarize what we talked about",
+            "Summarize what we talked about"
           ].map((prompt) => (
             <button
               key={prompt}
               type="button"
-              onClick={() =>
-                router.push(
-                  `/app/chat?prompt=${encodeURIComponent(prompt)}`
-                )
-              }
+              onClick={() => router.push(`/app/chat?prompt=${encodeURIComponent(prompt)}`)}
               className="cursor-pointer rounded-xl border border-border bg-surface px-3 py-2.5 text-left text-xs text-text-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-text"
             >
               {prompt}
@@ -130,11 +107,7 @@ export function HomeDashboard({
                 <button
                   key={item.chat.id}
                   type="button"
-                  onClick={() =>
-                    router.push(
-                      `/app/chat?thread=${item.chat.surfaceThreadKey}`
-                    )
-                  }
+                  onClick={() => router.push(`/app/chat?thread=${item.chat.surfaceThreadKey}`)}
                   className="group flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-hover"
                 >
                   <div className="min-w-0 flex-1">
@@ -162,7 +135,7 @@ function QuickAction({
   icon,
   label,
   accent,
-  onClick,
+  onClick
 }: {
   icon: React.ReactNode;
   label: string;

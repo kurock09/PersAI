@@ -222,14 +222,25 @@ export class MaterializeAssistantPublishedVersionService {
   }
 
   private async resolveToolCredentialRefs(): Promise<
-    Record<string, { refKey: string; secretRef: { source: string; provider: string; id: string }; configured: boolean }>
+    Record<
+      string,
+      {
+        refKey: string;
+        secretRef: { source: string; provider: string; id: string };
+        configured: boolean;
+      }
+    >
   > {
     const keyMetadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(
       ALL_TOOL_CREDENTIAL_KEYS as unknown as string[]
     );
     const refs: Record<
       string,
-      { refKey: string; secretRef: { source: string; provider: string; id: string }; configured: boolean }
+      {
+        refKey: string;
+        secretRef: { source: string; provider: string; id: string };
+        configured: boolean;
+      }
     > = {};
     for (const credentialKey of ALL_TOOL_CREDENTIAL_KEYS) {
       const toolCode = TOOL_CODE_BY_CREDENTIAL_KEY[credentialKey];
@@ -244,9 +255,7 @@ export class MaterializeAssistantPublishedVersionService {
 
   private async resolveToolQuotaPolicy(
     planCode: string | null
-  ): Promise<
-    Array<{ toolCode: string; dailyCallLimit: number | null; activationStatus: string }>
-  > {
+  ): Promise<Array<{ toolCode: string; dailyCallLimit: number | null; activationStatus: string }>> {
     if (planCode === null) {
       return [];
     }

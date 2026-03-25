@@ -88,7 +88,9 @@ export function parseUpdateToolCredentialsInput(body: unknown): UpdateToolCreden
       continue;
     }
     if (trimmed.length > MAX_KEY_LENGTH) {
-      throw new Error(`keys.${credentialKey} must be at most ${String(MAX_KEY_LENGTH)} characters.`);
+      throw new Error(
+        `keys.${credentialKey} must be at most ${String(MAX_KEY_LENGTH)} characters.`
+      );
     }
     if (containsControlCharacters(trimmed)) {
       throw new Error(`keys.${credentialKey} contains invalid control characters.`);
@@ -98,9 +100,7 @@ export function parseUpdateToolCredentialsInput(body: unknown): UpdateToolCreden
   return { keys };
 }
 
-export function buildToolCredentialSecretRef(
-  credentialKey: ToolCredentialKey
-): {
+export function buildToolCredentialSecretRef(credentialKey: ToolCredentialKey): {
   refKey: string;
   secretRef: { source: "persai"; provider: string; id: string };
 } {

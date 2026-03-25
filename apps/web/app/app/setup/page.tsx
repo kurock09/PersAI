@@ -14,13 +14,13 @@ import {
   Globe,
   ChevronDown,
   Calendar,
-  User,
+  User
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import {
   patchAssistantDraft,
   postAssistantCreate,
-  postAssistantPublish,
+  postAssistantPublish
 } from "../assistant-api-client";
 import { getMe, postOnboarding } from "../me-api-client";
 
@@ -40,7 +40,7 @@ const DEFAULT_TRAITS: TraitSlider[] = [
   { key: "verbosity", labelLeft: "Concise", labelRight: "Detailed", value: 50 },
   { key: "tone", labelLeft: "Serious", labelRight: "Playful", value: 50 },
   { key: "initiative", labelLeft: "Reactive", labelRight: "Proactive", value: 50 },
-  { key: "warmth", labelLeft: "Neutral", labelRight: "Warm", value: 50 },
+  { key: "warmth", labelLeft: "Neutral", labelRight: "Warm", value: 50 }
 ];
 
 const AVATARS = [
@@ -55,7 +55,7 @@ const AVATARS = [
   { id: "drift", emoji: "🌊", label: "Drift" },
   { id: "prism", emoji: "💎", label: "Prism" },
   { id: "flux", emoji: "✨", label: "Flux" },
-  { id: "orbit", emoji: "🪐", label: "Orbit" },
+  { id: "orbit", emoji: "🪐", label: "Orbit" }
 ];
 
 type Gender = "male" | "female" | "other" | null;
@@ -63,7 +63,7 @@ type Gender = "male" | "female" | "other" | null;
 const GENDER_OPTIONS: { value: Gender; label: string }[] = [
   { value: "male", label: "Male" },
   { value: "female", label: "Female" },
-  { value: "other", label: "Other" },
+  { value: "other", label: "Other" }
 ];
 
 function detectTimezone(): string {
@@ -87,7 +87,7 @@ function traitsToInstructions(
 ): string {
   const lines: string[] = [
     `You are ${assistantName}, a personal AI assistant.`,
-    `Your user's name is ${userName}. Address them by name naturally.`,
+    `Your user's name is ${userName}. Address them by name naturally.`
   ];
 
   for (const t of traits) {
@@ -118,11 +118,7 @@ function traitsToInstructions(
   return lines.join("\n");
 }
 
-function generatePreview(
-  assistantName: string,
-  userName: string,
-  traits: TraitSlider[]
-): string {
+function generatePreview(assistantName: string, userName: string, traits: TraitSlider[]): string {
   const tone = traits.find((t) => t.key === "tone")?.value ?? 50;
   const warmth = traits.find((t) => t.key === "warmth")?.value ?? 50;
   const verbosity = traits.find((t) => t.key === "verbosity")?.value ?? 50;
@@ -191,10 +187,11 @@ export default function SetupWizardPage() {
   }, []);
 
   const canProceed = useMemo(() => {
-    if (step === 0)
-      return userName.trim().length >= 2 && gender !== null && timezone.length > 0;
+    if (step === 0) return userName.trim().length >= 2 && gender !== null && timezone.length > 0;
     if (step === 1)
-      return assistantName.trim().length >= 2 && (selectedAvatar !== null || customAvatarUrl !== null);
+      return (
+        assistantName.trim().length >= 2 && (selectedAvatar !== null || customAvatarUrl !== null)
+      );
     return true;
   }, [step, userName, gender, timezone, assistantName, selectedAvatar, customAvatarUrl]);
 
@@ -203,10 +200,7 @@ export default function SetupWizardPage() {
     [assistantName, userName, traits]
   );
 
-  const avatarObj = useMemo(
-    () => AVATARS.find((a) => a.id === selectedAvatar),
-    [selectedAvatar]
-  );
+  const avatarObj = useMemo(() => AVATARS.find((a) => a.id === selectedAvatar), [selectedAvatar]);
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -236,7 +230,7 @@ export default function SetupWizardPage() {
           locale: navigator.language ?? "en",
           timezone: timezone || "UTC",
           acceptTermsOfService: true,
-          acceptPrivacyPolicy: true,
+          acceptPrivacyPolicy: true
         });
       }
 
@@ -245,7 +239,7 @@ export default function SetupWizardPage() {
       const instructions = traitsToInstructions(assistantName, userName, traits);
       await patchAssistantDraft(token, {
         displayName: assistantName.trim(),
-        instructions,
+        instructions
       });
       await postAssistantPublish(token);
       router.push("/app/chat");
@@ -285,9 +279,7 @@ export default function SetupWizardPage() {
           {/* ===== Step 0: About you ===== */}
           {step === 0 && (
             <StepContainer key="step-0">
-              <h1 className="text-3xl font-bold text-text sm:text-4xl">
-                About you
-              </h1>
+              <h1 className="text-3xl font-bold text-text sm:text-4xl">About you</h1>
               <p className="mt-3 text-base text-text-muted">
                 Your assistant needs to know you to serve you better.
               </p>
@@ -326,9 +318,7 @@ export default function SetupWizardPage() {
 
                 {/* Gender */}
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-text-muted">
-                    Gender
-                  </label>
+                  <label className="mb-1.5 block text-xs font-medium text-text-muted">Gender</label>
                   <div className="flex gap-2">
                     {GENDER_OPTIONS.map((opt) => (
                       <button
@@ -363,9 +353,7 @@ export default function SetupWizardPage() {
           {/* ===== Step 1: Assistant identity ===== */}
           {step === 1 && (
             <StepContainer key="step-1">
-              <h1 className="text-3xl font-bold text-text sm:text-4xl">
-                Create your assistant
-              </h1>
+              <h1 className="text-3xl font-bold text-text sm:text-4xl">Create your assistant</h1>
               <p className="mt-3 text-base text-text-muted">
                 Give it a name and a face. This is who you'll be talking to every day.
               </p>
@@ -415,7 +403,11 @@ export default function SetupWizardPage() {
                   )}
                 >
                   {customAvatarUrl ? (
-                    <img src={customAvatarUrl} alt="Custom" className="h-7 w-7 rounded-full object-cover" />
+                    <img
+                      src={customAvatarUrl}
+                      alt="Custom"
+                      className="h-7 w-7 rounded-full object-cover"
+                    />
                   ) : (
                     <Upload className="h-5 w-5 text-text-subtle" />
                   )}
@@ -438,11 +430,10 @@ export default function SetupWizardPage() {
           {/* ===== Step 2: Personality ===== */}
           {step === 2 && (
             <StepContainer key="step-2">
-              <h1 className="text-3xl font-bold text-text sm:text-4xl">
-                Shape the personality
-              </h1>
+              <h1 className="text-3xl font-bold text-text sm:text-4xl">Shape the personality</h1>
               <p className="mt-3 text-base text-text-muted">
-                How should <span className="font-medium text-text">{assistantName}</span> talk to you?
+                How should <span className="font-medium text-text">{assistantName}</span> talk to
+                you?
               </p>
               <div className="mt-8 w-full max-w-md space-y-6">
                 {traits.map((trait) => (
@@ -480,7 +471,11 @@ export default function SetupWizardPage() {
                 <div className="mb-4 flex items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xl overflow-hidden">
                     {customAvatarUrl ? (
-                      <img src={customAvatarUrl} alt={assistantName} className="h-full w-full object-cover" />
+                      <img
+                        src={customAvatarUrl}
+                        alt={assistantName}
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
                       <span>{avatarObj?.emoji ?? "🤖"}</span>
                     )}
@@ -516,7 +511,8 @@ export default function SetupWizardPage() {
               {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
               <p className="mt-6 text-[10px] text-text-subtle/60 max-w-xs">
-                By creating your assistant you agree to the Terms&nbsp;of&nbsp;Service and Privacy&nbsp;Policy.
+                By creating your assistant you agree to the Terms&nbsp;of&nbsp;Service and
+                Privacy&nbsp;Policy.
               </p>
             </StepContainer>
           )}
@@ -611,13 +607,7 @@ const ALL_TIMEZONES = (() => {
   }
 })();
 
-function TimezoneSelect({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (tz: string) => void;
-}) {
+function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: string) => void }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -680,7 +670,9 @@ function TimezoneSelect({
         <span className={cn("flex-1 text-sm", value ? "text-text" : "text-text-subtle")}>
           {display}
         </span>
-        <ChevronDown className={cn("h-4 w-4 text-text-subtle transition-transform", open && "rotate-180")} />
+        <ChevronDown
+          className={cn("h-4 w-4 text-text-subtle transition-transform", open && "rotate-180")}
+        />
       </button>
 
       {open && (

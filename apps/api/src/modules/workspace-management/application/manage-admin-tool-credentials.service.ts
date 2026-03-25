@@ -24,8 +24,7 @@ export class ManageAdminToolCredentialsService {
     try {
       return parseUpdateToolCredentialsInput(body);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Invalid tool credentials request.";
+      const message = error instanceof Error ? error.message : "Invalid tool credentials request.";
       throw new BadRequestException(message);
     }
   }
@@ -90,9 +89,10 @@ export class ManageAdminToolCredentialsService {
       tool_tts: { configured: false, lastFour: null, updatedAt: null },
       tool_memory_search: { configured: false, lastFour: null, updatedAt: null }
     };
-    const allMetadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(
-      ALL_TOOL_CREDENTIAL_KEYS
-    );
+    const allMetadata =
+      await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(
+        ALL_TOOL_CREDENTIAL_KEYS
+      );
     for (const credentialKey of ALL_TOOL_CREDENTIAL_KEYS) {
       const metadata = allMetadata[credentialKey];
       if (metadata !== undefined) {

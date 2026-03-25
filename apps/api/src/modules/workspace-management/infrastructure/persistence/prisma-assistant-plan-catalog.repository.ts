@@ -190,7 +190,8 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
         toolCode: activation.tool.code,
         displayName: activation.tool.displayName,
         toolClass: activation.tool.toolClass as "cost_driving" | "utility",
-        activationStatus: activation.activationStatus === "active" ? "active" as const : "inactive" as const,
+        activationStatus:
+          activation.activationStatus === "active" ? ("active" as const) : ("inactive" as const),
         dailyCallLimit: activation.dailyCallLimit
       })),
       isDefaultFirstRegistrationPlan: plan.isDefaultFirstRegistrationPlan,
@@ -259,7 +260,9 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
     for (const tool of tools) {
       const override = overridesByCode.get(tool.code);
       const activationStatus = override
-        ? (override.active ? "active" : "inactive")
+        ? override.active
+          ? "active"
+          : "inactive"
         : classFallback[tool.toolClass];
       const dailyCallLimit = override?.dailyCallLimit ?? null;
 

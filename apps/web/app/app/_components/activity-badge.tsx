@@ -18,7 +18,7 @@ const TYPE_CONFIG: Record<ActivityType, { icon: typeof Cpu; color: string }> = {
   runtime_done: { icon: Zap, color: "text-text-subtle" },
   tool_use: { icon: Cpu, color: "text-text-subtle" },
   system: { icon: RefreshCw, color: "text-text-subtle" },
-  info: { icon: Info, color: "text-text-subtle" },
+  info: { icon: Info, color: "text-text-subtle" }
 };
 
 export function ActivityBadge({ event }: { event: ActivityEvent }) {
@@ -35,9 +35,7 @@ export function ActivityBadge({ event }: { event: ActivityEvent }) {
       >
         <Icon className={cn("h-2.5 w-2.5", cfg.color, "opacity-40")} />
         <span>{event.label}</span>
-        {event.detail && (
-          <span className="opacity-50">{event.detail}</span>
-        )}
+        {event.detail && <span className="opacity-50">{event.detail}</span>}
       </div>
     </div>
   );

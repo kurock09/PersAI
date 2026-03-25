@@ -5,7 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import {
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
-  type WebChatUxIssue,
+  type WebChatUxIssue
 } from "../assistant-api-client";
 import type { ActivityEvent } from "./activity-badge";
 
@@ -71,7 +71,7 @@ export function useChat(threadKey: string): UseChatReturn {
       setMessages((prev) => [
         ...prev,
         { id: userMsgId, role: "user", content: trimmed, status: "committed" },
-        { id: assistantMsgId, role: "assistant", content: "", status: "streaming" },
+        { id: assistantMsgId, role: "assistant", content: "", status: "streaming" }
       ]);
 
       try {
@@ -86,9 +86,7 @@ export function useChat(threadKey: string): UseChatReturn {
             onDelta: ({ delta }) => {
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? { ...m, content: `${m.content}${delta}` }
-                    : m
+                  m.id === assistantMsgId ? { ...m, content: `${m.content}${delta}` } : m
                 )
               );
             },
@@ -99,10 +97,13 @@ export function useChat(threadKey: string): UseChatReturn {
                   id: `activity-runtime-${Date.now()}`,
                   type: "runtime_done",
                   label: "Response generated",
-                  detail: new Date(respondedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                  detail: new Date(respondedAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit"
+                  }),
                   timestamp: respondedAt,
-                  afterMessageId: assistantMsgId,
-                },
+                  afterMessageId: assistantMsgId
+                }
               ]);
             },
             onCompleted: ({ transport }) => {
@@ -110,7 +111,8 @@ export function useChat(threadKey: string): UseChatReturn {
                 userMessage?: { id?: string };
                 assistantMessage?: { id?: string };
               } | null;
-              const newAssistantId = typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+              const newAssistantId =
+                typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
               setMessages((prev) =>
                 prev.map((m) => {
                   if (m.id === assistantMsgId && newAssistantId) {
@@ -145,12 +147,10 @@ export function useChat(threadKey: string): UseChatReturn {
               setIssue(toWebChatUxIssue(message));
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? { ...m, status: "partial" as const }
-                    : m
+                  m.id === assistantMsgId ? { ...m, status: "partial" as const } : m
                 )
               );
-            },
+            }
           },
           controller.signal
         );

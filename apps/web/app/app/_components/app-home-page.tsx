@@ -8,10 +8,6 @@ export function AppHomePage() {
   const { openSettings, openTelegram } = useShellActions();
 
   return (
-    <HomeDashboard
-      data={data}
-      onSettingsClick={openSettings}
-      onTelegramClick={openTelegram}
-    />
+    <HomeDashboard data={data} onSettingsClick={openSettings} onTelegramClick={openTelegram} />
   );
 }

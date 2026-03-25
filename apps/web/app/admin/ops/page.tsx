@@ -239,7 +239,10 @@ export default function AdminOpsPage() {
                   {cockpit.assistant.exists ? "Yes" : "No"}
                 </span>
               </div>
-              <DetailRow label="Assistant ID" value={formatNullable(cockpit.assistant.assistantId)} />
+              <DetailRow
+                label="Assistant ID"
+                value={formatNullable(cockpit.assistant.assistantId)}
+              />
               <DetailRow label="Workspace" value={formatNullable(cockpit.assistant.workspaceId)} />
               <div className="border-t border-border pt-2">
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
@@ -278,11 +281,15 @@ export default function AdminOpsPage() {
                     </div>
                     <DetailRow
                       label="Target version"
-                      value={formatNullable(cockpit.assistant.runtimeApply.targetPublishedVersionId)}
+                      value={formatNullable(
+                        cockpit.assistant.runtimeApply.targetPublishedVersionId
+                      )}
                     />
                     <DetailRow
                       label="Applied version"
-                      value={formatNullable(cockpit.assistant.runtimeApply.appliedPublishedVersionId)}
+                      value={formatNullable(
+                        cockpit.assistant.runtimeApply.appliedPublishedVersionId
+                      )}
                     />
                     <DetailRow
                       label="Requested"
@@ -337,7 +344,10 @@ export default function AdminOpsPage() {
                 </p>
                 <PreflightDot ok={cockpit.runtime.preflight.live} label="Live" />
                 <PreflightDot ok={cockpit.runtime.preflight.ready} label="Ready" />
-                <DetailRow label="Checked at" value={formatTs(cockpit.runtime.preflight.checkedAt)} />
+                <DetailRow
+                  label="Checked at"
+                  value={formatTs(cockpit.runtime.preflight.checkedAt)}
+                />
               </div>
             </CardShell>
           </div>
@@ -376,9 +386,7 @@ export default function AdminOpsPage() {
                 Restart
               </button>
             </div>
-            {actionMessage && (
-              <p className="mt-2 text-xs text-text-muted">{actionMessage}</p>
-            )}
+            {actionMessage && <p className="mt-2 text-xs text-text-muted">{actionMessage}</p>}
           </section>
 
           <section className="rounded-lg border border-border bg-surface-raised p-3.5">
@@ -406,7 +414,9 @@ export default function AdminOpsPage() {
                       )}
                       <div className="min-w-0">
                         <p className="font-mono text-[11px] font-semibold">{signal.code}</p>
-                        <p className="mt-0.5 text-[11px] leading-snug opacity-90">{signal.message}</p>
+                        <p className="mt-0.5 text-[11px] leading-snug opacity-90">
+                          {signal.message}
+                        </p>
                       </div>
                     </div>
                   </li>

@@ -6,14 +6,14 @@ import type {
   AssistantLifecycleState,
   AssistantWebChatListItemState,
   TelegramIntegrationState,
-  UserPlanVisibilityState,
+  UserPlanVisibilityState
 } from "@persai/contracts";
 import {
   getAssistant,
   getAssistantWebChats,
   getAssistantTelegramIntegration,
   getAssistantPlanVisibility,
-  getAdminPlanVisibility,
+  getAdminPlanVisibility
 } from "../assistant-api-client";
 
 export type AssistantStatus = "live" | "applying" | "draft" | "failed" | "degraded" | "none";
@@ -65,7 +65,7 @@ export function useAppData(): AppData {
         getAssistantWebChats(token),
         getAssistantTelegramIntegration(token),
         getAssistantPlanVisibility(token),
-        getAdminPlanVisibility(token),
+        getAdminPlanVisibility(token)
       ]);
 
       if (assistantRes.status === "fulfilled") setAssistant(assistantRes.value);
@@ -105,6 +105,6 @@ export function useAppData(): AppData {
     isLoading,
     error,
     reload: () => void loadAll(),
-    reloadChats: () => void reloadChats(),
+    reloadChats: () => void reloadChats()
   };
 }

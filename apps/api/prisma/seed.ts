@@ -340,7 +340,7 @@ async function main(): Promise<void> {
     for (const tool of activeTools) {
       const policy = STARTER_TRIAL_TOOL_POLICY[tool.code];
       const activationStatus =
-        policy?.active ?? tool.toolClass === ToolCatalogToolClass.utility
+        (policy?.active ?? tool.toolClass === ToolCatalogToolClass.utility)
           ? PlanToolActivationStatus.active
           : PlanToolActivationStatus.inactive;
       const dailyCallLimit = policy?.dailyCallLimit ?? null;

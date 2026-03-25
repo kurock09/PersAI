@@ -2,20 +2,13 @@
 
 import { useCallback, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import {
-  Send,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-  ChevronDown,
-  ExternalLink,
-} from "lucide-react";
+import { Send, Loader2, CheckCircle2, AlertCircle, ChevronDown, ExternalLink } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import {
   postAssistantTelegramConnect,
   patchAssistantTelegramConfig,
   type TelegramIntegrationState,
-  type AssistantTelegramConfigUpdateRequest,
+  type AssistantTelegramConfigUpdateRequest
 } from "../assistant-api-client";
 
 interface TelegramConnectProps {
@@ -29,7 +22,7 @@ type Feedback = { type: "ok" | "err"; text: string } | null;
 export function TelegramConnect({
   integration,
   capabilityAllowed,
-  onUpdated,
+  onUpdated
 }: TelegramConnectProps) {
   const connected = integration?.connectionStatus === "connected";
   const allowed = integration?.capabilityAllowed ?? capabilityAllowed;
@@ -42,8 +35,8 @@ export function TelegramConnect({
         </div>
         <h3 className="text-sm font-semibold text-text">Telegram not available</h3>
         <p className="mt-2 max-w-xs text-xs text-text-muted">
-          Your current plan does not include Telegram integration.
-          Contact your administrator to upgrade.
+          Your current plan does not include Telegram integration. Contact your administrator to
+          upgrade.
         </p>
       </div>
     );
@@ -53,9 +46,7 @@ export function TelegramConnect({
     return <ConnectForm onUpdated={onUpdated} />;
   }
 
-  return (
-    <ConnectedView integration={integration!} onUpdated={onUpdated} />
-  );
+  return <ConnectedView integration={integration!} onUpdated={onUpdated} />;
 }
 
 function ConnectForm({ onUpdated }: { onUpdated: () => void }) {
@@ -77,7 +68,7 @@ function ConnectForm({ onUpdated }: { onUpdated: () => void }) {
     } catch (e) {
       setFeedback({
         type: "err",
-        text: e instanceof Error ? e.message : "Failed to connect.",
+        text: e instanceof Error ? e.message : "Failed to connect."
       });
     } finally {
       setBusy(false);
@@ -126,9 +117,7 @@ function ConnectForm({ onUpdated }: { onUpdated: () => void }) {
 
       {/* Token input */}
       <div className="rounded-xl border border-border bg-surface-raised/50 p-4 space-y-3">
-        <label className="block text-xs font-medium text-text-muted">
-          Bot API token
-        </label>
+        <label className="block text-xs font-medium text-text-muted">Bot API token</label>
         <input
           type="password"
           value={botToken}
@@ -152,11 +141,7 @@ function ConnectForm({ onUpdated }: { onUpdated: () => void }) {
               : "cursor-pointer bg-accent text-white shadow-lg shadow-accent-glow hover:bg-accent-hover"
           )}
         >
-          {busy ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Send className="h-4 w-4" />
-          )}
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           {busy ? "Connecting..." : "Connect bot"}
         </button>
       </div>
@@ -203,7 +188,7 @@ function ConnectForm({ onUpdated }: { onUpdated: () => void }) {
 
 function ConnectedView({
   integration,
-  onUpdated,
+  onUpdated
 }: {
   integration: TelegramIntegrationState;
   onUpdated: () => void;
@@ -232,7 +217,7 @@ function ConnectedView({
         defaultParseMode: parseMode,
         inboundUserMessagesEnabled: inbound,
         outboundAssistantMessagesEnabled: outbound,
-        notes: notes.trim() || null,
+        notes: notes.trim() || null
       };
       await patchAssistantTelegramConfig(token, payload);
       setFeedback({ type: "ok", text: "Config saved." });
@@ -240,7 +225,7 @@ function ConnectedView({
     } catch (e) {
       setFeedback({
         type: "err",
-        text: e instanceof Error ? e.message : "Failed to save.",
+        text: e instanceof Error ? e.message : "Failed to save."
       });
     } finally {
       setSaving(false);
@@ -266,9 +251,7 @@ function ConnectedView({
           <p className="truncate text-sm font-semibold text-text">
             {bot.displayName ?? "Telegram Bot"}
           </p>
-          {bot.username && (
-            <p className="text-xs text-text-muted">@{bot.username}</p>
-          )}
+          {bot.username && <p className="text-xs text-text-muted">@{bot.username}</p>}
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-success" />
@@ -280,12 +263,12 @@ function ConnectedView({
       <div className="space-y-2 rounded-xl border border-border p-4">
         <Row label="Binding" value={integration.bindingState} />
         {integration.connectedAt && (
-          <Row
-            label="Connected"
-            value={new Date(integration.connectedAt).toLocaleDateString()}
-          />
+          <Row label="Connected" value={new Date(integration.connectedAt).toLocaleDateString()} />
         )}
-        <Row label="Token" value={integration.tokenHint.lastFour ? `****${integration.tokenHint.lastFour}` : "****"} />
+        <Row
+          label="Token"
+          value={integration.tokenHint.lastFour ? `****${integration.tokenHint.lastFour}` : "****"}
+        />
       </div>
 
       {/* Config panel */}
@@ -332,11 +315,7 @@ function ConnectedView({
               </div>
 
               {/* Toggles */}
-              <Toggle
-                label="Inbound user messages"
-                checked={inbound}
-                onChange={setInbound}
-              />
+              <Toggle label="Inbound user messages" checked={inbound} onChange={setInbound} />
               <Toggle
                 label="Outbound assistant messages"
                 checked={outbound}
@@ -345,9 +324,7 @@ function ConnectedView({
 
               {/* Notes */}
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-text-muted">
-                  Notes
-                </label>
+                <label className="mb-1.5 block text-xs font-medium text-text-muted">Notes</label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
@@ -393,9 +370,7 @@ function ConnectedView({
       {/* Integration notes */}
       {integration.notes.length > 0 && (
         <div className="rounded-xl border border-border p-4">
-          <p className="mb-2 text-xs font-medium text-text-muted">
-            System notes
-          </p>
+          <p className="mb-2 text-xs font-medium text-text-muted">System notes</p>
           <ul className="space-y-1">
             {integration.notes.map((note, i) => (
               <li key={i} className="text-xs text-text-subtle">
@@ -423,7 +398,7 @@ function Step({
   done,
   active,
   title,
-  desc,
+  desc
 }: {
   num: number;
   done: boolean;
@@ -458,7 +433,7 @@ function Step({
 function Toggle({
   label,
   checked,
-  onChange,
+  onChange
 }: {
   label: string;
   checked: boolean;

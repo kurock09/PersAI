@@ -10,12 +10,12 @@ import {
   RefreshCw,
   TrendingUp,
   Wallet,
-  Zap,
+  Zap
 } from "lucide-react";
 import {
   AdminBusinessCockpitStatePublishApplySuccessWindow,
   type AdminBusinessCockpitState,
-  type BusinessCockpitPressureLevel,
+  type BusinessCockpitPressureLevel
 } from "@persai/contracts";
 import { getAdminBusinessCockpit } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
@@ -50,7 +50,7 @@ function pressureBadgeClass(level: BusinessCockpitPressureLevel): string {
 function QuotaBar({
   label,
   percent,
-  icon: Icon,
+  icon: Icon
 }: {
   label: string;
   percent: number;
@@ -79,7 +79,7 @@ function QuotaBar({
 function MetricCard({
   title,
   icon: Icon,
-  children,
+  children
 }: {
   title: string;
   icon: typeof Bot;
@@ -99,7 +99,7 @@ function MetricCard({
 function Section({
   title,
   children,
-  className,
+  className
 }: {
   title: string;
   children: ReactNode;
@@ -153,7 +153,7 @@ export default function AdminBusinessPage() {
     try {
       return new Date(cockpit.updatedAt).toLocaleString(undefined, {
         dateStyle: "medium",
-        timeStyle: "short",
+        timeStyle: "short"
       });
     } catch {
       return cockpit.updatedAt;

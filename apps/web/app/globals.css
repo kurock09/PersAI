@@ -72,11 +72,15 @@
 
 /* Global styled scrollbar — applied to html and all scrollable descendants */
 @layer base {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
   }
-  :root.light *, :root.light *::before, :root.light *::after {
+  :root.light *,
+  :root.light *::before,
+  :root.light *::after {
     scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
   }
 }
@@ -102,8 +106,12 @@
 }
 
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes fade-in-up {
@@ -118,6 +126,11 @@
 }
 
 @keyframes pulse-slow {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.7; }
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }

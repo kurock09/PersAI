@@ -2,25 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import {
-  Bell,
-  Check,
-  KeyRound,
-  Loader2,
-  Pencil,
-  X,
-} from "lucide-react";
+import { Bell, Check, KeyRound, Loader2, Pencil, X } from "lucide-react";
 import type {
   AdminNotificationChannelState,
-  PatchAdminNotificationWebhookChannelRequest,
+  PatchAdminNotificationWebhookChannelRequest
 } from "@persai/contracts";
-import {
-  AdminNotificationChannelStatus,
-  AdminNotificationChannelType,
-} from "@persai/contracts";
+import { AdminNotificationChannelStatus, AdminNotificationChannelType } from "@persai/contracts";
 import {
   getAdminNotificationChannels,
-  patchAdminNotificationWebhookChannel,
+  patchAdminNotificationWebhookChannel
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
@@ -34,7 +24,7 @@ function emptyWebhookDraft(ch: AdminNotificationChannelState): WebhookDraft {
   return {
     enabled: ch.status === AdminNotificationChannelStatus.active,
     endpointUrl: ch.endpointUrl ?? "",
-    signingSecret: "",
+    signingSecret: ""
   };
 }
 
@@ -83,9 +73,7 @@ export default function AdminNotificationsPage() {
       try {
         setChannels(await getAdminNotificationChannels(token));
       } catch (e) {
-        setListError(
-          e instanceof Error ? e.message : "Could not load notification channels."
-        );
+        setListError(e instanceof Error ? e.message : "Could not load notification channels.");
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -121,7 +109,7 @@ export default function AdminNotificationsPage() {
     }
     const input: PatchAdminNotificationWebhookChannelRequest = {
       enabled: webhookDraft.enabled,
-      endpointUrl: webhookDraft.endpointUrl.trim() === "" ? null : webhookDraft.endpointUrl.trim(),
+      endpointUrl: webhookDraft.endpointUrl.trim() === "" ? null : webhookDraft.endpointUrl.trim()
     };
     if (webhookDraft.signingSecret.trim() !== "") {
       input.signingSecret = webhookDraft.signingSecret.trim();
@@ -131,9 +119,7 @@ export default function AdminNotificationsPage() {
     try {
       const updated = await patchAdminNotificationWebhookChannel(token, input);
       setChannels((prev) =>
-        prev.map((c) =>
-          c.channelType === AdminNotificationChannelType.webhook ? updated : c
-        )
+        prev.map((c) => (c.channelType === AdminNotificationChannelType.webhook ? updated : c))
       );
       setFeedbackTone("ok");
       setFeedback("Webhook channel saved.");
@@ -162,9 +148,7 @@ export default function AdminNotificationsPage() {
         <div className="flex items-center gap-2">
           <Bell className="h-5 w-5 shrink-0 text-accent" />
           <h1 className="text-lg font-bold text-text">Notification Channels</h1>
-          {refreshing && (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />
-          )}
+          {refreshing && <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />}
         </div>
       </div>
 
@@ -264,9 +248,7 @@ export default function AdminNotificationsPage() {
                         type="checkbox"
                         checked={webhookDraft.enabled}
                         onChange={(ev) =>
-                          setWebhookDraft((d) =>
-                            d ? { ...d, enabled: ev.target.checked } : d
-                          )
+                          setWebhookDraft((d) => (d ? { ...d, enabled: ev.target.checked } : d))
                         }
                         className="rounded border-border accent-accent"
                       />
@@ -280,9 +262,7 @@ export default function AdminNotificationsPage() {
                         type="url"
                         value={webhookDraft.endpointUrl}
                         onChange={(ev) =>
-                          setWebhookDraft((d) =>
-                            d ? { ...d, endpointUrl: ev.target.value } : d
-                          )
+                          setWebhookDraft((d) => (d ? { ...d, endpointUrl: ev.target.value } : d))
                         }
                         placeholder="https://…"
                         className="w-full rounded border border-border bg-bg px-2 py-1.5 text-xs text-text"
@@ -297,14 +277,10 @@ export default function AdminNotificationsPage() {
                         autoComplete="new-password"
                         value={webhookDraft.signingSecret}
                         onChange={(ev) =>
-                          setWebhookDraft((d) =>
-                            d ? { ...d, signingSecret: ev.target.value } : d
-                          )
+                          setWebhookDraft((d) => (d ? { ...d, signingSecret: ev.target.value } : d))
                         }
                         placeholder={
-                          ch.hasSigningSecret
-                            ? "Leave blank to keep existing"
-                            : "Optional"
+                          ch.hasSigningSecret ? "Leave blank to keep existing" : "Optional"
                         }
                         className="w-full rounded border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text"
                       />

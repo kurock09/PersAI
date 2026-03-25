@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   AlertCircle,
@@ -17,19 +11,15 @@ import {
   Loader2,
   Pencil,
   Plus,
-  X,
+  X
 } from "lucide-react";
 import type {
   AdminPlanCreateRequest,
   AdminPlanState,
   AdminPlanToolActivation,
-  AdminPlanUpdateRequest,
+  AdminPlanUpdateRequest
 } from "@persai/contracts";
-import {
-  getAdminPlans,
-  patchAdminPlan,
-  postAdminPlanCreate,
-} from "@/app/app/assistant-api-client";
+import { getAdminPlans, patchAdminPlan, postAdminPlanCreate } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
 /* ─── Draft types ─── */
@@ -97,7 +87,7 @@ function emptyDraft(): PlanDraft {
     channelMax: false,
     limitsViewPercentages: true,
     limitsTasksExcludedFromCommercialQuotas: true,
-    toolActivations: [],
+    toolActivations: []
   };
 }
 
@@ -130,8 +120,8 @@ function planToDraft(plan: AdminPlanState): PlanDraft {
       displayName: ta.displayName,
       toolClass: ta.toolClass,
       active: ta.active,
-      dailyCallLimit: ta.dailyCallLimit,
-    })),
+      dailyCallLimit: ta.dailyCallLimit
+    }))
   };
 }
 
@@ -145,36 +135,36 @@ function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     trialDurationDays: draft.trialEnabled ? draft.trialDurationDays : null,
     metadata: {
       commercialTag: toNullable(draft.metadataCommercialTag),
-      notes: toNullable(draft.metadataNotes),
+      notes: toNullable(draft.metadataNotes)
     },
     entitlements: {
       capabilities: {
         assistantLifecycle: draft.capabilityAssistantLifecycle,
         memoryCenter: draft.capabilityMemoryCenter,
-        tasksCenter: draft.capabilityTasksCenter,
+        tasksCenter: draft.capabilityTasksCenter
       },
       toolClasses: {
         costDrivingTools: draft.toolCostDriving,
         utilityTools: draft.toolUtility,
         costDrivingQuotaGoverned: draft.toolCostDrivingQuotaGoverned,
-        utilityQuotaGoverned: draft.toolUtilityQuotaGoverned,
+        utilityQuotaGoverned: draft.toolUtilityQuotaGoverned
       },
       channelsAndSurfaces: {
         webChat: draft.channelWebChat,
         telegram: draft.channelTelegram,
         whatsapp: draft.channelWhatsapp,
-        max: draft.channelMax,
+        max: draft.channelMax
       },
       limitsPermissions: {
         viewLimitPercentages: draft.limitsViewPercentages,
-        tasksExcludedFromCommercialQuotas: draft.limitsTasksExcludedFromCommercialQuotas,
-      },
+        tasksExcludedFromCommercialQuotas: draft.limitsTasksExcludedFromCommercialQuotas
+      }
     },
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
       active: ta.active,
-      dailyCallLimit: ta.dailyCallLimit,
-    })),
+      dailyCallLimit: ta.dailyCallLimit
+    }))
   };
 }
 
@@ -182,7 +172,7 @@ function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
 
 function Pill({
   children,
-  variant = "default",
+  variant = "default"
 }: {
   children: ReactNode;
   variant?: "default" | "green" | "amber" | "dim";
@@ -191,10 +181,15 @@ function Pill({
     default: "bg-accent/15 text-accent",
     green: "bg-emerald-500/15 text-emerald-400",
     amber: "bg-amber-500/15 text-amber-400",
-    dim: "bg-white/5 text-text-muted",
+    dim: "bg-white/5 text-text-muted"
   };
   return (
-    <span className={cn("inline-block rounded px-1.5 py-px text-[10px] font-semibold leading-tight", cls[variant])}>
+    <span
+      className={cn(
+        "inline-block rounded px-1.5 py-px text-[10px] font-semibold leading-tight",
+        cls[variant]
+      )}
+    >
       {children}
     </span>
   );
@@ -212,7 +207,9 @@ function KV({ label, children }: { label: string; children: ReactNode }) {
 function Sec({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <span className="text-[9px] font-bold uppercase tracking-wider text-text-subtle">{label}</span>
+      <span className="text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+        {label}
+      </span>
       <div className="mt-0.5">{children}</div>
     </div>
   );
@@ -222,7 +219,7 @@ function Check({
   label,
   checked,
   onChange,
-  disabled,
+  disabled
 }: {
   label: string;
   checked: boolean;
@@ -230,7 +227,12 @@ function Check({
   disabled?: boolean;
 }) {
   return (
-    <label className={cn("flex items-center gap-1.5 text-[11px] text-text select-none", disabled && "opacity-40 pointer-events-none")}>
+    <label
+      className={cn(
+        "flex items-center gap-1.5 text-[11px] text-text select-none",
+        disabled && "opacity-40 pointer-events-none"
+      )}
+    >
       <input
         type="checkbox"
         checked={checked}
@@ -248,7 +250,10 @@ function Input({
   placeholder,
   className: extra,
   ...rest
-}: Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> & { value: string; onValue: (v: string) => void }) {
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> & {
+  value: string;
+  onValue: (v: string) => void;
+}) {
   return (
     <input
       value={value}
@@ -256,7 +261,7 @@ function Input({
       placeholder={placeholder}
       className={cn(
         "w-full rounded border border-border bg-surface-raised px-2 py-1 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50",
-        extra,
+        extra
       )}
       {...rest}
     />
@@ -289,7 +294,7 @@ function ToolActivationsInline({ activations }: { activations: AdminPlanToolActi
 
 function ToolActivationsEdit({
   activations,
-  onUpdate,
+  onUpdate
 }: {
   activations: ToolActivationDraft[];
   onUpdate: (updated: ToolActivationDraft[]) => void;
@@ -303,9 +308,7 @@ function ToolActivationsEdit({
   }
 
   function toggle(idx: number) {
-    const next = activations.map((a, i) =>
-      i === idx ? { ...a, active: !a.active } : a,
-    );
+    const next = activations.map((a, i) => (i === idx ? { ...a, active: !a.active } : a));
     onUpdate(next);
   }
 
@@ -313,7 +316,7 @@ function ToolActivationsEdit({
     const next = activations.map((a, i) =>
       i === idx
         ? { ...a, dailyCallLimit: val === "" ? null : Math.max(0, Math.floor(Number(val))) }
-        : a,
+        : a
     );
     onUpdate(next);
   }
@@ -328,7 +331,9 @@ function ToolActivationsEdit({
       </div>
       {activations.map((ta, idx) => (
         <div key={ta.toolCode} className="grid grid-cols-[1fr_70px_40px_64px] gap-px bg-border">
-          <span className="bg-surface-raised px-2 py-1 text-[11px] text-text truncate">{ta.displayName}</span>
+          <span className="bg-surface-raised px-2 py-1 text-[11px] text-text truncate">
+            {ta.displayName}
+          </span>
           <span className="bg-surface-raised px-2 py-1">
             <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
               {ta.toolClass === "cost_driving" ? "cost" : "util"}
@@ -365,7 +370,7 @@ function PlanForm({
   onPatch,
   showCode,
   code,
-  onCodeChange,
+  onCodeChange
 }: {
   draft: PlanDraft;
   onPatch: (p: Partial<PlanDraft>) => void;
@@ -379,16 +384,22 @@ function PlanForm({
       <div className={cn("grid gap-2", showCode ? "grid-cols-[120px_1fr_1fr]" : "grid-cols-2")}>
         {showCode && (
           <div>
-            <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">Code</label>
+            <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+              Code
+            </label>
             <Input value={code} onValue={onCodeChange} placeholder="plan_code" autoComplete="off" />
           </div>
         )}
         <div>
-          <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">Name</label>
+          <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+            Name
+          </label>
           <Input value={draft.displayName} onValue={(v) => onPatch({ displayName: v })} />
         </div>
         <div>
-          <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">Description</label>
+          <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+            Description
+          </label>
           <Input value={draft.description} onValue={(v) => onPatch({ description: v })} />
         </div>
       </div>
@@ -403,22 +414,37 @@ function PlanForm({
               onClick={() => onPatch({ status: s })}
               className={cn(
                 "rounded px-2 py-0.5 text-[10px] font-semibold transition-colors",
-                draft.status === s ? "bg-surface-raised text-text shadow-sm" : "text-text-muted hover:text-text",
+                draft.status === s
+                  ? "bg-surface-raised text-text shadow-sm"
+                  : "text-text-muted hover:text-text"
               )}
             >
               {s}
             </button>
           ))}
         </div>
-        <Check label="Default on reg" checked={draft.defaultOnRegistration} onChange={(v) => onPatch({ defaultOnRegistration: v })} />
-        <Check label="Trial" checked={draft.trialEnabled} onChange={(v) => onPatch({ trialEnabled: v })} />
+        <Check
+          label="Default on reg"
+          checked={draft.defaultOnRegistration}
+          onChange={(v) => onPatch({ defaultOnRegistration: v })}
+        />
+        <Check
+          label="Trial"
+          checked={draft.trialEnabled}
+          onChange={(v) => onPatch({ trialEnabled: v })}
+        />
         {draft.trialEnabled && (
           <div className="flex items-center gap-1">
             <input
               type="number"
               min={1}
               value={draft.trialDurationDays ?? ""}
-              onChange={(e) => onPatch({ trialDurationDays: e.target.value === "" ? null : Math.max(1, Math.floor(Number(e.target.value))) })}
+              onChange={(e) =>
+                onPatch({
+                  trialDurationDays:
+                    e.target.value === "" ? null : Math.max(1, Math.floor(Number(e.target.value)))
+                })
+              }
               className="w-14 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
             />
             <span className="text-[10px] text-text-muted">days</span>
@@ -429,11 +455,18 @@ function PlanForm({
       {/* row 3: metadata */}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">Commercial tag</label>
-          <Input value={draft.metadataCommercialTag} onValue={(v) => onPatch({ metadataCommercialTag: v })} />
+          <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+            Commercial tag
+          </label>
+          <Input
+            value={draft.metadataCommercialTag}
+            onValue={(v) => onPatch({ metadataCommercialTag: v })}
+          />
         </div>
         <div>
-          <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">Notes</label>
+          <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+            Notes
+          </label>
           <Input value={draft.metadataNotes} onValue={(v) => onPatch({ metadataNotes: v })} />
         </div>
       </div>
@@ -442,32 +475,84 @@ function PlanForm({
       <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 rounded border border-border bg-surface px-3 py-2">
         <Sec label="Capabilities">
           <div className="space-y-0.5">
-            <Check label="Lifecycle" checked={draft.capabilityAssistantLifecycle} onChange={(v) => onPatch({ capabilityAssistantLifecycle: v })} />
-            <Check label="Memory" checked={draft.capabilityMemoryCenter} onChange={(v) => onPatch({ capabilityMemoryCenter: v })} />
-            <Check label="Tasks" checked={draft.capabilityTasksCenter} onChange={(v) => onPatch({ capabilityTasksCenter: v })} />
+            <Check
+              label="Lifecycle"
+              checked={draft.capabilityAssistantLifecycle}
+              onChange={(v) => onPatch({ capabilityAssistantLifecycle: v })}
+            />
+            <Check
+              label="Memory"
+              checked={draft.capabilityMemoryCenter}
+              onChange={(v) => onPatch({ capabilityMemoryCenter: v })}
+            />
+            <Check
+              label="Tasks"
+              checked={draft.capabilityTasksCenter}
+              onChange={(v) => onPatch({ capabilityTasksCenter: v })}
+            />
           </div>
         </Sec>
         <Sec label="Tool classes">
           <div className="space-y-0.5">
-            <Check label="Cost-driving" checked={draft.toolCostDriving} onChange={(v) => onPatch({ toolCostDriving: v })} />
-            <Check label="Utility" checked={draft.toolUtility} onChange={(v) => onPatch({ toolUtility: v })} />
-            <Check label="Cost quota" checked={draft.toolCostDrivingQuotaGoverned} onChange={(v) => onPatch({ toolCostDrivingQuotaGoverned: v })} />
-            <Check label="Util quota" checked={draft.toolUtilityQuotaGoverned} onChange={(v) => onPatch({ toolUtilityQuotaGoverned: v })} />
+            <Check
+              label="Cost-driving"
+              checked={draft.toolCostDriving}
+              onChange={(v) => onPatch({ toolCostDriving: v })}
+            />
+            <Check
+              label="Utility"
+              checked={draft.toolUtility}
+              onChange={(v) => onPatch({ toolUtility: v })}
+            />
+            <Check
+              label="Cost quota"
+              checked={draft.toolCostDrivingQuotaGoverned}
+              onChange={(v) => onPatch({ toolCostDrivingQuotaGoverned: v })}
+            />
+            <Check
+              label="Util quota"
+              checked={draft.toolUtilityQuotaGoverned}
+              onChange={(v) => onPatch({ toolUtilityQuotaGoverned: v })}
+            />
           </div>
         </Sec>
         <div className="space-y-1.5">
           <Sec label="Channels">
             <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-              <Check label="Web" checked={draft.channelWebChat} onChange={(v) => onPatch({ channelWebChat: v })} />
-              <Check label="TG" checked={draft.channelTelegram} onChange={(v) => onPatch({ channelTelegram: v })} />
-              <Check label="WA" checked={draft.channelWhatsapp} onChange={(v) => onPatch({ channelWhatsapp: v })} />
-              <Check label="Max" checked={draft.channelMax} onChange={(v) => onPatch({ channelMax: v })} />
+              <Check
+                label="Web"
+                checked={draft.channelWebChat}
+                onChange={(v) => onPatch({ channelWebChat: v })}
+              />
+              <Check
+                label="TG"
+                checked={draft.channelTelegram}
+                onChange={(v) => onPatch({ channelTelegram: v })}
+              />
+              <Check
+                label="WA"
+                checked={draft.channelWhatsapp}
+                onChange={(v) => onPatch({ channelWhatsapp: v })}
+              />
+              <Check
+                label="Max"
+                checked={draft.channelMax}
+                onChange={(v) => onPatch({ channelMax: v })}
+              />
             </div>
           </Sec>
           <Sec label="Limits">
             <div className="space-y-0.5">
-              <Check label="View %" checked={draft.limitsViewPercentages} onChange={(v) => onPatch({ limitsViewPercentages: v })} />
-              <Check label="Tasks excl quotas" checked={draft.limitsTasksExcludedFromCommercialQuotas} onChange={(v) => onPatch({ limitsTasksExcludedFromCommercialQuotas: v })} />
+              <Check
+                label="View %"
+                checked={draft.limitsViewPercentages}
+                onChange={(v) => onPatch({ limitsViewPercentages: v })}
+              />
+              <Check
+                label="Tasks excl quotas"
+                checked={draft.limitsTasksExcludedFromCommercialQuotas}
+                onChange={(v) => onPatch({ limitsTasksExcludedFromCommercialQuotas: v })}
+              />
             </div>
           </Sec>
         </div>
@@ -489,7 +574,7 @@ function PlanForm({
 function PlanCardReadOnly({
   plan,
   onEdit,
-  disabled,
+  disabled
 }: {
   plan: AdminPlanState;
   onEdit: () => void;
@@ -501,21 +586,21 @@ function PlanCardReadOnly({
   const caps = [
     e.capabilities.assistantLifecycle && "Lifecycle",
     e.capabilities.memoryCenter && "Memory",
-    e.capabilities.tasksCenter && "Tasks",
+    e.capabilities.tasksCenter && "Tasks"
   ].filter(Boolean);
 
   const channels = [
     e.channelsAndSurfaces.webChat && "Web",
     e.channelsAndSurfaces.telegram && "TG",
     e.channelsAndSurfaces.whatsapp && "WA",
-    e.channelsAndSurfaces.max && "Max",
+    e.channelsAndSurfaces.max && "Max"
   ].filter(Boolean);
 
   const toolClasses = [
     e.toolClasses.costDrivingTools && "Cost",
     e.toolClasses.utilityTools && "Util",
     e.toolClasses.costDrivingQuotaGoverned && "CostQ",
-    e.toolClasses.utilityQuotaGoverned && "UtilQ",
+    e.toolClasses.utilityQuotaGoverned && "UtilQ"
   ].filter(Boolean);
 
   return (
@@ -527,7 +612,11 @@ function PlanCardReadOnly({
           onClick={() => setExpanded(!expanded)}
           className="text-text-muted hover:text-text"
         >
-          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          {expanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
         </button>
         <span className="text-xs font-semibold text-text">{plan.displayName}</span>
         <span className="font-mono text-[10px] text-text-muted">{plan.code}</span>
@@ -535,7 +624,9 @@ function PlanCardReadOnly({
         {plan.defaultOnRegistration && <Pill variant="green">default</Pill>}
         {plan.trialEnabled && <Pill variant="amber">trial {plan.trialDurationDays}d</Pill>}
         <span className="flex-1" />
-        <span className="text-[10px] text-text-subtle">{new Date(plan.updatedAt).toLocaleDateString()}</span>
+        <span className="text-[10px] text-text-subtle">
+          {new Date(plan.updatedAt).toLocaleDateString()}
+        </span>
         <button
           type="button"
           onClick={onEdit}
@@ -571,9 +662,11 @@ function PlanCardReadOnly({
                 {[
                   { l: "Lifecycle", on: e.capabilities.assistantLifecycle },
                   { l: "Memory", on: e.capabilities.memoryCenter },
-                  { l: "Tasks", on: e.capabilities.tasksCenter },
+                  { l: "Tasks", on: e.capabilities.tasksCenter }
                 ].map((c) => (
-                  <Pill key={c.l} variant={c.on ? "default" : "dim"}>{c.l}</Pill>
+                  <Pill key={c.l} variant={c.on ? "default" : "dim"}>
+                    {c.l}
+                  </Pill>
                 ))}
               </div>
             </Sec>
@@ -583,9 +676,11 @@ function PlanCardReadOnly({
                   { l: "Cost-driving", on: e.toolClasses.costDrivingTools },
                   { l: "Utility", on: e.toolClasses.utilityTools },
                   { l: "Cost quota", on: e.toolClasses.costDrivingQuotaGoverned },
-                  { l: "Util quota", on: e.toolClasses.utilityQuotaGoverned },
+                  { l: "Util quota", on: e.toolClasses.utilityQuotaGoverned }
                 ].map((c) => (
-                  <Pill key={c.l} variant={c.on ? "default" : "dim"}>{c.l}</Pill>
+                  <Pill key={c.l} variant={c.on ? "default" : "dim"}>
+                    {c.l}
+                  </Pill>
                 ))}
               </div>
             </Sec>
@@ -595,16 +690,28 @@ function PlanCardReadOnly({
                   { l: "Web", on: e.channelsAndSurfaces.webChat },
                   { l: "TG", on: e.channelsAndSurfaces.telegram },
                   { l: "WA", on: e.channelsAndSurfaces.whatsapp },
-                  { l: "Max", on: e.channelsAndSurfaces.max },
+                  { l: "Max", on: e.channelsAndSurfaces.max }
                 ].map((c) => (
-                  <Pill key={c.l} variant={c.on ? "default" : "dim"}>{c.l}</Pill>
+                  <Pill key={c.l} variant={c.on ? "default" : "dim"}>
+                    {c.l}
+                  </Pill>
                 ))}
               </div>
             </Sec>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-0.5">
-            <Check label="View %" checked={e.limitsPermissions.viewLimitPercentages} onChange={() => {}} disabled />
-            <Check label="Tasks excl quotas" checked={e.limitsPermissions.tasksExcludedFromCommercialQuotas} onChange={() => {}} disabled />
+            <Check
+              label="View %"
+              checked={e.limitsPermissions.viewLimitPercentages}
+              onChange={() => {}}
+              disabled
+            />
+            <Check
+              label="Tasks excl quotas"
+              checked={e.limitsPermissions.tasksExcludedFromCommercialQuotas}
+              onChange={() => {}}
+              disabled
+            />
           </div>
           <Sec label="Tool activations">
             <ToolActivationsInline activations={plan.toolActivations ?? []} />
@@ -622,7 +729,9 @@ export default function AdminPlansPage() {
   const [plans, setPlans] = useState<AdminPlanState[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ kind: "error" | "success"; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "error" | "success"; message: string } | null>(
+    null
+  );
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<PlanDraft>(() => emptyDraft());
   const [createCode, setCreateCode] = useState("");
@@ -641,12 +750,17 @@ export default function AdminPlansPage() {
     try {
       setPlans(await getAdminPlans(token));
     } catch (err) {
-      setFeedback({ kind: "error", message: err instanceof Error ? err.message : "Failed to load plans." });
+      setFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Failed to load plans."
+      });
     }
     setLoading(false);
   }, [getToken]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
     if (feedback?.kind !== "success") return;
@@ -654,8 +768,12 @@ export default function AdminPlansPage() {
     return () => window.clearTimeout(t);
   }, [feedback]);
 
-  const patchCreate = useCallback((p: Partial<PlanDraft>) => { setCreateDraft((d) => ({ ...d, ...p })); }, []);
-  const patchEdit = useCallback((p: Partial<PlanDraft>) => { setEditDraft((d) => (d ? { ...d, ...p } : d)); }, []);
+  const patchCreate = useCallback((p: Partial<PlanDraft>) => {
+    setCreateDraft((d) => ({ ...d, ...p }));
+  }, []);
+  const patchEdit = useCallback((p: Partial<PlanDraft>) => {
+    setEditDraft((d) => (d ? { ...d, ...p } : d));
+  }, []);
 
   const openCreate = useCallback(() => {
     setEditingCode(null);
@@ -688,18 +806,30 @@ export default function AdminPlansPage() {
     e.preventDefault();
     const token = await getToken();
     if (!token) return;
-    if (!createDraft.displayName.trim()) { setFeedback({ kind: "error", message: "Display name is required." }); return; }
-    if (!createCode.trim()) { setFeedback({ kind: "error", message: "Plan code is required." }); return; }
+    if (!createDraft.displayName.trim()) {
+      setFeedback({ kind: "error", message: "Display name is required." });
+      return;
+    }
+    if (!createCode.trim()) {
+      setFeedback({ kind: "error", message: "Plan code is required." });
+      return;
+    }
     setSaving(true);
     setFeedback(null);
     try {
-      const body: AdminPlanCreateRequest = { code: createCode.trim(), ...draftToPayload(createDraft) };
+      const body: AdminPlanCreateRequest = {
+        code: createCode.trim(),
+        ...draftToPayload(createDraft)
+      };
       await postAdminPlanCreate(token, body);
       setFeedback({ kind: "success", message: "Plan created." });
       closeCreate();
       await load();
     } catch (err) {
-      setFeedback({ kind: "error", message: err instanceof Error ? err.message : "Create failed." });
+      setFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Create failed."
+      });
     }
     setSaving(false);
   }
@@ -708,7 +838,10 @@ export default function AdminPlansPage() {
     e.preventDefault();
     const token = await getToken();
     if (!token || !editingCode || !editDraft) return;
-    if (!editDraft.displayName.trim()) { setFeedback({ kind: "error", message: "Display name is required." }); return; }
+    if (!editDraft.displayName.trim()) {
+      setFeedback({ kind: "error", message: "Display name is required." });
+      return;
+    }
     setSaving(true);
     setFeedback(null);
     try {
@@ -717,7 +850,10 @@ export default function AdminPlansPage() {
       cancelEdit();
       await load();
     } catch (err) {
-      setFeedback({ kind: "error", message: err instanceof Error ? err.message : "Update failed." });
+      setFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Update failed."
+      });
     }
     setSaving(false);
   }
@@ -747,36 +883,68 @@ export default function AdminPlansPage() {
             "inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-semibold transition-colors",
             createOpen
               ? "border-border bg-surface-hover text-text"
-              : "border-accent/30 bg-accent/10 text-accent hover:bg-accent/20",
+              : "border-accent/30 bg-accent/10 text-accent hover:bg-accent/20"
           )}
         >
-          {createOpen ? <><X className="h-3 w-3" /> Close</> : <><Plus className="h-3 w-3" /> New plan</>}
+          {createOpen ? (
+            <>
+              <X className="h-3 w-3" /> Close
+            </>
+          ) : (
+            <>
+              <Plus className="h-3 w-3" /> New plan
+            </>
+          )}
         </button>
       </div>
 
       {/* feedback */}
       {feedback && (
-        <div className={cn(
-          "mb-3 flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-[11px]",
-          feedback.kind === "success"
-            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-            : "border-red-500/30 bg-red-500/10 text-red-400",
-        )}>
-          {feedback.kind === "success" ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 shrink-0" />}
+        <div
+          className={cn(
+            "mb-3 flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-[11px]",
+            feedback.kind === "success"
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+              : "border-red-500/30 bg-red-500/10 text-red-400"
+          )}
+        >
+          {feedback.kind === "success" ? (
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          )}
           {feedback.message}
         </div>
       )}
 
       {/* create form */}
       {createOpen && (
-        <form onSubmit={(ev) => void onCreateSubmit(ev)} className="mb-4 rounded-lg border border-accent/20 bg-surface-raised p-3">
+        <form
+          onSubmit={(ev) => void onCreateSubmit(ev)}
+          className="mb-4 rounded-lg border border-accent/20 bg-surface-raised p-3"
+        >
           <h2 className="mb-2 text-xs font-semibold text-text">New plan</h2>
-          <PlanForm draft={createDraft} onPatch={patchCreate} showCode code={createCode} onCodeChange={setCreateCode} />
+          <PlanForm
+            draft={createDraft}
+            onPatch={patchCreate}
+            showCode
+            code={createCode}
+            onCodeChange={setCreateCode}
+          />
           <div className="mt-3 flex gap-2">
-            <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40">
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
+            >
               {saving ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "Save"}
             </button>
-            <button type="button" onClick={closeCreate} disabled={saving} className="rounded border border-border px-3 py-1 text-[11px] text-text-muted hover:text-text disabled:opacity-40">
+            <button
+              type="button"
+              onClick={closeCreate}
+              disabled={saving}
+              className="rounded border border-border px-3 py-1 text-[11px] text-text-muted hover:text-text disabled:opacity-40"
+            >
               Cancel
             </button>
           </div>
@@ -801,16 +969,39 @@ export default function AdminPlansPage() {
                     <h2 className="text-xs font-semibold text-text">
                       Editing <span className="font-mono text-text-muted">{plan.code}</span>
                     </h2>
-                    <button type="button" onClick={cancelEdit} className="text-text-muted hover:text-text">
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      className="text-text-muted hover:text-text"
+                    >
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <PlanForm draft={editDraft} onPatch={patchEdit} showCode={false} code="" onCodeChange={() => {}} />
+                  <PlanForm
+                    draft={editDraft}
+                    onPatch={patchEdit}
+                    showCode={false}
+                    code=""
+                    onCodeChange={() => {}}
+                  />
                   <div className="mt-3 flex gap-2">
-                    <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40">
-                      {saving ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "Save changes"}
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
+                    >
+                      {saving ? (
+                        <Loader2 className="inline h-3 w-3 animate-spin" />
+                      ) : (
+                        "Save changes"
+                      )}
                     </button>
-                    <button type="button" onClick={cancelEdit} disabled={saving} className="rounded border border-border px-3 py-1 text-[11px] text-text-muted hover:text-text disabled:opacity-40">
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      disabled={saving}
+                      className="rounded border border-border px-3 py-1 text-[11px] text-text-muted hover:text-text disabled:opacity-40"
+                    >
                       Cancel
                     </button>
                   </div>

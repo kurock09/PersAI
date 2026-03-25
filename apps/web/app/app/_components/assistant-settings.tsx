@@ -15,11 +15,11 @@ import {
   BarChart3,
   History,
   Loader2,
-  AlertTriangle,
+  AlertTriangle
 } from "lucide-react";
 import type {
   AssistantMemoryRegistryItemState,
-  AssistantTaskRegistryItemState,
+  AssistantTaskRegistryItemState
 } from "@persai/contracts";
 import { cn } from "@/app/lib/utils";
 import type { AppData } from "./use-app-data";
@@ -33,7 +33,7 @@ import {
   postAssistantMemoryItemForget,
   postAssistantTaskItemDisable,
   postAssistantTaskItemEnable,
-  postAssistantTaskItemCancel,
+  postAssistantTaskItemCancel
 } from "../assistant-api-client";
 
 interface AssistantSettingsProps {
@@ -46,7 +46,7 @@ function Section({
   icon,
   title,
   children,
-  defaultOpen = true,
+  defaultOpen = true
 }: {
   icon: React.ReactNode;
   title: string;
@@ -87,7 +87,7 @@ function ActionButton({
   onClick,
   busy,
   variant = "default",
-  disabled,
+  disabled
 }: {
   icon: React.ReactNode;
   label: string;
@@ -154,7 +154,9 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     setMemoryLoading(true);
     try {
       setMemoryItems(await getAssistantMemoryItems(token));
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
     setMemoryLoading(false);
   }, [getToken]);
 
@@ -164,7 +166,9 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     setTaskLoading(true);
     try {
       setTaskItems(await getAssistantTaskItems(token));
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
     setTaskLoading(false);
   }, [getToken]);
 
@@ -183,7 +187,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     try {
       await patchAssistantDraft(token, {
         displayName: draftName || null,
-        instructions: draftInstructions || null,
+        instructions: draftInstructions || null
       });
       setSaveFb({ type: "ok", text: "Draft saved." });
       data.reload();
@@ -242,32 +246,39 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     setResetting(false);
   }, [getToken, data]);
 
-  const handleForget = useCallback(async (itemId: string) => {
-    const token = await getToken();
-    if (!token) return;
-    setForgettingId(itemId);
-    try {
-      await postAssistantMemoryItemForget(token, itemId);
-      setMemoryItems((prev) => prev.filter((m) => m.id !== itemId));
-    } catch { /* non-critical */ }
-    setForgettingId(null);
-  }, [getToken]);
+  const handleForget = useCallback(
+    async (itemId: string) => {
+      const token = await getToken();
+      if (!token) return;
+      setForgettingId(itemId);
+      try {
+        await postAssistantMemoryItemForget(token, itemId);
+        setMemoryItems((prev) => prev.filter((m) => m.id !== itemId));
+      } catch {
+        /* non-critical */
+      }
+      setForgettingId(null);
+    },
+    [getToken]
+  );
 
-  const handleTaskAction = useCallback(async (
-    itemId: string,
-    action: "enable" | "disable" | "cancel"
-  ) => {
-    const token = await getToken();
-    if (!token) return;
-    setTaskActionId(itemId);
-    try {
-      if (action === "enable") await postAssistantTaskItemEnable(token, itemId);
-      else if (action === "disable") await postAssistantTaskItemDisable(token, itemId);
-      else await postAssistantTaskItemCancel(token, itemId);
-      await loadTasks();
-    } catch { /* non-critical */ }
-    setTaskActionId(null);
-  }, [getToken, loadTasks]);
+  const handleTaskAction = useCallback(
+    async (itemId: string, action: "enable" | "disable" | "cancel") => {
+      const token = await getToken();
+      if (!token) return;
+      setTaskActionId(itemId);
+      try {
+        if (action === "enable") await postAssistantTaskItemEnable(token, itemId);
+        else if (action === "disable") await postAssistantTaskItemDisable(token, itemId);
+        else await postAssistantTaskItemCancel(token, itemId);
+        await loadTasks();
+      } catch {
+        /* non-critical */
+      }
+      setTaskActionId(null);
+    },
+    [getToken, loadTasks]
+  );
 
   if (!assistant) {
     return (
@@ -413,10 +424,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         ) : (
           <ul className="space-y-2">
             {memoryItems.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
-              >
+              <li key={item.id} className="flex items-start gap-2 rounded-lg bg-surface-raised p-3">
                 <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-muted">
                   {item.summary}
                 </p>
@@ -450,20 +458,19 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         ) : (
           <ul className="space-y-2">
             {taskItems.map((item) => (
-              <li
-                key={item.id}
-                className="rounded-lg bg-surface-raised p-3"
-              >
+              <li key={item.id} className="rounded-lg bg-surface-raised p-3">
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
                     {item.title}
                   </span>
-                  <span className={cn(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                    item.controlStatus === "active" && "bg-success/15 text-success",
-                    item.controlStatus === "disabled" && "bg-warning/15 text-warning",
-                    item.controlStatus === "cancelled" && "bg-text-subtle/15 text-text-subtle"
-                  )}>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                      item.controlStatus === "active" && "bg-success/15 text-success",
+                      item.controlStatus === "disabled" && "bg-warning/15 text-warning",
+                      item.controlStatus === "cancelled" && "bg-text-subtle/15 text-text-subtle"
+                    )}
+                  >
                     {item.controlStatus}
                   </span>
                 </div>
@@ -548,16 +555,26 @@ const STATUS_LABELS: Record<string, { label: string; dot: string }> = {
   draft: { label: "Draft", dot: "bg-text-subtle" },
   failed: { label: "Failed", dot: "bg-destructive" },
   degraded: { label: "Degraded", dot: "bg-warning" },
-  none: { label: "Not created", dot: "bg-text-subtle" },
+  none: { label: "Not created", dot: "bg-text-subtle" }
 };
 
-function ChannelRow({ name, connected, comingSoon }: { name: string; connected?: boolean; comingSoon?: boolean }) {
+function ChannelRow({
+  name,
+  connected,
+  comingSoon
+}: {
+  name: string;
+  connected?: boolean;
+  comingSoon?: boolean;
+}) {
   return (
     <div className={cn("flex items-center gap-2 rounded-lg px-3 py-2", comingSoon && "opacity-50")}>
-      <span className={cn(
-        "inline-block h-2 w-2 rounded-full",
-        connected ? "bg-success" : "bg-text-subtle"
-      )} />
+      <span
+        className={cn(
+          "inline-block h-2 w-2 rounded-full",
+          connected ? "bg-success" : "bg-text-subtle"
+        )}
+      />
       <span className="text-xs text-text-muted">{name}</span>
       {comingSoon && <span className="text-[10px] text-text-subtle">Coming soon</span>}
       {connected && <span className="text-[10px] text-success">Connected</span>}

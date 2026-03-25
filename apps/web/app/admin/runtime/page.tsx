@@ -6,11 +6,11 @@ import { Server, Loader2, Save } from "lucide-react";
 import type {
   AdminRuntimeProviderSettingsState,
   AdminRuntimeProviderSettingsRequest,
-  ManagedRuntimeProvider,
+  ManagedRuntimeProvider
 } from "@persai/contracts";
 import {
   getAdminRuntimeProviderSettings,
-  putAdminRuntimeProviderSettings,
+  putAdminRuntimeProviderSettings
 } from "@/app/app/assistant-api-client";
 
 export default function AdminRuntimePage() {
@@ -42,7 +42,9 @@ export default function AdminRuntimePage() {
     setLoading(false);
   }, [getToken]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const handleSave = useCallback(async () => {
     const token = await getToken();
@@ -55,8 +57,8 @@ export default function AdminRuntimePage() {
         availableModelsByProvider: settings.availableModelsByProvider,
         providerKeys: {
           ...(openaiKey ? { openai: openaiKey } : {}),
-          ...(anthropicKey ? { anthropic: anthropicKey } : {}),
-        },
+          ...(anthropicKey ? { anthropic: anthropicKey } : {})
+        }
       };
       await putAdminRuntimeProviderSettings(token, request);
       setFeedback("Saved.");
@@ -70,7 +72,11 @@ export default function AdminRuntimePage() {
   }, [getToken, settings, primaryProvider, primaryModel, openaiKey, anthropicKey, load]);
 
   if (loading) {
-    return <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-text-subtle" /></div>;
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
+      </div>
+    );
   }
 
   return (
@@ -82,10 +88,14 @@ export default function AdminRuntimePage() {
 
       {settings && (
         <div className="mb-6 space-y-1">
-          <p className="text-xs text-text-muted">Mode: <span className="font-medium text-text">{settings.mode}</span></p>
+          <p className="text-xs text-text-muted">
+            Mode: <span className="font-medium text-text">{settings.mode}</span>
+          </p>
           {settings.notes.length > 0 && (
             <ul className="list-disc pl-4 text-xs text-text-subtle">
-              {settings.notes.map((n, i) => <li key={i}>{n}</li>)}
+              {settings.notes.map((n, i) => (
+                <li key={i}>{n}</li>
+              ))}
             </ul>
           )}
         </div>
@@ -104,20 +114,33 @@ export default function AdminRuntimePage() {
           </select>
         </div>
 
-        <Field label="Primary model" value={primaryModel} onChange={setPrimaryModel} placeholder="gpt-4o" />
+        <Field
+          label="Primary model"
+          value={primaryModel}
+          onChange={setPrimaryModel}
+          placeholder="gpt-4o"
+        />
 
         <Field
           label="OpenAI API key"
           value={openaiKey}
           onChange={setOpenaiKey}
-          placeholder={settings?.providerKeys.openai.configured ? `••••${settings.providerKeys.openai.lastFour ?? ""}` : "Enter key..."}
+          placeholder={
+            settings?.providerKeys.openai.configured
+              ? `••••${settings.providerKeys.openai.lastFour ?? ""}`
+              : "Enter key..."
+          }
           type="password"
         />
         <Field
           label="Anthropic API key"
           value={anthropicKey}
           onChange={setAnthropicKey}
-          placeholder={settings?.providerKeys.anthropic.configured ? `••••${settings.providerKeys.anthropic.lastFour ?? ""}` : "Enter key..."}
+          placeholder={
+            settings?.providerKeys.anthropic.configured
+              ? `••••${settings.providerKeys.anthropic.lastFour ?? ""}`
+              : "Enter key..."
+          }
           type="password"
         />
 
@@ -127,7 +150,11 @@ export default function AdminRuntimePage() {
           onClick={() => void handleSave()}
           className="flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
         >
-          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          {saving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Save className="h-3.5 w-3.5" />
+          )}
           Save settings
         </button>
 
@@ -138,9 +165,17 @@ export default function AdminRuntimePage() {
 }
 
 function Field({
-  label, value, onChange, placeholder, type = "text",
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text"
 }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: string;
 }) {
   return (
     <div>

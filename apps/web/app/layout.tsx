@@ -8,7 +8,7 @@ const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
 export const metadata: Metadata = {
   title: "PersAI",
-  description: "Your personal AI assistant. One mind. Everywhere.",
+  description: "Your personal AI assistant. One mind. Everywhere."
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

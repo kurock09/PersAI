@@ -18,10 +18,7 @@ function ChatPageInner() {
   const searchParams = useSearchParams();
   const threadFromUrl = searchParams.get("thread");
 
-  const threadKey = useMemo(
-    () => threadFromUrl ?? `web-${Date.now()}`,
-    [threadFromUrl]
-  );
+  const threadKey = useMemo(() => threadFromUrl ?? `web-${Date.now()}`, [threadFromUrl]);
 
   const chat = useChat(threadKey);
   const appData = useAppDataContext();

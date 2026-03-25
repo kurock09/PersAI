@@ -6,10 +6,7 @@ import { Sparkles, AlertCircle, X, Pencil, Check } from "lucide-react";
 import { ChatMessageBubble } from "./chat-message";
 import { ChatInput } from "./chat-input";
 import { ActivityBadge } from "./activity-badge";
-import {
-  patchAssistantWebChat,
-  postAssistantMemoryDoNotRemember,
-} from "../assistant-api-client";
+import { patchAssistantWebChat, postAssistantMemoryDoNotRemember } from "../assistant-api-client";
 import type { UseChatReturn } from "./use-chat";
 
 interface ChatAreaProps {
@@ -21,7 +18,14 @@ interface ChatAreaProps {
   onTitleChanged?: (() => void) | undefined;
 }
 
-export function ChatArea({ chat, title, assistantReady = true, assistantName, assistantCreatedAt, onTitleChanged }: ChatAreaProps) {
+export function ChatArea({
+  chat,
+  title,
+  assistantReady = true,
+  assistantName,
+  assistantCreatedAt,
+  onTitleChanged
+}: ChatAreaProps) {
   const { getToken } = useAuth();
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -43,7 +47,7 @@ export function ChatArea({ chat, title, assistantReady = true, assistantName, as
       if (!token) return;
       try {
         await postAssistantMemoryDoNotRemember(token, {
-          assistantMessageId: messageId,
+          assistantMessageId: messageId
         });
         setForgottenIds((prev) => new Set(prev).add(messageId));
       } catch {
@@ -77,7 +81,9 @@ export function ChatArea({ chat, title, assistantReady = true, assistantName, as
     try {
       await patchAssistantWebChat(token, chat.chatId, { title: trimmed });
       onTitleChanged?.();
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
   }, [chat.chatId, editValue, getToken, onTitleChanged]);
 
   return (
@@ -160,9 +166,7 @@ export function ChatArea({ chat, title, assistantReady = true, assistantName, as
         <div className="mx-4 mb-2 flex items-start gap-3 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-destructive">
-              {chat.issue.message}
-            </p>
+            <p className="text-sm font-medium text-destructive">{chat.issue.message}</p>
             <p className="mt-0.5 text-xs text-text-muted">{chat.issue.guidance}</p>
           </div>
           <button
@@ -186,7 +190,15 @@ export function ChatArea({ chat, title, assistantReady = true, assistantName, as
   );
 }
 
-function EmptyState({ name, createdAt, onPrompt }: { name?: string | undefined; createdAt?: string | undefined; onPrompt?: (text: string) => void }) {
+function EmptyState({
+  name,
+  createdAt,
+  onPrompt
+}: {
+  name?: string | undefined;
+  createdAt?: string | undefined;
+  onPrompt?: (text: string) => void;
+}) {
   const assistantName = name ?? "Your assistant";
   const daysTogether = createdAt
     ? Math.max(1, Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000))
@@ -196,7 +208,7 @@ function EmptyState({ name, createdAt, onPrompt }: { name?: string | undefined; 
     `Hey! What's on your mind?`,
     `I'm here whenever you need me.`,
     `Ready when you are.`,
-    `Let's pick up where we left off.`,
+    `Let's pick up where we left off.`
   ];
   const greeting = greetings[Math.floor(Date.now() / 86_400_000) % greetings.length]!;
 
@@ -205,12 +217,8 @@ function EmptyState({ name, createdAt, onPrompt }: { name?: string | undefined; 
       <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-accent/10 text-accent">
         <Sparkles className="h-10 w-10" />
       </div>
-      <h2 className="text-xl font-bold text-text">
-        {assistantName}
-      </h2>
-      <p className="mt-2 text-sm text-text-muted">
-        {greeting}
-      </p>
+      <h2 className="text-xl font-bold text-text">{assistantName}</h2>
+      <p className="mt-2 text-sm text-text-muted">{greeting}</p>
       {daysTogether !== null && daysTogether > 1 && (
         <p className="mt-4 rounded-full bg-surface-raised px-4 py-1.5 text-[11px] text-text-subtle">
           Together for {daysTogether} {daysTogether === 1 ? "day" : "days"}
@@ -221,7 +229,7 @@ function EmptyState({ name, createdAt, onPrompt }: { name?: string | undefined; 
           "What can you help me with?",
           "Tell me something interesting",
           "Help me plan my day",
-          "Summarize what we talked about",
+          "Summarize what we talked about"
         ].map((prompt) => (
           <button
             key={prompt}

@@ -14,7 +14,7 @@ import {
   ShieldAlert,
   Wrench,
   Menu,
-  X,
+  X
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
@@ -27,7 +27,7 @@ const NAV_ITEMS = [
   { href: "/admin/business", label: "Business", icon: TrendingUp },
   { href: "/admin/rollouts", label: "Rollouts", icon: Layers },
   { href: "/admin/abuse", label: "Abuse Controls", icon: ShieldAlert },
-  { href: "/admin/notifications", label: "Notifications", icon: Bell },
+  { href: "/admin/notifications", label: "Notifications", icon: Bell }
 ] as const;
 
 function AdminSidebar({ onClose }: { onClose?: () => void }) {

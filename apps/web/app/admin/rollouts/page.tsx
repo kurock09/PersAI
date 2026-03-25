@@ -2,23 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import {
-  ChevronUp,
-  Layers,
-  Loader2,
-  Plus,
-  RotateCcw,
-} from "lucide-react";
+import { ChevronUp, Layers, Loader2, Plus, RotateCcw } from "lucide-react";
 import type {
   PlatformRolloutPatch,
   PlatformRolloutState,
-  PostAdminPlatformRolloutRequest,
+  PostAdminPlatformRolloutRequest
 } from "@persai/contracts";
 import { PlatformRolloutStatus } from "@persai/contracts";
 import {
   getAdminPlatformRollouts,
   postAdminPlatformRollout,
-  postAdminPlatformRolloutRollback,
+  postAdminPlatformRolloutRollback
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
@@ -40,8 +34,7 @@ function statusBadgeClass(status: PlatformRolloutState["status"]): string {
 function canRollbackRollout(r: PlatformRolloutState): boolean {
   if (r.rolledBackAt) return false;
   return (
-    r.status === PlatformRolloutStatus.in_progress ||
-    r.status === PlatformRolloutStatus.applied
+    r.status === PlatformRolloutStatus.in_progress || r.status === PlatformRolloutStatus.applied
   );
 }
 
@@ -158,7 +151,7 @@ export default function AdminRolloutsPage() {
     }
     const input: PostAdminPlatformRolloutRequest = {
       rolloutPercent: pct,
-      targetPatch: patchObject as PlatformRolloutPatch,
+      targetPatch: patchObject as PlatformRolloutPatch
     };
     setCreating(true);
     setFeedback(null);
@@ -220,9 +213,7 @@ export default function AdminRolloutsPage() {
         <div className="flex items-center gap-2">
           <Layers className="h-5 w-5 shrink-0 text-accent" />
           <h1 className="text-lg font-bold text-text">Rollouts</h1>
-          {refreshing && (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />
-          )}
+          {refreshing && <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />}
         </div>
         <button
           type="button"
@@ -237,11 +228,7 @@ export default function AdminRolloutsPage() {
               : "border-accent/40 bg-accent/10 text-accent hover:bg-accent/15"
           )}
         >
-          {createOpen ? (
-            <ChevronUp className="h-3.5 w-3.5" />
-          ) : (
-            <Plus className="h-3.5 w-3.5" />
-          )}
+          {createOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
           New rollout
         </button>
       </div>
@@ -353,9 +340,7 @@ export default function AdminRolloutsPage() {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 space-y-0.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs font-medium text-text">
-                      {r.id}
-                    </span>
+                    <span className="font-mono text-xs font-medium text-text">{r.id}</span>
                     <span
                       className={cn(
                         "rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize",
@@ -364,9 +349,7 @@ export default function AdminRolloutsPage() {
                     >
                       {r.status.replace(/_/g, " ")}
                     </span>
-                    <span className="text-[10px] text-text-muted">
-                      {r.rolloutPercent}% rollout
-                    </span>
+                    <span className="text-[10px] text-text-muted">{r.rolloutPercent}% rollout</span>
                   </div>
                   <p className="text-[10px] text-text-subtle">
                     Created {new Date(r.createdAt).toLocaleString()} · Updated{" "}

@@ -285,11 +285,18 @@ export class ManageAdminPlansService {
         throw new BadRequestException(`toolActivations[${String(idx)}] must be an object.`);
       }
       const typed = item as Record<string, unknown>;
-      const toolCode = parseRequiredString(typed.toolCode, `toolActivations[${String(idx)}].toolCode`);
+      const toolCode = parseRequiredString(
+        typed.toolCode,
+        `toolActivations[${String(idx)}].toolCode`
+      );
       const active = toBoolean(typed.active);
       let dailyCallLimit: number | null = null;
       if (typed.dailyCallLimit !== undefined && typed.dailyCallLimit !== null) {
-        if (typeof typed.dailyCallLimit !== "number" || !Number.isInteger(typed.dailyCallLimit) || typed.dailyCallLimit < 0) {
+        if (
+          typeof typed.dailyCallLimit !== "number" ||
+          !Number.isInteger(typed.dailyCallLimit) ||
+          typed.dailyCallLimit < 0
+        ) {
           throw new BadRequestException(
             `toolActivations[${String(idx)}].dailyCallLimit must be a non-negative integer or null.`
           );

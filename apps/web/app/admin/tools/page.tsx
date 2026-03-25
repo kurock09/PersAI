@@ -33,7 +33,7 @@ export default function AdminToolsPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/v1/admin/runtime/tool-credentials", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error(`Failed to load: ${res.status}`);
       const data = await res.json();
@@ -58,9 +58,9 @@ export default function AdminToolsPage() {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+          "Content-Type": "application/json"
         },
-        body: JSON.stringify({ action: "admin.tool_credentials.update" }),
+        body: JSON.stringify({ action: "admin.tool_credentials.update" })
       });
       if (!challengeRes.ok) throw new Error("Step-up challenge failed.");
       const { token: stepUpToken } = await challengeRes.json();
@@ -81,9 +81,9 @@ export default function AdminToolsPage() {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
-          "x-persai-step-up-token": stepUpToken,
+          "x-persai-step-up-token": stepUpToken
         },
-        body: JSON.stringify({ keys: keysToSend }),
+        body: JSON.stringify({ keys: keysToSend })
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -158,11 +158,7 @@ export default function AdminToolsPage() {
               type="password"
               value={keyInputs[cred.credentialKey] ?? ""}
               onChange={(e) => updateKeyInput(cred.credentialKey, e.target.value)}
-              placeholder={
-                cred.configured
-                  ? `••••${cred.lastFour ?? ""}`
-                  : "Enter API key..."
-              }
+              placeholder={cred.configured ? `••••${cred.lastFour ?? ""}` : "Enter API key..."}
               className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
             />
             {cred.updatedAt && (
@@ -187,9 +183,7 @@ export default function AdminToolsPage() {
           Save credentials
         </button>
 
-        {feedback && (
-          <p className="text-xs text-text-muted mt-2">{feedback}</p>
-        )}
+        {feedback && <p className="text-xs text-text-muted mt-2">{feedback}</p>}
       </div>
     </div>
   );

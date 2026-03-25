@@ -17,7 +17,7 @@ import {
   Archive,
   Trash2,
   Sun,
-  Moon,
+  Moon
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/app/lib/utils";
@@ -27,7 +27,7 @@ import { useTheme } from "./use-theme";
 import {
   patchAssistantWebChat,
   postAssistantWebChatArchive,
-  deleteAssistantWebChat,
+  deleteAssistantWebChat
 } from "../assistant-api-client";
 
 interface SidebarProps {
@@ -43,7 +43,7 @@ const STATUS_CONFIG: Record<AssistantStatus, { label: string; dot: string }> = {
   draft: { label: "Draft", dot: "bg-text-subtle" },
   failed: { label: "Failed", dot: "bg-destructive" },
   degraded: { label: "Degraded", dot: "bg-warning" },
-  none: { label: "Not created", dot: "bg-text-subtle" },
+  none: { label: "Not created", dot: "bg-text-subtle" }
 };
 
 function groupChatsByDate(chats: AssistantWebChatListItemState[]) {
@@ -56,7 +56,7 @@ function groupChatsByDate(chats: AssistantWebChatListItemState[]) {
     { label: "Today", items: [] },
     { label: "Yesterday", items: [] },
     { label: "Previous 7 days", items: [] },
-    { label: "Older", items: [] },
+    { label: "Older", items: [] }
   ];
 
   const sorted = [...chats]
@@ -84,7 +84,7 @@ function IntegrationRow({
   status,
   muted,
   connected,
-  onClick,
+  onClick
 }: {
   icon: React.ReactNode;
   name: string;
@@ -100,21 +100,22 @@ function IntegrationRow({
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
-        muted
-          ? "cursor-default opacity-50"
-          : "cursor-pointer hover:bg-surface-hover"
+        muted ? "cursor-default opacity-50" : "cursor-pointer hover:bg-surface-hover"
       )}
     >
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-raised text-text-muted">
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium text-text">
-          {name}
-        </span>
+        <span className="block truncate text-xs font-medium text-text">{name}</span>
         <span className="flex items-center gap-1.5">
           {connected !== undefined && (
-            <span className={cn("inline-block h-1.5 w-1.5 rounded-full", connected ? "bg-success" : "bg-text-subtle")} />
+            <span
+              className={cn(
+                "inline-block h-1.5 w-1.5 rounded-full",
+                connected ? "bg-success" : "bg-text-subtle"
+              )}
+            />
           )}
           <span
             className={cn(
@@ -171,9 +172,7 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
             <Sparkles className="h-5 w-5" />
           </div>
           <div className="min-w-0 text-left">
-            <p className="truncate text-sm font-semibold text-text">
-              {assistantName}
-            </p>
+            <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
             <span className="flex items-center gap-1.5">
               <span className={cn("inline-block h-2 w-2 rounded-full", statusCfg.dot)} />
               <span className="text-xs text-text-muted">{statusCfg.label}</span>
@@ -263,9 +262,7 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
           <div className="flex items-center justify-between px-2.5">
             <span className="text-xs text-text-muted">{planName}</span>
             {chatUsage > 0 && (
-              <span className="text-[11px] text-text-subtle">
-                {chatUsage}% chats
-              </span>
+              <span className="text-[11px] text-text-subtle">{chatUsage}% chats</span>
             )}
           </div>
           {chatUsage > 0 && (
@@ -299,7 +296,10 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
         )}
 
         {/* 7. User */}
-        <div className="flex items-center gap-3 border-t border-border px-3 py-3" suppressHydrationWarning>
+        <div
+          className="flex items-center gap-3 border-t border-border px-3 py-3"
+          suppressHydrationWarning
+        >
           {mounted && <UserButton />}
           <span className="min-w-0 flex-1 truncate text-sm text-text-muted">
             {user?.firstName ?? user?.username ?? "User"}
@@ -324,11 +324,7 @@ function ThemeToggle() {
       className="shrink-0 cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
     >
-      {theme === "dark" ? (
-        <Sun className="h-4 w-4" />
-      ) : (
-        <Moon className="h-4 w-4" />
-      )}
+      {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </button>
   );
 }
@@ -341,7 +337,7 @@ function ChatListItem({
   item,
   isActive,
   onNavigate,
-  onChanged,
+  onChanged
 }: {
   item: AssistantWebChatListItemState;
   isActive: boolean;
@@ -385,7 +381,9 @@ function ChatListItem({
     try {
       await patchAssistantWebChat(token, item.chat.id, { title: trimmed });
       onChanged();
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
     setRenaming(false);
   }, [getToken, item.chat.id, renameValue, onChanged]);
 
@@ -395,7 +393,9 @@ function ChatListItem({
     try {
       await postAssistantWebChatArchive(token, item.chat.id);
       onChanged();
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
     setMenuOpen(false);
   }, [getToken, item.chat.id, onChanged]);
 
@@ -405,7 +405,9 @@ function ChatListItem({
     try {
       await deleteAssistantWebChat(token, item.chat.id, { confirmText: "DELETE" });
       onChanged();
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
     setMenuOpen(false);
     setConfirmDelete(false);
   }, [getToken, item.chat.id, onChanged]);
@@ -461,7 +463,10 @@ function ChatListItem({
             setConfirmDelete(false);
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") { e.stopPropagation(); setMenuOpen((o) => !o); }
+            if (e.key === "Enter") {
+              e.stopPropagation();
+              setMenuOpen((o) => !o);
+            }
           }}
           className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-surface-raised group-hover:opacity-100"
         >
