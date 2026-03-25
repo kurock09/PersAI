@@ -127,7 +127,7 @@ Foundation Phase
 ## Step 12 Admin-Driven Runtime Control Plane
 
 - [x] H1 — platform-admin runtime provider profile baseline (`OpenAI + Anthropic`, assistant-scoped primary/fallback model refs, provider credential refs, no raw secrets in PersAI state, first mutation surface via admin platform rollouts; see `ADR-050`)
-- [ ] H1a — admin UI for runtime provider profile + provider credential refs (immediately after `H1` backend baseline, before `H2`, still platform-admin only)
+- [x] H1a — admin UI for runtime provider profile + provider credential refs (structured editor in existing admin rollout controls; preserves unrelated governance branches while submitting through the same rollout API, still platform-admin only)
 - [ ] H2 — tool credential refs baseline (managed tool-provider secret refs without runtime/tool-policy duplication)
 - [ ] H3 — runtime hydration depth for persona, memory, tasks/reminders, and tool policy on the native OpenClaw path (continue ADR-048 `P2`)
 - [ ] H4 — Telegram runtime readiness alignment against admin-driven runtime profile + managed secret refs

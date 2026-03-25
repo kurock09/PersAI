@@ -1,5 +1,39 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - H1a runtime provider admin UI shipped
+
+### What changed
+
+- Added a structured `H1a` editor to the existing admin rollout controls in `apps/web/app/app/app-flow.client.tsx`.
+- Added `apps/web/app/app/runtime-provider-profile-admin.ts` to hydrate current runtime-provider governance state and generate safe rollout patches.
+- Marked `docs/ROADMAP.md` Step 12 `H1a` complete and aligned changelog/ADR notes.
+
+### Why changed
+
+- `H1` proved the backend/materialization/runtime path, but changing provider refs still depended on raw JSON rollout editing. `H1a` gives platform admins a real control-plane UI without inventing a new backend mutation surface or storing raw secrets in PersAI.
+
+### Slice boundary
+
+- mutation path remains `POST /api/v1/admin/platform-rollouts`
+- scope remains platform-admin only
+- supports `OpenAI + Anthropic`
+- edits:
+  - primary/fallback provider + model
+  - provider credential refs (`source`, `provider`, `id`, optional `refKey`)
+- guardrail:
+  - preserve unrelated `policyEnvelope` and `secretRefs.refs.*` branches because rollout updates replace whole governance envelopes
+
+### Next recommended step
+
+- **H2 — tool credential refs baseline**
+  - move managed tool-provider secret refs onto the same control-plane pattern
+  - keep runtime/tool execution in OpenClaw
+  - avoid mixing this with Telegram/MAX/WhatsApp delivery follow-up yet
+
+### Ready commit message
+
+- `feat(admin): add runtime provider profile rollout UI`
+
 ## 2026-03-25 - H1 runtime provider profile baseline shipped
 
 ### What changed
@@ -33,6 +67,11 @@
   - platform-admin only
   - uses the already-shipped H1 backend/materialization/apply path
   - lands before `H2` so provider refs stop depending on rollout-only mutation UX
+  - exact UI shape:
+    - structured editor in existing admin rollout controls
+    - current values hydrated from assistant governance state
+    - generated rollout patch for `runtimeProviderProfile` + `runtime_provider_credentials`
+    - no raw secret storage and no new backend mutation surface
 
 ### Ready commit message
 

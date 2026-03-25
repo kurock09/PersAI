@@ -226,6 +226,50 @@ function makeAssistantResponse(): AssistantLifecycleState {
   };
 }
 
+function makeAssistantResponseWithRuntimeProviderGovernance(): AssistantLifecycleState {
+  const state = makeAssistantResponse();
+  return {
+    ...state,
+    governance: {
+      ...state.governance,
+      policyEnvelope: {
+        platformUpdateWindow: "default",
+        runtimeProviderProfile: {
+          schema: "persai.runtimeProviderProfile.v1",
+          primary: {
+            provider: "openai",
+            model: "gpt-5.4"
+          },
+          fallback: null
+        }
+      },
+      secretRefs: {
+        schema: "persai.secretRefs.v1",
+        refs: {
+          telegram_bot_token: {
+            refKey: "vault://assistants/assistant-1/telegram_bot_token/v1",
+            manager: "backend_vault_kms"
+          },
+          runtime_provider_credentials: {
+            schema: "persai.runtimeProviderCredentialRefs.v1",
+            providers: {
+              openai: {
+                refKey: "env:default:OPENAI_API_KEY",
+                secretRef: {
+                  source: "env",
+                  provider: "default",
+                  id: "OPENAI_API_KEY"
+                }
+              }
+            }
+          }
+        }
+      },
+      platformManagedUpdatedAt: "2026-03-27T12:00:00.000Z"
+    }
+  };
+}
+
 function makeTelegramIntegrationState() {
   return {
     schema: "persai.telegramIntegration.v1" as const,
@@ -822,6 +866,91 @@ describe("AppFlowClient onboarding gate", () => {
 
     await waitFor(() => {
       expect(assistantApiMocks.postAdminPlatformRollout).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("applies runtime provider rollout from structured admin controls", async () => {
+    apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
+    assistantApiMocks.getAssistant.mockResolvedValue(
+      makeAssistantResponseWithRuntimeProviderGovernance()
+    );
+    assistantApiMocks.postAdminPlatformRollout.mockResolvedValue(makePlatformRollouts()[0]);
+
+    render(<AppFlowClient />);
+
+    expect(await screen.findByText("Runtime provider profile")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Runtime provider rollout percent"), {
+      target: { value: "25" }
+    });
+    fireEvent.click(screen.getByLabelText("Enable fallback provider"));
+    fireEvent.change(screen.getByLabelText("Fallback provider"), {
+      target: { value: "anthropic" }
+    });
+    fireEvent.change(screen.getByLabelText("Fallback model"), {
+      target: { value: "claude-sonnet-4-5" }
+    });
+    fireEvent.change(screen.getByLabelText("Anthropic ref key (optional)"), {
+      target: { value: "env:default:ANTHROPIC_API_KEY" }
+    });
+    fireEvent.change(screen.getByLabelText("Anthropic secret provider"), {
+      target: { value: "default" }
+    });
+    fireEvent.change(screen.getByLabelText("Anthropic secret id"), {
+      target: { value: "ANTHROPIC_API_KEY" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply runtime provider rollout" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAdminPlatformRollout).toHaveBeenCalledTimes(1);
+    });
+    expect(assistantApiMocks.postAdminPlatformRollout).toHaveBeenCalledWith("token-user-1", {
+      rolloutPercent: 25,
+      targetPatch: {
+        policyEnvelope: {
+          platformUpdateWindow: "default",
+          runtimeProviderProfile: {
+            schema: "persai.runtimeProviderProfile.v1",
+            primary: {
+              provider: "openai",
+              model: "gpt-5.4"
+            },
+            fallback: {
+              provider: "anthropic",
+              model: "claude-sonnet-4-5"
+            }
+          }
+        },
+        secretRefs: {
+          schema: "persai.secretRefs.v1",
+          refs: {
+            telegram_bot_token: {
+              refKey: "vault://assistants/assistant-1/telegram_bot_token/v1",
+              manager: "backend_vault_kms"
+            },
+            runtime_provider_credentials: {
+              schema: "persai.runtimeProviderCredentialRefs.v1",
+              providers: {
+                openai: {
+                  refKey: "env:default:OPENAI_API_KEY",
+                  secretRef: {
+                    source: "env",
+                    provider: "default",
+                    id: "OPENAI_API_KEY"
+                  }
+                },
+                anthropic: {
+                  refKey: "env:default:ANTHROPIC_API_KEY",
+                  secretRef: {
+                    source: "env",
+                    provider: "default",
+                    id: "ANTHROPIC_API_KEY"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     });
   });
 

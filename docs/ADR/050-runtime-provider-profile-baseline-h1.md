@@ -73,14 +73,28 @@ The missing piece is a narrow, typed baseline that lets platform admins choose a
 - H1 does not yet move tool-provider credentials into the same control-plane path.
 - H1 does not yet hydrate persona/memory/tasks/tool policy deeper into runtime behavior beyond the current native apply/chat path.
 
-## Immediate follow-up
+## H1a follow-up
 
-Before `H2`, add a narrow platform-admin UI slice for:
+The immediate follow-up after `H1` is a narrow platform-admin UI slice for:
 
 - editing `runtimeProviderProfile` primary/fallback provider+model
 - editing provider credential refs for `openai` / `anthropic`
 - keeping mutation rights platform-admin only
 - reusing the same H1 backend/materialization/apply contract rather than inventing a second UI-only data path
+
+### H1a exact UI slice
+
+- land inside the existing PersAI admin surface rather than a separate runtime-settings product area
+- add a structured editor above the existing generic platform-rollout JSON box
+- hydrate the form from current `assistant.governance.policyEnvelope` and `assistant.governance.secretRefs`
+- submit through the same `POST /api/v1/admin/platform-rollouts` endpoint with a generated:
+  - `targetPatch.policyEnvelope.runtimeProviderProfile`
+  - `targetPatch.secretRefs.refs.runtime_provider_credentials`
+- keep provider choice constrained to `openai` / `anthropic`
+- keep model refs free-form strings so PersAI does not duplicate OpenClaw's runtime allowlist implementation
+- edit credential refs only as metadata + `SecretRef` coordinates (`source`, `provider`, `id`, optional `refKey`)
+- do not add raw secret entry fields, new secret persistence paths, or a second mutation API
+- preserve unrelated `policyEnvelope` and `secretRefs.refs.*` branches when generating rollout patches, because the current rollout path replaces whole governance envelopes rather than deep-merging nested keys
 
 ## Out of scope
 

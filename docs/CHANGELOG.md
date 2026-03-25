@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Step 12 H1a runtime provider admin UI:** PersAI now exposes a structured platform-admin editor in the existing rollout controls for primary/fallback runtime provider selection and `OpenAI` / `Anthropic` credential refs. The UI hydrates from current assistant governance state, preserves unrelated `policyEnvelope` and `secretRefs` branches such as Telegram-managed refs, and still submits through the existing `POST /api/v1/admin/platform-rollouts` path instead of introducing a second mutation API.
 - **Step 12 H1 runtime provider profile baseline:** PersAI now supports an admin-managed runtime provider profile for `OpenAI + Anthropic` using existing governance containers: `policyEnvelope.runtimeProviderProfile` for assistant-scoped primary/fallback model selection and `secretRefs.refs.runtime_provider_credentials` for provider credential refs (no raw secrets in PersAI state). Materialization projects the resolved profile into `openclawBootstrap.governance.runtimeProviderProfile`, and the native OpenClaw apply/chat path consumes it via runtime validation plus per-run provider/model overrides.
 
 ### Fixed
