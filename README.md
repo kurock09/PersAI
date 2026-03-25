@@ -125,6 +125,7 @@ OpenClaw image publish workflow (Step 3 O2):
   - `openclaw.image.digest` -> built image digest
   and pushes that GitOps commit
 - no direct cluster deploy/sync step in this workflow
+- **Operational rule:** the commit in `openclaw-approved-sha.txt` must already exist on the fork’s GitHub remote before PersAI workflows that clone it run; see [infra/dev/gitops/README.md](infra/dev/gitops/README.md#openclaw-fork-sha-bump-push-order-avoid-broken-ci).
 
 Artifact Registry naming pattern:
 

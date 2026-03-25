@@ -2,13 +2,17 @@
 
 ## Status
 
-Accepted (planning baseline; implementation tracks fork PRs)
+Accepted.
+
+**Shipped in repo + fork:** PersAI CI builds the fork at `infra/dev/gitops/openclaw-approved-sha.txt` with **no** compat patch; fork implements native `/api/v1/runtime/*` with **P0–P3** on the **applied-spec** path: **P3** uses `agentCommandFromIngress` (same entry as OpenAI-compat HTTP) for sync + stream; persona `instructions` from stored workspace feed `extraSystemPrompt`. **Without** a prior apply for `(assistantId, publishedVersionId)`, sync/stream still use **compat echo** strings (intentional transport fallback).
+
+**Remaining:** **P2 depth** — map full `openclawWorkspace` / bootstrap into session store and tool policy (beyond `extraSystemPrompt`). **P4** — optional removal of no-apply echo once product no longer needs it. **Ops:** shared apply store before OpenClaw **>1 replica** (see P0).
 
 ## Context
 
 PersAI materializes assistant governance into `openclawBootstrap` / `openclawWorkspace` (`openclaw.bootstrap.v1` / `openclaw.workspace.v1`), including persona (`displayName`, `instructions`), effective capabilities, tool availability, OpenClaw capability envelope, `memoryControl`, `tasksControl`, and related governance fields. It applies this payload to the neighboring runtime via `POST /api/v1/runtime/spec/apply` and sends turns via `POST /api/v1/runtime/chat/web` and `POST /api/v1/runtime/chat/web/stream`.
 
-Historically, CI applied a compat patch with stub echo chat. The fork now ships **native** PersAI runtime HTTP routes (`src/gateway/persai-runtime/`) at the pinned SHA (see `openclaw-approved-sha.txt`): apply is persisted (P0), session keys are derived (P1), persona is read from stored workspace for transport hints (P2); full delegation into the embedded agent pipeline remains **P3** (see phased delivery below).
+Historically, CI applied a compat patch with stub echo chat. The fork now ships **native** PersAI runtime HTTP routes (`src/gateway/persai-runtime/`) at the pinned SHA (see `openclaw-approved-sha.txt`): apply is persisted (P0), session keys are derived (P1), persona instructions hydrate the agent turn (P2/P3), and web chat/sync delegates to **`agentCommandFromIngress`** when apply is present (P3).
 
 The product goal is **one runtime**: OpenClaw’s full agent behavior (memory, tools, sessions, provider routing as implemented in the fork) **driven** by PersAI’s published materialization, not a parallel “simple chat” path.
 
@@ -18,7 +22,7 @@ At scale (order of **1k–2k** concurrent interactive users, multiple gateway re
 
 1. **Ownership**: Native bridging logic is implemented in the **OpenClaw fork** (`https://github.com/kurock09/openclaw` per [ADR-012](012-openclaw-fork-source-and-deploy-boundary.md)), not in `apps/api` domain code. PersAI keeps the HTTP contract documented in [API-BOUNDARY.md](../API-BOUNDARY.md) (“PersAI to OpenClaw HTTP runtime contract (v1)”).
 
-2. **Replace stub with native pipeline**: Runtime HTTP handlers for `/api/v1/runtime/spec/apply`, `/api/v1/runtime/chat/web`, and `/api/v1/runtime/chat/web/stream` must eventually **delegate** to the same internal code paths OpenClaw uses for agent turns (session store, `agentCommandFromIngress` / embedded PI agent, hooks/cron-style isolated turns, etc.), after **hydrating** runtime state from the applied PersAI payload.
+2. **Replace stub with native pipeline**: When a spec has been **applied** for `(assistantId, publishedVersionId)`, `/api/v1/runtime/chat/web` and `/api/v1/runtime/chat/web/stream` **delegate** to **`agentCommandFromIngress`** (embedded PI agent path shared with OpenAI-compat HTTP). Further **hydration** from full `openclawWorkspace` / bootstrap into session store and tool policy remains incremental (see P2 remaining above).
 
 3. **Phased delivery** (fork-side; order adjustable after spike):
 
@@ -28,9 +32,9 @@ At scale (order of **1k–2k** concurrent interactive users, multiple gateway re
 
    - **P2 — Hydrate from workspace**: Map `persona.instructions` / `displayName`, `memoryControl`, `tasksControl`, `effectiveCapabilities`, `toolAvailability`, `openclawCapabilityEnvelope` into the fork’s session entry / agent config model (e.g. session store updates, model/provider hints, tool policy). Reuse or extend existing `mergeSessionEntry` / agent scope resolution where possible (`src/config/sessions.js`, `src/agents/agent-scope.js`, `src/agents/agent-command.ts`).
 
-   - **P3 — Chat sync + stream**: Implement web sync/stream handlers by running a full agent turn and mapping output to the existing PersAI-expected JSON / NDJSON (`delta` / `done`). Prefer reusing the same execution path as inbound hooks (`runCronIsolatedAgentTurn` / `dispatchAgentHook` pattern in `src/gateway/server/hooks.ts`) or `agentCommandFromIngress` after resolving deps — **spike required** to pick the least divergent call site.
+   - **P3 — Chat sync + stream (implemented)**: Web sync/stream call **`agentCommandFromIngress`** (same path as `src/gateway/openai-http.ts`) with `sessionKey` from P1, `messageChannel: "webchat"`, and optional `extraSystemPrompt` from workspace persona `instructions`. Stream maps assistant events to PersAI NDJSON (`delta` / `done`).
 
-   - **P4 — Compat patch removal (done in PersAI CI)**: PersAI no longer applies `openclaw-runtime-spec-apply-compat.patch`; validation uses `validate-openclaw-persai-runtime.sh`. Further work: remove remaining echo fallbacks in fork handlers once P3 native turns are proven.
+   - **P4 — Compat patch removal (done in PersAI CI)**: PersAI no longer applies `openclaw-runtime-spec-apply-compat.patch`; validation uses `validate-openclaw-persai-runtime.sh`. **Optional:** remove **no-apply** echo branches in fork handlers when product no longer needs that fallback.
 
 4. **Scaling and latency (operational baseline, not a separate product phase)**:
 
@@ -52,7 +56,7 @@ At scale (order of **1k–2k** concurrent interactive users, multiple gateway re
 
 - Large fork effort; spikes needed against `src/agents/agent-command.ts` and gateway hook/cron paths.
 
-- Dual maintenance until compat patch is removed.
+- Without **apply**, web transport remains echo-shaped (`[openclaw-compat]*`); with apply, output depends on configured providers and tools — operators must ensure secrets and quotas match expectations.
 
 ## Implementation pointers (fork repository, approved SHA baseline)
 
@@ -61,6 +65,7 @@ Non-exhaustive integration map (native PersAI runtime in fork; pin in PersAI `op
 - `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — apply persistence interface + in-memory default (`PERSAI_RUNTIME_SPEC_STORE`).
 - `src/gateway/persai-runtime/persai-runtime-session.ts` — stable web session key (P1).
 - `src/gateway/persai-runtime/persai-runtime-http.ts` — `/api/v1/runtime/*` HTTP handlers.
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — P3 `agentCommandFromIngress` sync + NDJSON stream bridge.
 - `src/gateway/server-http.ts` — registers PersAI runtime stages.
 - `src/gateway/server-runtime-state.ts` — shared store instance across bind hosts.
 - `src/gateway/server/hooks.ts` — `dispatchAgentHook` → `runCronIsolatedAgentTurn` (P3 target).

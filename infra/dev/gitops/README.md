@@ -2,6 +2,15 @@
 
 This directory contains the dev GitOps/Argo CD baseline for `persai-dev`.
 
+## OpenClaw fork SHA bump: push order (avoid broken CI)
+
+GitHub Actions clones `https://github.com/kurock09/openclaw` and runs `git fetch origin <OPENCLAW_APPROVED_SHA>`. The commit **must exist on the remote** before PersAI workflows run against that pin.
+
+1. Commit and **`git push` the fork** (`kurock09/openclaw`) so `main` (or the pinned commit) is on GitHub.
+2. Then merge/push **PersAI** changes that update `infra/dev/gitops/openclaw-approved-sha.txt` (or re-run failed workflows after the fork push).
+
+If you push PersAI first, OpenClaw **OpenClaw Dev Image Publish** / `validate-openclaw-persai-runtime.sh` may fail with `upload-pack: not our ref <sha>` until the fork contains that object.
+
 ## Deploy path (explicit)
 
 1. Argo CD project: `infra/dev/gitops/argocd/project-dev.yaml`
@@ -75,7 +84,7 @@ Database migration behavior on every deploy sync:
 - Approved fork repository: `https://github.com/kurock09/openclaw`
 - Approved ref type: full commit SHA only (no branch/tag refs)
 - Single machine-readable SHA source: `infra/dev/gitops/openclaw-approved-sha.txt`
-- Approved commit SHA (current): `8e61e0ba5eba49fccc2c0ae362e07b242c7e1d15`
+- Approved commit SHA (current): `baf61e8675b97ce5c31f768e732304c58d526e34`
 - Ownership: PersAI infra maintainers update this SHA by PR in this repo.
 - Update rule: every SHA change in `infra/dev/gitops/openclaw-approved-sha.txt` must be reflected in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md` in the same PR.
 
@@ -147,10 +156,10 @@ Optional dev values (not required for pod boot):
   - provider API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, etc.)
     - optional for process boot, required only for real model responses
 
-Intentionally not configured yet in this slice:
+Optional / later:
 
-- channels/provider credentials beyond baseline gateway startup/auth
-- native fork-side implementation of the PersAI runtime contract without the current dev compatibility patch
+- Provider and channel credentials beyond baseline gateway startup/auth (required only for real model turns).
+- **P3 (fork):** with a prior **apply**, web sync/stream use **`agentCommandFromIngress`** (real agent output); without apply, **compat echo** remains. See [ADR-048](../../../docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md). Provider keys in cluster secrets are required for non-empty model replies.
 
 Current integration status:
 
@@ -170,9 +179,11 @@ Source-of-truth mapping in dev policy:
 
 ## OpenClaw O3 runtime assumptions (dev)
 
+- Prerequisite for a running pod: Kubernetes Secret `persai-openclaw-secrets` in `persai-dev` with key `OPENCLAW_GATEWAY_TOKEN` (must match API’s reference to the same secret). If the pod crashes on auth or API preflight fails with `auth_failure`, verify this secret first.
+
 - Deploy enablement:
   - `openclaw.enabled=true` in `infra/helm/values-dev.yaml`
-  - OpenClaw image tag pinned to approved fork SHA: `8e61e0ba5eba49fccc2c0ae362e07b242c7e1d15`
+  - OpenClaw image tag pinned to approved fork SHA: `baf61e8675b97ce5c31f768e732304c58d526e34`
 - Runtime command/args:
   - command: `node openclaw.mjs gateway`
   - args: `--bind lan --port 18789`
@@ -189,10 +200,6 @@ Source-of-truth mapping in dev policy:
     - `http://127.0.0.1:18789`
   - `dangerouslyAllowHostHeaderOriginFallback` is explicitly set to `false`
   - any additional browser origin requires explicit update to `openclaw.controlUi.allowedOrigins` values
-
-Remaining known blocker before first successful pod start:
-
-- Kubernetes secret `persai-openclaw-secrets` with key `OPENCLAW_GATEWAY_TOKEN` must exist in namespace `persai-dev`.
 
 ## Manual procedures
 

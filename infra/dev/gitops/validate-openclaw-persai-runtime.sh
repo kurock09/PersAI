@@ -33,6 +33,9 @@ test -f "${STORE_FILE}" || (echo "Missing PersAI runtime store at ${STORE_FILE} 
 test -f "${HTTP_FILE}" || (echo "Missing PersAI runtime HTTP at ${HTTP_FILE}" >&2 && exit 1)
 
 grep -q "handleRuntimeSpecApplyHttpRequest" "${HTTP_FILE}" || (echo "PersAI runtime HTTP missing apply handler" >&2 && exit 1)
+AGENT_TURN_FILE="${WORKDIR}/openclaw/src/gateway/persai-runtime/persai-runtime-agent-turn.ts"
+test -f "${AGENT_TURN_FILE}" || (echo "Missing PersAI runtime agent bridge at ${AGENT_TURN_FILE}" >&2 && exit 1)
+grep -q "agentCommandFromIngress" "${AGENT_TURN_FILE}" || (echo "PersAI runtime agent bridge must call agentCommandFromIngress (P3)" >&2 && exit 1)
 grep -q "persaiRuntimeSpecStore" "${WORKDIR}/openclaw/src/gateway/server-runtime-state.ts" || (
   echo "server-runtime-state.ts must wire persaiRuntimeSpecStore" >&2 && exit 1
 )

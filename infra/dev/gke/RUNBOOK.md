@@ -169,6 +169,7 @@ Expected:
 - `global.images.tag` is a commit SHA (immutable), not a moving tag like `dev-main`.
 - this value is updated automatically by `.github/workflows/dev-image-publish.yml` on successful `main` pushes.
 - OpenClaw image is pinned by `openclaw.image.tag` to the approved OpenClaw fork SHA.
+- When you bump `openclaw-approved-sha.txt` to a **new** fork commit: **`git push` that commit to `https://github.com/kurock09/openclaw` first**, then merge PersAI `main` (or re-run failed GitHub Actions). If PersAI CI runs first, clone/fetch may fail with `upload-pack: not our ref <sha>`.
 
 16. Trigger Argo CD sync to apply OpenClaw O3 wiring:
 

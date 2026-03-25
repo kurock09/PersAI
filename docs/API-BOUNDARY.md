@@ -989,12 +989,12 @@ This subsection is the **design-freeze** contract between PersAI `apps/api` and 
 
 - Telegram, WhatsApp, MAX, or other channel transports toward OpenClaw. Those remain separate product/adapter slices.
 
-### Fork build and compatibility patch
+### Fork build (native runtime)
 
 - Source-of-truth and deploy boundary: [ADR-012](ADR/012-openclaw-fork-source-and-deploy-boundary.md).
-- Native runtime fulfillment (persona, memory, tools, full agent pipeline from apply + chat) is implemented incrementally on the fork; planning and scaling rules: [ADR-048](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md).
+- Native runtime fulfillment (persona, memory, tools, full agent pipeline from apply + chat) is implemented incrementally on the fork; planning, phased delivery, and scaling rules: [ADR-048](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md).
 - The dev image builds the fork at the pinned SHA in [infra/dev/gitops/openclaw-approved-sha.txt](../infra/dev/gitops/openclaw-approved-sha.txt) **without** applying a compat patch; runtime routes live in fork source under `src/gateway/persai-runtime/`.
-- **Normative contract** = what PersAI’s adapter sends and validates (this section). **Reference behavior** for drift checks: see fork handlers and status codes below; legacy compat echo strings may still appear when no spec has been applied for the assistant version (backward transport compatibility).
+- **Normative contract** = what PersAI’s adapter sends and validates (this section). **Reference behavior** for drift checks: see fork handlers and status codes below; until **ADR-048 P3**, assistant text may be **echo-shaped** (with `openclaw-persai-runtime*` / `[persona_loaded]` when apply+persona exist, or legacy compat-style prefix when no apply for that assistant version).
 
 ### Configuration (operational, no secret values)
 
@@ -1013,7 +1013,7 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 ### Authentication
 
 - For every request, if `OPENCLAW_GATEWAY_TOKEN` is non-empty, the adapter sets `Authorization: Bearer <token>`.
-- The compat patch authenticates with the same Bearer via the fork’s `authorizeHttpGatewayConnect` (token/password bridge as implemented in the patch). Exact gateway auth matrix is owned by OpenClaw; PersAI treats `401`/`403` as `auth_failure`.
+- The fork gateway validates that Bearer via `authorizeHttpGatewayConnect` (same token/password bridge shape as the rest of the gateway). Exact auth matrix is owned by OpenClaw; PersAI treats `401`/`403` as `auth_failure`.
 
 ### `GET /healthz` and `GET /readyz`
 
@@ -1077,7 +1077,8 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 
 - Same body limit and **400**/**408**/**413**/**405** as spec apply.
 - Response header `X-Persai-Runtime-Session-Key` set to the derived web session key (P1).
-- **200** with `ok: true` and `assistantMessage` / `respondedAt`: after a successful apply for the same `(assistantId, publishedVersionId)`, prefix includes `openclaw-persai-runtime` and `[persona_loaded]` when workspace persona instructions exist; otherwise legacy `[openclaw-compat]` echo (no apply yet for that version).
+- **200** with `ok: true` and `assistantMessage` / `respondedAt`: after a successful apply for the same `(assistantId, publishedVersionId)`, the fork runs a full embedded agent turn via `agentCommandFromIngress` (session key = P1 mapping); `assistantMessage` is model/tool output (persona `instructions` from stored workspace are passed as `extraSystemPrompt` when present). If there is **no** apply for that pair, response remains legacy **`[openclaw-compat]`** echo of `userMessage`.
+- **500** with `{ ok: false, error }` may occur when the agent run throws (e.g. missing provider credentials); the adapter maps non-2xx to `invalid_response`.
 
 ### `POST /api/v1/runtime/chat/web/stream`
 
@@ -1099,8 +1100,8 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 
 **Fork implementation reference**
 
-- Streams word chunks as `delta` lines, then one `done` line; **405**/**400**/**408**/**413** same family as above; same `X-Persai-Runtime-Session-Key` header as sync.
-- Prefix `openclaw-persai-runtime-stream` / `[persona_loaded]` when apply+persona present; else `openclaw-compat-stream` (P3 will replace echo with native agent output).
+- After apply, streams real assistant deltas from the embedded agent (`onAgentEvent` / same path as OpenAI-compat streaming), then one `done` line; **405**/**400**/**408**/**413** same family as above; same `X-Persai-Runtime-Session-Key` header as sync.
+- Without apply, retains **`openclaw-compat-stream`** word-chunk echo for backward transport checks.
 
 ### HTTP status and adapter error mapping
 

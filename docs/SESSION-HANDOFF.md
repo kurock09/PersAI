@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - ADR-048 P3: `agentCommandFromIngress` for PersAI web runtime (fork)
+
+### What changed
+
+- **Fork** (`kurock09/openclaw`): commit `baf61e8675b97ce5c31f768e732304c58d526e34` — new `src/gateway/persai-runtime/persai-runtime-agent-turn.ts`; `persai-runtime-http.ts` calls embedded agent for sync + NDJSON stream when `store.get` hits (after apply); no-apply path unchanged (`[openclaw-compat]*` echo).
+- **PersAI:** `openclaw-approved-sha.txt` → above SHA; `values-dev.yaml` OpenClaw `tag` + cleared `digest` for CI repin; `validate-openclaw-persai-runtime.sh` checks agent bridge; docs ADR-048 / API-BOUNDARY / ROADMAP / LIVE-TEST / gitops README / CHANGELOG.
+
+### Why changed
+
+- Close ADR-048 **P3**: real agent output on web when governance materialization was applied; align with OpenAI-compat gateway ingress path.
+
+### Blocker
+
+- **Push fork first**, then PersAI `main`, so CI can fetch `baf61e8675b97ce5c31f768e732304c58d526e34`.
+
+### Next recommended step
+
+- OpenClaw Dev Image Publish → digest repin commit; Argo sync; live test apply → chat (expect model output if provider keys exist).
+
+### Ready commit message
+
+- `chore(openclaw): pin fork baf61e8675 for ADR-048 P3 agent ingress`
+
+## 2026-03-25 - ADR-048 docs + deploy runbook; baseline vs completion
+
+### What changed
+
+- **ADR-048**: status clarifies **baseline shipped** (P0–P2 + PersAI-side native build) vs **remaining P3** (full agent turn) and fork P4 (drop echo); consequences updated (no “dual compat patch” wording).
+- **infra/dev/gitops/README.md**: new **push order** section (fork before PersAI pin); removed stale “compat patch not configured” / “remaining blocker” lines; merged secret prerequisite into O3 assumptions; P3/echo called out explicitly.
+- **docs/API-BOUNDARY.md**: subsection renamed to “Fork build (native runtime)”; authentication line no longer references removed compat patch; echo until P3 stated explicitly.
+- **docs/LIVE-TEST-HYBRID.md**, **infra/dev/gke/RUNBOOK.md**, **README.md**, **docs/CHANGELOG.md**: aligned with same deploy and verification story.
+
+### Why changed
+
+- Operators hit **`not our ref`** when PersAI `main` ran before the fork push; docs contradicted reality on compat patch and “first pod blocker.” ADR-048 “completion” is ambiguous without separating **baseline milestone** from **P3**.
+
+### Next recommended step
+
+- **Fork-only session:** ADR-048 **P3** spike — call embedded agent path from `persai-runtime-http` for sync+stream; bump `openclaw-approved-sha.txt`; shared Redis store if HPA >1 OpenClaw replica.
+
+### Ready commit message
+
+- `docs(adr-048): align status, deploy order, and API-BOUNDARY with native baseline`
+
 ## 2026-03-25 - ADR-048 executed: native PersAI runtime in OpenClaw fork (P0–P2)
 
 ### What changed
@@ -11,9 +55,9 @@
 
 - Execute ADR-048 by shipping native routes in fork instead of CI patch; lay P0 multi-replica–ready store interface and P1/P2 hooks without rewriting embedded agent core (P3 next).
 
-### Blocker before GitHub CI / deploy
+### Verification (post-push / post-deploy)
 
-- **Push the fork commit to `origin`** on `https://github.com/kurock09/openclaw` first; clone in CI must resolve `8e61e0ba5eba49fccc2c0ae362e07b242c7e1d15`.
+- Fork pushed to `origin`; PersAI OpenClaw workflow green; `values-dev` repinned digest; live: apply → chat shows `openclaw-persai-runtime*` + `X-Persai-Runtime-Session-Key` (see LIVE-TEST-HYBRID Phase B).
 
 ### Files touched (high level)
 
@@ -24,10 +68,6 @@
 
 - OpenClaw: local `pnpm`/tsc not available in agent shell; rely on fork CI after push.
 - PersAI: not run (doc + infra edits).
-
-### Next recommended step
-
-- Push fork → merge PersAI `main` → let OpenClaw workflow repin digest → live verify apply + chat prefixes and session header.
 
 ### Ready commit message
 
