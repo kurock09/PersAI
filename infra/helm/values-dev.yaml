@@ -90,6 +90,10 @@ openclaw:
     OPENCLAW_GATEWAY_TOKEN:
       secretName: persai-openclaw-secrets
       secretKey: OPENCLAW_GATEWAY_TOKEN
+    # Value only in cluster Secret key `OPENAI_API_KEY` (never put the sk-... string in Git).
+    OPENAI_API_KEY:
+      secretName: persai-openclaw-secrets
+      secretKey: OPENAI_API_KEY
   service:
     type: ClusterIP
     port: 18789
