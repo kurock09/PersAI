@@ -123,3 +123,11 @@ Foundation Phase
 ## Step 11 Product Experience and Visual Polish
 
 - [x] **ADR-048 (OpenClaw fork)** — native PersAI runtime HTTP: **P0–P3** on applied-spec path (`agentCommandFromIngress` for web sync/stream; persona `instructions` → `extraSystemPrompt`); no-apply path now fails fast with `503` instead of compat echo so PersAI can surface a degraded runtime honestly. Pin SHA in `openclaw-approved-sha.txt` (update when fork advances); CI `validate-openclaw-persai-runtime.sh`; for multi-replica / restart-safe runtime state, configure the fork with `PERSAI_RUNTIME_SPEC_STORE=redis` and `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL` instead of process memory. Current dev chart also pins OpenClaw default model to `openai/gpt-5.4`, injects `OPENAI_API_KEY` from `persai-openclaw-secrets`, and raises `OPENCLAW_ADAPTER_TIMEOUT_MS` to `15000` for stable web streaming. Deeper workspace→session hydration = ongoing; see [ADR-048](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md).
+
+## Step 12 Admin-Driven Runtime Control Plane
+
+- [x] H1 — platform-admin runtime provider profile baseline (`OpenAI + Anthropic`, assistant-scoped primary/fallback model refs, provider credential refs, no raw secrets in PersAI state, first mutation surface via admin platform rollouts; see `ADR-050`)
+- [ ] H2 — tool credential refs baseline (managed tool-provider secret refs without runtime/tool-policy duplication)
+- [ ] H3 — runtime hydration depth for persona, memory, tasks/reminders, and tool policy on the native OpenClaw path (continue ADR-048 `P2`)
+- [ ] H4 — Telegram runtime readiness alignment against admin-driven runtime profile + managed secret refs
+- [ ] H5 — WhatsApp/MAX follow-up readiness and secret-ref parity before later delivery slices

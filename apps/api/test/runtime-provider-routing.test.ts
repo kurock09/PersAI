@@ -50,6 +50,7 @@ async function run(): Promise<void> {
         tasksExcludedFromCommercialQuotas: true
       }
     },
+    secretRefs: null,
     policyEnvelope: {
       runtimeProviderRouting: {
         schema: "persai.runtimeProviderRoutingPolicy.v1",
@@ -77,6 +78,104 @@ async function run(): Promise<void> {
   assert.equal(
     resolved.fallbackMatrix.find((item) => item.trigger === "cost_driving_restricted")?.eligible,
     true
+  );
+
+  const adminManaged = service.execute({
+    effectiveCapabilities: {
+      schema: "persai.effectiveCapabilities.v1",
+      derivedFrom: {
+        planCode: "starter_trial",
+        planStatus: "active",
+        governanceSchema: null
+      },
+      subscription: {
+        source: "workspace_subscription",
+        status: "trialing",
+        planCode: "starter_trial",
+        trialEndsAt: null,
+        currentPeriodEndsAt: null,
+        cancelAtPeriodEnd: false
+      },
+      toolClasses: {
+        costDriving: {
+          allowed: true,
+          quotaGoverned: false
+        },
+        utility: {
+          allowed: true,
+          quotaGoverned: false
+        }
+      },
+      channelsAndSurfaces: {
+        webChat: true,
+        telegram: false,
+        whatsapp: false,
+        max: false
+      },
+      mediaClasses: {
+        text: true,
+        image: false,
+        audio: false,
+        video: false,
+        file: false
+      },
+      governedFeatures: {
+        assistantLifecycle: true,
+        memoryCenter: true,
+        tasksCenter: true,
+        viewLimitPercentages: true,
+        tasksExcludedFromCommercialQuotas: true
+      }
+    },
+    secretRefs: {
+      refs: {
+        runtime_provider_credentials: {
+          schema: "persai.runtimeProviderCredentialRefs.v1",
+          providers: {
+            openai: {
+              secretRef: {
+                source: "env",
+                provider: "default",
+                id: "OPENAI_API_KEY"
+              }
+            },
+            anthropic: {
+              secretRef: {
+                source: "env",
+                provider: "default",
+                id: "ANTHROPIC_API_KEY"
+              }
+            }
+          }
+        }
+      }
+    },
+    policyEnvelope: {
+      runtimeProviderProfile: {
+        schema: "persai.runtimeProviderProfile.v1",
+        primary: {
+          provider: "openai",
+          model: "gpt-5.4"
+        },
+        fallback: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-5"
+        }
+      }
+    }
+  });
+
+  assert.equal(adminManaged.primaryPath.providerKey, "openai");
+  assert.equal(adminManaged.primaryPath.modelKey, "gpt-5.4");
+  assert.equal(
+    adminManaged.fallbackMatrix.find((item) => item.trigger === "provider_failure_or_timeout")
+      ?.target.providerKey,
+    "anthropic"
+  );
+  assert.equal(
+    adminManaged.fallbackMatrix.find((item) => item.trigger === "runtime_degraded")?.target
+      .modelKey,
+    "claude-sonnet-4-5"
   );
 }
 

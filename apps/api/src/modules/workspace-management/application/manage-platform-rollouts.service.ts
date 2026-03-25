@@ -4,6 +4,7 @@ import { AppendAssistantAuditEventService } from "./append-assistant-audit-event
 import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import type { PlatformRolloutPatch, PlatformRolloutState } from "./platform-rollout.types";
+import { assertValidRuntimeProviderProfilePatch } from "./runtime-provider-profile";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
@@ -91,6 +92,15 @@ export class ManagePlatformRolloutsService {
       throw new BadRequestException(
         `targetPatch must include at least one of: ${PATCH_KEYS.join(", ")}.`
       );
+    }
+    try {
+      assertValidRuntimeProviderProfilePatch({
+        policyEnvelope: targetPatch.policyEnvelope ?? null,
+        secretRefs: targetPatch.secretRefs ?? null
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid runtime provider profile patch.";
+      throw new BadRequestException(message);
     }
     return {
       rolloutPercent,

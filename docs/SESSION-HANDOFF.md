@@ -1,5 +1,68 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - H1 runtime provider profile baseline shipped
+
+### What changed
+
+- Added [ADR-050](ADR/050-runtime-provider-profile-baseline-h1.md) to lock the concrete H1 implementation shape.
+- Marked `docs/ROADMAP.md` Step 12 `H1` complete.
+- Aligned `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, and `docs/API-BOUNDARY.md` around one exact control-plane path:
+  - `assistant_governance.policyEnvelope.runtimeProviderProfile`
+  - `assistant_governance.secret_refs.refs.runtime_provider_credentials`
+  - materialized `openclawBootstrap.governance.runtimeProviderProfile`
+
+### Why changed
+
+- The north-star from ADR-049 was already agreed, but the code slice still needed one precise production-grade contract before implementation. H1 now has an explicit boundary that reuses governance, rollout/reapply, and native OpenClaw apply/chat seams instead of introducing a parallel admin/runtime system.
+
+### Slice boundary
+
+- Mutation surface in H1: existing `POST /api/v1/admin/platform-rollouts`
+- First supported providers: `OpenAI + Anthropic`
+- Runtime behavior:
+  - if materialized admin-managed runtime profile is present, OpenClaw validates and uses it
+  - if absent, OpenClaw keeps legacy configured default model path
+- Still deferred:
+  - tool credential refs
+  - deeper persona/memory/tasks/tool-policy hydration
+  - Telegram/MAX/WhatsApp delivery/readiness follow-up
+
+### Ready commit message
+
+- `feat(runtime): add admin-managed provider profile baseline`
+
+## 2026-03-25 - ADR-049 north-star for admin-driven runtime control plane
+
+### What changed
+
+- Added [ADR-049](ADR/049-platform-admin-runtime-control-plane-phasing.md) to lock the long-term PersAI + OpenClaw direction into one canonical phased plan.
+- Added `docs/ROADMAP.md` Step 12 so future sessions can follow the same ordered slices instead of rebuilding the sequence ad hoc.
+- Updated `docs/ARCHITECTURE.md` to point future runtime-profile work at ADR-049 without changing the current runtime boundary.
+- Fixed the stale compat-echo sentence in `docs/API-BOUNDARY.md` so docs match the current native fork behavior (`503` without prior apply).
+
+### Why changed
+
+- The next phase is no longer "make basic native runtime work" but "turn PersAI into the real control plane for runtime configuration without duplicating OpenClaw internals". That needs one written north-star and slice ladder so sessions do not drift or try to do everything at once.
+
+### First recommended coding slice
+
+- **H1 — platform-admin runtime provider profile baseline**
+  - first providers: `OpenAI + Anthropic`
+  - move assistant-scoped primary/fallback model refs into PersAI control plane
+  - add provider credential refs without storing raw secret values in PersAI
+  - keep OpenClaw as runtime executor + secret resolver
+  - keep the first runtime consumption on the applied web path only
+
+### Guardrails
+
+- Reuse `assistant_governance.policyEnvelope.runtimeProviderRouting` and `assistant_governance.secret_refs` before inventing new control-plane objects.
+- Do not widen into tool credential refs, Telegram runtime delivery, or WhatsApp/MAX delivery in the first slice.
+- If H1 needs architecture/API/data-model changes beyond ADR-049, update docs first before code.
+
+### Ready commit message
+
+- `docs(adr): define phased runtime control-plane north-star`
+
 ## 2026-03-25 - OpenClaw pin advance for honest missing-apply failures
 
 ### What changed

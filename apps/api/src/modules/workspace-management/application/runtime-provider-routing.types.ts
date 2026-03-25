@@ -7,7 +7,7 @@ export type RuntimeProviderRoutingState = {
   };
   userFacingProviderPickerEnabled: false;
   primaryPath: {
-    providerKey: "openclaw_managed_default";
+    providerKey: string;
     modelKey: string;
     active: boolean;
     inactiveReason: null | "no_interactive_surface_allowed" | "text_media_not_allowed";
@@ -16,7 +16,7 @@ export type RuntimeProviderRoutingState = {
     trigger: "provider_failure_or_timeout" | "runtime_degraded" | "cost_driving_restricted";
     strategy: "fallback_model" | "degrade_to_safe_mode" | "constrain_tools";
     target: {
-      providerKey: "openclaw_managed_default";
+      providerKey: string;
       modelKey: string;
     };
     eligible: boolean;

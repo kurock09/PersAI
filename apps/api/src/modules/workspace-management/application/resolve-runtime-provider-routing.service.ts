@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type { EffectiveCapabilityState } from "./effective-capability.types";
+import { resolveRuntimeProviderProfileState } from "./runtime-provider-profile";
 import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -46,9 +47,14 @@ export class ResolveRuntimeProviderRoutingService {
   execute(params: {
     effectiveCapabilities: EffectiveCapabilityState;
     policyEnvelope: unknown | null;
+    secretRefs: unknown | null;
   }): RuntimeProviderRoutingState {
-    const { effectiveCapabilities, policyEnvelope } = params;
+    const { effectiveCapabilities, policyEnvelope, secretRefs } = params;
     const override = parseRoutingPolicyOverride(policyEnvelope);
+    const runtimeProviderProfile = resolveRuntimeProviderProfileState({
+      policyEnvelope,
+      secretRefs
+    });
 
     const channels = effectiveCapabilities.channelsAndSurfaces;
     const hasInteractiveSurface =
@@ -61,13 +67,23 @@ export class ResolveRuntimeProviderRoutingService {
         ? "text_media_not_allowed"
         : null;
 
-    const primaryModelKey = override.primaryModelKey ?? "text_standard_v1";
-    const fallbackModelKey = override.fallbackModelKey ?? "text_fast_fallback_v1";
-    const degradeModelKey = override.degradeModelKey ?? "text_safe_minimal_v1";
+    const managedPrimary = runtimeProviderProfile.mode === "admin_managed"
+      ? runtimeProviderProfile.primary
+      : null;
+    const managedFallback = runtimeProviderProfile.mode === "admin_managed"
+      ? runtimeProviderProfile.fallback
+      : null;
+    const primaryProviderKey = managedPrimary?.provider ?? "openclaw_managed_default";
+    const primaryModelKey = managedPrimary?.model ?? override.primaryModelKey ?? "text_standard_v1";
+    const fallbackProviderKey = managedFallback?.provider ?? primaryProviderKey;
+    const fallbackModelKey = managedFallback?.model ?? override.fallbackModelKey ?? "text_fast_fallback_v1";
+    const degradeProviderKey = managedFallback?.provider ?? primaryProviderKey;
+    const degradeModelKey = managedFallback?.model ?? override.degradeModelKey ?? "text_safe_minimal_v1";
     const blockedByCommon: Array<
       "fallback_disabled_by_policy" | "no_interactive_surface_allowed" | "text_media_not_allowed"
     > = [];
-    if (override.disableFallback) {
+    const fallbackDisabled = managedPrimary !== null ? managedFallback === null : override.disableFallback;
+    if (fallbackDisabled) {
       blockedByCommon.push("fallback_disabled_by_policy");
     }
     if (!hasInteractiveSurface) {
@@ -81,12 +97,15 @@ export class ResolveRuntimeProviderRoutingService {
       schema: "persai.runtimeProviderRouting.v1",
       derivedFrom: {
         effectiveCapabilitiesSchema: effectiveCapabilities.schema ?? null,
-        policyEnvelopeSchema: override.schema,
+        policyEnvelopeSchema:
+          runtimeProviderProfile.mode === "admin_managed"
+            ? runtimeProviderProfile.derivedFrom.policyEnvelopeSchema
+            : override.schema,
         planCode: effectiveCapabilities.derivedFrom.planCode
       },
       userFacingProviderPickerEnabled: false,
       primaryPath: {
-        providerKey: "openclaw_managed_default",
+        providerKey: primaryProviderKey,
         modelKey: primaryModelKey,
         active: primaryActive,
         inactiveReason
@@ -96,27 +115,27 @@ export class ResolveRuntimeProviderRoutingService {
           trigger: "provider_failure_or_timeout",
           strategy: "fallback_model",
           target: {
-            providerKey: "openclaw_managed_default",
+            providerKey: fallbackProviderKey,
             modelKey: fallbackModelKey
           },
-          eligible: primaryActive && !override.disableFallback,
+          eligible: primaryActive && !fallbackDisabled,
           blockedBy: blockedByCommon
         },
         {
           trigger: "runtime_degraded",
           strategy: "degrade_to_safe_mode",
           target: {
-            providerKey: "openclaw_managed_default",
+            providerKey: degradeProviderKey,
             modelKey: degradeModelKey
           },
-          eligible: primaryActive,
+          eligible: primaryActive && !fallbackDisabled,
           blockedBy: blockedByCommon.filter((item) => item !== "fallback_disabled_by_policy")
         },
         {
           trigger: "cost_driving_restricted",
           strategy: "constrain_tools",
           target: {
-            providerKey: "openclaw_managed_default",
+            providerKey: primaryProviderKey,
             modelKey: primaryModelKey
           },
           eligible:
@@ -136,11 +155,18 @@ export class ResolveRuntimeProviderRoutingService {
         costDrivingAllowed: effectiveCapabilities.toolClasses.costDriving.allowed,
         costDrivingQuotaGoverned: effectiveCapabilities.toolClasses.costDriving.quotaGoverned
       },
-      notes: [
-        "E6 baseline keeps provider routing runtime-managed with no user-facing picker.",
-        "Fallback path is explicit and constrained by effective capabilities and policy envelope overrides.",
-        "No provider marketplace logic is introduced in this slice."
-      ]
+      notes:
+        runtimeProviderProfile.mode === "admin_managed"
+          ? [
+              "H1 baseline derives runtime routing from PersAI admin-managed provider profile.",
+              "OpenClaw remains the runtime executor and secret resolver on the applied path.",
+              "No user-facing provider picker or provider marketplace logic is introduced in this slice."
+            ]
+          : [
+              "E6 baseline keeps provider routing runtime-managed with no user-facing picker.",
+              "Fallback path is explicit and constrained by effective capabilities and policy envelope overrides.",
+              "No provider marketplace logic is introduced in this slice."
+            ]
     };
   }
 }

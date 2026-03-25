@@ -19,6 +19,7 @@ import { ResolveEffectiveToolAvailabilityService } from "./resolve-effective-too
 import { ResolveOpenClawChannelSurfaceBindingsService } from "./resolve-openclaw-channel-surface-bindings.service";
 import { ResolveOpenClawCapabilityEnvelopeService } from "./resolve-openclaw-capability-envelope.service";
 import { ResolveRuntimeProviderRoutingService } from "./resolve-runtime-provider-routing.service";
+import { resolveRuntimeProviderProfileState } from "./runtime-provider-profile";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -91,9 +92,14 @@ export class MaterializeAssistantPublishedVersionService {
       assistantId: assistant.id,
       effectiveCapabilities
     });
+    const runtimeProviderProfile = resolveRuntimeProviderProfileState({
+      policyEnvelope: governance.policyEnvelope,
+      secretRefs: governance.secretRefs
+    });
     const runtimeProviderRouting = this.resolveRuntimeProviderRoutingService.execute({
       effectiveCapabilities,
-      policyEnvelope: governance.policyEnvelope
+      policyEnvelope: governance.policyEnvelope,
+      secretRefs: governance.secretRefs
     });
     const openclawCapabilityEnvelope = this.resolveOpenClawCapabilityEnvelopeService.execute({
       effectiveCapabilities,
@@ -123,7 +129,8 @@ export class MaterializeAssistantPublishedVersionService {
           governance,
           effectiveCapabilities,
           toolAvailability,
-          openclawCapabilityEnvelope
+          openclawCapabilityEnvelope,
+          runtimeProviderProfile
         ),
         applyState: {
           status: assistant.applyStatus,
@@ -149,6 +156,7 @@ export class MaterializeAssistantPublishedVersionService {
         effectiveCapabilities,
         toolAvailability,
         openclawCapabilityEnvelope,
+        runtimeProviderProfile,
         secretRefs: governance.secretRefs,
         auditHook: governance.auditHook
       }
@@ -198,12 +206,14 @@ export class MaterializeAssistantPublishedVersionService {
     governance: AssistantGovernance,
     effectiveCapabilities: Record<string, unknown>,
     toolAvailability: Record<string, unknown>,
-    openclawCapabilityEnvelope: Record<string, unknown>
+    openclawCapabilityEnvelope: Record<string, unknown>,
+    runtimeProviderProfile: unknown
   ): Record<string, unknown> {
     return {
       capabilityEnvelope: governance.capabilityEnvelope,
       secretRefs: governance.secretRefs,
       policyEnvelope: governance.policyEnvelope,
+      runtimeProviderProfile,
       effectiveCapabilities,
       toolAvailability,
       openclawCapabilityEnvelope,

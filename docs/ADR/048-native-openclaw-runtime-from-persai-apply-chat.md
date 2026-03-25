@@ -86,3 +86,4 @@ Changes to HTTP paths or JSON shapes require updating [API-BOUNDARY.md](../API-B
 - [ADR-006](006-openclaw-service-boundary.md) — service boundary preserved.
 - [ADR-012](012-openclaw-fork-source-and-deploy-boundary.md) — fork remains SoT for runtime code.
 - [ADR-013](013-openclaw-backend-integration-contract.md), [ADR-014](014-openclaw-apply-reapply-adapter.md) — adapter and apply baseline; this ADR covers **native** fulfillment on the fork side.
+- [ADR-049](049-platform-admin-runtime-control-plane-phasing.md) — phased plan for moving runtime-profile ownership into PersAI control plane on top of the native runtime boundary defined here.

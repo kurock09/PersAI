@@ -802,6 +802,10 @@ Behavior baseline:
   - selects target assistant subset by rollout percent
   - stores per-assistant pre-update governance snapshot
   - updates platform-managed governance fields only
+  - H1 runtime-provider-profile baseline uses this mutation surface for:
+    - `targetPatch.policyEnvelope.runtimeProviderProfile`
+    - `targetPatch.secretRefs.refs.runtime_provider_credentials`
+  - validates typed H1 provider-profile and provider-credential-ref shape before mutating governance
   - triggers soft runtime reapply against latest published version when present
   - stores per-assistant apply outcomes (`succeeded|degraded|failed|skipped`)
   - writes rollout summary audit event (`admin.platform_rollout_applied`)
@@ -826,6 +830,9 @@ Behavior baseline:
 - Materialization is projected into OpenClaw-native outputs:
   - `openclaw_bootstrap`
   - `openclaw_workspace`
+- H1 runtime provider profile baseline is materialized into:
+  - `openclawBootstrap.governance.runtimeProviderProfile`
+  - derived `runtimeProviderRouting` continues to surface routing truth for runtime/tool-policy alignment
 - Materialization artifacts are versionable/auditable:
   - stored per published version (`published_version_id` unique)
   - deterministic diff documents (`layers_document`, `openclaw_*_document`)
@@ -945,6 +952,7 @@ First supported adapter interactions:
   - `POST /api/v1/runtime/spec/apply`
   - payload source is A7 materialized documents (`openclawBootstrap`, `openclawWorkspace`, `contentHash`)
   - `reapply` flag is explicit in request body
+  - when `openclawBootstrap.governance.runtimeProviderProfile` is present, OpenClaw validates provider allowlist, selected models, and provider credential ref resolvability against its own runtime config/env before accepting the apply
 - runtime web chat transport (C2):
   - `POST /api/v1/runtime/chat/web`
   - payload source is backend canonical turn context (`assistantId`, published version ID, chat/thread identity, persisted user message data)
@@ -995,7 +1003,7 @@ This subsection is the **design-freeze** contract between PersAI `apps/api` and 
 - Native runtime fulfillment (persona, memory, tools, full agent pipeline from apply + chat) is implemented incrementally on the fork; planning, phased delivery, and scaling rules: [ADR-048](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md).
 - The dev image builds the fork at the pinned SHA in [infra/dev/gitops/openclaw-approved-sha.txt](../infra/dev/gitops/openclaw-approved-sha.txt) **without** applying a compat patch; runtime routes live in fork source under `src/gateway/persai-runtime/`.
 - Shared apply-store backend is selected inside the fork via `PERSAI_RUNTIME_SPEC_STORE=memory|redis`; Redis mode also uses `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL`, optional `PERSAI_RUNTIME_SPEC_STORE_KEY_PREFIX`, and optional `PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS`. This is an **operational/runtime** concern only; it does **not** change the HTTP contract in this section.
-- **Normative contract** = what PersAI’s adapter sends and validates (this section). **Reference behavior** for drift checks: see fork handlers and status codes below; with a prior apply for the same `(assistantId, publishedVersionId)`, sync/stream route through the embedded agent path (`agentCommandFromIngress`) and return real model output. Without apply for that assistant version, the fork still falls back to legacy compat-style echo text by design.
+- **Normative contract** = what PersAI’s adapter sends and validates (this section). **Reference behavior** for drift checks: see fork handlers and status codes below; with a prior apply for the same `(assistantId, publishedVersionId)`, sync/stream route through the embedded agent path (`agentCommandFromIngress`) and return real model output. Without apply for that assistant version, the fork returns an explicit `503` JSON error instead of compat-style echo text.
 
 ### Configuration (operational, no secret values)
 
@@ -1048,6 +1056,10 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 **Fork implementation reference**
 
 - Rejects missing/invalid fields with **400** and JSON `{ ok: false, error: "<message>" }`.
+- When H1 admin-managed runtime provider profile is present in `spec.bootstrap.governance.runtimeProviderProfile`, the fork validates:
+  - provider allowlist (`openai` / `anthropic` in H1)
+  - non-empty selected model ids
+  - provider credential refs against current OpenClaw secret-resolution config/environment
 - Request body limit **1_000_000** bytes; **413** / **408** / **400** for read errors.
 - **405** for non-POST.
 - **200** with `{ ok: true, accepted: true, assistantId, publishedVersionId, contentHash, reapply, appliedAt }` on success (informative; adapter does not assert this shape); apply payload is persisted server-side for subsequent chat (see ADR-048).

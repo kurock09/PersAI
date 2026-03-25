@@ -42,6 +42,7 @@ It is not part of backend domain logic.
   - streaming web chat transport
 - adapter boundary started in A8 with runtime preflight and apply/reapply, then expanded later for web chat sync/stream transport
 - normative PersAI→OpenClaw HTTP request/response contract (design freeze v1): [API-BOUNDARY.md — PersAI to OpenClaw HTTP runtime contract (v1)](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1)
+- planned control-plane evolution for admin-driven runtime profiles (models, fallback refs, credential refs) is tracked in [ADR-049](ADR/049-platform-admin-runtime-control-plane-phasing.md); PersAI owns policy + references, while OpenClaw remains the runtime executor and secret resolver
 
 ## Chat boundary (Step 5 C1)
 
@@ -242,6 +243,10 @@ It is not part of backend domain logic.
 - backend materialization now projects explicit runtime provider routing baseline:
   - `runtimeProviderRouting` (`persai.runtimeProviderRouting.v1`)
   - embedded inside `openclawCapabilityEnvelope`
+- Step 12 H1 adds the first admin-managed runtime profile on top of that seam:
+  - raw selection lives in `assistant_governance.policyEnvelope.runtimeProviderProfile`
+  - provider credential refs live in `assistant_governance.secret_refs.refs.runtime_provider_credentials`
+  - materialization resolves `openclawBootstrap.governance.runtimeProviderProfile`
 - routing baseline is runtime-managed and minimal:
   - primary path: `openclaw_managed_default` + model key
   - explicit fallback matrix for timeout/provider-failure, runtime-degraded, and cost-driving restriction cases
@@ -249,6 +254,7 @@ It is not part of backend domain logic.
   - effective capabilities (interactive channels + text media)
   - entitlement-derived cost-driving allowance/quota governance
   - optional policy override via `policyEnvelope.runtimeProviderRouting` (model keys and fallback disable)
+- when H1 runtime provider profile is present, `runtimeProviderRouting` becomes a derived projection of the admin-managed primary/fallback provider+model choice rather than a pure Helm/runtime-default hint
 - no user-facing provider picker and no provider marketplace logic are added in E6
 
 ## Append-only audit boundary (Step 9 F1)
@@ -348,6 +354,10 @@ It is not part of backend domain logic.
 - Telegram integration is the G1 baseline managed SecretRef path:
   - connect/rotate writes managed SecretRef lifecycle metadata
   - revoke and emergency-revoke explicitly disable binding usage
+- Step 12 H1 extends the same control-plane container with runtime provider credential refs:
+  - `secret_refs.refs.runtime_provider_credentials`
+  - provider-scoped metadata + OpenClaw-compatible `SecretRef` objects
+  - still no raw provider secrets in PersAI state
 - OpenClaw-facing channel/surface readiness stays projection-based and now checks SecretRef lifecycle state, with narrow legacy compatibility fallback for pre-G1 active Telegram bindings
 - backend still does not expose secret values in broad domain/UI surfaces and does not reimplement runtime secret behavior in OpenClaw
 

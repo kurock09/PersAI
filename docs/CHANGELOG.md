@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Step 12 H1 runtime provider profile baseline:** PersAI now supports an admin-managed runtime provider profile for `OpenAI + Anthropic` using existing governance containers: `policyEnvelope.runtimeProviderProfile` for assistant-scoped primary/fallback model selection and `secretRefs.refs.runtime_provider_credentials` for provider credential refs (no raw secrets in PersAI state). Materialization projects the resolved profile into `openclawBootstrap.governance.runtimeProviderProfile`, and the native OpenClaw apply/chat path consumes it via runtime validation plus per-run provider/model overrides.
+
 ### Fixed
 
 - **ADR-048 OpenClaw pin advance:** `infra/dev/gitops/openclaw-approved-sha.txt` now points to fork commit `f74bb8c23286f4b2452897035489dd1cc41931d6`, where missing applied PersAI runtime specs return explicit `503` errors instead of compat-echo chat responses. This keeps PersAI chat history honest after runtime restarts or store drift and lets the OpenClaw image publish workflow build the correct fork revision on the next `main` push.
@@ -9,6 +13,8 @@
 
 ### Documentation
 
+- **ADR-050 for concrete H1 delivery:** added `docs/ADR/050-runtime-provider-profile-baseline-h1.md` to lock the first implementation slice to existing governance/rollout/apply seams instead of inventing a second control-plane path. Updated `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/API-BOUNDARY.md`, and `docs/SESSION-HANDOFF.md` so the repo documents the exact H1 shape before code.
+- **ADR-049 north-star plan for admin-driven runtime control plane:** added `docs/ADR/049-platform-admin-runtime-control-plane-phasing.md` and `docs/ROADMAP.md` Step 12 to lock the long-term PersAI→OpenClaw control-plane sequence into explicit slices (`H1` provider profile, `H2` tool credential refs, `H3` deeper runtime hydration, `H4` Telegram readiness alignment, `H5` WhatsApp/MAX follow-up). `docs/ARCHITECTURE.md` now links that planned evolution, and `docs/API-BOUNDARY.md` no longer carries the stale compat-echo sentence for missing apply on the native fork path.
 - **Docs alignment for live dev OpenClaw state:** refreshed `README.md`, `docs/API-BOUNDARY.md`, `docs/LIVE-TEST-HYBRID.md`, `docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md`, and `docs/ROADMAP.md` so they match the current dev chart/profile: Redis-backed apply store, OpenAI default model (`openai/gpt-5.4`), `OPENAI_API_KEY` secret wiring, and API adapter timeout `15000`.
 - **Dev API runtime timeout:** `infra/helm/values-dev.yaml` now sets `OPENCLAW_ADAPTER_TIMEOUT_MS=15000` so web stream requests do not fail at the old 3s default while OpenClaw is already generating a valid OpenAI response.
 - **Dev OpenClaw default model:** `openclaw-config` now declares `agents.defaults.model.primary = "openai/gpt-5.4"` in dev so runtime no longer boots into Anthropic by default when only `OPENAI_API_KEY` is configured.
