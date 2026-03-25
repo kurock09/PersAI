@@ -31,7 +31,6 @@ export function TelegramConnect({
   capabilityAllowed,
   onUpdated,
 }: TelegramConnectProps) {
-  const { getToken } = useAuth();
   const connected = integration?.connectionStatus === "connected";
   const allowed = integration?.capabilityAllowed ?? capabilityAllowed;
 
