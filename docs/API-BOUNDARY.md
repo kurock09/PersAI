@@ -971,3 +971,145 @@ Expected boundary error classes:
 - `timeout`
 - `invalid_response`
 - `runtime_degraded`
+
+## PersAI to OpenClaw HTTP runtime contract (v1)
+
+This subsection is the **design-freeze** contract between PersAI `apps/api` and the OpenClaw gateway HTTP surface. It is the single doc anchor for implementers of a compatible runtime (including the external fork after native parity). The public PersAI REST API (`/api/v1/assistant/...`) is unchanged; this is **internal** PersAI→OpenClaw only.
+
+### Version scope (v1)
+
+**In scope for v1**
+
+- Liveness/readiness probes used before apply and chat.
+- Materialized spec apply/reapply.
+- Web chat synchronous turn.
+- Web chat streaming turn (NDJSON).
+
+**Out of scope for v1 (not defined on this HTTP surface)**
+
+- Telegram, WhatsApp, MAX, or other channel transports toward OpenClaw. Those remain separate product/adapter slices.
+
+### Fork build and compatibility patch
+
+- Source-of-truth and deploy boundary: [ADR-012](ADR/012-openclaw-fork-source-and-deploy-boundary.md).
+- Native runtime fulfillment (persona, memory, tools, full agent pipeline from apply + chat) is planned and owned on the fork side: [ADR-048](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md).
+- The dev image applies [infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch](../infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch) to the checked-out fork during CI so the gateway exposes the paths below until the fork implements them natively.
+- **Normative contract** = what PersAI’s adapter sends and validates (this section). **Compat patch behavior** (echo/stream stub) is documented under “Compat patch reference behavior” for drift checks; a native implementation must honor the same request/response shapes and status codes expected by the adapter.
+
+### Configuration (operational, no secret values)
+
+Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/config/src/api-config.ts):
+
+| Variable | Role |
+|----------|------|
+| `OPENCLAW_ADAPTER_ENABLED` | When false, adapter throws `runtime_unreachable` immediately for all calls. |
+| `OPENCLAW_BASE_URL` | Origin for relative paths below (no trailing path in contract; adapter concatenates `baseUrl + path`). |
+| `OPENCLAW_GATEWAY_TOKEN` | Required when adapter is enabled; sent as Bearer. |
+| `OPENCLAW_ADAPTER_TIMEOUT_MS` | Per-request `fetch` timeout (abort → `timeout`). Default `3000`. |
+| `OPENCLAW_ADAPTER_MAX_RETRIES` | Non-negative; used only for **non-stream** `fetch` calls that use the adapter retry helper. Default `1`. |
+
+**Retry policy (adapter):** only `runtime_unreachable` and `timeout` are retried, up to `maxRetries` additional attempts after the first try. **`POST /api/v1/runtime/chat/web/stream` is not retried** (single `fetch`).
+
+### Authentication
+
+- For every request, if `OPENCLAW_GATEWAY_TOKEN` is non-empty, the adapter sets `Authorization: Bearer <token>`.
+- The compat patch authenticates with the same Bearer via the fork’s `authorizeHttpGatewayConnect` (token/password bridge as implemented in the patch). Exact gateway auth matrix is owned by OpenClaw; PersAI treats `401`/`403` as `auth_failure`.
+
+### `GET /healthz` and `GET /readyz`
+
+- **Method:** `GET`, no body.
+- **Success:** `2xx` with JSON object.
+- **Health → `live` (adapter):** boolean `ok === true`, **or** string `status === "live"` if `ok` is absent.
+- **Ready → `ready` (adapter):** boolean `ready === true`.
+- If the JSON shape does not yield both booleans, the adapter throws `invalid_response`.
+
+### `POST /api/v1/runtime/spec/apply`
+
+**Request**
+
+- `Content-Type: application/json`
+- Body (JSON object), aligned with [assistant-runtime-adapter.types.ts](../apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts) `AssistantRuntimeApplyInput`:
+
+| Field | Type | Required |
+|-------|------|----------|
+| `assistantId` | string | yes (non-empty after trim) |
+| `publishedVersionId` | string | yes |
+| `contentHash` | string | yes |
+| `reapply` | boolean | yes (`true` or `false`) |
+| `spec` | object | yes |
+| `spec.bootstrap` | JSON value | yes (key must exist; value is opaque materialized bootstrap) |
+| `spec.workspace` | JSON value | yes (key must exist; value is opaque materialized workspace) |
+
+**Success**
+
+- Adapter requires HTTP **2xx**; response body is parsed as JSON but **not** semantically validated (void return in application layer).
+
+**Compat patch reference behavior**
+
+- Rejects missing/invalid fields with **400** and JSON `{ ok: false, error: "<message>" }`.
+- Request body limit **1_000_000** bytes; **413** / **408** / **400** for read errors as implemented in patch.
+- **405** for non-POST.
+- **200** with `{ ok: true, accepted: true, assistantId, publishedVersionId, contentHash, reapply, appliedAt }` on success (informative; adapter does not assert this shape).
+
+### `POST /api/v1/runtime/chat/web`
+
+**Request**
+
+- `Content-Type: application/json`
+- Body:
+
+| Field | Type | Required |
+|-------|------|----------|
+| `assistantId` | string | yes (non-empty after trim) |
+| `publishedVersionId` | string | yes |
+| `chatId` | string | yes |
+| `surfaceThreadKey` | string | yes |
+| `userMessageId` | string | yes |
+| `userMessage` | string | yes |
+
+**Success response (adapter-validated)**
+
+- HTTP **2xx**, JSON object with:
+  - `assistantMessage`: string, non-empty after trim
+  - `respondedAt`: string, non-empty after trim
+
+**Compat patch reference behavior**
+
+- Same body limit and **400**/**408**/**413**/**405** as spec apply.
+- **200** with `ok: true` and echo-style `assistantMessage` / `respondedAt` (stub semantics for integration tests).
+
+### `POST /api/v1/runtime/chat/web/stream`
+
+**Request**
+
+- Same JSON body as `POST /api/v1/runtime/chat/web`.
+- Adapter sets `Accept: application/x-ndjson`.
+
+**Success response**
+
+- HTTP **2xx**
+- `Content-Type` should be NDJSON-friendly (e.g. `application/x-ndjson`); adapter reads the body as **newline-delimited JSON** (UTF-8), one object per line, optional final line without trailing newline.
+
+**Stream records (adapter-validated)**
+
+- Zero or more lines with `{ "type": "delta", "delta": "<string>" }`.
+- Exactly one terminal line with `{ "type": "done", "respondedAt": "<iso string>" }` before the adapter completes successfully.
+- Any other `type` → `invalid_response`. Missing `done` after EOF → `invalid_response`. Invalid JSON line → `invalid_response`.
+
+**Compat patch reference behavior**
+
+- Stub streams word chunks as `delta` lines, then one `done` line; **405**/**400**/**408**/**413** same family as above.
+
+### HTTP status and adapter error mapping
+
+| Condition | Adapter error code |
+|-----------|-------------------|
+| `401` / `403` | `auth_failure` |
+| Other non-2xx on HTTP | `invalid_response` |
+| Abort due to timeout | `timeout` |
+| Network / non-abort fetch failure | `runtime_unreachable` |
+| JSON parse failure, missing required fields (per rules above) | `invalid_response` |
+| Adapter disabled | `runtime_unreachable` |
+| Preflight reports not live or not ready **before** apply or chat | `runtime_degraded` |
+
+Implementation reference: [openclaw-runtime.adapter.ts](../apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts).

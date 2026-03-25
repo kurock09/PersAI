@@ -41,6 +41,7 @@ It is not part of backend domain logic.
   - sync web chat transport
   - streaming web chat transport
 - adapter boundary started in A8 with runtime preflight and apply/reapply, then expanded later for web chat sync/stream transport
+- normative PersAI→OpenClaw HTTP request/response contract (design freeze v1): [API-BOUNDARY.md — PersAI to OpenClaw HTTP runtime contract (v1)](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1)
 
 ## Chat boundary (Step 5 C1)
 

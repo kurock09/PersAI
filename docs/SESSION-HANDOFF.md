@@ -1,5 +1,92 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - ADR-048: native OpenClaw runtime plan (fork-owned code)
+
+### What changed
+
+- Added [docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md): phased fork-side plan (persist apply, session mapping, hydrate persona/memory/tools from `openclawWorkspace` / bootstrap, delegate chat to native agent pipeline, retire compat echo), pointers to fork files (`agent-command`, hooks/cron turn, sessions store), materialization reference in `apps/api`.
+- Linked ADR-048 from `docs/API-BOUNDARY.md` (PersAI→OpenClaw contract section).
+- `docs/CHANGELOG.md` updated.
+
+### Why changed
+
+- User asked for plan + code for full OpenClaw features with PersAI settings; implementation cannot live in `apps/api` per ADR-012 — ADR records architecture and fork integration phases; executable bridge belongs in the OpenClaw fork PR.
+
+### Files touched (high level)
+
+- `docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md`, `docs/API-BOUNDARY.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- Docs-only.
+
+### Next recommended step
+
+- Spike in fork: call `runCronIsolatedAgentTurn` or `agentCommandFromIngress` from runtime HTTP handlers after loading stored apply payload; open PR on `kurock09/openclaw`, then bump `openclaw-approved-sha.txt`.
+
+### Ready commit message
+
+- `docs(adr): add 048 native openclaw runtime from persai apply chat plan`
+
+## 2026-03-25 - Phase B: OpenClaw runtime smoke in LIVE-TEST-HYBRID
+
+### What changed
+
+- Extended [docs/LIVE-TEST-HYBRID.md](LIVE-TEST-HYBRID.md) with **Phase B: OpenClaw runtime smoke**: authenticated `GET /api/v1/assistant/runtime/preflight` through hybrid proxy, optional `kubectl port-forward` to `svc/openclaw:18789` for `healthz`/`readyz`, streaming chat check in `/app`, contract link and GitOps pin note.
+- Logged in [docs/CHANGELOG.md](CHANGELOG.md).
+
+### Why changed
+
+- After Phase A contract freeze, operators need a single runbook step for “does OpenClaw work after deploy” without rereading adapter code.
+
+### Files touched (high level)
+
+- `docs/LIVE-TEST-HYBRID.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- Docs-only.
+
+### Next recommended step
+
+- Run Phase B checks after your deploy; then fork/native runtime parity or Telegram/MAX delivery slices as separate ADR-backed work.
+
+### Ready commit message
+
+- `docs: add phase b openclaw runtime smoke to live-test hybrid`
+
+## 2026-03-25 - Phase A: PersAI to OpenClaw HTTP runtime contract (v1)
+
+### What changed
+
+- Added design-freeze subsection **PersAI to OpenClaw HTTP runtime contract (v1)** to `docs/API-BOUNDARY.md`: normative contract (paths, JSON bodies, NDJSON stream records, auth header, env config keys, adapter error mapping, retry scope), explicit out-of-scope surfaces (Telegram/WhatsApp/MAX on this HTTP API), and compat patch reference behavior for drift checks against `infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch` and [ADR-012](ADR/012-openclaw-fork-source-and-deploy-boundary.md).
+- Linked the contract from `docs/ARCHITECTURE.md` under OpenClaw boundary.
+- Recorded the slice in `docs/CHANGELOG.md`.
+
+### Why changed
+
+- Phase A requires a single documentation anchor so fork/runtime implementers can match PersAI’s adapter without reading Nest code.
+
+### Files touched (high level)
+
+- `docs/API-BOUNDARY.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run / result
+
+- Docs-only; no automated tests required.
+
+### Known risks / intentional limits
+
+- Contract documents current adapter + patch behavior; native fork parity remains a later slice.
+
+### Next recommended step
+
+- Phase B/C: deploy validation and/or native runtime parity in fork; extend contract only via explicit doc + ADR if the HTTP surface changes.
+
+### Ready commit message
+
+- `docs: add phase a persai-to-openclaw http runtime contract v1`
+
 ## 2026-03-25 - Prisma AbuseSurface enum mapping (web chat stream 500)
 
 ### What changed

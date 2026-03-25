@@ -6,6 +6,14 @@
 
 - Mapped Prisma `AbuseSurface` enum to Postgres `abuse_surface` (`@@map("abuse_surface")`) so web chat stream prepare path abuse-state upserts no longer fail with missing type `public.AbuseSurface` against live databases created from Step 10 G2 migrations.
 
+### Documentation
+
+- Phase A (OpenClaw): design-freeze **PersAI to OpenClaw HTTP runtime contract (v1)** in `docs/API-BOUNDARY.md` — full request/response shapes for probes, `spec/apply`, web chat sync/stream (NDJSON), env-based adapter settings, HTTP→adapter error mapping, explicit v1 scope (web + apply only; not Telegram/WhatsApp/MAX on this surface), and compat patch reference behavior from `infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch`; cross-link from `docs/ARCHITECTURE.md`.
+- ADR `docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md`: phased plan for **native** OpenClaw runtime driven by PersAI materialized `bootstrap`/`workspace` (fork-owned implementation; compat stub replacement); API-BOUNDARY cross-link under runtime contract.
+- ADR-048 amended: **P0** apply store must be **multi-replica–ready** (pluggable backend; in-memory only single-replica dev); **scaling/latency** baseline (HPA after shared store, same-region, adapter timeouts).
+- `infra/dev/gitops/README.md`: OpenClaw fork maintenance — keep customizations in fork commits, pin SHA in PersAI, optional integration branch, upgrade path, retire compat patch when native code lives in fork.
+- Phase B (OpenClaw): post-deploy smoke steps in `docs/LIVE-TEST-HYBRID.md` — preflight via `GET /api/v1/assistant/runtime/preflight`, optional `svc/openclaw` port-forward for `healthz`/`readyz`, streaming chat check in `/app`, pointer to contract and GitOps image pin behavior.
+
 ### Added
 
 - Step 10 slice G5 WhatsApp and MAX readiness hardening:

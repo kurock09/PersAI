@@ -80,6 +80,38 @@ Expected without token: `401 Unauthorized` (this is good; it proves routing work
 - `ERR_CONNECTION_REFUSED` on `localhost:3000`
   - local web process is not running.
 
+## Phase B: OpenClaw runtime smoke (after deploy)
+
+Normative PersAI→OpenClaw HTTP contract (paths, bodies, errors): [API-BOUNDARY.md](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1).
+
+### Through PersAI API (recommended in hybrid)
+
+With the API port-forward and local web running as above, sign in with Clerk. Using the same browser session (same-origin `/api/v1`):
+
+1. `GET /api/v1/assistant/runtime/preflight` — expect `preflight.live` and `preflight.ready` both `true` when the OpenClaw pod is healthy and the adapter is configured.
+2. In `/app`, send a web chat message on the **streaming** path — expect a completed turn without transport/`500` failures when backend DB and OpenClaw are aligned.
+
+### Direct to OpenClaw gateway (optional cluster debugging)
+
+Second port-forward to the gateway Service:
+
+```powershell
+kubectl port-forward -n persai-dev svc/openclaw 18789:18789
+```
+
+Probes (no auth required for typical `healthz`/`readyz` usage in this chart):
+
+```powershell
+curl.exe -s http://127.0.0.1:18789/healthz
+curl.exe -s http://127.0.0.1:18789/readyz
+```
+
+`POST /api/v1/runtime/spec/apply` and chat routes require a **Bearer** token matching the cluster secret (`persai-openclaw-secrets` / `OPENCLAW_GATEWAY_TOKEN`). Do not paste tokens into logs or tickets; use direct calls only for local debugging.
+
+### Deploy / image note
+
+OpenClaw image tag and digest are pinned in `infra/helm/values-dev.yaml`. CI updates those pins after pushes to `main` per [infra/dev/gitops/README.md](infra/dev/gitops/README.md). If preflight stays unhealthy, inspect the `openclaw` Deployment pods and Argo CD sync for `persai-dev`.
+
 ## Shutdown
 
 - stop web dev process (`Ctrl+C`)
