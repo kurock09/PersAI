@@ -27,6 +27,13 @@
   - deeper persona/memory/tasks/tool-policy hydration
   - Telegram/MAX/WhatsApp delivery/readiness follow-up
 
+### Next recommended step
+
+- **H1a — admin UI for runtime provider profile + provider credential refs**
+  - platform-admin only
+  - uses the already-shipped H1 backend/materialization/apply path
+  - lands before `H2` so provider refs stop depending on rollout-only mutation UX
+
 ### Ready commit message
 
 - `feat(runtime): add admin-managed provider profile baseline`

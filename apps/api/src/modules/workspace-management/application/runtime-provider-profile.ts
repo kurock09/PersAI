@@ -1,6 +1,5 @@
 export const RUNTIME_PROVIDER_PROFILE_SCHEMA = "persai.runtimeProviderProfile.v1";
-export const RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA =
-  "persai.runtimeProviderCredentialRefs.v1";
+export const RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA = "persai.runtimeProviderCredentialRefs.v1";
 
 export type ManagedRuntimeProvider = "openai" | "anthropic";
 export type RuntimeCredentialSecretRefSource = "env" | "file" | "exec";
@@ -33,9 +32,11 @@ export type AdminManagedRuntimeProviderProfileState = {
   primary: RuntimeProviderProfileSelection & {
     credentialRef: RuntimeProviderCredentialRefState;
   };
-  fallback: (RuntimeProviderProfileSelection & {
-    credentialRef: RuntimeProviderCredentialRefState;
-  }) | null;
+  fallback:
+    | (RuntimeProviderProfileSelection & {
+        credentialRef: RuntimeProviderCredentialRefState;
+      })
+    | null;
   notes: string[];
 };
 
@@ -105,10 +106,7 @@ function containsControlCharacters(value: string): boolean {
   return false;
 }
 
-function normalizeManagedRuntimeProvider(
-  value: unknown,
-  path: string
-): ManagedRuntimeProvider {
+function normalizeManagedRuntimeProvider(value: unknown, path: string): ManagedRuntimeProvider {
   const normalized = asNonEmptyString(value)?.toLowerCase();
   if (normalized === "openai" || normalized === "anthropic") {
     return normalized;
@@ -136,7 +134,9 @@ function normalizeRefKey(value: unknown, fallback: RuntimeCredentialSecretRef): 
     return `${fallback.source}:${fallback.provider}:${fallback.id}`;
   }
   if (normalized.length > MAX_REF_KEY_LENGTH) {
-    throw new Error(`runtime_provider_credentials refKey must be at most ${String(MAX_REF_KEY_LENGTH)} characters.`);
+    throw new Error(
+      `runtime_provider_credentials refKey must be at most ${String(MAX_REF_KEY_LENGTH)} characters.`
+    );
   }
   if (containsControlCharacters(normalized)) {
     throw new Error("runtime_provider_credentials refKey contains invalid control characters.");
@@ -144,10 +144,7 @@ function normalizeRefKey(value: unknown, fallback: RuntimeCredentialSecretRef): 
   return normalized;
 }
 
-function parseRuntimeCredentialSecretRef(
-  value: unknown,
-  path: string
-): RuntimeCredentialSecretRef {
+function parseRuntimeCredentialSecretRef(value: unknown, path: string): RuntimeCredentialSecretRef {
   const row = asObject(value);
   if (row === null) {
     throw new Error(`${path} must be an object.`);
@@ -241,9 +238,7 @@ function parseRuntimeProviderProfilePolicy(
   policyEnvelope: unknown
 ): RuntimeProviderProfilePolicy | null {
   const root = asObject(policyEnvelope);
-  const profile = asObject(
-    root?.runtimeProviderProfile ?? root?.runtime_provider_profile ?? null
-  );
+  const profile = asObject(root?.runtimeProviderProfile ?? root?.runtime_provider_profile ?? null);
   if (profile === null) {
     return null;
   }
@@ -273,7 +268,10 @@ function parseRuntimeProviderProfilePolicy(
 
 export function hasRuntimeProviderProfilePatch(policyEnvelope: unknown): boolean {
   const row = asObject(policyEnvelope);
-  return row !== null && (row.runtimeProviderProfile !== undefined || row.runtime_provider_profile !== undefined);
+  return (
+    row !== null &&
+    (row.runtimeProviderProfile !== undefined || row.runtime_provider_profile !== undefined)
+  );
 }
 
 export function hasRuntimeProviderCredentialRefsPatch(secretRefs: unknown): boolean {
@@ -281,7 +279,8 @@ export function hasRuntimeProviderCredentialRefsPatch(secretRefs: unknown): bool
   const refs = asObject(root?.refs);
   return (
     refs !== null &&
-    (refs.runtime_provider_credentials !== undefined || refs.runtimeProviderCredentials !== undefined)
+    (refs.runtime_provider_credentials !== undefined ||
+      refs.runtimeProviderCredentials !== undefined)
   );
 }
 

@@ -67,22 +67,23 @@ export class ResolveRuntimeProviderRoutingService {
         ? "text_media_not_allowed"
         : null;
 
-    const managedPrimary = runtimeProviderProfile.mode === "admin_managed"
-      ? runtimeProviderProfile.primary
-      : null;
-    const managedFallback = runtimeProviderProfile.mode === "admin_managed"
-      ? runtimeProviderProfile.fallback
-      : null;
+    const managedPrimary =
+      runtimeProviderProfile.mode === "admin_managed" ? runtimeProviderProfile.primary : null;
+    const managedFallback =
+      runtimeProviderProfile.mode === "admin_managed" ? runtimeProviderProfile.fallback : null;
     const primaryProviderKey = managedPrimary?.provider ?? "openclaw_managed_default";
     const primaryModelKey = managedPrimary?.model ?? override.primaryModelKey ?? "text_standard_v1";
     const fallbackProviderKey = managedFallback?.provider ?? primaryProviderKey;
-    const fallbackModelKey = managedFallback?.model ?? override.fallbackModelKey ?? "text_fast_fallback_v1";
+    const fallbackModelKey =
+      managedFallback?.model ?? override.fallbackModelKey ?? "text_fast_fallback_v1";
     const degradeProviderKey = managedFallback?.provider ?? primaryProviderKey;
-    const degradeModelKey = managedFallback?.model ?? override.degradeModelKey ?? "text_safe_minimal_v1";
+    const degradeModelKey =
+      managedFallback?.model ?? override.degradeModelKey ?? "text_safe_minimal_v1";
     const blockedByCommon: Array<
       "fallback_disabled_by_policy" | "no_interactive_surface_allowed" | "text_media_not_allowed"
     > = [];
-    const fallbackDisabled = managedPrimary !== null ? managedFallback === null : override.disableFallback;
+    const fallbackDisabled =
+      managedPrimary !== null ? managedFallback === null : override.disableFallback;
     if (fallbackDisabled) {
       blockedByCommon.push("fallback_disabled_by_policy");
     }

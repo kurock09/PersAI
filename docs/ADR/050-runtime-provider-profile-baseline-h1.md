@@ -73,6 +73,15 @@ The missing piece is a narrow, typed baseline that lets platform admins choose a
 - H1 does not yet move tool-provider credentials into the same control-plane path.
 - H1 does not yet hydrate persona/memory/tasks/tool policy deeper into runtime behavior beyond the current native apply/chat path.
 
+## Immediate follow-up
+
+Before `H2`, add a narrow platform-admin UI slice for:
+
+- editing `runtimeProviderProfile` primary/fallback provider+model
+- editing provider credential refs for `openai` / `anthropic`
+- keeping mutation rights platform-admin only
+- reusing the same H1 backend/materialization/apply contract rather than inventing a second UI-only data path
+
 ## Out of scope
 
 - tool credential refs

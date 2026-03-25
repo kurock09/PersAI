@@ -99,7 +99,8 @@ export class ManagePlatformRolloutsService {
         secretRefs: targetPatch.secretRefs ?? null
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Invalid runtime provider profile patch.";
+      const message =
+        error instanceof Error ? error.message : "Invalid runtime provider profile patch.";
       throw new BadRequestException(message);
     }
     return {
