@@ -4,7 +4,7 @@ global:
     registryHost: europe-west1-docker.pkg.dev
     projectId: project-44786b14-b7d7-4554-a8a
     repository: persai
-    tag: 872d1fc4ce59bc00bc74a305bc663ca5418a5014
+    tag: a15e6e2d9acde6975bf55c77927baef87e13471e
 
 api:
   enabled: true
@@ -102,7 +102,7 @@ openclaw:
   image:
     name: openclaw
     tag: f74bb8c23286f4b2452897035489dd1cc41931d6
-    digest: sha256:79bfa71e5a7ead68ccfb907ed6497ad9200e37b1a8ebcfea300fd5be931562c6
+    digest: sha256:9a6aae4e1862e8b821157193d38ffbc304dce7f17c943239f70c5d0845d59231
     pullPolicy: IfNotPresent
   controlUi:
     allowedOrigins:
