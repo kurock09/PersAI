@@ -2098,7 +2098,7 @@ export function AppFlowClient() {
 
   if (flowState.type === "loading") {
     return (
-      <main>
+      <main className="legacy-shell">
         <h1>App</h1>
         <p>Loading account state...</p>
       </main>
@@ -2107,7 +2107,7 @@ export function AppFlowClient() {
 
   if (flowState.type === "error") {
     return (
-      <main>
+      <main className="legacy-shell">
         <h1>App</h1>
         <p>Unable to load state: {flowState.message}</p>
         <button type="button" onClick={() => void loadMe()}>
@@ -2134,7 +2134,7 @@ export function AppFlowClient() {
 
   if (onboardingRequired) {
     return (
-      <main>
+      <main className="legacy-shell">
         <h1>Onboarding required</h1>
         <p>Complete these fields to create or update your workspace baseline.</p>
         <form onSubmit={(event) => void onSubmitOnboarding(event)}>
@@ -2235,7 +2235,7 @@ export function AppFlowClient() {
 
   if (me.workspace === null) {
     return (
-      <main>
+      <main className="legacy-shell">
         <h1>App</h1>
         <p>No active workspace summary is available yet.</p>
         <button type="button" onClick={() => void loadMe()}>
@@ -2246,7 +2246,7 @@ export function AppFlowClient() {
   }
 
   return (
-    <main>
+    <main className="legacy-shell">
       <h1>Assistant dashboard</h1>
       <p>Minimal control-plane shell for managed assistant lifecycle state.</p>
 

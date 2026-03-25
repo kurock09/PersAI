@@ -13,6 +13,7 @@ import {
   type AdminPlanState,
   type AdminPlanUpdateRequest,
   type PutAdminRuntimeProviderSettingsResponse,
+  type AdminAbuseUnblockRequest,
   type AssistantTelegramConfigUpdateRequest,
   type TelegramIntegrationState,
   type AssistantWebChatDeleteRequest,
@@ -58,6 +59,7 @@ import {
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
   patchAdminNotificationWebhookChannel as patchAdminNotificationWebhookChannelContract,
+  postAdminAbuseControlsUnblock as postAdminAbuseControlsUnblockContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract,
   postAdminPlatformRollout as postAdminPlatformRolloutContract,
   postAdminPlatformRolloutRollback as postAdminPlatformRolloutRollbackContract,
@@ -1221,6 +1223,25 @@ export async function patchAdminPlan(
     }
 
     return response.data.plan;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminAbuseUnblock(
+  token: string,
+  payload: AdminAbuseUnblockRequest
+): Promise<{ assistantId: string; affectedUserRows: number; affectedAssistantRows: number }> {
+  try {
+    const response = await postAdminAbuseControlsUnblockContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for POST /admin/abuse-controls/unblock.");
+    }
+
+    return response.data.unblock;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

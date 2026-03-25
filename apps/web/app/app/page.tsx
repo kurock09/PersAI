@@ -1,8 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
-import { AppFlowClient } from "./app-flow.client";
+import { AppHomePage } from "./_components/app-home-page";
 
 export default async function ProtectedAppPage() {
   await auth.protect();
 
-  return <AppFlowClient />;
+  return <AppHomePage />;
 }

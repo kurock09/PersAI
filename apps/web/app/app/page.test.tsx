@@ -16,18 +16,18 @@ vi.mock("@clerk/nextjs/server", () => {
   };
 });
 
-vi.mock("./app-flow.client", () => {
+vi.mock("./_components/app-home-page", () => {
   return {
-    AppFlowClient: () => <div data-testid="app-flow-client">app-flow</div>
+    AppHomePage: () => <div data-testid="app-home-page">home</div>
   };
 });
 
 describe("Protected /app page", () => {
-  it("calls auth.protect and renders app flow client", async () => {
+  it("calls auth.protect and renders home page", async () => {
     const view = await ProtectedAppPage();
     render(view);
 
     expect(clerkServerMocks.protect).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId("app-flow-client")).toBeInTheDocument();
+    expect(screen.getByTestId("app-home-page")).toBeInTheDocument();
   });
 });

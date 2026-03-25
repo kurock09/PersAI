@@ -1,6 +1,10 @@
 {
   "extends": "@persai/tsconfig/next.json",
   "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    },
     "plugins": [
       {
         "name": "next"
