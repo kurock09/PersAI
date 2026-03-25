@@ -1,6 +1,8 @@
 import {
   type AdminBusinessCockpitState,
   type AdminNotificationChannelState,
+  type AdminRuntimeProviderSettingsRequest,
+  type AdminRuntimeProviderSettingsState,
   type PlatformRolloutState,
   type PostAdminPlatformRolloutRequest,
   type PatchAdminNotificationWebhookChannelRequest,
@@ -10,6 +12,7 @@ import {
   type AdminPlanVisibilityState,
   type AdminPlanState,
   type AdminPlanUpdateRequest,
+  type PutAdminRuntimeProviderSettingsResponse,
   type AssistantTelegramConfigUpdateRequest,
   type TelegramIntegrationState,
   type AssistantWebChatDeleteRequest,
@@ -50,13 +53,15 @@ import {
   getAdminPlatformRollouts as getAdminPlatformRolloutsContract,
   getAdminOpsCockpit as getAdminOpsCockpitContract,
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
+  getAdminRuntimeProviderSettings as getAdminRuntimeProviderSettingsContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
   patchAdminNotificationWebhookChannel as patchAdminNotificationWebhookChannelContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract,
   postAdminPlatformRollout as postAdminPlatformRolloutContract,
-  postAdminPlatformRolloutRollback as postAdminPlatformRolloutRollbackContract
+  postAdminPlatformRolloutRollback as postAdminPlatformRolloutRollbackContract,
+  putAdminRuntimeProviderSettings as putAdminRuntimeProviderSettingsContract
 } from "@persai/contracts";
 
 function getAuthHeaders(token: string): HeadersInit {
@@ -969,6 +974,59 @@ export async function getAdminPlatformRollouts(token: string): Promise<PlatformR
   }
 }
 
+export type { AdminRuntimeProviderSettingsState, PutAdminRuntimeProviderSettingsResponse };
+
+export async function getAdminRuntimeProviderSettings(
+  token: string
+): Promise<AdminRuntimeProviderSettingsState> {
+  try {
+    const response = await getAdminRuntimeProviderSettingsContract({
+      headers: getAuthHeaders(token)
+    });
+    if (
+      response.status !== 200 ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("settings" in response.data)
+    ) {
+      throw new Error("Unexpected non-success response for GET /admin/runtime/provider-settings.");
+    }
+    return response.data.settings;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function putAdminRuntimeProviderSettings(
+  token: string,
+  input: AdminRuntimeProviderSettingsRequest
+): Promise<PutAdminRuntimeProviderSettingsResponse> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(
+      token,
+      "admin.runtime_provider_settings.update"
+    );
+    const response = await putAdminRuntimeProviderSettingsContract(input, {
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
+    });
+    if (
+      response.status !== 200 ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("settings" in response.data) ||
+      !("reapplySummary" in response.data)
+    ) {
+      throw new Error("Unexpected non-success response for PUT /admin/runtime/provider-settings.");
+    }
+    return response.data;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
 export async function postAdminPlatformRollout(
   token: string,
   input: PostAdminPlatformRolloutRequest
@@ -981,7 +1039,14 @@ export async function postAdminPlatformRollout(
         "x-persai-step-up-token": stepUpToken
       }
     });
-    if (response.status !== 200) {
+    if (!isSuccessStatus(response.status)) {
+      throw new Error("Unexpected non-success response for POST /admin/platform-rollouts.");
+    }
+    if (
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("rollout" in response.data)
+    ) {
       throw new Error("Unexpected non-success response for POST /admin/platform-rollouts.");
     }
     return response.data.rollout;
@@ -1002,7 +1067,16 @@ export async function postAdminPlatformRolloutRollback(
         "x-persai-step-up-token": stepUpToken
       }
     });
-    if (response.status !== 200) {
+    if (!isSuccessStatus(response.status)) {
+      throw new Error(
+        "Unexpected non-success response for POST /admin/platform-rollouts/{rolloutId}/rollback."
+      );
+    }
+    if (
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("rollout" in response.data)
+    ) {
       throw new Error(
         "Unexpected non-success response for POST /admin/platform-rollouts/{rolloutId}/rollback."
       );

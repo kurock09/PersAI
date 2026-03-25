@@ -18,6 +18,7 @@ function parseStepUpAction(value: unknown): DangerousAdminActionCode {
   if (
     value === "admin.plan.create" ||
     value === "admin.plan.update" ||
+    value === "admin.runtime_provider_settings.update" ||
     value === "admin.rollout.apply" ||
     value === "admin.rollout.rollback" ||
     value === "admin.assistant.transfer_ownership" ||
@@ -26,7 +27,7 @@ function parseStepUpAction(value: unknown): DangerousAdminActionCode {
     return value;
   }
   throw new BadRequestException(
-    "action must be one of: admin.plan.create, admin.plan.update, admin.rollout.apply, admin.rollout.rollback, admin.assistant.transfer_ownership, admin.assistant.recover_ownership."
+    "action must be one of: admin.plan.create, admin.plan.update, admin.runtime_provider_settings.update, admin.rollout.apply, admin.rollout.rollback, admin.assistant.transfer_ownership, admin.assistant.recover_ownership."
   );
 }
 

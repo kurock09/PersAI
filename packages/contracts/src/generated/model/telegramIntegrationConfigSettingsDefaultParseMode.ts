@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TelegramIntegrationConfigSettingsDefaultParseMode =
-  (typeof TelegramIntegrationConfigSettingsDefaultParseMode)[keyof typeof TelegramIntegrationConfigSettingsDefaultParseMode];
+export type TelegramIntegrationConfigSettingsDefaultParseMode = typeof TelegramIntegrationConfigSettingsDefaultParseMode[keyof typeof TelegramIntegrationConfigSettingsDefaultParseMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TelegramIntegrationConfigSettingsDefaultParseMode = {
-  plain_text: "plain_text",
-  markdown: "markdown"
+  plain_text: 'plain_text',
+  markdown: 'markdown',
 } as const;

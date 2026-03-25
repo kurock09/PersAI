@@ -4,12 +4,12 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { ComplianceRetentionDeleteBaselineStateRetentionModel } from "./complianceRetentionDeleteBaselineStateRetentionModel";
-import type { ComplianceRetentionDeleteBaselineStateChatRetention } from "./complianceRetentionDeleteBaselineStateChatRetention";
-import type { ComplianceRetentionDeleteBaselineStateMemoryRegistryRetention } from "./complianceRetentionDeleteBaselineStateMemoryRegistryRetention";
-import type { ComplianceRetentionDeleteBaselineStateTaskRegistryRetention } from "./complianceRetentionDeleteBaselineStateTaskRegistryRetention";
-import type { ComplianceRetentionDeleteBaselineStateDeleteModel } from "./complianceRetentionDeleteBaselineStateDeleteModel";
-import type { ComplianceRetentionDeleteBaselineStateAuditModel } from "./complianceRetentionDeleteBaselineStateAuditModel";
+import type { ComplianceRetentionDeleteBaselineStateRetentionModel } from './complianceRetentionDeleteBaselineStateRetentionModel';
+import type { ComplianceRetentionDeleteBaselineStateChatRetention } from './complianceRetentionDeleteBaselineStateChatRetention';
+import type { ComplianceRetentionDeleteBaselineStateMemoryRegistryRetention } from './complianceRetentionDeleteBaselineStateMemoryRegistryRetention';
+import type { ComplianceRetentionDeleteBaselineStateTaskRegistryRetention } from './complianceRetentionDeleteBaselineStateTaskRegistryRetention';
+import type { ComplianceRetentionDeleteBaselineStateDeleteModel } from './complianceRetentionDeleteBaselineStateDeleteModel';
+import type { ComplianceRetentionDeleteBaselineStateAuditModel } from './complianceRetentionDeleteBaselineStateAuditModel';
 
 export interface ComplianceRetentionDeleteBaselineState {
   retentionModel: ComplianceRetentionDeleteBaselineStateRetentionModel;

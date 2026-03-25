@@ -1,6 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import type { EffectiveCapabilityState } from "./effective-capability.types";
-import { resolveRuntimeProviderProfileState } from "./runtime-provider-profile";
+import {
+  resolveRuntimeProviderProfileState,
+  type RuntimeProviderProfileState
+} from "./runtime-provider-profile";
 import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -47,14 +50,17 @@ export class ResolveRuntimeProviderRoutingService {
   execute(params: {
     effectiveCapabilities: EffectiveCapabilityState;
     policyEnvelope: unknown | null;
-    secretRefs: unknown | null;
+    runtimeProviderProfile?: RuntimeProviderProfileState;
+    secretRefs?: unknown | null;
   }): RuntimeProviderRoutingState {
-    const { effectiveCapabilities, policyEnvelope, secretRefs } = params;
+    const { effectiveCapabilities, policyEnvelope } = params;
+    const runtimeProviderProfile =
+      params.runtimeProviderProfile ??
+      resolveRuntimeProviderProfileState({
+        policyEnvelope,
+        secretRefs: params.secretRefs ?? null
+      });
     const override = parseRoutingPolicyOverride(policyEnvelope);
-    const runtimeProviderProfile = resolveRuntimeProviderProfileState({
-      policyEnvelope,
-      secretRefs
-    });
 
     const channels = effectiveCapabilities.channelsAndSurfaces;
     const hasInteractiveSurface =

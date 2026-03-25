@@ -1580,6 +1580,86 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/runtime/provider-settings:
+    get:
+      operationId: getAdminRuntimeProviderSettings
+      summary: Read global runtime provider settings
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Global runtime provider settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminRuntimeProviderSettingsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putAdminRuntimeProviderSettings
+      summary: Update global runtime provider settings
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.runtime_provider_settings.update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRuntimeProviderSettingsRequest"
+      responses:
+        "200":
+          description: Updated global runtime provider settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PutAdminRuntimeProviderSettingsResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/super-admin role and valid step-up required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/platform-rollouts:
     get:
       operationId: getAdminPlatformRollouts
@@ -3745,6 +3825,163 @@ components:
           nullable: true
         channel:
           $ref: "#/components/schemas/AdminNotificationChannelState"
+    ManagedRuntimeProvider:
+      type: string
+      enum:
+        - openai
+        - anthropic
+    RuntimeProviderSelection:
+      type: object
+      required:
+        - provider
+        - model
+      properties:
+        provider:
+          $ref: "#/components/schemas/ManagedRuntimeProvider"
+        model:
+          type: string
+    RuntimeProviderAvailableModelsByProviderState:
+      type: object
+      required:
+        - openai
+        - anthropic
+      properties:
+        openai:
+          type: array
+          items:
+            type: string
+        anthropic:
+          type: array
+          items:
+            type: string
+    AdminRuntimeProviderSettingsMode:
+      type: string
+      enum:
+        - legacy_openclaw_default
+        - global_settings
+    AdminRuntimeProviderKeyState:
+      type: object
+      required:
+        - configured
+        - lastFour
+        - updatedAt
+      properties:
+        configured:
+          type: boolean
+        lastFour:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    AdminRuntimeProviderSettingsState:
+      type: object
+      required:
+        - schema
+        - mode
+        - primary
+        - fallback
+        - availableModelsByProvider
+        - providerKeys
+        - notes
+      properties:
+        schema:
+          type: string
+        mode:
+          $ref: "#/components/schemas/AdminRuntimeProviderSettingsMode"
+        primary:
+          allOf:
+            - $ref: "#/components/schemas/RuntimeProviderSelection"
+          nullable: true
+        fallback:
+          allOf:
+            - $ref: "#/components/schemas/RuntimeProviderSelection"
+          nullable: true
+        availableModelsByProvider:
+          $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
+        providerKeys:
+          type: object
+          required:
+            - openai
+            - anthropic
+          properties:
+            openai:
+              $ref: "#/components/schemas/AdminRuntimeProviderKeyState"
+            anthropic:
+              $ref: "#/components/schemas/AdminRuntimeProviderKeyState"
+        notes:
+          type: array
+          items:
+            type: string
+    AdminRuntimeProviderSettingsProviderKeysInput:
+      type: object
+      properties:
+        openai:
+          type: string
+        anthropic:
+          type: string
+    AdminRuntimeProviderSettingsRequest:
+      type: object
+      required:
+        - primary
+        - availableModelsByProvider
+      properties:
+        primary:
+          $ref: "#/components/schemas/RuntimeProviderSelection"
+        fallback:
+          allOf:
+            - $ref: "#/components/schemas/RuntimeProviderSelection"
+          nullable: true
+        availableModelsByProvider:
+          $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
+        providerKeys:
+          $ref: "#/components/schemas/AdminRuntimeProviderSettingsProviderKeysInput"
+    AdminRuntimeProviderSettingsReapplySummary:
+      type: object
+      required:
+        - totalAssistants
+        - assistantsWithPublishedVersion
+        - applySucceededCount
+        - applyDegradedCount
+        - applyFailedCount
+        - skippedCount
+      properties:
+        totalAssistants:
+          type: integer
+        assistantsWithPublishedVersion:
+          type: integer
+        applySucceededCount:
+          type: integer
+        applyDegradedCount:
+          type: integer
+        applyFailedCount:
+          type: integer
+        skippedCount:
+          type: integer
+    GetAdminRuntimeProviderSettingsResponse:
+      type: object
+      required:
+        - settings
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        settings:
+          $ref: "#/components/schemas/AdminRuntimeProviderSettingsState"
+    PutAdminRuntimeProviderSettingsResponse:
+      type: object
+      required:
+        - settings
+        - reapplySummary
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        settings:
+          $ref: "#/components/schemas/AdminRuntimeProviderSettingsState"
+        reapplySummary:
+          $ref: "#/components/schemas/AdminRuntimeProviderSettingsReapplySummary"
     PlatformRolloutStatus:
       type: string
       enum:
@@ -4045,6 +4282,7 @@ components:
       enum:
         - admin.plan.create
         - admin.plan.update
+        - admin.runtime_provider_settings.update
         - admin.rollout.apply
         - admin.rollout.rollback
         - admin.assistant.transfer_ownership

@@ -18,7 +18,9 @@ import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capa
 import { ResolveEffectiveToolAvailabilityService } from "./resolve-effective-tool-availability.service";
 import { ResolveOpenClawChannelSurfaceBindingsService } from "./resolve-openclaw-channel-surface-bindings.service";
 import { ResolveOpenClawCapabilityEnvelopeService } from "./resolve-openclaw-capability-envelope.service";
+import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { ResolveRuntimeProviderRoutingService } from "./resolve-runtime-provider-routing.service";
+import { buildPlatformRuntimeProviderProfileState } from "./platform-runtime-provider-settings";
 import { resolveRuntimeProviderProfileState } from "./runtime-provider-profile";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
@@ -59,6 +61,7 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly resolveEffectiveToolAvailabilityService: ResolveEffectiveToolAvailabilityService,
     private readonly resolveOpenClawChannelSurfaceBindingsService: ResolveOpenClawChannelSurfaceBindingsService,
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly resolveRuntimeProviderRoutingService: ResolveRuntimeProviderRoutingService,
     private readonly resolveOpenClawCapabilityEnvelopeService: ResolveOpenClawCapabilityEnvelopeService
   ) {}
@@ -71,9 +74,6 @@ export class MaterializeAssistantPublishedVersionService {
     const existingSpec = await this.assistantMaterializedSpecRepository.findByPublishedVersionId(
       publishedVersion.id
     );
-    if (existingSpec !== null) {
-      return;
-    }
 
     const governance =
       (await this.assistantGovernanceRepository.findByAssistantId(assistant.id)) ??
@@ -92,14 +92,19 @@ export class MaterializeAssistantPublishedVersionService {
       assistantId: assistant.id,
       effectiveCapabilities
     });
-    const runtimeProviderProfile = resolveRuntimeProviderProfileState({
-      policyEnvelope: governance.policyEnvelope,
-      secretRefs: governance.secretRefs
-    });
+    const platformRuntimeProviderSettings =
+      await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    const runtimeProviderProfile =
+      platformRuntimeProviderSettings.mode === "global_settings"
+        ? buildPlatformRuntimeProviderProfileState(platformRuntimeProviderSettings)
+        : resolveRuntimeProviderProfileState({
+            policyEnvelope: governance.policyEnvelope,
+            secretRefs: governance.secretRefs
+          });
     const runtimeProviderRouting = this.resolveRuntimeProviderRoutingService.execute({
       effectiveCapabilities,
       policyEnvelope: governance.policyEnvelope,
-      secretRefs: governance.secretRefs
+      runtimeProviderProfile
     });
     const openclawCapabilityEnvelope = this.resolveOpenClawCapabilityEnvelopeService.execute({
       effectiveCapabilities,
@@ -190,7 +195,7 @@ export class MaterializeAssistantPublishedVersionService {
     await this.assistantMaterializedSpecRepository.create({
       assistantId: assistant.id,
       publishedVersionId: publishedVersion.id,
-      sourceAction,
+      sourceAction: existingSpec?.sourceAction ?? sourceAction,
       algorithmVersion: MATERIALIZATION_ALGORITHM_VERSION,
       layers,
       openclawBootstrap,

@@ -39,6 +39,7 @@ const assistantApiMocks = vi.hoisted(() => {
     getAdminPlans: vi.fn(),
     getAdminNotificationChannels: vi.fn(),
     getAdminPlatformRollouts: vi.fn(),
+    getAdminRuntimeProviderSettings: vi.fn(),
     getAdminBusinessCockpit: vi.fn(),
     getAdminOpsCockpit: vi.fn(),
     getAdminPlanVisibility: vi.fn(),
@@ -47,6 +48,7 @@ const assistantApiMocks = vi.hoisted(() => {
     patchAdminNotificationWebhookChannel: vi.fn(),
     postAdminPlatformRollout: vi.fn(),
     postAdminPlatformRolloutRollback: vi.fn(),
+    putAdminRuntimeProviderSettings: vi.fn(),
     postAssistantReapply: vi.fn(),
     postAssistantTaskItemDisable: vi.fn(),
     postAssistantTaskItemEnable: vi.fn(),
@@ -102,6 +104,7 @@ vi.mock("./assistant-api-client", async () => {
     getAdminPlans: assistantApiMocks.getAdminPlans,
     getAdminNotificationChannels: assistantApiMocks.getAdminNotificationChannels,
     getAdminPlatformRollouts: assistantApiMocks.getAdminPlatformRollouts,
+    getAdminRuntimeProviderSettings: assistantApiMocks.getAdminRuntimeProviderSettings,
     getAdminBusinessCockpit: assistantApiMocks.getAdminBusinessCockpit,
     getAdminOpsCockpit: assistantApiMocks.getAdminOpsCockpit,
     getAdminPlanVisibility: assistantApiMocks.getAdminPlanVisibility,
@@ -110,6 +113,7 @@ vi.mock("./assistant-api-client", async () => {
     patchAdminNotificationWebhookChannel: assistantApiMocks.patchAdminNotificationWebhookChannel,
     postAdminPlatformRollout: assistantApiMocks.postAdminPlatformRollout,
     postAdminPlatformRolloutRollback: assistantApiMocks.postAdminPlatformRolloutRollback,
+    putAdminRuntimeProviderSettings: assistantApiMocks.putAdminRuntimeProviderSettings,
     postAssistantReapply: assistantApiMocks.postAssistantReapply,
     postAssistantTaskItemDisable: assistantApiMocks.postAssistantTaskItemDisable,
     postAssistantTaskItemEnable: assistantApiMocks.postAssistantTaskItemEnable,
@@ -226,47 +230,35 @@ function makeAssistantResponse(): AssistantLifecycleState {
   };
 }
 
-function makeAssistantResponseWithRuntimeProviderGovernance(): AssistantLifecycleState {
-  const state = makeAssistantResponse();
+function makeRuntimeProviderSettingsState() {
   return {
-    ...state,
-    governance: {
-      ...state.governance,
-      policyEnvelope: {
-        platformUpdateWindow: "default",
-        runtimeProviderProfile: {
-          schema: "persai.runtimeProviderProfile.v1",
-          primary: {
-            provider: "openai",
-            model: "gpt-5.4"
-          },
-          fallback: null
-        }
+    schema: "persai.adminRuntimeProviderSettings.v1",
+    mode: "global_settings" as const,
+    primary: {
+      provider: "openai" as const,
+      model: "gpt-5.4"
+    },
+    fallback: {
+      provider: "anthropic" as const,
+      model: "claude-sonnet-4-5"
+    },
+    availableModelsByProvider: {
+      openai: ["gpt-5.4", "gpt-4.1"],
+      anthropic: ["claude-sonnet-4-5"]
+    },
+    providerKeys: {
+      openai: {
+        configured: true,
+        lastFour: "1234",
+        updatedAt: "2026-03-27T12:00:00.000Z"
       },
-      secretRefs: {
-        schema: "persai.secretRefs.v1",
-        refs: {
-          telegram_bot_token: {
-            refKey: "vault://assistants/assistant-1/telegram_bot_token/v1",
-            manager: "backend_vault_kms"
-          },
-          runtime_provider_credentials: {
-            schema: "persai.runtimeProviderCredentialRefs.v1",
-            providers: {
-              openai: {
-                refKey: "env:default:OPENAI_API_KEY",
-                secretRef: {
-                  source: "env",
-                  provider: "default",
-                  id: "OPENAI_API_KEY"
-                }
-              }
-            }
-          }
-        }
-      },
-      platformManagedUpdatedAt: "2026-03-27T12:00:00.000Z"
-    }
+      anthropic: {
+        configured: false,
+        lastFour: null,
+        updatedAt: null
+      }
+    },
+    notes: []
   };
 }
 
@@ -592,6 +584,7 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.getAdminPlans.mockReset();
     assistantApiMocks.getAdminNotificationChannels.mockReset();
     assistantApiMocks.getAdminPlatformRollouts.mockReset();
+    assistantApiMocks.getAdminRuntimeProviderSettings.mockReset();
     assistantApiMocks.getAdminBusinessCockpit.mockReset();
     assistantApiMocks.getAdminOpsCockpit.mockReset();
     assistantApiMocks.getAdminPlanVisibility.mockReset();
@@ -600,6 +593,7 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.patchAdminNotificationWebhookChannel.mockReset();
     assistantApiMocks.postAdminPlatformRollout.mockReset();
     assistantApiMocks.postAdminPlatformRolloutRollback.mockReset();
+    assistantApiMocks.putAdminRuntimeProviderSettings.mockReset();
     assistantApiMocks.postAssistantReapply.mockReset();
     assistantApiMocks.postAssistantTaskItemDisable.mockReset();
     assistantApiMocks.postAssistantTaskItemEnable.mockReset();
@@ -618,6 +612,9 @@ describe("AppFlowClient onboarding gate", () => {
       makeAdminNotificationChannels()
     );
     assistantApiMocks.getAdminPlatformRollouts.mockResolvedValue(makePlatformRollouts());
+    assistantApiMocks.getAdminRuntimeProviderSettings.mockResolvedValue(
+      makeRuntimeProviderSettingsState()
+    );
     assistantApiMocks.getAdminBusinessCockpit.mockResolvedValue(makeAdminBusinessCockpit());
     assistantApiMocks.getAdminOpsCockpit.mockResolvedValue(makeAdminOpsCockpit());
     assistantApiMocks.getAdminPlanVisibility.mockResolvedValue(makeAdminPlanVisibility());
@@ -869,87 +866,72 @@ describe("AppFlowClient onboarding gate", () => {
     });
   });
 
-  it("applies runtime provider rollout from structured admin controls", async () => {
+  it("saves global runtime provider settings from simplified admin controls", async () => {
     apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
-    assistantApiMocks.getAssistant.mockResolvedValue(
-      makeAssistantResponseWithRuntimeProviderGovernance()
-    );
-    assistantApiMocks.postAdminPlatformRollout.mockResolvedValue(makePlatformRollouts()[0]);
+    assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.putAdminRuntimeProviderSettings.mockResolvedValue({
+      settings: {
+        ...makeRuntimeProviderSettingsState(),
+        providerKeys: {
+          openai: {
+            configured: true,
+            lastFour: "9999",
+            updatedAt: "2026-03-27T13:00:00.000Z"
+          },
+          anthropic: {
+            configured: true,
+            lastFour: "8888",
+            updatedAt: "2026-03-27T13:00:00.000Z"
+          }
+        }
+      },
+      reapplySummary: {
+        totalAssistants: 3,
+        assistantsWithPublishedVersion: 2,
+        applySucceededCount: 2,
+        applyDegradedCount: 0,
+        applyFailedCount: 0,
+        skippedCount: 1
+      }
+    });
 
     render(<AppFlowClient />);
 
-    expect(await screen.findByText("Runtime provider profile")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Runtime provider rollout percent"), {
-      target: { value: "25" }
+    expect(await screen.findByText("Global runtime provider settings")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("OpenAI API key"), {
+      target: { value: "sk-openai-new" }
     });
-    fireEvent.click(screen.getByLabelText("Enable fallback provider"));
-    fireEvent.change(screen.getByLabelText("Fallback provider"), {
-      target: { value: "anthropic" }
+    fireEvent.change(screen.getByLabelText("Anthropic API key"), {
+      target: { value: "sk-anthropic-new" }
     });
     fireEvent.change(screen.getByLabelText("Fallback model"), {
       target: { value: "claude-sonnet-4-5" }
     });
-    fireEvent.change(screen.getByLabelText("Anthropic ref key (optional)"), {
-      target: { value: "env:default:ANTHROPIC_API_KEY" }
+    fireEvent.change(screen.getByLabelText("OpenAI models (one per line)"), {
+      target: { value: "gpt-4.1" }
     });
-    fireEvent.change(screen.getByLabelText("Anthropic secret provider"), {
-      target: { value: "default" }
-    });
-    fireEvent.change(screen.getByLabelText("Anthropic secret id"), {
-      target: { value: "ANTHROPIC_API_KEY" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Apply runtime provider rollout" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save global runtime settings" }));
 
     await waitFor(() => {
-      expect(assistantApiMocks.postAdminPlatformRollout).toHaveBeenCalledTimes(1);
+      expect(assistantApiMocks.putAdminRuntimeProviderSettings).toHaveBeenCalledTimes(1);
     });
-    expect(assistantApiMocks.postAdminPlatformRollout).toHaveBeenCalledWith("token-user-1", {
-      rolloutPercent: 25,
-      targetPatch: {
-        policyEnvelope: {
-          platformUpdateWindow: "default",
-          runtimeProviderProfile: {
-            schema: "persai.runtimeProviderProfile.v1",
-            primary: {
-              provider: "openai",
-              model: "gpt-5.4"
-            },
-            fallback: {
-              provider: "anthropic",
-              model: "claude-sonnet-4-5"
-            }
-          }
-        },
-        secretRefs: {
-          schema: "persai.secretRefs.v1",
-          refs: {
-            telegram_bot_token: {
-              refKey: "vault://assistants/assistant-1/telegram_bot_token/v1",
-              manager: "backend_vault_kms"
-            },
-            runtime_provider_credentials: {
-              schema: "persai.runtimeProviderCredentialRefs.v1",
-              providers: {
-                openai: {
-                  refKey: "env:default:OPENAI_API_KEY",
-                  secretRef: {
-                    source: "env",
-                    provider: "default",
-                    id: "OPENAI_API_KEY"
-                  }
-                },
-                anthropic: {
-                  refKey: "env:default:ANTHROPIC_API_KEY",
-                  secretRef: {
-                    source: "env",
-                    provider: "default",
-                    id: "ANTHROPIC_API_KEY"
-                  }
-                }
-              }
-            }
-          }
-        }
+    expect(screen.getByText(/Global runtime settings saved\./)).toBeInTheDocument();
+    expect(assistantApiMocks.putAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-user-1", {
+      primary: {
+        provider: "openai",
+        model: "gpt-5.4"
+      },
+      fallback: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-5"
+      },
+      availableModelsByProvider: {
+        openai: ["gpt-4.1", "gpt-5.4"],
+        anthropic: ["claude-sonnet-4-5"]
+      },
+      providerKeys: {
+        openai: "sk-openai-new",
+        anthropic: "sk-anthropic-new"
       }
     });
   });

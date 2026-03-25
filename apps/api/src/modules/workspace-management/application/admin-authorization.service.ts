@@ -8,6 +8,7 @@ export type SupportedAdminRole = "ops_admin" | "business_admin" | "security_admi
 export type DangerousAdminActionCode =
   | "admin.plan.create"
   | "admin.plan.update"
+  | "admin.runtime_provider_settings.update"
   | "admin.rollout.apply"
   | "admin.rollout.rollback"
   | "admin.assistant.transfer_ownership"
@@ -45,6 +46,9 @@ function requiredRolesForDangerousAction(action: DangerousAdminActionCode): Supp
     return ["ops_admin", "super_admin"];
   }
   if (action === "admin.rollout.apply" || action === "admin.rollout.rollback") {
+    return ["ops_admin", "super_admin"];
+  }
+  if (action === "admin.runtime_provider_settings.update") {
     return ["ops_admin", "super_admin"];
   }
   return ["business_admin", "super_admin"];

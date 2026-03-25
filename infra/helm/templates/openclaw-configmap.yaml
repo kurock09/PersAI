@@ -16,6 +16,16 @@ data:
           }
         }
       },
+      "secrets": {
+        "providers": {
+          "persai-runtime": {
+            "source": "persai",
+            "baseUrl": {{ .Values.openclaw.persaiSecretResolver.baseUrl | toJson }},
+            "path": "/api/v1/internal/runtime/provider-secrets/resolve",
+            "tokenEnvVar": "OPENCLAW_GATEWAY_TOKEN"
+          }
+        }
+      },
       "gateway": {
         "controlUi": {
           "allowedOrigins": {{ .Values.openclaw.controlUi.allowedOrigins | toJson }},

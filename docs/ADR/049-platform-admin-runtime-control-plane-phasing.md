@@ -34,8 +34,7 @@ The user constraints for this phase are:
 
 1. **North-star ownership**
 
-   PersAI becomes the canonical **control plane** for assistant-scoped runtime profile inputs:
-
+   PersAI becomes the canonical **control plane** for runtime profile inputs, whether a given slice stores them as assistant-scoped or platform-global truth:
    - primary model selection
    - fallback model selection
    - provider credential references
@@ -48,14 +47,12 @@ The user constraints for this phase are:
 2. **Boundary discipline**
 
    PersAI owns:
-
    - policy
    - entitlement-aware availability truth
    - credential **references**
    - materialized runtime documents
 
    OpenClaw continues to own:
-
    - runtime execution
    - session state
    - provider/tool implementation details
@@ -67,7 +64,6 @@ The user constraints for this phase are:
 3. **Canonical containers must be reused before adding new ones**
 
    The planned evolution must start from existing control-plane seams:
-
    - `assistant_governance.policyEnvelope.runtimeProviderRouting`
    - `assistant_governance.secret_refs`
    - `assistant_governance.memory_control`
@@ -76,6 +72,8 @@ The user constraints for this phase are:
    - materialized `openclawBootstrap` / `openclawWorkspace`
 
    Do not introduce a parallel runtime-profile subsystem unless these seams prove insufficient during an approved slice.
+
+   If a later approved slice needs true platform-global runtime settings or write-only raw-secret entry that assistant governance cannot represent safely, it may add a dedicated platform-global control-plane object without changing the materialization/apply bridge rule below.
 
 4. **Materialization remains the only bridge**
 
@@ -86,13 +84,23 @@ The user constraints for this phase are:
 5. **Phased delivery order**
 
    The next work is explicitly phased so the system can move toward the target state without scope explosion:
-
    - **H1 — platform-admin runtime provider profile baseline**
      - first supported providers: `OpenAI + Anthropic`
      - assistant-scoped primary/fallback model refs become explicit control-plane truth
      - provider credential refs become explicit control-plane truth
      - no raw secret values in PersAI
      - minimal OpenClaw consumption on the applied web runtime path only
+
+   - **H1a — initial admin UI over the rollout path**
+     - expose the H1 provider-profile baseline in PersAI admin surface
+     - reuse `POST /api/v1/admin/platform-rollouts`
+     - keep `SecretRef` editing explicit for the first shipped UI
+
+   - **H1b — global runtime provider settings correction**
+     - move the preferred admin UX to simple global provider-key + model settings
+     - allow dedicated encrypted PersAI secret storage for write-only provider keys
+     - add a platform-global available-model catalog for later plan gating
+     - keep OpenClaw as the runtime secret resolver through materialized refs
 
    - **H2 — tool credential refs baseline**
      - extend managed credential references for tool providers
@@ -114,10 +122,10 @@ The user constraints for this phase are:
 6. **Guardrails for every slice**
 
    Every future slice in this plan must preserve these rules:
-
    - docs / ADR first when architecture, contract, workflow, or data model changes
    - no giant all-at-once migration
-   - no raw secret values in PersAI persistence, APIs, logs, materialized documents, or tests
+   - no raw secret values in assistant governance, public read APIs, logs, materialized documents, or tests
+   - dedicated encrypted write-only secret storage is allowed only in an ADR-backed slice and must not echo raw values back to the browser
    - no user-facing provider picker unless a separate ADR approves it
    - no silent fallback from missing configured credentials to unrelated runtime defaults
 
@@ -149,6 +157,8 @@ The user constraints for this phase are:
 Start with **H1 — platform-admin runtime provider profile baseline**.
 
 Concrete implementation record: [ADR-050](050-runtime-provider-profile-baseline-h1.md).
+
+Corrective follow-up after `H1/H1a`: [ADR-051](051-global-runtime-provider-settings-h1b.md).
 
 Why H1 first:
 

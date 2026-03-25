@@ -2,7 +2,7 @@ export const RUNTIME_PROVIDER_PROFILE_SCHEMA = "persai.runtimeProviderProfile.v1
 export const RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA = "persai.runtimeProviderCredentialRefs.v1";
 
 export type ManagedRuntimeProvider = "openai" | "anthropic";
-export type RuntimeCredentialSecretRefSource = "env" | "file" | "exec";
+export type RuntimeCredentialSecretRefSource = "env" | "file" | "exec" | "persai";
 
 export type RuntimeCredentialSecretRef = {
   source: RuntimeCredentialSecretRefSource;
@@ -21,6 +21,8 @@ export type RuntimeProviderProfileSelection = {
   model: string;
 };
 
+export type RuntimeProviderAvailableModelsByProvider = Record<ManagedRuntimeProvider, string[]>;
+
 export type AdminManagedRuntimeProviderProfileState = {
   schema: typeof RUNTIME_PROVIDER_PROFILE_SCHEMA;
   mode: "admin_managed";
@@ -29,6 +31,7 @@ export type AdminManagedRuntimeProviderProfileState = {
     secretRefsSchema: typeof RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA;
   };
   allowedProviders: ManagedRuntimeProvider[];
+  availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
   primary: RuntimeProviderProfileSelection & {
     credentialRef: RuntimeProviderCredentialRefState;
   };
@@ -48,6 +51,7 @@ export type LegacyRuntimeProviderProfileState = {
     secretRefsSchema: typeof RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA | null;
   };
   allowedProviders: ManagedRuntimeProvider[];
+  availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
   primary: null;
   fallback: null;
   notes: string[];
@@ -64,6 +68,7 @@ type RuntimeProviderCredentialRefsEnvelope = {
 
 type RuntimeProviderProfilePolicy = {
   schema: typeof RUNTIME_PROVIDER_PROFILE_SCHEMA;
+  availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
   primary: RuntimeProviderProfileSelection;
   fallback: RuntimeProviderProfileSelection | null;
 };
@@ -128,6 +133,40 @@ function normalizeModelId(value: unknown, path: string): string {
   return normalized;
 }
 
+function createEmptyAvailableModelsByProvider(): RuntimeProviderAvailableModelsByProvider {
+  return {
+    openai: [],
+    anthropic: []
+  };
+}
+
+function parseAvailableModelsByProvider(value: unknown): RuntimeProviderAvailableModelsByProvider {
+  const result = createEmptyAvailableModelsByProvider();
+  const row = asObject(value);
+  if (row === null) {
+    return result;
+  }
+  for (const provider of ALLOWED_RUNTIME_PROVIDERS) {
+    const models = row[provider];
+    if (!Array.isArray(models)) {
+      continue;
+    }
+    const deduped = new Set<string>();
+    for (const entry of models) {
+      const model = asNonEmptyString(entry);
+      if (model === null) {
+        continue;
+      }
+      if (model.length > MAX_MODEL_LENGTH || containsControlCharacters(model)) {
+        continue;
+      }
+      deduped.add(model);
+    }
+    result[provider] = Array.from(deduped);
+  }
+  return result;
+}
+
 function normalizeRefKey(value: unknown, fallback: RuntimeCredentialSecretRef): string {
   const normalized = asNonEmptyString(value);
   if (normalized === null) {
@@ -150,7 +189,12 @@ function parseRuntimeCredentialSecretRef(value: unknown, path: string): RuntimeC
     throw new Error(`${path} must be an object.`);
   }
   const source =
-    row.source === "env" || row.source === "file" || row.source === "exec" ? row.source : null;
+    row.source === "env" ||
+    row.source === "file" ||
+    row.source === "exec" ||
+    row.source === "persai"
+      ? row.source
+      : null;
   const provider = asNonEmptyString(row.provider);
   const id = asNonEmptyString(row.id);
   if (source === null || provider === null || id === null) {
@@ -261,6 +305,7 @@ function parseRuntimeProviderProfilePolicy(
         );
   return {
     schema: RUNTIME_PROVIDER_PROFILE_SCHEMA,
+    availableModelsByProvider: parseAvailableModelsByProvider(profile.availableModelsByProvider),
     primary,
     fallback
   };
@@ -305,6 +350,7 @@ export function resolveRuntimeProviderProfileState(params: {
         secretRefsSchema: credentials?.schema ?? null
       },
       allowedProviders: [...ALLOWED_RUNTIME_PROVIDERS],
+      availableModelsByProvider: createEmptyAvailableModelsByProvider(),
       primary: null,
       fallback: null,
       notes: [
@@ -347,6 +393,7 @@ export function resolveRuntimeProviderProfileState(params: {
       secretRefsSchema: credentials.schema
     },
     allowedProviders: [...ALLOWED_RUNTIME_PROVIDERS],
+    availableModelsByProvider: profile.availableModelsByProvider,
     primary: {
       provider: profile.primary.provider,
       model: profile.primary.model,

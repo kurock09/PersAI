@@ -46,6 +46,10 @@ api:
       secretName: persai-api-secrets
       secretKey: ADMIN_STEP_UP_HMAC_SECRET
       optional: true
+    RUNTIME_PROVIDER_SECRETS_MASTER_KEY:
+      secretName: persai-api-secrets
+      secretKey: RUNTIME_PROVIDER_SECRETS_MASTER_KEY
+      optional: true
     OPENCLAW_GATEWAY_TOKEN:
       secretName: persai-openclaw-secrets
       secretKey: OPENCLAW_GATEWAY_TOKEN
@@ -109,6 +113,8 @@ openclaw:
       - http://localhost:18789
       - http://127.0.0.1:18789
     dangerouslyAllowHostHeaderOriginFallback: false
+  persaiSecretResolver:
+    baseUrl: http://api:3001
   agentDefaults:
     modelPrimary: openai/gpt-5.4
   args:

@@ -188,6 +188,8 @@ model AppUser {
   createdPlatformRollouts AssistantPlatformRollout[]
   platformRolloutItems      AssistantPlatformRolloutItem[]
   abuseGuardStates          AssistantAbuseGuardState[]
+  updatedPlatformRuntimeProviderSettings PlatformRuntimeProviderSettings[] @relation("PlatformRuntimeProviderSettingsUpdatedByUser")
+  updatedPlatformRuntimeProviderSecrets PlatformRuntimeProviderSecret[] @relation("PlatformRuntimeProviderSecretsUpdatedByUser")
 
   @@map("app_users")
 }
@@ -401,6 +403,41 @@ model AdminNotificationDelivery {
   @@index([workspaceId, attemptedAt(sort: Desc)])
   @@index([channelId, attemptedAt(sort: Desc)])
   @@map("admin_notification_deliveries")
+}
+
+model PlatformRuntimeProviderSettings {
+  id                       String   @id @default("global") @db.VarChar(32)
+  primaryProvider          String   @map("primary_provider") @db.VarChar(32)
+  primaryModel             String   @map("primary_model") @db.VarChar(256)
+  fallbackProvider         String?  @map("fallback_provider") @db.VarChar(32)
+  fallbackModel            String?  @map("fallback_model") @db.VarChar(256)
+  availableModelsByProvider Json    @map("available_models_by_provider") @db.JsonB
+  updatedByUserId          String?  @map("updated_by_user_id") @db.Uuid
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedByUser            AppUser? @relation("PlatformRuntimeProviderSettingsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  secrets                  PlatformRuntimeProviderSecret[]
+
+  @@map("platform_runtime_provider_settings")
+}
+
+model PlatformRuntimeProviderSecret {
+  id                      String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  settingsId              String   @default("global") @map("settings_id") @db.VarChar(32)
+  providerKey             String   @unique @map("provider_key") @db.VarChar(32)
+  encryptionSchemaVersion Int      @default(1) @map("encryption_schema_version")
+  ciphertext              String   @db.Text
+  iv                      String   @db.VarChar(128)
+  authTag                 String   @map("auth_tag") @db.VarChar(128)
+  lastFour                String?  @map("last_four") @db.VarChar(8)
+  updatedByUserId         String?  @map("updated_by_user_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  settings                PlatformRuntimeProviderSettings @relation(fields: [settingsId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedByUser           AppUser? @relation("PlatformRuntimeProviderSecretsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([settingsId])
+  @@map("platform_runtime_provider_secrets")
 }
 
 model AssistantPlatformRollout {

@@ -4,6 +4,7 @@ import { SignOutButton, UserButton, useAuth } from "@clerk/nextjs";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   type AssistantLifecycleState,
+  type ManagedRuntimeProvider,
   type AssistantMemoryRegistryItemState,
   type AssistantTaskRegistryItemState,
   type AssistantWebChatListItemState
@@ -28,6 +29,7 @@ import {
   getAdminPlatformRollouts,
   getAdminOpsCockpit,
   getAdminPlanVisibility,
+  getAdminRuntimeProviderSettings,
   getAdminPlans,
   getAssistant,
   getAssistantPlanVisibility,
@@ -39,6 +41,7 @@ import {
   patchAdminNotificationWebhookChannel,
   postAdminPlatformRollout,
   postAdminPlatformRolloutRollback,
+  putAdminRuntimeProviderSettings,
   patchAdminPlan,
   patchAssistantWebChat,
   patchAssistantTelegramConfig,
@@ -61,14 +64,13 @@ import {
 } from "./assistant-api-client";
 import { CurrentMeResponse, OnboardingPayload, getMe, postOnboarding } from "./me-api-client";
 import {
-  buildRuntimeProviderRolloutPatch,
-  createDefaultRuntimeProviderAdminDraft,
-  resolveRuntimeProviderAdminFormState,
-  type ManagedRuntimeProvider,
-  type RuntimeProviderAdminDraft,
-  type RuntimeProviderCredentialDraft,
-  type RuntimeSecretRefSource
-} from "./runtime-provider-profile-admin";
+  buildRuntimeProviderSettingsRequest,
+  createDefaultRuntimeProviderSettingsAdminDraft,
+  formatRuntimeProviderKeyStatus,
+  resolveRuntimeProviderSettingsAdminFormState,
+  type RuntimeProviderSettingsAdminDraft,
+  type RuntimeProviderSettingsProviderKeyState
+} from "./runtime-provider-settings-admin";
 
 type FlowState =
   | { type: "loading" }
@@ -252,11 +254,11 @@ function toNullable(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function runtimeProviderModeMessage(mode: "legacy_openclaw_default" | "admin_managed"): string {
-  if (mode === "admin_managed") {
-    return "Admin-managed runtime provider profile is currently configured for this assistant.";
+function runtimeProviderModeMessage(mode: "legacy_openclaw_default" | "global_settings"): string {
+  if (mode === "global_settings") {
+    return "Global runtime provider settings are active. All assistants converge toward this platform config.";
   }
-  return "No admin-managed runtime provider profile is configured yet. OpenClaw will keep its legacy default until you apply one.";
+  return "Global runtime provider settings are not configured yet. OpenClaw will keep the legacy default until you save them here.";
 }
 
 function toPlanDraft(plan?: AdminPlanState): PlanDraft {
@@ -595,16 +597,29 @@ export function AppFlowClient() {
     '{"policyEnvelope":{"platformUpdateWindow":"default"}}'
   );
   const [runtimeProviderAdminMode, setRuntimeProviderAdminMode] = useState<
-    "legacy_openclaw_default" | "admin_managed"
+    "legacy_openclaw_default" | "global_settings"
   >("legacy_openclaw_default");
   const [runtimeProviderAdminDraft, setRuntimeProviderAdminDraft] =
-    useState<RuntimeProviderAdminDraft>(createDefaultRuntimeProviderAdminDraft());
+    useState<RuntimeProviderSettingsAdminDraft>(createDefaultRuntimeProviderSettingsAdminDraft());
+  const [runtimeProviderKeyState, setRuntimeProviderKeyState] =
+    useState<RuntimeProviderSettingsProviderKeyState>({
+      openai: {
+        configured: false,
+        lastFour: null,
+        updatedAt: null
+      },
+      anthropic: {
+        configured: false,
+        lastFour: null,
+        updatedAt: null
+      }
+    });
+  const [runtimeProviderNotes, setRuntimeProviderNotes] = useState<string[]>([]);
   const [runtimeProviderAdminFeedback, setRuntimeProviderAdminFeedback] = useState<string | null>(
     null
   );
-  const [runtimeProviderRolloutPercentInput, setRuntimeProviderRolloutPercentInput] =
-    useState("10");
-  const [isApplyingRuntimeProviderRollout, setIsApplyingRuntimeProviderRollout] = useState(false);
+  const [isLoadingRuntimeProviderSettings, setIsLoadingRuntimeProviderSettings] = useState(false);
+  const [isSavingRuntimeProviderSettings, setIsSavingRuntimeProviderSettings] = useState(false);
   const [isApplyingPlatformRollout, setIsApplyingPlatformRollout] = useState(false);
   const [isRollingBackPlatformRollout, setIsRollingBackPlatformRollout] = useState(false);
   const [selectedRollbackRolloutId, setSelectedRollbackRolloutId] = useState("");
@@ -888,6 +903,50 @@ export function AppFlowClient() {
     }
   }, [flowState, getToken, selectedRollbackRolloutId]);
 
+  const loadRuntimeProviderSettings = useCallback(async () => {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
+      setRuntimeProviderAdminMode("legacy_openclaw_default");
+      setRuntimeProviderAdminDraft(createDefaultRuntimeProviderSettingsAdminDraft());
+      setRuntimeProviderKeyState({
+        openai: {
+          configured: false,
+          lastFour: null,
+          updatedAt: null
+        },
+        anthropic: {
+          configured: false,
+          lastFour: null,
+          updatedAt: null
+        }
+      });
+      setRuntimeProviderNotes([]);
+      return;
+    }
+
+    const token = await getToken();
+    if (token === null) {
+      setFlowState({ type: "error", message: "Missing Clerk session token." });
+      return;
+    }
+
+    try {
+      setIsLoadingRuntimeProviderSettings(true);
+      const settings = await getAdminRuntimeProviderSettings(token);
+      const resolved = resolveRuntimeProviderSettingsAdminFormState(settings);
+      setRuntimeProviderAdminMode(resolved.mode);
+      setRuntimeProviderAdminDraft(resolved.draft);
+      setRuntimeProviderKeyState(resolved.providerKeyState);
+      setRuntimeProviderNotes(resolved.notes);
+      setRuntimeProviderAdminFeedback(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to load global runtime provider settings.";
+      setRuntimeProviderAdminFeedback(message);
+    } finally {
+      setIsLoadingRuntimeProviderSettings(false);
+    }
+  }, [flowState, getToken]);
+
   const loadWebChatList = useCallback(async () => {
     if (flowState.type !== "ready" || flowState.data.assistantState === null) {
       setChatList([]);
@@ -981,15 +1040,8 @@ export function AppFlowClient() {
   }, [flowState]);
 
   useEffect(() => {
-    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
-      setRuntimeProviderAdminMode("legacy_openclaw_default");
-      setRuntimeProviderAdminDraft(createDefaultRuntimeProviderAdminDraft());
-      return;
-    }
-    const resolved = resolveRuntimeProviderAdminFormState(flowState.data.assistantState.governance);
-    setRuntimeProviderAdminMode(resolved.mode);
-    setRuntimeProviderAdminDraft(resolved.draft);
-  }, [flowState]);
+    void loadRuntimeProviderSettings();
+  }, [loadRuntimeProviderSettings]);
 
   useEffect(() => {
     if (flowState.type !== "ready" || flowState.data.assistantState === null) {
@@ -1506,28 +1558,30 @@ export function AppFlowClient() {
     }));
   }
 
-  function updateRuntimeProviderCredential(
-    provider: ManagedRuntimeProvider,
-    field: keyof RuntimeProviderCredentialDraft,
-    value: string
-  ): void {
+  function updateRuntimeProviderCatalog(provider: ManagedRuntimeProvider, value: string): void {
     setRuntimeProviderAdminDraft((current) => ({
       ...current,
-      credentials: {
-        ...current.credentials,
-        [provider]: {
-          ...current.credentials[provider],
-          [field]: field === "secretSource" ? (value as RuntimeSecretRefSource) : value
-        }
+      availableModelsTextByProvider: {
+        ...current.availableModelsTextByProvider,
+        [provider]: value
       }
     }));
   }
 
-  async function onApplyRuntimeProviderRollout(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (flowState.type !== "ready" || flowState.data.assistantState === null) {
+  function updateRuntimeProviderKeyInput(provider: ManagedRuntimeProvider, value: string): void {
+    setRuntimeProviderAdminDraft((current) => ({
+      ...current,
+      providerKeys: {
+        ...current.providerKeys,
+        [provider]: value
+      }
+    }));
+  }
+
+  async function onSaveRuntimeProviderSettings(): Promise<void> {
+    if (flowState.type !== "ready" || flowState.data.meState.me.workspace?.role !== "owner") {
       setRuntimeProviderAdminFeedback(
-        "Assistant state must be available before applying runtime provider settings."
+        "Owner access is required to update global runtime settings."
       );
       return;
     }
@@ -1538,48 +1592,44 @@ export function AppFlowClient() {
       return;
     }
 
-    const rolloutPercent = Number.parseInt(runtimeProviderRolloutPercentInput, 10);
-    if (!Number.isFinite(rolloutPercent) || rolloutPercent < 1 || rolloutPercent > 100) {
-      setRuntimeProviderAdminFeedback("Rollout percent must be an integer between 1 and 100.");
-      return;
-    }
-
-    let targetPatch: Record<string, unknown>;
+    let request;
     try {
-      targetPatch = buildRuntimeProviderRolloutPatch({
-        governance: flowState.data.assistantState.governance,
-        draft: runtimeProviderAdminDraft
+      request = buildRuntimeProviderSettingsRequest({
+        draft: runtimeProviderAdminDraft,
+        providerKeyState: runtimeProviderKeyState
       });
     } catch (error) {
       setRuntimeProviderAdminFeedback(
-        error instanceof Error ? error.message : "Runtime provider profile is invalid."
+        error instanceof Error ? error.message : "Global runtime provider settings are invalid."
       );
       return;
     }
 
-    const input: PostAdminPlatformRolloutRequest = {
-      rolloutPercent,
-      targetPatch
-    };
-
     try {
-      setIsApplyingRuntimeProviderRollout(true);
+      setIsSavingRuntimeProviderSettings(true);
       setRuntimeProviderAdminFeedback(null);
-      const rollout = await postAdminPlatformRollout(token, input);
-      setPlatformRollouts((current) => [
-        rollout,
-        ...current.filter((entry) => entry.id !== rollout.id)
-      ]);
-      setSelectedRollbackRolloutId(rollout.id);
-      await loadPlatformRollouts();
-      await loadMe();
-      setRuntimeProviderAdminFeedback("Runtime provider profile rollout applied.");
+      const response = await putAdminRuntimeProviderSettings(token, request);
+      const resolved = resolveRuntimeProviderSettingsAdminFormState(response.settings);
+      setRuntimeProviderAdminMode(resolved.mode);
+      setRuntimeProviderAdminDraft({
+        ...resolved.draft,
+        providerKeys: {
+          openai: "",
+          anthropic: ""
+        }
+      });
+      setRuntimeProviderKeyState(resolved.providerKeyState);
+      setRuntimeProviderNotes(resolved.notes);
+      const summary = response.reapplySummary;
+      setRuntimeProviderAdminFeedback(
+        `Global runtime settings saved. Reapplied ${summary.assistantsWithPublishedVersion} assistants: ${summary.applySucceededCount} succeeded, ${summary.applyDegradedCount} degraded, ${summary.applyFailedCount} failed, ${summary.skippedCount} skipped.`
+      );
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Could not apply runtime provider profile.";
+        error instanceof Error ? error.message : "Could not save global runtime provider settings.";
       setRuntimeProviderAdminFeedback(message);
     } finally {
-      setIsApplyingRuntimeProviderRollout(false);
+      setIsSavingRuntimeProviderSettings(false);
     }
   }
 
@@ -3293,28 +3343,47 @@ export function AppFlowClient() {
             Refresh rollout controls
           </button>
           <section>
-            <h3>Runtime provider profile</h3>
+            <h3>Global runtime provider settings</h3>
             <p>
-              Structured H1a editor for the admin-managed runtime provider profile. PersAI stores
-              provider and `SecretRef` coordinates only. Raw provider secrets stay outside PersAI.
+              Simple platform-wide settings for OpenAI and Anthropic keys plus default primary and
+              fallback models. Leave a key field blank to keep the currently stored key.
             </p>
+            <p>This applies globally to the runtime, not per end user.</p>
             <p>{runtimeProviderModeMessage(runtimeProviderAdminMode)}</p>
-            {runtimeProviderAdminFeedback !== null && <p>{runtimeProviderAdminFeedback}</p>}
-            {flowState.data.assistantState === null ? (
-              <p>Create an assistant first to edit runtime provider settings.</p>
-            ) : (
-              <form onSubmit={(event) => void onApplyRuntimeProviderRollout(event)}>
-                <label htmlFor="runtimeProviderRolloutPercent">
-                  Runtime provider rollout percent
-                </label>
+            {isLoadingRuntimeProviderSettings && <p>Loading global runtime provider settings…</p>}
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void onSaveRuntimeProviderSettings();
+              }}
+            >
+              <section>
+                <h4>Provider keys</h4>
+                <label htmlFor="runtimeProviderOpenAiApiKey">OpenAI API key</label>
                 <input
-                  id="runtimeProviderRolloutPercent"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={runtimeProviderRolloutPercentInput}
-                  onChange={(event) => setRuntimeProviderRolloutPercentInput(event.target.value)}
+                  id="runtimeProviderOpenAiApiKey"
+                  type="password"
+                  autoComplete="off"
+                  value={runtimeProviderAdminDraft.providerKeys.openai}
+                  onChange={(event) => updateRuntimeProviderKeyInput("openai", event.target.value)}
+                  placeholder="Paste new OpenAI key to rotate"
                 />
+                <p>{formatRuntimeProviderKeyStatus("openai", runtimeProviderKeyState)}</p>
+                <label htmlFor="runtimeProviderAnthropicApiKey">Anthropic API key</label>
+                <input
+                  id="runtimeProviderAnthropicApiKey"
+                  type="password"
+                  autoComplete="off"
+                  value={runtimeProviderAdminDraft.providerKeys.anthropic}
+                  onChange={(event) =>
+                    updateRuntimeProviderKeyInput("anthropic", event.target.value)
+                  }
+                  placeholder="Paste new Anthropic key to rotate"
+                />
+                <p>{formatRuntimeProviderKeyStatus("anthropic", runtimeProviderKeyState)}</p>
+              </section>
+              <section>
+                <h4>Default routing</h4>
                 <label htmlFor="runtimeProviderPrimaryProvider">Primary provider</label>
                 <select
                   id="runtimeProviderPrimaryProvider"
@@ -3372,117 +3441,47 @@ export function AppFlowClient() {
                     />
                   </>
                 )}
+              </section>
+              <section>
+                <h4>Available models catalog</h4>
+                <label htmlFor="runtimeProviderOpenAiModels">OpenAI models (one per line)</label>
+                <textarea
+                  id="runtimeProviderOpenAiModels"
+                  value={runtimeProviderAdminDraft.availableModelsTextByProvider.openai}
+                  onChange={(event) => updateRuntimeProviderCatalog("openai", event.target.value)}
+                />
+                <label htmlFor="runtimeProviderAnthropicModels">
+                  Anthropic models (one per line)
+                </label>
+                <textarea
+                  id="runtimeProviderAnthropicModels"
+                  value={runtimeProviderAdminDraft.availableModelsTextByProvider.anthropic}
+                  onChange={(event) =>
+                    updateRuntimeProviderCatalog("anthropic", event.target.value)
+                  }
+                />
+              </section>
+              {runtimeProviderNotes.length > 0 && (
                 <section>
-                  <h4>OpenAI credential ref</h4>
-                  <label htmlFor="runtimeProviderOpenAiRefKey">OpenAI ref key (optional)</label>
-                  <input
-                    id="runtimeProviderOpenAiRefKey"
-                    value={runtimeProviderAdminDraft.credentials.openai.refKey}
-                    onChange={(event) =>
-                      updateRuntimeProviderCredential("openai", "refKey", event.target.value)
-                    }
-                    placeholder="env:default:OPENAI_API_KEY"
-                  />
-                  <label htmlFor="runtimeProviderOpenAiSecretSource">OpenAI secret source</label>
-                  <select
-                    id="runtimeProviderOpenAiSecretSource"
-                    value={runtimeProviderAdminDraft.credentials.openai.secretSource}
-                    onChange={(event) =>
-                      updateRuntimeProviderCredential("openai", "secretSource", event.target.value)
-                    }
-                  >
-                    <option value="env">env</option>
-                    <option value="file">file</option>
-                    <option value="exec">exec</option>
-                  </select>
-                  <label htmlFor="runtimeProviderOpenAiSecretProvider">
-                    OpenAI secret provider
-                  </label>
-                  <input
-                    id="runtimeProviderOpenAiSecretProvider"
-                    value={runtimeProviderAdminDraft.credentials.openai.secretProvider}
-                    onChange={(event) =>
-                      updateRuntimeProviderCredential(
-                        "openai",
-                        "secretProvider",
-                        event.target.value
-                      )
-                    }
-                    placeholder="default"
-                  />
-                  <label htmlFor="runtimeProviderOpenAiSecretId">OpenAI secret id</label>
-                  <input
-                    id="runtimeProviderOpenAiSecretId"
-                    value={runtimeProviderAdminDraft.credentials.openai.secretId}
-                    onChange={(event) =>
-                      updateRuntimeProviderCredential("openai", "secretId", event.target.value)
-                    }
-                    placeholder="OPENAI_API_KEY"
-                  />
+                  <h4>Notes</h4>
+                  <ul>
+                    {runtimeProviderNotes.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
                 </section>
-                <section>
-                  <h4>Anthropic credential ref</h4>
-                  <label htmlFor="runtimeProviderAnthropicRefKey">
-                    Anthropic ref key (optional)
-                  </label>
-                  <input
-                    id="runtimeProviderAnthropicRefKey"
-                    value={runtimeProviderAdminDraft.credentials.anthropic.refKey}
-                    onChange={(event) =>
-                      updateRuntimeProviderCredential("anthropic", "refKey", event.target.value)
-                    }
-                    placeholder="env:default:ANTHROPIC_API_KEY"
-                  />
-                  <label htmlFor="runtimeProviderAnthropicSecretSource">
-                    Anthropic secret source
-                  </label>
-                  <select
-                    id="runtimeProviderAnthropicSecretSource"
-                    value={runtimeProviderAdminDraft.credentials.anthropic.secretSource}
-                    onChange={(event) =>
-                      updateRuntimeProviderCredential(
-                        "anthropic",
-                        "secretSource",
-                        event.target.value
-                      )
-                    }
-                  >
-                    <option value="env">env</option>
-                    <option value="file">file</option>
-                    <option value="exec">exec</option>
-                  </select>
-                  <label htmlFor="runtimeProviderAnthropicSecretProvider">
-                    Anthropic secret provider
-                  </label>
-                  <input
-                    id="runtimeProviderAnthropicSecretProvider"
-                    value={runtimeProviderAdminDraft.credentials.anthropic.secretProvider}
-                    onChange={(event) =>
-                      updateRuntimeProviderCredential(
-                        "anthropic",
-                        "secretProvider",
-                        event.target.value
-                      )
-                    }
-                    placeholder="default"
-                  />
-                  <label htmlFor="runtimeProviderAnthropicSecretId">Anthropic secret id</label>
-                  <input
-                    id="runtimeProviderAnthropicSecretId"
-                    value={runtimeProviderAdminDraft.credentials.anthropic.secretId}
-                    onChange={(event) =>
-                      updateRuntimeProviderCredential("anthropic", "secretId", event.target.value)
-                    }
-                    placeholder="ANTHROPIC_API_KEY"
-                  />
-                </section>
-                <button type="submit" disabled={isApplyingRuntimeProviderRollout}>
-                  {isApplyingRuntimeProviderRollout
-                    ? "Applying runtime provider rollout..."
-                    : "Apply runtime provider rollout"}
-                </button>
-              </form>
-            )}
+              )}
+              <button type="submit" disabled={isSavingRuntimeProviderSettings}>
+                {isSavingRuntimeProviderSettings
+                  ? "Saving global runtime settings..."
+                  : "Save global runtime settings"}
+              </button>
+              {runtimeProviderAdminFeedback !== null && (
+                <p role={runtimeProviderAdminFeedback.includes("saved") ? "status" : "alert"}>
+                  {runtimeProviderAdminFeedback}
+                </p>
+              )}
+            </form>
           </section>
           <section>
             <h3>Apply progressive rollout</h3>

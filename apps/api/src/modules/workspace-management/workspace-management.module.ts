@@ -8,6 +8,8 @@ import { AdminOpsController } from "./interface/http/admin-ops.controller";
 import { AdminBusinessController } from "./interface/http/admin-business.controller";
 import { AdminNotificationsController } from "./interface/http/admin-notifications.controller";
 import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
+import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
+import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
@@ -26,6 +28,9 @@ import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-
 import { ManageAdminNotificationChannelsService } from "./application/manage-admin-notification-channels.service";
 import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
 import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
+import { ManageAdminRuntimeProviderSettingsService } from "./application/manage-admin-runtime-provider-settings.service";
+import { PlatformRuntimeProviderSecretStoreService } from "./application/platform-runtime-provider-secret-store.service";
+import { ResolvePlatformRuntimeProviderSettingsService } from "./application/resolve-platform-runtime-provider-settings.service";
 import { EnforceAbuseRateLimitService } from "./application/enforce-abuse-rate-limit.service";
 import { ManageAdminAbuseControlsService } from "./application/manage-admin-abuse-controls.service";
 import { ManageAdminAssistantOwnershipService } from "./application/manage-admin-assistant-ownership.service";
@@ -95,7 +100,9 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminOpsController,
     AdminBusinessController,
     AdminNotificationsController,
-    AdminPlatformRolloutsController
+    AdminPlatformRolloutsController,
+    AdminRuntimeProviderSettingsController,
+    InternalRuntimeProviderSecretsController
   ],
   providers: [
     WorkspaceManagementPrismaService,
@@ -106,6 +113,9 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManageAdminNotificationChannelsService,
     DeliverAdminSystemNotificationService,
     ManagePlatformRolloutsService,
+    ManageAdminRuntimeProviderSettingsService,
+    PlatformRuntimeProviderSecretStoreService,
+    ResolvePlatformRuntimeProviderSettingsService,
     EnforceAbuseRateLimitService,
     ManageAdminAbuseControlsService,
     ManageAdminAssistantOwnershipService,

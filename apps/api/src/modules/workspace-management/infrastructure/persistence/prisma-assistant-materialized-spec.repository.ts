@@ -32,34 +32,36 @@ export class PrismaAssistantMaterializedSpecRepository implements AssistantMater
   }
 
   async create(input: CreateAssistantMaterializedSpecInput): Promise<AssistantMaterializedSpec> {
-    try {
-      const spec = await this.prisma.assistantMaterializedSpec.create({
-        data: {
-          assistantId: input.assistantId,
-          publishedVersionId: input.publishedVersionId,
-          sourceAction: input.sourceAction,
-          algorithmVersion: input.algorithmVersion,
-          layers: input.layers as Prisma.InputJsonValue,
-          openclawBootstrap: input.openclawBootstrap as Prisma.InputJsonValue,
-          openclawWorkspace: input.openclawWorkspace as Prisma.InputJsonValue,
-          layersDocument: input.layersDocument,
-          openclawBootstrapDocument: input.openclawBootstrapDocument,
-          openclawWorkspaceDocument: input.openclawWorkspaceDocument,
-          contentHash: input.contentHash
-        }
-      });
-
-      return this.mapToDomain(spec);
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        const existingSpec = await this.findByPublishedVersionId(input.publishedVersionId);
-        if (existingSpec !== null) {
-          return existingSpec;
-        }
+    const spec = await this.prisma.assistantMaterializedSpec.upsert({
+      where: { publishedVersionId: input.publishedVersionId },
+      create: {
+        assistantId: input.assistantId,
+        publishedVersionId: input.publishedVersionId,
+        sourceAction: input.sourceAction,
+        algorithmVersion: input.algorithmVersion,
+        layers: input.layers as Prisma.InputJsonValue,
+        openclawBootstrap: input.openclawBootstrap as Prisma.InputJsonValue,
+        openclawWorkspace: input.openclawWorkspace as Prisma.InputJsonValue,
+        layersDocument: input.layersDocument,
+        openclawBootstrapDocument: input.openclawBootstrapDocument,
+        openclawWorkspaceDocument: input.openclawWorkspaceDocument,
+        contentHash: input.contentHash
+      },
+      update: {
+        assistantId: input.assistantId,
+        sourceAction: input.sourceAction,
+        algorithmVersion: input.algorithmVersion,
+        layers: input.layers as Prisma.InputJsonValue,
+        openclawBootstrap: input.openclawBootstrap as Prisma.InputJsonValue,
+        openclawWorkspace: input.openclawWorkspace as Prisma.InputJsonValue,
+        layersDocument: input.layersDocument,
+        openclawBootstrapDocument: input.openclawBootstrapDocument,
+        openclawWorkspaceDocument: input.openclawWorkspaceDocument,
+        contentHash: input.contentHash
       }
+    });
 
-      throw error;
-    }
+    return this.mapToDomain(spec);
   }
 
   private mapToDomain(spec: PrismaAssistantMaterializedSpec): AssistantMaterializedSpec {

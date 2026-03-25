@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PlatformRolloutStatus =
-  (typeof PlatformRolloutStatus)[keyof typeof PlatformRolloutStatus];
+export type PlatformRolloutStatus = typeof PlatformRolloutStatus[keyof typeof PlatformRolloutStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PlatformRolloutStatus = {
-  in_progress: "in_progress",
-  applied: "applied",
-  rolled_back: "rolled_back",
-  failed: "failed"
+  in_progress: 'in_progress',
+  applied: 'applied',
+  rolled_back: 'rolled_back',
+  failed: 'failed',
 } as const;

@@ -25,6 +25,7 @@ const baseApiConfigSchema = z.object({
   DATABASE_URL: z.string().min(1),
   CLERK_SECRET_KEY: z.string().min(1),
   ADMIN_STEP_UP_HMAC_SECRET: z.string().optional(),
+  RUNTIME_PROVIDER_SECRETS_MASTER_KEY: z.string().min(16).optional(),
   OPENCLAW_ADAPTER_ENABLED: envBoolean.default(false),
   OPENCLAW_BASE_URL: z.string().url().default("http://openclaw.persai-dev.svc.cluster.local:18789"),
   OPENCLAW_GATEWAY_TOKEN: z.string().optional(),

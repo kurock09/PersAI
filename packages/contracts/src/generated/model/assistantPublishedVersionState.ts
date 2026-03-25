@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantPublishedVersionSnapshotState } from "./assistantPublishedVersionSnapshotState";
+import type { AssistantPublishedVersionSnapshotState } from './assistantPublishedVersionSnapshotState';
 
 export interface AssistantPublishedVersionState {
   id: string;

@@ -682,12 +682,14 @@ Behavior baseline:
 - authenticated caller only
 - requires action-scoped dangerous-write role or legacy owner fallback:
   - `admin.plan.create|admin.plan.update` -> `business_admin|super_admin`
+  - `admin.runtime_provider_settings.update` -> `ops_admin|super_admin`
   - `admin.rollout.apply|admin.rollout.rollback` -> `ops_admin|super_admin`
   - `admin.assistant.transfer_ownership|admin.assistant.recover_ownership` -> `ops_admin|super_admin`
 - request body:
   - `action`:
     - `admin.plan.create`
     - `admin.plan.update`
+  - `admin.runtime_provider_settings.update`
     - `admin.rollout.apply`
     - `admin.rollout.rollback`
     - `admin.assistant.transfer_ownership`
@@ -775,6 +777,48 @@ Behavior baseline:
   - optional `signingSecret`
 - payload validates URL shape and ensures endpoint is present when enabling
 
+## Step 12 H1b global runtime provider settings
+
+### GET /api/v1/admin/runtime/provider-settings
+
+- authenticated caller only
+- requires admin read role:
+  - `ops_admin|business_admin|security_admin|super_admin`
+  - or legacy owner fallback
+- returns bounded global runtime-provider settings read model:
+  - `primary` provider + model
+  - optional `fallback` provider + model
+  - `availableModelsByProvider.openai[]`
+  - `availableModelsByProvider.anthropic[]`
+  - masked provider-key status for `openai` / `anthropic`:
+    - `configured`
+    - optional last-four hint
+    - `updatedAt`
+- returned state is platform-global and is not limited to the caller's current workspace selection
+
+### PUT /api/v1/admin/runtime/provider-settings
+
+- authenticated caller only
+- requires dangerous-action role (`ops_admin|super_admin`) or legacy owner fallback
+- requires `x-persai-step-up-token` header issued for action `admin.runtime_provider_settings.update`
+- request body:
+  - `primary.provider`
+  - `primary.model`
+  - optional `fallback.provider`
+  - optional `fallback.model`
+  - `availableModelsByProvider.openai[]`
+  - `availableModelsByProvider.anthropic[]`
+  - optional write-only `providerKeys.openai`
+  - optional write-only `providerKeys.anthropic`
+- behavior:
+  - persists global runtime-provider settings as platform-level control-plane truth
+  - stores raw provider keys only in dedicated encrypted PersAI secret storage
+  - never returns stored raw keys in the response body
+  - generates the provider credential refs required for OpenClaw consumption
+  - attempts best-effort reapply for assistants that already have a latest published version so live runtime converges toward the new global settings
+  - writes an admin audit event for the update
+  - this path replaces normal admin dependence on assistant-scoped rollout editing for provider keys/models
+
 ## Step 9 F6 progressive rollout and rollback controls
 
 ### GET /api/v1/admin/platform-rollouts
@@ -833,6 +877,13 @@ Behavior baseline:
 - H1 runtime provider profile baseline is materialized into:
   - `openclawBootstrap.governance.runtimeProviderProfile`
   - derived `runtimeProviderRouting` continues to surface routing truth for runtime/tool-policy alignment
+- When global runtime provider settings are configured, materialization precedence is:
+  - platform-global runtime provider settings
+  - fallback to legacy assistant governance H1 runtime-provider profile + provider credential refs
+  - fallback to legacy OpenClaw runtime default
+- The materialized runtime-provider profile may now include:
+  - platform-generated `SecretRef` values with source `persai`
+  - `availableModelsByProvider` metadata for later entitlement filtering
 - Materialization artifacts are versionable/auditable:
   - stored per published version (`published_version_id` unique)
   - deterministic diff documents (`layers_document`, `openclaw_*_document`)
@@ -952,7 +1003,7 @@ First supported adapter interactions:
   - `POST /api/v1/runtime/spec/apply`
   - payload source is A7 materialized documents (`openclawBootstrap`, `openclawWorkspace`, `contentHash`)
   - `reapply` flag is explicit in request body
-  - when `openclawBootstrap.governance.runtimeProviderProfile` is present, OpenClaw validates provider allowlist, selected models, and provider credential ref resolvability against its own runtime config/env before accepting the apply
+- when `openclawBootstrap.governance.runtimeProviderProfile` is present, OpenClaw validates provider allowlist, selected models, and provider credential ref resolvability against its own runtime secret-resolution configuration before accepting the apply
 - runtime web chat transport (C2):
   - `POST /api/v1/runtime/chat/web`
   - payload source is backend canonical turn context (`assistantId`, published version ID, chat/thread identity, persisted user message data)
@@ -1059,7 +1110,7 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 - When H1 admin-managed runtime provider profile is present in `spec.bootstrap.governance.runtimeProviderProfile`, the fork validates:
   - provider allowlist (`openai` / `anthropic` in H1)
   - non-empty selected model ids
-  - provider credential refs against current OpenClaw secret-resolution config/environment
+  - provider credential refs against current OpenClaw secret-resolution configuration, including PersAI-managed refs when that source is enabled
 - Request body limit **1_000_000** bytes; **413** / **408** / **400** for read errors.
 - **405** for non-POST.
 - **200** with `{ ok: true, accepted: true, assistantId, publishedVersionId, contentHash, reapply, appliedAt }` on success (informative; adapter does not assert this shape); apply payload is persisted server-side for subsequent chat (see ADR-048).

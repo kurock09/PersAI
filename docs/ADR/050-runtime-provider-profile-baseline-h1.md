@@ -4,6 +4,8 @@
 
 Accepted
 
+Follow-up note: the `H1/H1a` runtime profile baseline in this ADR remains the compatibility materialization path, but the preferred admin mutation UX for provider keys/models is superseded by [ADR-051](051-global-runtime-provider-settings-h1b.md).
+
 ## Context
 
 ADR-049 defined the north-star direction: PersAI becomes the admin-driven control plane for runtime configuration while OpenClaw remains the runtime plane and secret resolver.

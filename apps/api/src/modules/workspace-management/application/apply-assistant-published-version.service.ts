@@ -11,6 +11,7 @@ import {
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 
 @Injectable()
 export class ApplyAssistantPublishedVersionService {
@@ -21,7 +22,8 @@ export class ApplyAssistantPublishedVersionService {
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService
   ) {}
 
   async execute(
@@ -49,8 +51,44 @@ export class ApplyAssistantPublishedVersionService {
       }
     });
 
-    const materializedSpec =
-      await this.assistantMaterializedSpecRepository.findByPublishedVersionId(publishedVersion.id);
+    let materializedSpec = await this.assistantMaterializedSpecRepository.findByPublishedVersionId(
+      publishedVersion.id
+    );
+    try {
+      await this.materializeAssistantPublishedVersionService.execute(
+        assistantInProgress,
+        publishedVersion,
+        materializedSpec?.sourceAction ?? "publish"
+      );
+      materializedSpec = await this.assistantMaterializedSpecRepository.findByPublishedVersionId(
+        publishedVersion.id
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Materialized runtime spec refresh failed.";
+      await this.assistantRepository.markApplyFailed(
+        userId,
+        publishedVersion.id,
+        "materialization_failed",
+        errorMessage
+      );
+      await this.appendAssistantAuditEventService.execute({
+        workspaceId: assistantInProgress.workspaceId,
+        assistantId: assistantInProgress.id,
+        actorUserId: userId,
+        eventCategory: "runtime_apply",
+        eventCode: "assistant.runtime.apply_failed",
+        outcome: "failed",
+        summary: "Assistant runtime apply failed during materialization refresh.",
+        details: {
+          publishedVersionId: publishedVersion.id,
+          reapply,
+          errorCode: "materialization_failed",
+          errorMessage
+        }
+      });
+      return;
+    }
     if (materializedSpec === null) {
       await this.assistantRepository.markApplyFailed(
         userId,

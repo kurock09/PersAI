@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantTelegramConfigUpdateRequestDefaultParseMode =
-  (typeof AssistantTelegramConfigUpdateRequestDefaultParseMode)[keyof typeof AssistantTelegramConfigUpdateRequestDefaultParseMode];
+export type AssistantTelegramConfigUpdateRequestDefaultParseMode = typeof AssistantTelegramConfigUpdateRequestDefaultParseMode[keyof typeof AssistantTelegramConfigUpdateRequestDefaultParseMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantTelegramConfigUpdateRequestDefaultParseMode = {
-  plain_text: "plain_text",
-  markdown: "markdown"
+  plain_text: 'plain_text',
+  markdown: 'markdown',
 } as const;

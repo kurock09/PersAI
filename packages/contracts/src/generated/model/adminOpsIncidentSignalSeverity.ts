@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminOpsIncidentSignalSeverity =
-  (typeof AdminOpsIncidentSignalSeverity)[keyof typeof AdminOpsIncidentSignalSeverity];
+export type AdminOpsIncidentSignalSeverity = typeof AdminOpsIncidentSignalSeverity[keyof typeof AdminOpsIncidentSignalSeverity];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminOpsIncidentSignalSeverity = {
-  info: "info",
-  elevated: "elevated",
-  high: "high"
+  info: 'info',
+  elevated: 'elevated',
+  high: 'high',
 } as const;

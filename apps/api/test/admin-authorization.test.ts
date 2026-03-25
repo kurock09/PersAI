@@ -93,6 +93,20 @@ async function run(): Promise<void> {
       ),
     ForbiddenException
   );
+
+  const { challenge: runtimeSettingsChallenge } = await issuer.issueStepUpChallenge(
+    "user-1",
+    "admin.runtime_provider_settings.update"
+  );
+  await assert.rejects(
+    () =>
+      verifier.assertCanPerformDangerousAdminAction(
+        "user-1",
+        "admin.runtime_provider_settings.update",
+        runtimeSettingsChallenge.token
+      ),
+    ForbiddenException
+  );
 }
 
 run()
