@@ -1,5 +1,41 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - Dev API timeout raised for OpenClaw web stream
+
+### What changed
+
+- `infra/helm/values-dev.yaml` now sets `OPENCLAW_ADAPTER_TIMEOUT_MS=15000` for the dev `api` deployment.
+
+### Why changed
+
+- Live `POST /api/v1/assistant/chat/web/stream` requests were failing around `3116-3156 ms` even though OpenClaw was already generating valid text. The `api` container had no explicit timeout env, so it was using the config default `3000 ms` and aborting the upstream runtime call too early.
+
+### Next recommended step
+
+- Let GitOps reconcile this `api` env, then re-run the same web chat thread and verify the UI receives `completed` instead of surfacing a timeout issue.
+
+### Ready commit message
+
+- `fix(dev): raise openclaw adapter timeout for web streaming`
+
+## 2026-03-25 - Dev OpenClaw default model switched to OpenAI
+
+### What changed
+
+- `infra/helm/templates/openclaw-configmap.yaml` now writes `agents.defaults.model.primary` from Helm values, and `infra/helm/values-dev.yaml` sets that dev default to `openai/gpt-5.4`.
+
+### Why changed
+
+- Runtime state in Redis was working, but live chat still failed because OpenClaw booted with Anthropic default model while only `OPENAI_API_KEY` was configured in the cluster.
+
+### Next recommended step
+
+- Apply the updated ConfigMap/deployment via GitOps, verify startup logs show `agent model: openai/gpt-5.4`, then rerun chat + restart-safe smoke.
+
+### Ready commit message
+
+- `chore(dev): default openclaw runtime model to openai in values-dev`
+
 ## 2026-03-25 - Dev values switch OpenClaw to managed Redis
 
 ### What changed

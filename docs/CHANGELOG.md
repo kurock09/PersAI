@@ -8,6 +8,8 @@
 
 ### Documentation
 
+- **Dev API runtime timeout:** `infra/helm/values-dev.yaml` now sets `OPENCLAW_ADAPTER_TIMEOUT_MS=15000` so web stream requests do not fail at the old 3s default while OpenClaw is already generating a valid OpenAI response.
+- **Dev OpenClaw default model:** `openclaw-config` now declares `agents.defaults.model.primary = "openai/gpt-5.4"` in dev so runtime no longer boots into Anthropic by default when only `OPENAI_API_KEY` is configured.
 - **Dev runtime mode:** `infra/helm/values-dev.yaml` now sets OpenClaw `PERSAI_RUNTIME_SPEC_STORE=redis` and reads `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL` from `persai-openclaw-secrets`, so GitOps can keep the cluster on managed Redis instead of reverting to process-memory mode.
 - `AGENTS.md`: added mandatory **OpenClaw fork change workflow** for agents — when a slice touches `C:\Users\alex\Documents\openclaw`, agents must prepare both repos before handoff (fork commit, PersAI SHA/tag update, digest clear, docs update, explicit push order: OpenClaw first, PersAI second).
 - **ADR-048 P0 (OpenClaw fork):** Redis-backed PersAI apply-store wiring landed in fork commit `6ea3b32535d38e0884d8770e74483260caaf1a53`; documented runtime store envs (`PERSAI_RUNTIME_SPEC_STORE`, `...REDIS_URL`, optional prefix/TTL), clarified that multi-replica / restart-safe OpenClaw requires Redis-backed apply storage instead of process memory, updated `openclaw-approved-sha.txt`, and moved `infra/helm/values-dev.yaml` OpenClaw tag to that SHA while clearing digest for the next image repin workflow.

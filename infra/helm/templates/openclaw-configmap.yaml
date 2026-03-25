@@ -9,6 +9,13 @@ metadata:
 data:
   openclaw.json: |
     {
+      "agents": {
+        "defaults": {
+          "model": {
+            "primary": {{ .Values.openclaw.agentDefaults.modelPrimary | toJson }}
+          }
+        }
+      },
       "gateway": {
         "controlUi": {
           "allowedOrigins": {{ .Values.openclaw.controlUi.allowedOrigins | toJson }},
