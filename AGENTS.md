@@ -30,6 +30,24 @@ Foundation Phase only.
 - no git push
 - no dead stubs or TODO scaffolding
 
+## OpenClaw fork change workflow
+- when a slice changes the local OpenClaw fork (`C:\Users\alex\Documents\openclaw`), treat **OpenClaw + PersAI** as one delivery unit
+- before saying "ready to push", the agent must prepare **both** repos:
+  - commit the OpenClaw fork changes locally
+  - capture the new OpenClaw commit SHA
+  - update `infra/dev/gitops/openclaw-approved-sha.txt` in PersAI to that SHA
+  - if PersAI should build/deploy that fork revision, update `infra/helm/values-dev.yaml`:
+    - set `openclaw.image.tag` to the same fork SHA
+    - clear `openclaw.image.digest` so the image publish workflow can repin digest
+  - update `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md`
+  - if the runtime contract / deploy semantics changed, update the relevant docs/ADR first (`docs/API-BOUNDARY.md`, `docs/ADR/048-*`, runbooks)
+- before handoff, the agent must explicitly tell the user:
+  - what was committed in `openclaw`
+  - what was committed in `PersAI`
+  - exact push order: **push OpenClaw first, then PersAI**
+  - that PersAI CI is expected to rebuild/re-pin the OpenClaw image after the PersAI push
+- do not claim deploy-ready if only one repo is prepared or if the fork SHA in PersAI still points at an older commit
+
 ## Live test guidance for agents
 - for local-frontend + GKE-backend validation, read `docs/LIVE-TEST-HYBRID.md` before running live checks
 

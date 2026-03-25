@@ -1,5 +1,23 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - AGENTS rule: OpenClaw fork push-prep workflow
+
+### What changed
+
+- `AGENTS.md` now has an explicit **OpenClaw fork change workflow**: if a session changes `C:\Users\alex\Documents\openclaw`, agents must prepare both repos before saying "ready to push" (`openclaw` commit, PersAI SHA/tag update, digest clear, docs update, explicit push order).
+
+### Why changed
+
+- This repo regularly lands runtime changes in the fork while PersAI owns the pin/build/deploy boundary. Without a written workflow, agents can forget the second half of the delivery and leave CI/deploy in a broken or misleading state.
+
+### Next recommended step
+
+- Follow this rule on every future OpenClaw slice: push **OpenClaw first**, then push **PersAI**, then pull the CI repin commit back into the local PersAI checkout.
+
+### Ready commit message
+
+- `docs(agents): require dual-repo openclaw push preparation`
+
 ## 2026-03-25 - ADR-048 P0: Redis-backed apply store wiring (fork + PersAI ops docs)
 
 ### What changed
