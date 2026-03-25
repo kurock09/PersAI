@@ -8,6 +8,7 @@
 
 ### Documentation
 
+- **Docs alignment for live dev OpenClaw state:** refreshed `README.md`, `docs/API-BOUNDARY.md`, `docs/LIVE-TEST-HYBRID.md`, `docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md`, and `docs/ROADMAP.md` so they match the current dev chart/profile: Redis-backed apply store, OpenAI default model (`openai/gpt-5.4`), `OPENAI_API_KEY` secret wiring, and API adapter timeout `15000`.
 - **Dev API runtime timeout:** `infra/helm/values-dev.yaml` now sets `OPENCLAW_ADAPTER_TIMEOUT_MS=15000` so web stream requests do not fail at the old 3s default while OpenClaw is already generating a valid OpenAI response.
 - **Dev OpenClaw default model:** `openclaw-config` now declares `agents.defaults.model.primary = "openai/gpt-5.4"` in dev so runtime no longer boots into Anthropic by default when only `OPENAI_API_KEY` is configured.
 - **Dev runtime mode:** `infra/helm/values-dev.yaml` now sets OpenClaw `PERSAI_RUNTIME_SPEC_STORE=redis` and reads `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL` from `persai-openclaw-secrets`, so GitOps can keep the cluster on managed Redis instead of reverting to process-memory mode.

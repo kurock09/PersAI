@@ -89,6 +89,11 @@ OpenClaw dev deploy baseline (O3):
 - `openclaw.enabled=true` in `infra/helm/values-dev.yaml`
 - runtime wiring uses OpenClaw gateway port `18789`
 - auth token is injected from `persai-openclaw-secrets`
+- current dev runtime profile also sets:
+  - `PERSAI_RUNTIME_SPEC_STORE=redis`
+  - OpenClaw default model `openai/gpt-5.4`
+  - `OPENAI_API_KEY` from `persai-openclaw-secrets`
+  - API adapter timeout `OPENCLAW_ADAPTER_TIMEOUT_MS=15000`
 
 ## Dev image build/push baseline (Step 1 slice 13)
 

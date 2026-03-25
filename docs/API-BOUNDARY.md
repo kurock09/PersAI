@@ -995,7 +995,7 @@ This subsection is the **design-freeze** contract between PersAI `apps/api` and 
 - Native runtime fulfillment (persona, memory, tools, full agent pipeline from apply + chat) is implemented incrementally on the fork; planning, phased delivery, and scaling rules: [ADR-048](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md).
 - The dev image builds the fork at the pinned SHA in [infra/dev/gitops/openclaw-approved-sha.txt](../infra/dev/gitops/openclaw-approved-sha.txt) **without** applying a compat patch; runtime routes live in fork source under `src/gateway/persai-runtime/`.
 - Shared apply-store backend is selected inside the fork via `PERSAI_RUNTIME_SPEC_STORE=memory|redis`; Redis mode also uses `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL`, optional `PERSAI_RUNTIME_SPEC_STORE_KEY_PREFIX`, and optional `PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS`. This is an **operational/runtime** concern only; it does **not** change the HTTP contract in this section.
-- **Normative contract** = what PersAI’s adapter sends and validates (this section). **Reference behavior** for drift checks: see fork handlers and status codes below; until **ADR-048 P3**, assistant text may be **echo-shaped** (with `openclaw-persai-runtime*` / `[persona_loaded]` when apply+persona exist, or legacy compat-style prefix when no apply for that assistant version).
+- **Normative contract** = what PersAI’s adapter sends and validates (this section). **Reference behavior** for drift checks: see fork handlers and status codes below; with a prior apply for the same `(assistantId, publishedVersionId)`, sync/stream route through the embedded agent path (`agentCommandFromIngress`) and return real model output. Without apply for that assistant version, the fork still falls back to legacy compat-style echo text by design.
 
 ### Configuration (operational, no secret values)
 
@@ -1006,7 +1006,7 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 | `OPENCLAW_ADAPTER_ENABLED` | When false, adapter throws `runtime_unreachable` immediately for all calls. |
 | `OPENCLAW_BASE_URL` | Origin for relative paths below (no trailing path in contract; adapter concatenates `baseUrl + path`). |
 | `OPENCLAW_GATEWAY_TOKEN` | Required when adapter is enabled; sent as Bearer. |
-| `OPENCLAW_ADAPTER_TIMEOUT_MS` | Per-request `fetch` timeout (abort → `timeout`). Default `3000`. |
+| `OPENCLAW_ADAPTER_TIMEOUT_MS` | Per-request `fetch` timeout (abort → `timeout`). Code default `3000`; `infra/helm/values-dev.yaml` currently overrides dev to `15000` for web streaming stability. |
 | `OPENCLAW_ADAPTER_MAX_RETRIES` | Non-negative; used only for **non-stream** `fetch` calls that use the adapter retry helper. Default `1`. |
 
 **Retry policy (adapter):** only `runtime_unreachable` and `timeout` are retried, up to `maxRetries` additional attempts after the first try. **`POST /api/v1/runtime/chat/web/stream` is not retried** (single `fetch`).

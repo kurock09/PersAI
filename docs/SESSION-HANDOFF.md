@@ -1,5 +1,23 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - Docs aligned with current live dev OpenClaw profile
+
+### What changed
+
+- Updated `README.md`, `docs/API-BOUNDARY.md`, `docs/LIVE-TEST-HYBRID.md`, `docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md`, and `docs/ROADMAP.md` to match the current dev runtime profile declared in `infra/helm/values-dev.yaml`.
+
+### Why changed
+
+- The live dev stack now runs with Redis-backed apply state, OpenAI as the default OpenClaw model, `OPENAI_API_KEY` secret wiring, and a raised API adapter timeout for stable streaming. Several docs still described the older pre-fix or generic state and needed drift cleanup.
+
+### Next recommended step
+
+- Keep future OpenClaw ops/doc updates anchored to the actual `values-dev.yaml` profile so live-test instructions, roadmap, and ADR notes do not drift after runtime changes.
+
+### Ready commit message
+
+- `docs(dev): align runtime docs with current openclaw profile`
+
 ## 2026-03-25 - Dev API timeout raised for OpenClaw web stream
 
 ### What changed
