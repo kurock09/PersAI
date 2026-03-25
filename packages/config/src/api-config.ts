@@ -2,6 +2,21 @@ import { z } from "zod";
 
 const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace"] as const;
 const APP_ENVS = ["local", "dev"] as const;
+const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
+const FALSE_VALUES = new Set(["0", "false", "no", "off", ""]);
+
+const envBoolean = z.preprocess((value) => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (TRUE_VALUES.has(normalized)) {
+      return true;
+    }
+    if (FALSE_VALUES.has(normalized)) {
+      return false;
+    }
+  }
+  return value;
+}, z.boolean());
 
 const baseApiConfigSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
@@ -9,7 +24,8 @@ const baseApiConfigSchema = z.object({
   LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
   DATABASE_URL: z.string().min(1),
   CLERK_SECRET_KEY: z.string().min(1),
-  OPENCLAW_ADAPTER_ENABLED: z.coerce.boolean().default(false),
+  ADMIN_STEP_UP_HMAC_SECRET: z.string().optional(),
+  OPENCLAW_ADAPTER_ENABLED: envBoolean.default(false),
   OPENCLAW_BASE_URL: z.string().url().default("http://openclaw.persai-dev.svc.cluster.local:18789"),
   OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
   OPENCLAW_ADAPTER_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),

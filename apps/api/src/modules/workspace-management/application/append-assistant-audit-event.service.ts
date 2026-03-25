@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { DeliverAdminSystemNotificationService } from "./deliver-admin-system-notification.service";
@@ -18,6 +18,8 @@ export interface AppendAssistantAuditEventInput {
 
 @Injectable()
 export class AppendAssistantAuditEventService {
+  private readonly logger = new Logger(AppendAssistantAuditEventService.name);
+
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly deliverAdminSystemNotificationService: DeliverAdminSystemNotificationService
@@ -46,6 +48,10 @@ export class AppendAssistantAuditEventService {
         details: input.details ?? {},
         createdAt: created.createdAt.toISOString()
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : "Unknown admin notification delivery failure.";
+        this.logger.warn(`Admin notification delivery failed after audit append: ${message}`);
+      });
   }
 }

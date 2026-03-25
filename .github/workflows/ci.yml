@@ -1,6 +1,9 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -27,6 +30,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
       - name: Validate OpenClaw compatibility patch
         run: bash infra/dev/gitops/validate-openclaw-persai-runtime.sh
 
@@ -42,7 +48,12 @@ jobs:
           cache: "pnpm"
 
       - name: Install
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Helm Lint
+        run: |
+          helm lint infra/helm -f infra/helm/values-dev.yaml
+          helm template persai-dev infra/helm -f infra/helm/values-dev.yaml > /dev/null
 
       - name: Lint
         run: pnpm run lint

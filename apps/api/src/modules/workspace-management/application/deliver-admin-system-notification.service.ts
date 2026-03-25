@@ -7,6 +7,7 @@ import type {
   AdminSystemNotificationSignalCode,
   AdminSystemNotificationSeverity
 } from "./admin-system-notification.types";
+import { assertPublicWebhookUrl } from "./admin-webhook-url-policy";
 
 const WEBHOOK_TIMEOUT_MS = 3000;
 
@@ -144,6 +145,7 @@ export class DeliverAdminSystemNotificationService {
     envelope: AdminSystemNotificationEnvelope,
     signingSecret: string | null
   ): Promise<Response> {
+    assertPublicWebhookUrl(endpointUrl);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
     try {

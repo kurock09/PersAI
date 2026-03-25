@@ -84,7 +84,7 @@ Database migration behavior on every deploy sync:
 - Approved fork repository: `https://github.com/kurock09/openclaw`
 - Approved ref type: full commit SHA only (no branch/tag refs)
 - Single machine-readable SHA source: `infra/dev/gitops/openclaw-approved-sha.txt`
-- Approved commit SHA (current): `baf61e8675b97ce5c31f768e732304c58d526e34`
+- Approved commit SHA (current): `6ea3b32535d38e0884d8770e74483260caaf1a53`
 - Ownership: PersAI infra maintainers update this SHA by PR in this repo.
 - Update rule: every SHA change in `infra/dev/gitops/openclaw-approved-sha.txt` must be reflected in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md` in the same PR.
 
@@ -159,7 +159,7 @@ Optional dev values (not required for pod boot):
 Optional / later:
 
 - Provider and channel credentials beyond baseline gateway startup/auth (required only for real model turns).
-- **P3 (fork):** with a prior **apply**, web sync/stream use **`agentCommandFromIngress`** (real agent output); without apply, **compat echo** remains. See [ADR-048](../../../docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md). Provider keys in cluster secrets are required for non-empty model replies.
+- **P3 (fork):** with a prior **apply**, web sync/stream use **`agentCommandFromIngress`** (real agent output); without apply, OpenClaw now returns an explicit **503** instead of compat echo so PersAI can fail the turn honestly. See [ADR-048](../../../docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md). Provider keys in cluster secrets are required for non-empty model replies.
 
 Current integration status:
 
@@ -183,7 +183,7 @@ Source-of-truth mapping in dev policy:
 
 - Deploy enablement:
   - `openclaw.enabled=true` in `infra/helm/values-dev.yaml`
-  - OpenClaw image tag pinned to approved fork SHA: `baf61e8675b97ce5c31f768e732304c58d526e34`
+  - OpenClaw image tag pinned to approved fork SHA: `6ea3b32535d38e0884d8770e74483260caaf1a53`
 - Runtime command/args:
   - command: `node openclaw.mjs gateway`
   - args: `--bind lan --port 18789`

@@ -147,22 +147,47 @@ export class AdminAuthorizationService {
   }
 
   private async resolveAdminAccessContext(userId: string): Promise<AdminAccessContext> {
-    const membership = await this.prisma.workspaceMember.findFirst({
+    const memberships = await this.prisma.workspaceMember.findMany({
       where: { userId },
-      orderBy: [{ role: "asc" }, { createdAt: "desc" }]
+      orderBy: [{ role: "asc" }, { createdAt: "desc" }],
+      select: {
+        workspaceId: true,
+        role: true,
+        createdAt: true
+      }
     });
-    if (membership === null) {
+    if (memberships.length === 0) {
       throw new ForbiddenException("Admin access requires workspace membership.");
     }
+
     const adminRoles = await this.prisma.appUserAdminRole.findMany({
       where: {
         userId,
-        OR: [{ workspaceId: membership.workspaceId }, { workspaceId: null }]
+        OR: [
+          { workspaceId: { in: memberships.map((membership) => membership.workspaceId) } },
+          { workspaceId: null }
+        ]
       },
-      select: { roleCode: true }
+      select: {
+        roleCode: true,
+        workspaceId: true
+      }
     });
+
+    const membershipsByScopedRole = new Set(
+      adminRoles.flatMap((row) => (row.workspaceId === null ? [] : [row.workspaceId]))
+    );
+    const membership =
+      memberships.find((item) => membershipsByScopedRole.has(item.workspaceId)) ?? memberships[0];
+    if (membership === undefined) {
+      throw new ForbiddenException("Admin access requires workspace membership.");
+    }
+
     const roleSet = new Set<SupportedAdminRole>();
     for (const row of adminRoles) {
+      if (row.workspaceId !== null && row.workspaceId !== membership.workspaceId) {
+        continue;
+      }
       roleSet.add(row.roleCode);
     }
     const hasLegacyOwnerFallback = membership.role === WorkspaceRole.owner;
@@ -225,8 +250,18 @@ export class AdminAuthorizationService {
   }
 
   private sign(payloadEncoded: string): string {
-    return createHmac("sha256", this.apiConfig.CLERK_SECRET_KEY)
+    return createHmac("sha256", this.getStepUpSigningSecret())
       .update(`persai-admin-stepup-v1:${payloadEncoded}`)
+      .digest("base64url");
+  }
+
+  private getStepUpSigningSecret(): string {
+    const configuredSecret = this.apiConfig.ADMIN_STEP_UP_HMAC_SECRET?.trim();
+    if (configuredSecret && configuredSecret.length > 0) {
+      return configuredSecret;
+    }
+    return createHmac("sha256", this.apiConfig.CLERK_SECRET_KEY)
+      .update("persai-admin-stepup-v1:key-derivation")
       .digest("base64url");
   }
 }

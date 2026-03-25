@@ -20,6 +20,10 @@ interface OpenClawAdapterConfig {
   maxRetries: number;
 }
 
+interface OpenClawRequestOptions {
+  acceptedErrorStatuses?: number[];
+}
+
 function isObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -52,7 +56,9 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     }
 
     const healthPayload = await this.requestWithRetries("GET", "/healthz", undefined, config);
-    const readyPayload = await this.requestWithRetries("GET", "/readyz", undefined, config);
+    const readyPayload = await this.requestWithRetries("GET", "/readyz", undefined, config, {
+      acceptedErrorStatuses: [503]
+    });
 
     if (!isObject(healthPayload) || !isObject(readyPayload)) {
       throw new AssistantRuntimeAdapterError(
@@ -194,7 +200,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     }
 
-    const streamResponse = await this.requestStream(
+    const streamResponse = await this.requestStreamWithRetries(
       "/api/v1/runtime/chat/web/stream",
       {
         assistantId: input.assistantId,
@@ -260,21 +266,25 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     method: "GET" | "POST",
     path: string,
     body: unknown,
-    config: OpenClawAdapterConfig
+    config: OpenClawAdapterConfig,
+    options: OpenClawRequestOptions = {}
   ): Promise<unknown> {
     let attempt = 0;
     let lastError: AssistantRuntimeAdapterError | null = null;
 
     while (attempt <= config.maxRetries) {
       try {
-        return await this.request(method, path, body, config);
+        return await this.request(method, path, body, config, options);
       } catch (error) {
         if (!(error instanceof AssistantRuntimeAdapterError)) {
           throw error;
         }
 
         lastError = error;
-        const retriable = error.code === "runtime_unreachable" || error.code === "timeout";
+        const retriable =
+          error.code === "runtime_unreachable" ||
+          error.code === "timeout" ||
+          error.code === "runtime_degraded";
         if (!retriable || attempt >= config.maxRetries) {
           throw error;
         }
@@ -296,7 +306,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     method: "GET" | "POST",
     path: string,
     body: unknown,
-    config: OpenClawAdapterConfig
+    config: OpenClawAdapterConfig,
+    options: OpenClawRequestOptions
   ): Promise<unknown> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -324,7 +335,14 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         );
       }
 
-      if (!response.ok) {
+      const acceptedErrorStatuses = new Set(options.acceptedErrorStatuses ?? []);
+      if (!response.ok && !acceptedErrorStatuses.has(response.status)) {
+        if (response.status === 502 || response.status === 503 || response.status === 504) {
+          throw new AssistantRuntimeAdapterError(
+            "runtime_degraded",
+            `OpenClaw runtime degraded with HTTP ${response.status}.`
+          );
+        }
         throw new AssistantRuntimeAdapterError(
           "invalid_response",
           `OpenClaw response status ${response.status} is not successful.`
@@ -360,6 +378,44 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     }
   }
 
+  private async requestStreamWithRetries(
+    path: string,
+    body: unknown,
+    config: OpenClawAdapterConfig
+  ): Promise<Response> {
+    let attempt = 0;
+    let lastError: AssistantRuntimeAdapterError | null = null;
+
+    while (attempt <= config.maxRetries) {
+      try {
+        return await this.requestStream(path, body, config);
+      } catch (error) {
+        if (!(error instanceof AssistantRuntimeAdapterError)) {
+          throw error;
+        }
+
+        lastError = error;
+        const retriable =
+          error.code === "runtime_unreachable" ||
+          error.code === "timeout" ||
+          error.code === "runtime_degraded";
+        if (!retriable || attempt >= config.maxRetries) {
+          throw error;
+        }
+      }
+
+      attempt += 1;
+    }
+
+    throw (
+      lastError ??
+      new AssistantRuntimeAdapterError(
+        "runtime_unreachable",
+        "OpenClaw stream request failed unexpectedly."
+      )
+    );
+  }
+
   private async requestStream(
     path: string,
     body: unknown,
@@ -388,6 +444,12 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       }
 
       if (!response.ok) {
+        if (response.status === 502 || response.status === 503 || response.status === 504) {
+          throw new AssistantRuntimeAdapterError(
+            "runtime_degraded",
+            `OpenClaw runtime degraded with HTTP ${response.status}.`
+          );
+        }
         throw new AssistantRuntimeAdapterError(
           "invalid_response",
           `OpenClaw response status ${response.status} is not successful.`

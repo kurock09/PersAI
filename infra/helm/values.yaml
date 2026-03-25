@@ -44,9 +44,26 @@ api:
     CLERK_SECRET_KEY:
       secretName: persai-api-secrets
       secretKey: CLERK_SECRET_KEY
+    ADMIN_STEP_UP_HMAC_SECRET:
+      secretName: persai-api-secrets
+      secretKey: ADMIN_STEP_UP_HMAC_SECRET
+      optional: true
     OPENCLAW_GATEWAY_TOKEN:
       secretName: persai-openclaw-secrets
       secretKey: OPENCLAW_GATEWAY_TOKEN
+  probes:
+    readiness:
+      path: /ready
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+    liveness:
+      path: /health
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      timeoutSeconds: 2
+      failureThreshold: 3
   service:
     type: ClusterIP
     port: 3001
@@ -64,6 +81,19 @@ web:
     CLERK_SECRET_KEY:
       secretName: persai-api-secrets
       secretKey: CLERK_SECRET_KEY
+  probes:
+    readiness:
+      path: /api/ready
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+    liveness:
+      path: /api/health
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      timeoutSeconds: 2
+      failureThreshold: 3
   service:
     type: ClusterIP
     port: 3000

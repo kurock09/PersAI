@@ -33,8 +33,31 @@ spec:
                 secretKeyRef:
                   name: {{ $ref.secretName | quote }}
                   key: {{ $ref.secretKey | quote }}
+{{- if hasKey $ref "optional" }}
+                  optional: {{ $ref.optional }}
+{{- end }}
 {{- end }}
 {{- end }}
           ports:
             - containerPort: {{ .Values.web.service.port }}
+{{- with .Values.web.probes.readiness }}
+          readinessProbe:
+            httpGet:
+              path: {{ .path | quote }}
+              port: {{ $.Values.web.service.port }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+{{- end }}
+{{- with .Values.web.probes.liveness }}
+          livenessProbe:
+            httpGet:
+              path: {{ .path | quote }}
+              port: {{ $.Values.web.service.port }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+{{- end }}
 {{- end }}

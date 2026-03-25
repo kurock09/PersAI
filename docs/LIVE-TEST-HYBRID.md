@@ -33,19 +33,19 @@ Notes:
 
 ## Run sequence
 
-1) Start API port-forward from GKE:
+1. Start API port-forward from GKE:
 
 ```powershell
 kubectl port-forward -n persai-dev svc/api 3001:3001
 ```
 
-2) In a separate terminal, start local web:
+2. In a separate terminal, start local web:
 
 ```powershell
 corepack pnpm --filter @persai/web run dev
 ```
 
-3) Open:
+3. Open:
 
 - `http://localhost:3000/`
 - `http://localhost:3000/app`
@@ -125,7 +125,7 @@ If the fork is running with `PERSAI_RUNTIME_SPEC_STORE=memory`, an OpenClaw proc
 
 ### ADR-048 direct contract check (optional)
 
-After port-forward to `svc/openclaw` and with Bearer from `persai-openclaw-secrets` / `OPENCLAW_GATEWAY_TOKEN`, you can POST `/api/v1/runtime/spec/apply` then `/api/v1/runtime/chat/web` and expect `200`, header `X-Persai-Runtime-Session-Key`, and `assistantMessage` from the **embedded agent** when apply is present (requires provider credentials in OpenClaw runtime secrets for non-trivial replies; current dev chart expects `OPENAI_API_KEY`). Without apply, body still echoes `[openclaw-compat]`. Shapes: [API-BOUNDARY.md](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1).
+After port-forward to `svc/openclaw` and with Bearer from `persai-openclaw-secrets` / `OPENCLAW_GATEWAY_TOKEN`, you can POST `/api/v1/runtime/spec/apply` then `/api/v1/runtime/chat/web` and expect `200`, header `X-Persai-Runtime-Session-Key`, and `assistantMessage` from the **embedded agent** when apply is present (requires provider credentials in OpenClaw runtime secrets for non-trivial replies; current dev chart expects `OPENAI_API_KEY`). Without apply, the runtime now returns **503** instead of a compat echo body. Shapes: [API-BOUNDARY.md](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1).
 
 ## Shutdown
 

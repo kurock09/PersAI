@@ -414,6 +414,26 @@ export async function streamAssistantWebChatTurn(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let sawTerminalEvent = false;
+
+  const handleStreamEvent = (streamEvent: WebChatStreamEvent): void => {
+    if (streamEvent.event === "started") {
+      handlers.onStarted?.(streamEvent.data);
+    } else if (streamEvent.event === "delta") {
+      handlers.onDelta?.(streamEvent.data);
+    } else if (streamEvent.event === "runtime_done") {
+      handlers.onRuntimeDone?.(streamEvent.data);
+    } else if (streamEvent.event === "completed") {
+      sawTerminalEvent = true;
+      handlers.onCompleted?.(streamEvent.data);
+    } else if (streamEvent.event === "interrupted") {
+      sawTerminalEvent = true;
+      handlers.onInterrupted?.(streamEvent.data);
+    } else if (streamEvent.event === "failed") {
+      sawTerminalEvent = true;
+      handlers.onFailed?.(streamEvent.data);
+    }
+  };
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -443,20 +463,31 @@ export async function streamAssistantWebChatTurn(
         continue;
       }
 
-      if (streamEvent.event === "started") {
-        handlers.onStarted?.(streamEvent.data);
-      } else if (streamEvent.event === "delta") {
-        handlers.onDelta?.(streamEvent.data);
-      } else if (streamEvent.event === "runtime_done") {
-        handlers.onRuntimeDone?.(streamEvent.data);
-      } else if (streamEvent.event === "completed") {
-        handlers.onCompleted?.(streamEvent.data);
-      } else if (streamEvent.event === "interrupted") {
-        handlers.onInterrupted?.(streamEvent.data);
-      } else if (streamEvent.event === "failed") {
-        handlers.onFailed?.(streamEvent.data);
+      handleStreamEvent(streamEvent);
+    }
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim().length > 0) {
+    const parsed = parseSseBlock(buffer.trim());
+    if (parsed !== null) {
+      let payloadObject: unknown = null;
+      try {
+        payloadObject = JSON.parse(parsed.data);
+      } catch {
+        payloadObject = null;
+      }
+
+      const streamEvent =
+        payloadObject === null ? null : toStreamEvent(parsed.eventName, payloadObject);
+      if (streamEvent !== null) {
+        handleStreamEvent(streamEvent);
       }
     }
+  }
+
+  if (!sawTerminalEvent) {
+    throw new Error("Stream closed before terminal event.");
   }
 }
 

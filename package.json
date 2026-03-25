@@ -10,7 +10,7 @@
     "lint": "corepack pnpm -r --if-present run lint && corepack pnpm run format:check",
     "typecheck": "corepack pnpm -r --if-present run typecheck",
     "test": "corepack pnpm -r --if-present run test",
-    "test:step2": "corepack pnpm --filter @persai/api run test && corepack pnpm --filter @persai/web run test",
+    "test:step2": "corepack pnpm --filter @persai/api run test:step2 && corepack pnpm --filter @persai/web run test",
     "build": "corepack pnpm -r --if-present run build"
   },
   "devDependencies": {

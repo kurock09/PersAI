@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { AdminNotificationChannelStatus } from "@prisma/client";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
+import { assertPublicWebhookUrl } from "./admin-webhook-url-policy";
 import type { AdminNotificationChannelState } from "./admin-system-notification.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
@@ -20,14 +21,12 @@ function toTrimmedOrNull(value: unknown): string | null {
 }
 
 function assertWebhookUrl(value: string): void {
-  let parsed: URL;
   try {
-    parsed = new URL(value);
-  } catch {
-    throw new BadRequestException("Webhook endpointUrl must be a valid URL.");
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new BadRequestException("Webhook endpointUrl must use http or https.");
+    assertPublicWebhookUrl(value);
+  } catch (error) {
+    throw new BadRequestException(
+      error instanceof Error ? error.message : "Invalid webhook endpointUrl."
+    );
   }
 }
 

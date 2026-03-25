@@ -1001,13 +1001,13 @@ This subsection is the **design-freeze** contract between PersAI `apps/api` and 
 
 Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/config/src/api-config.ts):
 
-| Variable | Role |
-|----------|------|
-| `OPENCLAW_ADAPTER_ENABLED` | When false, adapter throws `runtime_unreachable` immediately for all calls. |
-| `OPENCLAW_BASE_URL` | Origin for relative paths below (no trailing path in contract; adapter concatenates `baseUrl + path`). |
-| `OPENCLAW_GATEWAY_TOKEN` | Required when adapter is enabled; sent as Bearer. |
-| `OPENCLAW_ADAPTER_TIMEOUT_MS` | Per-request `fetch` timeout (abort → `timeout`). Code default `3000`; `infra/helm/values-dev.yaml` currently overrides dev to `15000` for web streaming stability. |
-| `OPENCLAW_ADAPTER_MAX_RETRIES` | Non-negative; used only for **non-stream** `fetch` calls that use the adapter retry helper. Default `1`. |
+| Variable                       | Role                                                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OPENCLAW_ADAPTER_ENABLED`     | When false, adapter throws `runtime_unreachable` immediately for all calls.                                                                                        |
+| `OPENCLAW_BASE_URL`            | Origin for relative paths below (no trailing path in contract; adapter concatenates `baseUrl + path`).                                                             |
+| `OPENCLAW_GATEWAY_TOKEN`       | Required when adapter is enabled; sent as Bearer.                                                                                                                  |
+| `OPENCLAW_ADAPTER_TIMEOUT_MS`  | Per-request `fetch` timeout (abort → `timeout`). Code default `3000`; `infra/helm/values-dev.yaml` currently overrides dev to `15000` for web streaming stability. |
+| `OPENCLAW_ADAPTER_MAX_RETRIES` | Non-negative; used only for **non-stream** `fetch` calls that use the adapter retry helper. Default `1`.                                                           |
 
 **Retry policy (adapter):** only `runtime_unreachable` and `timeout` are retried, up to `maxRetries` additional attempts after the first try. **`POST /api/v1/runtime/chat/web/stream` is not retried** (single `fetch`).
 
@@ -1031,15 +1031,15 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 - `Content-Type: application/json`
 - Body (JSON object), aligned with [assistant-runtime-adapter.types.ts](../apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts) `AssistantRuntimeApplyInput`:
 
-| Field | Type | Required |
-|-------|------|----------|
-| `assistantId` | string | yes (non-empty after trim) |
-| `publishedVersionId` | string | yes |
-| `contentHash` | string | yes |
-| `reapply` | boolean | yes (`true` or `false`) |
-| `spec` | object | yes |
-| `spec.bootstrap` | JSON value | yes (key must exist; value is opaque materialized bootstrap) |
-| `spec.workspace` | JSON value | yes (key must exist; value is opaque materialized workspace) |
+| Field                | Type       | Required                                                     |
+| -------------------- | ---------- | ------------------------------------------------------------ |
+| `assistantId`        | string     | yes (non-empty after trim)                                   |
+| `publishedVersionId` | string     | yes                                                          |
+| `contentHash`        | string     | yes                                                          |
+| `reapply`            | boolean    | yes (`true` or `false`)                                      |
+| `spec`               | object     | yes                                                          |
+| `spec.bootstrap`     | JSON value | yes (key must exist; value is opaque materialized bootstrap) |
+| `spec.workspace`     | JSON value | yes (key must exist; value is opaque materialized workspace) |
 
 **Success**
 
@@ -1059,14 +1059,14 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 - `Content-Type: application/json`
 - Body:
 
-| Field | Type | Required |
-|-------|------|----------|
-| `assistantId` | string | yes (non-empty after trim) |
-| `publishedVersionId` | string | yes |
-| `chatId` | string | yes |
-| `surfaceThreadKey` | string | yes |
-| `userMessageId` | string | yes |
-| `userMessage` | string | yes |
+| Field                | Type   | Required                   |
+| -------------------- | ------ | -------------------------- |
+| `assistantId`        | string | yes (non-empty after trim) |
+| `publishedVersionId` | string | yes                        |
+| `chatId`             | string | yes                        |
+| `surfaceThreadKey`   | string | yes                        |
+| `userMessageId`      | string | yes                        |
+| `userMessage`        | string | yes                        |
 
 **Success response (adapter-validated)**
 
@@ -1078,7 +1078,8 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 
 - Same body limit and **400**/**408**/**413**/**405** as spec apply.
 - Response header `X-Persai-Runtime-Session-Key` set to the derived web session key (P1).
-- **200** with `ok: true` and `assistantMessage` / `respondedAt`: after a successful apply for the same `(assistantId, publishedVersionId)`, the fork runs a full embedded agent turn via `agentCommandFromIngress` (session key = P1 mapping); `assistantMessage` is model/tool output (persona `instructions` from stored workspace are passed as `extraSystemPrompt` when present). If there is **no** apply for that pair, response remains legacy **`[openclaw-compat]`** echo of `userMessage`.
+- **200** with `ok: true` and `assistantMessage` / `respondedAt`: after a successful apply for the same `(assistantId, publishedVersionId)`, the fork runs a full embedded agent turn via `agentCommandFromIngress` (session key = P1 mapping); `assistantMessage` is model/tool output (persona `instructions` from stored workspace are passed as `extraSystemPrompt` when present).
+- **503** with `{ ok: false, error }`: the requested `(assistantId, publishedVersionId)` has no applied runtime spec in the OpenClaw store; PersAI should treat this as degraded runtime state rather than a successful assistant reply.
 - **500** with `{ ok: false, error }` may occur when the agent run throws (e.g. missing provider credentials); the adapter maps non-2xx to `invalid_response`.
 
 ### `POST /api/v1/runtime/chat/web/stream`
@@ -1102,18 +1103,19 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 **Fork implementation reference**
 
 - After apply, streams real assistant deltas from the embedded agent (`onAgentEvent` / same path as OpenAI-compat streaming), then one `done` line; **405**/**400**/**408**/**413** same family as above; same `X-Persai-Runtime-Session-Key` header as sync.
-- Without apply, retains **`openclaw-compat-stream`** word-chunk echo for backward transport checks.
+- Without apply, the endpoint returns **503** JSON error before the NDJSON stream starts.
 
 ### HTTP status and adapter error mapping
 
-| Condition | Adapter error code |
-|-----------|-------------------|
-| `401` / `403` | `auth_failure` |
-| Other non-2xx on HTTP | `invalid_response` |
-| Abort due to timeout | `timeout` |
-| Network / non-abort fetch failure | `runtime_unreachable` |
-| JSON parse failure, missing required fields (per rules above) | `invalid_response` |
-| Adapter disabled | `runtime_unreachable` |
-| Preflight reports not live or not ready **before** apply or chat | `runtime_degraded` |
+| Condition                                                        | Adapter error code    |
+| ---------------------------------------------------------------- | --------------------- |
+| `401` / `403`                                                    | `auth_failure`        |
+| `502` / `503` / `504` on HTTP                                    | `runtime_degraded`    |
+| Other non-2xx on HTTP                                            | `invalid_response`    |
+| Abort due to timeout                                             | `timeout`             |
+| Network / non-abort fetch failure                                | `runtime_unreachable` |
+| JSON parse failure, missing required fields (per rules above)    | `invalid_response`    |
+| Adapter disabled                                                 | `runtime_unreachable` |
+| Preflight reports not live or not ready **before** apply or chat | `runtime_degraded`    |
 
 Implementation reference: [openclaw-runtime.adapter.ts](../apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts).
