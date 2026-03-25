@@ -121,3 +121,5 @@ Foundation Phase
 - [x] G5 — WhatsApp and MAX readiness hardening
 
 ## Step 11 Product Experience and Visual Polish
+
+- [x] **ADR-048 baseline (OpenClaw fork)** — native PersAI runtime HTTP at pinned SHA `8e61e0ba5eba49fccc2c0ae362e07b242c7e1d15`: **P0** pluggable apply store (in-memory default; `PERSAI_RUNTIME_SPEC_STORE=redis` reserved), **P1** stable `X-Persai-Runtime-Session-Key`, **P2** persona read from stored workspace for transport echo; **P3** full embedded agent turn deferred. PersAI: removed compat patch + `validate-openclaw-persai-runtime.sh`; `openclaw-approved-sha.txt` and dev Helm tag updated (digest refilled by CI on next `main` push).

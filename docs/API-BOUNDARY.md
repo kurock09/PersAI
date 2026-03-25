@@ -992,9 +992,9 @@ This subsection is the **design-freeze** contract between PersAI `apps/api` and 
 ### Fork build and compatibility patch
 
 - Source-of-truth and deploy boundary: [ADR-012](ADR/012-openclaw-fork-source-and-deploy-boundary.md).
-- Native runtime fulfillment (persona, memory, tools, full agent pipeline from apply + chat) is planned and owned on the fork side: [ADR-048](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md).
-- The dev image applies [infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch](../infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch) to the checked-out fork during CI so the gateway exposes the paths below until the fork implements them natively.
-- **Normative contract** = what PersAI’s adapter sends and validates (this section). **Compat patch behavior** (echo/stream stub) is documented under “Compat patch reference behavior” for drift checks; a native implementation must honor the same request/response shapes and status codes expected by the adapter.
+- Native runtime fulfillment (persona, memory, tools, full agent pipeline from apply + chat) is implemented incrementally on the fork; planning and scaling rules: [ADR-048](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md).
+- The dev image builds the fork at the pinned SHA in [infra/dev/gitops/openclaw-approved-sha.txt](../infra/dev/gitops/openclaw-approved-sha.txt) **without** applying a compat patch; runtime routes live in fork source under `src/gateway/persai-runtime/`.
+- **Normative contract** = what PersAI’s adapter sends and validates (this section). **Reference behavior** for drift checks: see fork handlers and status codes below; legacy compat echo strings may still appear when no spec has been applied for the assistant version (backward transport compatibility).
 
 ### Configuration (operational, no secret values)
 
@@ -1044,12 +1044,12 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 
 - Adapter requires HTTP **2xx**; response body is parsed as JSON but **not** semantically validated (void return in application layer).
 
-**Compat patch reference behavior**
+**Fork implementation reference**
 
 - Rejects missing/invalid fields with **400** and JSON `{ ok: false, error: "<message>" }`.
-- Request body limit **1_000_000** bytes; **413** / **408** / **400** for read errors as implemented in patch.
+- Request body limit **1_000_000** bytes; **413** / **408** / **400** for read errors.
 - **405** for non-POST.
-- **200** with `{ ok: true, accepted: true, assistantId, publishedVersionId, contentHash, reapply, appliedAt }` on success (informative; adapter does not assert this shape).
+- **200** with `{ ok: true, accepted: true, assistantId, publishedVersionId, contentHash, reapply, appliedAt }` on success (informative; adapter does not assert this shape); apply payload is persisted server-side for subsequent chat (see ADR-048).
 
 ### `POST /api/v1/runtime/chat/web`
 
@@ -1073,10 +1073,11 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
   - `assistantMessage`: string, non-empty after trim
   - `respondedAt`: string, non-empty after trim
 
-**Compat patch reference behavior**
+**Fork implementation reference**
 
 - Same body limit and **400**/**408**/**413**/**405** as spec apply.
-- **200** with `ok: true` and echo-style `assistantMessage` / `respondedAt` (stub semantics for integration tests).
+- Response header `X-Persai-Runtime-Session-Key` set to the derived web session key (P1).
+- **200** with `ok: true` and `assistantMessage` / `respondedAt`: after a successful apply for the same `(assistantId, publishedVersionId)`, prefix includes `openclaw-persai-runtime` and `[persona_loaded]` when workspace persona instructions exist; otherwise legacy `[openclaw-compat]` echo (no apply yet for that version).
 
 ### `POST /api/v1/runtime/chat/web/stream`
 
@@ -1096,9 +1097,10 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 - Exactly one terminal line with `{ "type": "done", "respondedAt": "<iso string>" }` before the adapter completes successfully.
 - Any other `type` → `invalid_response`. Missing `done` after EOF → `invalid_response`. Invalid JSON line → `invalid_response`.
 
-**Compat patch reference behavior**
+**Fork implementation reference**
 
-- Stub streams word chunks as `delta` lines, then one `done` line; **405**/**400**/**408**/**413** same family as above.
+- Streams word chunks as `delta` lines, then one `done` line; **405**/**400**/**408**/**413** same family as above; same `X-Persai-Runtime-Session-Key` header as sync.
+- Prefix `openclaw-persai-runtime-stream` / `[persona_loaded]` when apply+persona present; else `openclaw-compat-stream` (P3 will replace echo with native agent output).
 
 ### HTTP status and adapter error mapping
 

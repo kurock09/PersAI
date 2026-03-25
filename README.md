@@ -113,7 +113,7 @@ OpenClaw image publish workflow (Step 3 O2):
 - triggers on `push` to `main` and manual `workflow_dispatch`
 - uses the same WIF/OIDC variables as `api`/`web` workflows
 - reads approved OpenClaw SHA from machine-readable pin file `infra/dev/gitops/openclaw-approved-sha.txt`
-- materializes OpenClaw source from fork into temporary CI path `services/openclaw` at that approved SHA
+- materializes OpenClaw source from fork into temporary CI path `services/openclaw` at that approved SHA (native PersAI runtime routes ship in fork; no compat patch step)
 - builds using:
   - context: `services/openclaw`
   - Dockerfile: `services/openclaw/Dockerfile`

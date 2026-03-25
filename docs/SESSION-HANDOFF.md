@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - ADR-048 executed: native PersAI runtime in OpenClaw fork (P0–P2)
+
+### What changed
+
+- **Fork** (`kurock09/openclaw`): commit `8e61e0ba5eba49fccc2c0ae362e07b242c7e1d15` — added `src/gateway/persai-runtime/` (`persai-runtime-spec-store.ts`, `persai-runtime-session.ts`, `persai-runtime-http.ts`); wired `server-http.ts` + `server-runtime-state.ts` so apply persists, chat/stream read store, emit `X-Persai-Runtime-Session-Key`, echo prefixes `openclaw-persai-runtime*` when apply+persona present else legacy compat prefix.
+- **PersAI**: `openclaw-approved-sha.txt` → above SHA; removed compat patch file + `validate-openclaw-compat-patch.sh`; added `validate-openclaw-persai-runtime.sh`; dropped patch step from `openclaw-dev-image-publish.yml`; `ci.yml` uses new validator; `values-dev.yaml` OpenClaw tag updated, digest cleared for CI repin; docs/ADR/API-BOUNDARY/README/gitops/ROADMAP Step 11 updated.
+
+### Why changed
+
+- Execute ADR-048 by shipping native routes in fork instead of CI patch; lay P0 multi-replica–ready store interface and P1/P2 hooks without rewriting embedded agent core (P3 next).
+
+### Blocker before GitHub CI / deploy
+
+- **Push the fork commit to `origin`** on `https://github.com/kurock09/openclaw` first; clone in CI must resolve `8e61e0ba5eba49fccc2c0ae362e07b242c7e1d15`.
+
+### Files touched (high level)
+
+- OpenClaw: `src/gateway/persai-runtime/*`, `server-http.ts`, `server-runtime-state.ts`
+- PersAI: workflows, `infra/dev/gitops/*`, `infra/helm/values-dev.yaml`, `docs/*`, `README.md`
+
+### Tests run / result
+
+- OpenClaw: local `pnpm`/tsc not available in agent shell; rely on fork CI after push.
+- PersAI: not run (doc + infra edits).
+
+### Next recommended step
+
+- Push fork → merge PersAI `main` → let OpenClaw workflow repin digest → live verify apply + chat prefixes and session header.
+
+### Ready commit message
+
+- `feat(openclaw): native persai runtime p0-p2; drop compat patch and repin sha`
+
 ## 2026-03-25 - ADR-048: native OpenClaw runtime plan (fork-owned code)
 
 ### What changed

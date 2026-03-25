@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate OpenClaw compatibility patch
-        run: bash infra/dev/gitops/validate-openclaw-compat-patch.sh
+        run: bash infra/dev/gitops/validate-openclaw-persai-runtime.sh
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

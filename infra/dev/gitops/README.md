@@ -75,7 +75,7 @@ Database migration behavior on every deploy sync:
 - Approved fork repository: `https://github.com/kurock09/openclaw`
 - Approved ref type: full commit SHA only (no branch/tag refs)
 - Single machine-readable SHA source: `infra/dev/gitops/openclaw-approved-sha.txt`
-- Approved commit SHA (current): `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+- Approved commit SHA (current): `8e61e0ba5eba49fccc2c0ae362e07b242c7e1d15`
 - Ownership: PersAI infra maintainers update this SHA by PR in this repo.
 - Update rule: every SHA change in `infra/dev/gitops/openclaw-approved-sha.txt` must be reflected in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md` in the same PR.
 
@@ -83,8 +83,8 @@ Database migration behavior on every deploy sync:
 
 Goal: keep **today’s behavior** (push to PersAI `main` → workflow clones fork at pinned SHA → image → GitOps pin → Argo sync) while making **PersAI-specific runtime work** easy to carry forward when OpenClaw moves.
 
-1. **Source of customizations = the fork, not only patches in PersAI**  
-   Treat `infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch` as a **temporary** bridge. Prefer committing PersAI runtime integration (native handlers, apply storage, etc.) **on the fork** (`https://github.com/kurock09/openclaw`) as normal git history. Then PersAI only updates `openclaw-approved-sha.txt` — same deploy path as now.
+1. **Source of customizations = the fork**  
+   PersAI runtime HTTP integration lives in the fork (`src/gateway/persai-runtime/`). Bump `openclaw-approved-sha.txt` when the fork advances — same deploy path as now. Optional small `.patch` files in PersAI are break-glass only.
 
 2. **Long-lived integration branch on the fork (optional but convenient)**  
    e.g. `persai-runtime` or `main` on the fork that always contains upstream + your commits. You bump SHA to the **merge commit** you trust. Avoid floating branch names in PersAI docs; the pin file stays **40-char SHA only** ([ADR-012](../../../docs/ADR/012-openclaw-fork-source-and-deploy-boundary.md)).
@@ -92,11 +92,11 @@ Goal: keep **today’s behavior** (push to PersAI `main` → workflow clones for
 3. **Updating “vanilla” OpenClaw**  
    If the fork tracks another upstream: merge or rebase upstream into your branch, fix conflicts, run fork tests / build image locally or via `workflow_dispatch`, then set `openclaw-approved-sha.txt` to the new commit and merge the PersAI PR (CHANGELOG + SESSION-HANDOFF per existing rule).
 
-4. **When native code lives in the fork**  
-   Remove or shrink `openclaw-runtime-spec-apply-compat.patch` and delete the “Apply … patch” step from `.github/workflows/openclaw-dev-image-publish.yml` after `infra/dev/gitops/validate-openclaw-compat-patch.sh` is updated or replaced so CI still validates the build.
+4. **CI validation**  
+   `bash infra/dev/gitops/validate-openclaw-persai-runtime.sh` (see `.github/workflows/ci.yml`) clones the pinned SHA and asserts native PersAI runtime sources exist.
 
 5. **Emergency / small deltas**  
-   A tiny follow-up can still be shipped as an extra `.patch` in PersAI applied after checkout — use sparingly; it conflicts often on fork upgrades.
+   Optional extra `.patch` applied after checkout — use sparingly; conflicts often on fork upgrades.
 
 ## OpenClaw image build/push automation (Step 3 O2)
 
@@ -113,6 +113,7 @@ Goal: keep **today’s behavior** (push to PersAI `main` → workflow clones for
 - Source materialization in CI:
   - clone `https://github.com/kurock09/openclaw.git`
   - read approved SHA from `infra/dev/gitops/openclaw-approved-sha.txt`
+  - no compat patch apply (native routes ship in fork)
   - build context path: `services/openclaw`
   - Dockerfile path: `services/openclaw/Dockerfile`
 - OpenClaw image refs produced:
@@ -171,7 +172,7 @@ Source-of-truth mapping in dev policy:
 
 - Deploy enablement:
   - `openclaw.enabled=true` in `infra/helm/values-dev.yaml`
-  - OpenClaw image tag pinned to approved fork SHA: `aa6b962a3ab0d59f73fd34df58c0f8815070eadd`
+  - OpenClaw image tag pinned to approved fork SHA: `8e61e0ba5eba49fccc2c0ae362e07b242c7e1d15`
 - Runtime command/args:
   - command: `node openclaw.mjs gateway`
   - args: `--bind lan --port 18789`

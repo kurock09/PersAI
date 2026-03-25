@@ -70,8 +70,8 @@ openclaw:
   replicaCount: 1
   image:
     name: openclaw
-    tag: aa6b962a3ab0d59f73fd34df58c0f8815070eadd
-    digest: sha256:159b29413d07c198e001a5c69d4202961ae30da132eca66a4820a08b56a2fdb1
+    tag: 8e61e0ba5eba49fccc2c0ae362e07b242c7e1d15
+    digest: ""
     pullPolicy: IfNotPresent
   controlUi:
     allowedOrigins:
