@@ -84,7 +84,7 @@ Database migration behavior on every deploy sync:
 - Approved fork repository: `https://github.com/kurock09/openclaw`
 - Approved ref type: full commit SHA only (no branch/tag refs)
 - Single machine-readable SHA source: `infra/dev/gitops/openclaw-approved-sha.txt`
-- Approved commit SHA (current): `6ea3b32535d38e0884d8770e74483260caaf1a53`
+- Approved commit SHA (current): `f74bb8c23286f4b2452897035489dd1cc41931d6`
 - Ownership: PersAI infra maintainers update this SHA by PR in this repo.
 - Update rule: every SHA change in `infra/dev/gitops/openclaw-approved-sha.txt` must be reflected in `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md` in the same PR.
 
@@ -183,7 +183,7 @@ Source-of-truth mapping in dev policy:
 
 - Deploy enablement:
   - `openclaw.enabled=true` in `infra/helm/values-dev.yaml`
-  - OpenClaw image tag pinned to approved fork SHA: `6ea3b32535d38e0884d8770e74483260caaf1a53`
+  - OpenClaw image tag pinned to approved fork SHA: `f74bb8c23286f4b2452897035489dd1cc41931d6`
 - Runtime command/args:
   - command: `node openclaw.mjs gateway`
   - args: `--bind lan --port 18789`

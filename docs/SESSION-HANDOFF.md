@@ -1,5 +1,28 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - OpenClaw pin advance for honest missing-apply failures
+
+### What changed
+
+- **Fork** (`kurock09/openclaw`): commit `f74bb8c23286f4b2452897035489dd1cc41931d6` changes `src/gateway/persai-runtime/persai-runtime-http.ts` so missing applied runtime specs return explicit `503` JSON errors for sync and stream chat instead of `[openclaw-compat]*` fallback replies.
+- **PersAI pin wiring**: `infra/dev/gitops/openclaw-approved-sha.txt` now points to that fork commit, and `infra/dev/gitops/README.md` reflects the new approved SHA so the next `main` push builds and repins the correct OpenClaw image.
+
+### Why changed
+
+- Compat echo on missing apply masked a real runtime/state problem and could let PersAI store fake assistant replies in chat history. Bumping the approved SHA is required so auto-build/deploy picks up the honest `503` behavior instead of continuing to ship the older fork revision.
+
+### Blocker
+
+- **Push order matters:** push `openclaw` first so GitHub contains `f74bb8c23286f4b2452897035489dd1cc41931d6`, then push `PersAI` so the OpenClaw image-publish workflow can fetch that SHA.
+
+### Next recommended step
+
+- After both pushes, let the OpenClaw image workflow repin `infra/helm/values-dev.yaml`, then run hybrid smoke: API preflight, direct `healthz/readyz`, and one web streaming turn in `/app`.
+
+### Ready commit message
+
+- `chore(openclaw): pin fork f74bb8c23 for honest missing-apply failures`
+
 ## 2026-03-25 - Docs aligned with current live dev OpenClaw profile
 
 ### What changed
@@ -2161,7 +2184,7 @@
 - apps/api/src/modules/workspace-management/application/assistant-lifecycle.types.ts
 - apps/api/src/modules/workspace-management/application/assistant-lifecycle.mapper.ts
 - packages/contracts/openapi.yaml
-- packages/contracts/src/generated/*
+- packages/contracts/src/generated/\*
 - apps/web/app/app/app-flow.client.test.tsx
 - docs/ADR/019-memory-control-domain-d1.md
 - docs/ARCHITECTURE.md
@@ -2340,7 +2363,7 @@
 - infra/helm/values.yaml
 - infra/helm/values-dev.yaml
 - packages/contracts/openapi.yaml
-- packages/contracts/src/generated/*
+- packages/contracts/src/generated/\*
 - docs/ARCHITECTURE.md
 - docs/API-BOUNDARY.md
 - docs/ROADMAP.md
@@ -2423,7 +2446,7 @@
 - apps/web/app/app/app-flow.client.tsx
 - apps/web/app/app/app-flow.client.test.tsx
 - packages/contracts/openapi.yaml
-- packages/contracts/src/generated/*
+- packages/contracts/src/generated/\*
 - docs/ADR/018-web-chat-list-and-destructive-actions.md
 - docs/ARCHITECTURE.md
 - docs/API-BOUNDARY.md
@@ -2505,7 +2528,7 @@
 - apps/web/app/app/app-flow.client.tsx
 - infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch
 - packages/contracts/openapi.yaml
-- packages/contracts/src/generated/*
+- packages/contracts/src/generated/\*
 - docs/ADR/017-web-chat-streaming-first-transport.md
 - docs/ARCHITECTURE.md
 - docs/API-BOUNDARY.md
@@ -2577,7 +2600,7 @@
 - apps/api/src/modules/workspace-management/workspace-management.module.ts
 - apps/api/src/modules/identity-access/identity-access.module.ts
 - packages/contracts/openapi.yaml
-- packages/contracts/src/generated/*
+- packages/contracts/src/generated/\*
 - infra/dev/gitops/openclaw-runtime-spec-apply-compat.patch
 - docs/ADR/016-web-chat-backend-transport-boundary.md
 - docs/ARCHITECTURE.md
@@ -2798,7 +2821,7 @@
     - `PATCH /assistant/draft`
   - when assistant is absent, setup path auto-creates assistant first via:
     - `POST /assistant`
-    then applies draft update
+      then applies draft update
   - setup flow explicitly does not publish and does not change runtime apply state directly
   - preserved B1/B2 behavior: onboarding gate, global publish/status bar, sectioned editor shell
   - updated web tests for quick-start and advanced-setup draft flow
@@ -2841,7 +2864,7 @@
   - OpenClaw workflow now reads docker build digest output and updates both:
     - `openclaw.image.tag`
     - `openclaw.image.digest`
-    in `infra/helm/values-dev.yaml`
+      in `infra/helm/values-dev.yaml`
   - this ensures Argo applies a real OpenClaw rollout after each patched image build, even when approved SHA tag string is unchanged
 - Added OpenClaw pre-session guidance baseline for agent startup discipline:
   - created `docs/OPENCLAW-PRESESSION.md` with mandatory OpenClaw docs pack, role-based optional links, and a 60-second pre-session checklist

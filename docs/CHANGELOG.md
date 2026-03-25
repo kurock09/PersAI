@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **ADR-048 OpenClaw pin advance:** `infra/dev/gitops/openclaw-approved-sha.txt` now points to fork commit `f74bb8c23286f4b2452897035489dd1cc41931d6`, where missing applied PersAI runtime specs return explicit `503` errors instead of compat-echo chat responses. This keeps PersAI chat history honest after runtime restarts or store drift and lets the OpenClaw image publish workflow build the correct fork revision on the next `main` push.
 - Mapped Prisma `AbuseSurface` enum to Postgres `abuse_surface` (`@@map("abuse_surface")`) so web chat stream prepare path abuse-state upserts no longer fail with missing type `public.AbuseSurface` against live databases created from Step 10 G2 migrations.
 
 ### Documentation
@@ -430,7 +431,7 @@
   - ADR `docs/ADR/024-plan-catalog-and-entitlements-p1.md`
 - Step 6 slice D5 Tasks Center MVP:
   - added `assistant_task_registry_items` for user-facing reminders/tasks (title, source surface/label, `controlStatus`, optional `nextRunAt`; `externalRef` stored but not exposed in API)
-  - APIs: `GET /assistant/tasks/items`, `POST .../items/{itemId}/disable`, `POST .../enable`, `POST .../cancel` (honors `tasks_control` userMay* flags; 409 on denial)
+  - APIs: `GET /assistant/tasks/items`, `POST .../items/{itemId}/disable`, `POST .../enable`, `POST .../cancel` (honors `tasks_control` userMay\* flags; 409 on denial)
   - web: Tasks section in assistant editor (Active / Inactive groups, next-run copy, Pause / Stop / Turn back on) + contracts/OpenAPI + Clerk routes
   - API script `test:tasks-user-controls` for affordance flag parsing
   - ADR `docs/ADR/023-tasks-center-mvp-d5.md`
