@@ -1,5 +1,23 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - Dev values switch OpenClaw to managed Redis
+
+### What changed
+
+- `infra/helm/values-dev.yaml` now sets `PERSAI_RUNTIME_SPEC_STORE=redis` for OpenClaw and sources `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL` from `persai-openclaw-secrets`.
+
+### Why changed
+
+- Manual live patching was being reverted by GitOps because the repo still declared `memory`. The cluster can only stay on managed Redis if the desired state in Git also says `redis`.
+
+### Next recommended step
+
+- Push PersAI, let Argo reconcile, then verify in the pod that `STORE=redis` before running restart and multi-replica smoke.
+
+### Ready commit message
+
+- `chore(dev): switch openclaw runtime spec store to redis in values-dev`
+
 ## 2026-03-25 - AGENTS rule: OpenClaw fork push-prep workflow
 
 ### What changed
