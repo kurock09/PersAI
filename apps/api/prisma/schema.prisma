@@ -213,6 +213,7 @@ model Workspace {
   adminNotificationDeliveries AdminNotificationDelivery[]
   platformRollouts AssistantPlatformRollout[]
   abuseGuardStates AssistantAbuseGuardState[]
+  toolUsageDailyCounters WorkspaceToolUsageDailyCounter[]
 
   @@map("workspaces")
 }
@@ -424,7 +425,7 @@ model PlatformRuntimeProviderSettings {
 model PlatformRuntimeProviderSecret {
   id                      String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   settingsId              String   @default("global") @map("settings_id") @db.VarChar(32)
-  providerKey             String   @unique @map("provider_key") @db.VarChar(32)
+  providerKey             String   @unique @map("provider_key") @db.VarChar(64)
   encryptionSchemaVersion Int      @default(1) @map("encryption_schema_version")
   ciphertext              String   @db.Text
   iv                      String   @db.VarChar(128)
@@ -589,6 +590,7 @@ model PlanCatalogToolActivation {
   planId           String                   @map("plan_id") @db.Uuid
   toolId           String                   @map("tool_id") @db.Uuid
   activationStatus PlanToolActivationStatus @default(inactive) @map("activation_status")
+  dailyCallLimit   Int?                     @map("daily_call_limit")
   createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
   plan             PlanCatalogPlan          @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -654,6 +656,21 @@ model WorkspaceQuotaUsageEvent {
 
   @@index([workspaceId, dimension, createdAt])
   @@map("workspace_quota_usage_events")
+}
+
+model WorkspaceToolUsageDailyCounter {
+  id          String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  workspaceId String   @map("workspace_id") @db.Uuid
+  toolCode    String   @map("tool_code") @db.VarChar(64)
+  date        DateTime @db.Date
+  callCount   Int      @default(0) @map("call_count")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, toolCode, date])
+  @@index([workspaceId, date])
+  @@map("workspace_tool_usage_daily_counters")
 }
 
 model AssistantMaterializedSpec {

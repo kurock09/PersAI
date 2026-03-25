@@ -1,3 +1,11 @@
+export type AssistantPlanCatalogToolActivation = {
+  toolCode: string;
+  displayName: string;
+  toolClass: "cost_driving" | "utility";
+  activationStatus: "active" | "inactive";
+  dailyCallLimit: number | null;
+};
+
 export type AssistantPlanCatalog = {
   id: string;
   code: string;
@@ -14,6 +22,7 @@ export type AssistantPlanCatalog = {
     channelsAndSurfaces: unknown[];
     limitsPermissions: unknown[];
   } | null;
+  toolActivations: AssistantPlanCatalogToolActivation[];
   isDefaultFirstRegistrationPlan: boolean;
   isTrialPlan: boolean;
   trialDurationDays: number | null;

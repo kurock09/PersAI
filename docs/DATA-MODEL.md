@@ -188,12 +188,13 @@ Postgres with Prisma.
 - created_at
 - updated_at
 
-### plan_catalog_tool_activations (Step 8 E1 baseline)
+### plan_catalog_tool_activations (Step 8 E1 baseline, extended H2)
 
 - id (UUID)
 - plan_id (UUID FK -> `plan_catalog_plans.id`)
 - tool_id (UUID FK -> `tool_catalog_tools.id`)
 - activation_status (`active|inactive`)
+- daily_call_limit (integer, nullable) — Step 12 H2: optional per-tool daily call limit; null = unlimited
 - created_at
 - updated_at
 
@@ -341,6 +342,18 @@ Postgres with Prisma.
 - metadata (nullable jsonb)
 - created_at
 - updated_at
+
+### workspace_tool_usage_daily_counters (Step 12 H2 baseline)
+
+- id (UUID)
+- workspace_id (UUID FK -> `workspaces.id`)
+- tool_code (VARCHAR(64))
+- date (DATE)
+- call_count (integer, default 0)
+- created_at
+- updated_at
+- unique: `(workspace_id, tool_code, date)`
+- index: `(workspace_id, date)`
 
 ### workspace_quota_accounting_state (Step 7 P5 baseline)
 

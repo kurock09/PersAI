@@ -24,6 +24,20 @@ export type AdminPlanEntitlementControls = {
   };
 };
 
+export type AdminPlanToolActivation = {
+  toolCode: string;
+  displayName: string;
+  toolClass: "cost_driving" | "utility";
+  active: boolean;
+  dailyCallLimit: number | null;
+};
+
+export type AdminPlanToolActivationInput = {
+  toolCode: string;
+  active: boolean;
+  dailyCallLimit: number | null;
+};
+
 export type AdminPlanInput = {
   displayName: string;
   description: string | null;
@@ -36,6 +50,7 @@ export type AdminPlanInput = {
     notes: string | null;
   };
   entitlements: AdminPlanEntitlementControls;
+  toolActivations?: AdminPlanToolActivationInput[];
 };
 
 export type AdminCreatePlanInput = AdminPlanInput & {
@@ -55,6 +70,7 @@ export type AdminPlanState = {
     notes: string | null;
   };
   entitlements: AdminPlanEntitlementControls;
+  toolActivations: AdminPlanToolActivation[];
   createdAt: string;
   updatedAt: string;
 };

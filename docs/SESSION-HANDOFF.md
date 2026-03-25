@@ -1,5 +1,108 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - Plans per-tool management + OpenClaw tool policy integration
+
+### What changed
+
+- Redesigned `/admin/plans` page: compact collapsible cards with inline summary (caps/channels/tools/activations on one line), expandable detail view, dense 3-column entitlements grid in edit mode, tool activation table with toggles and daily limit inputs.
+- Extended backend admin plans API to accept/return `toolActivations[]` with per-tool `active` status and `dailyCallLimit`.
+- Updated `syncToolActivationsForPlan` in Prisma repository to apply explicit per-tool overrides with class-derived fallback.
+- Added PersAI contract types: `AdminPlanToolActivation`, `AdminPlanToolActivationInput`.
+- Created OpenClaw `persai-runtime-tool-policy.ts` module: parses `toolCredentialRefs`/`toolQuotaPolicy` from bootstrap, resolves credentials via `resolvePersaiRefs`, builds tool deny list.
+- Integrated tool policy validation on `POST /spec/apply` in OpenClaw.
+- On chat turns, resolved tool credentials are injected as env vars (`TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, etc.) with cleanup.
+- `createOpenClawTools()` now filters out tools listed in `PERSAI_TOOL_DENY` env var.
+
+### Why changed
+
+- H2 laid the foundation (encrypted tool credential store, materialization of toolCredentialRefs/toolQuotaPolicy into bootstrap), but OpenClaw was not consuming these values. This slice completes the integration loop so PersAI controls which tools are active and OpenClaw executes accordingly.
+
+### Slice boundary
+
+- PersAI admin UI + API: per-tool activation management at plan level
+- OpenClaw: credential resolution + tool filtering from bootstrap
+- Credential mapping: `tool/web_search/api-key` → `TAVILY_API_KEY`, `tool/web_fetch/api-key` → `FIRECRAWL_API_KEY`, etc.
+- Still deferred:
+  - daily quota enforcement (needs PersAI callback + OpenClaw counter)
+  - per-provider web search key selection
+  - AsyncLocalStorage for concurrency-safe credential injection
+  - persona / memory hydration (H3)
+
+### Next recommended step
+
+- **Daily quota enforcement** — implement `WorkspaceToolUsageDailyCounter` increment via PersAI callback from OpenClaw `before_tool_call` hook
+- **H3 runtime hydration depth** — consume materialized persona, memory, tasks envelopes deeper in OpenClaw
+
+### Ready commit message
+
+- `feat(admin+openclaw): per-tool plan management + OpenClaw tool policy integration`
+
+### Affected files (PersAI)
+
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-plan-catalog.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-plan-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-plan-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `packages/contracts/src/generated/model/adminPlanToolActivation.ts` (new)
+- `packages/contracts/src/generated/model/adminPlanToolActivationInput.ts` (new)
+- `packages/contracts/src/generated/model/adminPlanState.ts`
+- `packages/contracts/src/generated/model/adminPlanInputBase.ts`
+- `packages/contracts/src/generated/model/index.ts`
+- `apps/web/app/admin/plans/page.tsx`
+
+### Affected files (OpenClaw)
+
+- `src/gateway/persai-runtime/persai-runtime-tool-policy.ts` (new)
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts`
+- `src/agents/openclaw-tools.ts`
+
+## 2026-03-26 - H2 tool credential refs and tool quota limits baseline shipped
+
+### What changed
+
+- Added [ADR-052](ADR/052-tool-credential-refs-and-tool-quota-limits-h2.md) defining the H2 scope.
+- Expanded tool catalog from 3 to 8 entries (`web_search`, `web_fetch`, `image_generate`, `tts`, `browser`, `memory_search`, `memory_center_read`, `tasks_center_control`).
+- Extended `PlanCatalogToolActivation` with `dailyCallLimit` for per-tool daily call limits.
+- Added `WorkspaceToolUsageDailyCounter` table for tracking daily tool usage per workspace.
+- Widened `PlatformRuntimeProviderSecret.providerKey` column from `VarChar(32)` to `VarChar(64)` to accommodate tool credential keys.
+- Extended `PlatformRuntimeProviderSecretStoreService` to handle generic credential keys (both provider and tool), added `loadKeyMetadataByKeys` and extended `resolveSecretValueById` for tool secret IDs.
+- Created `ManageAdminToolCredentialsService` and `AdminToolCredentialsController` for `GET`/`PUT /api/v1/admin/runtime/tool-credentials`.
+- Added `admin.tool_credentials.update` step-up action in `AdminAuthorizationService`.
+- Updated materialization to include `toolCredentialRefs` and `toolQuotaPolicy` in `openclawBootstrap`.
+- Created admin UI page `/admin/tools` for tool credential management.
+- Updated seed.ts with 8 tools and starter trial daily limits.
+- Marked `docs/ROADMAP.md` Step 12 `H2` complete.
+
+### Why changed
+
+- H1b proved the encrypted secret store and internal resolve pattern for provider keys. H2 extends the same infrastructure to tool-specific credentials, giving platform admins centralized control over tool API keys without Kubernetes-level secret management.
+- Per-tool daily call limits provide fine-grained cost control per plan, complementing the existing global `token_budget`.
+
+### Slice boundary
+
+- platform-admin only
+- tool credentials managed globally (not per-assistant)
+- 5 tool credential slots: `tool_web_search`, `tool_web_fetch`, `tool_image_generate`, `tool_tts`, `tool_memory_search`
+- per-tool `dailyCallLimit` in plan activation (null = unlimited)
+- OpenClaw resolves tool credentials through existing `POST /api/v1/internal/runtime/provider-secrets/resolve`
+- still deferred:
+  - runtime tool execution changes in OpenClaw fork
+  - per-tool daily counter enforcement in OpenClaw runtime
+  - assistant-level limit communication (system prompt hints at 80%+ usage)
+  - Telegram / WhatsApp / MAX channel credential management
+
+### Next recommended step
+
+- **H3 — runtime hydration depth**
+  - consume materialized persona, memory, tasks/reminders, tool policy, and related capability envelopes deeper in OpenClaw session/runtime policy
+  - continue ADR-048 `P2` work
+
+### Ready commit message
+
+- `feat(admin): add tool credential refs + tool quota limits baseline (H2)`
+
 ## 2026-03-25 - H1a runtime provider admin UI shipped
 
 ### What changed

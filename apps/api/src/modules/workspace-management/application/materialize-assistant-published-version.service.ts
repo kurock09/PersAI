@@ -22,6 +22,13 @@ import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platfor
 import { ResolveRuntimeProviderRoutingService } from "./resolve-runtime-provider-routing.service";
 import { buildPlatformRuntimeProviderProfileState } from "./platform-runtime-provider-settings";
 import { resolveRuntimeProviderProfileState } from "./runtime-provider-profile";
+import {
+  ALL_TOOL_CREDENTIAL_KEYS,
+  TOOL_CODE_BY_CREDENTIAL_KEY,
+  buildToolCredentialSecretRef
+} from "./tool-credential-settings";
+import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -63,7 +70,9 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly resolveOpenClawChannelSurfaceBindingsService: ResolveOpenClawChannelSurfaceBindingsService,
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly resolveRuntimeProviderRoutingService: ResolveRuntimeProviderRoutingService,
-    private readonly resolveOpenClawCapabilityEnvelopeService: ResolveOpenClawCapabilityEnvelopeService
+    private readonly resolveOpenClawCapabilityEnvelopeService: ResolveOpenClawCapabilityEnvelopeService,
+    private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   async execute(
@@ -145,6 +154,9 @@ export class MaterializeAssistantPublishedVersionService {
       }
     };
 
+    const toolCredentialRefs = await this.resolveToolCredentialRefs();
+    const toolQuotaPolicy = await this.resolveToolQuotaPolicy(governance.quotaPlanCode);
+
     const openclawBootstrap = {
       schema: OPENCLAW_BOOTSTRAP_SCHEMA,
       assistant: {
@@ -162,6 +174,8 @@ export class MaterializeAssistantPublishedVersionService {
         toolAvailability,
         openclawCapabilityEnvelope,
         runtimeProviderProfile,
+        toolCredentialRefs,
+        toolQuotaPolicy,
         secretRefs: governance.secretRefs,
         auditHook: governance.auditHook
       }
@@ -205,6 +219,59 @@ export class MaterializeAssistantPublishedVersionService {
       openclawWorkspaceDocument,
       contentHash
     });
+  }
+
+  private async resolveToolCredentialRefs(): Promise<
+    Record<string, { refKey: string; secretRef: { source: string; provider: string; id: string }; configured: boolean }>
+  > {
+    const keyMetadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(
+      ALL_TOOL_CREDENTIAL_KEYS as unknown as string[]
+    );
+    const refs: Record<
+      string,
+      { refKey: string; secretRef: { source: string; provider: string; id: string }; configured: boolean }
+    > = {};
+    for (const credentialKey of ALL_TOOL_CREDENTIAL_KEYS) {
+      const toolCode = TOOL_CODE_BY_CREDENTIAL_KEY[credentialKey];
+      const secretRef = buildToolCredentialSecretRef(credentialKey);
+      refs[toolCode] = {
+        ...secretRef,
+        configured: keyMetadata[credentialKey]?.configured ?? false
+      };
+    }
+    return refs;
+  }
+
+  private async resolveToolQuotaPolicy(
+    planCode: string | null
+  ): Promise<
+    Array<{ toolCode: string; dailyCallLimit: number | null; activationStatus: string }>
+  > {
+    if (planCode === null) {
+      return [];
+    }
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { id: true }
+    });
+    if (plan === null) {
+      return [];
+    }
+    const activations = await this.prisma.planCatalogToolActivation.findMany({
+      where: { planId: plan.id },
+      select: {
+        activationStatus: true,
+        dailyCallLimit: true,
+        tool: {
+          select: { code: true }
+        }
+      }
+    });
+    return activations.map((activation) => ({
+      toolCode: activation.tool.code,
+      dailyCallLimit: activation.dailyCallLimit,
+      activationStatus: activation.activationStatus
+    }));
   }
 
   private toGovernanceLayer(

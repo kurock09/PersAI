@@ -9,6 +9,7 @@ import { AdminBusinessController } from "./interface/http/admin-business.control
 import { AdminNotificationsController } from "./interface/http/admin-notifications.controller";
 import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
+import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
@@ -29,6 +30,7 @@ import { ManageAdminNotificationChannelsService } from "./application/manage-adm
 import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
 import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
 import { ManageAdminRuntimeProviderSettingsService } from "./application/manage-admin-runtime-provider-settings.service";
+import { ManageAdminToolCredentialsService } from "./application/manage-admin-tool-credentials.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./application/platform-runtime-provider-secret-store.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./application/resolve-platform-runtime-provider-settings.service";
 import { EnforceAbuseRateLimitService } from "./application/enforce-abuse-rate-limit.service";
@@ -102,6 +104,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminNotificationsController,
     AdminPlatformRolloutsController,
     AdminRuntimeProviderSettingsController,
+    AdminToolCredentialsController,
     InternalRuntimeProviderSecretsController
   ],
   providers: [
@@ -114,6 +117,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     DeliverAdminSystemNotificationService,
     ManagePlatformRolloutsService,
     ManageAdminRuntimeProviderSettingsService,
+    ManageAdminToolCredentialsService,
     PlatformRuntimeProviderSecretStoreService,
     ResolvePlatformRuntimeProviderSettingsService,
     EnforceAbuseRateLimitService,

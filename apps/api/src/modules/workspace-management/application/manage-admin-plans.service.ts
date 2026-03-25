@@ -14,7 +14,8 @@ import type { AssistantPlanCatalog } from "../domain/assistant-plan-catalog.enti
 import type {
   AdminCreatePlanInput,
   AdminPlanInput,
-  AdminPlanState
+  AdminPlanState,
+  AdminPlanToolActivationInput
 } from "./admin-plan-management.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import {
@@ -227,7 +228,9 @@ export class ManageAdminPlansService {
     );
     const metadata = parseObject(parsed.metadata, "metadata");
 
-    return {
+    const toolActivations = this.parseToolActivations(parsed.toolActivations);
+
+    const result: AdminPlanInput = {
       displayName: parseRequiredString(parsed.displayName, "displayName"),
       description: toNullableString(parsed.description),
       status,
@@ -264,6 +267,37 @@ export class ManageAdminPlansService {
         }
       }
     };
+    if (toolActivations) {
+      result.toolActivations = toolActivations;
+    }
+    return result;
+  }
+
+  private parseToolActivations(raw: unknown): AdminPlanToolActivationInput[] | undefined {
+    if (raw === undefined || raw === null) {
+      return undefined;
+    }
+    if (!Array.isArray(raw)) {
+      throw new BadRequestException("toolActivations must be an array.");
+    }
+    return raw.map((item, idx) => {
+      if (item === null || typeof item !== "object" || Array.isArray(item)) {
+        throw new BadRequestException(`toolActivations[${String(idx)}] must be an object.`);
+      }
+      const typed = item as Record<string, unknown>;
+      const toolCode = parseRequiredString(typed.toolCode, `toolActivations[${String(idx)}].toolCode`);
+      const active = toBoolean(typed.active);
+      let dailyCallLimit: number | null = null;
+      if (typed.dailyCallLimit !== undefined && typed.dailyCallLimit !== null) {
+        if (typeof typed.dailyCallLimit !== "number" || !Number.isInteger(typed.dailyCallLimit) || typed.dailyCallLimit < 0) {
+          throw new BadRequestException(
+            `toolActivations[${String(idx)}].dailyCallLimit must be a non-negative integer or null.`
+          );
+        }
+        dailyCallLimit = typed.dailyCallLimit;
+      }
+      return { toolCode, active, dailyCallLimit };
+    });
   }
 
   private toWriteInput(input: AdminPlanInput): AssistantPlanCatalogWriteInput {
@@ -318,7 +352,12 @@ export class ManageAdminPlansService {
             value: input.entitlements.limitsPermissions.tasksExcludedFromCommercialQuotas
           }
         ]
-      }
+      },
+      toolActivationOverrides: (input.toolActivations ?? []).map((ta) => ({
+        toolCode: ta.toolCode,
+        active: ta.active,
+        dailyCallLimit: ta.dailyCallLimit
+      }))
     };
   }
 
@@ -376,6 +415,13 @@ export class ManageAdminPlansService {
           )
         }
       },
+      toolActivations: plan.toolActivations.map((ta) => ({
+        toolCode: ta.toolCode,
+        displayName: ta.displayName,
+        toolClass: ta.toolClass,
+        active: ta.activationStatus === "active",
+        dailyCallLimit: ta.dailyCallLimit
+      })),
       createdAt: plan.createdAt.toISOString(),
       updatedAt: plan.updatedAt.toISOString()
     };

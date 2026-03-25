@@ -6,17 +6,19 @@ import {
   PERSAI_RUNTIME_PROVIDER_SECRET_IDS,
   type PlatformRuntimeProviderKeyMetadata
 } from "./platform-runtime-provider-settings";
+import { TOOL_CREDENTIAL_IDS, CREDENTIAL_KEY_BY_SECRET_ID } from "./tool-credential-settings";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const AES_ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12;
 
-const PROVIDER_BY_SECRET_ID = Object.entries(PERSAI_RUNTIME_PROVIDER_SECRET_IDS).reduce<
-  Record<string, ManagedRuntimeProvider>
->((accumulator, [provider, secretId]) => {
-  accumulator[secretId] = provider as ManagedRuntimeProvider;
-  return accumulator;
-}, {});
+const PROVIDER_KEY_BY_SECRET_ID: Record<string, string> = {};
+for (const [provider, secretId] of Object.entries(PERSAI_RUNTIME_PROVIDER_SECRET_IDS)) {
+  PROVIDER_KEY_BY_SECRET_ID[secretId] = provider;
+}
+for (const [credentialKey, secretId] of Object.entries(TOOL_CREDENTIAL_IDS)) {
+  PROVIDER_KEY_BY_SECRET_ID[secretId] = credentialKey;
+}
 
 @Injectable()
 export class PlatformRuntimeProviderSecretStoreService {
@@ -70,8 +72,33 @@ export class PlatformRuntimeProviderSecretStoreService {
     return metadata;
   }
 
+  async loadKeyMetadataByKeys(
+    keys: string[]
+  ): Promise<Record<string, PlatformRuntimeProviderKeyMetadata>> {
+    if (keys.length === 0) {
+      return {};
+    }
+    const rows = await this.prisma.platformRuntimeProviderSecret.findMany({
+      where: { providerKey: { in: keys } },
+      select: {
+        providerKey: true,
+        lastFour: true,
+        updatedAt: true
+      }
+    });
+    const result: Record<string, PlatformRuntimeProviderKeyMetadata> = {};
+    for (const row of rows) {
+      result[row.providerKey] = {
+        configured: true,
+        lastFour: row.lastFour,
+        updatedAt: row.updatedAt.toISOString()
+      };
+    }
+    return result;
+  }
+
   async upsertProviderKey(
-    provider: ManagedRuntimeProvider,
+    providerKey: string,
     rawKey: string,
     updatedByUserId: string
   ): Promise<void> {
@@ -81,9 +108,9 @@ export class PlatformRuntimeProviderSecretStoreService {
     }
     const encrypted = this.encrypt(normalized);
     await this.prisma.platformRuntimeProviderSecret.upsert({
-      where: { providerKey: provider },
+      where: { providerKey },
       create: {
-        providerKey: provider,
+        providerKey,
         ciphertext: encrypted.ciphertext,
         iv: encrypted.iv,
         authTag: encrypted.authTag,
@@ -101,12 +128,12 @@ export class PlatformRuntimeProviderSecretStoreService {
   }
 
   async resolveSecretValueById(secretId: string): Promise<string> {
-    const provider = PROVIDER_BY_SECRET_ID[secretId];
-    if (provider === undefined) {
+    const providerKey = PROVIDER_KEY_BY_SECRET_ID[secretId];
+    if (providerKey === undefined) {
       throw new Error(`Unsupported PersAI-managed runtime secret id "${secretId}".`);
     }
     const row = await this.prisma.platformRuntimeProviderSecret.findUnique({
-      where: { providerKey: provider },
+      where: { providerKey },
       select: {
         ciphertext: true,
         iv: true,

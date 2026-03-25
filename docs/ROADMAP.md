@@ -128,8 +128,8 @@ Foundation Phase
 
 - [x] H1 — platform-admin runtime provider profile baseline (`OpenAI + Anthropic`, assistant-scoped primary/fallback model refs, provider credential refs, no raw secrets in PersAI state, first mutation surface via admin platform rollouts; see `ADR-050`)
 - [x] H1a — admin UI for runtime provider profile + provider credential refs (structured editor in existing admin rollout controls; preserves unrelated governance branches while submitting through the same rollout API, still platform-admin only)
-- [ ] H1b — global runtime provider settings correction (simple admin UI for raw global `OpenAI` / `Anthropic` keys, primary/fallback models, and `availableModelsByProvider`; PersAI-managed encrypted provider-key storage; OpenClaw consumes generated `persai` secret refs; see `ADR-051`)
-- [ ] H2 — tool credential refs baseline (managed tool-provider secret refs without runtime/tool-policy duplication)
+- [x] H1b — global runtime provider settings correction (simple admin UI for raw global `OpenAI` / `Anthropic` keys, primary/fallback models, and `availableModelsByProvider`; PersAI-managed encrypted provider-key storage; OpenClaw consumes generated `persai` secret refs; see `ADR-051`)
+- [x] H2 — tool credential refs and tool quota limits baseline (expanded tool catalog to 8 entries, managed tool-provider secret refs, per-tool daily call limits in plan activation, admin UI for tool credentials; see `ADR-052`) + OpenClaw tool policy integration (per-tool activation filtering via `PERSAI_TOOL_DENY`, credential resolution via `resolveSecretRefValues` + env injection, apply-time validation)
 - [ ] H3 — runtime hydration depth for persona, memory, tasks/reminders, and tool policy on the native OpenClaw path (continue ADR-048 `P2`)
 - [ ] H4 — Telegram runtime readiness alignment against admin-driven runtime profile + managed secret refs
 - [ ] H5 — WhatsApp/MAX follow-up readiness and secret-ref parity before later delivery slices

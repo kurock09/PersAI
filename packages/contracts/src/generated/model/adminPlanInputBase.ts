@@ -7,6 +7,7 @@
 import type { AdminPlanInputBaseStatus } from "./adminPlanInputBaseStatus";
 import type { AdminPlanMetadata } from "./adminPlanMetadata";
 import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
+import type { AdminPlanToolActivationInput } from "./adminPlanToolActivationInput";
 
 export interface AdminPlanInputBase {
   displayName: string;
@@ -19,4 +20,5 @@ export interface AdminPlanInputBase {
   trialDurationDays: number | null;
   metadata: AdminPlanMetadata;
   entitlements: AdminPlanEntitlements;
+  toolActivations?: AdminPlanToolActivationInput[];
 }

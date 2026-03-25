@@ -7,13 +7,23 @@ import type {
 import type { AssistantPlanCatalog } from "../../domain/assistant-plan-catalog.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
+const PLAN_INCLUDE = {
+  entitlement: true,
+  toolActivations: {
+    include: { tool: true },
+    orderBy: { tool: { code: "asc" as const } }
+  }
+} as const;
+
+type PlanWithRelations = Prisma.PlanCatalogPlanGetPayload<{ include: typeof PLAN_INCLUDE }>;
+
 @Injectable()
 export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalogRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
   async listAll(): Promise<AssistantPlanCatalog[]> {
     const plans = await this.prisma.planCatalogPlan.findMany({
-      include: { entitlement: true },
+      include: PLAN_INCLUDE,
       orderBy: [{ updatedAt: "desc" }, { code: "asc" }]
     });
     return plans.map((plan) => this.mapToDomain(plan));
@@ -22,7 +32,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
   async findByCode(code: string): Promise<AssistantPlanCatalog | null> {
     const plan = await this.prisma.planCatalogPlan.findFirst({
       where: { code },
-      include: { entitlement: true }
+      include: PLAN_INCLUDE
     });
     return plan ? this.mapToDomain(plan) : null;
   }
@@ -33,7 +43,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
         isDefaultFirstRegistrationPlan: true,
         status: "active"
       },
-      include: { entitlement: true },
+      include: PLAN_INCLUDE,
       orderBy: { updatedAt: "desc" }
     });
     return plan ? this.mapToDomain(plan) : null;
@@ -80,7 +90,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
 
     const created = await this.prisma.planCatalogPlan.findUnique({
       where: { code },
-      include: { entitlement: true }
+      include: PLAN_INCLUDE
     });
     if (created === null) {
       throw new Error("Plan create verification failed.");
@@ -150,7 +160,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
 
     const updated = await this.prisma.planCatalogPlan.findUnique({
       where: { code },
-      include: { entitlement: true }
+      include: PLAN_INCLUDE
     });
     if (updated === null) {
       return null;
@@ -158,9 +168,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
     return this.mapToDomain(updated);
   }
 
-  private mapToDomain(
-    plan: Prisma.PlanCatalogPlanGetPayload<{ include: { entitlement: true } }>
-  ): AssistantPlanCatalog {
+  private mapToDomain(plan: PlanWithRelations): AssistantPlanCatalog {
     return {
       id: plan.id,
       code: plan.code,
@@ -178,6 +186,13 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
               channelsAndSurfaces: this.toArray(plan.entitlement.channelsAndSurfaces),
               limitsPermissions: this.toArray(plan.entitlement.limitsPermissions)
             },
+      toolActivations: plan.toolActivations.map((activation) => ({
+        toolCode: activation.tool.code,
+        displayName: activation.tool.displayName,
+        toolClass: activation.tool.toolClass as "cost_driving" | "utility",
+        activationStatus: activation.activationStatus === "active" ? "active" as const : "inactive" as const,
+        dailyCallLimit: activation.dailyCallLimit
+      })),
       isDefaultFirstRegistrationPlan: plan.isDefaultFirstRegistrationPlan,
       isTrialPlan: plan.isTrialPlan,
       trialDurationDays: plan.trialDurationDays,
@@ -224,16 +239,14 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
     input: AssistantPlanCatalogWriteInput
   ): Promise<void> {
     const tools = await tx.toolCatalogTool.findMany({
-      where: {
-        status: "active"
-      },
-      select: {
-        id: true,
-        toolClass: true
-      }
+      where: { status: "active" },
+      select: { id: true, code: true, toolClass: true }
     });
 
-    const statusByClass = this.toActivationStatusByClass(input);
+    const overridesByCode = new Map(
+      (input.toolActivationOverrides ?? []).map((o) => [o.toolCode, o])
+    );
+    const classFallback = this.toActivationStatusByClass(input);
     const activeToolIds = tools.map((tool) => tool.id);
 
     await tx.planCatalogToolActivation.deleteMany({
@@ -244,21 +257,18 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
     });
 
     for (const tool of tools) {
+      const override = overridesByCode.get(tool.code);
+      const activationStatus = override
+        ? (override.active ? "active" : "inactive")
+        : classFallback[tool.toolClass];
+      const dailyCallLimit = override?.dailyCallLimit ?? null;
+
       await tx.planCatalogToolActivation.upsert({
         where: {
-          planId_toolId: {
-            planId,
-            toolId: tool.id
-          }
+          planId_toolId: { planId, toolId: tool.id }
         },
-        update: {
-          activationStatus: statusByClass[tool.toolClass]
-        },
-        create: {
-          planId,
-          toolId: tool.id,
-          activationStatus: statusByClass[tool.toolClass]
-        }
+        update: { activationStatus, dailyCallLimit },
+        create: { planId, toolId: tool.id, activationStatus, dailyCallLimit }
       });
     }
   }

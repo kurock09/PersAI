@@ -12,6 +12,7 @@ import {
   Layers,
   Bell,
   ShieldAlert,
+  Wrench,
   Loader2,
   ArrowRight,
 } from "lucide-react";
@@ -101,6 +102,7 @@ export default function AdminOverviewPage() {
 
   const NAV = [
     { href: "/admin/runtime", label: "Runtime Settings", icon: Server },
+    { href: "/admin/tools", label: "Tool Credentials", icon: Wrench },
     { href: "/admin/plans", label: "Plan Management", icon: CreditCard },
     { href: "/admin/ops", label: "Ops Cockpit", icon: Activity },
     { href: "/admin/business", label: "Business Cockpit", icon: TrendingUp },

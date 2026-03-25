@@ -418,6 +418,20 @@ Behavior baseline:
 - requires `x-persai-step-up-token` for action `admin.plan.update`
 - updates existing plan by code with the same control set as create
 - keeps single default-on-registration truth by clearing previous default when a new default is set
+- supports optional `toolActivations[]` in request body for per-tool activation overrides:
+  - each entry: `{ toolCode, active, dailyCallLimit }`
+  - `dailyCallLimit: null` = unlimited
+  - tools not included in the array fall back to class-derived activation defaults
+- response now includes `toolActivations[]` with per-tool status:
+  - `{ toolCode, displayName, toolClass, active, dailyCallLimit }`
+
+## OpenClaw tool policy integration
+
+- On `POST /api/v1/runtime/spec/apply`: OpenClaw validates `toolCredentialRefs` and `toolQuotaPolicy` from `spec.bootstrap.governance` (PersaiToolPolicyValidationError → 400).
+- On chat turns (sync/stream): OpenClaw extracts tool credential refs and quota policy from stored bootstrap, resolves credentials via `resolvePersaiRefs` (batch HTTP to PersAI internal endpoint), injects resolved tool API keys as process env vars for the agent turn, and filters out inactive tools via `PERSAI_TOOL_DENY` env var check in `createOpenClawTools`.
+- Credential mapping: `tool/web_search/api-key` → `TAVILY_API_KEY`, `tool/web_fetch/api-key` → `FIRECRAWL_API_KEY`, `tool/image_generate/api-key` → `OPENAI_IMAGE_GEN_API_KEY`, `tool/tts/api-key` → `OPENAI_TTS_API_KEY`, `tool/memory_search/api-key` → `OPENAI_EMBEDDINGS_API_KEY`.
+- Credential injection is session-scoped (set before agent turn, cleaned up in `finally`).
+- Tool deny list is session-scoped via `PERSAI_TOOL_DENY` env var (restored after agent turn).
 
 ## Step 7 P3 subscription + billing boundary baseline
 
@@ -776,6 +790,41 @@ Behavior baseline:
   - `endpointUrl`
   - optional `signingSecret`
 - payload validates URL shape and ensures endpoint is present when enabling
+
+## Step 12 H2 tool credential refs
+
+### GET /api/v1/admin/runtime/tool-credentials
+
+- authenticated caller only
+- requires admin read role:
+  - `ops_admin|business_admin|security_admin|super_admin`
+  - or legacy owner fallback
+- returns tool credential status for each tool that requires separate API credentials:
+  - `credentialKey` (e.g. `tool_web_search`)
+  - `toolCode` (e.g. `web_search`)
+  - `displayName`
+  - `configured` (boolean)
+  - masked `lastFour` hint (optional)
+  - `updatedAt`
+- returned state is platform-global
+
+### PUT /api/v1/admin/runtime/tool-credentials
+
+- authenticated caller only
+- requires dangerous-action role (`ops_admin|super_admin`) or legacy owner fallback
+- requires `x-persai-step-up-token` header issued for action `admin.tool_credentials.update`
+- request body:
+  - `keys.tool_web_search` (optional write-only)
+  - `keys.tool_web_fetch` (optional write-only)
+  - `keys.tool_image_generate` (optional write-only)
+  - `keys.tool_tts` (optional write-only)
+  - `keys.tool_memory_search` (optional write-only)
+- behavior:
+  - stores raw tool keys only in dedicated encrypted PersAI secret storage
+  - never returns stored raw keys in the response body
+  - writes an admin audit event for the update
+  - tool credential refs are emitted into materialized `openclawBootstrap` during next materialization/apply
+  - OpenClaw resolves tool credentials through the same `POST /api/v1/internal/runtime/provider-secrets/resolve` endpoint
 
 ## Step 12 H1b global runtime provider settings
 

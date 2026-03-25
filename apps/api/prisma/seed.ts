@@ -22,6 +22,11 @@ const SEED_WORKSPACE_SUBSCRIPTION_ID = "66666666-6666-6666-6666-666666666666";
 const SEED_TOOL_COST_DRIVING_WEB_SEARCH_ID = "77777777-7777-7777-7777-777777777777";
 const SEED_TOOL_UTILITY_MEMORY_CENTER_ID = "88888888-8888-8888-8888-888888888888";
 const SEED_TOOL_UTILITY_TASKS_CENTER_ID = "99999999-9999-9999-9999-999999999999";
+const SEED_TOOL_COST_DRIVING_WEB_FETCH_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const SEED_TOOL_COST_DRIVING_IMAGE_GENERATE_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+const SEED_TOOL_COST_DRIVING_TTS_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+const SEED_TOOL_COST_DRIVING_BROWSER_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+const SEED_TOOL_UTILITY_MEMORY_SEARCH_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
 
 async function upsertToolCatalogTool(params: {
   id: string;
@@ -30,7 +35,18 @@ async function upsertToolCatalogTool(params: {
   description: string;
   capabilityGroup: ToolCatalogCapabilityGroup;
   toolClass: ToolCatalogToolClass;
+  requiredCredentialId?: string;
 }): Promise<void> {
+  const providerHints = params.requiredCredentialId
+    ? {
+        schema: "persai.toolCatalogProviderHints.v2",
+        providerAgnostic: false,
+        requiredCredentialId: params.requiredCredentialId
+      }
+    : {
+        schema: "persai.toolCatalogProviderHints.v1",
+        providerAgnostic: true
+      };
   await prisma.toolCatalogTool.upsert({
     where: { code: params.code },
     update: {
@@ -39,10 +55,7 @@ async function upsertToolCatalogTool(params: {
       capabilityGroup: params.capabilityGroup,
       toolClass: params.toolClass,
       status: ToolCatalogStatus.active,
-      providerHints: {
-        schema: "persai.toolCatalogProviderHints.v1",
-        providerAgnostic: true
-      }
+      providerHints: providerHints
     },
     create: {
       id: params.id,
@@ -52,10 +65,7 @@ async function upsertToolCatalogTool(params: {
       capabilityGroup: params.capabilityGroup,
       toolClass: params.toolClass,
       status: ToolCatalogStatus.active,
-      providerHints: {
-        schema: "persai.toolCatalogProviderHints.v1",
-        providerAgnostic: true
-      }
+      providerHints: providerHints
     }
   });
 }
@@ -67,7 +77,52 @@ async function main(): Promise<void> {
     displayName: "Web Search",
     description: "Provider-backed external web lookup tool.",
     capabilityGroup: ToolCatalogCapabilityGroup.knowledge,
+    toolClass: ToolCatalogToolClass.cost_driving,
+    requiredCredentialId: "tool_web_search"
+  });
+  await upsertToolCatalogTool({
+    id: SEED_TOOL_COST_DRIVING_WEB_FETCH_ID,
+    code: "web_fetch",
+    displayName: "Web Fetch",
+    description: "Structured webpage content extraction via Firecrawl or fallback fetch.",
+    capabilityGroup: ToolCatalogCapabilityGroup.knowledge,
+    toolClass: ToolCatalogToolClass.cost_driving,
+    requiredCredentialId: "tool_web_fetch"
+  });
+  await upsertToolCatalogTool({
+    id: SEED_TOOL_COST_DRIVING_IMAGE_GENERATE_ID,
+    code: "image_generate",
+    displayName: "Image Generate",
+    description: "AI image generation via DALL-E or other supported providers.",
+    capabilityGroup: ToolCatalogCapabilityGroup.knowledge,
+    toolClass: ToolCatalogToolClass.cost_driving,
+    requiredCredentialId: "tool_image_generate"
+  });
+  await upsertToolCatalogTool({
+    id: SEED_TOOL_COST_DRIVING_TTS_ID,
+    code: "tts",
+    displayName: "Text to Speech",
+    description: "Text-to-speech synthesis via OpenAI TTS, ElevenLabs, or other providers.",
+    capabilityGroup: ToolCatalogCapabilityGroup.communication,
+    toolClass: ToolCatalogToolClass.cost_driving,
+    requiredCredentialId: "tool_tts"
+  });
+  await upsertToolCatalogTool({
+    id: SEED_TOOL_COST_DRIVING_BROWSER_ID,
+    code: "browser",
+    displayName: "Browser",
+    description: "Automated web browser for interactive page navigation and content extraction.",
+    capabilityGroup: ToolCatalogCapabilityGroup.knowledge,
     toolClass: ToolCatalogToolClass.cost_driving
+  });
+  await upsertToolCatalogTool({
+    id: SEED_TOOL_UTILITY_MEMORY_SEARCH_ID,
+    code: "memory_search",
+    displayName: "Memory Search",
+    description: "Semantic search across assistant memory using remote embeddings.",
+    capabilityGroup: ToolCatalogCapabilityGroup.workspace_ops,
+    toolClass: ToolCatalogToolClass.utility,
+    requiredCredentialId: "tool_memory_search"
   });
   await upsertToolCatalogTool({
     id: SEED_TOOL_UTILITY_MEMORY_CENTER_ID,
@@ -265,14 +320,30 @@ async function main(): Promise<void> {
 
     const activeTools = await prisma.toolCatalogTool.findMany({
       where: { status: ToolCatalogStatus.active },
-      select: { id: true, toolClass: true }
+      select: { id: true, code: true, toolClass: true }
     });
 
+    const STARTER_TRIAL_TOOL_POLICY: Record<
+      string,
+      { active: boolean; dailyCallLimit: number | null }
+    > = {
+      web_search: { active: true, dailyCallLimit: 30 },
+      web_fetch: { active: true, dailyCallLimit: 20 },
+      image_generate: { active: false, dailyCallLimit: null },
+      tts: { active: false, dailyCallLimit: null },
+      browser: { active: false, dailyCallLimit: null },
+      memory_search: { active: true, dailyCallLimit: null },
+      memory_center_read: { active: true, dailyCallLimit: null },
+      tasks_center_control: { active: true, dailyCallLimit: null }
+    };
+
     for (const tool of activeTools) {
+      const policy = STARTER_TRIAL_TOOL_POLICY[tool.code];
       const activationStatus =
-        tool.toolClass === ToolCatalogToolClass.utility
+        policy?.active ?? tool.toolClass === ToolCatalogToolClass.utility
           ? PlanToolActivationStatus.active
           : PlanToolActivationStatus.inactive;
+      const dailyCallLimit = policy?.dailyCallLimit ?? null;
       await prisma.planCatalogToolActivation.upsert({
         where: {
           planId_toolId: {
@@ -281,12 +352,14 @@ async function main(): Promise<void> {
           }
         },
         update: {
-          activationStatus
+          activationStatus,
+          dailyCallLimit
         },
         create: {
           planId: seedPlan.id,
           toolId: tool.id,
-          activationStatus
+          activationStatus,
+          dailyCallLimit
         }
       });
     }

@@ -48,6 +48,8 @@ export * from "./adminPlanInputBaseStatus";
 export * from "./adminPlanMetadata";
 export * from "./adminPlanState";
 export * from "./adminPlanStateStatus";
+export * from "./adminPlanToolActivation";
+export * from "./adminPlanToolActivationInput";
 export * from "./adminPlanUpdateRequest";
 export * from "./adminPlanVisibilityEffectiveEntitlements";
 export * from "./adminPlanVisibilityEffectiveEntitlementsChannelsAndSurfaces";
