@@ -114,6 +114,8 @@ OpenClaw image tag and digest are pinned in `infra/helm/values-dev.yaml`. CI upd
 
 **Changing the fork pin:** push the new commit to **`kurock09/openclaw` on GitHub before** (or immediately re-run CI after) updating `openclaw-approved-sha.txt` on PersAI `main`; otherwise workflows fail with `not our ref` (see gitops README).
 
+If the fork is running with `PERSAI_RUNTIME_SPEC_STORE=memory`, an OpenClaw process restart clears applied PersAI specs and you must apply again before expecting native chat output. For restart-safe / multi-replica runtime behavior, run the fork with `PERSAI_RUNTIME_SPEC_STORE=redis` and a valid `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL`.
+
 ### ADR-048 direct contract check (optional)
 
 After port-forward to `svc/openclaw` and with Bearer from `persai-openclaw-secrets` / `OPENCLAW_GATEWAY_TOKEN`, you can POST `/api/v1/runtime/spec/apply` then `/api/v1/runtime/chat/web` and expect `200`, header `X-Persai-Runtime-Session-Key`, and `assistantMessage` from the **embedded agent** when apply is present (requires provider credentials in OpenClaw runtime secrets for non-trivial replies). Without apply, body still echoes `[openclaw-compat]`. Shapes: [API-BOUNDARY.md](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1).

@@ -6,7 +6,7 @@ Accepted.
 
 **Shipped in repo + fork:** PersAI CI builds the fork at `infra/dev/gitops/openclaw-approved-sha.txt` with **no** compat patch; fork implements native `/api/v1/runtime/*` with **P0–P3** on the **applied-spec** path: **P3** uses `agentCommandFromIngress` (same entry as OpenAI-compat HTTP) for sync + stream; persona `instructions` from stored workspace feed `extraSystemPrompt`. **Without** a prior apply for `(assistantId, publishedVersionId)`, sync/stream still use **compat echo** strings (intentional transport fallback).
 
-**Remaining:** **P2 depth** — map full `openclawWorkspace` / bootstrap into session store and tool policy (beyond `extraSystemPrompt`). **P4** — optional removal of no-apply echo once product no longer needs it. **Ops:** shared apply store before OpenClaw **>1 replica** (see P0).
+**Remaining:** **P2 depth** — map full `openclawWorkspace` / bootstrap into session store and tool policy (beyond `extraSystemPrompt`). **P4** — optional removal of no-apply echo once product no longer needs it. **Ops:** before OpenClaw **>1 replica**, run the fork with a **Redis-backed** apply store (`PERSAI_RUNTIME_SPEC_STORE=redis`) instead of process memory (see P0).
 
 ## Context
 
@@ -26,7 +26,7 @@ At scale (order of **1k–2k** concurrent interactive users, multiple gateway re
 
 3. **Phased delivery** (fork-side; order adjustable after spike):
 
-   - **P0 — Persist apply (multi-replica–ready)**: On successful apply validation, store `spec.bootstrap` and `spec.workspace` (and `assistantId`, `publishedVersionId`, `contentHash`) in a **runtime-owned store behind a small interface**, keyed at minimum by `(assistantId, publishedVersionId)` (and optionally `contentHash` for validation on read). **Implementation rule:** a process-local `Map` is acceptable only for **single-replica** dev/smoke; before running **more than one OpenClaw replica** (or enabling aggressive load spread), the backing implementation must be **shared** (e.g. Redis or another low-latency cluster cache — exact tech is fork/ops choice). Design the API so the store can be swapped without changing the HTTP contract. TTL/eviction policy should be explicit (at least “until superseded by newer `publishedVersionId` or reapply with new `contentHash`”).
+   - **P0 — Persist apply (multi-replica–ready)**: On successful apply validation, store `spec.bootstrap` and `spec.workspace` (and `assistantId`, `publishedVersionId`, `contentHash`) in a **runtime-owned store behind a small interface**, keyed at minimum by `(assistantId, publishedVersionId)` (and optionally `contentHash` for validation on read). **Implementation rule:** a process-local `Map` is acceptable only for **single-replica** dev/smoke; before running **more than one OpenClaw replica** (or enabling aggressive load spread), the backing implementation must be **shared** (e.g. Redis or another low-latency cluster cache — exact tech is fork/ops choice). The fork now exposes explicit runtime envs for this seam: `PERSAI_RUNTIME_SPEC_STORE=memory|redis`, `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL`, optional `PERSAI_RUNTIME_SPEC_STORE_KEY_PREFIX`, optional `PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS`. Design the API so the store can be swapped without changing the HTTP contract. TTL/eviction policy should be explicit (at least “until superseded by newer `publishedVersionId` or reapply with new `contentHash`”).
 
    - **P1 — Session identity**: Derive a stable OpenClaw `sessionKey` (or equivalent) from PersAI’s `chatId` + `surfaceThreadKey` + `assistantId` + `publishedVersionId` so repeated web turns hit the same session/transcript as intended. Document the mapping in the fork and align with [ADR-015](015-chat-record-model-and-runtime-session-boundary.md) (backend remains source of truth for chat **records**; OpenClaw holds runtime session truth).
 
@@ -38,7 +38,7 @@ At scale (order of **1k–2k** concurrent interactive users, multiple gateway re
 
 4. **Scaling and latency (operational baseline, not a separate product phase)**:
 
-   - OpenClaw: **HPA** (or fixed replica count ≥2 only after shared apply store exists); keep API and OpenClaw in the **same region** as the database and primary users.
+   - OpenClaw: **HPA** (or fixed replica count ≥2 only after shared apply store exists and `PERSAI_RUNTIME_SPEC_STORE=redis` is configured); keep API and OpenClaw in the **same region** as the database and primary users.
    - PersAI API: existing `OPENCLAW_ADAPTER_*` timeouts/retries; avoid synchronous heavy work in the apply HTTP handler beyond persist + ack.
    - Document in fork runbook: when shared store is required (e.g. before production multi-replica).
 
@@ -62,7 +62,7 @@ At scale (order of **1k–2k** concurrent interactive users, multiple gateway re
 
 Non-exhaustive integration map (native PersAI runtime in fork; pin in PersAI `openclaw-approved-sha.txt`):
 
-- `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — apply persistence interface + in-memory default (`PERSAI_RUNTIME_SPEC_STORE`).
+- `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — apply persistence interface + `memory`/`redis` store factory (`PERSAI_RUNTIME_SPEC_STORE*`).
 - `src/gateway/persai-runtime/persai-runtime-session.ts` — stable web session key (P1).
 - `src/gateway/persai-runtime/persai-runtime-http.ts` — `/api/v1/runtime/*` HTTP handlers.
 - `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — P3 `agentCommandFromIngress` sync + NDJSON stream bridge.

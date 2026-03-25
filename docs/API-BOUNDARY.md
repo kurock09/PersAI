@@ -994,6 +994,7 @@ This subsection is the **design-freeze** contract between PersAI `apps/api` and 
 - Source-of-truth and deploy boundary: [ADR-012](ADR/012-openclaw-fork-source-and-deploy-boundary.md).
 - Native runtime fulfillment (persona, memory, tools, full agent pipeline from apply + chat) is implemented incrementally on the fork; planning, phased delivery, and scaling rules: [ADR-048](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md).
 - The dev image builds the fork at the pinned SHA in [infra/dev/gitops/openclaw-approved-sha.txt](../infra/dev/gitops/openclaw-approved-sha.txt) **without** applying a compat patch; runtime routes live in fork source under `src/gateway/persai-runtime/`.
+- Shared apply-store backend is selected inside the fork via `PERSAI_RUNTIME_SPEC_STORE=memory|redis`; Redis mode also uses `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL`, optional `PERSAI_RUNTIME_SPEC_STORE_KEY_PREFIX`, and optional `PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS`. This is an **operational/runtime** concern only; it does **not** change the HTTP contract in this section.
 - **Normative contract** = what PersAI’s adapter sends and validates (this section). **Reference behavior** for drift checks: see fork handlers and status codes below; until **ADR-048 P3**, assistant text may be **echo-shaped** (with `openclaw-persai-runtime*` / `[persona_loaded]` when apply+persona exist, or legacy compat-style prefix when no apply for that assistant version).
 
 ### Configuration (operational, no secret values)

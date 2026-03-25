@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-03-25 - ADR-048 P0: Redis-backed apply store wiring (fork + PersAI ops docs)
+
+### What changed
+
+- **Fork** (`kurock09/openclaw`): commit `6ea3b32535d38e0884d8770e74483260caaf1a53` implements `redis` backend for `src/gateway/persai-runtime/persai-runtime-spec-store.ts` with lazy connect, key prefix, optional TTL, and unit coverage in `persai-runtime-spec-store.test.ts`; `memory` remains the single-replica default.
+- **PersAI docs / pin wiring**: documented fork runtime envs (`PERSAI_RUNTIME_SPEC_STORE`, `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL`, optional prefix/TTL) in `docs/API-BOUNDARY.md`, `docs/ADR/048-*`, `docs/ROADMAP.md`, `docs/LIVE-TEST-HYBRID.md`, `docs/CHANGELOG.md`; updated `infra/dev/gitops/openclaw-approved-sha.txt`; moved `infra/helm/values-dev.yaml` OpenClaw tag to the new fork SHA and cleared digest for workflow repin.
+
+### Why changed
+
+- Compat fallback after OpenClaw restarts is not a PersAI API problem; the root cause is process-local apply state in the runtime. Redis-backed storage closes that gap at the correct boundary and is the prerequisite for multi-replica OpenClaw.
+
+### Next recommended step
+
+- In the **fork repo**: commit/push the Redis store change, then bump `infra/dev/gitops/openclaw-approved-sha.txt` in PersAI and repin the OpenClaw image/digest.
+- In **cluster ops**: provide a real Redis URL (managed Redis preferred for non-dev), set `PERSAI_RUNTIME_SPEC_STORE=redis`, deploy, then verify apply survives OpenClaw pod restart before increasing replicas above `1`.
+
+### Ready commit message
+
+- `chore(openclaw): pin redis-backed apply-store fork sha and document runtime store wiring`
+
 ## 2026-03-25 - ADR-048 P3: `agentCommandFromIngress` for PersAI web runtime (fork)
 
 ### What changed
