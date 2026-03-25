@@ -4,9 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanVisibilityEffectiveEntitlements } from './adminPlanVisibilityEffectiveEntitlements';
+import type { AdminPlanVisibilityEffectiveEntitlements } from "./adminPlanVisibilityEffectiveEntitlements";
 
 /**
  * @nullable
  */
-export type AdminPlanVisibilityStateEffectiveEntitlements = AdminPlanVisibilityEffectiveEntitlements | null;
+export type AdminPlanVisibilityStateEffectiveEntitlements =
+  AdminPlanVisibilityEffectiveEntitlements | null;

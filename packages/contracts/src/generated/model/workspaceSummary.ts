@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { WorkspaceSummaryStatus } from './workspaceSummaryStatus';
-import type { WorkspaceSummaryRole } from './workspaceSummaryRole';
+import type { WorkspaceSummaryStatus } from "./workspaceSummaryStatus";
+import type { WorkspaceSummaryRole } from "./workspaceSummaryRole";
 
 export interface WorkspaceSummary {
   id: string;

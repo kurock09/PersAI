@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { OnboardingStateStatus } from './onboardingStateStatus';
+import type { OnboardingStateStatus } from "./onboardingStateStatus";
 
 export interface OnboardingState {
   isComplete: boolean;

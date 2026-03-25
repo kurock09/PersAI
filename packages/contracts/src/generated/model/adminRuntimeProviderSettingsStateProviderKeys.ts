@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminRuntimeProviderKeyState } from './adminRuntimeProviderKeyState';
+import type { AdminRuntimeProviderKeyState } from "./adminRuntimeProviderKeyState";
 
 export type AdminRuntimeProviderSettingsStateProviderKeys = {
   openai: AdminRuntimeProviderKeyState;

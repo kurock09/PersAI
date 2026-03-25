@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { PlatformRolloutStatus } from './platformRolloutStatus';
-import type { PlatformRolloutPatch } from './platformRolloutPatch';
+import type { PlatformRolloutStatus } from "./platformRolloutStatus";
+import type { PlatformRolloutPatch } from "./platformRolloutPatch";
 
 export interface PlatformRolloutState {
   id: string;

@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminBusinessCockpitStatePublishApplySuccessWindow = typeof AdminBusinessCockpitStatePublishApplySuccessWindow[keyof typeof AdminBusinessCockpitStatePublishApplySuccessWindow];
-
+export type AdminBusinessCockpitStatePublishApplySuccessWindow =
+  (typeof AdminBusinessCockpitStatePublishApplySuccessWindow)[keyof typeof AdminBusinessCockpitStatePublishApplySuccessWindow];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminBusinessCockpitStatePublishApplySuccessWindow = {
-  last_7_days: 'last_7_days',
+  last_7_days: "last_7_days"
 } as const;
