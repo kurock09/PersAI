@@ -6,7 +6,7 @@ import {
   PERSAI_RUNTIME_PROVIDER_SECRET_IDS,
   type PlatformRuntimeProviderKeyMetadata
 } from "./platform-runtime-provider-settings";
-import { TOOL_CREDENTIAL_IDS, CREDENTIAL_KEY_BY_SECRET_ID } from "./tool-credential-settings";
+import { TOOL_CREDENTIAL_IDS } from "./tool-credential-settings";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const AES_ALGORITHM = "aes-256-gcm";
