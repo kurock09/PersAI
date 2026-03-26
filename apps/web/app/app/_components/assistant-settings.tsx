@@ -350,6 +350,18 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     [getToken, loadTasks]
   );
 
+  if (resetting) {
+    return (
+      <div className="flex flex-col items-center justify-center px-6 py-16 text-center gap-4">
+        <Loader2 className="h-10 w-10 animate-spin text-accent" />
+        <p className="text-sm font-medium text-text-muted">Resetting assistant...</p>
+        <p className="text-xs text-text-subtle">
+          Clearing chats, memory, and settings. This may take a few seconds.
+        </p>
+      </div>
+    );
+  }
+
   if (!assistant) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
