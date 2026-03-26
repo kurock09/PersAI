@@ -98,9 +98,7 @@ export class ResolveOpenClawCapabilityEnvelopeService {
           restrictedByQuota:
             effectiveCapabilities.toolClasses.utility.allowed &&
             effectiveCapabilities.toolClasses.utility.quotaGoverned
-        },
-        tasksAndRemindersExcludedFromCommercialQuotas:
-          effectiveCapabilities.governedFeatures.tasksExcludedFromCommercialQuotas
+        }
       },
       suppression: {
         suppressUnavailableTools: true,

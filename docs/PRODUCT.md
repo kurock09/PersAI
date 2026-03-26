@@ -425,7 +425,7 @@ Tasks are part of the assistant product, not just hidden runtime magic.
 - status (control-plane labels for visibility; runtime execution state stays OpenClaw)
 - enable/disable
 - cancel
-- commercial plan quotas **must not** use tasks/reminders/triggers as a billable dimension (see `tasks_control.commercialQuota.tasksExcludedFromPlanQuotas` in backend governance)
+- commercial plan quotas **must not** use tasks/reminders/triggers as a billable dimension (enforced by convention in quota accounting; no dedicated governance flag)
 - audit
 - visibility
 

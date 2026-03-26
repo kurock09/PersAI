@@ -124,6 +124,7 @@ openclaw:
       enabled: true
       bucketName: persai-dev-workspaces
       mountPath: /mnt/workspaces/persai
+      mountOptions: "uid=1000,gid=1000"
   agentDefaults:
     modelPrimary: openai/gpt-5.4
   args:

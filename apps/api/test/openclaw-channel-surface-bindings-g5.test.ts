@@ -38,13 +38,6 @@ const effectiveCapabilities = {
     audio: false,
     video: false,
     file: false
-  },
-  governedFeatures: {
-    assistantLifecycle: true,
-    memoryCenter: true,
-    tasksCenter: true,
-    viewLimitPercentages: true,
-    tasksExcludedFromCommercialQuotas: true
   }
 };
 

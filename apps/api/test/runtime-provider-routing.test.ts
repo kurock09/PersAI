@@ -41,13 +41,6 @@ async function run(): Promise<void> {
         audio: false,
         video: false,
         file: false
-      },
-      governedFeatures: {
-        assistantLifecycle: true,
-        memoryCenter: true,
-        tasksCenter: true,
-        viewLimitPercentages: true,
-        tasksExcludedFromCommercialQuotas: true
       }
     },
     secretRefs: null,
@@ -118,13 +111,6 @@ async function run(): Promise<void> {
         audio: false,
         video: false,
         file: false
-      },
-      governedFeatures: {
-        assistantLifecycle: true,
-        memoryCenter: true,
-        tasksCenter: true,
-        viewLimitPercentages: true,
-        tasksExcludedFromCommercialQuotas: true
       }
     },
     secretRefs: {

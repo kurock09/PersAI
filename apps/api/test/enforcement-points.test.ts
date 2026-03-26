@@ -89,14 +89,7 @@ async function run(): Promise<void> {
           costDriving: { allowed: true, quotaGoverned: true }
         },
         channelsAndSurfaces: { webChat: true, telegram: false, whatsapp: false, max: false },
-        mediaClasses: { text: true, image: false, audio: false, video: false, file: false },
-        governedFeatures: {
-          assistantLifecycle: true,
-          memoryCenter: true,
-          tasksCenter: true,
-          viewLimitPercentages: true,
-          tasksExcludedFromCommercialQuotas: true
-        }
+        mediaClasses: { text: true, image: false, audio: false, video: false, file: false }
       };
     }
   };

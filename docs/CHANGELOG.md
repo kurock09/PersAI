@@ -4,6 +4,26 @@
 
 ### Added
 
+- **Step 12 H3 — runtime hydration depth (persona, memory, per-user workspace):**
+  - H3a: persona hydration — Prisma schema migration for `draftTraits`/`draftAvatarEmoji`/`draftAvatarUrl` on assistants, `snapshotTraits`/`snapshotAvatarEmoji`/`snapshotAvatarUrl` on published versions, `birthday`/`gender` on `app_users`; materialization generates 7 Markdown bootstrap documents (`SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`, `AGENTS.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`); per-user workspace isolation with `PERSAI_WORKSPACE_ROOT` + GCS FUSE CSI driver; OpenClaw apply handler writes files with write-once semantics for bootstrap artifacts; `extraSystemPrompt` eliminated.
+  - H3b: memory management — OpenClaw HTTP memory API (list/add/edit/forget/search); PersAI proxy via `OpenClawRuntimeAdapter`; Memory Center UI with Workspace (runtime memory) and History (registry summaries) tabs; teach/forget in-chat actions.
+  - H3c: chat history — `GET /assistant/chats/web/:chatId/messages` with cursor pagination; `useChat.loadHistory` loads history on thread navigation.
+  - Setup wizard and assistant settings UI updated to send/display traits, avatar, birthday, gender.
+  - Helm: GCS FUSE via CSI driver volume mount with workload identity–bound ServiceAccount for OpenClaw.
+  - ADR-053 documents the three-layer architecture (structured DB → materialized Markdown → per-user workspace files).
+
+- **Step 12 H2 cleanup — tool/plan/limits consolidation and dead-code removal:**
+  - Consolidated tool catalog definitions from `seed.ts` and `seed-catalog.ts` into a single source-of-truth file: `apps/api/prisma/tool-catalog-data.ts` (8 tools + `STARTER_TRIAL_TOOL_POLICY`).
+  - Removed 5 dead `governedFeatures` capability flags from types, services, resolvers, API contracts, admin UI, and tests: `assistantLifecycle`, `memoryCenter`, `tasksCenter`, `viewLimitPercentages`, `tasksExcludedFromCommercialQuotas`.
+  - Added per-plan quota limits (`tokenBudgetLimit`, `costToolUnitsLimit`) stored in `billingProviderHints.quotaAccounting`; exposed in admin plans UI with dedicated input fields.
+  - Added per-plan AI model selection (`primaryModelKey`) stored in `billingProviderHints`; integrated into runtime provider routing via `MaterializeAssistantPublishedVersionService` → `ResolveRuntimeProviderRoutingService`.
+  - Implemented `dailyCallLimit` enforcement infrastructure: `WorkspaceToolDailyUsageRepository` interface, `PrismaWorkspaceToolDailyUsageRepository` implementation, `checkToolDailyLimit` and `incrementToolDailyUsage` methods on `TrackWorkspaceQuotaUsageService`.
+  - Completed admin Runtime UI (`/admin/runtime`): fallback provider/model toggle and fields, available models per provider text editor, post-save reapply summary display.
+  - Fixed `billingProviderHints` overwrite bug in `manage-admin-plans.service.ts` — now merges `quotaAccounting` and `primaryModelKey` into existing hints JSON instead of replacing it.
+  - Updated `resolve-openclaw-channel-surface-bindings.service.ts` to use direct tool activation status instead of removed `tasksCenter` capability flag.
+  - Updated ADR-052 tool count reference (3 → 8).
+  - Aligned all docs (`ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`, `UI-SPEC.md`, `TEST-PLAN.md`, `PRODUCT.md`, `ROADMAP.md`) with the cleanup changes.
+
 - **Plans per-tool management + OpenClaw tool policy integration:**
   - Redesigned `/admin/plans` page with clean card layout, badge-based read-only display, and per-tool activation table (active toggle + daily limit input) in both read-only and edit modes.
   - Extended admin plans API (`GET`/`POST`/`PATCH /api/v1/admin/plans`) to accept and return per-tool `toolActivations[]` with individual `active` status and `dailyCallLimit` overrides (nullable = unlimited).

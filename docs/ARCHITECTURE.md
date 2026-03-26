@@ -115,7 +115,7 @@ It is not part of backend domain logic.
 
 ## Tasks control boundary (Step 6 D4)
 
-- backend owns **`tasks_control`** on `assistant_governance` (`persai.tasksControl.v1`): ownership model, source/surface tagging hooks, control-plane lifecycle labels, user enable/disable/cancel flags, **explicit `commercialQuota.tasksExcludedFromPlanQuotas`** (tasks are not a billable quota dimension), audit delegation
+- backend owns **`tasks_control`** on `assistant_governance` (`persai.tasksControl.v1`): ownership model, source/surface tagging hooks, control-plane lifecycle labels, user enable/disable/cancel flags, audit delegation; tasks are not a billable quota dimension (enforced by convention, no longer via a dedicated `tasksExcludedFromPlanQuotas` flag)
 - OpenClaw owns **execution, scheduling, and trigger routing**; PersAI does not implement a backend scheduler in D4
 - materialized `openclawWorkspace.tasksControl` carries the resolved envelope for runtime alignment without inferring policy locally
 
@@ -128,11 +128,14 @@ It is not part of backend domain logic.
 ## Plan catalog and entitlements boundary (Step 7 P1)
 
 - backend owns canonical plan packaging truth in `plan_catalog_plans` and `plan_catalog_entitlements` (control plane)
-- entitlement groups are explicit and provider-agnostic:
-  - capabilities
+- entitlement groups stored on `plan_catalog_entitlements`:
   - tool classes
   - channels/surfaces
-  - limits-related permissions
+  - (legacy `capabilities` and `limits_permissions` arrays remain in DB schema but are no longer surfaced in API contracts or admin UI — effectively deprecated)
+- plan-level quota limits and model selection are stored in `plan_catalog_plans.billing_provider_hints` JSON:
+  - `quotaAccounting.tokenBudgetLimit`
+  - `quotaAccounting.costOrTokenDrivingToolClassUnitsLimit`
+  - `primaryModelKey` (per-plan default AI model)
 - default first-registration assignment is modeled by plan flag (`isDefaultFirstRegistrationPlan`) and applied to governance `quotaPlanCode` at assistant baseline creation
 - trial behavior is modeled by plan flags (`isTrialPlan`, `trialDurationDays`) and remains control-plane metadata in P1
 - no billing-vendor workflow coupling and no runtime behavior routing/enforcement engine in P1
@@ -162,7 +165,7 @@ It is not part of backend domain logic.
   - assistant governance capability envelope
 - resolution output (`persai.effectiveCapabilities.v1`) is explicit and reusable by enforcement layers
 - backend applies governance as a restrictive guardrail over plan-derived baseline and does not become runtime behavior router
-- materialization includes `effectiveCapabilities` so OpenClaw receives explicit availability truth (tools/channels/media/governed features)
+- materialization includes `effectiveCapabilities` so OpenClaw receives explicit availability truth (tools/channels/media)
 
 ## Quota accounting boundary (Step 7 P5)
 
@@ -176,6 +179,7 @@ It is not part of backend domain logic.
   - usage/snapshot event log (`workspace_quota_usage_events`)
 - quota limits resolve from provider-agnostic plan hints with config fallback defaults; no billing vendor coupling
 - tasks/reminders remain explicitly non-commercial-quota dimensions in this slice
+- per-tool daily call limits are enforced via `workspace_tool_usage_daily_counters` persistence and `TrackWorkspaceQuotaUsageService.checkToolDailyLimit` / `incrementToolDailyUsage` methods (Step 12 H2 extension)
 - no backend behavior routing and no BI/reporting expansion in P5
 
 ## Enforcement points boundary (Step 7 P6)
@@ -192,12 +196,14 @@ It is not part of backend domain logic.
   - it enforces policy at entry boundaries
   - it does not route runtime tool behavior
 - OpenClaw materialization includes explicit `toolAvailability` truth so runtime does not assume unavailable tool classes exist
+- per-plan model selection is resolved from `billing_provider_hints.primaryModelKey` and passed to runtime provider routing during materialization
 
 ## Tool catalog and activation boundary (Step 8 E1)
 
 - backend owns canonical tool catalog and plan activation truth in control plane:
   - `tool_catalog_tools`
   - `plan_catalog_tool_activations`
+- canonical tool definitions are maintained in a single source-of-truth file (`apps/api/prisma/tool-catalog-data.ts`); both `seed.ts` and `seed-catalog.ts` import from it
 - plan management flow remains role-gated (+ step-up on dangerous writes) and continues to be the single control-plane packaging surface in this slice
 - materialization now projects explicit per-tool availability from catalog + activation + effective capability class guardrail
 - backend still does not execute or route runtime tool behavior; OpenClaw remains execution owner

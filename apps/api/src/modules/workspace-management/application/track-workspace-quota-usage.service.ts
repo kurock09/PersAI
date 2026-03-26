@@ -15,6 +15,10 @@ import {
   type WorkspaceQuotaAccountingRepository,
   type WorkspaceQuotaLimitsInput
 } from "../domain/workspace-quota-accounting.repository";
+import {
+  WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY,
+  type WorkspaceToolDailyUsageRepository
+} from "../domain/workspace-tool-daily-usage.repository";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 
@@ -97,6 +101,8 @@ export class TrackWorkspaceQuotaUsageService {
     private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository,
     @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
     private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
+    @Inject(WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY)
+    private readonly toolDailyUsageRepository: WorkspaceToolDailyUsageRepository,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService
   ) {}
@@ -129,9 +135,7 @@ export class TrackWorkspaceQuotaUsageService {
         delta: tokenDelta,
         source: params.source,
         metadata: {
-          estimator: "chars_div_4_ceil_v1",
-          tasksExcludedFromCommercialQuotas:
-            effectiveCapabilities.governedFeatures.tasksExcludedFromCommercialQuotas
+          estimator: "chars_div_4_ceil_v1"
         },
         limits
       });
@@ -170,6 +174,34 @@ export class TrackWorkspaceQuotaUsageService {
       source: params.source,
       limits
     });
+  }
+
+  async checkToolDailyLimit(params: {
+    workspaceId: string;
+    toolCode: string;
+    dailyCallLimit: number | null;
+  }): Promise<{ allowed: boolean; currentCount: number; limit: number | null }> {
+    if (params.dailyCallLimit === null || params.dailyCallLimit <= 0) {
+      return { allowed: true, currentCount: 0, limit: null };
+    }
+    const today = new Date();
+    const dateOnly = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+    );
+    const currentCount = await this.toolDailyUsageRepository.getUsageForDate(
+      params.workspaceId,
+      params.toolCode,
+      dateOnly
+    );
+    return {
+      allowed: currentCount < params.dailyCallLimit,
+      currentCount,
+      limit: params.dailyCallLimit
+    };
+  }
+
+  async incrementToolDailyUsage(workspaceId: string, toolCode: string): Promise<number> {
+    return this.toolDailyUsageRepository.incrementAndGet(workspaceId, toolCode);
   }
 
   private async resolveGovernance(assistantId: string): Promise<AssistantGovernance> {

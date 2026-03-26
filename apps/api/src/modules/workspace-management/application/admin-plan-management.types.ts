@@ -1,11 +1,6 @@
 export type AdminPlanStatus = "active" | "inactive";
 
 export type AdminPlanEntitlementControls = {
-  capabilities: {
-    assistantLifecycle: boolean;
-    memoryCenter: boolean;
-    tasksCenter: boolean;
-  };
   toolClasses: {
     costDrivingTools: boolean;
     utilityTools: boolean;
@@ -17,10 +12,6 @@ export type AdminPlanEntitlementControls = {
     telegram: boolean;
     whatsapp: boolean;
     max: boolean;
-  };
-  limitsPermissions: {
-    viewLimitPercentages: boolean;
-    tasksExcludedFromCommercialQuotas: boolean;
   };
 };
 
@@ -50,6 +41,11 @@ export type AdminPlanInput = {
     notes: string | null;
   };
   entitlements: AdminPlanEntitlementControls;
+  quotaLimits: {
+    tokenBudgetLimit: number | null;
+    costToolUnitsLimit: number | null;
+  };
+  primaryModelKey: string | null;
   toolActivations?: AdminPlanToolActivationInput[];
 };
 
@@ -70,6 +66,11 @@ export type AdminPlanState = {
     notes: string | null;
   };
   entitlements: AdminPlanEntitlementControls;
+  quotaLimits: {
+    tokenBudgetLimit: number | null;
+    costToolUnitsLimit: number | null;
+  };
+  primaryModelKey: string | null;
   toolActivations: AdminPlanToolActivation[];
   createdAt: string;
   updatedAt: string;

@@ -2,13 +2,13 @@ import {
   PlanCatalogStatus,
   PlanToolActivationStatus,
   PrismaClient,
-  ToolCatalogCapabilityGroup,
   ToolCatalogStatus,
   ToolCatalogToolClass,
   WorkspaceRole,
   WorkspaceStatus,
   WorkspaceSubscriptionStatus
 } from "@prisma/client";
+import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "./tool-catalog-data.js";
 
 const prisma = new PrismaClient();
 
@@ -19,127 +19,42 @@ const SEED_DEFAULT_PLAN_ID = "44444444-4444-4444-4444-444444444444";
 const SEED_DEFAULT_PLAN_ENTITLEMENT_ID = "55555555-5555-5555-5555-555555555555";
 const SEED_DEFAULT_PLAN_CODE = "starter_trial";
 const SEED_WORKSPACE_SUBSCRIPTION_ID = "66666666-6666-6666-6666-666666666666";
-const SEED_TOOL_COST_DRIVING_WEB_SEARCH_ID = "77777777-7777-7777-7777-777777777777";
-const SEED_TOOL_UTILITY_MEMORY_CENTER_ID = "88888888-8888-8888-8888-888888888888";
-const SEED_TOOL_UTILITY_TASKS_CENTER_ID = "99999999-9999-9999-9999-999999999999";
-const SEED_TOOL_COST_DRIVING_WEB_FETCH_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-const SEED_TOOL_COST_DRIVING_IMAGE_GENERATE_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
-const SEED_TOOL_COST_DRIVING_TTS_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
-const SEED_TOOL_COST_DRIVING_BROWSER_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
-const SEED_TOOL_UTILITY_MEMORY_SEARCH_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
 
-async function upsertToolCatalogTool(params: {
-  id: string;
-  code: string;
-  displayName: string;
-  description: string;
-  capabilityGroup: ToolCatalogCapabilityGroup;
-  toolClass: ToolCatalogToolClass;
-  requiredCredentialId?: string;
-}): Promise<void> {
-  const providerHints = params.requiredCredentialId
-    ? {
-        schema: "persai.toolCatalogProviderHints.v2",
-        providerAgnostic: false,
-        requiredCredentialId: params.requiredCredentialId
+async function upsertToolCatalog(): Promise<void> {
+  for (const t of TOOL_CATALOG) {
+    const providerHints = t.requiredCredentialId
+      ? {
+          schema: "persai.toolCatalogProviderHints.v2",
+          providerAgnostic: false,
+          requiredCredentialId: t.requiredCredentialId
+        }
+      : { schema: "persai.toolCatalogProviderHints.v1", providerAgnostic: true };
+    await prisma.toolCatalogTool.upsert({
+      where: { code: t.code },
+      update: {
+        displayName: t.displayName,
+        description: t.description,
+        capabilityGroup: t.capabilityGroup,
+        toolClass: t.toolClass,
+        status: ToolCatalogStatus.active,
+        providerHints
+      },
+      create: {
+        id: t.id,
+        code: t.code,
+        displayName: t.displayName,
+        description: t.description,
+        capabilityGroup: t.capabilityGroup,
+        toolClass: t.toolClass,
+        status: ToolCatalogStatus.active,
+        providerHints
       }
-    : {
-        schema: "persai.toolCatalogProviderHints.v1",
-        providerAgnostic: true
-      };
-  await prisma.toolCatalogTool.upsert({
-    where: { code: params.code },
-    update: {
-      displayName: params.displayName,
-      description: params.description,
-      capabilityGroup: params.capabilityGroup,
-      toolClass: params.toolClass,
-      status: ToolCatalogStatus.active,
-      providerHints: providerHints
-    },
-    create: {
-      id: params.id,
-      code: params.code,
-      displayName: params.displayName,
-      description: params.description,
-      capabilityGroup: params.capabilityGroup,
-      toolClass: params.toolClass,
-      status: ToolCatalogStatus.active,
-      providerHints: providerHints
-    }
-  });
+    });
+  }
 }
 
 async function main(): Promise<void> {
-  await upsertToolCatalogTool({
-    id: SEED_TOOL_COST_DRIVING_WEB_SEARCH_ID,
-    code: "web_search",
-    displayName: "Web Search",
-    description: "Provider-backed external web lookup tool.",
-    capabilityGroup: ToolCatalogCapabilityGroup.knowledge,
-    toolClass: ToolCatalogToolClass.cost_driving,
-    requiredCredentialId: "tool_web_search"
-  });
-  await upsertToolCatalogTool({
-    id: SEED_TOOL_COST_DRIVING_WEB_FETCH_ID,
-    code: "web_fetch",
-    displayName: "Web Fetch",
-    description: "Structured webpage content extraction via Firecrawl or fallback fetch.",
-    capabilityGroup: ToolCatalogCapabilityGroup.knowledge,
-    toolClass: ToolCatalogToolClass.cost_driving,
-    requiredCredentialId: "tool_web_fetch"
-  });
-  await upsertToolCatalogTool({
-    id: SEED_TOOL_COST_DRIVING_IMAGE_GENERATE_ID,
-    code: "image_generate",
-    displayName: "Image Generate",
-    description: "AI image generation via DALL-E or other supported providers.",
-    capabilityGroup: ToolCatalogCapabilityGroup.knowledge,
-    toolClass: ToolCatalogToolClass.cost_driving,
-    requiredCredentialId: "tool_image_generate"
-  });
-  await upsertToolCatalogTool({
-    id: SEED_TOOL_COST_DRIVING_TTS_ID,
-    code: "tts",
-    displayName: "Text to Speech",
-    description: "Text-to-speech synthesis via OpenAI TTS, ElevenLabs, or other providers.",
-    capabilityGroup: ToolCatalogCapabilityGroup.communication,
-    toolClass: ToolCatalogToolClass.cost_driving,
-    requiredCredentialId: "tool_tts"
-  });
-  await upsertToolCatalogTool({
-    id: SEED_TOOL_COST_DRIVING_BROWSER_ID,
-    code: "browser",
-    displayName: "Browser",
-    description: "Automated web browser for interactive page navigation and content extraction.",
-    capabilityGroup: ToolCatalogCapabilityGroup.knowledge,
-    toolClass: ToolCatalogToolClass.cost_driving
-  });
-  await upsertToolCatalogTool({
-    id: SEED_TOOL_UTILITY_MEMORY_SEARCH_ID,
-    code: "memory_search",
-    displayName: "Memory Search",
-    description: "Semantic search across assistant memory using remote embeddings.",
-    capabilityGroup: ToolCatalogCapabilityGroup.workspace_ops,
-    toolClass: ToolCatalogToolClass.utility,
-    requiredCredentialId: "tool_memory_search"
-  });
-  await upsertToolCatalogTool({
-    id: SEED_TOOL_UTILITY_MEMORY_CENTER_ID,
-    code: "memory_center_read",
-    displayName: "Memory Center Read",
-    description: "Utility read access for Memory Center summaries.",
-    capabilityGroup: ToolCatalogCapabilityGroup.workspace_ops,
-    toolClass: ToolCatalogToolClass.utility
-  });
-  await upsertToolCatalogTool({
-    id: SEED_TOOL_UTILITY_TASKS_CENTER_ID,
-    code: "tasks_center_control",
-    displayName: "Tasks Center Control",
-    description: "Utility control actions for task registry items.",
-    capabilityGroup: ToolCatalogCapabilityGroup.workspace_ops,
-    toolClass: ToolCatalogToolClass.utility
-  });
+  await upsertToolCatalog();
 
   await prisma.appUser.upsert({
     where: { id: SEED_USER_ID },
@@ -234,11 +149,7 @@ async function main(): Promise<void> {
       where: { planId: seedPlan.id },
       update: {
         schemaVersion: 1,
-        capabilities: [
-          { key: "assistant.lifecycle.publish_apply_rollback_reset", allowed: true },
-          { key: "assistant.memory.center", allowed: true },
-          { key: "assistant.tasks.center", allowed: true }
-        ],
+        capabilities: [],
         toolClasses: [
           { key: "cost_driving", allowed: false, quotaGoverned: true },
           { key: "utility", allowed: true, quotaGoverned: true }
@@ -249,20 +160,13 @@ async function main(): Promise<void> {
           { key: "whatsapp", allowed: false },
           { key: "max", allowed: false }
         ],
-        limitsPermissions: [
-          { key: "view_limit_percentages", allowed: true },
-          { key: "tasks_excluded_from_commercial_quotas", value: true }
-        ]
+        limitsPermissions: []
       },
       create: {
         id: SEED_DEFAULT_PLAN_ENTITLEMENT_ID,
         planId: seedPlan.id,
         schemaVersion: 1,
-        capabilities: [
-          { key: "assistant.lifecycle.publish_apply_rollback_reset", allowed: true },
-          { key: "assistant.memory.center", allowed: true },
-          { key: "assistant.tasks.center", allowed: true }
-        ],
+        capabilities: [],
         toolClasses: [
           { key: "cost_driving", allowed: false, quotaGoverned: true },
           { key: "utility", allowed: true, quotaGoverned: true }
@@ -273,10 +177,7 @@ async function main(): Promise<void> {
           { key: "whatsapp", allowed: false },
           { key: "max", allowed: false }
         ],
-        limitsPermissions: [
-          { key: "view_limit_percentages", allowed: true },
-          { key: "tasks_excluded_from_commercial_quotas", value: true }
-        ]
+        limitsPermissions: []
       }
     });
 
@@ -322,20 +223,6 @@ async function main(): Promise<void> {
       where: { status: ToolCatalogStatus.active },
       select: { id: true, code: true, toolClass: true }
     });
-
-    const STARTER_TRIAL_TOOL_POLICY: Record<
-      string,
-      { active: boolean; dailyCallLimit: number | null }
-    > = {
-      web_search: { active: true, dailyCallLimit: 30 },
-      web_fetch: { active: true, dailyCallLimit: 20 },
-      image_generate: { active: false, dailyCallLimit: null },
-      tts: { active: false, dailyCallLimit: null },
-      browser: { active: false, dailyCallLimit: null },
-      memory_search: { active: true, dailyCallLimit: null },
-      memory_center_read: { active: true, dailyCallLimit: null },
-      tasks_center_control: { active: true, dailyCallLimit: null }
-    };
 
     for (const tool of activeTools) {
       const policy = STARTER_TRIAL_TOOL_POLICY[tool.code];

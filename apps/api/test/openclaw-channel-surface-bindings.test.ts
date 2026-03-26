@@ -83,13 +83,6 @@ async function run(): Promise<void> {
         audio: false,
         video: false,
         file: false
-      },
-      governedFeatures: {
-        assistantLifecycle: true,
-        memoryCenter: true,
-        tasksCenter: true,
-        viewLimitPercentages: true,
-        tasksExcludedFromCommercialQuotas: true
       }
     }
   });

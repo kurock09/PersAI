@@ -127,6 +127,7 @@ openclaw:
       enabled: false
       bucketName: ""
       mountPath: /mnt/workspaces/persai
+      mountOptions: ""
   command:
     - node
     - openclaw.mjs

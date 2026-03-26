@@ -100,8 +100,7 @@ async function run(): Promise<void> {
         schema: "persai.capabilityEnvelope.v1",
         deny: {
           channelsAndSurfaces: ["max"],
-          mediaClasses: ["video"],
-          governedFeatures: ["memory_center"]
+          mediaClasses: ["video"]
         }
       },
       secretRefs: null,
@@ -122,8 +121,6 @@ async function run(): Promise<void> {
   assert.equal(resolved.toolClasses.costDriving.allowed, true);
   assert.equal(resolved.channelsAndSurfaces.max, false);
   assert.equal(resolved.mediaClasses.video, false);
-  assert.equal(resolved.governedFeatures.memoryCenter, false);
-  assert.equal(resolved.governedFeatures.tasksExcludedFromCommercialQuotas, true);
 }
 
 void run();

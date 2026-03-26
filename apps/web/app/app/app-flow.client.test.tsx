@@ -420,12 +420,6 @@ function makeAdminPlanVisibility() {
         telegram: true,
         whatsapp: false,
         max: false
-      },
-      governedFeatures: {
-        memoryCenter: true,
-        tasksCenter: true,
-        viewLimitPercentages: true,
-        tasksExcludedFromCommercialQuotas: true
       }
     },
     updatedAt: "2026-03-26T12:00:00.000Z"
@@ -781,11 +775,6 @@ describe("AppFlowClient onboarding gate", () => {
       trialDurationDays: null,
       metadata: { commercialTag: null, notes: null },
       entitlements: {
-        capabilities: {
-          assistantLifecycle: true,
-          memoryCenter: true,
-          tasksCenter: true
-        },
         toolClasses: {
           costDrivingTools: true,
           utilityTools: true,
@@ -797,10 +786,6 @@ describe("AppFlowClient onboarding gate", () => {
           telegram: true,
           whatsapp: false,
           max: false
-        },
-        limitsPermissions: {
-          viewLimitPercentages: true,
-          tasksExcludedFromCommercialQuotas: true
         }
       },
       createdAt: "2026-03-26T10:00:00.000Z",

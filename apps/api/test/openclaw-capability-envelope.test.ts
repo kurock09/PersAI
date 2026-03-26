@@ -41,13 +41,6 @@ async function run(): Promise<void> {
         audio: false,
         video: false,
         file: false
-      },
-      governedFeatures: {
-        assistantLifecycle: true,
-        memoryCenter: true,
-        tasksCenter: true,
-        viewLimitPercentages: true,
-        tasksExcludedFromCommercialQuotas: true
       }
     },
     effectiveToolAvailability: {
@@ -173,7 +166,6 @@ async function run(): Promise<void> {
   assert.equal(resolved.suppression.deniedToolCodes.includes("web_search"), true);
   assert.equal(resolved.quotaRestrictions.costDriving.restrictedByQuota, false);
   assert.equal(resolved.quotaRestrictions.utility.restrictedByQuota, true);
-  assert.equal(resolved.quotaRestrictions.tasksAndRemindersExcludedFromCommercialQuotas, true);
 }
 
 void run();

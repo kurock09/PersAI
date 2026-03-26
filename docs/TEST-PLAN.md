@@ -55,6 +55,8 @@ Required in CI:
 ## Step 7 P2 focus
 
 - Owner-gated admin endpoints validate create/update/list flows for plan management.
+- Admin plan create/edit includes `toolActivations[]`, `quotaLimits` (`tokenBudgetLimit`, `costToolUnitsLimit`), and `primaryModelKey`.
+- Legacy `entitlements.capabilities` and `entitlements.limitsPermissions` are no longer part of the API contract or admin UI.
 - Web `/app` renders a dedicated admin plan management section and supports create/edit controls for authorized admins.
 - Baseline regression suite (`test:step2`) remains green after admin plan UI/API additions.
 
@@ -95,8 +97,8 @@ Required in CI:
   - `GET /admin/plans/visibility`
 - API lint/typecheck validate visibility services and role-gated admin visibility path.
 - Web `/app` renders:
-  - user-facing plan state + percentage-only limits section
-  - owner/admin visibility section for plan state, usage pressure, and effective entitlements
+  - user-facing plan state + usage percentages for token budget, cost-driving tools, active chats
+  - owner/admin visibility section for plan state, usage pressure, and effective entitlement snapshot (tool classes, channels/surfaces)
 - Existing app flow regressions remain green with the new visibility surfaces.
 
 ## Step 8 E1 focus
@@ -104,7 +106,7 @@ Required in CI:
 - Prisma schema/migration validates governed tool catalog + plan activation persistence:
   - `tool_catalog_tools`
   - `plan_catalog_tool_activations`
-- Plan create/update flows synchronize activation rows from tool-class entitlement controls (no scattered ad hoc writes).
+- Plan create/update flows synchronize activation rows from explicit `toolActivations[]` overrides with class-derived fallback (no scattered ad hoc writes).
 - Materialization compiles with `persai.effectiveToolAvailability.v2` projection including per-tool activation truth for OpenClaw-facing documents.
 - API lint/typecheck and Step 2 regression baseline remain green.
 
@@ -114,7 +116,7 @@ Required in CI:
   - per-tool/per-group allow-deny truth
   - explicit denied tool suppression list
   - per-surface allowance propagation
-  - quota-related restriction flags and tasks/reminders non-commercial-quota rule
+  - quota-related restriction flags
 - Materialization compiles with envelope included in governance layer snapshot + OpenClaw bootstrap/workspace documents.
 - Existing E1 and Step 2 baselines remain green.
 
@@ -280,3 +282,12 @@ Required in CI:
 - Targeted API tests validate G5 behavior:
   - `test/openclaw-channel-surface-bindings.test.ts`
   - `test/openclaw-channel-surface-bindings-g5.test.ts`
+
+## Step 12 H2 cleanup focus
+
+- Dead `governedFeatures` capability flags (`assistantLifecycle`, `memoryCenter`, `tasksCenter`, `viewLimitPercentages`, `tasksExcludedFromCommercialQuotas`) removed from types, services, UI, contracts, and test mocks.
+- `dailyCallLimit` enforcement infrastructure: `WorkspaceToolDailyUsageRepository` and `TrackWorkspaceQuotaUsageService.checkToolDailyLimit` / `incrementToolDailyUsage` wired and tested via `test/quota-accounting.test.ts`.
+- Per-plan `primaryModelKey` resolved through `billingProviderHints` and integrated into runtime provider routing via `MaterializeAssistantPublishedVersionService`.
+- Admin Runtime UI: fallback provider/model, available models per provider editor, reapply summary display.
+- Admin Plans UI: removed dead checkboxes, added quota limit inputs (`tokenBudgetLimit`, `costToolUnitsLimit`) and `primaryModelKey` field.
+- Tool catalog canonical definitions maintained in single file: `apps/api/prisma/tool-catalog-data.ts`.

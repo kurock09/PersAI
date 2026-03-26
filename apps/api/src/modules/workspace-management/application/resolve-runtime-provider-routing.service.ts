@@ -52,6 +52,7 @@ export class ResolveRuntimeProviderRoutingService {
     policyEnvelope: unknown | null;
     runtimeProviderProfile?: RuntimeProviderProfileState;
     secretRefs?: unknown | null;
+    planPrimaryModelKey?: string | null;
   }): RuntimeProviderRoutingState {
     const { effectiveCapabilities, policyEnvelope } = params;
     const runtimeProviderProfile =
@@ -78,7 +79,9 @@ export class ResolveRuntimeProviderRoutingService {
     const managedFallback =
       runtimeProviderProfile.mode === "admin_managed" ? runtimeProviderProfile.fallback : null;
     const primaryProviderKey = managedPrimary?.provider ?? "openclaw_managed_default";
-    const primaryModelKey = managedPrimary?.model ?? override.primaryModelKey ?? "text_standard_v1";
+    const planModelKey = params.planPrimaryModelKey?.trim() || null;
+    const primaryModelKey =
+      managedPrimary?.model ?? planModelKey ?? override.primaryModelKey ?? "text_standard_v1";
     const fallbackProviderKey = managedFallback?.provider ?? primaryProviderKey;
     const fallbackModelKey =
       managedFallback?.model ?? override.fallbackModelKey ?? "text_fast_fallback_v1";

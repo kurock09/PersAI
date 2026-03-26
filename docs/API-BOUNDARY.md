@@ -396,7 +396,10 @@ Behavior baseline:
 - returns admin-facing plan list with:
   - naming and high-level metadata
   - default-on-registration and trial controls
-  - entitlement controls (capabilities, tool classes, channels/surfaces, limits permissions)
+  - entitlement controls (tool classes, channels/surfaces)
+  - quota limits (`tokenBudgetLimit`, `costToolUnitsLimit`)
+  - per-plan AI model key (`primaryModelKey`, nullable)
+  - per-tool activations (`toolActivations[]` with `active`, `dailyCallLimit`)
 
 ### POST /api/v1/admin/plans
 
@@ -408,8 +411,10 @@ Behavior baseline:
   - display name / description / status
   - default-on-registration flag
   - trial flag and trial duration
-  - entitlement and limits controls
-  - provider-agnostic metadata hints
+  - entitlement controls (tool classes, channels/surfaces)
+  - quota limits (`tokenBudgetLimit`, `costToolUnitsLimit`)
+  - per-plan AI model key (`primaryModelKey`)
+  - per-tool activation overrides (`toolActivations[]`)
 
 ### PATCH /api/v1/admin/plans/{code}
 
@@ -485,11 +490,10 @@ Behavior baseline:
 - authenticated caller only
 - returns user-facing plan visibility snapshot:
   - effective plan identity/state
-  - key limit usage percentages only:
+  - key limit usage percentages:
     - token budget
     - cost-driving tool-class usage
     - active web chats usage
-  - tasks/reminders commercial-quota exclusion flag
 - no raw quota counters, billing-provider internals, or technical storage details are exposed
 
 ### GET /api/v1/admin/plans/visibility
@@ -500,7 +504,7 @@ Behavior baseline:
   - effective plan state + catalog state (`active/inactive` counts, default registration plan)
   - usage pressure percentages for core dimensions
   - derived pressure level (`low|elevated|high`)
-  - effective entitlement snapshot (tool classes, channels/surfaces, governed features)
+  - effective entitlement snapshot (tool classes, channels/surfaces)
 - this is a control-plane visibility model, not a billing console
 
 ## Step 8 E1 tool catalog and activation model
@@ -526,7 +530,7 @@ Behavior baseline:
   - per-surface allowances (`webChat`, `telegram`, `whatsapp`, `max`)
   - quota-related class restrictions for cost-driving and utility features
   - explicit suppression list for denied/unavailable tools
-- Tasks/reminders remain explicitly non-commercial-quota class in the envelope (`tasksAndRemindersExcludedFromCommercialQuotas`).
+- Tasks/reminders remain non-commercial-quota class by convention (the former `tasksAndRemindersExcludedFromCommercialQuotas` envelope field has been removed).
 - Backend still does not route runtime execution behavior.
 
 ## Step 8 E3 channel and surface binding model hardening
@@ -865,6 +869,7 @@ Behavior baseline:
   - never returns stored raw keys in the response body
   - generates the provider credential refs required for OpenClaw consumption
   - attempts best-effort reapply for assistants that already have a latest published version so live runtime converges toward the new global settings
+  - response includes a reapply summary (`reapplySummary`) with counts of assistants targeted, succeeded, failed, and skipped
   - writes an admin audit event for the update
   - this path replaces normal admin dependence on assistant-scoped rollout editing for provider keys/models
 

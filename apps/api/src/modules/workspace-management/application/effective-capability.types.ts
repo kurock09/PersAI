@@ -30,11 +30,4 @@ export type EffectiveCapabilityState = {
     video: boolean;
     file: boolean;
   };
-  governedFeatures: {
-    assistantLifecycle: boolean;
-    memoryCenter: boolean;
-    tasksCenter: boolean;
-    viewLimitPercentages: boolean;
-    tasksExcludedFromCommercialQuotas: boolean;
-  };
 };

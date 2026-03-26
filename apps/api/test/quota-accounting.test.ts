@@ -5,12 +5,17 @@ import type { ResolveEffectiveSubscriptionStateService } from "../src/modules/wo
 import type { AssistantGovernanceRepository } from "../src/modules/workspace-management/domain/assistant-governance.repository";
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
 import type { WorkspaceQuotaAccountingRepository } from "../src/modules/workspace-management/domain/workspace-quota-accounting.repository";
+import type { WorkspaceToolDailyUsageRepository } from "../src/modules/workspace-management/domain/workspace-tool-daily-usage.repository";
 
 type GovernanceRepoStub = Pick<AssistantGovernanceRepository, "findByAssistantId">;
 type PlanRepoStub = Pick<AssistantPlanCatalogRepository, "findByCode">;
 type QuotaRepoStub = Pick<
   WorkspaceQuotaAccountingRepository,
   "incrementUsage" | "refreshActiveWebChatsUsage"
+>;
+type ToolDailyUsageRepoStub = Pick<
+  WorkspaceToolDailyUsageRepository,
+  "incrementAndGet" | "getUsageForDate"
 >;
 type SubscriptionResolverStub = Pick<ResolveEffectiveSubscriptionStateService, "execute">;
 type CapabilityResolverStub = Pick<ResolveEffectiveCapabilityStateService, "execute">;
@@ -65,8 +70,7 @@ async function run(): Promise<void> {
           schemaVersion: 1,
           capabilities: [],
           toolClasses: [{ key: "cost_driving", allowed: true, quotaGoverned: true }],
-          channelsAndSurfaces: [],
-          limitsPermissions: [{ key: "tasks_excluded_from_commercial_quotas", value: true }]
+          channelsAndSurfaces: []
         },
         isDefaultFirstRegistrationPlan: true,
         isTrialPlan: true,
@@ -165,15 +169,17 @@ async function run(): Promise<void> {
           audio: false,
           video: false,
           file: false
-        },
-        governedFeatures: {
-          assistantLifecycle: true,
-          memoryCenter: true,
-          tasksCenter: true,
-          viewLimitPercentages: true,
-          tasksExcludedFromCommercialQuotas: true
         }
       };
+    }
+  };
+
+  const toolDailyUsageRepo: ToolDailyUsageRepoStub = {
+    async incrementAndGet() {
+      return 1;
+    },
+    async getUsageForDate() {
+      return 0;
     }
   };
 
@@ -181,6 +187,7 @@ async function run(): Promise<void> {
     governanceRepo as AssistantGovernanceRepository,
     planRepo as AssistantPlanCatalogRepository,
     quotaRepo as WorkspaceQuotaAccountingRepository,
+    toolDailyUsageRepo as WorkspaceToolDailyUsageRepository,
     subscriptionResolver as ResolveEffectiveSubscriptionStateService,
     capabilityResolver as ResolveEffectiveCapabilityStateService
   );

@@ -100,14 +100,7 @@ async function run(): Promise<void> {
         whatsapp: false,
         max: false
       },
-      mediaClasses: { text: true, image: false, audio: false, video: false, file: false },
-      governedFeatures: {
-        assistantLifecycle: true,
-        memoryCenter: true,
-        tasksCenter: true,
-        viewLimitPercentages: true,
-        tasksExcludedFromCommercialQuotas: true
-      }
+      mediaClasses: { text: true, image: false, audio: false, video: false, file: false }
     })
   };
   const bindingRepository = {

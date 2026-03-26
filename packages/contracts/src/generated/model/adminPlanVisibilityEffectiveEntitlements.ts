@@ -6,10 +6,8 @@
  */
 import type { AdminPlanVisibilityEffectiveEntitlementsToolClasses } from "./adminPlanVisibilityEffectiveEntitlementsToolClasses";
 import type { AdminPlanVisibilityEffectiveEntitlementsChannelsAndSurfaces } from "./adminPlanVisibilityEffectiveEntitlementsChannelsAndSurfaces";
-import type { AdminPlanVisibilityEffectiveEntitlementsGovernedFeatures } from "./adminPlanVisibilityEffectiveEntitlementsGovernedFeatures";
 
 export interface AdminPlanVisibilityEffectiveEntitlements {
   toolClasses: AdminPlanVisibilityEffectiveEntitlementsToolClasses;
   channelsAndSurfaces: AdminPlanVisibilityEffectiveEntitlementsChannelsAndSurfaces;
-  governedFeatures: AdminPlanVisibilityEffectiveEntitlementsGovernedFeatures;
 }

@@ -73,6 +73,7 @@ spec:
 {{- end }}
               corepack pnpm run prisma:migrate:deploy
               corepack pnpm run prisma:migrate:status
+              corepack pnpm run prisma:seed:catalog
 {{- if or .Values.api.env .Values.api.secretEnv }}
           env:
 {{- range $name, $value := .Values.api.env }}

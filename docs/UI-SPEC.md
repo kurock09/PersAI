@@ -54,7 +54,8 @@ One assistant, everywhere. Not separate apps for food/home/calendar — one pers
 /admin/business           → business cockpit
 /admin/rollouts           → rollout controls
 /admin/notifications      → notification channels
-/admin/runtime            → runtime provider settings
+/admin/runtime            → runtime provider settings (primary/fallback, available models, reapply summary)
+/admin/tools              → tool credential management
 ```
 
 Modal windows: integration settings (Telegram/WhatsApp/MAX), confirm dialogs (delete, reset, rollback).
@@ -224,12 +225,13 @@ Opens on click of assistant card in sidebar. On mobile: fullscreen.
 - Access gated by admin role (hidden entirely if no admin role)
 - Premium but functional — a working tool, not a showcase
 - Sections:
-  - Plans (create/edit/manage)
+  - Plans (create/edit/manage — per-tool activations, quota limits, per-plan AI model)
   - Ops Cockpit (runtime/health/apply status)
   - Business Cockpit (usage/commercial signals)
   - Rollouts (progressive rollout/rollback controls)
   - Notifications (webhook channel management)
-  - Runtime Settings (provider keys, models — H1b surface)
+  - Runtime Settings (primary/fallback provider+model, available models per provider editor, post-save reapply summary)
+  - Tools (tool credential management — write-only provider API keys)
   - Abuse Controls (unblock/override)
 
 ---
@@ -296,8 +298,8 @@ All user-facing API endpoints already exist. The UI redesign is a frontend-only 
 - Memory: `GET /assistant/memory/items`, `POST .../forget`, `POST .../do-not-remember` (existing)
 - Tasks: `GET /assistant/tasks/items`, `POST .../disable|enable|cancel` (existing)
 - Integrations: `GET/POST/PATCH /assistant/integrations/telegram/*` (existing)
-- Plan visibility: `GET /assistant/plan-visibility` (existing)
-- Admin: all `/admin/*` endpoints (existing)
+- Plan visibility: `GET /assistant/plan-visibility` (existing — usage percentages for token budget, cost-driving tools, active chats)
+- Admin: all `/admin/*` endpoints (existing — plans with quota limits and model key, runtime with fallback and model editor, tools)
 
 New backend fields needed (follow-up):
 - `assistant.draft_avatar_url` or equivalent for avatar persistence

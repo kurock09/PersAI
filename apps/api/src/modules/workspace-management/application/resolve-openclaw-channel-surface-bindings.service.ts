@@ -75,7 +75,7 @@ const SURFACE_SEEDS: SurfaceSeed[] = [
   {
     provider: "system_notifications",
     surfaceType: "system_notification",
-    allowFromCapabilities: (caps) => caps.governedFeatures.tasksCenter,
+    allowFromCapabilities: () => true,
     interactionMode: "notification",
     inboundUserMessages: false,
     outboundAssistantMessages: true,

@@ -1,5 +1,67 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - H2 cleanup: tool/plan/limits consolidation and dead-code removal
+
+### What changed
+
+- **Tool catalog consolidation:** extracted all 8 tool definitions + `STARTER_TRIAL_TOOL_POLICY` into `apps/api/prisma/tool-catalog-data.ts`; both `seed.ts` and `seed-catalog.ts` now import from this single source of truth.
+- **Dead capability flags removed:** `assistantLifecycle`, `memoryCenter`, `tasksCenter`, `viewLimitPercentages`, `tasksExcludedFromCommercialQuotas` — removed from `EffectiveCapabilityState`, `resolve-effective-capability-state.service.ts`, `resolve-plan-visibility.service.ts`, `resolve-openclaw-capability-envelope.service.ts`, `resolve-openclaw-channel-surface-bindings.service.ts`, `track-workspace-quota-usage.service.ts`, `admin-plan-management.types.ts`, OpenAPI contracts, admin plans UI, and all affected test files.
+- **Per-plan quota limits:** `tokenBudgetLimit` and `costToolUnitsLimit` now stored in `billingProviderHints.quotaAccounting`; admin plans UI has dedicated input fields; `billingProviderHints` overwrite bug fixed (merge instead of replace).
+- **Per-plan model selection:** `primaryModelKey` stored in `billingProviderHints`; resolved during materialization and passed to `ResolveRuntimeProviderRoutingService`.
+- **Daily call limit enforcement:** `WorkspaceToolDailyUsageRepository` interface + Prisma implementation; `checkToolDailyLimit` / `incrementToolDailyUsage` on `TrackWorkspaceQuotaUsageService`; wired into module DI.
+- **Admin Runtime UI completed:** fallback provider/model toggle, available models per provider editor, reapply summary display after save.
+- **Docs aligned:** `ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`, `UI-SPEC.md`, `TEST-PLAN.md`, `PRODUCT.md`, `ROADMAP.md`, `CHANGELOG.md`, `ADR-052` all updated to match current state.
+
+### Why changed
+
+- After H2 and H3 work, accumulated technical debt: duplicate tool definitions, unused capability flags still in types/UI/contracts, missing quota controls in admin UI, incomplete runtime admin page. This cleanup brings docs and code into alignment.
+
+### Slice boundary
+
+- PersAI only (no OpenClaw changes in this session)
+- Backend: types, services, repository, module wiring, API contracts
+- Frontend: admin plans page, admin runtime page, app-flow client
+- Docs: 8 doc files updated
+
+### Next recommended step
+
+- **Deploy and seed:** run `seed-catalog` on GKE to ensure the consolidated tool catalog is applied
+- **dailyCallLimit runtime integration:** wire OpenClaw `before_tool_call` hook to PersAI `incrementToolDailyUsage` callback
+- **H4 — Telegram runtime readiness:** align Telegram against admin-driven runtime profile + managed secret refs
+
+### Ready commit message
+
+- `refactor(admin): consolidate tool catalog, remove dead capabilities, add per-plan quotas/model/daily-limit enforcement`
+
+### Affected files
+
+- `apps/api/prisma/tool-catalog-data.ts` (new)
+- `apps/api/prisma/seed.ts`
+- `apps/api/prisma/seed-catalog.ts`
+- `apps/api/package.json`
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/effective-capability.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-effective-capability-state.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts`
+- `apps/api/src/modules/workspace-management/application/plan-visibility.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-capability-envelope.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-channel-surface-bindings.service.ts`
+- `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-runtime-provider-routing.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-tool-daily-usage.repository.ts` (new)
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-tool-daily-usage.repository.ts` (new)
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `packages/contracts/openapi.yaml`
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/admin/runtime/page.tsx`
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/api/test/quota-accounting.test.ts`
+- `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/UI-SPEC.md`, `docs/TEST-PLAN.md`, `docs/PRODUCT.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/ADR/052-*`
+
+---
+
 ## 2026-03-26 - Plans per-tool management + OpenClaw tool policy integration
 
 ### What changed
@@ -23,14 +85,12 @@
 - OpenClaw: credential resolution + tool filtering from bootstrap
 - Credential mapping: `tool/web_search/api-key` → `TAVILY_API_KEY`, `tool/web_fetch/api-key` → `FIRECRAWL_API_KEY`, etc.
 - Still deferred:
-  - daily quota enforcement (needs PersAI callback + OpenClaw counter)
   - per-provider web search key selection
   - AsyncLocalStorage for concurrency-safe credential injection
   - persona / memory hydration (H3)
 
 ### Next recommended step
 
-- **Daily quota enforcement** — implement `WorkspaceToolUsageDailyCounter` increment via PersAI callback from OpenClaw `before_tool_call` hook
 - **H3 runtime hydration depth** — consume materialized persona, memory, tasks envelopes deeper in OpenClaw
 
 ### Ready commit message

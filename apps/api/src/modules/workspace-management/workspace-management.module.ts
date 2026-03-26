@@ -66,6 +66,8 @@ import { ASSISTANT_PLAN_CATALOG_REPOSITORY } from "./domain/assistant-plan-catal
 import { TOOL_CATALOG_REPOSITORY } from "./domain/tool-catalog.repository";
 import { WORKSPACE_SUBSCRIPTION_REPOSITORY } from "./domain/workspace-subscription.repository";
 import { WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY } from "./domain/workspace-quota-accounting.repository";
+import { WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY } from "./domain/workspace-tool-daily-usage.repository";
+import { PrismaWorkspaceToolDailyUsageRepository } from "./infrastructure/persistence/prisma-workspace-tool-daily-usage.repository";
 import { ASSISTANT_MEMORY_REGISTRY_REPOSITORY } from "./domain/assistant-memory-registry.repository";
 import { ASSISTANT_TASK_REGISTRY_REPOSITORY } from "./domain/assistant-task-registry.repository";
 import { ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY } from "./domain/assistant-channel-surface-binding.repository";
@@ -181,6 +183,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     {
       provide: WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
       useClass: PrismaWorkspaceQuotaAccountingRepository
+    },
+    {
+      provide: WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY,
+      useClass: PrismaWorkspaceToolDailyUsageRepository
     },
     {
       provide: BILLING_PROVIDER_PORT,

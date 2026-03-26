@@ -101,10 +101,6 @@ export class ResolvePlanVisibilityService {
     const costUsed = quotaState?.costOrTokenDrivingToolClassUnitsUsed ?? 0;
     const chatsLimit = quotaState?.activeWebChatsLimit ?? limits.activeWebChatsLimit;
     const chatsUsed = quotaState?.activeWebChatsCurrent ?? 0;
-    const tasksExcludedFromCommercialQuotas = this.readTasksExclusionFlag(
-      plan?.entitlementModel?.limitsPermissions
-    );
-
     return {
       effectivePlan: {
         code: plan?.code ?? subscription.planCode,
@@ -119,8 +115,7 @@ export class ResolvePlanVisibilityService {
       limits: {
         tokenBudgetPercent: toPercent(tokenUsed, tokenLimit),
         costDrivingToolsPercent: toPercent(costUsed, costLimit),
-        activeWebChatsPercent: toPercent(chatsUsed, chatsLimit),
-        tasksExcludedFromCommercialQuotas
+        activeWebChatsPercent: toPercent(chatsUsed, chatsLimit)
       },
       updatedAt: new Date().toISOString()
     };
@@ -205,13 +200,6 @@ export class ResolvePlanVisibilityService {
           telegram: effectiveCapabilities.channelsAndSurfaces.telegram,
           whatsapp: effectiveCapabilities.channelsAndSurfaces.whatsapp,
           max: effectiveCapabilities.channelsAndSurfaces.max
-        },
-        governedFeatures: {
-          memoryCenter: effectiveCapabilities.governedFeatures.memoryCenter,
-          tasksCenter: effectiveCapabilities.governedFeatures.tasksCenter,
-          viewLimitPercentages: effectiveCapabilities.governedFeatures.viewLimitPercentages,
-          tasksExcludedFromCommercialQuotas:
-            effectiveCapabilities.governedFeatures.tasksExcludedFromCommercialQuotas
         }
       },
       updatedAt: new Date().toISOString()
@@ -243,18 +231,5 @@ export class ResolvePlanVisibilityService {
       costOrTokenDrivingToolClassUnitsLimit,
       activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
     };
-  }
-
-  private readTasksExclusionFlag(limitsPermissions: unknown[] | undefined): boolean {
-    if (!Array.isArray(limitsPermissions)) {
-      return false;
-    }
-    for (const item of limitsPermissions) {
-      const row = asObject(item);
-      if (row?.key === "tasks_excluded_from_commercial_quotas" && row.value === true) {
-        return true;
-      }
-    }
-    return false;
   }
 }

@@ -7,6 +7,7 @@
 import type { AdminPlanStateStatus } from "./adminPlanStateStatus";
 import type { AdminPlanMetadata } from "./adminPlanMetadata";
 import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
+import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
 import type { AdminPlanToolActivation } from "./adminPlanToolActivation";
 
 export interface AdminPlanState {
@@ -21,6 +22,9 @@ export interface AdminPlanState {
   trialDurationDays: number | null;
   metadata: AdminPlanMetadata;
   entitlements: AdminPlanEntitlements;
+  quotaLimits?: AdminPlanQuotaLimits;
+  /** @nullable */
+  primaryModelKey?: string | null;
   createdAt: string;
   updatedAt: string;
   toolActivations?: AdminPlanToolActivation[];

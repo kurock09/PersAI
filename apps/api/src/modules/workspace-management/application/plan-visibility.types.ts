@@ -25,7 +25,6 @@ export type UserPlanVisibilityState = {
     tokenBudgetPercent: number;
     costDrivingToolsPercent: number;
     activeWebChatsPercent: number;
-    tasksExcludedFromCommercialQuotas: boolean;
   };
   updatedAt: string;
 };
@@ -56,12 +55,6 @@ export type AdminPlanVisibilityState = {
       telegram: boolean;
       whatsapp: boolean;
       max: boolean;
-    };
-    governedFeatures: {
-      memoryCenter: boolean;
-      tasksCenter: boolean;
-      viewLimitPercentages: boolean;
-      tasksExcludedFromCommercialQuotas: boolean;
     };
   } | null;
   updatedAt: string;

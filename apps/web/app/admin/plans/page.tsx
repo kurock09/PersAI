@@ -41,9 +41,6 @@ type PlanDraft = {
   trialDurationDays: number | null;
   metadataCommercialTag: string;
   metadataNotes: string;
-  capabilityAssistantLifecycle: boolean;
-  capabilityMemoryCenter: boolean;
-  capabilityTasksCenter: boolean;
   toolCostDriving: boolean;
   toolUtility: boolean;
   toolCostDrivingQuotaGoverned: boolean;
@@ -52,8 +49,9 @@ type PlanDraft = {
   channelTelegram: boolean;
   channelWhatsapp: boolean;
   channelMax: boolean;
-  limitsViewPercentages: boolean;
-  limitsTasksExcludedFromCommercialQuotas: boolean;
+  tokenBudgetLimit: string;
+  costToolUnitsLimit: string;
+  primaryModelKey: string;
   toolActivations: ToolActivationDraft[];
 };
 
@@ -74,9 +72,6 @@ function emptyDraft(): PlanDraft {
     trialDurationDays: null,
     metadataCommercialTag: "",
     metadataNotes: "",
-    capabilityAssistantLifecycle: true,
-    capabilityMemoryCenter: true,
-    capabilityTasksCenter: true,
     toolCostDriving: false,
     toolUtility: true,
     toolCostDrivingQuotaGoverned: true,
@@ -85,8 +80,9 @@ function emptyDraft(): PlanDraft {
     channelTelegram: true,
     channelWhatsapp: false,
     channelMax: false,
-    limitsViewPercentages: true,
-    limitsTasksExcludedFromCommercialQuotas: true,
+    tokenBudgetLimit: "",
+    costToolUnitsLimit: "",
+    primaryModelKey: "",
     toolActivations: []
   };
 }
@@ -101,9 +97,6 @@ function planToDraft(plan: AdminPlanState): PlanDraft {
     trialDurationDays: plan.trialDurationDays,
     metadataCommercialTag: plan.metadata.commercialTag ?? "",
     metadataNotes: plan.metadata.notes ?? "",
-    capabilityAssistantLifecycle: plan.entitlements.capabilities.assistantLifecycle,
-    capabilityMemoryCenter: plan.entitlements.capabilities.memoryCenter,
-    capabilityTasksCenter: plan.entitlements.capabilities.tasksCenter,
     toolCostDriving: plan.entitlements.toolClasses.costDrivingTools,
     toolUtility: plan.entitlements.toolClasses.utilityTools,
     toolCostDrivingQuotaGoverned: plan.entitlements.toolClasses.costDrivingQuotaGoverned,
@@ -112,9 +105,9 @@ function planToDraft(plan: AdminPlanState): PlanDraft {
     channelTelegram: plan.entitlements.channelsAndSurfaces.telegram,
     channelWhatsapp: plan.entitlements.channelsAndSurfaces.whatsapp,
     channelMax: plan.entitlements.channelsAndSurfaces.max,
-    limitsViewPercentages: plan.entitlements.limitsPermissions.viewLimitPercentages,
-    limitsTasksExcludedFromCommercialQuotas:
-      plan.entitlements.limitsPermissions.tasksExcludedFromCommercialQuotas,
+    tokenBudgetLimit: plan.quotaLimits?.tokenBudgetLimit?.toString() ?? "",
+    costToolUnitsLimit: plan.quotaLimits?.costToolUnitsLimit?.toString() ?? "",
+    primaryModelKey: plan.primaryModelKey ?? "",
     toolActivations: (plan.toolActivations ?? []).map((ta) => ({
       toolCode: ta.toolCode,
       displayName: ta.displayName,
@@ -126,6 +119,8 @@ function planToDraft(plan: AdminPlanState): PlanDraft {
 }
 
 function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
+  const tokenBudget = draft.tokenBudgetLimit.trim();
+  const costTool = draft.costToolUnitsLimit.trim();
   return {
     displayName: draft.displayName.trim(),
     description: toNullable(draft.description),
@@ -138,11 +133,6 @@ function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       notes: toNullable(draft.metadataNotes)
     },
     entitlements: {
-      capabilities: {
-        assistantLifecycle: draft.capabilityAssistantLifecycle,
-        memoryCenter: draft.capabilityMemoryCenter,
-        tasksCenter: draft.capabilityTasksCenter
-      },
       toolClasses: {
         costDrivingTools: draft.toolCostDriving,
         utilityTools: draft.toolUtility,
@@ -154,12 +144,13 @@ function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
         telegram: draft.channelTelegram,
         whatsapp: draft.channelWhatsapp,
         max: draft.channelMax
-      },
-      limitsPermissions: {
-        viewLimitPercentages: draft.limitsViewPercentages,
-        tasksExcludedFromCommercialQuotas: draft.limitsTasksExcludedFromCommercialQuotas
       }
     },
+    quotaLimits: {
+      tokenBudgetLimit: tokenBudget.length > 0 ? parseInt(tokenBudget, 10) || null : null,
+      costToolUnitsLimit: costTool.length > 0 ? parseInt(costTool, 10) || null : null
+    },
+    primaryModelKey: toNullable(draft.primaryModelKey),
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
       active: ta.active,
@@ -323,14 +314,14 @@ function ToolActivationsEdit({
 
   return (
     <div className="grid gap-px rounded border border-border bg-border overflow-hidden">
-      <div className="grid grid-cols-[1fr_70px_40px_64px] gap-px bg-border text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+      <div className="grid grid-cols-[1fr_70px_40px_88px] gap-px bg-border text-[9px] font-bold uppercase tracking-wider text-text-subtle">
         <span className="bg-surface px-2 py-1">Tool</span>
         <span className="bg-surface px-2 py-1">Class</span>
         <span className="bg-surface px-2 py-1 text-center">On</span>
         <span className="bg-surface px-2 py-1 text-right">Limit/d</span>
       </div>
       {activations.map((ta, idx) => (
-        <div key={ta.toolCode} className="grid grid-cols-[1fr_70px_40px_64px] gap-px bg-border">
+        <div key={ta.toolCode} className="grid grid-cols-[1fr_70px_40px_88px] gap-px bg-border">
           <span className="bg-surface-raised px-2 py-1 text-[11px] text-text truncate">
             {ta.displayName}
           </span>
@@ -347,14 +338,14 @@ function ToolActivationsEdit({
               className="h-3 w-3 rounded border-border bg-surface text-accent focus:ring-accent/50 focus:ring-1"
             />
           </span>
-          <span className="bg-surface-raised px-1 py-0.5 flex items-center justify-end">
+          <span className="bg-surface-raised px-2 py-1 flex items-center justify-end">
             <input
               type="number"
               min={0}
               value={ta.dailyCallLimit ?? ""}
               onChange={(e) => setLimit(idx, e.target.value)}
               placeholder="∞"
-              className="w-full rounded border border-border bg-surface px-1.5 py-0.5 text-right text-[10px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50"
+              className="w-16 appearance-none rounded border border-border bg-surface px-2 py-0.5 text-right text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
             />
           </span>
         </div>
@@ -471,27 +462,8 @@ function PlanForm({
         </div>
       </div>
 
-      {/* row 4: entitlements grid - all in one dense block */}
+      {/* row 4: entitlements grid */}
       <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 rounded border border-border bg-surface px-3 py-2">
-        <Sec label="Capabilities">
-          <div className="space-y-0.5">
-            <Check
-              label="Lifecycle"
-              checked={draft.capabilityAssistantLifecycle}
-              onChange={(v) => onPatch({ capabilityAssistantLifecycle: v })}
-            />
-            <Check
-              label="Memory"
-              checked={draft.capabilityMemoryCenter}
-              onChange={(v) => onPatch({ capabilityMemoryCenter: v })}
-            />
-            <Check
-              label="Tasks"
-              checked={draft.capabilityTasksCenter}
-              onChange={(v) => onPatch({ capabilityTasksCenter: v })}
-            />
-          </div>
-        </Sec>
         <Sec label="Tool classes">
           <div className="space-y-0.5">
             <Check
@@ -516,44 +488,65 @@ function PlanForm({
             />
           </div>
         </Sec>
+        <Sec label="Channels">
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+            <Check
+              label="Web"
+              checked={draft.channelWebChat}
+              onChange={(v) => onPatch({ channelWebChat: v })}
+            />
+            <Check
+              label="TG"
+              checked={draft.channelTelegram}
+              onChange={(v) => onPatch({ channelTelegram: v })}
+            />
+            <Check
+              label="WA"
+              checked={draft.channelWhatsapp}
+              onChange={(v) => onPatch({ channelWhatsapp: v })}
+            />
+            <Check
+              label="Max"
+              checked={draft.channelMax}
+              onChange={(v) => onPatch({ channelMax: v })}
+            />
+          </div>
+        </Sec>
         <div className="space-y-1.5">
-          <Sec label="Channels">
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-              <Check
-                label="Web"
-                checked={draft.channelWebChat}
-                onChange={(v) => onPatch({ channelWebChat: v })}
-              />
-              <Check
-                label="TG"
-                checked={draft.channelTelegram}
-                onChange={(v) => onPatch({ channelTelegram: v })}
-              />
-              <Check
-                label="WA"
-                checked={draft.channelWhatsapp}
-                onChange={(v) => onPatch({ channelWhatsapp: v })}
-              />
-              <Check
-                label="Max"
-                checked={draft.channelMax}
-                onChange={(v) => onPatch({ channelMax: v })}
-              />
+          <Sec label="Quota limits">
+            <div className="space-y-1">
+              <label className="flex items-center gap-1.5 text-[10px] text-text-subtle">
+                Token budget
+                <input
+                  type="number"
+                  min={0}
+                  value={draft.tokenBudgetLimit}
+                  onChange={(e) => onPatch({ tokenBudgetLimit: e.target.value })}
+                  placeholder="default"
+                  className="w-24 appearance-none rounded border border-border bg-surface px-2 py-0.5 text-right text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-[10px] text-text-subtle">
+                Cost tool units
+                <input
+                  type="number"
+                  min={0}
+                  value={draft.costToolUnitsLimit}
+                  onChange={(e) => onPatch({ costToolUnitsLimit: e.target.value })}
+                  placeholder="default"
+                  className="w-24 appearance-none rounded border border-border bg-surface px-2 py-0.5 text-right text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                />
+              </label>
             </div>
           </Sec>
-          <Sec label="Limits">
-            <div className="space-y-0.5">
-              <Check
-                label="View %"
-                checked={draft.limitsViewPercentages}
-                onChange={(v) => onPatch({ limitsViewPercentages: v })}
-              />
-              <Check
-                label="Tasks excl quotas"
-                checked={draft.limitsTasksExcludedFromCommercialQuotas}
-                onChange={(v) => onPatch({ limitsTasksExcludedFromCommercialQuotas: v })}
-              />
-            </div>
+          <Sec label="AI model">
+            <input
+              type="text"
+              value={draft.primaryModelKey}
+              onChange={(e) => onPatch({ primaryModelKey: e.target.value })}
+              placeholder="platform default"
+              className="w-full rounded border border-border bg-surface px-2 py-0.5 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50"
+            />
           </Sec>
         </div>
       </div>
@@ -582,12 +575,6 @@ function PlanCardReadOnly({
 }) {
   const e = plan.entitlements;
   const [expanded, setExpanded] = useState(false);
-
-  const caps = [
-    e.capabilities.assistantLifecycle && "Lifecycle",
-    e.capabilities.memoryCenter && "Memory",
-    e.capabilities.tasksCenter && "Tasks"
-  ].filter(Boolean);
 
   const channels = [
     e.channelsAndSurfaces.webChat && "Web",
@@ -640,7 +627,6 @@ function PlanCardReadOnly({
       {/* collapsed summary line */}
       {!expanded && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-border/50 px-3 py-1.5 text-[10px]">
-          <KV label="Caps">{caps.join(", ") || "none"}</KV>
           <KV label="Channels">{channels.join(", ")}</KV>
           <KV label="Tools">{toolClasses.join(", ")}</KV>
           <span className="text-text-subtle">|</span>
@@ -657,19 +643,6 @@ function PlanCardReadOnly({
             {plan.metadata.notes && <KV label="Notes">{plan.metadata.notes}</KV>}
           </div>
           <div className="grid grid-cols-3 gap-x-4 gap-y-1 rounded border border-border bg-surface px-3 py-1.5">
-            <Sec label="Capabilities">
-              <div className="flex flex-wrap gap-1">
-                {[
-                  { l: "Lifecycle", on: e.capabilities.assistantLifecycle },
-                  { l: "Memory", on: e.capabilities.memoryCenter },
-                  { l: "Tasks", on: e.capabilities.tasksCenter }
-                ].map((c) => (
-                  <Pill key={c.l} variant={c.on ? "default" : "dim"}>
-                    {c.l}
-                  </Pill>
-                ))}
-              </div>
-            </Sec>
             <Sec label="Tool classes">
               <div className="flex flex-wrap gap-1">
                 {[
@@ -698,20 +671,19 @@ function PlanCardReadOnly({
                 ))}
               </div>
             </Sec>
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-0.5">
-            <Check
-              label="View %"
-              checked={e.limitsPermissions.viewLimitPercentages}
-              onChange={() => {}}
-              disabled
-            />
-            <Check
-              label="Tasks excl quotas"
-              checked={e.limitsPermissions.tasksExcludedFromCommercialQuotas}
-              onChange={() => {}}
-              disabled
-            />
+            <div className="space-y-1">
+              <Sec label="Quota limits">
+                <div className="space-y-0.5 text-[10px] text-text-subtle">
+                  <div>Token budget: {plan.quotaLimits?.tokenBudgetLimit ?? "default"}</div>
+                  <div>Cost tool units: {plan.quotaLimits?.costToolUnitsLimit ?? "default"}</div>
+                </div>
+              </Sec>
+              <Sec label="AI model">
+                <span className="text-[10px] text-text-subtle">
+                  {plan.primaryModelKey ?? "platform default"}
+                </span>
+              </Sec>
+            </div>
           </div>
           <Sec label="Tool activations">
             <ToolActivationsInline activations={plan.toolActivations ?? []} />
@@ -778,11 +750,22 @@ export default function AdminPlansPage() {
   const openCreate = useCallback(() => {
     setEditingCode(null);
     setEditDraft(null);
-    setCreateDraft(emptyDraft());
+    const draft = emptyDraft();
+    const templatePlan = plans.find((p) => (p.toolActivations ?? []).length > 0);
+    if (templatePlan) {
+      draft.toolActivations = (templatePlan.toolActivations ?? []).map((ta) => ({
+        toolCode: ta.toolCode,
+        displayName: ta.displayName,
+        toolClass: ta.toolClass,
+        active: false,
+        dailyCallLimit: null
+      }));
+    }
+    setCreateDraft(draft);
     setCreateCode("");
     setCreateOpen((o) => !o);
     setFeedback(null);
-  }, []);
+  }, [plans]);
 
   const closeCreate = useCallback(() => {
     setCreateOpen(false);

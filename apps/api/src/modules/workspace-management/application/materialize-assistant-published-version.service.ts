@@ -110,10 +110,14 @@ export class MaterializeAssistantPublishedVersionService {
             policyEnvelope: governance.policyEnvelope,
             secretRefs: governance.secretRefs
           });
+    const planPrimaryModelKey = await this.resolvePlanPrimaryModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
     const runtimeProviderRouting = this.resolveRuntimeProviderRoutingService.execute({
       effectiveCapabilities,
       policyEnvelope: governance.policyEnvelope,
-      runtimeProviderProfile
+      runtimeProviderProfile,
+      planPrimaryModelKey
     });
     const openclawCapabilityEnvelope = this.resolveOpenClawCapabilityEnvelopeService.execute({
       effectiveCapabilities,
@@ -268,6 +272,27 @@ export class MaterializeAssistantPublishedVersionService {
       };
     }
     return refs;
+  }
+
+  private async resolvePlanPrimaryModelKey(planCode: string | null): Promise<string | null> {
+    if (planCode === null) {
+      return null;
+    }
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) {
+      return null;
+    }
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) {
+      return null;
+    }
+    const record = hints as Record<string, unknown>;
+    return typeof record.primaryModelKey === "string" && record.primaryModelKey.trim().length > 0
+      ? record.primaryModelKey.trim()
+      : null;
   }
 
   private async resolveToolQuotaPolicy(

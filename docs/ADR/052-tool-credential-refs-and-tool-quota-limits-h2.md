@@ -22,7 +22,7 @@ However, several OpenClaw tools require their own API credentials that are separ
 
 Currently these credentials live only in OpenClaw env/config. PersAI cannot govern which tools get credentials or rotate them without Kubernetes-level secret management.
 
-Additionally, the current tool catalog has only 3 entries (`web_search`, `memory_center_read`, `tasks_center_control`). The product needs a broader catalog that reflects the full set of tools the assistant can use, each individually governed by plan activation and daily call limits to prevent runaway token consumption.
+The tool catalog now has 8 entries (expanded from the original 3). Each tool is individually governed by plan activation and daily call limits to prevent runaway token consumption.
 
 The current quota system has a single `cost_or_token_driving_tool_class` dimension. This is too coarse — an admin should be able to limit `image_generate` to 20/day while allowing 200/day for `web_search`.
 

@@ -56,7 +56,6 @@ export type OpenClawCapabilityEnvelopeState = {
       quotaGoverned: boolean;
       restrictedByQuota: boolean;
     };
-    tasksAndRemindersExcludedFromCommercialQuotas: boolean;
   };
   suppression: {
     suppressUnavailableTools: true;

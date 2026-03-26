@@ -159,7 +159,7 @@ Postgres with Prisma.
 - is_default_first_registration_plan (bool)
 - is_trial_plan (bool)
 - trial_duration_days (nullable int; required and >0 when `is_trial_plan=true`)
-- billing_provider_hints (nullable jsonb, provider-agnostic metadata only)
+- billing_provider_hints (nullable jsonb) — stores `quotaAccounting` (`tokenBudgetLimit`, `costOrTokenDrivingToolClassUnitsLimit`) and `primaryModelKey` (per-plan default AI model)
 - created_at
 - updated_at
 
@@ -168,10 +168,10 @@ Postgres with Prisma.
 - id (UUID)
 - plan_id (UUID, unique FK -> `plan_catalog_plans.id`)
 - schema_version (int)
-- capabilities (jsonb array)
+- capabilities (jsonb array) — deprecated: columns remain in schema but are no longer surfaced in API contracts or admin UI
 - tool_classes (jsonb array)
 - channels_and_surfaces (jsonb array)
-- limits_permissions (jsonb array)
+- limits_permissions (jsonb array) — deprecated: columns remain in schema but are no longer surfaced in API contracts or admin UI
 - created_at
 - updated_at
 
@@ -424,7 +424,7 @@ Postgres with Prisma.
     - secret refs with managed lifecycle metadata (rotation/revoke/TTL/audit-ready metadata; no secret value payload), including H1 runtime provider credential refs
     - policy envelope, including H1 runtime provider profile selection
     - memory control envelope (policy, provenance hooks, visibility hooks, forget-request markers, audit routing)
-    - tasks control envelope (ownership, source/surface hooks, control lifecycle labels, enablement/cancellation, tasks excluded from commercial quotas, audit routing)
+    - tasks control envelope (ownership, source/surface hooks, control lifecycle labels, enablement/cancellation, audit routing)
     - quota plan/hook placeholders
     - audit hook placeholder
 - `assistant_materialized_specs`:
@@ -476,7 +476,8 @@ Postgres with Prisma.
 - `plan_catalog_entitlements`:
   - primary key: `id`
   - unique FK: `plan_id -> plan_catalog_plans.id` (1:1 model)
-  - grouped entitlement JSON arrays: capabilities, tool classes, channels/surfaces, limits permissions
+  - active entitlement JSON arrays: tool classes, channels/surfaces
+  - deprecated JSON arrays (remain in schema, not surfaced in API/UI): capabilities, limits permissions
 - `tool_catalog_tools`:
   - primary key: `id`
   - unique: `code`
@@ -580,7 +581,7 @@ Postgres with Prisma.
 - P4 adds centralized capability resolution service from P1-P3 models + governance; no new persistence table in P4
 - P5 adds canonical quota accounting state + usage event tables for token budget, cost/token-driving tool class usage, and active web chats cap; tasks/reminders remain intentionally non-commercial-quota dimensions
 - P6 adds centralized enforcement points over existing P1-P5 models and materializes explicit `toolAvailability` for OpenClaw; no new persistence table in P6
-- E1 adds canonical tool catalog + plan activation persistence and upgrades materialized tool availability to include per-tool activation truth; backend still does not route tool execution behavior
+- E1 adds canonical tool catalog + plan activation persistence and upgrades materialized tool availability to include per-tool activation truth; canonical tool definitions are maintained in `apps/api/prisma/tool-catalog-data.ts` (single source of truth for seed and catalog scripts); backend still does not route tool execution behavior
 - E2 hardens materialized OpenClaw capability envelope with explicit allow/deny and suppression truth; no new persistence table in E2
 - E3 hardens materialized channel/surface binding model (`openclawChannelSurfaceBindings`) with provider+surface+assistant-binding structure; no new persistence table in E3
 - E4 adds canonical assistant-scoped provider/surface binding persistence for Telegram connect/config (`assistant_channel_surface_bindings`) and keeps web as primary control-plane surface

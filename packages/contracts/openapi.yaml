@@ -3009,7 +3009,6 @@ components:
       required:
         - toolClasses
         - channelsAndSurfaces
-        - governedFeatures
       properties:
         toolClasses:
           type: object
@@ -3036,22 +3035,6 @@ components:
             whatsapp:
               type: boolean
             max:
-              type: boolean
-        governedFeatures:
-          type: object
-          required:
-            - memoryCenter
-            - tasksCenter
-            - viewLimitPercentages
-            - tasksExcludedFromCommercialQuotas
-          properties:
-            memoryCenter:
-              type: boolean
-            tasksCenter:
-              type: boolean
-            viewLimitPercentages:
-              type: boolean
-            tasksExcludedFromCommercialQuotas:
               type: boolean
     AdminPlanVisibilityState:
       type: object
@@ -3328,19 +3311,15 @@ components:
           type: boolean
           enum:
             - true
-    AdminPlanEntitlementCapabilities:
+    AdminPlanQuotaLimits:
       type: object
-      required:
-        - assistantLifecycle
-        - memoryCenter
-        - tasksCenter
       properties:
-        assistantLifecycle:
-          type: boolean
-        memoryCenter:
-          type: boolean
-        tasksCenter:
-          type: boolean
+        tokenBudgetLimit:
+          type: integer
+          nullable: true
+        costToolUnitsLimit:
+          type: integer
+          nullable: true
     AdminPlanEntitlementToolClasses:
       type: object
       required:
@@ -3373,32 +3352,16 @@ components:
           type: boolean
         max:
           type: boolean
-    AdminPlanEntitlementLimitsPermissions:
-      type: object
-      required:
-        - viewLimitPercentages
-        - tasksExcludedFromCommercialQuotas
-      properties:
-        viewLimitPercentages:
-          type: boolean
-        tasksExcludedFromCommercialQuotas:
-          type: boolean
     AdminPlanEntitlements:
       type: object
       required:
-        - capabilities
         - toolClasses
         - channelsAndSurfaces
-        - limitsPermissions
       properties:
-        capabilities:
-          $ref: "#/components/schemas/AdminPlanEntitlementCapabilities"
         toolClasses:
           $ref: "#/components/schemas/AdminPlanEntitlementToolClasses"
         channelsAndSurfaces:
           $ref: "#/components/schemas/AdminPlanEntitlementChannelsAndSurfaces"
-        limitsPermissions:
-          $ref: "#/components/schemas/AdminPlanEntitlementLimitsPermissions"
     AdminPlanMetadata:
       type: object
       required:
@@ -3449,6 +3412,11 @@ components:
           $ref: "#/components/schemas/AdminPlanMetadata"
         entitlements:
           $ref: "#/components/schemas/AdminPlanEntitlements"
+        quotaLimits:
+          $ref: "#/components/schemas/AdminPlanQuotaLimits"
+        primaryModelKey:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -3529,6 +3497,11 @@ components:
           $ref: "#/components/schemas/AdminPlanMetadata"
         entitlements:
           $ref: "#/components/schemas/AdminPlanEntitlements"
+        quotaLimits:
+          $ref: "#/components/schemas/AdminPlanQuotaLimits"
+        primaryModelKey:
+          type: string
+          nullable: true
         toolActivations:
           type: array
           items:

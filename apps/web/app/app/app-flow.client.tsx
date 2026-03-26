@@ -114,9 +114,9 @@ type PlanDraft = {
   trialDurationDays: number | null;
   metadataCommercialTag: string;
   metadataNotes: string;
-  capabilityAssistantLifecycle: boolean;
-  capabilityMemoryCenter: boolean;
-  capabilityTasksCenter: boolean;
+  tokenBudgetLimit: string;
+  costToolUnitsLimit: string;
+  primaryModelKey: string;
   toolCostDriving: boolean;
   toolUtility: boolean;
   toolCostDrivingQuotaGoverned: boolean;
@@ -125,8 +125,6 @@ type PlanDraft = {
   channelTelegram: boolean;
   channelWhatsapp: boolean;
   channelMax: boolean;
-  limitsViewPercentages: boolean;
-  limitsTasksExcludedFromCommercialQuotas: boolean;
 };
 
 type PublishStateLabel = "Draft has changes" | "Publishing" | "Published" | "Draft only";
@@ -272,9 +270,9 @@ function toPlanDraft(plan?: AdminPlanState): PlanDraft {
       trialDurationDays: null,
       metadataCommercialTag: "",
       metadataNotes: "",
-      capabilityAssistantLifecycle: true,
-      capabilityMemoryCenter: true,
-      capabilityTasksCenter: true,
+      tokenBudgetLimit: "",
+      costToolUnitsLimit: "",
+      primaryModelKey: "",
       toolCostDriving: false,
       toolUtility: true,
       toolCostDrivingQuotaGoverned: true,
@@ -282,9 +280,7 @@ function toPlanDraft(plan?: AdminPlanState): PlanDraft {
       channelWebChat: true,
       channelTelegram: true,
       channelWhatsapp: false,
-      channelMax: false,
-      limitsViewPercentages: true,
-      limitsTasksExcludedFromCommercialQuotas: true
+      channelMax: false
     };
   }
 
@@ -297,9 +293,9 @@ function toPlanDraft(plan?: AdminPlanState): PlanDraft {
     trialDurationDays: plan.trialDurationDays,
     metadataCommercialTag: plan.metadata.commercialTag ?? "",
     metadataNotes: plan.metadata.notes ?? "",
-    capabilityAssistantLifecycle: plan.entitlements.capabilities.assistantLifecycle,
-    capabilityMemoryCenter: plan.entitlements.capabilities.memoryCenter,
-    capabilityTasksCenter: plan.entitlements.capabilities.tasksCenter,
+    tokenBudgetLimit: plan.quotaLimits?.tokenBudgetLimit?.toString() ?? "",
+    costToolUnitsLimit: plan.quotaLimits?.costToolUnitsLimit?.toString() ?? "",
+    primaryModelKey: plan.primaryModelKey ?? "",
     toolCostDriving: plan.entitlements.toolClasses.costDrivingTools,
     toolUtility: plan.entitlements.toolClasses.utilityTools,
     toolCostDrivingQuotaGoverned: plan.entitlements.toolClasses.costDrivingQuotaGoverned,
@@ -307,10 +303,7 @@ function toPlanDraft(plan?: AdminPlanState): PlanDraft {
     channelWebChat: plan.entitlements.channelsAndSurfaces.webChat,
     channelTelegram: plan.entitlements.channelsAndSurfaces.telegram,
     channelWhatsapp: plan.entitlements.channelsAndSurfaces.whatsapp,
-    channelMax: plan.entitlements.channelsAndSurfaces.max,
-    limitsViewPercentages: plan.entitlements.limitsPermissions.viewLimitPercentages,
-    limitsTasksExcludedFromCommercialQuotas:
-      plan.entitlements.limitsPermissions.tasksExcludedFromCommercialQuotas
+    channelMax: plan.entitlements.channelsAndSurfaces.max
   };
 }
 
@@ -327,11 +320,6 @@ function toAdminPlanPayload(draft: PlanDraft): Omit<AdminPlanCreateRequest, "cod
       notes: toNullable(draft.metadataNotes)
     },
     entitlements: {
-      capabilities: {
-        assistantLifecycle: draft.capabilityAssistantLifecycle,
-        memoryCenter: draft.capabilityMemoryCenter,
-        tasksCenter: draft.capabilityTasksCenter
-      },
       toolClasses: {
         costDrivingTools: draft.toolCostDriving,
         utilityTools: draft.toolUtility,
@@ -343,12 +331,15 @@ function toAdminPlanPayload(draft: PlanDraft): Omit<AdminPlanCreateRequest, "cod
         telegram: draft.channelTelegram,
         whatsapp: draft.channelWhatsapp,
         max: draft.channelMax
-      },
-      limitsPermissions: {
-        viewLimitPercentages: draft.limitsViewPercentages,
-        tasksExcludedFromCommercialQuotas: draft.limitsTasksExcludedFromCommercialQuotas
       }
-    }
+    },
+    quotaLimits: {
+      tokenBudgetLimit:
+        draft.tokenBudgetLimit.trim() === "" ? null : parseInt(draft.tokenBudgetLimit, 10),
+      costToolUnitsLimit:
+        draft.costToolUnitsLimit.trim() === "" ? null : parseInt(draft.costToolUnitsLimit, 10)
+    },
+    primaryModelKey: draft.primaryModelKey.trim() || null
   };
 }
 
@@ -3817,45 +3808,6 @@ export function AppFlowClient() {
               <label>
                 <input
                   type="checkbox"
-                  checked={newPlanDraft.capabilityAssistantLifecycle}
-                  onChange={(event) =>
-                    setNewPlanDraft((current) => ({
-                      ...current,
-                      capabilityAssistantLifecycle: event.target.checked
-                    }))
-                  }
-                />
-                Assistant lifecycle controls
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={newPlanDraft.capabilityMemoryCenter}
-                  onChange={(event) =>
-                    setNewPlanDraft((current) => ({
-                      ...current,
-                      capabilityMemoryCenter: event.target.checked
-                    }))
-                  }
-                />
-                Memory Center
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={newPlanDraft.capabilityTasksCenter}
-                  onChange={(event) =>
-                    setNewPlanDraft((current) => ({
-                      ...current,
-                      capabilityTasksCenter: event.target.checked
-                    }))
-                  }
-                />
-                Tasks Center
-              </label>
-              <label>
-                <input
-                  type="checkbox"
                   checked={newPlanDraft.toolCostDriving}
                   onChange={(event) =>
                     setNewPlanDraft((current) => ({
@@ -3954,32 +3906,34 @@ export function AppFlowClient() {
                 />
                 MAX surface
               </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={newPlanDraft.limitsViewPercentages}
-                  onChange={(event) =>
-                    setNewPlanDraft((current) => ({
-                      ...current,
-                      limitsViewPercentages: event.target.checked
-                    }))
-                  }
-                />
-                Show limits as percentages
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={newPlanDraft.limitsTasksExcludedFromCommercialQuotas}
-                  onChange={(event) =>
-                    setNewPlanDraft((current) => ({
-                      ...current,
-                      limitsTasksExcludedFromCommercialQuotas: event.target.checked
-                    }))
-                  }
-                />
-                Tasks/reminders excluded from commercial quotas
-              </label>
+              <label htmlFor="newTokenBudgetLimit">Token budget limit</label>
+              <input
+                id="newTokenBudgetLimit"
+                type="text"
+                inputMode="numeric"
+                value={newPlanDraft.tokenBudgetLimit}
+                placeholder="empty = unlimited"
+                onChange={(event) =>
+                  setNewPlanDraft((current) => ({
+                    ...current,
+                    tokenBudgetLimit: event.target.value
+                  }))
+                }
+              />
+              <label htmlFor="newCostToolUnitsLimit">Cost tool-units limit</label>
+              <input
+                id="newCostToolUnitsLimit"
+                type="text"
+                inputMode="numeric"
+                value={newPlanDraft.costToolUnitsLimit}
+                placeholder="empty = unlimited"
+                onChange={(event) =>
+                  setNewPlanDraft((current) => ({
+                    ...current,
+                    costToolUnitsLimit: event.target.value
+                  }))
+                }
+              />
               <button type="submit" disabled={isSavingAdminPlan}>
                 {isSavingAdminPlan ? "Saving..." : "Create plan"}
               </button>
@@ -4114,45 +4068,6 @@ export function AppFlowClient() {
                 <label>
                   <input
                     type="checkbox"
-                    checked={editingPlanDraft.capabilityAssistantLifecycle}
-                    onChange={(event) =>
-                      setEditingPlanDraft((current) => ({
-                        ...current,
-                        capabilityAssistantLifecycle: event.target.checked
-                      }))
-                    }
-                  />
-                  Assistant lifecycle controls
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={editingPlanDraft.capabilityMemoryCenter}
-                    onChange={(event) =>
-                      setEditingPlanDraft((current) => ({
-                        ...current,
-                        capabilityMemoryCenter: event.target.checked
-                      }))
-                    }
-                  />
-                  Memory Center
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={editingPlanDraft.capabilityTasksCenter}
-                    onChange={(event) =>
-                      setEditingPlanDraft((current) => ({
-                        ...current,
-                        capabilityTasksCenter: event.target.checked
-                      }))
-                    }
-                  />
-                  Tasks Center
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
                     checked={editingPlanDraft.toolCostDriving}
                     onChange={(event) =>
                       setEditingPlanDraft((current) => ({
@@ -4254,32 +4169,34 @@ export function AppFlowClient() {
                   />
                   MAX surface
                 </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={editingPlanDraft.limitsViewPercentages}
-                    onChange={(event) =>
-                      setEditingPlanDraft((current) => ({
-                        ...current,
-                        limitsViewPercentages: event.target.checked
-                      }))
-                    }
-                  />
-                  Show limits as percentages
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={editingPlanDraft.limitsTasksExcludedFromCommercialQuotas}
-                    onChange={(event) =>
-                      setEditingPlanDraft((current) => ({
-                        ...current,
-                        limitsTasksExcludedFromCommercialQuotas: event.target.checked
-                      }))
-                    }
-                  />
-                  Tasks/reminders excluded from commercial quotas
-                </label>
+                <label htmlFor="editTokenBudgetLimit">Token budget limit</label>
+                <input
+                  id="editTokenBudgetLimit"
+                  type="text"
+                  inputMode="numeric"
+                  value={editingPlanDraft.tokenBudgetLimit}
+                  placeholder="empty = unlimited"
+                  onChange={(event) =>
+                    setEditingPlanDraft((current) => ({
+                      ...current,
+                      tokenBudgetLimit: event.target.value
+                    }))
+                  }
+                />
+                <label htmlFor="editCostToolUnitsLimit">Cost tool-units limit</label>
+                <input
+                  id="editCostToolUnitsLimit"
+                  type="text"
+                  inputMode="numeric"
+                  value={editingPlanDraft.costToolUnitsLimit}
+                  placeholder="empty = unlimited"
+                  onChange={(event) =>
+                    setEditingPlanDraft((current) => ({
+                      ...current,
+                      costToolUnitsLimit: event.target.value
+                    }))
+                  }
+                />
                 <button type="submit" disabled={isSavingAdminPlan}>
                   {isSavingAdminPlan ? "Saving..." : "Save plan changes"}
                 </button>

@@ -61,6 +61,16 @@ function parseTrialDuration(value: unknown, trialEnabled: boolean): number | nul
   return value;
 }
 
+function toNullablePositiveInt(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  return null;
+}
+
 function parseObject(value: unknown, fieldName: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new BadRequestException(`${fieldName} must be an object.`);
@@ -78,19 +88,6 @@ function hasAllowedFlag(items: unknown, key: string): boolean {
     }
     const typed = item as Record<string, unknown>;
     return typed.key === key && typed.allowed === true;
-  });
-}
-
-function hasValueFlag(items: unknown, key: string): boolean {
-  if (!Array.isArray(items)) {
-    return false;
-  }
-  return items.some((item) => {
-    if (item === null || typeof item !== "object" || Array.isArray(item)) {
-      return false;
-    }
-    const typed = item as Record<string, unknown>;
-    return typed.key === key && typed.value === true;
   });
 }
 
@@ -225,17 +222,16 @@ export class ManageAdminPlansService {
     const status = parseStatus(parsed.status);
     const trialEnabled = toBoolean(parsed.trialEnabled);
     const entitlements = parseObject(parsed.entitlements, "entitlements");
-    const capabilities = parseObject(entitlements.capabilities, "entitlements.capabilities");
     const toolClasses = parseObject(entitlements.toolClasses, "entitlements.toolClasses");
     const channelsAndSurfaces = parseObject(
       entitlements.channelsAndSurfaces,
       "entitlements.channelsAndSurfaces"
     );
-    const limitsPermissions = parseObject(
-      entitlements.limitsPermissions,
-      "entitlements.limitsPermissions"
-    );
     const metadata = parseObject(parsed.metadata, "metadata");
+    const quotaLimitsRaw =
+      parsed.quotaLimits !== undefined && parsed.quotaLimits !== null
+        ? parseObject(parsed.quotaLimits, "quotaLimits")
+        : {};
 
     const toolActivations = this.parseToolActivations(parsed.toolActivations);
 
@@ -251,11 +247,6 @@ export class ManageAdminPlansService {
         notes: toNullableString(metadata.notes)
       },
       entitlements: {
-        capabilities: {
-          assistantLifecycle: toBoolean(capabilities.assistantLifecycle),
-          memoryCenter: toBoolean(capabilities.memoryCenter),
-          tasksCenter: toBoolean(capabilities.tasksCenter)
-        },
         toolClasses: {
           costDrivingTools: toBoolean(toolClasses.costDrivingTools),
           utilityTools: toBoolean(toolClasses.utilityTools),
@@ -267,14 +258,13 @@ export class ManageAdminPlansService {
           telegram: toBoolean(channelsAndSurfaces.telegram),
           whatsapp: toBoolean(channelsAndSurfaces.whatsapp),
           max: toBoolean(channelsAndSurfaces.max)
-        },
-        limitsPermissions: {
-          viewLimitPercentages: toBoolean(limitsPermissions.viewLimitPercentages),
-          tasksExcludedFromCommercialQuotas: toBoolean(
-            limitsPermissions.tasksExcludedFromCommercialQuotas
-          )
         }
-      }
+      },
+      quotaLimits: {
+        tokenBudgetLimit: toNullablePositiveInt(quotaLimitsRaw.tokenBudgetLimit),
+        costToolUnitsLimit: toNullablePositiveInt(quotaLimitsRaw.costToolUnitsLimit)
+      },
+      primaryModelKey: toNullableString(parsed.primaryModelKey)
     };
     if (toolActivations) {
       result.toolActivations = toolActivations;
@@ -317,6 +307,14 @@ export class ManageAdminPlansService {
   }
 
   private toWriteInput(input: AdminPlanInput): AssistantPlanCatalogWriteInput {
+    const quotaAccounting: Record<string, unknown> = {};
+    if (input.quotaLimits.tokenBudgetLimit !== null) {
+      quotaAccounting.tokenBudgetLimit = input.quotaLimits.tokenBudgetLimit;
+    }
+    if (input.quotaLimits.costToolUnitsLimit !== null) {
+      quotaAccounting.costOrTokenDrivingToolClassUnitsLimit = input.quotaLimits.costToolUnitsLimit;
+    }
+
     return {
       displayName: input.displayName,
       description: input.description,
@@ -328,18 +326,13 @@ export class ManageAdminPlansService {
         schema: "persai.billingHints.v1",
         providerAgnostic: true,
         commercialTag: input.metadata.commercialTag,
-        notes: input.metadata.notes
+        notes: input.metadata.notes,
+        ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
+        ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {})
       },
       entitlementModel: {
         schemaVersion: 1,
-        capabilities: [
-          {
-            key: "assistant.lifecycle.publish_apply_rollback_reset",
-            allowed: input.entitlements.capabilities.assistantLifecycle
-          },
-          { key: "assistant.memory.center", allowed: input.entitlements.capabilities.memoryCenter },
-          { key: "assistant.tasks.center", allowed: input.entitlements.capabilities.tasksCenter }
-        ],
+        capabilities: [],
         toolClasses: [
           {
             key: "cost_driving",
@@ -358,16 +351,7 @@ export class ManageAdminPlansService {
           { key: "whatsapp", allowed: input.entitlements.channelsAndSurfaces.whatsapp },
           { key: "max", allowed: input.entitlements.channelsAndSurfaces.max }
         ],
-        limitsPermissions: [
-          {
-            key: "view_limit_percentages",
-            allowed: input.entitlements.limitsPermissions.viewLimitPercentages
-          },
-          {
-            key: "tasks_excluded_from_commercial_quotas",
-            value: input.entitlements.limitsPermissions.tasksExcludedFromCommercialQuotas
-          }
-        ]
+        limitsPermissions: []
       },
       toolActivationOverrides: (input.toolActivations ?? []).map((ta) => ({
         toolCode: ta.toolCode,
@@ -384,11 +368,15 @@ export class ManageAdminPlansService {
       !Array.isArray(plan.billingProviderHints)
         ? (plan.billingProviderHints as Record<string, unknown>)
         : {};
+    const quotaAccountingRaw =
+      billingHints.quotaAccounting !== null &&
+      typeof billingHints.quotaAccounting === "object" &&
+      !Array.isArray(billingHints.quotaAccounting)
+        ? (billingHints.quotaAccounting as Record<string, unknown>)
+        : {};
     const entitlement = plan.entitlementModel;
-    const capabilities = entitlement?.capabilities ?? [];
     const toolClasses = entitlement?.toolClasses ?? [];
     const channelsAndSurfaces = entitlement?.channelsAndSurfaces ?? [];
-    const limitsPermissions = entitlement?.limitsPermissions ?? [];
 
     return {
       code: plan.code,
@@ -403,14 +391,6 @@ export class ManageAdminPlansService {
         notes: toNullableString(billingHints.notes)
       },
       entitlements: {
-        capabilities: {
-          assistantLifecycle: hasAllowedFlag(
-            capabilities,
-            "assistant.lifecycle.publish_apply_rollback_reset"
-          ),
-          memoryCenter: hasAllowedFlag(capabilities, "assistant.memory.center"),
-          tasksCenter: hasAllowedFlag(capabilities, "assistant.tasks.center")
-        },
         toolClasses: {
           costDrivingTools: hasAllowedFlag(toolClasses, "cost_driving"),
           utilityTools: hasAllowedFlag(toolClasses, "utility"),
@@ -422,15 +402,15 @@ export class ManageAdminPlansService {
           telegram: hasAllowedFlag(channelsAndSurfaces, "telegram"),
           whatsapp: hasAllowedFlag(channelsAndSurfaces, "whatsapp"),
           max: hasAllowedFlag(channelsAndSurfaces, "max")
-        },
-        limitsPermissions: {
-          viewLimitPercentages: hasAllowedFlag(limitsPermissions, "view_limit_percentages"),
-          tasksExcludedFromCommercialQuotas: hasValueFlag(
-            limitsPermissions,
-            "tasks_excluded_from_commercial_quotas"
-          )
         }
       },
+      quotaLimits: {
+        tokenBudgetLimit: toNullablePositiveInt(quotaAccountingRaw.tokenBudgetLimit),
+        costToolUnitsLimit: toNullablePositiveInt(
+          quotaAccountingRaw.costOrTokenDrivingToolClassUnitsLimit
+        )
+      },
+      primaryModelKey: toNullableString(billingHints.primaryModelKey),
       toolActivations: plan.toolActivations.map((ta) => ({
         toolCode: ta.toolCode,
         displayName: ta.displayName,
