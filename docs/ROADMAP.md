@@ -155,12 +155,15 @@ Foundation Phase
   - [x] H7c — tool catalog rename (`memory_get`, `cron`) + SQL data migration
   - [x] H7d — auto-seed platform data at API startup (`SeedToolCatalogService`)
   - [x] H7e — null-plan governance backfill (legacy assistants get default plan on startup)
-- [x] H8 — Telegram runtime readiness (end-to-end webhook delivery + group chats)
+- [x] H8 — Telegram runtime readiness (end-to-end delivery + group chats)
   - [x] H8a — encrypted bot token storage (`PlatformRuntimeProviderSecretStoreService`, per-assistant key)
-  - [x] H8b — materialize Telegram config into `openclawBootstrap.channels.telegram` (token, webhookUrl, HMAC secret, groupReplyMode, parseMode, policy)
-  - [x] H8c — OpenClaw Telegram bridge (`persai-runtime-telegram.ts`): dynamic Grammy bot manager, webhook handler, `my_chat_member` group tracking
+  - [x] H8b — materialize Telegram config into `openclawBootstrap.channels.telegram`
+  - [x] H8c — OpenClaw Telegram bridge (`persai-runtime-telegram.ts`): dynamic Grammy bot manager, webhook/polling, group tracking
   - [x] H8d — GKE Ingress for public webhook URL (`bot.persai.dev/telegram-webhook/*`)
   - [x] H8e — Prisma `assistant_telegram_groups` table + internal callback endpoint
-  - [x] H8f — UI: Groups section (auto-populated list with status), Group reply mode toggle (mention/reply vs all)
+  - [x] H8f — UI: Groups section, Group reply mode toggle, Disconnect/Reconnect buttons
+  - [x] H8g — polling fallback (no `webhookUrl` → Grammy long polling, no public domain required)
+  - [x] H8h — auto-apply on connect/disconnect (immediate OpenClaw spec sync)
+  - [x] H8i — Telegram workspace isolation (agent turns use per-assistant `workspaceDir`, shared memory with web chat)
 - [ ] H9 — thinking/reasoning UX (stream thinking tokens, collapsible "Thought for Xs" block with fade-out preview)
 - [ ] H10 — WhatsApp/MAX readiness and secret-ref parity

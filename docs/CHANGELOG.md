@@ -8,10 +8,17 @@
   - Encrypted bot token storage: `ConnectTelegramIntegrationService` now persists the actual bot token via `PlatformRuntimeProviderSecretStoreService` (AES-256-GCM) under key `telegram_bot:{assistantId}`. Token deleted on revoke.
   - Materialize Telegram channel config into `openclawBootstrap.channels.telegram`: includes resolved `botToken`, `webhookUrl`, HMAC-derived `webhookSecret`, `groupReplyMode`, `parseMode`, inbound/outbound policy.
   - OpenClaw Telegram bridge (`persai-runtime-telegram.ts`): dynamically starts/stops Grammy bots per assistant on `spec/apply`, registers Telegram webhooks, handles `message:text` and `my_chat_member` events, supports group chat with configurable reply mode.
+  - Polling fallback: when `TELEGRAM_WEBHOOK_BASE_URL` is unset (materialized `webhookUrl` is null), OpenClaw uses Grammy `bot.start()` long polling instead of setting a webhook — allows Telegram operation without a public domain.
   - GKE Ingress: `openclaw-ingress.yaml` routes `bot.persai.dev/telegram-webhook/*` to OpenClaw service with TLS.
   - Prisma `assistant_telegram_groups` table: stores group join/leave events from `my_chat_member` callbacks. Internal endpoint `POST /api/v1/internal/runtime/telegram/group-update`.
-  - UI: Groups section in Telegram config panel (auto-populated list with name, member count, status badge). Group reply mode toggle (Mention/Reply vs All messages). API endpoint `GET /api/v1/assistant/integrations/telegram/groups`.
+  - UI: Groups section in Telegram config panel (auto-populated list with name, member count, status badge). Group reply mode toggle (Mention/Reply vs All messages). Disconnect/Reconnect buttons with confirmation. API endpoint `GET /api/v1/assistant/integrations/telegram/groups`.
+  - Auto-apply on connect/disconnect: `ConnectTelegramIntegrationService` and `RevokeTelegramIntegrationSecretService` now trigger `ApplyAssistantPublishedVersionService` automatically after modifying the integration, ensuring immediate OpenClaw spec synchronization.
+  - Telegram workspace isolation: OpenClaw Telegram agent turns now receive the per-assistant `workspaceDir` (same as web chat), so the bot reads/writes the correct `MEMORY.md` and bootstrap files.
   - New env vars: `TELEGRAM_WEBHOOK_BASE_URL`, `TELEGRAM_WEBHOOK_HMAC_SECRET`.
+
+- **Operational:**
+  - `OPENCLAW_ADAPTER_TIMEOUT_MS` increased from 15 000 to 90 000 ms in dev values to prevent timeouts on complex LLM queries.
+  - `OPENCLAW_STATE_DIR` set to `/mnt/workspaces/persai/.openclaw-state` on GCS FUSE persistent volume — OpenClaw session transcripts survive pod restarts.
 
 - **Force Reapply configGeneration bump + null-plan backfill:**
   - `ForceReapplyAllService` now calls `bumpConfigGenerationService.execute()` before re-materializing, ensuring OpenClaw freshness checks detect the update.

@@ -1,6 +1,7 @@
 # ADR-034: Telegram connection and delivery surface (Step 8 E4)
 
 ## Status
+
 Accepted
 
 ## Context
@@ -54,3 +55,13 @@ E3 hardened channel/surface binding projection, but Telegram still had no user-f
 - WhatsApp and MAX connection/delivery
 - moving assistant lifecycle/persona configuration into Telegram
 - webhook/event ingestion and runtime dispatch expansion
+
+## Follow-up: Step 12 H8 — Telegram runtime readiness
+
+H8 extends this ADR to full runtime delivery. See `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md` for details:
+
+- Encrypted bot token storage and materialization into `openclawBootstrap.channels.telegram`
+- OpenClaw Grammy bot bridge with webhook and polling fallback modes
+- Group chat support (`my_chat_member` tracking, `assistant_telegram_groups` table)
+- Auto-apply on connect/disconnect for immediate OpenClaw sync
+- Per-assistant workspace isolation (shared memory with web chat)

@@ -431,6 +431,23 @@ It is not part of backend domain logic.
   - no MAX bot/mini-app delivery implementation
   - no collapse of bot and mini-app into one MAX surface
 
+## Telegram runtime delivery boundary (Step 12 H8)
+
+- Telegram is an interaction/delivery surface, not a control-plane surface.
+- PersAI materializes Telegram config into `openclawBootstrap.channels.telegram` (token, webhook URL, HMAC secret, policy, group reply mode).
+- OpenClaw owns Telegram runtime delivery:
+  - dynamic Grammy bot lifecycle (start/stop on spec apply)
+  - webhook mode (when `TELEGRAM_WEBHOOK_BASE_URL` is configured) or polling fallback (when unset)
+  - `message:text` event handling → agent turn with per-assistant `workspaceDir`
+  - `my_chat_member` event handling → group status callback to PersAI
+- PersAI owns Telegram control-plane:
+  - connect/disconnect/rotate/revoke via assistant integration APIs
+  - encrypted token storage (`PlatformRuntimeProviderSecretStoreService`)
+  - `assistant_telegram_groups` persistence from OpenClaw callbacks
+  - auto-apply after connect/disconnect to push config changes to OpenClaw immediately
+- Telegram agent turns share the same per-assistant workspace as web chat (same `MEMORY.md`, bootstrap files).
+- Backend does not route Telegram messages or manage bot lifecycle directly.
+
 ## Memory source policy enforcement (Step 6 D3)
 
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.

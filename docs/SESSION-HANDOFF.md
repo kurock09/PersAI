@@ -3654,6 +3654,93 @@ Full interactive LIVE test of 8 areas after H2-cleanup + H3 deploy. Found and fi
 
 ---
 
+## H8 — Telegram runtime readiness
+
+### What changed
+
+1. **Encrypted bot token storage:** `ConnectTelegramIntegrationService` persists the bot token via `PlatformRuntimeProviderSecretStoreService` (AES-256-GCM) under key `telegram_bot:{assistantId}`. Token deleted on revoke/disconnect.
+
+2. **Telegram channel materialization:** active Telegram binding → `openclawBootstrap.channels.telegram` with `enabled: true`, resolved `botToken`, `webhookUrl` (or null for polling), HMAC `webhookSecret`, `groupReplyMode`, `parseMode`, inbound/outbound policy. Inactive → `enabled: false`.
+
+3. **OpenClaw Telegram bridge** (`persai-runtime-telegram.ts`): dynamically manages Grammy bot instances per assistant. On `spec/apply` with enabled Telegram, starts bot in webhook mode (if `webhookUrl` present) or polling mode (if null). Handles `message:text` → agent turn and `my_chat_member` → group status callback to PersAI.
+
+4. **Polling fallback:** when `TELEGRAM_WEBHOOK_BASE_URL` env is unset, materialized `webhookUrl` is null, and OpenClaw uses `bot.start()` long polling — allows Telegram operation without public domain. Stale webhooks deleted on start.
+
+5. **GKE Ingress** (`openclaw-ingress.yaml`): routes `bot.persai.dev/telegram-webhook/*` to OpenClaw with TLS managed certificate.
+
+6. **Group tracking:** `assistant_telegram_groups` Prisma table stores join/leave events. OpenClaw sends `my_chat_member` to `POST /api/v1/internal/runtime/telegram/group-update`. `GET /api/v1/assistant/integrations/telegram/groups` returns group list.
+
+7. **UI updates:** Groups section in connected Telegram panel. Group reply mode toggle. Disconnect/Reconnect buttons with confirmation dialog. Auto-populated group list from `my_chat_member` callbacks.
+
+8. **Auto-apply on connect/disconnect:** `ConnectTelegramIntegrationService` and `RevokeTelegramIntegrationSecretService` now call `ApplyAssistantPublishedVersionService` after modifying integration, ensuring immediate OpenClaw sync.
+
+9. **Telegram workspace isolation:** OpenClaw Telegram agent turns receive per-assistant `workspaceDir` from stored spec (same as web chat). Bot reads/writes the correct `MEMORY.md` and bootstrap files.
+
+10. **Operational:** `OPENCLAW_ADAPTER_TIMEOUT_MS` increased to 90 000 ms for complex LLM queries. `OPENCLAW_STATE_DIR` set to persistent GCS FUSE volume for session survival across pod restarts.
+
+### Why changed
+
+H8 completes the Telegram delivery surface that was previously control-plane-only (E4 connect/config). Users can now interact with their assistant via Telegram DMs and group chats, with the same persona, memory, and tools as web chat.
+
+### Slice boundary
+
+- PersAI: encrypted token storage, materialization of Telegram channel config, `assistant_telegram_groups` table, group update internal endpoint, groups API, UI disconnect/reconnect/groups, auto-apply on connect/disconnect.
+- OpenClaw: Telegram bridge (Grammy bot lifecycle, webhook/polling, event routing), workspace dir in agent turns, reinitialize from store on pod restart.
+- No changes to: web chat, publish/rollback/reset, admin plans, provider settings, memory/tasks APIs.
+
+### Key files changed
+
+**PersAI backend:**
+
+- `apps/api/prisma/schema.prisma` — `AssistantTelegramGroup` model
+- `apps/api/prisma/migrations/20260326300000_add_assistant_telegram_groups/migration.sql`
+- `apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts` — encrypted token upsert, auto-apply
+- `apps/api/src/modules/workspace-management/application/revoke-telegram-integration-secret.service.ts` — token delete, auto-apply
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — `resolveTelegramChannelConfig()`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` — groups endpoint, disconnect endpoint
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts` — group-update endpoint
+- `packages/config/src/api-config.ts` — `TELEGRAM_WEBHOOK_BASE_URL`, `TELEGRAM_WEBHOOK_HMAC_SECRET`
+
+**PersAI frontend:**
+
+- `apps/web/app/app/_components/telegram-connect.tsx` — Disconnect/Reconnect buttons, groups section, group reply mode toggle
+- `apps/web/app/app/assistant-api-client.ts` — `fetchAssistantTelegramGroups`, `postAssistantTelegramDisconnect`
+
+**OpenClaw fork:**
+
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — Grammy bot manager, webhook/polling, event handlers
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — `runPersaiTelegramAgentTurn`
+- `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — `getAll()` for reinitialize
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — `syncTelegramBotForAssistant` on apply with `workspaceDir`
+- `src/gateway/server-http.ts` — Telegram webhook route, reinitialize on startup
+
+**Infra:**
+
+- `infra/helm/templates/openclaw-ingress.yaml` — new Ingress for `bot.persai.dev`
+- `infra/helm/values-dev.yaml` — `OPENCLAW_ADAPTER_TIMEOUT_MS: "90000"`, `OPENCLAW_STATE_DIR`, `TELEGRAM_WEBHOOK_HMAC_SECRET` secret, `telegramWebhook` section
+- `infra/dev/gitops/openclaw-approved-sha.txt` — updated to `d1dcf2ef2`
+
+### Tests run
+
+- `npx tsc --noEmit` — PersAI API (clean), PersAI Web (clean)
+- `pnpm --filter @persai/web run test` — passing (flaky `putAdminRuntimeProviderSettings` spy timing in CI, passes on rerun)
+- OpenClaw typecheck clean for new files
+
+### Risks
+
+1. Polling mode uses long-lived connections from OpenClaw pod to Telegram — one connection per active bot. At scale, webhook mode is preferred.
+2. `TELEGRAM_WEBHOOK_BASE_URL` commented out in dev values — Telegram polling active until domain DNS is ready.
+3. Auto-apply on connect/disconnect adds latency to those API calls (~500ms). Wrapped in try/catch so failures are non-fatal.
+4. Flaky web test (`putAdminRuntimeProviderSettings` spy timing) — pre-existing, unrelated to H8. Passes on CI rerun.
+
+### Next recommended step
+
+- **H9 — thinking/reasoning UX:** stream thinking tokens from OpenClaw, collapsible "Thought for X seconds" block in web chat with fade-out preview.
+- Configure `bot.persai.dev` DNS and uncomment `TELEGRAM_WEBHOOK_BASE_URL` to switch from polling to webhook mode.
+- Monitor Telegram group tracking accuracy (join/leave events).
+
+---
+
 ## H3.1 — configGeneration lazy invalidation (scale to 5 000–10 000 users)
 
 ### What changed

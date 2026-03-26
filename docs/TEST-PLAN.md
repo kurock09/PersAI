@@ -384,6 +384,23 @@ Required in CI:
 - Group reply mode toggle persists via `PATCH /assistant/integrations/telegram/config`.
 - `groupReplyMode` included in `configPanel.settings` response.
 
+### Polling fallback
+
+- When `TELEGRAM_WEBHOOK_BASE_URL` is unset, materialized `webhookUrl` is null.
+- OpenClaw Telegram bridge uses `bot.start()` (long polling) instead of webhook registration.
+- Stale webhook is deleted on bot start (best-effort).
+
+### Auto-apply on connect/disconnect
+
+- `ConnectTelegramIntegrationService` calls `ApplyAssistantPublishedVersionService` after connect.
+- `RevokeTelegramIntegrationSecretService` calls `ApplyAssistantPublishedVersionService` after revoke/disconnect.
+- Auto-apply failure is non-fatal (logged, does not fail the API call).
+
+### Workspace isolation
+
+- OpenClaw Telegram agent turns receive `workspaceDir` from stored spec.
+- Telegram bot reads/writes same `MEMORY.md` and bootstrap files as web chat for the same assistant.
+
 ### Regression
 
 - Existing Telegram connect/config/revoke flows unaffected.
