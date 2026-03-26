@@ -326,7 +326,7 @@ function ConnectedView({
     } catch {
       setFeedback({
         type: "err",
-        text: "Could not disconnect. Use \"Reconnect\" to update the token instead."
+        text: 'Could not disconnect. Use "Reconnect" to update the token instead.'
       });
       setConfirmDisconnect(false);
     } finally {
