@@ -221,6 +221,10 @@ class InMemoryPrisma {
     }
   };
 
+  readonly assistant = {
+    updateMany: async () => ({ count: 0 })
+  };
+
   async $transaction<T>(callback: (tx: this) => Promise<T>): Promise<T> {
     return callback(this);
   }
