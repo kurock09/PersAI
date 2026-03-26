@@ -84,8 +84,8 @@ function ConnectForm({
   isReconnect
 }: {
   onUpdated: () => void;
-  onCancel?: () => void;
-  isReconnect?: boolean;
+  onCancel?: (() => void) | undefined;
+  isReconnect?: boolean | undefined;
 }) {
   const { getToken } = useAuth();
   const [botToken, setBotToken] = useState("");
