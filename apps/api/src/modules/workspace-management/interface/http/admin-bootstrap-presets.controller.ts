@@ -26,8 +26,8 @@ export class AdminBootstrapPresetsController {
     requestId: string | null;
     presets: PresetState[];
   }> {
-    this.resolveRequestUserId(req);
-    const presets = await this.manageBootstrapPresetsService.getAll();
+    const userId = this.resolveRequestUserId(req);
+    const presets = await this.manageBootstrapPresetsService.getAll(userId);
     return {
       requestId: req.requestId ?? null,
       presets: presets.map((p) => ({
@@ -47,7 +47,7 @@ export class AdminBootstrapPresetsController {
     requestId: string | null;
     preset: PresetState;
   }> {
-    this.resolveRequestUserId(req);
+    const userId = this.resolveRequestUserId(req);
 
     if (typeof body !== "object" || body === null || !("template" in body)) {
       throw new BadRequestException('Request body must contain "template" string field.');
@@ -58,7 +58,7 @@ export class AdminBootstrapPresetsController {
       throw new BadRequestException("Template must be a non-empty string.");
     }
 
-    const preset = await this.manageBootstrapPresetsService.update(id, template);
+    const preset = await this.manageBootstrapPresetsService.update(userId, id, template);
     return {
       requestId: req.requestId ?? null,
       preset: {

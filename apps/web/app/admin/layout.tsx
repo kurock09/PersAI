@@ -1,7 +1,8 @@
 "use client";
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import {
   ArrowLeft,
   CreditCard,
@@ -15,9 +16,11 @@ import {
   Wrench,
   FileText,
   Menu,
-  X
+  X,
+  Loader2
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { getAdminPlanVisibility } from "@/app/app/assistant-api-client";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Overview", icon: Shield },
@@ -101,7 +104,40 @@ function AdminSidebar({ onClose }: { onClose?: () => void }) {
 }
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
+  const { getToken } = useAuth();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [authState, setAuthState] = useState<"checking" | "authorized" | "denied">("checking");
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (!token) {
+          setAuthState("denied");
+          return;
+        }
+        await getAdminPlanVisibility(token);
+        setAuthState("authorized");
+      } catch {
+        setAuthState("denied");
+      }
+    })();
+  }, [getToken]);
+
+  useEffect(() => {
+    if (authState === "denied") {
+      router.replace("/app");
+    }
+  }, [authState, router]);
+
+  if (authState !== "authorized") {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-bg">
+        <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-dvh overflow-hidden bg-bg">

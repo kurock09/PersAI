@@ -282,14 +282,18 @@ export class AssistantController {
   @Post("assistant/reset")
   async resetAssistant(@Req() req: RequestWithPlatformContext): Promise<{
     requestId: string | null;
-    reset: true;
+    assistant: AssistantLifecycleState;
   }> {
     const userId = this.resolveRequestUserId(req);
     await this.resetAssistantService.execute(userId);
+    const assistant = await this.getAssistantByUserIdService.execute(userId);
+    if (assistant === null) {
+      throw new NotFoundException("Assistant not found after reset.");
+    }
 
     return {
       requestId: req.requestId ?? null,
-      reset: true
+      assistant
     };
   }
 

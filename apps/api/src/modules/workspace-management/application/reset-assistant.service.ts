@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -10,6 +10,8 @@ import { AppendAssistantAuditEventService } from "./append-assistant-audit-event
 
 @Injectable()
 export class ResetAssistantService {
+  private readonly logger = new Logger(ResetAssistantService.name);
+
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
@@ -25,9 +27,11 @@ export class ResetAssistantService {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.assistant.update({
-        where: { id: assistant.id },
+    const aid = assistant.id;
+
+    await this.prisma.$transaction([
+      this.prisma.assistant.update({
+        where: { id: aid },
         data: {
           applyStatus: "not_requested",
           applyTargetVersionId: null,
@@ -38,52 +42,54 @@ export class ResetAssistantService {
           applyErrorCode: null,
           applyErrorMessage: null
         }
-      });
-
-      await tx.assistantChatMessage.deleteMany({
-        where: { assistantId: assistant.id }
-      });
-      await tx.assistantChat.deleteMany({
-        where: { assistantId: assistant.id }
-      });
-      await tx.assistantMemoryRegistryItem.deleteMany({
-        where: { assistantId: assistant.id }
-      });
-      await tx.assistantMaterializedSpec.deleteMany({
-        where: { assistantId: assistant.id }
-      });
-      await tx.assistantPublishedVersion.deleteMany({
-        where: { assistantId: assistant.id }
-      });
-
-      await tx.assistant.update({
-        where: { id: assistant.id },
+      }),
+      this.prisma.assistantChatMessage.deleteMany({
+        where: { assistantId: aid }
+      }),
+      this.prisma.assistantChat.deleteMany({
+        where: { assistantId: aid }
+      }),
+      this.prisma.assistantMemoryRegistryItem.deleteMany({
+        where: { assistantId: aid }
+      }),
+      this.prisma.assistantMaterializedSpec.deleteMany({
+        where: { assistantId: aid }
+      }),
+      this.prisma.assistantPublishedVersion.deleteMany({
+        where: { assistantId: aid }
+      }),
+      this.prisma.assistant.update({
+        where: { id: aid },
         data: {
           draftDisplayName: null,
           draftInstructions: null,
-          draftTraits: Prisma.JsonNull,
+          draftTraits: Prisma.DbNull,
           draftAvatarEmoji: null,
           draftAvatarUrl: null,
           draftUpdatedAt: new Date()
         }
-      });
-    });
+      })
+    ]);
 
     try {
-      await this.runtimeAdapter.cleanupWorkspace(assistant.id);
-    } catch {
-      // Workspace cleanup is best-effort; the DB wipe is the authoritative reset.
+      await this.runtimeAdapter.cleanupWorkspace(aid);
+    } catch (err) {
+      this.logger.warn("Workspace cleanup failed (best-effort)", err);
     }
 
-    await this.appendAssistantAuditEventService.execute({
-      workspaceId: assistant.workspaceId,
-      assistantId: assistant.id,
-      actorUserId: userId,
-      eventCategory: "assistant_lifecycle",
-      eventCode: "assistant.full_reset",
-      summary:
-        "Full assistant reset: all chats, memory, published versions, materialized specs and workspace files deleted.",
-      details: {}
-    });
+    try {
+      await this.appendAssistantAuditEventService.execute({
+        workspaceId: assistant.workspaceId,
+        assistantId: aid,
+        actorUserId: userId,
+        eventCategory: "assistant_lifecycle",
+        eventCode: "assistant.full_reset",
+        summary:
+          "Full assistant reset: all chats, memory, published versions, materialized specs and workspace files deleted.",
+        details: {}
+      });
+    } catch (err) {
+      this.logger.error("Failed to append audit event for reset", err);
+    }
   }
 }

@@ -1,24 +1,69 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
   BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY,
   type BootstrapDocumentPreset,
   type BootstrapDocumentPresetRepository
 } from "../domain/bootstrap-document-preset.repository";
+import { AdminAuthorizationService } from "./admin-authorization.service";
 
 const VALID_PRESET_IDS = new Set(["soul", "user", "identity", "agents"]);
 
+const DEFAULT_TEMPLATES: Record<string, string> = {
+  soul: `# SOUL.md
+
+You are **{{assistant_name}}**.
+
+{{traits_block}}
+{{instructions_block}}`,
+
+  user: `# USER.md — About Your Human
+
+{{user_name_line}}
+{{user_birthday_line}}
+{{user_gender_line}}
+- **Locale**: {{user_locale}}
+- **Timezone**: {{user_timezone}}
+
+Use this information to personalize your communication.
+Greet on birthdays. Respect timezone for scheduling.`,
+
+  identity: `# IDENTITY.md
+
+- **Name**: {{assistant_name}}
+{{assistant_avatar_emoji_line}}
+{{assistant_avatar_url_line}}`,
+
+  agents: `# AGENTS.md — Governance & Capabilities
+
+{{memory_policy_block}}
+{{tasks_policy_block}}`
+};
+
 @Injectable()
 export class ManageBootstrapPresetsService {
+  private readonly logger = new Logger(ManageBootstrapPresetsService.name);
+
   constructor(
     @Inject(BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY)
-    private readonly presetRepository: BootstrapDocumentPresetRepository
+    private readonly presetRepository: BootstrapDocumentPresetRepository,
+    private readonly adminAuthorizationService: AdminAuthorizationService
   ) {}
 
-  async getAll(): Promise<BootstrapDocumentPreset[]> {
-    return this.presetRepository.findAll();
+  async getAll(userId: string): Promise<BootstrapDocumentPreset[]> {
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const presets = await this.presetRepository.findAll();
+    if (presets.length > 0) return presets;
+
+    this.logger.log("No bootstrap presets found — seeding defaults");
+    const seeded: BootstrapDocumentPreset[] = [];
+    for (const [id, template] of Object.entries(DEFAULT_TEMPLATES)) {
+      seeded.push(await this.presetRepository.upsert(id, template));
+    }
+    return seeded;
   }
 
-  async update(id: string, template: string): Promise<BootstrapDocumentPreset> {
+  async update(userId: string, id: string, template: string): Promise<BootstrapDocumentPreset> {
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     if (!VALID_PRESET_IDS.has(id)) {
       throw new NotFoundException(`Bootstrap preset "${id}" does not exist.`);
     }

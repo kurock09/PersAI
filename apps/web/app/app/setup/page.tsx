@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import {
+  getAssistant,
   patchAssistantDraft,
   postAssistantCreate,
   postAssistantPublish
@@ -189,6 +190,13 @@ export default function SetupWizardPage() {
       try {
         const token = await getToken();
         if (!token) return;
+
+        const existing = await getAssistant(token);
+        if (existing && existing.applyStatus === "succeeded") {
+          router.replace("/app");
+          return;
+        }
+
         const me = await getMe(token);
         if (me.me.onboarding.status !== "pending") {
           const u = me.me.appUser;
@@ -201,7 +209,7 @@ export default function SetupWizardPage() {
         // Pre-fill is best-effort; ignore errors.
       }
     })();
-  }, [getToken]);
+  }, [getToken, router]);
 
   const canProceed = useMemo(() => {
     if (step === 0) return userName.trim().length >= 2 && gender !== null && timezone.length > 0;

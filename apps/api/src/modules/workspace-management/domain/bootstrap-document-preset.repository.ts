@@ -11,4 +11,5 @@ export interface BootstrapDocumentPresetRepository {
   findAll(): Promise<BootstrapDocumentPreset[]>;
   findById(id: string): Promise<BootstrapDocumentPreset | null>;
   update(id: string, template: string): Promise<BootstrapDocumentPreset>;
+  upsert(id: string, template: string): Promise<BootstrapDocumentPreset>;
 }

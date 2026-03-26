@@ -27,4 +27,12 @@ export class PrismaBootstrapDocumentPresetRepository implements BootstrapDocumen
       data: { template }
     });
   }
+
+  async upsert(id: string, template: string): Promise<BootstrapDocumentPreset> {
+    return this.prisma.bootstrapDocumentPreset.upsert({
+      where: { id },
+      update: { template },
+      create: { id, template }
+    });
+  }
 }
