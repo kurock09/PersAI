@@ -81,7 +81,7 @@ export class ResolveRuntimeProviderRoutingService {
     const primaryProviderKey = managedPrimary?.provider ?? "openclaw_managed_default";
     const planModelKey = params.planPrimaryModelKey?.trim() || null;
     const primaryModelKey =
-      managedPrimary?.model ?? planModelKey ?? override.primaryModelKey ?? "text_standard_v1";
+      planModelKey ?? managedPrimary?.model ?? override.primaryModelKey ?? "text_standard_v1";
     const fallbackProviderKey = managedFallback?.provider ?? primaryProviderKey;
     const fallbackModelKey =
       managedFallback?.model ?? override.fallbackModelKey ?? "text_fast_fallback_v1";

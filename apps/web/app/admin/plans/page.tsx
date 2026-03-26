@@ -19,7 +19,12 @@ import type {
   AdminPlanToolActivation,
   AdminPlanUpdateRequest
 } from "@persai/contracts";
-import { getAdminPlans, patchAdminPlan, postAdminPlanCreate } from "@/app/app/assistant-api-client";
+import {
+  getAdminPlans,
+  getAdminRuntimeProviderSettings,
+  patchAdminPlan,
+  postAdminPlanCreate
+} from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
 /* ─── Draft types ─── */
@@ -361,13 +366,15 @@ function PlanForm({
   onPatch,
   showCode,
   code,
-  onCodeChange
+  onCodeChange,
+  availableModelKeys = []
 }: {
   draft: PlanDraft;
   onPatch: (p: Partial<PlanDraft>) => void;
   showCode: boolean;
   code: string;
   onCodeChange: (v: string) => void;
+  availableModelKeys?: { provider: string; model: string }[];
 }) {
   return (
     <div className="space-y-2.5">
@@ -464,58 +471,69 @@ function PlanForm({
 
       {/* row 4: entitlements grid */}
       <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 rounded border border-border bg-surface px-3 py-2">
-        <Sec label="Tool classes">
-          <div className="space-y-0.5">
-            <Check
-              label="Cost-driving"
-              checked={draft.toolCostDriving}
-              onChange={(v) => onPatch({ toolCostDriving: v })}
-            />
-            <Check
-              label="Utility"
-              checked={draft.toolUtility}
-              onChange={(v) => onPatch({ toolUtility: v })}
-            />
-            <Check
-              label="Cost quota"
-              checked={draft.toolCostDrivingQuotaGoverned}
-              onChange={(v) => onPatch({ toolCostDrivingQuotaGoverned: v })}
-            />
-            <Check
-              label="Util quota"
-              checked={draft.toolUtilityQuotaGoverned}
-              onChange={(v) => onPatch({ toolUtilityQuotaGoverned: v })}
-            />
-          </div>
-        </Sec>
-        <Sec label="Channels">
-          <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-            <Check
-              label="Web"
-              checked={draft.channelWebChat}
-              onChange={(v) => onPatch({ channelWebChat: v })}
-            />
-            <Check
-              label="TG"
-              checked={draft.channelTelegram}
-              onChange={(v) => onPatch({ channelTelegram: v })}
-            />
-            <Check
-              label="WA"
-              checked={draft.channelWhatsapp}
-              onChange={(v) => onPatch({ channelWhatsapp: v })}
-            />
-            <Check
-              label="Max"
-              checked={draft.channelMax}
-              onChange={(v) => onPatch({ channelMax: v })}
-            />
-          </div>
-        </Sec>
-        <div className="space-y-1.5">
+        <div className="space-y-2 rounded-md border border-accent/30 bg-surface-raised p-2.5">
+          <Sec label="Tool classes">
+            <div className="space-y-0.5">
+              <Check
+                label="Cost-driving"
+                checked={draft.toolCostDriving}
+                onChange={(v) => onPatch({ toolCostDriving: v })}
+              />
+              <Check
+                label="Utility"
+                checked={draft.toolUtility}
+                onChange={(v) => onPatch({ toolUtility: v })}
+              />
+              <Check
+                label="Cost quota"
+                checked={draft.toolCostDrivingQuotaGoverned}
+                onChange={(v) => onPatch({ toolCostDrivingQuotaGoverned: v })}
+              />
+              <Check
+                label="Util quota"
+                checked={draft.toolUtilityQuotaGoverned}
+                onChange={(v) => onPatch({ toolUtilityQuotaGoverned: v })}
+              />
+            </div>
+          </Sec>
+          <p className="text-[10px] leading-snug text-text-subtle/80">
+            &quot;Cost&quot; tools consume quota units; &quot;Utility&quot; are free.
+            Quota flags enforce spending limits.
+          </p>
+        </div>
+        <div className="space-y-2 rounded-md border border-accent/30 bg-surface-raised p-2.5">
+          <Sec label="Channels">
+            <div className="space-y-0.5">
+              <Check
+                label="Web Chat"
+                checked={draft.channelWebChat}
+                onChange={(v) => onPatch({ channelWebChat: v })}
+              />
+              <Check
+                label="Telegram"
+                checked={draft.channelTelegram}
+                onChange={(v) => onPatch({ channelTelegram: v })}
+              />
+              <Check
+                label="WhatsApp"
+                checked={draft.channelWhatsapp}
+                onChange={(v) => onPatch({ channelWhatsapp: v })}
+              />
+              <Check
+                label="Max"
+                checked={draft.channelMax}
+                onChange={(v) => onPatch({ channelMax: v })}
+              />
+            </div>
+          </Sec>
+          <p className="text-[10px] leading-snug text-text-subtle/80">
+            Messaging channels available to workspaces on this plan.
+          </p>
+        </div>
+        <div className="space-y-2 rounded-md border border-accent/30 bg-surface-raised p-2.5">
           <Sec label="Quota limits">
-            <div className="space-y-1">
-              <label className="flex items-center gap-1.5 text-[10px] text-text-subtle">
+            <div className="space-y-1.5">
+              <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
                 Token budget
                 <input
                   type="number"
@@ -523,10 +541,10 @@ function PlanForm({
                   value={draft.tokenBudgetLimit}
                   onChange={(e) => onPatch({ tokenBudgetLimit: e.target.value })}
                   placeholder="default"
-                  className="w-24 appearance-none rounded border border-border bg-surface px-2 py-0.5 text-right text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                  className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                 />
               </label>
-              <label className="flex items-center gap-1.5 text-[10px] text-text-subtle">
+              <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
                 Cost tool units
                 <input
                   type="number"
@@ -534,19 +552,35 @@ function PlanForm({
                   value={draft.costToolUnitsLimit}
                   onChange={(e) => onPatch({ costToolUnitsLimit: e.target.value })}
                   placeholder="default"
-                  className="w-24 appearance-none rounded border border-border bg-surface px-2 py-0.5 text-right text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                  className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                 />
               </label>
             </div>
           </Sec>
           <Sec label="AI model">
-            <input
-              type="text"
+            <select
               value={draft.primaryModelKey}
               onChange={(e) => onPatch({ primaryModelKey: e.target.value })}
-              placeholder="platform default"
-              className="w-full rounded border border-border bg-surface px-2 py-0.5 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50"
-            />
+              className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+            >
+              <option value="">platform default</option>
+              {availableModelKeys.length > 0 ? (
+                Object.entries(
+                  availableModelKeys.reduce<Record<string, string[]>>((acc, { provider, model }) => {
+                    (acc[provider] ??= []).push(model);
+                    return acc;
+                  }, {})
+                ).map(([provider, models]) => (
+                  <optgroup key={provider} label={provider}>
+                    {models.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))
+              ) : null}
+            </select>
           </Sec>
         </div>
       </div>
@@ -709,6 +743,9 @@ export default function AdminPlansPage() {
   const [createCode, setCreateCode] = useState("");
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<PlanDraft | null>(null);
+  const [availableModelKeys, setAvailableModelKeys] = useState<
+    { provider: string; model: string }[]
+  >([]);
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -720,7 +757,22 @@ export default function AdminPlansPage() {
     setLoading(true);
     setFeedback(null);
     try {
-      setPlans(await getAdminPlans(token));
+      const [plansData, runtimeData] = await Promise.all([
+        getAdminPlans(token),
+        getAdminRuntimeProviderSettings(token).catch(() => null)
+      ]);
+      setPlans(plansData);
+      if (runtimeData?.availableModelsByProvider) {
+        const keys: { provider: string; model: string }[] = [];
+        for (const [provider, models] of Object.entries(
+          runtimeData.availableModelsByProvider as unknown as Record<string, string[]>
+        )) {
+          for (const model of models) {
+            keys.push({ provider, model });
+          }
+        }
+        setAvailableModelKeys(keys);
+      }
     } catch (err) {
       setFeedback({
         kind: "error",
@@ -913,6 +965,7 @@ export default function AdminPlansPage() {
             showCode
             code={createCode}
             onCodeChange={setCreateCode}
+            availableModelKeys={availableModelKeys}
           />
           <div className="mt-3 flex gap-2">
             <button
@@ -966,6 +1019,7 @@ export default function AdminPlansPage() {
                     showCode={false}
                     code=""
                     onCodeChange={() => {}}
+                    availableModelKeys={availableModelKeys}
                   />
                   <div className="mt-3 flex gap-2">
                     <button

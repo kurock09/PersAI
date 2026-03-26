@@ -135,5 +135,6 @@ Foundation Phase
   - [x] H3a — persona hydration: schema migration (traits/avatar/birthday), materialization of 7 bootstrap documents (SOUL/USER/IDENTITY/TOOLS/AGENTS/HEARTBEAT/BOOTSTRAP), per-user workspace isolation with `PERSAI_WORKSPACE_ROOT` + GCS FUSE, `extraSystemPrompt` elimination
   - [x] H3b — memory management: OpenClaw memory API (list/add/edit/forget/search), PersAI proxy, Memory Center UI (curated/timeline tabs, teach/forget in-chat), deprecate `AssistantMemoryRegistryItem`
   - [x] H3c — chat history: message loading endpoint with pagination, UI load-on-thread-open
+- [ ] H3.1 — **tech debt**: eliminate full re-materialization on global settings change; introduce `settingsGeneration` lazy-invalidation so OpenClaw pulls fresh provider/model on demand instead of rebuilding all bootstraps (critical at scale ≥1 000 workspaces)
 - [ ] H4 — Telegram runtime readiness alignment against admin-driven runtime profile + managed secret refs
 - [ ] H5 — WhatsApp/MAX follow-up readiness and secret-ref parity before later delivery slices

@@ -47,6 +47,16 @@ export function useChat(threadKey: string): UseChatReturn {
   const [issue, setIssue] = useState<WebChatUxIssue | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const historyLoadedRef = useRef<Set<string>>(new Set());
+  const prevThreadKeyRef = useRef(threadKey);
+
+  if (prevThreadKeyRef.current !== threadKey) {
+    prevThreadKeyRef.current = threadKey;
+    setMessages([]);
+    setActivities([]);
+    setChatId(null);
+    setIssue(null);
+    historyLoadedRef.current = new Set();
+  }
 
   const stop = useCallback(() => {
     abortRef.current?.abort();

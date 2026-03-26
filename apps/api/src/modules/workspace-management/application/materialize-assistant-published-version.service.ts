@@ -103,7 +103,7 @@ export class MaterializeAssistantPublishedVersionService {
     });
     const platformRuntimeProviderSettings =
       await this.resolvePlatformRuntimeProviderSettingsService.execute();
-    const runtimeProviderProfile =
+    let runtimeProviderProfile =
       platformRuntimeProviderSettings.mode === "global_settings"
         ? buildPlatformRuntimeProviderProfileState(platformRuntimeProviderSettings)
         : resolveRuntimeProviderProfileState({
@@ -113,6 +113,15 @@ export class MaterializeAssistantPublishedVersionService {
     const planPrimaryModelKey = await this.resolvePlanPrimaryModelKey(
       effectiveCapabilities.derivedFrom.planCode
     );
+    if (planPrimaryModelKey && runtimeProviderProfile.mode === "admin_managed" && runtimeProviderProfile.primary) {
+      runtimeProviderProfile = {
+        ...runtimeProviderProfile,
+        primary: {
+          ...runtimeProviderProfile.primary,
+          model: planPrimaryModelKey
+        }
+      };
+    }
     const runtimeProviderRouting = this.resolveRuntimeProviderRoutingService.execute({
       effectiveCapabilities,
       policyEnvelope: governance.policyEnvelope,
