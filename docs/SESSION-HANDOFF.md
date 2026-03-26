@@ -3444,4 +3444,19 @@ Full interactive LIVE test of 8 areas after H2-cleanup + H3 deploy. Found and fi
 
 ### Next recommended step
 
-- Assistant lifecycle flows: audit and fix create / edit / recreate paths with current H3 bootstrap infrastructure.
+- **H3.2 — Assistant lifecycle audit (create / edit / recreate)**. Tracked in `ROADMAP.md` as H3.2a–H3.2d. Scope:
+  - **Create** (H3.2a): trace full pipeline from setup wizard → draft → publish → materialize (7 bootstrap docs) → apply → GCS FUSE workspace write. Verify persona traits, tool activations, memory control, user context, plan model key all propagate end-to-end.
+  - **Edit** (H3.2b): trace draft update → publish new version → re-materialize → re-apply. Verify bootstrap docs regenerate with updated data, OpenClaw workspace files refresh, running session picks up new spec.
+  - **Recreate/Reset** (H3.2c): trace reset flow → workspace cleanup → new bootstrap. Verify GCS FUSE cleared, memory state handling (preserve vs reset), chat history behavior, apply state reset.
+  - **UI completeness** (H3.2d): setup wizard, assistant settings, publish/apply/rollback/reset — all buttons map to real backend, with loading/error states and confirmation for destructive actions.
+  - Key files to start with:
+    - `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+    - `apps/api/src/modules/workspace-management/application/reapply-assistant.service.ts`
+    - `apps/api/src/modules/workspace-management/application/rollback-assistant.service.ts`
+    - `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+    - `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+    - `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+    - `apps/web/app/app/_components/assistant-settings.tsx`
+    - `apps/web/app/app/setup/page.tsx`
+    - `apps/web/app/app/_components/app-shell.tsx`
+    - OpenClaw: `src/gateway/persai-runtime/persai-runtime-workspace.ts`

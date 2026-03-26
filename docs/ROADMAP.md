@@ -136,5 +136,10 @@ Foundation Phase
   - [x] H3b — memory management: OpenClaw memory API (list/add/edit/forget/search), PersAI proxy, Memory Center UI (curated/timeline tabs, teach/forget in-chat), deprecate `AssistantMemoryRegistryItem`
   - [x] H3c — chat history: message loading endpoint with pagination, UI load-on-thread-open
 - [ ] H3.1 — **tech debt**: eliminate full re-materialization on global settings change; introduce `settingsGeneration` lazy-invalidation so OpenClaw pulls fresh provider/model on demand instead of rebuilding all bootstraps (critical at scale ≥1 000 workspaces)
+- [ ] H3.2 — **assistant lifecycle audit**: end-to-end verification and hardening of create / edit / recreate flows
+  - [ ] H3.2a — **create**: first assistant creation → draft → publish → materialize → apply → bootstrap files written to GCS FUSE workspace; verify persona traits, tools, memory control, user context all propagate correctly through the full pipeline
+  - [ ] H3.2b — **edit**: draft update → publish new version → re-materialize → re-apply; verify bootstrap docs (SOUL/USER/IDENTITY/TOOLS/AGENTS) regenerate with updated data, workspace files update on GCS FUSE, OpenClaw session picks up new spec
+  - [ ] H3.2c — **recreate/reset**: reset assistant → clear workspace → new bootstrap; verify GCS FUSE workspace cleaned, memory state handled (preserved or reset per policy), chat history handling, apply state reset
+  - [ ] H3.2d — **UI completeness**: setup wizard, assistant settings, publish/apply/rollback/reset buttons — all actions map to real backend flows, loading/error states, confirmation dialogs for destructive actions
 - [ ] H4 — Telegram runtime readiness alignment against admin-driven runtime profile + managed secret refs
 - [ ] H5 — WhatsApp/MAX follow-up readiness and secret-ref parity before later delivery slices
