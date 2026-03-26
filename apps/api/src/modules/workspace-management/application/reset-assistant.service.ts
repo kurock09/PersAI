@@ -29,36 +29,55 @@ export class ResetAssistantService {
 
     const aid = assistant.id;
 
-    await this.prisma.$transaction(
-      async (tx) => {
-        await tx.assistant.update({
-          where: { id: aid },
-          data: {
-            applyStatus: "not_requested",
-            applyTargetVersionId: null,
-            applyAppliedVersionId: null,
-            applyRequestedAt: null,
-            applyStartedAt: null,
-            applyFinishedAt: null,
-            applyErrorCode: null,
-            applyErrorMessage: null,
-            draftDisplayName: null,
-            draftInstructions: null,
-            draftTraits: Prisma.DbNull,
-            draftAvatarEmoji: null,
-            draftAvatarUrl: null,
-            draftUpdatedAt: new Date()
-          }
-        });
+    this.logger.log(`Starting reset transaction for assistant ${aid}`);
 
-        await tx.assistantChatMessage.deleteMany({ where: { assistantId: aid } });
-        await tx.assistantChat.deleteMany({ where: { assistantId: aid } });
-        await tx.assistantMemoryRegistryItem.deleteMany({ where: { assistantId: aid } });
-        await tx.assistantMaterializedSpec.deleteMany({ where: { assistantId: aid } });
-        await tx.assistantPublishedVersion.deleteMany({ where: { assistantId: aid } });
-      },
-      { timeout: 30_000 }
-    );
+    try {
+      await this.prisma.$transaction(
+        async (tx) => {
+          this.logger.log("Step 1: clearing assistant fields");
+          await tx.assistant.update({
+            where: { id: aid },
+            data: {
+              applyStatus: "not_requested",
+              applyTargetVersionId: null,
+              applyAppliedVersionId: null,
+              applyRequestedAt: null,
+              applyStartedAt: null,
+              applyFinishedAt: null,
+              applyErrorCode: null,
+              applyErrorMessage: null,
+              draftDisplayName: null,
+              draftInstructions: null,
+              draftTraits: Prisma.DbNull,
+              draftAvatarEmoji: null,
+              draftAvatarUrl: null,
+              draftUpdatedAt: new Date()
+            }
+          });
+
+          this.logger.log("Step 2: deleting chat messages");
+          await tx.assistantChatMessage.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 3: deleting chats");
+          await tx.assistantChat.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 4: deleting memory items");
+          await tx.assistantMemoryRegistryItem.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 5: deleting materialized specs");
+          await tx.assistantMaterializedSpec.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 6: deleting published versions");
+          await tx.assistantPublishedVersion.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Transaction complete");
+        },
+        { timeout: 30_000 }
+      );
+    } catch (err) {
+      this.logger.error("Reset transaction failed", err instanceof Error ? err.stack : err);
+      throw err;
+    }
 
     try {
       await this.runtimeAdapter.cleanupWorkspace(aid);
