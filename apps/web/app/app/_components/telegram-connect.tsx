@@ -9,11 +9,14 @@ import {
   AlertCircle,
   ChevronDown,
   ExternalLink,
-  Users
+  Users,
+  Unplug,
+  RefreshCw
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import {
   postAssistantTelegramConnect,
+  postAssistantTelegramDisconnect,
   patchAssistantTelegramConfig,
   fetchAssistantTelegramGroups,
   type TelegramIntegrationState,
@@ -36,6 +39,7 @@ export function TelegramConnect({
 }: TelegramConnectProps) {
   const connected = integration?.connectionStatus === "connected";
   const allowed = integration?.capabilityAllowed ?? capabilityAllowed;
+  const [reconnecting, setReconnecting] = useState(false);
 
   if (!allowed) {
     return (
@@ -52,14 +56,37 @@ export function TelegramConnect({
     );
   }
 
-  if (!connected) {
-    return <ConnectForm onUpdated={onUpdated} />;
+  if (!connected || reconnecting) {
+    return (
+      <ConnectForm
+        onUpdated={() => {
+          setReconnecting(false);
+          onUpdated();
+        }}
+        onCancel={reconnecting ? () => setReconnecting(false) : undefined}
+        isReconnect={reconnecting}
+      />
+    );
   }
 
-  return <ConnectedView integration={integration!} onUpdated={onUpdated} />;
+  return (
+    <ConnectedView
+      integration={integration!}
+      onUpdated={onUpdated}
+      onReconnect={() => setReconnecting(true)}
+    />
+  );
 }
 
-function ConnectForm({ onUpdated }: { onUpdated: () => void }) {
+function ConnectForm({
+  onUpdated,
+  onCancel,
+  isReconnect
+}: {
+  onUpdated: () => void;
+  onCancel?: () => void;
+  isReconnect?: boolean;
+}) {
   const { getToken } = useAuth();
   const [botToken, setBotToken] = useState("");
   const [busy, setBusy] = useState(false);
@@ -89,6 +116,24 @@ function ConnectForm({ onUpdated }: { onUpdated: () => void }) {
 
   return (
     <div className="px-5 py-6 space-y-6">
+      {isReconnect && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-accent" />
+            <span className="text-sm font-semibold text-text">Reconnect bot</span>
+          </div>
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="cursor-pointer text-xs text-text-muted hover:text-text transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Steps guide */}
       <div className="space-y-3">
         <Step
@@ -198,10 +243,12 @@ function ConnectForm({ onUpdated }: { onUpdated: () => void }) {
 
 function ConnectedView({
   integration,
-  onUpdated
+  onUpdated,
+  onReconnect
 }: {
   integration: TelegramIntegrationState;
   onUpdated: () => void;
+  onReconnect: () => void;
 }) {
   const { getToken } = useAuth();
   const bot = integration.bot;
@@ -220,6 +267,8 @@ function ConnectedView({
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [groups, setGroups] = useState<TelegramGroupInfo[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(true);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,6 +312,27 @@ function ConnectedView({
       setSaving(false);
     }
   }, [getToken, parseMode, inbound, outbound, groupReplyMode, notes, onUpdated]);
+
+  const handleDisconnect = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+
+    setDisconnecting(true);
+    setFeedback(null);
+    try {
+      await postAssistantTelegramDisconnect(token, { reason: "User disconnected from UI" });
+      setConfirmDisconnect(false);
+      onUpdated();
+    } catch {
+      setFeedback({
+        type: "err",
+        text: "Could not disconnect. Use \"Reconnect\" to update the token instead."
+      });
+      setConfirmDisconnect(false);
+    } finally {
+      setDisconnecting(false);
+    }
+  }, [getToken, onUpdated]);
 
   return (
     <div className="space-y-5 px-5 py-5">
@@ -494,6 +564,67 @@ function ConnectedView({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Disconnect / Reconnect */}
+      <div className="space-y-2 pt-1">
+        <button
+          type="button"
+          onClick={onReconnect}
+          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-xs font-medium text-text transition-colors hover:bg-surface-hover"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Reconnect with new token
+        </button>
+
+        {!confirmDisconnect ? (
+          <button
+            type="button"
+            onClick={() => setConfirmDisconnect(true)}
+            className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-medium text-destructive/70 transition-colors hover:bg-destructive/5 hover:text-destructive"
+          >
+            <Unplug className="h-3.5 w-3.5" />
+            Disconnect bot
+          </button>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmDisconnect(false)}
+              disabled={disconnecting}
+              className="flex flex-1 cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDisconnect()}
+              disabled={disconnecting}
+              className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2.5 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-60"
+            >
+              {disconnecting && <Loader2 className="h-3 w-3 animate-spin" />}
+              Confirm disconnect
+            </button>
+          </div>
+        )}
+      </div>
+
+      {feedback && (
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-lg px-3 py-2 text-xs",
+            feedback.type === "ok"
+              ? "bg-success/10 text-success"
+              : "bg-destructive/10 text-destructive"
+          )}
+        >
+          {feedback.type === "ok" ? (
+            <CheckCircle2 className="h-3 w-3 shrink-0" />
+          ) : (
+            <AlertCircle className="h-3 w-3 shrink-0" />
+          )}
+          {feedback.text}
         </div>
       )}
     </div>

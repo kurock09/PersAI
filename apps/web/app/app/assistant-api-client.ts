@@ -61,6 +61,7 @@ import {
   patchAdminNotificationWebhookChannel as patchAdminNotificationWebhookChannelContract,
   postAdminAbuseControlsUnblock as postAdminAbuseControlsUnblockContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract,
+  postAssistantTelegramRevoke as postAssistantTelegramRevokeContract,
   postAdminPlatformRollout as postAdminPlatformRolloutContract,
   postAdminPlatformRolloutRollback as postAdminPlatformRolloutRollbackContract,
   putAdminRuntimeProviderSettings as putAdminRuntimeProviderSettingsContract
@@ -1256,6 +1257,23 @@ export async function patchAssistantTelegramConfig(
       throw new Error(
         "Unexpected non-success response for PATCH /assistant/integrations/telegram/config."
       );
+    }
+    return response.data.integration;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantTelegramDisconnect(
+  token: string,
+  payload?: { reason?: string | null }
+): Promise<TelegramIntegrationState> {
+  try {
+    const response = await postAssistantTelegramRevokeContract(payload ?? {}, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Failed to disconnect Telegram bot.");
     }
     return response.data.integration;
   } catch (error) {

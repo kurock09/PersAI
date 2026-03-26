@@ -55,6 +55,7 @@ const assistantApiMocks = vi.hoisted(() => {
     postAssistantTaskItemCancel: vi.fn(),
     streamAssistantWebChatTurn: vi.fn(),
     postAssistantTelegramConnect: vi.fn(),
+    postAssistantTelegramDisconnect: vi.fn(),
     patchAssistantTelegramConfig: vi.fn()
   };
 });
@@ -120,6 +121,7 @@ vi.mock("./assistant-api-client", async () => {
     postAssistantTaskItemCancel: assistantApiMocks.postAssistantTaskItemCancel,
     streamAssistantWebChatTurn: assistantApiMocks.streamAssistantWebChatTurn,
     postAssistantTelegramConnect: assistantApiMocks.postAssistantTelegramConnect,
+    postAssistantTelegramDisconnect: assistantApiMocks.postAssistantTelegramDisconnect,
     patchAssistantTelegramConfig: assistantApiMocks.patchAssistantTelegramConfig
   };
 });
@@ -593,6 +595,7 @@ describe("AppFlowClient onboarding gate", () => {
     assistantApiMocks.postAssistantTaskItemEnable.mockReset();
     assistantApiMocks.postAssistantTaskItemCancel.mockReset();
     assistantApiMocks.postAssistantTelegramConnect.mockReset();
+    assistantApiMocks.postAssistantTelegramDisconnect.mockReset();
     assistantApiMocks.patchAssistantTelegramConfig.mockReset();
     assistantApiMocks.getAssistantWebChats.mockResolvedValue([]);
     assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
