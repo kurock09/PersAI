@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
@@ -24,6 +25,7 @@ export class ForceReapplyAllService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly publishedVersionRepository: AssistantPublishedVersionRepository
   ) {}
@@ -34,6 +36,8 @@ export class ForceReapplyAllService {
       "admin.force_reapply_all",
       stepUpToken
     );
+
+    const newGeneration = await this.bumpConfigGenerationService.execute();
 
     const assistants = await this.prisma.assistant.findMany({
       orderBy: { createdAt: "asc" },
@@ -84,7 +88,7 @@ export class ForceReapplyAllService {
       eventCategory: "admin_action",
       eventCode: "admin.force_reapply_all",
       summary: "Admin triggered force reapply for all assistants.",
-      details: summary
+      details: { ...summary, configGeneration: newGeneration }
     });
 
     return summary;

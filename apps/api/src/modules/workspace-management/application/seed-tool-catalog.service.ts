@@ -15,6 +15,7 @@ export class SeedToolCatalogService implements OnModuleInit {
     try {
       await this.syncToolCatalog();
       await this.ensureDefaultPlan();
+      await this.backfillNullPlanGovernances();
       await this.syncBootstrapPresets();
     } catch (err) {
       this.logger.warn(
@@ -130,6 +131,24 @@ export class SeedToolCatalogService implements OnModuleInit {
         update: { activationStatus, dailyCallLimit },
         create: { planId, toolId: tool.id, activationStatus, dailyCallLimit }
       });
+    }
+  }
+
+  private async backfillNullPlanGovernances(): Promise<void> {
+    const plan = await this.prisma.planCatalogPlan.findFirst({
+      where: { isDefaultFirstRegistrationPlan: true, status: "active" },
+      select: { code: true }
+    });
+    if (!plan) return;
+
+    const result = await this.prisma.assistantGovernance.updateMany({
+      where: { quotaPlanCode: null },
+      data: { quotaPlanCode: plan.code }
+    });
+    if (result.count > 0) {
+      this.logger.log(
+        `Backfilled ${result.count} assistant governance(s) with default plan "${plan.code}"`
+      );
     }
   }
 
