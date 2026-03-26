@@ -18,7 +18,10 @@ export function toAssistantPublishedVersionState(
     publishedAt: publishedVersion.createdAt.toISOString(),
     snapshot: {
       displayName: publishedVersion.snapshotDisplayName,
-      instructions: publishedVersion.snapshotInstructions
+      instructions: publishedVersion.snapshotInstructions,
+      traits: publishedVersion.snapshotTraits,
+      avatarEmoji: publishedVersion.snapshotAvatarEmoji,
+      avatarUrl: publishedVersion.snapshotAvatarUrl
     }
   };
 }
@@ -48,6 +51,9 @@ export function toAssistantLifecycleState(
     draft: {
       displayName: assistant.draftDisplayName,
       instructions: assistant.draftInstructions,
+      traits: assistant.draftTraits,
+      avatarEmoji: assistant.draftAvatarEmoji,
+      avatarUrl: assistant.draftAvatarUrl,
       updatedAt: assistant.draftUpdatedAt?.toISOString() ?? null
     },
     latestPublishedVersion:

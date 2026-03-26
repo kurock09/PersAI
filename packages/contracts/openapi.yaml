@@ -1986,6 +1986,17 @@ components:
           type: string
         timezone:
           type: string
+        birthday:
+          type: string
+          format: date
+          nullable: true
+        gender:
+          type: string
+          enum:
+            - male
+            - female
+            - other
+          nullable: true
         acceptTermsOfService:
           type: boolean
           enum: [true]
@@ -2044,6 +2055,13 @@ components:
         email:
           type: string
         displayName:
+          type: string
+          nullable: true
+        birthday:
+          type: string
+          format: date
+          nullable: true
+        gender:
           type: string
           nullable: true
     OnboardingState:
@@ -2166,6 +2184,17 @@ components:
         instructions:
           type: string
           nullable: true
+        traits:
+          type: object
+          additionalProperties:
+            type: number
+          nullable: true
+        avatarEmoji:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
         updatedAt:
           type: string
           format: date-time
@@ -2180,6 +2209,17 @@ components:
           type: string
           nullable: true
         instructions:
+          type: string
+          nullable: true
+        traits:
+          type: object
+          additionalProperties:
+            type: number
+          nullable: true
+        avatarEmoji:
+          type: string
+          nullable: true
+        avatarUrl:
           type: string
           nullable: true
     AssistantPublishedVersionState:
@@ -3042,6 +3082,17 @@ components:
         instructions:
           type: string
           nullable: true
+        traits:
+          type: object
+          additionalProperties:
+            type: number
+          nullable: true
+        avatarEmoji:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
     AssistantRollbackRequest:
       type: object
       required:
@@ -3404,6 +3455,47 @@ components:
         updatedAt:
           type: string
           format: date-time
+        toolActivations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminPlanToolActivation"
+    AdminPlanToolActivation:
+      type: object
+      required:
+        - toolCode
+        - displayName
+        - toolClass
+        - active
+        - dailyCallLimit
+      properties:
+        toolCode:
+          type: string
+        displayName:
+          type: string
+        toolClass:
+          type: string
+          enum:
+            - cost_driving
+            - utility
+        active:
+          type: boolean
+        dailyCallLimit:
+          type: integer
+          nullable: true
+    AdminPlanToolActivationInput:
+      type: object
+      required:
+        - toolCode
+        - active
+        - dailyCallLimit
+      properties:
+        toolCode:
+          type: string
+        active:
+          type: boolean
+        dailyCallLimit:
+          type: integer
+          nullable: true
     AdminPlanInputBase:
       type: object
       required:
@@ -3437,6 +3529,10 @@ components:
           $ref: "#/components/schemas/AdminPlanMetadata"
         entitlements:
           $ref: "#/components/schemas/AdminPlanEntitlements"
+        toolActivations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminPlanToolActivationInput"
     AdminPlanCreateRequest:
       allOf:
         - $ref: "#/components/schemas/AdminPlanInputBase"

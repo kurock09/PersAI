@@ -610,3 +610,29 @@ Postgres with Prisma.
 - onboarding write ensures caller has a `workspace_members` row
 - when caller has no membership, creates one workspace (`status=active`) and one owner membership
 - onboarding write updates current workspace profile fields (`name`, `locale`, `timezone`) idempotently
+
+## H3: Runtime hydration depth — schema additions
+
+### app_users
+
+- `birthday` (Date, nullable)
+- `gender` (String, nullable)
+
+### assistants
+
+- `draft_traits` (JSONB, nullable) — structured trait sliders / persona metadata
+- `draft_avatar_emoji` (nullable string)
+- `draft_avatar_url` (nullable string)
+
+### assistant_published_versions
+
+- `snapshot_traits` (JSONB, nullable)
+- `snapshot_avatar_emoji` (nullable string)
+- `snapshot_avatar_url` (nullable string)
+
+### Contracts (packages/contracts)
+
+- `AssistantDraftState` / `AssistantDraftUpdateRequest`: `traits`, `avatarEmoji`, `avatarUrl`
+- `AssistantPublishedVersionSnapshotState`: `traits`, `avatarEmoji`, `avatarUrl`
+- `OnboardingRequest`: `birthday`, `gender`
+- `AppUserSummary`: `birthday`, `gender`

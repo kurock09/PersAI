@@ -11,4 +11,8 @@ export interface AppUserSummary {
   email: string;
   /** @nullable */
   displayName?: string | null;
+  /** @nullable */
+  birthday?: string | null;
+  /** @nullable */
+  gender?: string | null;
 }

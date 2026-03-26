@@ -4,10 +4,17 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AssistantPublishedVersionSnapshotStateTraits } from './assistantPublishedVersionSnapshotStateTraits';
 
 export interface AssistantPublishedVersionSnapshotState {
   /** @nullable */
   displayName: string | null;
   /** @nullable */
   instructions: string | null;
+  /** @nullable */
+  traits?: AssistantPublishedVersionSnapshotStateTraits;
+  /** @nullable */
+  avatarEmoji?: string | null;
+  /** @nullable */
+  avatarUrl?: string | null;
 }

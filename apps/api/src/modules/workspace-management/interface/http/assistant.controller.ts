@@ -3,10 +3,12 @@ import {
   Controller,
   Delete,
   Get,
+  Inject,
   NotFoundException,
   Param,
   Patch,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException
@@ -42,9 +44,11 @@ import { EnableAssistantTaskRegistryItemService } from "../../application/enable
 import { CancelAssistantTaskRegistryItemService } from "../../application/cancel-assistant-task-registry-item.service";
 import type {
   AssistantWebChatListItemState,
+  AssistantWebChatMessageState,
   AssistantWebChatTurnState
 } from "../../application/web-chat.types";
 import type { TelegramIntegrationState } from "../../application/telegram-integration.types";
+import { OpenClawRuntimeAdapter } from "../../infrastructure/openclaw/openclaw-runtime.adapter";
 
 @Controller("api/v1")
 export class AssistantController {
@@ -71,7 +75,8 @@ export class AssistantController {
     private readonly listAssistantTaskItemsService: ListAssistantTaskItemsService,
     private readonly disableAssistantTaskRegistryItemService: DisableAssistantTaskRegistryItemService,
     private readonly enableAssistantTaskRegistryItemService: EnableAssistantTaskRegistryItemService,
-    private readonly cancelAssistantTaskRegistryItemService: CancelAssistantTaskRegistryItemService
+    private readonly cancelAssistantTaskRegistryItemService: CancelAssistantTaskRegistryItemService,
+    private readonly openClawRuntimeAdapter: OpenClawRuntimeAdapter
   ) {}
 
   @Post("assistant")
@@ -469,6 +474,58 @@ export class AssistantController {
     };
   }
 
+  @Get("assistant/memory/workspace/items")
+  async listWorkspaceMemoryItems(@Req() req: RequestWithPlatformContext): Promise<unknown> {
+    const userId = this.resolveRequestUserId(req);
+    const assistant = await this.getAssistantByUserIdService.execute(userId);
+    if (!assistant) throw new NotFoundException("Assistant not found.");
+    return this.openClawRuntimeAdapter.listMemoryItems(assistant.id);
+  }
+
+  @Post("assistant/memory/workspace/add")
+  async addWorkspaceMemoryItem(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: { content: string }
+  ): Promise<unknown> {
+    const userId = this.resolveRequestUserId(req);
+    const assistant = await this.getAssistantByUserIdService.execute(userId);
+    if (!assistant) throw new NotFoundException("Assistant not found.");
+    return this.openClawRuntimeAdapter.addMemoryItem(assistant.id, body.content);
+  }
+
+  @Patch("assistant/memory/workspace/edit")
+  async editWorkspaceMemoryItem(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: { itemId: string; content: string }
+  ): Promise<unknown> {
+    const userId = this.resolveRequestUserId(req);
+    const assistant = await this.getAssistantByUserIdService.execute(userId);
+    if (!assistant) throw new NotFoundException("Assistant not found.");
+    return this.openClawRuntimeAdapter.editMemoryItem(assistant.id, body.itemId, body.content);
+  }
+
+  @Post("assistant/memory/workspace/forget")
+  async forgetWorkspaceMemoryItem(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: { itemId: string }
+  ): Promise<unknown> {
+    const userId = this.resolveRequestUserId(req);
+    const assistant = await this.getAssistantByUserIdService.execute(userId);
+    if (!assistant) throw new NotFoundException("Assistant not found.");
+    return this.openClawRuntimeAdapter.forgetMemoryItem(assistant.id, body.itemId);
+  }
+
+  @Get("assistant/memory/workspace/search")
+  async searchWorkspaceMemory(
+    @Req() req: RequestWithPlatformContext,
+    @Query("q") query: string
+  ): Promise<unknown> {
+    const userId = this.resolveRequestUserId(req);
+    const assistant = await this.getAssistantByUserIdService.execute(userId);
+    if (!assistant) throw new NotFoundException("Assistant not found.");
+    return this.openClawRuntimeAdapter.searchMemory(assistant.id, query);
+  }
+
   @Get("assistant/chats/web")
   async listWebChats(@Req() req: RequestWithPlatformContext): Promise<{
     requestId: string | null;
@@ -480,6 +537,31 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       chats
+    };
+  }
+
+  @Get("assistant/chats/web/:chatId/messages")
+  async listWebChatMessages(
+    @Req() req: RequestWithPlatformContext,
+    @Param("chatId") chatId: string,
+    @Query("cursor") cursor?: string,
+    @Query("limit") limitParam?: string
+  ): Promise<{
+    requestId: string | null;
+    messages: AssistantWebChatMessageState[];
+    nextCursor: string | null;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const limit = Math.min(Math.max(parseInt(limitParam ?? "50", 10) || 50, 1), 100);
+    const result = await this.manageWebChatListService.listChatMessages(userId, chatId, {
+      cursor: cursor ?? null,
+      limit
+    });
+
+    return {
+      requestId: req.requestId ?? null,
+      messages: result.messages,
+      nextCursor: result.nextCursor
     };
   }
 

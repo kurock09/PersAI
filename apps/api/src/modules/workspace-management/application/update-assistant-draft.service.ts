@@ -23,6 +23,9 @@ import { AppendAssistantAuditEventService } from "./append-assistant-audit-event
 export interface UpdateAssistantDraftRequest {
   displayName?: string | null;
   instructions?: string | null;
+  traits?: Record<string, number> | null;
+  avatarEmoji?: string | null;
+  avatarUrl?: string | null;
 }
 
 function normalizeOptionalDraftField(value: unknown, fieldName: string): string | null | undefined {
@@ -63,14 +66,26 @@ export class UpdateAssistantDraftService {
     const body = payload as Record<string, unknown>;
     const displayName = normalizeOptionalDraftField(body.displayName, "displayName");
     const instructions = normalizeOptionalDraftField(body.instructions, "instructions");
+    const avatarEmoji = normalizeOptionalDraftField(body.avatarEmoji, "avatarEmoji");
+    const avatarUrl = normalizeOptionalDraftField(body.avatarUrl, "avatarUrl");
+    const traits = this.parseOptionalTraits(body.traits);
 
-    if (displayName === undefined && instructions === undefined) {
+    if (
+      displayName === undefined &&
+      instructions === undefined &&
+      traits === undefined &&
+      avatarEmoji === undefined &&
+      avatarUrl === undefined
+    ) {
       throw new BadRequestException("At least one draft field must be provided.");
     }
 
     return {
       ...(displayName !== undefined ? { displayName } : {}),
-      ...(instructions !== undefined ? { instructions } : {})
+      ...(instructions !== undefined ? { instructions } : {}),
+      ...(traits !== undefined ? { traits } : {}),
+      ...(avatarEmoji !== undefined ? { avatarEmoji } : {}),
+      ...(avatarUrl !== undefined ? { avatarUrl } : {})
     };
   }
 
@@ -91,7 +106,10 @@ export class UpdateAssistantDraftService {
       draftInstructions:
         request.instructions === undefined
           ? existingAssistant.draftInstructions
-          : request.instructions
+          : request.instructions,
+      ...(request.traits !== undefined ? { draftTraits: request.traits } : {}),
+      ...(request.avatarEmoji !== undefined ? { draftAvatarEmoji: request.avatarEmoji } : {}),
+      ...(request.avatarUrl !== undefined ? { draftAvatarUrl: request.avatarUrl } : {})
     };
 
     const updatedAssistant = await this.assistantRepository.updateDraft(userId, nextDraft);
@@ -128,5 +146,22 @@ export class UpdateAssistantDraftService {
       governance,
       materialization
     );
+  }
+
+  private parseOptionalTraits(value: unknown): Record<string, number> | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new BadRequestException("traits must be an object mapping trait names to numbers.");
+    }
+    const traits = value as Record<string, unknown>;
+    const result: Record<string, number> = {};
+    for (const [key, val] of Object.entries(traits)) {
+      if (typeof val !== "number" || val < 0 || val > 100) {
+        throw new BadRequestException(`traits.${key} must be a number between 0 and 100.`);
+      }
+      result[key] = val;
+    }
+    return result;
   }
 }

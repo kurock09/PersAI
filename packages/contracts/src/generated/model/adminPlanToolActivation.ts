@@ -4,6 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminPlanToolActivationToolClass } from './adminPlanToolActivationToolClass';
 
 export interface AdminPlanToolActivation {
   toolCode: string;
@@ -13,5 +14,3 @@ export interface AdminPlanToolActivation {
   /** @nullable */
   dailyCallLimit: number | null;
 }
-
-export type AdminPlanToolActivationToolClass = "cost_driving" | "utility";

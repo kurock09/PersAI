@@ -44,7 +44,10 @@ export class PublishAssistantDraftService {
       assistantId: assistant.id,
       publishedByUserId: userId,
       snapshotDisplayName: assistant.draftDisplayName,
-      snapshotInstructions: assistant.draftInstructions
+      snapshotInstructions: assistant.draftInstructions,
+      snapshotTraits: assistant.draftTraits,
+      snapshotAvatarEmoji: assistant.draftAvatarEmoji,
+      snapshotAvatarUrl: assistant.draftAvatarUrl
     });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,

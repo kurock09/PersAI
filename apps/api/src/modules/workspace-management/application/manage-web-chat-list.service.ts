@@ -5,7 +5,7 @@ import {
 } from "../domain/assistant-chat.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
-import type { AssistantWebChatListItemState } from "./web-chat.types";
+import type { AssistantWebChatListItemState, AssistantWebChatMessageState } from "./web-chat.types";
 
 export interface RenameWebChatRequest {
   title: string | null;
@@ -172,6 +172,46 @@ export class ManageWebChatListService {
       messageCount: metadata.messageCount,
       lastMessagePreview: metadata.lastMessagePreview
     };
+  }
+
+  async listChatMessages(
+    userId: string,
+    chatId: string,
+    pagination: { cursor: string | null; limit: number }
+  ): Promise<{ messages: AssistantWebChatMessageState[]; nextCursor: string | null }> {
+    const assistant = await this.assistantRepository.findByUserId(userId);
+    if (assistant === null) {
+      throw new NotFoundException("Assistant does not exist for this user.");
+    }
+
+    const chat = await this.assistantChatRepository.findChatById(chatId);
+    if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
+      throw new NotFoundException("Web chat does not exist for this assistant.");
+    }
+
+    const allMessages = await this.assistantChatRepository.listMessagesByChatId(chatId);
+    const mapped: AssistantWebChatMessageState[] = allMessages.map((m) => ({
+      id: m.id,
+      chatId: m.chatId,
+      assistantId: m.assistantId,
+      author: m.author,
+      content: m.content,
+      createdAt: m.createdAt.toISOString()
+    }));
+
+    let startIndex = 0;
+    if (pagination.cursor) {
+      const cursorIndex = mapped.findIndex((m) => m.id === pagination.cursor);
+      if (cursorIndex >= 0) {
+        startIndex = cursorIndex + 1;
+      }
+    }
+
+    const page = mapped.slice(startIndex, startIndex + pagination.limit);
+    const hasMore = startIndex + pagination.limit < mapped.length;
+    const nextCursor = hasMore && page.length > 0 ? page[page.length - 1]!.id : null;
+
+    return { messages: page, nextCursor };
   }
 
   async hardDeleteChat(

@@ -304,3 +304,23 @@ New backend fields needed (follow-up):
 - `assistant.draft_traits` or structured JSON for character trait sliders
 - Regenerate endpoint (retry last assistant turn)
 - Like/dislike feedback endpoint
+
+## H3: Runtime hydration depth — UI
+
+### Setup wizard (`/app/setup`)
+
+- Sends `traits`, `avatarEmoji`, `avatarUrl`, `birthday`, `gender` with onboarding / assistant create payload (aligned with contracts).
+
+### Assistant settings — character
+
+- Trait sliders bound to draft `traits` JSON.
+- Avatar: emoji + URL display/edit consistent with draft fields.
+
+### Memory Center (settings)
+
+- Tabbed view: **Workspace** (file-backed runtime memory via proxy: list, search, add, forget) vs **History** (control-plane registry summaries / existing D2 flows as implemented).
+- Search bar, add input, forget affordances on workspace tab as wired to proxy endpoints.
+
+### Web chat
+
+- `useChat` exposes `loadHistory(chatId)`; **navigating to an existing thread** triggers automatic history load (`GET /assistant/chats/web/:chatId/messages` with cursor pagination).

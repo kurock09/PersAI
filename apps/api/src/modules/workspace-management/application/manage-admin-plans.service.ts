@@ -118,7 +118,16 @@ export class ManageAdminPlansService {
 
   async listPlans(userId: string): Promise<AdminPlanState[]> {
     await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
-    const plans = await this.planCatalogRepository.listAll();
+    let plans = await this.planCatalogRepository.listAll();
+
+    const plansWithoutActivations = plans.filter((p) => p.toolActivations.length === 0);
+    if (plansWithoutActivations.length > 0) {
+      await this.planCatalogRepository.backfillToolActivationsForPlans(
+        plansWithoutActivations.map((p) => p.id)
+      );
+      plans = await this.planCatalogRepository.listAll();
+    }
+
     return plans.map((plan) => this.toAdminPlanState(plan));
   }
 

@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminOpsCockpitStateAssistant } from "./adminOpsCockpitStateAssistant";
-import type { AdminOpsCockpitStateRuntime } from "./adminOpsCockpitStateRuntime";
-import type { AdminOpsCockpitStateControls } from "./adminOpsCockpitStateControls";
-import type { AdminOpsIncidentSignal } from "./adminOpsIncidentSignal";
+import type { AdminOpsCockpitStateAssistant } from './adminOpsCockpitStateAssistant';
+import type { AdminOpsCockpitStateRuntime } from './adminOpsCockpitStateRuntime';
+import type { AdminOpsCockpitStateControls } from './adminOpsCockpitStateControls';
+import type { AdminOpsIncidentSignal } from './adminOpsIncidentSignal';
 
 export interface AdminOpsCockpitState {
   assistant: AdminOpsCockpitStateAssistant;

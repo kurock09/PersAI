@@ -234,6 +234,53 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
     };
   }
 
+  async backfillToolActivationsForPlans(planIds: string[]): Promise<void> {
+    if (planIds.length === 0) return;
+    const plans = await this.prisma.planCatalogPlan.findMany({
+      where: { id: { in: planIds } },
+      include: { entitlement: true }
+    });
+
+    for (const plan of plans) {
+      const entitlement = plan.entitlement;
+      const toolClasses: unknown[] = entitlement
+        ? Array.isArray(entitlement.toolClasses)
+          ? entitlement.toolClasses
+          : []
+        : [];
+      const writeInput: AssistantPlanCatalogWriteInput = {
+        displayName: plan.displayName,
+        description: plan.description,
+        status: plan.status === "active" ? "active" : "inactive",
+        isDefaultFirstRegistrationPlan: plan.isDefaultFirstRegistrationPlan,
+        isTrialPlan: plan.isTrialPlan,
+        trialDurationDays: plan.trialDurationDays,
+        billingProviderHints: plan.billingProviderHints as Record<string, unknown> | null,
+        entitlementModel: {
+          schemaVersion: entitlement?.schemaVersion ?? 1,
+          capabilities: entitlement
+            ? Array.isArray(entitlement.capabilities)
+              ? entitlement.capabilities
+              : []
+            : [],
+          toolClasses,
+          channelsAndSurfaces: entitlement
+            ? Array.isArray(entitlement.channelsAndSurfaces)
+              ? entitlement.channelsAndSurfaces
+              : []
+            : [],
+          limitsPermissions: entitlement
+            ? Array.isArray(entitlement.limitsPermissions)
+              ? entitlement.limitsPermissions
+              : []
+            : []
+        },
+        toolActivationOverrides: []
+      };
+      await this.syncToolActivationsForPlan(this.prisma, plan.id, writeInput);
+    }
+  }
+
   private async syncToolActivationsForPlan(
     tx: Prisma.TransactionClient,
     planId: string,

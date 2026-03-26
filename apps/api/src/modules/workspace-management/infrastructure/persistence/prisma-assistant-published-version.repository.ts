@@ -52,6 +52,15 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
             version: (latestVersion?.version ?? 0) + 1,
             snapshotDisplayName: input.snapshotDisplayName,
             snapshotInstructions: input.snapshotInstructions,
+            ...(input.snapshotTraits != null
+              ? { snapshotTraits: input.snapshotTraits as Prisma.InputJsonValue }
+              : {}),
+            ...(input.snapshotAvatarEmoji != null
+              ? { snapshotAvatarEmoji: input.snapshotAvatarEmoji }
+              : {}),
+            ...(input.snapshotAvatarUrl != null
+              ? { snapshotAvatarUrl: input.snapshotAvatarUrl }
+              : {}),
             publishedByUserId: input.publishedByUserId
           }
         });
@@ -76,6 +85,9 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
       version: publishedVersion.version,
       snapshotDisplayName: publishedVersion.snapshotDisplayName,
       snapshotInstructions: publishedVersion.snapshotInstructions,
+      snapshotTraits: publishedVersion.snapshotTraits as Record<string, number> | null,
+      snapshotAvatarEmoji: publishedVersion.snapshotAvatarEmoji,
+      snapshotAvatarUrl: publishedVersion.snapshotAvatarUrl,
       publishedByUserId: publishedVersion.publishedByUserId,
       createdAt: publishedVersion.createdAt
     };

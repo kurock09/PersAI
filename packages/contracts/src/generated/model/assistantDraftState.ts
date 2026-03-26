@@ -4,12 +4,19 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AssistantDraftStateTraits } from './assistantDraftStateTraits';
 
 export interface AssistantDraftState {
   /** @nullable */
   displayName: string | null;
   /** @nullable */
   instructions: string | null;
+  /** @nullable */
+  traits?: AssistantDraftStateTraits;
+  /** @nullable */
+  avatarEmoji?: string | null;
+  /** @nullable */
+  avatarUrl?: string | null;
   /** @nullable */
   updatedAt: string | null;
 }

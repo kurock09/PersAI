@@ -11,6 +11,8 @@ export interface OnboardingInput {
   workspaceName: string;
   locale: string;
   timezone: string;
+  birthday: string | null;
+  gender: string | null;
   acceptTermsOfService: true;
   acceptPrivacyPolicy: true;
   termsOfServiceVersion: string;
@@ -59,11 +61,16 @@ export class UpsertOnboardingService {
       throw new BadRequestException("acceptPrivacyPolicy must be true.");
     }
 
+    const birthday = this.parseOptionalDate(body.birthday, "birthday");
+    const gender = this.parseOptionalGender(body.gender);
+
     return {
       displayName: normalizeRequiredField(body.displayName, "displayName"),
       workspaceName: normalizeRequiredField(body.workspaceName, "workspaceName"),
       locale: normalizeRequiredField(body.locale, "locale"),
       timezone: normalizeRequiredField(body.timezone, "timezone"),
+      birthday,
+      gender,
       acceptTermsOfService: true,
       acceptPrivacyPolicy: true,
       termsOfServiceVersion: normalizeOptionalVersion(
@@ -112,6 +119,8 @@ export class UpsertOnboardingService {
         where: { id: resolvedAppUser.id },
         data: {
           displayName: input.displayName,
+          ...(input.birthday !== null ? { birthday: new Date(input.birthday) } : {}),
+          ...(input.gender !== null ? { gender: input.gender } : {}),
           termsOfServiceVersion: input.termsOfServiceVersion,
           termsOfServiceAcceptedAt: termsAcceptedAt,
           privacyPolicyVersion: input.privacyPolicyVersion,
@@ -187,5 +196,32 @@ export class UpsertOnboardingService {
       email: refreshedAppUser.email,
       displayName: refreshedAppUser.displayName
     });
+  }
+
+  private parseOptionalDate(value: unknown, fieldName: string): string | null {
+    if (value === undefined || value === null || value === "") return null;
+    if (typeof value !== "string") {
+      throw new BadRequestException(`${fieldName} must be a date string (YYYY-MM-DD) or null.`);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw new BadRequestException(`${fieldName} must be in YYYY-MM-DD format.`);
+    }
+    const date = new Date(value);
+    if (isNaN(date.getTime())) {
+      throw new BadRequestException(`${fieldName} is not a valid date.`);
+    }
+    return value;
+  }
+
+  private parseOptionalGender(value: unknown): string | null {
+    if (value === undefined || value === null || value === "") return null;
+    if (typeof value !== "string") {
+      throw new BadRequestException("gender must be a string or null.");
+    }
+    const trimmed = value.trim();
+    if (trimmed.length > 32) {
+      throw new BadRequestException("gender must be at most 32 characters.");
+    }
+    return trimmed;
   }
 }

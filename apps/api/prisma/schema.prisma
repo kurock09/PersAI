@@ -173,6 +173,8 @@ model AppUser {
   clerkUserId               String?                    @unique @map("clerk_user_id")
   email                     String                     @unique
   displayName               String?                    @map("display_name")
+  birthday                  DateTime?                  @map("birthday") @db.Date
+  gender                    String?                    @map("gender") @db.VarChar(32)
   termsOfServiceAcceptedAt  DateTime?                  @map("terms_of_service_accepted_at") @db.Timestamptz(6)
   termsOfServiceVersion     String?                    @map("terms_of_service_version") @db.VarChar(64)
   privacyPolicyAcceptedAt   DateTime?                  @map("privacy_policy_accepted_at") @db.Timestamptz(6)
@@ -242,6 +244,9 @@ model Assistant {
   workspaceId          String                     @map("workspace_id") @db.Uuid
   draftDisplayName     String?                    @map("draft_display_name")
   draftInstructions    String?                    @map("draft_instructions")
+  draftTraits          Json?                      @map("draft_traits") @db.JsonB
+  draftAvatarEmoji     String?                    @map("draft_avatar_emoji") @db.VarChar(8)
+  draftAvatarUrl       String?                    @map("draft_avatar_url")
   draftUpdatedAt       DateTime?                  @map("draft_updated_at") @db.Timestamptz(6)
   applyStatus          AssistantApplyStatus       @default(not_requested) @map("apply_status")
   applyTargetVersionId String?                    @map("apply_target_version_id") @db.Uuid
@@ -302,9 +307,12 @@ model AssistantPublishedVersion {
   id                  String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   assistantId         String    @map("assistant_id") @db.Uuid
   version             Int
-  snapshotDisplayName String?   @map("snapshot_display_name")
-  snapshotInstructions String?  @map("snapshot_instructions")
-  publishedByUserId   String    @map("published_by_user_id") @db.Uuid
+  snapshotDisplayName  String?   @map("snapshot_display_name")
+  snapshotInstructions String?   @map("snapshot_instructions")
+  snapshotTraits       Json?     @map("snapshot_traits") @db.JsonB
+  snapshotAvatarEmoji  String?   @map("snapshot_avatar_emoji") @db.VarChar(8)
+  snapshotAvatarUrl    String?   @map("snapshot_avatar_url")
+  publishedByUserId    String    @map("published_by_user_id") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   assistant             Assistant   @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   publishedByUser       AppUser     @relation("AssistantVersionPublisher", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)

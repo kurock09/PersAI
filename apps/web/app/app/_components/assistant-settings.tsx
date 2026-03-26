@@ -33,8 +33,21 @@ import {
   postAssistantMemoryItemForget,
   postAssistantTaskItemDisable,
   postAssistantTaskItemEnable,
-  postAssistantTaskItemCancel
+  postAssistantTaskItemCancel,
+  getWorkspaceMemoryItems,
+  addWorkspaceMemoryItem,
+  forgetWorkspaceMemoryItem,
+  searchWorkspaceMemory,
+  type WorkspaceMemoryItem
 } from "../assistant-api-client";
+
+const TRAIT_SLIDERS = [
+  { key: "formality", labelLeft: "Casual", labelRight: "Formal" },
+  { key: "verbosity", labelLeft: "Concise", labelRight: "Detailed" },
+  { key: "playfulness", labelLeft: "Serious", labelRight: "Playful" },
+  { key: "initiative", labelLeft: "Reactive", labelRight: "Proactive" },
+  { key: "warmth", labelLeft: "Neutral", labelRight: "Warm" }
+] as const;
 
 interface AssistantSettingsProps {
   data: AppData;
@@ -126,6 +139,19 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   const [saving, setSaving] = useState(false);
   const [saveFb, setSaveFb] = useState<ActionFeedback>(null);
 
+  const [draftTraits, setDraftTraits] = useState<Record<string, number>>(
+    (assistant?.draft.traits as Record<string, number> | null) ?? {
+      formality: 50,
+      verbosity: 50,
+      playfulness: 50,
+      initiative: 50,
+      warmth: 50
+    }
+  );
+  const [draftAvatarEmoji, setDraftAvatarEmoji] = useState<string | null>(
+    assistant?.draft.avatarEmoji ?? null
+  );
+
   const [publishing, setPublishing] = useState(false);
   const [pubFb, setPubFb] = useState<ActionFeedback>(null);
   const [rollingBack, setRollingBack] = useState(false);
@@ -139,6 +165,14 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [forgettingId, setForgettingId] = useState<string | null>(null);
 
+  const [wsMemoryItems, setWsMemoryItems] = useState<WorkspaceMemoryItem[]>([]);
+  const [wsMemoryLoading, setWsMemoryLoading] = useState(false);
+  const [wsMemorySearch, setWsMemorySearch] = useState("");
+  const [wsMemoryAdding, setWsMemoryAdding] = useState(false);
+  const [wsNewMemory, setWsNewMemory] = useState("");
+  const [wsForgettingId, setWsForgettingId] = useState<string | null>(null);
+  const [memoryTab, setMemoryTab] = useState<"workspace" | "registry">("workspace");
+
   const [taskItems, setTaskItems] = useState<AssistantTaskRegistryItemState[]>([]);
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
@@ -146,6 +180,9 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   useEffect(() => {
     setDraftName(assistant?.draft.displayName ?? "");
     setDraftInstructions(assistant?.draft.instructions ?? "");
+    const t = assistant?.draft.traits as Record<string, number> | null | undefined;
+    if (t) setDraftTraits(t);
+    setDraftAvatarEmoji(assistant?.draft.avatarEmoji ?? null);
   }, [assistant]);
 
   const loadMemory = useCallback(async () => {
@@ -172,12 +209,61 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     setTaskLoading(false);
   }, [getToken]);
 
+  const loadWsMemory = useCallback(
+    async (query?: string) => {
+      const token = await getToken();
+      if (!token) return;
+      setWsMemoryLoading(true);
+      try {
+        const items = query
+          ? await searchWorkspaceMemory(token, query)
+          : await getWorkspaceMemoryItems(token);
+        setWsMemoryItems(items);
+      } catch {
+        /* non-critical */
+      }
+      setWsMemoryLoading(false);
+    },
+    [getToken]
+  );
+
+  const handleAddWsMemory = useCallback(async () => {
+    const token = await getToken();
+    if (!token || !wsNewMemory.trim()) return;
+    setWsMemoryAdding(true);
+    try {
+      const item = await addWorkspaceMemoryItem(token, wsNewMemory.trim());
+      setWsMemoryItems((prev) => [...prev, item]);
+      setWsNewMemory("");
+    } catch {
+      /* non-critical */
+    }
+    setWsMemoryAdding(false);
+  }, [getToken, wsNewMemory]);
+
+  const handleForgetWsMemory = useCallback(
+    async (itemId: string) => {
+      const token = await getToken();
+      if (!token) return;
+      setWsForgettingId(itemId);
+      try {
+        await forgetWorkspaceMemoryItem(token, itemId);
+        setWsMemoryItems((prev) => prev.filter((m) => m.id !== itemId));
+      } catch {
+        /* non-critical */
+      }
+      setWsForgettingId(null);
+    },
+    [getToken]
+  );
+
   useEffect(() => {
     if (assistant) {
       void loadMemory();
       void loadTasks();
+      void loadWsMemory();
     }
-  }, [assistant, loadMemory, loadTasks]);
+  }, [assistant, loadMemory, loadTasks, loadWsMemory]);
 
   const handleSaveDraft = useCallback(async () => {
     const token = await getToken();
@@ -187,7 +273,9 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     try {
       await patchAssistantDraft(token, {
         displayName: draftName || null,
-        instructions: draftInstructions || null
+        instructions: draftInstructions || null,
+        traits: draftTraits,
+        avatarEmoji: draftAvatarEmoji
       });
       setSaveFb({ type: "ok", text: "Draft saved." });
       data.reload();
@@ -195,7 +283,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       setSaveFb({ type: "err", text: e instanceof Error ? e.message : "Save failed." });
     }
     setSaving(false);
-  }, [getToken, draftName, draftInstructions, data]);
+  }, [getToken, draftName, draftInstructions, draftTraits, draftAvatarEmoji, data]);
 
   const handlePublish = useCallback(async () => {
     const token = await getToken();
@@ -295,8 +383,8 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       {/* 1. Character — hero */}
       <Section icon={<Sparkles className="h-4 w-4" />} title="Character">
         <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-accent/15 text-accent">
-            <Sparkles className="h-7 w-7" />
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-accent/15 text-3xl">
+            {draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />}
           </div>
           <div className="min-w-0 flex-1">
             <input
@@ -322,13 +410,35 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         </button>
 
         {editingPersonality && (
-          <textarea
-            value={draftInstructions}
-            onChange={(e) => setDraftInstructions(e.target.value)}
-            placeholder="Describe your assistant's personality and instructions..."
-            rows={5}
-            className="mt-2 w-full resize-y rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-          />
+          <>
+            <div className="mt-3 space-y-3">
+              {TRAIT_SLIDERS.map(({ key, labelLeft, labelRight }) => (
+                <div key={key}>
+                  <div className="flex justify-between text-[11px] text-text-muted mb-1">
+                    <span>{labelLeft}</span>
+                    <span>{labelRight}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={draftTraits[key] ?? 50}
+                    onChange={(e) =>
+                      setDraftTraits((prev) => ({ ...prev, [key]: Number(e.target.value) }))
+                    }
+                    className="w-full accent-accent"
+                  />
+                </div>
+              ))}
+            </div>
+            <textarea
+              value={draftInstructions}
+              onChange={(e) => setDraftInstructions(e.target.value)}
+              placeholder="Custom instructions (optional)..."
+              rows={4}
+              className="mt-3 w-full resize-y rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+            />
+          </>
         )}
 
         <div className="mt-3 flex items-center gap-2">
@@ -415,35 +525,139 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
 
       {/* 3. Memory */}
       <Section icon={<Brain className="h-4 w-4" />} title="Memory" defaultOpen={false}>
-        {memoryLoading ? (
-          <div className="flex justify-center py-4">
-            <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
-          </div>
-        ) : memoryItems.length === 0 ? (
-          <p className="text-xs text-text-subtle">No memories stored yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {memoryItems.map((item) => (
-              <li key={item.id} className="flex items-start gap-2 rounded-lg bg-surface-raised p-3">
-                <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-muted">
-                  {item.summary}
-                </p>
-                <button
-                  type="button"
-                  disabled={forgettingId === item.id}
-                  onClick={() => void handleForget(item.id)}
-                  className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                  title="Forget"
-                >
-                  {forgettingId === item.id ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-3 w-3" />
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
+        <div className="mb-3 flex gap-1 rounded-lg bg-surface p-0.5">
+          {(["workspace", "registry"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setMemoryTab(tab)}
+              className={cn(
+                "flex-1 cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                memoryTab === tab
+                  ? "bg-surface-raised text-text shadow-sm"
+                  : "text-text-muted hover:text-text"
+              )}
+            >
+              {tab === "workspace" ? "Workspace" : "History"}
+            </button>
+          ))}
+        </div>
+
+        {memoryTab === "workspace" && (
+          <>
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={wsMemorySearch}
+                onChange={(e) => setWsMemorySearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void loadWsMemory(wsMemorySearch || undefined);
+                }}
+                placeholder="Search memories..."
+                className="min-w-0 flex-1 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-xs text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+              />
+              <button
+                type="button"
+                onClick={() => void loadWsMemory(wsMemorySearch || undefined)}
+                className="shrink-0 cursor-pointer rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
+              >
+                Search
+              </button>
+            </div>
+
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={wsNewMemory}
+                onChange={(e) => setWsNewMemory(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleAddWsMemory();
+                }}
+                placeholder="Teach something new..."
+                className="min-w-0 flex-1 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-xs text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+              />
+              <button
+                type="button"
+                disabled={wsMemoryAdding || !wsNewMemory.trim()}
+                onClick={() => void handleAddWsMemory()}
+                className="shrink-0 cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50 transition-colors"
+              >
+                {wsMemoryAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add"}
+              </button>
+            </div>
+
+            {wsMemoryLoading ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+              </div>
+            ) : wsMemoryItems.length === 0 ? (
+              <p className="text-xs text-text-subtle">No workspace memories yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {wsMemoryItems.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
+                  >
+                    <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
+                      {item.content}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={wsForgettingId === item.id}
+                      onClick={() => void handleForgetWsMemory(item.id)}
+                      className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                      title="Forget"
+                    >
+                      {wsForgettingId === item.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3 w-3" />
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+
+        {memoryTab === "registry" && (
+          <>
+            {memoryLoading ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+              </div>
+            ) : memoryItems.length === 0 ? (
+              <p className="text-xs text-text-subtle">No memories stored yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {memoryItems.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
+                  >
+                    <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-muted">
+                      {item.summary}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={forgettingId === item.id}
+                      onClick={() => void handleForget(item.id)}
+                      className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                      title="Forget"
+                    >
+                      {forgettingId === item.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3 w-3" />
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </Section>
 

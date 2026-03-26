@@ -54,7 +54,7 @@ export default function AdminToolsPage() {
     setSaving(true);
     setFeedback(null);
     try {
-      const challengeRes = await fetch("/api/v1/admin/security/step-up", {
+      const challengeRes = await fetch("/api/v1/admin/step-up/challenge", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -63,7 +63,8 @@ export default function AdminToolsPage() {
         body: JSON.stringify({ action: "admin.tool_credentials.update" })
       });
       if (!challengeRes.ok) throw new Error("Step-up challenge failed.");
-      const { token: stepUpToken } = await challengeRes.json();
+      const challengeData = await challengeRes.json();
+      const stepUpToken = challengeData.challenge?.token ?? challengeData.token;
 
       const keysToSend: Record<string, string> = {};
       for (const [key, value] of Object.entries(keyInputs)) {

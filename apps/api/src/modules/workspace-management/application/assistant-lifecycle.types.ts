@@ -1,12 +1,18 @@
 export interface AssistantDraftState {
   displayName: string | null;
   instructions: string | null;
+  traits: Record<string, number> | null;
+  avatarEmoji: string | null;
+  avatarUrl: string | null;
   updatedAt: string | null;
 }
 
 export interface AssistantPublishedVersionSnapshotState {
   displayName: string | null;
   instructions: string | null;
+  traits: Record<string, number> | null;
+  avatarEmoji: string | null;
+  avatarUrl: string | null;
 }
 
 export interface AssistantPublishedVersionState {

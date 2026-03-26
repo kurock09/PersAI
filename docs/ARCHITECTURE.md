@@ -430,3 +430,21 @@ It is not part of backend domain logic.
 - Global **registry** read and write paths evaluate `memory_control` (plus legacy fallback): read surfaces gated by `globalMemoryReadAllSurfaces`; writes require trusted 1:1 classification and an allowed + trusted transport surface (MVP: web only); group-sourced global registry writes are denied.
 - Web chat classifies turns as `trusted_1to1` + `web` at the send/stream services; the record hook does not infer trust in isolation.
 - Other channels and group contexts are out of scope; they must not bypass this module when future ingest is added (ADR-021).
+
+## H3: Runtime hydration depth
+
+### Per-user workspace isolation (OpenClaw)
+
+- Runtime uses per-assistant directories under `PERSAI_WORKSPACE_ROOT/<assistantId>/`.
+- Optional override: `PERSAI_AGENT_WORKSPACE_DIR` for agent process cwd.
+- Helm: GCS FUSE via CSI driver volume mount; workload identity–bound ServiceAccount (`infra/helm/templates/openclaw-serviceaccount.yaml` and related chart values).
+
+### Bootstrap file pipeline
+
+- PersAI `MaterializeAssistantPublishedVersionService` emits seven Markdown bootstrap docs into materialized `openclawWorkspace.bootstrapDocuments` (e.g. SOUL.md, USER.md, IDENTITY.md, TOOLS.md, AGENTS.md, HEARTBEAT.md, BOOTSTRAP.md).
+- Apply path: materialized spec → `POST /api/v1/runtime/spec/apply` → OpenClaw `persai-runtime-workspace.ts` writes files on disk with **write-once / never overwrite** rules for bootstrap artifacts.
+
+### Memory delegation
+
+- **Registry** (D2/D3): PersAI DB + `GET/POST /assistant/memory/items` family — global policy summaries from web chat.
+- **Workspace memory** (H3): file-backed store in OpenClaw; PersAI proxies CRUD/search to runtime HTTP (`OpenClawRuntimeAdapter`); UI “Workspace” tab talks to proxy routes, “History” tab to registry list where applicable.

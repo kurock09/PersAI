@@ -40,13 +40,18 @@ export class PrismaAssistantRepository implements AssistantRepository {
       return null;
     }
 
+    const data: Record<string, unknown> = {
+      draftDisplayName: input.draftDisplayName,
+      draftInstructions: input.draftInstructions,
+      draftUpdatedAt: new Date()
+    };
+    if (input.draftTraits !== undefined) data.draftTraits = input.draftTraits;
+    if (input.draftAvatarEmoji !== undefined) data.draftAvatarEmoji = input.draftAvatarEmoji;
+    if (input.draftAvatarUrl !== undefined) data.draftAvatarUrl = input.draftAvatarUrl;
+
     const assistant = await this.prisma.assistant.update({
       where: { userId },
-      data: {
-        draftDisplayName: input.draftDisplayName,
-        draftInstructions: input.draftInstructions,
-        draftUpdatedAt: new Date()
-      }
+      data
     });
 
     return this.mapToDomain(assistant);
@@ -194,6 +199,9 @@ export class PrismaAssistantRepository implements AssistantRepository {
       workspaceId: assistant.workspaceId,
       draftDisplayName: assistant.draftDisplayName,
       draftInstructions: assistant.draftInstructions,
+      draftTraits: assistant.draftTraits as Record<string, number> | null,
+      draftAvatarEmoji: assistant.draftAvatarEmoji,
+      draftAvatarUrl: assistant.draftAvatarUrl,
       draftUpdatedAt: assistant.draftUpdatedAt,
       applyStatus: assistant.applyStatus,
       applyTargetVersionId: assistant.applyTargetVersionId,

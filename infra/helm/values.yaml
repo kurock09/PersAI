@@ -105,6 +105,10 @@ web:
 openclaw:
   enabled: false
   replicaCount: 1
+  serviceAccount:
+    create: false
+    name: openclaw-sa
+    gcpServiceAccountEmail: ""
   image:
     name: openclaw
     tag: ""
@@ -118,6 +122,11 @@ openclaw:
     dangerouslyAllowHostHeaderOriginFallback: false
   persaiSecretResolver:
     baseUrl: http://api:3001
+  workspace:
+    gcsFuse:
+      enabled: false
+      bucketName: ""
+      mountPath: /mnt/workspaces/persai
   command:
     - node
     - openclaw.mjs

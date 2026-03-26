@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminOpsCockpitState } from "./adminOpsCockpitState";
+import type { AdminOpsCockpitState } from './adminOpsCockpitState';
 
 export interface GetAdminOpsCockpitResponse {
   /** @nullable */

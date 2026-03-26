@@ -3327,3 +3327,32 @@
   - confirm workflow updates only `global.images.tag`
   - confirm OpenClaw workflow updates `openclaw.image.tag` to approved SHA
   - confirm Argo auto-sync completes without manual terminate/delete operations.
+
+## H3: Runtime hydration depth — completed (2026-03-26)
+
+### Status
+
+- **H3a** — Persona, workspace, bootstrap: done (DB fields, materialization, OpenClaw workspace writer, env vars, Helm GCS FUSE, setup/settings UI, contracts).
+- **H3b** — Memory management: done (OpenClaw HTTP memory API, PersAI proxy + adapter, Memory Center tabs).
+- **H3c** — Chat history: done (paginated messages endpoint, `useChat.loadHistory` + thread navigation).
+
+### Key files — PersAI
+
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — seven bootstrap Markdown docs → `openclawWorkspace.bootstrapDocuments`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts` — proxy to `/api/v1/runtime/memory/*`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` — `assistant/memory/workspace/*`, `assistant/chats/web/:chatId/messages`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts` — cursor pagination for messages
+- `apps/web/app/app/_components/use-chat.ts` — `loadHistory`
+- `apps/web/app/app/chat/page.tsx` — calls `loadHistory` when opening existing thread
+- `apps/web/app/app/assistant-api-client.ts` — client for workspace memory + messages
+- `infra/helm/templates/openclaw-serviceaccount.yaml` — WI / SA template (with chart CSI mount as deployed)
+- `packages/contracts` — `AssistantDraftState`, `AssistantDraftUpdateRequest`, `AssistantPublishedVersionSnapshotState`, `OnboardingRequest`, `AppUserSummary` (traits/avatar/birthday/gender)
+
+### Key files — OpenClaw (fork)
+
+- `src/gateway/persai-runtime/persai-runtime-workspace.ts` — per-assistant dirs, bootstrap write-once
+- `src/gateway/persai-runtime/persai-runtime-memory.ts` — `/api/v1/runtime/memory/{items,add,edit,forget,search}`
+
+### Ops / runtime env
+
+- `PERSAI_WORKSPACE_ROOT`, `PERSAI_AGENT_WORKSPACE_DIR`

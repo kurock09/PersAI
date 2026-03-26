@@ -103,6 +103,10 @@ web:
 openclaw:
   enabled: true
   replicaCount: 1
+  serviceAccount:
+    create: true
+    name: openclaw-sa
+    gcpServiceAccountEmail: openclaw-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: openclaw
     tag: 1c8d4c276fc91a7d14f688985ea4db29d35045f8
@@ -115,6 +119,11 @@ openclaw:
     dangerouslyAllowHostHeaderOriginFallback: false
   persaiSecretResolver:
     baseUrl: http://api:3001
+  workspace:
+    gcsFuse:
+      enabled: true
+      bucketName: persai-dev-workspaces
+      mountPath: /mnt/workspaces/persai
   agentDefaults:
     modelPrimary: openai/gpt-5.4
   args:
@@ -128,6 +137,7 @@ openclaw:
     PERSAI_RUNTIME_SPEC_STORE: "redis"
     PERSAI_RUNTIME_SPEC_STORE_KEY_PREFIX: "persai:runtime-spec"
     PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS: "0"
+    PERSAI_WORKSPACE_ROOT: /mnt/workspaces/persai
   secretEnv:
     OPENCLAW_GATEWAY_TOKEN:
       secretName: persai-openclaw-secrets

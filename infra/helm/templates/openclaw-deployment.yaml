@@ -6,6 +6,7 @@
 {{- if ne $openclawDigest "" }}
 {{- $openclawImage = printf "%s@%s" $openclawRepository $openclawDigest }}
 {{- end }}
+{{- $gcsFuseEnabled := and (hasKey .Values.openclaw "workspace") (hasKey .Values.openclaw.workspace "gcsFuse") .Values.openclaw.workspace.gcsFuse.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,11 +23,26 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: openclaw
+{{- if $gcsFuseEnabled }}
+      annotations:
+        gke-gcsfuse/volumes: "true"
+{{- end }}
     spec:
+{{- if .Values.openclaw.serviceAccount.create }}
+      serviceAccountName: {{ .Values.openclaw.serviceAccount.name }}
+{{- end }}
       volumes:
         - name: openclaw-config
           configMap:
             name: openclaw-config
+{{- if $gcsFuseEnabled }}
+        - name: workspace-gcs
+          csi:
+            driver: gcsfuse.csi.storage.gke.io
+            readOnly: false
+            volumeAttributes:
+              bucketName: {{ .Values.openclaw.workspace.gcsFuse.bucketName | quote }}
+{{- end }}
       containers:
         - name: openclaw
           image: "{{ $openclawImage }}"
@@ -63,6 +79,10 @@ spec:
             - name: openclaw-config
               mountPath: {{ .Values.openclaw.configPath | quote }}
               subPath: openclaw.json
+{{- if $gcsFuseEnabled }}
+            - name: workspace-gcs
+              mountPath: {{ .Values.openclaw.workspace.gcsFuse.mountPath | quote }}
+{{- end }}
           ports:
             - containerPort: {{ .Values.openclaw.service.port }}
           readinessProbe:

@@ -262,6 +262,108 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     }
   }
 
+  async listMemoryItems(assistantId: string): Promise<unknown> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
+    }
+    return this.requestWithRetries(
+      "GET",
+      `/api/v1/runtime/memory/items?assistantId=${encodeURIComponent(assistantId)}`,
+      undefined,
+      config
+    );
+  }
+
+  async addMemoryItem(assistantId: string, content: string): Promise<unknown> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
+    }
+    return this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/memory/add",
+      { assistantId, content },
+      config
+    );
+  }
+
+  async editMemoryItem(assistantId: string, itemId: string, content: string): Promise<unknown> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
+    }
+    return this.requestWithPatch(
+      "/api/v1/runtime/memory/edit",
+      { assistantId, itemId, content },
+      config
+    );
+  }
+
+  async forgetMemoryItem(assistantId: string, itemId: string): Promise<unknown> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
+    }
+    return this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/memory/forget",
+      { assistantId, itemId },
+      config
+    );
+  }
+
+  async searchMemory(assistantId: string, query: string): Promise<unknown> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
+    }
+    return this.requestWithRetries(
+      "GET",
+      `/api/v1/runtime/memory/search?assistantId=${encodeURIComponent(assistantId)}&q=${encodeURIComponent(query)}`,
+      undefined,
+      config
+    );
+  }
+
+  private async requestWithPatch(
+    path: string,
+    body: unknown,
+    config: OpenClawAdapterConfig
+  ): Promise<unknown> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
+
+    try {
+      const response = await fetch(`${config.baseUrl}${path}`, {
+        method: "PATCH",
+        headers: {
+          ...(config.token.length > 0 ? { Authorization: `Bearer ${config.token}` } : {}),
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw new AssistantRuntimeAdapterError(
+          "invalid_response",
+          `OpenClaw response status ${response.status} is not successful.`
+        );
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (error instanceof AssistantRuntimeAdapterError) throw error;
+      throw new AssistantRuntimeAdapterError(
+        "runtime_unreachable",
+        "OpenClaw runtime unreachable."
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   private async requestWithRetries(
     method: "GET" | "POST",
     path: string,

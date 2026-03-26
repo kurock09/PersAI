@@ -9,6 +9,9 @@ export interface CreateAssistantPublishedVersionInput {
   publishedByUserId: string;
   snapshotDisplayName: string | null;
   snapshotInstructions: string | null;
+  snapshotTraits?: Record<string, number> | null;
+  snapshotAvatarEmoji?: string | null;
+  snapshotAvatarUrl?: string | null;
 }
 
 export interface AssistantPublishedVersionRepository {

@@ -229,6 +229,8 @@ export default function SetupWizardPage() {
           workspaceName: `${userName.trim()}'s workspace`,
           locale: navigator.language ?? "en",
           timezone: timezone || "UTC",
+          birthday: birthday || null,
+          gender: gender ?? null,
           acceptTermsOfService: true,
           acceptPrivacyPolicy: true
         });
@@ -237,9 +239,18 @@ export default function SetupWizardPage() {
       await postAssistantCreate(token);
 
       const instructions = traitsToInstructions(assistantName, userName, traits);
+      const structuredTraits: Record<string, number> = {};
+      for (const t of traits) {
+        structuredTraits[t.key] = t.value;
+      }
+      const avatarEmoji = avatarObj?.emoji ?? null;
+
       await patchAssistantDraft(token, {
         displayName: assistantName.trim(),
-        instructions
+        instructions,
+        traits: structuredTraits,
+        avatarEmoji,
+        avatarUrl: customAvatarUrl
       });
       await postAssistantPublish(token);
       router.push("/app/chat");
@@ -247,7 +258,18 @@ export default function SetupWizardPage() {
       setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
       setCreating(false);
     }
-  }, [getToken, assistantName, userName, timezone, traits, router]);
+  }, [
+    getToken,
+    assistantName,
+    userName,
+    timezone,
+    birthday,
+    gender,
+    traits,
+    avatarObj,
+    customAvatarUrl,
+    router
+  ]);
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden bg-bg">

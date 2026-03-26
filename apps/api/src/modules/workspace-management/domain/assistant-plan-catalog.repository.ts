@@ -35,4 +35,5 @@ export interface AssistantPlanCatalogRepository {
     code: string,
     input: AssistantPlanCatalogWriteInput
   ): Promise<AssistantPlanCatalog | null>;
+  backfillToolActivationsForPlans(planIds: string[]): Promise<void>;
 }

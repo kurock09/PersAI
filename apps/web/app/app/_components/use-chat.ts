@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
+  getChatMessages,
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
   type WebChatUxIssue
@@ -28,10 +29,12 @@ export interface UseChatReturn {
   messages: ChatMessage[];
   chatId: string | null;
   isStreaming: boolean;
+  historyLoading: boolean;
   issue: WebChatUxIssue | null;
   send: (text: string) => Promise<void>;
   stop: () => void;
   clearIssue: () => void;
+  loadHistory: (chatId: string) => Promise<void>;
 }
 
 export function useChat(threadKey: string): UseChatReturn {
@@ -40,8 +43,10 @@ export function useChat(threadKey: string): UseChatReturn {
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [issue, setIssue] = useState<WebChatUxIssue | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const historyLoadedRef = useRef<Set<string>>(new Set());
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -173,6 +178,50 @@ export function useChat(threadKey: string): UseChatReturn {
     [getToken, isStreaming, threadKey]
   );
 
+  const loadHistory = useCallback(
+    async (targetChatId: string) => {
+      if (historyLoadedRef.current.has(targetChatId)) return;
+      const token = await getToken();
+      if (!token) return;
+
+      setHistoryLoading(true);
+      try {
+        const allMessages: ChatMessage[] = [];
+        let cursor: string | undefined;
+        let hasMore = true;
+
+        while (hasMore) {
+          const page = await getChatMessages(token, targetChatId, cursor, 100);
+          for (const m of page.messages) {
+            allMessages.push({
+              id: m.id,
+              role: m.author === "system" ? "assistant" : m.author,
+              content: m.content,
+              status: "committed"
+            });
+          }
+          cursor = page.nextCursor ?? undefined;
+          hasMore = !!page.nextCursor;
+        }
+
+        if (allMessages.length > 0) {
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const newHistory = allMessages.filter((m) => !existingIds.has(m.id));
+            return [...newHistory, ...prev];
+          });
+        }
+
+        setChatId(targetChatId);
+        historyLoadedRef.current.add(targetChatId);
+      } catch {
+        /* non-critical - chat still works */
+      }
+      setHistoryLoading(false);
+    },
+    [getToken]
+  );
+
   const entries: ChatEntry[] = [];
   const activityByMsg = new Map<string, ActivityEvent[]>();
   for (const a of activities) {
@@ -190,5 +239,16 @@ export function useChat(threadKey: string): UseChatReturn {
     }
   }
 
-  return { entries, messages, chatId, isStreaming, issue, send, stop, clearIssue };
+  return {
+    entries,
+    messages,
+    chatId,
+    isStreaming,
+    historyLoading,
+    issue,
+    send,
+    stop,
+    clearIssue,
+    loadHistory
+  };
 }

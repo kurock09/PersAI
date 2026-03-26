@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanStateStatus } from "./adminPlanStateStatus";
-import type { AdminPlanMetadata } from "./adminPlanMetadata";
-import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
-import type { AdminPlanToolActivation } from "./adminPlanToolActivation";
+import type { AdminPlanStateStatus } from './adminPlanStateStatus';
+import type { AdminPlanMetadata } from './adminPlanMetadata';
+import type { AdminPlanEntitlements } from './adminPlanEntitlements';
+import type { AdminPlanToolActivation } from './adminPlanToolActivation';
 
 export interface AdminPlanState {
   code: string;
@@ -21,7 +21,7 @@ export interface AdminPlanState {
   trialDurationDays: number | null;
   metadata: AdminPlanMetadata;
   entitlements: AdminPlanEntitlements;
-  toolActivations: AdminPlanToolActivation[];
   createdAt: string;
   updatedAt: string;
+  toolActivations?: AdminPlanToolActivation[];
 }

@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanEntitlementCapabilities } from "./adminPlanEntitlementCapabilities";
-import type { AdminPlanEntitlementToolClasses } from "./adminPlanEntitlementToolClasses";
-import type { AdminPlanEntitlementChannelsAndSurfaces } from "./adminPlanEntitlementChannelsAndSurfaces";
-import type { AdminPlanEntitlementLimitsPermissions } from "./adminPlanEntitlementLimitsPermissions";
+import type { AdminPlanEntitlementCapabilities } from './adminPlanEntitlementCapabilities';
+import type { AdminPlanEntitlementToolClasses } from './adminPlanEntitlementToolClasses';
+import type { AdminPlanEntitlementChannelsAndSurfaces } from './adminPlanEntitlementChannelsAndSurfaces';
+import type { AdminPlanEntitlementLimitsPermissions } from './adminPlanEntitlementLimitsPermissions';
 
 export interface AdminPlanEntitlements {
   capabilities: AdminPlanEntitlementCapabilities;

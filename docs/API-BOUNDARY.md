@@ -1231,3 +1231,28 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 | Preflight reports not live or not ready **before** apply or chat | `runtime_degraded`    |
 
 Implementation reference: [openclaw-runtime.adapter.ts](../apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts).
+
+## H3: Runtime hydration depth — memory workspace proxy + chat history
+
+### Proxy pattern (PersAI → OpenClaw)
+
+- PersAI exposes authenticated assistant-scoped REST routes; `OpenClawRuntimeAdapter` forwards to OpenClaw gateway HTTP under `/api/v1/runtime/...` with gateway token.
+- Workspace file-based memory is owned by OpenClaw runtime; PersAI does not duplicate storage.
+
+### PersAI — workspace memory (5)
+
+- `GET /api/v1/assistant/memory/workspace/items` → OpenClaw `GET /api/v1/runtime/memory/items?assistantId=...`
+- `POST /api/v1/assistant/memory/workspace/add` → OpenClaw `POST /api/v1/runtime/memory/add`
+- `PATCH /api/v1/assistant/memory/workspace/edit` → OpenClaw `PATCH /api/v1/runtime/memory/edit`
+- `POST /api/v1/assistant/memory/workspace/forget` → OpenClaw `POST /api/v1/runtime/memory/forget`
+- `GET /api/v1/assistant/memory/workspace/search?q=...` → OpenClaw `GET /api/v1/runtime/memory/search?assistantId=...&q=...`
+
+### OpenClaw — runtime memory (reference)
+
+- Same five paths under `/api/v1/runtime/memory/{items,add,edit,forget,search}` (see fork `persai-runtime-memory.ts`).
+
+### PersAI — web chat message history
+
+- `GET /api/v1/assistant/chats/web/:chatId/messages` — cursor-paginated canonical backend messages for an existing web chat (loads thread history in UI).
+- Query params: `cursor` (opaque, optional), `limit` (optional, default 50, max 100).
+- Response: `messages[]`, `nextCursor` (nullable).

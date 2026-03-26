@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChatArea } from "../_components/chat-area";
 import { useChat } from "../_components/use-chat";
@@ -26,6 +26,12 @@ function ChatPageInner() {
   const existingChat = threadFromUrl
     ? appData.chats.find((c) => c.chat.surfaceThreadKey === threadFromUrl)
     : undefined;
+
+  useEffect(() => {
+    if (existingChat?.chat.id) {
+      void chat.loadHistory(existingChat.chat.id);
+    }
+  }, [existingChat?.chat.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <ChatArea

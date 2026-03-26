@@ -74,7 +74,9 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/platform-rollouts/:rolloutId/rollback", method: RequestMethod.POST },
       { path: "api/v1/admin/step-up/challenge", method: RequestMethod.POST },
       { path: "api/v1/admin/plans", method: RequestMethod.POST },
-      { path: "api/v1/admin/plans/:code", method: RequestMethod.PATCH }
+      { path: "api/v1/admin/plans/:code", method: RequestMethod.PATCH },
+      { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.GET },
+      { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.PUT }
     );
   }
 }

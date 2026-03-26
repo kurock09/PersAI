@@ -861,6 +861,102 @@ export async function postAssistantMemoryDoNotRemember(
   }
 }
 
+export type WorkspaceMemoryItem = {
+  id: string;
+  content: string;
+  createdAt: string | null;
+  source: string;
+};
+
+export async function getWorkspaceMemoryItems(token: string): Promise<WorkspaceMemoryItem[]> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/memory/workspace/items`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) throw new Error("Failed to load workspace memory.");
+  const data = (await res.json()) as { items: WorkspaceMemoryItem[] };
+  return data.items;
+}
+
+export async function addWorkspaceMemoryItem(
+  token: string,
+  content: string
+): Promise<WorkspaceMemoryItem> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/memory/workspace/add`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ content })
+  });
+  if (!res.ok) throw new Error("Failed to add memory item.");
+  const data = (await res.json()) as { item: WorkspaceMemoryItem };
+  return data.item;
+}
+
+export async function editWorkspaceMemoryItem(
+  token: string,
+  itemId: string,
+  content: string
+): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/memory/workspace/edit`, {
+    method: "PATCH",
+    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ itemId, content })
+  });
+  if (!res.ok) throw new Error("Failed to edit memory item.");
+}
+
+export async function forgetWorkspaceMemoryItem(token: string, itemId: string): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/memory/workspace/forget`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ itemId })
+  });
+  if (!res.ok) throw new Error("Failed to forget memory item.");
+}
+
+export async function searchWorkspaceMemory(
+  token: string,
+  query: string
+): Promise<WorkspaceMemoryItem[]> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/assistant/memory/workspace/search?q=${encodeURIComponent(query)}`,
+    { headers: getAuthHeaders(token) }
+  );
+  if (!res.ok) throw new Error("Failed to search memory.");
+  const data = (await res.json()) as { items: WorkspaceMemoryItem[] };
+  return data.items;
+}
+
+export type ChatHistoryMessage = {
+  id: string;
+  chatId: string;
+  assistantId: string;
+  author: "user" | "assistant" | "system";
+  content: string;
+  createdAt: string;
+};
+
+export async function getChatMessages(
+  token: string,
+  chatId: string,
+  cursor?: string,
+  limit?: number
+): Promise<{ messages: ChatHistoryMessage[]; nextCursor: string | null }> {
+  const base = getApiBaseUrl();
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  const url = `${base}/assistant/chats/web/${encodeURIComponent(chatId)}/messages${qs ? `?${qs}` : ""}`;
+  const res = await fetch(url, { headers: getAuthHeaders(token) });
+  if (!res.ok) throw new Error("Failed to load chat messages.");
+  return (await res.json()) as { messages: ChatHistoryMessage[]; nextCursor: string | null };
+}
+
 export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
 export type { AdminBusinessCockpitState };
 export type { AdminOpsCockpitState };

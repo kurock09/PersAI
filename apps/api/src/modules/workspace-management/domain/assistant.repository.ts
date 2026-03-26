@@ -5,6 +5,9 @@ export const ASSISTANT_REPOSITORY = Symbol("ASSISTANT_REPOSITORY");
 export interface UpdateAssistantDraftInput {
   draftDisplayName: string | null;
   draftInstructions: string | null;
+  draftTraits?: Record<string, number> | null;
+  draftAvatarEmoji?: string | null;
+  draftAvatarUrl?: string | null;
 }
 
 export interface AssistantRepository {

@@ -130,6 +130,9 @@ Foundation Phase
 - [x] H1a — admin UI for runtime provider profile + provider credential refs (structured editor in existing admin rollout controls; preserves unrelated governance branches while submitting through the same rollout API, still platform-admin only)
 - [x] H1b — global runtime provider settings correction (simple admin UI for raw global `OpenAI` / `Anthropic` keys, primary/fallback models, and `availableModelsByProvider`; PersAI-managed encrypted provider-key storage; OpenClaw consumes generated `persai` secret refs; see `ADR-051`)
 - [x] H2 — tool credential refs and tool quota limits baseline (expanded tool catalog to 8 entries, managed tool-provider secret refs, per-tool daily call limits in plan activation, admin UI for tool credentials; see `ADR-052`) + OpenClaw tool policy integration (per-tool activation filtering via `PERSAI_TOOL_DENY`, credential resolution via `resolveSecretRefValues` + env injection, apply-time validation)
-- [ ] H3 — runtime hydration depth for persona, memory, tasks/reminders, and tool policy on the native OpenClaw path (continue ADR-048 `P2`)
+- [ ] H3 — runtime hydration: persona, memory, per-user workspace isolation (ADR-053, continues ADR-048 `P2`)
+  - [ ] H3a — persona hydration: schema migration (traits/avatar/birthday), materialization of 7 bootstrap documents (SOUL/USER/IDENTITY/TOOLS/AGENTS/HEARTBEAT/BOOTSTRAP), per-user workspace isolation with `PERSAI_WORKSPACE_ROOT` + GCS FUSE, `extraSystemPrompt` elimination
+  - [ ] H3b — memory management: OpenClaw memory API (list/add/edit/forget/search), PersAI proxy, Memory Center UI (curated/timeline tabs, teach/forget in-chat), deprecate `AssistantMemoryRegistryItem`
+  - [ ] H3c — chat history: message loading endpoint with pagination, UI load-on-thread-open
 - [ ] H4 — Telegram runtime readiness alignment against admin-driven runtime profile + managed secret refs
 - [ ] H5 — WhatsApp/MAX follow-up readiness and secret-ref parity before later delivery slices
