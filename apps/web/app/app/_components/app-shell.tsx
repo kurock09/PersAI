@@ -41,7 +41,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isSetup = pathname === "/app/setup";
 
   useEffect(() => {
-    if (!appData.isLoading && appData.assistantResolved && appData.assistantStatus === "none" && !isSetup) {
+    if (
+      !appData.isLoading &&
+      appData.assistantResolved &&
+      appData.assistantStatus === "none" &&
+      !isSetup
+    ) {
       router.replace("/app/setup");
     }
   }, [appData.isLoading, appData.assistantResolved, appData.assistantStatus, isSetup, router]);
