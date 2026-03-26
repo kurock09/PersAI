@@ -33,6 +33,7 @@ export type TelegramIntegrationState = {
       defaultParseMode: "plain_text" | "markdown";
       inboundUserMessagesEnabled: boolean;
       outboundAssistantMessagesEnabled: boolean;
+      groupReplyMode: "mention_reply" | "all_messages";
       notes: string | null;
     };
   };
@@ -52,5 +53,6 @@ export type TelegramConfigUpdateInput = {
   defaultParseMode?: "plain_text" | "markdown";
   inboundUserMessagesEnabled?: boolean;
   outboundAssistantMessagesEnabled?: boolean;
+  groupReplyMode?: "mention_reply" | "all_messages";
   notes?: string | null;
 };

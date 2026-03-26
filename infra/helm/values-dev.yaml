@@ -32,6 +32,7 @@ api:
     OPENCLAW_ADAPTER_ENABLED: "true"
     OPENCLAW_BASE_URL: "http://openclaw:18789"
     OPENCLAW_ADAPTER_TIMEOUT_MS: "15000"
+    TELEGRAM_WEBHOOK_BASE_URL: "https://bot.persai.dev"
     WEB_ACTIVE_CHATS_CAP: "20"
     QUOTA_TOKEN_BUDGET_DEFAULT: "200000"
     QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT: "1000"
@@ -49,6 +50,10 @@ api:
     RUNTIME_PROVIDER_SECRETS_MASTER_KEY:
       secretName: persai-api-secrets
       secretKey: RUNTIME_PROVIDER_SECRETS_MASTER_KEY
+      optional: true
+    TELEGRAM_WEBHOOK_HMAC_SECRET:
+      secretName: persai-api-secrets
+      secretKey: TELEGRAM_WEBHOOK_HMAC_SECRET
       optional: true
     OPENCLAW_GATEWAY_TOKEN:
       secretName: persai-openclaw-secrets
@@ -150,6 +155,11 @@ openclaw:
     OPENAI_API_KEY:
       secretName: persai-openclaw-secrets
       secretKey: OPENAI_API_KEY
+  telegramWebhook:
+    enabled: true
+    host: bot.persai.dev
+    managedCertificate: persai-bot-cert
+    tlsSecretName: ""
   service:
     type: ClusterIP
     port: 18789

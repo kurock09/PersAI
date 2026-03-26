@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Inject,
+  Logger,
   Post,
   Req,
   UnauthorizedException
@@ -12,6 +13,7 @@ import {
 import { loadApiConfig } from "@persai/config";
 import { BumpConfigGenerationService } from "../../application/bump-config-generation.service";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../../domain/assistant.repository";
+import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 import {
   ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
   type AssistantMaterializedSpecRepository
@@ -53,6 +55,8 @@ function parseEnsureFreshSpecInput(body: unknown): EnsureFreshSpecRequest {
 
 @Controller("api/v1/internal/runtime")
 export class InternalRuntimeConfigGenerationController {
+  private readonly logger = new Logger(InternalRuntimeConfigGenerationController.name);
+
   constructor(
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     @Inject(ASSISTANT_REPOSITORY)
@@ -61,7 +65,8 @@ export class InternalRuntimeConfigGenerationController {
     private readonly materializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly publishedVersionRepository: AssistantPublishedVersionRepository,
-    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService
+    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   @Get("config-generation")
@@ -117,6 +122,62 @@ export class InternalRuntimeConfigGenerationController {
     );
 
     return { fresh: true, rematerialized: true, generation: currentGeneration };
+  }
+
+  @HttpCode(200)
+  @Post("telegram/group-update")
+  async handleTelegramGroupUpdate(
+    @Req() req: InternalRequestLike,
+    @Body() body: unknown
+  ): Promise<{ ok: boolean }> {
+    this.assertAuthorized(req);
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      throw new BadRequestException("Body must be an object.");
+    }
+    const row = body as Record<string, unknown>;
+    const assistantId = typeof row.assistantId === "string" ? row.assistantId.trim() : "";
+    const telegramChatId = typeof row.telegramChatId === "string" ? row.telegramChatId.trim() : "";
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    const event = typeof row.event === "string" ? row.event.trim() : "";
+    const memberCount =
+      typeof row.memberCount === "number" && Number.isInteger(row.memberCount)
+        ? row.memberCount
+        : null;
+
+    if (!assistantId || !telegramChatId || !event) {
+      throw new BadRequestException("assistantId, telegramChatId, and event are required.");
+    }
+
+    if (event === "joined") {
+      await this.prisma.assistantTelegramGroup.upsert({
+        where: {
+          assistantId_telegramChatId: { assistantId, telegramChatId }
+        },
+        create: {
+          assistantId,
+          telegramChatId,
+          title: title || "Unknown group",
+          memberCount,
+          status: "active",
+          joinedAt: new Date()
+        },
+        update: {
+          ...(title ? { title } : {}),
+          ...(memberCount !== null ? { memberCount } : {}),
+          status: "active",
+          leftAt: null
+        }
+      });
+      this.logger.log(`Telegram group joined: ${telegramChatId} for assistant ${assistantId}`);
+    } else if (event === "left") {
+      await this.prisma.assistantTelegramGroup.updateMany({
+        where: { assistantId, telegramChatId },
+        data: { status: "left", leftAt: new Date() }
+      });
+      this.logger.log(`Telegram group left: ${telegramChatId} for assistant ${assistantId}`);
+    }
+
+    return { ok: true };
   }
 
   private assertAuthorized(req: InternalRequestLike): void {

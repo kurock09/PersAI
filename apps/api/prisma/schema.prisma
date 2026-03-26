@@ -276,6 +276,7 @@ model Assistant {
   platformRolloutItems   AssistantPlatformRolloutItem[]
   abuseGuardStates       AssistantAbuseGuardState[]
   abuseAssistantStates   AssistantAbuseAssistantState[]
+  telegramGroups         AssistantTelegramGroup[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -786,6 +787,22 @@ model AssistantTaskRegistryItem {
 
   @@index([assistantId, controlStatus, nextRunAt])
   @@map("assistant_task_registry_items")
+}
+
+model AssistantTelegramGroup {
+  id              String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  assistantId     String   @map("assistant_id") @db.Uuid
+  telegramChatId  String   @map("telegram_chat_id") @db.VarChar(64)
+  title           String   @db.VarChar(255)
+  memberCount     Int?     @map("member_count")
+  status          String   @default("active") @db.VarChar(16)
+  joinedAt        DateTime @default(now()) @map("joined_at") @db.Timestamptz(6)
+  leftAt          DateTime? @map("left_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant       Assistant @relation(fields: [assistantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([assistantId, telegramChatId])
+  @@map("assistant_telegram_groups")
 }
 
 model BootstrapDocumentPreset {

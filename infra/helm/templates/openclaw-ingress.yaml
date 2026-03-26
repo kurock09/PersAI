@@ -1,0 +1,33 @@
+{{- if and .Values.openclaw.enabled .Values.openclaw.telegramWebhook.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openclaw-telegram-webhook
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: openclaw
+    app.kubernetes.io/component: telegram-webhook
+  annotations:
+    {{- if .Values.openclaw.telegramWebhook.managedCertificate }}
+    networking.gke.io/managed-certificates: {{ .Values.openclaw.telegramWebhook.managedCertificate }}
+    {{- end }}
+    kubernetes.io/ingress.class: "gce"
+spec:
+  rules:
+    - host: {{ .Values.openclaw.telegramWebhook.host }}
+      http:
+        paths:
+          - path: /telegram-webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: openclaw
+                port:
+                  number: {{ .Values.openclaw.service.port }}
+  {{- if .Values.openclaw.telegramWebhook.tlsSecretName }}
+  tls:
+    - hosts:
+        - {{ .Values.openclaw.telegramWebhook.host }}
+      secretName: {{ .Values.openclaw.telegramWebhook.tlsSecretName }}
+  {{- end }}
+{{- end }}

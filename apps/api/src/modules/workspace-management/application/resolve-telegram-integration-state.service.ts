@@ -100,6 +100,8 @@ export class ResolveTelegramIntegrationStateService {
           defaultParseMode,
           inboundUserMessagesEnabled,
           outboundAssistantMessagesEnabled,
+          groupReplyMode:
+            config?.groupReplyMode === "all_messages" ? "all_messages" : "mention_reply",
           notes: toStringOrNull(config?.notes)
         }
       },

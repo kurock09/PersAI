@@ -48,6 +48,7 @@ import type {
 } from "../../application/web-chat.types";
 import type { TelegramIntegrationState } from "../../application/telegram-integration.types";
 import { OpenClawRuntimeAdapter } from "../../infrastructure/openclaw/openclaw-runtime.adapter";
+import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
 @Controller("api/v1")
 export class AssistantController {
@@ -75,7 +76,8 @@ export class AssistantController {
     private readonly disableAssistantTaskRegistryItemService: DisableAssistantTaskRegistryItemService,
     private readonly enableAssistantTaskRegistryItemService: EnableAssistantTaskRegistryItemService,
     private readonly cancelAssistantTaskRegistryItemService: CancelAssistantTaskRegistryItemService,
-    private readonly openClawRuntimeAdapter: OpenClawRuntimeAdapter
+    private readonly openClawRuntimeAdapter: OpenClawRuntimeAdapter,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   @Post("assistant")
@@ -244,6 +246,43 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       integration
+    };
+  }
+
+  @Get("assistant/integrations/telegram/groups")
+  async getTelegramGroups(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    groups: Array<{
+      id: string;
+      telegramChatId: string;
+      title: string;
+      memberCount: number | null;
+      status: string;
+      joinedAt: string;
+    }>;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const assistant = await this.prisma.assistant.findUnique({
+      where: { userId },
+      select: { id: true }
+    });
+    if (!assistant) {
+      return { requestId: req.requestId ?? null, groups: [] };
+    }
+    const groups = await this.prisma.assistantTelegramGroup.findMany({
+      where: { assistantId: assistant.id },
+      orderBy: { joinedAt: "desc" }
+    });
+    return {
+      requestId: req.requestId ?? null,
+      groups: groups.map((g) => ({
+        id: g.id,
+        telegramChatId: g.telegramChatId,
+        title: g.title,
+        memberCount: g.memberCount,
+        status: g.status,
+        joinedAt: g.joinedAt.toISOString()
+      }))
     };
   }
 

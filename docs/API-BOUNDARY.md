@@ -569,6 +569,48 @@ Behavior baseline:
 - E4 keeps web as primary control-plane surface and does not move deep assistant config into Telegram.
 - E4 does not add WhatsApp/MAX delivery implementation.
 
+## Step 12 H8 Telegram runtime readiness
+
+### POST /api/v1/assistant/integrations/telegram/connect (updated)
+
+- now also stores the actual bot token encrypted (AES-256-GCM) via `PlatformRuntimeProviderSecretStoreService` under key `telegram_bot:{assistantId}`
+- sets default `groupReplyMode: "mention_reply"` in binding config
+
+### PATCH /api/v1/assistant/integrations/telegram/config (updated)
+
+- accepts new optional field `groupReplyMode` (`"mention_reply"` | `"all_messages"`)
+- controls whether bot responds to all group messages or only @mentions/replies
+
+### GET /api/v1/assistant/integrations/telegram (updated)
+
+- `configPanel.settings` now includes `groupReplyMode` field
+
+### GET /api/v1/assistant/integrations/telegram/groups (new)
+
+- returns list of Telegram groups where the bot is a member
+- response: `{ groups: [{ id, telegramChatId, title, memberCount, status, joinedAt }] }`
+- populated automatically from OpenClaw `my_chat_member` event callbacks
+
+### POST /api/v1/internal/runtime/telegram/group-update (new, internal)
+
+- called by OpenClaw when bot is added/removed from a Telegram group
+- requires `Authorization: Bearer {OPENCLAW_GATEWAY_TOKEN}`
+- body: `{ assistantId, telegramChatId, title, event: "joined"|"left", memberCount? }`
+- upserts/updates `assistant_telegram_groups` record
+
+### Materialization: openclawBootstrap.channels.telegram (new)
+
+- added to `openclawBootstrap` during spec materialization when Telegram binding is active
+- shape: `{ enabled, botToken, webhookUrl, webhookSecret, dmPolicy, groupReplyMode, parseMode, inbound, outbound }`
+- `webhookUrl` = `{TELEGRAM_WEBHOOK_BASE_URL}/telegram-webhook/{assistantId}`
+- `webhookSecret` = HMAC-SHA256(assistantId, TELEGRAM_WEBHOOK_HMAC_SECRET), truncated to 64 chars
+
+### OpenClaw: POST /telegram-webhook/:assistantId (new, public)
+
+- Telegram sends webhook updates to this URL
+- OpenClaw validates `X-Telegram-Bot-Api-Secret-Token` header against materialized `webhookSecret`
+- routes update to the dynamically managed Grammy bot for the assistant
+
 ## Step 10 G1 secret lifecycle hardening
 
 ### POST /api/v1/assistant/integrations/telegram/connect
@@ -1284,20 +1326,20 @@ Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness dete
 - **Auth:** `Authorization: Bearer <OPENCLAW_GATEWAY_TOKEN>`
 - **Request body:**
 
-| Field                       | Type   | Required |
-| --------------------------- | ------ | -------- |
-| `assistantId`               | string | yes      |
-| `publishedVersionId`        | string | yes      |
-| `currentConfigGeneration`   | number | yes      |
+| Field                     | Type   | Required |
+| ------------------------- | ------ | -------- |
+| `assistantId`             | string | yes      |
+| `publishedVersionId`      | string | yes      |
+| `currentConfigGeneration` | number | yes      |
 
 - **204 No Content:** spec is fresh (both global generation matches AND no per-user dirty flag).
 - **200 OK:** spec was stale; response contains fresh materialized data:
 
-| Field              | Type       | Description                                      |
-| ------------------ | ---------- | ------------------------------------------------ |
-| `bootstrap`        | JSON value | Fresh `openclawBootstrap` with updated generation |
-| `workspace`        | JSON value | Fresh `openclawWorkspace`                         |
-| `contentHash`      | string     | SHA-256 of concatenated documents                 |
+| Field              | Type       | Description                                        |
+| ------------------ | ---------- | -------------------------------------------------- |
+| `bootstrap`        | JSON value | Fresh `openclawBootstrap` with updated generation  |
+| `workspace`        | JSON value | Fresh `openclawWorkspace`                          |
+| `contentHash`      | string     | SHA-256 of concatenated documents                  |
 | `configGeneration` | number     | Current global generation after re-materialization |
 
 - **400:** invalid payload.
@@ -1321,7 +1363,7 @@ Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness dete
 
 ### Configuration (operational, OpenClaw side)
 
-| Variable                                   | Role                                                                                     |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `PERSAI_INTERNAL_API_BASE_URL`             | Origin for internal endpoints (e.g. `http://persai-api:3000`)                            |
-| `PERSAI_CONFIG_GENERATION_CACHE_TTL_MS`    | How long to cache the global generation locally. Default `3600000` (1 hour). `0` = no cache. |
+| Variable                                | Role                                                                                         |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `PERSAI_INTERNAL_API_BASE_URL`          | Origin for internal endpoints (e.g. `http://persai-api:3000`)                                |
+| `PERSAI_CONFIG_GENERATION_CACHE_TTL_MS` | How long to cache the global generation locally. Default `3600000` (1 hour). `0` = no cache. |

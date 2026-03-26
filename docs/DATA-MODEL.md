@@ -207,13 +207,27 @@ Postgres with Prisma.
 - binding_state (`active|inactive|unconfigured`)
 - token_fingerprint (nullable varchar 128) — control-plane fingerprint hint, not raw token exposure
 - token_last_four (nullable varchar 4)
-- policy (nullable jsonb)
-- config (nullable jsonb)
-- metadata (nullable jsonb)
+- policy (nullable jsonb) — e.g. `{ inboundUserMessages, outboundAssistantMessages }`
+- config (nullable jsonb) — e.g. `{ defaultParseMode, groupReplyMode, notes }`
+- metadata (nullable jsonb) — e.g. `{ telegramUserId, username, displayName, avatarUrl }`
 - connected_at (nullable timestamptz)
 - disconnected_at (nullable timestamptz)
 - created_at
 - updated_at
+
+### assistant_telegram_groups (Step 12 H8)
+
+- id (UUID)
+- assistant_id (UUID FK -> `assistants.id`, CASCADE)
+- telegram_chat_id (varchar 64) — Telegram group/supergroup chat ID
+- title (varchar 255)
+- member_count (nullable int)
+- status (varchar 16, default `active`) — `active` or `left`
+- joined_at (timestamptz)
+- left_at (nullable timestamptz)
+- updated_at
+- unique(assistant_id, telegram_chat_id)
+- populated automatically via OpenClaw `my_chat_member` callback → `POST /api/v1/internal/runtime/telegram/group-update`
 
 ### assistant_audit_events (Step 9 F1 baseline)
 

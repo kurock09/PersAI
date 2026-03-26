@@ -20,7 +20,12 @@ import { ResolveTelegramIntegrationStateService } from "./resolve-telegram-integ
 import type { TelegramConnectInput, TelegramIntegrationState } from "./telegram-integration.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { rotateTelegramBotSecretRef } from "./assistant-secret-refs-lifecycle";
+import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+
+function telegramBotSecretKey(assistantId: string): string {
+  return `telegram_bot:${assistantId}`;
+}
 
 type TelegramGetMeResult = {
   id: number;
@@ -47,6 +52,7 @@ export class ConnectTelegramIntegrationService {
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly secretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -112,6 +118,7 @@ export class ConnectTelegramIntegrationService {
       },
       config: {
         defaultParseMode: "plain_text",
+        groupReplyMode: "mention_reply",
         notes: null
       },
       metadata: {
@@ -123,6 +130,13 @@ export class ConnectTelegramIntegrationService {
       connectedAt: new Date(),
       disconnectedAt: null
     });
+
+    await this.secretStoreService.upsertProviderKey(
+      telegramBotSecretKey(assistant.id),
+      input.botToken,
+      userId
+    );
+
     const nextSecretRefs = rotateTelegramBotSecretRef(
       governance.secretRefs,
       input.ttlDays === undefined

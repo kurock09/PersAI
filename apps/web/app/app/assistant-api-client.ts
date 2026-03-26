@@ -1263,6 +1263,28 @@ export async function patchAssistantTelegramConfig(
   }
 }
 
+export type TelegramGroupInfo = {
+  id: string;
+  telegramChatId: string;
+  title: string;
+  memberCount: number | null;
+  status: string;
+  joinedAt: string;
+};
+
+export async function fetchAssistantTelegramGroups(token: string): Promise<TelegramGroupInfo[]> {
+  try {
+    const response = await fetch("/api/v1/assistant/integrations/telegram/groups", {
+      headers: getAuthHeaders(token)
+    });
+    if (!response.ok) return [];
+    const data = (await response.json()) as { groups?: TelegramGroupInfo[] };
+    return data.groups ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function postAdminPlanCreate(
   token: string,
   payload: AdminPlanCreateRequest

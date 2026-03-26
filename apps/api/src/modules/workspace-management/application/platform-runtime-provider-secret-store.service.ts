@@ -127,6 +127,21 @@ export class PlatformRuntimeProviderSecretStoreService {
     });
   }
 
+  async deleteProviderKey(providerKey: string): Promise<void> {
+    await this.prisma.platformRuntimeProviderSecret.deleteMany({
+      where: { providerKey }
+    });
+  }
+
+  async resolveSecretValueByProviderKey(providerKey: string): Promise<string | null> {
+    const row = await this.prisma.platformRuntimeProviderSecret.findUnique({
+      where: { providerKey },
+      select: { ciphertext: true, iv: true, authTag: true }
+    });
+    if (row === null) return null;
+    return this.decrypt(row);
+  }
+
   async resolveSecretValueById(secretId: string): Promise<string> {
     const providerKey = PROVIDER_KEY_BY_SECRET_ID[secretId];
     if (providerKey === undefined) {

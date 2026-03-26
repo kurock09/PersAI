@@ -1,5 +1,56 @@
 # SESSION-HANDOFF
 
+## 2026-03-27 - H8 Telegram Runtime Readiness
+
+### What changed
+
+- **Encrypted bot token storage:** `ConnectTelegramIntegrationService` now stores the actual bot token encrypted (AES-256-GCM) via `PlatformRuntimeProviderSecretStoreService` under key `telegram_bot:{assistantId}`. `RevokeTelegramIntegrationSecretService` deletes it on revoke.
+- **Materialize Telegram config:** `resolveTelegramChannelConfig()` in `materialize-assistant-published-version.service.ts` builds `openclawBootstrap.channels.telegram` with resolved `botToken`, `webhookUrl`, HMAC `webhookSecret`, `groupReplyMode`, `parseMode`, inbound/outbound policy.
+- **OpenClaw Telegram bridge:** New `persai-runtime-telegram.ts` dynamically starts/stops Grammy bots per assistant on `spec/apply`. Handles `message:text` (with group mention/reply filtering) and `my_chat_member` (group join/leave → PersAI callback). Webhook handler at `POST /telegram-webhook/:assistantId`. Bots reinitialize from Redis store on pod restart.
+- **GKE Ingress:** `openclaw-ingress.yaml` for `bot.persai.dev/telegram-webhook/*` with Google-managed TLS certificate.
+- **Groups data model:** Prisma `assistant_telegram_groups` table. Internal callback `POST /api/v1/internal/runtime/telegram/group-update`. Public `GET /api/v1/assistant/integrations/telegram/groups`.
+- **UI:** Groups section in Telegram config panel (auto-populated, name/members/status badge). Group reply mode toggle (Mention/Reply vs All). `groupReplyMode` added to config update flow.
+
+### Files touched
+
+**PersAI:**
+
+- `apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts`
+- `apps/api/src/modules/workspace-management/application/revoke-telegram-integration-secret.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-secret-store.service.ts`
+- `apps/api/src/modules/workspace-management/application/update-telegram-integration-config.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-telegram-integration-state.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-integration.types.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts`
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260326300000_add_assistant_telegram_groups/migration.sql`
+- `apps/web/app/app/_components/telegram-connect.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `packages/config/src/api-config.ts`
+- `infra/helm/templates/openclaw-ingress.yaml`
+- `infra/helm/values.yaml`, `infra/helm/values-dev.yaml`
+
+**OpenClaw:**
+
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` (new)
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts`
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+- `src/gateway/persai-runtime/persai-runtime-spec-store.ts`
+- `src/gateway/server-http.ts`
+
+### Deploy notes
+
+1. Create K8s Secret entries: `TELEGRAM_WEBHOOK_HMAC_SECRET` in `persai-api-secrets`
+2. Run Prisma migration for `assistant_telegram_groups` table
+3. Set up DNS: `bot.persai.dev` → GKE Ingress IP
+4. Create Google-managed certificate `persai-bot-cert` for `bot.persai.dev`
+5. Deploy PersAI API first (new migration + config vars), then OpenClaw (new Grammy bridge)
+6. Connect a Telegram bot in UI → publish/apply → bot should respond to DMs and group @mentions
+
+---
+
 ## 2026-03-26 - Force Reapply fix + null-plan backfill
 
 ### What changed
@@ -3559,6 +3610,7 @@ Full interactive LIVE test of 8 areas after H2-cleanup + H3 deploy. Found and fi
 ### Key files changed
 
 **PersAI backend:**
+
 - `apps/api/prisma/schema.prisma` — `BootstrapDocumentPreset` model
 - `apps/api/prisma/migrations/20260401100000_h3_bootstrap_document_presets/migration.sql`
 - `apps/api/prisma/bootstrap-preset-data.ts` — default template definitions
@@ -3575,6 +3627,7 @@ Full interactive LIVE test of 8 areas after H2-cleanup + H3 deploy. Found and fi
 - `apps/api/src/modules/workspace-management/workspace-management.module.ts` — new registrations
 
 **PersAI frontend:**
+
 - `apps/web/app/app/_components/assistant-settings.tsx` — "Save and apply" button, reset redirect
 - `apps/web/app/app/_components/app-shell.tsx` — post-reset setup redirect
 - `apps/web/app/app/setup/page.tsx` — user data pre-fill, 409 handling
@@ -3582,6 +3635,7 @@ Full interactive LIVE test of 8 areas after H2-cleanup + H3 deploy. Found and fi
 - `apps/web/app/admin/layout.tsx` — nav item
 
 **OpenClaw fork:**
+
 - `src/gateway/persai-runtime/persai-runtime-workspace.ts` — `cleanupPersaiAssistantWorkspace`
 - `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — `remove()` method
 - `src/gateway/persai-runtime/persai-runtime-http.ts` — cleanup endpoint handler
@@ -3633,6 +3687,7 @@ The O(N) inline mass-reapply was the only auto-propagation mechanism and it bloc
 ### Key files changed
 
 **PersAI backend:**
+
 - `apps/api/prisma/schema.prisma` — `PlatformConfigGeneration`, `Assistant.configDirtyAt`, `AssistantMaterializedSpec.materializedAtConfigGeneration`
 - `apps/api/prisma/migrations/...` — migration + seed
 - `apps/api/src/modules/workspace-management/application/manage-admin-runtime-provider-settings.service.ts` — removed mass-reapply, added generation bump
@@ -3646,12 +3701,14 @@ The O(N) inline mass-reapply was the only auto-propagation mechanism and it bloc
 - `apps/api/src/modules/workspace-management/application/revoke-telegram-integration-secret.service.ts` — set configDirtyAt
 
 **PersAI frontend:**
+
 - `apps/web/app/admin/runtime/page.tsx` — removed reapplySummary, shows configGeneration feedback
 - `apps/web/app/admin/plans/page.tsx` — new "Force reapply all" button with step-up + summary
 - `apps/web/app/app/app-flow.client.tsx` — updated feedback to configGeneration
 - `apps/web/app/app/assistant-api-client.ts` — updated response validation, added `postAdminForceReapplyAll`
 
 **OpenClaw fork:**
+
 - `src/gateway/persai-runtime/persai-runtime-http.ts` — freshness check in both chat handlers (sync + stream)
 - `src/gateway/persai-runtime/persai-runtime-freshness.ts` — new: two-tier freshness client with TTL cache + mutex
 

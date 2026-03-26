@@ -1,5 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { loadApiConfig } from "@persai/config";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
@@ -185,6 +186,7 @@ export class MaterializeAssistantPublishedVersionService {
 
     const toolCredentialRefs = await this.resolveToolCredentialRefs();
     const toolQuotaPolicy = await this.resolveToolQuotaPolicy(governance.quotaPlanCode);
+    const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
 
     const openclawBootstrap = {
       schema: OPENCLAW_BOOTSTRAP_SCHEMA,
@@ -208,6 +210,9 @@ export class MaterializeAssistantPublishedVersionService {
         toolQuotaPolicy,
         secretRefs: governance.secretRefs,
         auditHook: governance.auditHook
+      },
+      channels: {
+        telegram: telegramChannel
       }
     };
 
@@ -681,6 +686,85 @@ export class MaterializeAssistantPublishedVersionService {
     lines.push("");
 
     return lines.join("\n");
+  }
+
+  private async resolveTelegramChannelConfig(assistantId: string): Promise<{
+    enabled: boolean;
+    botToken: string | null;
+    webhookUrl: string | null;
+    webhookSecret: string | null;
+    dmPolicy: string;
+    groupReplyMode: string;
+    parseMode: string;
+    inbound: boolean;
+    outbound: boolean;
+  }> {
+    const binding = await this.prisma.assistantChannelSurfaceBinding.findFirst({
+      where: {
+        assistantId,
+        providerKey: "telegram",
+        surfaceType: "telegram_bot",
+        bindingState: "active"
+      }
+    });
+    if (!binding) {
+      return {
+        enabled: false,
+        botToken: null,
+        webhookUrl: null,
+        webhookSecret: null,
+        dmPolicy: "open",
+        groupReplyMode: "mention_reply",
+        parseMode: "plain_text",
+        inbound: false,
+        outbound: false
+      };
+    }
+
+    const botToken = await this.platformRuntimeProviderSecretStoreService
+      .resolveSecretValueByProviderKey(`telegram_bot:${assistantId}`)
+      .catch(() => null);
+
+    const config = loadApiConfig(process.env);
+    const baseUrl = config.TELEGRAM_WEBHOOK_BASE_URL ?? null;
+    const hmacSecret = config.TELEGRAM_WEBHOOK_HMAC_SECRET ?? null;
+
+    let webhookUrl: string | null = null;
+    let webhookSecret: string | null = null;
+    if (baseUrl && hmacSecret) {
+      webhookUrl = `${baseUrl}/telegram-webhook/${assistantId}`;
+      webhookSecret = createHmac("sha256", hmacSecret)
+        .update(assistantId)
+        .digest("hex")
+        .slice(0, 64);
+    }
+
+    const bindingConfig =
+      binding.config && typeof binding.config === "object" && !Array.isArray(binding.config)
+        ? (binding.config as Record<string, unknown>)
+        : {};
+    const bindingPolicy =
+      binding.policy && typeof binding.policy === "object" && !Array.isArray(binding.policy)
+        ? (binding.policy as Record<string, unknown>)
+        : {};
+
+    return {
+      enabled: botToken !== null,
+      botToken,
+      webhookUrl,
+      webhookSecret,
+      dmPolicy: "open",
+      groupReplyMode:
+        typeof bindingConfig.groupReplyMode === "string"
+          ? bindingConfig.groupReplyMode
+          : "mention_reply",
+      parseMode:
+        typeof bindingConfig.defaultParseMode === "string"
+          ? bindingConfig.defaultParseMode
+          : "plain_text",
+      inbound: bindingPolicy.inboundUserMessages !== false,
+      outbound: bindingPolicy.outboundAssistantMessages !== false
+    };
   }
 
   private toGovernanceLayer(

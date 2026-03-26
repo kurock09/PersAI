@@ -1,13 +1,23 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Send, Loader2, CheckCircle2, AlertCircle, ChevronDown, ExternalLink } from "lucide-react";
+import {
+  Send,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  ChevronDown,
+  ExternalLink,
+  Users
+} from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import {
   postAssistantTelegramConnect,
   patchAssistantTelegramConfig,
+  fetchAssistantTelegramGroups,
   type TelegramIntegrationState,
+  type TelegramGroupInfo,
   type AssistantTelegramConfigUpdateRequest
 } from "../assistant-api-client";
 
@@ -202,9 +212,30 @@ function ConnectedView({
   const [parseMode, setParseMode] = useState(config.defaultParseMode);
   const [inbound, setInbound] = useState(config.inboundUserMessagesEnabled);
   const [outbound, setOutbound] = useState(config.outboundAssistantMessagesEnabled);
+  const [groupReplyMode, setGroupReplyMode] = useState<string>(
+    ((config as unknown as Record<string, unknown>).groupReplyMode as string) ?? "mention_reply"
+  );
   const [notes, setNotes] = useState(config.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [groups, setGroups] = useState<TelegramGroupInfo[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const t = await getToken();
+      if (!t || cancelled) return;
+      const g = await fetchAssistantTelegramGroups(t);
+      if (!cancelled) {
+        setGroups(g);
+        setGroupsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
 
   const handleSave = useCallback(async () => {
     const token = await getToken();
@@ -217,8 +248,9 @@ function ConnectedView({
         defaultParseMode: parseMode,
         inboundUserMessagesEnabled: inbound,
         outboundAssistantMessagesEnabled: outbound,
-        notes: notes.trim() || null
-      };
+        notes: notes.trim() || null,
+        groupReplyMode
+      } as AssistantTelegramConfigUpdateRequest;
       await patchAssistantTelegramConfig(token, payload);
       setFeedback({ type: "ok", text: "Config saved." });
       onUpdated();
@@ -230,7 +262,7 @@ function ConnectedView({
     } finally {
       setSaving(false);
     }
-  }, [getToken, parseMode, inbound, outbound, notes, onUpdated]);
+  }, [getToken, parseMode, inbound, outbound, groupReplyMode, notes, onUpdated]);
 
   return (
     <div className="space-y-5 px-5 py-5">
@@ -322,6 +354,40 @@ function ConnectedView({
                 onChange={setOutbound}
               />
 
+              {/* Group reply mode */}
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-text-muted">
+                  Group reply mode
+                </label>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      { value: "mention_reply", label: "Mention / Reply" },
+                      { value: "all_messages", label: "All messages" }
+                    ] as const
+                  ).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setGroupReplyMode(option.value)}
+                      className={cn(
+                        "flex-1 cursor-pointer rounded-lg border py-2 text-xs font-medium transition-all",
+                        groupReplyMode === option.value
+                          ? "border-accent bg-accent/10 text-accent"
+                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong"
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[10px] text-text-subtle">
+                  {groupReplyMode === "mention_reply"
+                    ? "Bot responds only to @mentions and replies in groups"
+                    : "Bot responds to all messages in groups"}
+                </p>
+              </div>
+
               {/* Notes */}
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-text-muted">Notes</label>
@@ -366,6 +432,56 @@ function ConnectedView({
           )}
         </div>
       )}
+
+      {/* Groups */}
+      <div className="rounded-xl border border-border">
+        <div className="flex items-center gap-2 px-4 py-3">
+          <Users className="h-4 w-4 text-text-subtle" />
+          <span className="text-sm font-medium text-text">Groups</span>
+          <span className="ml-auto text-xs text-text-muted">
+            {groups.filter((g) => g.status === "active").length} active
+          </span>
+        </div>
+        <div className="border-t border-border px-4 py-3">
+          {groupsLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+            </div>
+          ) : groups.length === 0 ? (
+            <p className="py-3 text-center text-xs text-text-subtle">
+              Add the bot to a Telegram group — it will appear here automatically.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {groups.map((g) => (
+                <li
+                  key={g.id}
+                  className="flex items-center justify-between rounded-lg bg-surface-raised/50 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-text">{g.title}</p>
+                    {g.memberCount !== null && (
+                      <p className="text-[10px] text-text-subtle">
+                        {g.memberCount} member{g.memberCount !== 1 ? "s" : ""}
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                      g.status === "active"
+                        ? "bg-success/10 text-success"
+                        : "bg-destructive/10 text-destructive"
+                    )}
+                  >
+                    {g.status === "active" ? "Active" : "Left"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
 
       {/* Integration notes */}
       {integration.notes.length > 0 && (

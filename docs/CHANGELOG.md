@@ -4,6 +4,15 @@
 
 ### Added
 
+- **H8 — Telegram runtime readiness:**
+  - Encrypted bot token storage: `ConnectTelegramIntegrationService` now persists the actual bot token via `PlatformRuntimeProviderSecretStoreService` (AES-256-GCM) under key `telegram_bot:{assistantId}`. Token deleted on revoke.
+  - Materialize Telegram channel config into `openclawBootstrap.channels.telegram`: includes resolved `botToken`, `webhookUrl`, HMAC-derived `webhookSecret`, `groupReplyMode`, `parseMode`, inbound/outbound policy.
+  - OpenClaw Telegram bridge (`persai-runtime-telegram.ts`): dynamically starts/stops Grammy bots per assistant on `spec/apply`, registers Telegram webhooks, handles `message:text` and `my_chat_member` events, supports group chat with configurable reply mode.
+  - GKE Ingress: `openclaw-ingress.yaml` routes `bot.persai.dev/telegram-webhook/*` to OpenClaw service with TLS.
+  - Prisma `assistant_telegram_groups` table: stores group join/leave events from `my_chat_member` callbacks. Internal endpoint `POST /api/v1/internal/runtime/telegram/group-update`.
+  - UI: Groups section in Telegram config panel (auto-populated list with name, member count, status badge). Group reply mode toggle (Mention/Reply vs All messages). API endpoint `GET /api/v1/assistant/integrations/telegram/groups`.
+  - New env vars: `TELEGRAM_WEBHOOK_BASE_URL`, `TELEGRAM_WEBHOOK_HMAC_SECRET`.
+
 - **Force Reapply configGeneration bump + null-plan backfill:**
   - `ForceReapplyAllService` now calls `bumpConfigGenerationService.execute()` before re-materializing, ensuring OpenClaw freshness checks detect the update.
   - `SeedToolCatalogService` backfills `assistantGovernance` rows with `quotaPlanCode=null` to the default plan on every API startup, so legacy assistants created before the plan system get correct tool deny lists.

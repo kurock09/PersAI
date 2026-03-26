@@ -143,6 +143,11 @@ openclaw:
     OPENCLAW_GATEWAY_TOKEN:
       secretName: persai-openclaw-secrets
       secretKey: OPENCLAW_GATEWAY_TOKEN
+  telegramWebhook:
+    enabled: false
+    host: ""
+    managedCertificate: ""
+    tlsSecretName: ""
   service:
     type: ClusterIP
     port: 18789

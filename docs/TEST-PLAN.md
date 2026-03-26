@@ -345,3 +345,47 @@ Required in CI:
 - API lint + typecheck pass.
 - Existing publish/rollback/reapply/reset flows unaffected.
 - Platform rollout create/rollback unaffected (workspace-scoped, separate concern).
+
+## Step 12 H8 Telegram runtime readiness
+
+### Token storage
+
+- Connect stores encrypted bot token in `platform_runtime_provider_secrets` under key `telegram_bot:{assistantId}`.
+- Revoke deletes the encrypted token.
+- Rotate (re-connect) overwrites the encrypted token.
+
+### Materialization
+
+- Active Telegram binding → `openclawBootstrap.channels.telegram.enabled: true` with resolved `botToken`, `webhookUrl`, `webhookSecret`.
+- No active binding → `channels.telegram.enabled: false`, null token/webhook fields.
+- `groupReplyMode` defaults to `"mention_reply"` when not explicitly set in config.
+- HMAC webhook secret derived deterministically from `assistantId` + `TELEGRAM_WEBHOOK_HMAC_SECRET`.
+
+### OpenClaw Telegram bridge
+
+- On `spec/apply` with `channels.telegram.enabled: true`: Grammy bot started, webhook registered with Telegram API.
+- On `spec/apply` with `channels.telegram.enabled: false`: existing bot stopped, webhook deleted.
+- On pod restart: bots reinitialized from Redis spec store (`getAll()`).
+- Webhook handler at `/telegram-webhook/:assistantId` routes to correct bot.
+- Group reply mode `mention_reply`: bot only responds to @mentions and direct replies in groups.
+- Group reply mode `all_messages`: bot responds to every text message in groups.
+
+### Group tracking
+
+- OpenClaw sends `my_chat_member` events to PersAI `POST /api/v1/internal/runtime/telegram/group-update`.
+- Join event upserts group record with status `active`.
+- Leave event updates group record to status `left` with `leftAt` timestamp.
+- `GET /api/v1/assistant/integrations/telegram/groups` returns current group list.
+
+### UI
+
+- Groups section visible in connected Telegram panel.
+- Empty state shown when no groups connected.
+- Group reply mode toggle persists via `PATCH /assistant/integrations/telegram/config`.
+- `groupReplyMode` included in `configPanel.settings` response.
+
+### Regression
+
+- Existing Telegram connect/config/revoke flows unaffected.
+- API lint + typecheck pass (PersAI + OpenClaw).
+- Pre-existing Telegram bindings without `groupReplyMode` default to `"mention_reply"` — no seed needed.

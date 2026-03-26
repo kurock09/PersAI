@@ -24,7 +24,12 @@ import type {
   TelegramSecretRevokeInput
 } from "./telegram-integration.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+
+function telegramBotSecretKey(assistantId: string): string {
+  return `telegram_bot:${assistantId}`;
+}
 
 @Injectable()
 export class RevokeTelegramIntegrationSecretService {
@@ -37,6 +42,7 @@ export class RevokeTelegramIntegrationSecretService {
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly secretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -100,6 +106,8 @@ export class RevokeTelegramIntegrationSecretService {
         "telegram",
         "telegram_bot"
       );
+    await this.secretStoreService.deleteProviderKey(telegramBotSecretKey(assistant.id));
+
     if (existingBinding !== null) {
       const now = new Date();
       await this.assistantChannelSurfaceBindingRepository.upsert({

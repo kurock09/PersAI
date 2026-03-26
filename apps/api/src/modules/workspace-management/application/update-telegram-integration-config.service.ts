@@ -59,6 +59,12 @@ export class UpdateTelegramIntegrationConfigService {
       }
       output.outboundAssistantMessagesEnabled = source.outboundAssistantMessagesEnabled;
     }
+    if ("groupReplyMode" in source) {
+      if (source.groupReplyMode !== "mention_reply" && source.groupReplyMode !== "all_messages") {
+        throw new BadRequestException("groupReplyMode must be mention_reply or all_messages.");
+      }
+      output.groupReplyMode = source.groupReplyMode;
+    }
     if ("notes" in source) {
       if (source.notes !== null && typeof source.notes !== "string") {
         throw new BadRequestException("notes must be string or null.");
@@ -109,6 +115,9 @@ export class UpdateTelegramIntegrationConfigService {
     if (input.defaultParseMode !== undefined) {
       nextConfig.defaultParseMode = input.defaultParseMode;
     }
+    if (input.groupReplyMode !== undefined) {
+      nextConfig.groupReplyMode = input.groupReplyMode;
+    }
     if (input.notes !== undefined) {
       nextConfig.notes = input.notes;
     }
@@ -140,6 +149,7 @@ export class UpdateTelegramIntegrationConfigService {
           defaultParseMode: input.defaultParseMode !== undefined,
           inboundUserMessagesEnabled: input.inboundUserMessagesEnabled !== undefined,
           outboundAssistantMessagesEnabled: input.outboundAssistantMessagesEnabled !== undefined,
+          groupReplyMode: input.groupReplyMode !== undefined,
           notes: input.notes !== undefined
         }
       }
