@@ -31,7 +31,7 @@ function ChatPageInner() {
     if (existingChat?.chat.id) {
       void chat.loadHistory(existingChat.chat.id);
     }
-  }, [existingChat?.chat.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [existingChat?.chat.id]); // eslint-disable-line
 
   return (
     <ChatArea
