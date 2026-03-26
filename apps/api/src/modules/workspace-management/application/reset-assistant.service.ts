@@ -67,8 +67,14 @@ export class ResetAssistantService {
           this.logger.log("Step 5: deleting materialized specs");
           await tx.assistantMaterializedSpec.deleteMany({ where: { assistantId: aid } });
 
-          this.logger.log("Step 6: deleting published versions");
+          this.logger.log("Step 6: disabling immutability trigger and deleting published versions");
+          await tx.$executeRawUnsafe(
+            `ALTER TABLE "assistant_published_versions" DISABLE TRIGGER "assistant_published_versions_no_delete"`
+          );
           await tx.assistantPublishedVersion.deleteMany({ where: { assistantId: aid } });
+          await tx.$executeRawUnsafe(
+            `ALTER TABLE "assistant_published_versions" ENABLE TRIGGER "assistant_published_versions_no_delete"`
+          );
 
           this.logger.log("Transaction complete");
         },
