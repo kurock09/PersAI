@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException
 } from "@nestjs/common";
 import {
@@ -14,6 +15,11 @@ import {
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import {
+  ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
+  type AssistantPublishedVersionRepository
+} from "../domain/assistant-published-version.repository";
+import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
 import {
   resolveTelegramSecretLifecycleState,
   revokeTelegramBotSecretRef
@@ -33,6 +39,8 @@ function telegramBotSecretKey(assistantId: string): string {
 
 @Injectable()
 export class RevokeTelegramIntegrationSecretService {
+  private readonly logger = new Logger(RevokeTelegramIntegrationSecretService.name);
+
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
@@ -40,6 +48,9 @@ export class RevokeTelegramIntegrationSecretService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
+    @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
+    private readonly publishedVersionRepository: AssistantPublishedVersionRepository,
+    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly secretStoreService: PlatformRuntimeProviderSecretStoreService,
@@ -158,6 +169,24 @@ export class RevokeTelegramIntegrationSecretService {
       data: { configDirtyAt: new Date() }
     });
 
+    await this.autoApplySpec(userId, assistant.id);
+
     return this.resolveTelegramIntegrationStateService.execute(userId);
+  }
+
+  private async autoApplySpec(userId: string, assistantId: string): Promise<void> {
+    try {
+      const latestPublished =
+        await this.publishedVersionRepository.findLatestByAssistantId(assistantId);
+      if (latestPublished === null) {
+        return;
+      }
+      await this.applyAssistantPublishedVersionService.execute(userId, latestPublished, true);
+      this.logger.log(`Auto-applied spec after Telegram revoke for assistant ${assistantId}`);
+    } catch (error) {
+      this.logger.warn(
+        `Auto-apply after Telegram revoke failed for ${assistantId}: ${error instanceof Error ? error.message : "unknown"}`
+      );
+    }
   }
 }

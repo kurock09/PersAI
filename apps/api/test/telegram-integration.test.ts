@@ -154,10 +154,18 @@ async function run(): Promise<void> {
     deleteProviderKey: async () => undefined,
     resolveSecretValueByProviderKey: async () => null
   };
+  const publishedVersionRepositoryMock = {
+    findLatestByAssistantId: async () => null
+  };
+  const applyServiceMock = {
+    execute: async () => undefined
+  };
   const connectService = new ConnectTelegramIntegrationService(
     assistantRepository as never,
     governanceRepository as never,
     bindingRepository as never,
+    publishedVersionRepositoryMock as never,
+    applyServiceMock as never,
     capabilityResolver as never,
     resolveStateService,
     auditEventService as never,
@@ -174,6 +182,8 @@ async function run(): Promise<void> {
     assistantRepository as never,
     governanceRepository as never,
     bindingRepository as never,
+    publishedVersionRepositoryMock as never,
+    applyServiceMock as never,
     resolveStateService,
     auditEventService as never,
     secretStoreServiceMock as never,
