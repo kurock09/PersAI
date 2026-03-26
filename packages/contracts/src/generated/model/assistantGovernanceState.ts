@@ -4,13 +4,13 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantGovernanceStateCapabilityEnvelope } from './assistantGovernanceStateCapabilityEnvelope';
-import type { AssistantGovernanceStateSecretRefs } from './assistantGovernanceStateSecretRefs';
-import type { AssistantGovernanceStatePolicyEnvelope } from './assistantGovernanceStatePolicyEnvelope';
-import type { AssistantGovernanceStateMemoryControl } from './assistantGovernanceStateMemoryControl';
-import type { AssistantGovernanceStateTasksControl } from './assistantGovernanceStateTasksControl';
-import type { AssistantGovernanceStateQuotaHook } from './assistantGovernanceStateQuotaHook';
-import type { AssistantGovernanceStateAuditHook } from './assistantGovernanceStateAuditHook';
+import type { AssistantGovernanceStateCapabilityEnvelope } from "./assistantGovernanceStateCapabilityEnvelope";
+import type { AssistantGovernanceStateSecretRefs } from "./assistantGovernanceStateSecretRefs";
+import type { AssistantGovernanceStatePolicyEnvelope } from "./assistantGovernanceStatePolicyEnvelope";
+import type { AssistantGovernanceStateMemoryControl } from "./assistantGovernanceStateMemoryControl";
+import type { AssistantGovernanceStateTasksControl } from "./assistantGovernanceStateTasksControl";
+import type { AssistantGovernanceStateQuotaHook } from "./assistantGovernanceStateQuotaHook";
+import type { AssistantGovernanceStateAuditHook } from "./assistantGovernanceStateAuditHook";
 
 export interface AssistantGovernanceState {
   /** @nullable */

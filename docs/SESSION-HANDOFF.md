@@ -1,5 +1,53 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - H3.3 post-deploy fixes: user data, avatar editing, emoji picker
+
+### What changed
+
+- **Setup wizard user profile upsert:** removed `if (onboarding.status === "pending")` gate — `postOnboarding` is now always called in `handleCreate`. After reset, user-edited fields (name, birthday, gender, timezone) are persisted to DB before materialization, so USER.md and other bootstrap files reflect current data.
+- **Avatar editing in settings:** added emoji picker (inline grid — avoids `overflow` clipping by `SlideOver`'s scroll container) + file upload button; selecting emoji clears URL and vice versa; `avatarUrl` now sent to API on save.
+- **Sidebar avatar rendering:** sidebar assistant card now shows custom `avatarUrl` image when present, with emoji and default icon fallbacks.
+- **Edit personality button:** restyled from text link to `ActionButton` component; placed in same row as "Save and apply".
+- **Dead code cleanup:** removed unused `router` from `handleCreate` dependency array in setup wizard.
+
+### Why changed
+
+- After H3.3 deploy, live testing revealed: (1) USER.md preserved old data after reset+recreate because `postOnboarding` was skipped; (2) emoji picker was visually broken inside the slide-over panel due to `overflow` clipping; (3) no way to change avatar or upload image in edit flow; (4) sidebar showed default icon even when avatar was set.
+
+### Slice boundary
+
+- PersAI web only (no backend or OpenClaw changes)
+
+### Files touched
+
+- `apps/web/app/app/setup/page.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/sidebar.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/UI-SPEC.md`
+
+### Tests run
+
+- Lint, format, typecheck (full workspace gate per AGENTS.md)
+
+### Risks
+
+- `postOnboarding` upsert is safe for repeated calls (backend handles existing records). No side effects.
+- File upload creates `blob:` URL (local-only preview). No server-side file upload API exists yet — custom avatar images do not persist across sessions. Tracked as known limitation.
+
+### Next recommended step
+
+- **Server-side avatar upload:** add file upload endpoint for persistent avatar URL storage (GCS or equivalent)
+- **H4 — Telegram runtime readiness** alignment against admin-driven runtime profile + managed secret refs
+- **AI model routing investigation:** `gpt-5.1` selected in plan not applied after reapply (paused, needs debugging)
+
+### Ready commit message
+
+- `fix(web): always upsert user profile on recreate, add avatar editing and file upload in settings`
+
+---
+
 ## 2026-03-26 - H2 cleanup: tool/plan/limits consolidation and dead-code removal
 
 ### What changed

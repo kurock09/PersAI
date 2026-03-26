@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -14,7 +14,8 @@ import {
   BarChart3,
   History,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  Upload
 } from "lucide-react";
 import type {
   AssistantMemoryRegistryItemState,
@@ -93,6 +94,8 @@ function FeedbackLine({ fb }: { fb: ActionFeedback }) {
   );
 }
 
+const AVATAR_EMOJIS = ["🌟", "🧠", "⚡", "🧘", "🤖", "🌙", "🔥", "🔮", "🌊", "💎", "✨", "🪐"];
+
 function ActionButton({
   icon,
   label,
@@ -151,10 +154,15 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   const [draftAvatarEmoji, setDraftAvatarEmoji] = useState<string | null>(
     assistant?.draft.avatarEmoji ?? null
   );
+  const [draftAvatarUrl, setDraftAvatarUrl] = useState<string | null>(
+    assistant?.draft.avatarUrl ?? null
+  );
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [rollingBack, setRollingBack] = useState(false);
   const [rollbackConfirm, setRollbackConfirm] = useState(false);
   const [rollbackFb, setRollbackFb] = useState<ActionFeedback>(null);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [resetFb, setResetFb] = useState<ActionFeedback>(null);
@@ -181,6 +189,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     const t = assistant?.draft.traits as Record<string, number> | null | undefined;
     if (t) setDraftTraits(t);
     setDraftAvatarEmoji(assistant?.draft.avatarEmoji ?? null);
+    setDraftAvatarUrl(assistant?.draft.avatarUrl ?? null);
   }, [assistant]);
 
   const loadMemory = useCallback(async () => {
@@ -273,7 +282,8 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         displayName: draftName || null,
         instructions: draftInstructions || null,
         traits: draftTraits,
-        avatarEmoji: draftAvatarEmoji
+        avatarEmoji: draftAvatarEmoji,
+        avatarUrl: draftAvatarUrl
       });
       await postAssistantPublish(token);
       setSaveFb({ type: "ok", text: "Saved and applied." });
@@ -282,7 +292,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       setSaveFb({ type: "err", text: e instanceof Error ? e.message : "Save failed." });
     }
     setSaving(false);
-  }, [getToken, draftName, draftInstructions, draftTraits, draftAvatarEmoji, data]);
+  }, [getToken, draftName, draftInstructions, draftTraits, draftAvatarEmoji, draftAvatarUrl, data]);
 
   const handleRollback = useCallback(async () => {
     const token = await getToken();
@@ -377,9 +387,18 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       {/* 1. Character — hero */}
       <Section icon={<Sparkles className="h-4 w-4" />} title="Character">
         <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-accent/15 text-3xl">
-            {draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />}
-          </div>
+          <button
+            type="button"
+            onClick={() => setEmojiPickerOpen((o) => !o)}
+            className="flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center rounded-2xl bg-accent/15 text-3xl overflow-hidden transition-colors hover:bg-accent/25"
+            title="Change avatar"
+          >
+            {draftAvatarUrl ? (
+              <img src={draftAvatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+            ) : (
+              draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />
+            )}
+          </button>
           <div className="min-w-0 flex-1">
             <input
               type="text"
@@ -394,14 +413,71 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
             </span>
           </div>
         </div>
+        {emojiPickerOpen && (
+          <div className="mt-2 grid grid-cols-6 gap-1 rounded-lg border border-border bg-surface-raised p-2">
+            {AVATAR_EMOJIS.map((em) => (
+              <button
+                key={em}
+                type="button"
+                onClick={() => {
+                  setDraftAvatarEmoji(em);
+                  setDraftAvatarUrl(null);
+                  setEmojiPickerOpen(false);
+                }}
+                className={cn(
+                  "flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-xl transition-colors",
+                  draftAvatarEmoji === em && !draftAvatarUrl
+                    ? "bg-accent/20 ring-1 ring-accent"
+                    : "hover:bg-surface-hover"
+                )}
+              >
+                {em}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                "flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg transition-colors",
+                draftAvatarUrl
+                  ? "bg-accent/20 ring-1 ring-accent"
+                  : "hover:bg-surface-hover text-text-subtle"
+              )}
+              title="Upload image"
+            >
+              <Upload className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file || !file.type.startsWith("image/")) return;
+            setDraftAvatarUrl(URL.createObjectURL(file));
+            setDraftAvatarEmoji(null);
+            setEmojiPickerOpen(false);
+          }}
+        />
 
-        <button
-          type="button"
-          onClick={() => setEditingPersonality(!editingPersonality)}
-          className="mt-3 cursor-pointer text-xs font-medium text-accent hover:text-accent-hover transition-colors"
-        >
-          {editingPersonality ? "Hide personality editor" : "Edit personality"}
-        </button>
+        <div className="mt-3 flex items-center gap-2">
+          <ActionButton
+            icon={<Rocket className="h-3.5 w-3.5" />}
+            label="Save and apply"
+            onClick={() => void handleSaveAndApply()}
+            busy={saving}
+          />
+          <ActionButton
+            icon={<Sparkles className="h-3.5 w-3.5" />}
+            label={editingPersonality ? "Hide personality" : "Edit personality"}
+            onClick={() => setEditingPersonality(!editingPersonality)}
+            busy={false}
+          />
+        </div>
+        <FeedbackLine fb={saveFb} />
 
         {editingPersonality && (
           <>
@@ -434,16 +510,6 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
             />
           </>
         )}
-
-        <div className="mt-3 flex items-center gap-2">
-          <ActionButton
-            icon={<Rocket className="h-3.5 w-3.5" />}
-            label="Save and apply"
-            onClick={() => void handleSaveAndApply()}
-            busy={saving}
-          />
-        </div>
-        <FeedbackLine fb={saveFb} />
       </Section>
 
       {/* 2. Quick actions */}

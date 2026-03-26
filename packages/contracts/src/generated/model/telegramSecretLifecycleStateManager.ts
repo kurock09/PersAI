@@ -8,10 +8,11 @@
 /**
  * @nullable
  */
-export type TelegramSecretLifecycleStateManager = typeof TelegramSecretLifecycleStateManager[keyof typeof TelegramSecretLifecycleStateManager] | null;
-
+export type TelegramSecretLifecycleStateManager =
+  | (typeof TelegramSecretLifecycleStateManager)[keyof typeof TelegramSecretLifecycleStateManager]
+  | null;
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TelegramSecretLifecycleStateManager = {
-  backend_vault_kms: 'backend_vault_kms',
+  backend_vault_kms: "backend_vault_kms"
 } as const;

@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { OnboardingRequestGender } from './onboardingRequestGender';
+import type { OnboardingRequestGender } from "./onboardingRequestGender";
 
 export interface OnboardingRequest {
   displayName: string;

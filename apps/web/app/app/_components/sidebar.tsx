@@ -168,8 +168,16 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
           onClick={onAssistantCardClick}
           className="flex w-full cursor-pointer items-center gap-3 rounded-xl bg-surface-raised p-3 transition-colors hover:bg-surface-hover"
         >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent">
-            <Sparkles className="h-5 w-5" />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent text-xl overflow-hidden">
+            {data.assistant?.draft.avatarUrl ? (
+              <img
+                src={data.assistant.draft.avatarUrl}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              (data.assistant?.draft.avatarEmoji ?? <Sparkles className="h-5 w-5" />)
+            )}
           </div>
           <div className="min-w-0 text-left">
             <p className="truncate text-sm font-semibold text-text">{assistantName}</p>

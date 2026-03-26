@@ -140,7 +140,7 @@ Foundation Phase
   - [x] H3.2a — **create**: audited full pipeline; found and fixed trait key mismatch (`tone` → `playfulness`) that silently dropped the playfulness trait from SOUL.md
   - [x] H3.2b — **edit**: audited full pipeline; edit flow correct (bootstrap overwrite semantics, BOOTSTRAP.md write-once preserved)
   - [x] H3.2c — **recreate/reset**: found and fixed 3 bugs: reset/rollback not copying traits/avatar to new published version and draft; reset using `reapply=false` leaving stale BOOTSTRAP.md
-  - [x] H3.2d — **UI completeness**: all action buttons mapped with loading/error states and confirmation dialogs; noted minor gaps (no avatar picker in settings, no reapply in user UI)
+  - [x] H3.2d — **UI completeness**: all action buttons mapped with loading/error states and confirmation dialogs; avatar picker and file upload added in settings; reapply in user UI remains noted gap
 - [x] H3.3 — **assistant lifecycle rework** (CREATE/EDIT/RESET):
   - [x] H3.3a — **EDIT simplification**: replaced separate "Save draft" + "Publish" buttons with a single "Save and apply" button; backend draft/publish versioning preserved internally
   - [x] H3.3b — **RESET full wipe**: rewritten to hard-delete all chats, memory, published versions, materialized specs, workspace files; OpenClaw workspace cleanup endpoint; redirect to `/app/setup` with user data pre-filled

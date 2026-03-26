@@ -56,6 +56,7 @@ One assistant, everywhere. Not separate apps for food/home/calendar — one pers
 /admin/notifications      → notification channels
 /admin/runtime            → runtime provider settings (primary/fallback, available models, reapply summary)
 /admin/tools              → tool credential management
+/admin/presets            → bootstrap document preset editor (SOUL/USER/IDENTITY/AGENTS templates)
 ```
 
 Modal windows: integration settings (Telegram/WhatsApp/MAX), confirm dialogs (delete, reset, rollback).
@@ -192,8 +193,9 @@ Opens on click of assistant card in sidebar. On mobile: fullscreen.
 ### Sections (ordered by "humanization" priority)
 
 #### 1. Character (hero section, top)
-- Large editable avatar, name, status badge
-- "Edit personality" button → expands character trait sliders + instructions textarea
+- Clickable avatar: shows inline emoji picker grid + file upload button; selecting emoji clears URL and vice versa
+- Name input + status badge
+- "Edit personality" and "Save and apply" buttons side by side; "Edit personality" expands trait sliders + instructions textarea
 
 #### 2. Quick actions
 - Publish / Rollback / Reset buttons with confirmation dialogs
@@ -232,6 +234,7 @@ Opens on click of assistant card in sidebar. On mobile: fullscreen.
   - Notifications (webhook channel management)
   - Runtime Settings (primary/fallback provider+model, available models per provider editor, post-save reapply summary)
   - Tools (tool credential management — write-only provider API keys)
+  - Presets (bootstrap document template editor — SOUL/USER/IDENTITY/AGENTS with variable chips and live preview)
   - Abuse Controls (unblock/override)
 
 ---
@@ -302,8 +305,7 @@ All user-facing API endpoints already exist. The UI redesign is a frontend-only 
 - Admin: all `/admin/*` endpoints (existing — plans with quota limits and model key, runtime with fallback and model editor, tools)
 
 New backend fields needed (follow-up):
-- `assistant.draft_avatar_url` or equivalent for avatar persistence
-- `assistant.draft_traits` or structured JSON for character trait sliders
+- Server-side file upload endpoint for persistent avatar URL storage (GCS or equivalent); current `avatarUrl` accepts `blob:` URLs which do not persist across sessions
 - Regenerate endpoint (retry last assistant turn)
 - Like/dislike feedback endpoint
 

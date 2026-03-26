@@ -8,10 +8,18 @@
   - **Admin-editable bootstrap presets:** new `bootstrap_document_presets` table with Prisma migration and seed data for 4 bootstrap templates (SOUL, USER, IDENTITY, AGENTS). Admin API (`GET`/`PATCH /api/v1/admin/bootstrap-presets/:id`) allows editing templates with `{{placeholder}}` interpolation. Materialization service now loads templates from DB (falls back to hardcoded defaults). New `/admin/presets` UI page with Markdown editors, variable chips (click-to-copy-and-insert), and live preview with sample data.
   - **RESET full wipe:** `reset-assistant.service.ts` rewritten to hard-delete all chats, chat messages, memory registry items, materialized specs, and published versions in a single transaction. Workspace files and OpenClaw spec store cleaned up via new `POST /api/v1/runtime/workspace/cleanup` endpoint. After reset, frontend redirects to `/app/setup` with user data (name, birthday, gender, timezone) pre-filled from `/me`. Setup wizard handles the existing-assistant case (409 from create is silently caught).
   - **EDIT simplification:** replaced separate "Save draft" + "Publish" buttons with a single "Save and apply" button in `assistant-settings.tsx`. Backend draft/publish versioning logic preserved internally. Removed unused `publishing`/`pubFb` state and `Upload`/`Save` icon imports.
+  - **Avatar editing in settings:** added emoji picker (inline grid, avoids `overflow` clipping in slide-over) and file upload button in assistant settings; sidebar now renders custom avatar image when `avatarUrl` is present; "Edit personality" restyled as `ActionButton` in the same row as "Save and apply".
   - **OpenClaw workspace cleanup:** added `cleanupPersaiAssistantWorkspace()` in `persai-runtime-workspace.ts`, `remove(assistantId)` on `PersaiRuntimeSpecStore` interface (both InMemory and Redis implementations), and HTTP handler + route registration in `persai-runtime-http.ts` / `server-http.ts`.
   - **App shell reset detection:** `app-shell.tsx` now detects post-reset state (assistant exists but has no published version and `applyStatus=not_requested`) and redirects to `/app/setup`.
 
 ### Fixed
+
+- **Step 12 H3.3 — post-deploy fixes:**
+  - Fixed setup wizard not updating user profile data after reset: `postOnboarding` was skipped when `onboarding.status !== "pending"`, causing USER.md and other bootstrap files to show stale data. Now always calls the upsert endpoint regardless of onboarding status.
+  - Fixed emoji picker in assistant settings clipped by `SlideOver` `overflow-y-auto` container: changed from `absolute` positioning to inline grid that flows naturally in the document.
+  - Fixed avatar `avatarUrl` not sent to API on save in settings edit flow.
+  - Fixed sidebar not rendering custom avatar image (only showed emoji or default icon).
+  - Removed stale `router` dependency from setup wizard `handleCreate` callback.
 
 - **Step 12 H3.2 — assistant lifecycle audit:**
   - Fixed trait key mismatch: setup wizard used `"tone"` while settings and materialization used `"playfulness"`, causing the trait set during creation to be silently lost in SOUL.md and invisible in settings.

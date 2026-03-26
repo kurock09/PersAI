@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminOpsCockpitStateAssistantLatestPublishedVersion } from './adminOpsCockpitStateAssistantLatestPublishedVersion';
-import type { AdminOpsCockpitStateAssistantRuntimeApply } from './adminOpsCockpitStateAssistantRuntimeApply';
+import type { AdminOpsCockpitStateAssistantLatestPublishedVersion } from "./adminOpsCockpitStateAssistantLatestPublishedVersion";
+import type { AdminOpsCockpitStateAssistantRuntimeApply } from "./adminOpsCockpitStateAssistantRuntimeApply";
 
 export type AdminOpsCockpitStateAssistant = {
   exists: boolean;

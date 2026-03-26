@@ -246,20 +246,16 @@ export default function SetupWizardPage() {
     setError(null);
 
     try {
-      const me = await getMe(token);
-
-      if (me.me.onboarding.status === "pending") {
-        await postOnboarding(token, {
-          displayName: userName.trim(),
-          workspaceName: `${userName.trim()}'s workspace`,
-          locale: navigator.language ?? "en",
-          timezone: timezone || "UTC",
-          birthday: birthday || null,
-          gender: gender ?? null,
-          acceptTermsOfService: true,
-          acceptPrivacyPolicy: true
-        });
-      }
+      await postOnboarding(token, {
+        displayName: userName.trim(),
+        workspaceName: `${userName.trim()}'s workspace`,
+        locale: navigator.language ?? "en",
+        timezone: timezone || "UTC",
+        birthday: birthday || null,
+        gender: gender ?? null,
+        acceptTermsOfService: true,
+        acceptPrivacyPolicy: true
+      });
 
       await postAssistantCreate(token);
 
@@ -278,7 +274,7 @@ export default function SetupWizardPage() {
         avatarUrl: customAvatarUrl
       });
       await postAssistantPublish(token);
-      router.push("/app/chat");
+      window.location.href = "/app/chat";
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
       setCreating(false);
@@ -292,8 +288,7 @@ export default function SetupWizardPage() {
     gender,
     traits,
     avatarObj,
-    customAvatarUrl,
-    router
+    customAvatarUrl
   ]);
 
   return (

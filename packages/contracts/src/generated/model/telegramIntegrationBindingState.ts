@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TelegramIntegrationBindingState = typeof TelegramIntegrationBindingState[keyof typeof TelegramIntegrationBindingState];
-
+export type TelegramIntegrationBindingState =
+  (typeof TelegramIntegrationBindingState)[keyof typeof TelegramIntegrationBindingState];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TelegramIntegrationBindingState = {
-  active: 'active',
-  inactive: 'inactive',
-  unconfigured: 'unconfigured',
+  active: "active",
+  inactive: "inactive",
+  unconfigured: "unconfigured"
 } as const;

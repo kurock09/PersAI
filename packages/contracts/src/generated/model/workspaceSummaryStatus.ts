@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type WorkspaceSummaryStatus = typeof WorkspaceSummaryStatus[keyof typeof WorkspaceSummaryStatus];
-
+export type WorkspaceSummaryStatus =
+  (typeof WorkspaceSummaryStatus)[keyof typeof WorkspaceSummaryStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WorkspaceSummaryStatus = {
-  active: 'active',
-  inactive: 'inactive',
+  active: "active",
+  inactive: "inactive"
 } as const;

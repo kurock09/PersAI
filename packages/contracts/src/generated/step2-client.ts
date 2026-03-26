@@ -57,2743 +57,2787 @@ import type {
   PostAssistantTaskItemDisableResponse,
   PostAssistantTaskItemEnableResponse,
   PutAdminRuntimeProviderSettingsResponse
-} from './model';
+} from "./model";
 
-import { customFetch } from '../mutator/custom-fetch';
+import { customFetch } from "../mutator/custom-fetch";
 
 /**
  * @summary Get current authenticated user assistant lifecycle state
  */
 export type getAssistantResponse200 = {
-  data: GetAssistantResponse
-  status: 200
-}
+  data: GetAssistantResponse;
+  status: 200;
+};
 
 export type getAssistantResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAssistantResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type getAssistantResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAssistantResponseSuccess = (getAssistantResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantResponseSuccess = getAssistantResponse200 & {
   headers: Headers;
 };
-export type getAssistantResponseError = (getAssistantResponse401 | getAssistantResponse404 | getAssistantResponse500) & {
+export type getAssistantResponseError = (
+  | getAssistantResponse401
+  | getAssistantResponse404
+  | getAssistantResponse500
+) & {
   headers: Headers;
 };
 
-export type getAssistantResponse = (getAssistantResponseSuccess | getAssistantResponseError)
+export type getAssistantResponse = getAssistantResponseSuccess | getAssistantResponseError;
 
 export const getGetAssistantUrl = () => {
+  return `/assistant`;
+};
 
-
-  
-
-  return `/assistant`
-}
-
-export const getAssistant = async ( options?: RequestInit): Promise<getAssistantResponse> => {
-  
-  return customFetch<getAssistantResponse>(getGetAssistantUrl(),
-  {      
+export const getAssistant = async (options?: RequestInit): Promise<getAssistantResponse> => {
+  return customFetch<getAssistantResponse>(getGetAssistantUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Create assistant for current authenticated user
  */
 export type postAssistantCreateResponse200 = {
-  data: GetAssistantResponse
-  status: 200
-}
+  data: GetAssistantResponse;
+  status: 200;
+};
 
 export type postAssistantCreateResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAssistantCreateResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantCreateResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantCreateResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantCreateResponseSuccess = (postAssistantCreateResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantCreateResponseSuccess = postAssistantCreateResponse200 & {
   headers: Headers;
 };
-export type postAssistantCreateResponseError = (postAssistantCreateResponse400 | postAssistantCreateResponse401 | postAssistantCreateResponse409 | postAssistantCreateResponse500) & {
+export type postAssistantCreateResponseError = (
+  | postAssistantCreateResponse400
+  | postAssistantCreateResponse401
+  | postAssistantCreateResponse409
+  | postAssistantCreateResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantCreateResponse = (postAssistantCreateResponseSuccess | postAssistantCreateResponseError)
+export type postAssistantCreateResponse =
+  | postAssistantCreateResponseSuccess
+  | postAssistantCreateResponseError;
 
 export const getPostAssistantCreateUrl = () => {
+  return `/assistant`;
+};
 
-
-  
-
-  return `/assistant`
-}
-
-export const postAssistantCreate = async ( options?: RequestInit): Promise<postAssistantCreateResponse> => {
-  
-  return customFetch<postAssistantCreateResponse>(getPostAssistantCreateUrl(),
-  {      
+export const postAssistantCreate = async (
+  options?: RequestInit
+): Promise<postAssistantCreateResponse> => {
+  return customFetch<postAssistantCreateResponse>(getPostAssistantCreateUrl(), {
     ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
+    method: "POST"
+  });
+};
 
 /**
  * @summary Get user-facing effective plan and limit visibility
  */
 export type getAssistantPlanVisibilityResponse200 = {
-  data: GetAssistantPlanVisibilityResponse
-  status: 200
-}
+  data: GetAssistantPlanVisibilityResponse;
+  status: 200;
+};
 
 export type getAssistantPlanVisibilityResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAssistantPlanVisibilityResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type getAssistantPlanVisibilityResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAssistantPlanVisibilityResponseSuccess = (getAssistantPlanVisibilityResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantPlanVisibilityResponseSuccess = getAssistantPlanVisibilityResponse200 & {
   headers: Headers;
 };
-export type getAssistantPlanVisibilityResponseError = (getAssistantPlanVisibilityResponse401 | getAssistantPlanVisibilityResponse404 | getAssistantPlanVisibilityResponse500) & {
+export type getAssistantPlanVisibilityResponseError = (
+  | getAssistantPlanVisibilityResponse401
+  | getAssistantPlanVisibilityResponse404
+  | getAssistantPlanVisibilityResponse500
+) & {
   headers: Headers;
 };
 
-export type getAssistantPlanVisibilityResponse = (getAssistantPlanVisibilityResponseSuccess | getAssistantPlanVisibilityResponseError)
+export type getAssistantPlanVisibilityResponse =
+  | getAssistantPlanVisibilityResponseSuccess
+  | getAssistantPlanVisibilityResponseError;
 
 export const getGetAssistantPlanVisibilityUrl = () => {
+  return `/assistant/plan-visibility`;
+};
 
-
-  
-
-  return `/assistant/plan-visibility`
-}
-
-export const getAssistantPlanVisibility = async ( options?: RequestInit): Promise<getAssistantPlanVisibilityResponse> => {
-  
-  return customFetch<getAssistantPlanVisibilityResponse>(getGetAssistantPlanVisibilityUrl(),
-  {      
+export const getAssistantPlanVisibility = async (
+  options?: RequestInit
+): Promise<getAssistantPlanVisibilityResponse> => {
+  return customFetch<getAssistantPlanVisibilityResponse>(getGetAssistantPlanVisibilityUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Update current authenticated user assistant draft fields
  */
 export type patchAssistantDraftResponse200 = {
-  data: GetAssistantResponse
-  status: 200
-}
+  data: GetAssistantResponse;
+  status: 200;
+};
 
 export type patchAssistantDraftResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type patchAssistantDraftResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type patchAssistantDraftResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type patchAssistantDraftResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type patchAssistantDraftResponseSuccess = (patchAssistantDraftResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type patchAssistantDraftResponseSuccess = patchAssistantDraftResponse200 & {
   headers: Headers;
 };
-export type patchAssistantDraftResponseError = (patchAssistantDraftResponse400 | patchAssistantDraftResponse401 | patchAssistantDraftResponse404 | patchAssistantDraftResponse500) & {
+export type patchAssistantDraftResponseError = (
+  | patchAssistantDraftResponse400
+  | patchAssistantDraftResponse401
+  | patchAssistantDraftResponse404
+  | patchAssistantDraftResponse500
+) & {
   headers: Headers;
 };
 
-export type patchAssistantDraftResponse = (patchAssistantDraftResponseSuccess | patchAssistantDraftResponseError)
+export type patchAssistantDraftResponse =
+  | patchAssistantDraftResponseSuccess
+  | patchAssistantDraftResponseError;
 
 export const getPatchAssistantDraftUrl = () => {
+  return `/assistant/draft`;
+};
 
-
-  
-
-  return `/assistant/draft`
-}
-
-export const patchAssistantDraft = async (assistantDraftUpdateRequest: AssistantDraftUpdateRequest, options?: RequestInit): Promise<patchAssistantDraftResponse> => {
-  
-  return customFetch<patchAssistantDraftResponse>(getPatchAssistantDraftUrl(),
-  {      
+export const patchAssistantDraft = async (
+  assistantDraftUpdateRequest: AssistantDraftUpdateRequest,
+  options?: RequestInit
+): Promise<patchAssistantDraftResponse> => {
+  return customFetch<patchAssistantDraftResponse>(getPatchAssistantDraftUrl(), {
     ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantDraftUpdateRequest,)
-  }
-);}
-
-
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantDraftUpdateRequest)
+  });
+};
 
 /**
  * @summary Publish current authenticated user assistant draft to immutable version
  */
 export type postAssistantPublishResponse200 = {
-  data: GetAssistantResponse
-  status: 200
-}
+  data: GetAssistantResponse;
+  status: 200;
+};
 
 export type postAssistantPublishResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantPublishResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantPublishResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantPublishResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantPublishResponseSuccess = (postAssistantPublishResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantPublishResponseSuccess = postAssistantPublishResponse200 & {
   headers: Headers;
 };
-export type postAssistantPublishResponseError = (postAssistantPublishResponse401 | postAssistantPublishResponse404 | postAssistantPublishResponse409 | postAssistantPublishResponse500) & {
+export type postAssistantPublishResponseError = (
+  | postAssistantPublishResponse401
+  | postAssistantPublishResponse404
+  | postAssistantPublishResponse409
+  | postAssistantPublishResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantPublishResponse = (postAssistantPublishResponseSuccess | postAssistantPublishResponseError)
+export type postAssistantPublishResponse =
+  | postAssistantPublishResponseSuccess
+  | postAssistantPublishResponseError;
 
 export const getPostAssistantPublishUrl = () => {
+  return `/assistant/publish`;
+};
 
-
-  
-
-  return `/assistant/publish`
-}
-
-export const postAssistantPublish = async ( options?: RequestInit): Promise<postAssistantPublishResponse> => {
-  
-  return customFetch<postAssistantPublishResponse>(getPostAssistantPublishUrl(),
-  {      
+export const postAssistantPublish = async (
+  options?: RequestInit
+): Promise<postAssistantPublishResponse> => {
+  return customFetch<postAssistantPublishResponse>(getPostAssistantPublishUrl(), {
     ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
+    method: "POST"
+  });
+};
 
 /**
  * @summary Rollback assistant by publishing a snapshot of a previous version
  */
 export type postAssistantRollbackResponse200 = {
-  data: GetAssistantResponse
-  status: 200
-}
+  data: GetAssistantResponse;
+  status: 200;
+};
 
 export type postAssistantRollbackResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAssistantRollbackResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantRollbackResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantRollbackResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantRollbackResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantRollbackResponseSuccess = (postAssistantRollbackResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantRollbackResponseSuccess = postAssistantRollbackResponse200 & {
   headers: Headers;
 };
-export type postAssistantRollbackResponseError = (postAssistantRollbackResponse400 | postAssistantRollbackResponse401 | postAssistantRollbackResponse404 | postAssistantRollbackResponse409 | postAssistantRollbackResponse500) & {
+export type postAssistantRollbackResponseError = (
+  | postAssistantRollbackResponse400
+  | postAssistantRollbackResponse401
+  | postAssistantRollbackResponse404
+  | postAssistantRollbackResponse409
+  | postAssistantRollbackResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantRollbackResponse = (postAssistantRollbackResponseSuccess | postAssistantRollbackResponseError)
+export type postAssistantRollbackResponse =
+  | postAssistantRollbackResponseSuccess
+  | postAssistantRollbackResponseError;
 
 export const getPostAssistantRollbackUrl = () => {
+  return `/assistant/rollback`;
+};
 
-
-  
-
-  return `/assistant/rollback`
-}
-
-export const postAssistantRollback = async (assistantRollbackRequest: AssistantRollbackRequest, options?: RequestInit): Promise<postAssistantRollbackResponse> => {
-  
-  return customFetch<postAssistantRollbackResponse>(getPostAssistantRollbackUrl(),
-  {      
+export const postAssistantRollback = async (
+  assistantRollbackRequest: AssistantRollbackRequest,
+  options?: RequestInit
+): Promise<postAssistantRollbackResponse> => {
+  return customFetch<postAssistantRollbackResponse>(getPostAssistantRollbackUrl(), {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantRollbackRequest,)
-  }
-);}
-
-
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantRollbackRequest)
+  });
+};
 
 /**
  * @summary Reset assistant to a new blank state while preserving attachments
  */
 export type postAssistantResetResponse200 = {
-  data: GetAssistantResponse
-  status: 200
-}
+  data: GetAssistantResponse;
+  status: 200;
+};
 
 export type postAssistantResetResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantResetResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantResetResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantResetResponseSuccess = (postAssistantResetResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantResetResponseSuccess = postAssistantResetResponse200 & {
   headers: Headers;
 };
-export type postAssistantResetResponseError = (postAssistantResetResponse401 | postAssistantResetResponse404 | postAssistantResetResponse500) & {
+export type postAssistantResetResponseError = (
+  | postAssistantResetResponse401
+  | postAssistantResetResponse404
+  | postAssistantResetResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantResetResponse = (postAssistantResetResponseSuccess | postAssistantResetResponseError)
+export type postAssistantResetResponse =
+  | postAssistantResetResponseSuccess
+  | postAssistantResetResponseError;
 
 export const getPostAssistantResetUrl = () => {
+  return `/assistant/reset`;
+};
 
-
-  
-
-  return `/assistant/reset`
-}
-
-export const postAssistantReset = async ( options?: RequestInit): Promise<postAssistantResetResponse> => {
-  
-  return customFetch<postAssistantResetResponse>(getPostAssistantResetUrl(),
-  {      
+export const postAssistantReset = async (
+  options?: RequestInit
+): Promise<postAssistantResetResponse> => {
+  return customFetch<postAssistantResetResponse>(getPostAssistantResetUrl(), {
     ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
+    method: "POST"
+  });
+};
 
 /**
  * @summary Reapply latest materialized published assistant spec to runtime
  */
 export type postAssistantReapplyResponse200 = {
-  data: GetAssistantResponse
-  status: 200
-}
+  data: GetAssistantResponse;
+  status: 200;
+};
 
 export type postAssistantReapplyResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantReapplyResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantReapplyResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantReapplyResponseSuccess = (postAssistantReapplyResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantReapplyResponseSuccess = postAssistantReapplyResponse200 & {
   headers: Headers;
 };
-export type postAssistantReapplyResponseError = (postAssistantReapplyResponse401 | postAssistantReapplyResponse404 | postAssistantReapplyResponse500) & {
+export type postAssistantReapplyResponseError = (
+  | postAssistantReapplyResponse401
+  | postAssistantReapplyResponse404
+  | postAssistantReapplyResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantReapplyResponse = (postAssistantReapplyResponseSuccess | postAssistantReapplyResponseError)
+export type postAssistantReapplyResponse =
+  | postAssistantReapplyResponseSuccess
+  | postAssistantReapplyResponseError;
 
 export const getPostAssistantReapplyUrl = () => {
+  return `/assistant/reapply`;
+};
 
-
-  
-
-  return `/assistant/reapply`
-}
-
-export const postAssistantReapply = async ( options?: RequestInit): Promise<postAssistantReapplyResponse> => {
-  
-  return customFetch<postAssistantReapplyResponse>(getPostAssistantReapplyUrl(),
-  {      
+export const postAssistantReapply = async (
+  options?: RequestInit
+): Promise<postAssistantReapplyResponse> => {
+  return customFetch<postAssistantReapplyResponse>(getPostAssistantReapplyUrl(), {
     ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
+    method: "POST"
+  });
+};
 
 /**
  * @summary Check OpenClaw runtime preflight health/readiness via adapter
  */
 export type getAssistantRuntimePreflightResponse200 = {
-  data: GetAssistantRuntimePreflightResponse
-  status: 200
-}
+  data: GetAssistantRuntimePreflightResponse;
+  status: 200;
+};
 
 export type getAssistantRuntimePreflightResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAssistantRuntimePreflightResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAssistantRuntimePreflightResponseSuccess = (getAssistantRuntimePreflightResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type getAssistantRuntimePreflightResponseError = (getAssistantRuntimePreflightResponse401 | getAssistantRuntimePreflightResponse500) & {
+
+export type getAssistantRuntimePreflightResponseSuccess =
+  getAssistantRuntimePreflightResponse200 & {
+    headers: Headers;
+  };
+export type getAssistantRuntimePreflightResponseError = (
+  | getAssistantRuntimePreflightResponse401
+  | getAssistantRuntimePreflightResponse500
+) & {
   headers: Headers;
 };
 
-export type getAssistantRuntimePreflightResponse = (getAssistantRuntimePreflightResponseSuccess | getAssistantRuntimePreflightResponseError)
+export type getAssistantRuntimePreflightResponse =
+  | getAssistantRuntimePreflightResponseSuccess
+  | getAssistantRuntimePreflightResponseError;
 
 export const getGetAssistantRuntimePreflightUrl = () => {
+  return `/assistant/runtime/preflight`;
+};
 
-
-  
-
-  return `/assistant/runtime/preflight`
-}
-
-export const getAssistantRuntimePreflight = async ( options?: RequestInit): Promise<getAssistantRuntimePreflightResponse> => {
-  
-  return customFetch<getAssistantRuntimePreflightResponse>(getGetAssistantRuntimePreflightUrl(),
-  {      
+export const getAssistantRuntimePreflight = async (
+  options?: RequestInit
+): Promise<getAssistantRuntimePreflightResponse> => {
+  return customFetch<getAssistantRuntimePreflightResponse>(getGetAssistantRuntimePreflightUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Get Telegram integration connection/config state for current assistant
  */
 export type getAssistantTelegramIntegrationResponse200 = {
-  data: GetAssistantTelegramIntegrationResponse
-  status: 200
-}
+  data: GetAssistantTelegramIntegrationResponse;
+  status: 200;
+};
 
 export type getAssistantTelegramIntegrationResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAssistantTelegramIntegrationResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type getAssistantTelegramIntegrationResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAssistantTelegramIntegrationResponseSuccess = (getAssistantTelegramIntegrationResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type getAssistantTelegramIntegrationResponseError = (getAssistantTelegramIntegrationResponse401 | getAssistantTelegramIntegrationResponse404 | getAssistantTelegramIntegrationResponse500) & {
+
+export type getAssistantTelegramIntegrationResponseSuccess =
+  getAssistantTelegramIntegrationResponse200 & {
+    headers: Headers;
+  };
+export type getAssistantTelegramIntegrationResponseError = (
+  | getAssistantTelegramIntegrationResponse401
+  | getAssistantTelegramIntegrationResponse404
+  | getAssistantTelegramIntegrationResponse500
+) & {
   headers: Headers;
 };
 
-export type getAssistantTelegramIntegrationResponse = (getAssistantTelegramIntegrationResponseSuccess | getAssistantTelegramIntegrationResponseError)
+export type getAssistantTelegramIntegrationResponse =
+  | getAssistantTelegramIntegrationResponseSuccess
+  | getAssistantTelegramIntegrationResponseError;
 
 export const getGetAssistantTelegramIntegrationUrl = () => {
+  return `/assistant/integrations/telegram`;
+};
 
-
-  
-
-  return `/assistant/integrations/telegram`
-}
-
-export const getAssistantTelegramIntegration = async ( options?: RequestInit): Promise<getAssistantTelegramIntegrationResponse> => {
-  
-  return customFetch<getAssistantTelegramIntegrationResponse>(getGetAssistantTelegramIntegrationUrl(),
-  {      
-    ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+export const getAssistantTelegramIntegration = async (
+  options?: RequestInit
+): Promise<getAssistantTelegramIntegrationResponse> => {
+  return customFetch<getAssistantTelegramIntegrationResponse>(
+    getGetAssistantTelegramIntegrationUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
 
 /**
  * @summary Verify and connect Telegram bot token for current assistant
  */
 export type postAssistantTelegramConnectResponse200 = {
-  data: GetAssistantTelegramIntegrationResponse
-  status: 200
-}
+  data: GetAssistantTelegramIntegrationResponse;
+  status: 200;
+};
 
 export type postAssistantTelegramConnectResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAssistantTelegramConnectResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantTelegramConnectResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantTelegramConnectResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantTelegramConnectResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantTelegramConnectResponseSuccess = (postAssistantTelegramConnectResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type postAssistantTelegramConnectResponseError = (postAssistantTelegramConnectResponse400 | postAssistantTelegramConnectResponse401 | postAssistantTelegramConnectResponse404 | postAssistantTelegramConnectResponse409 | postAssistantTelegramConnectResponse500) & {
+
+export type postAssistantTelegramConnectResponseSuccess =
+  postAssistantTelegramConnectResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantTelegramConnectResponseError = (
+  | postAssistantTelegramConnectResponse400
+  | postAssistantTelegramConnectResponse401
+  | postAssistantTelegramConnectResponse404
+  | postAssistantTelegramConnectResponse409
+  | postAssistantTelegramConnectResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantTelegramConnectResponse = (postAssistantTelegramConnectResponseSuccess | postAssistantTelegramConnectResponseError)
+export type postAssistantTelegramConnectResponse =
+  | postAssistantTelegramConnectResponseSuccess
+  | postAssistantTelegramConnectResponseError;
 
 export const getPostAssistantTelegramConnectUrl = () => {
+  return `/assistant/integrations/telegram/connect`;
+};
 
-
-  
-
-  return `/assistant/integrations/telegram/connect`
-}
-
-export const postAssistantTelegramConnect = async (assistantTelegramConnectRequest: AssistantTelegramConnectRequest, options?: RequestInit): Promise<postAssistantTelegramConnectResponse> => {
-  
-  return customFetch<postAssistantTelegramConnectResponse>(getPostAssistantTelegramConnectUrl(),
-  {      
+export const postAssistantTelegramConnect = async (
+  assistantTelegramConnectRequest: AssistantTelegramConnectRequest,
+  options?: RequestInit
+): Promise<postAssistantTelegramConnectResponse> => {
+  return customFetch<postAssistantTelegramConnectResponse>(getPostAssistantTelegramConnectUrl(), {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantTelegramConnectRequest,)
-  }
-);}
-
-
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantTelegramConnectRequest)
+  });
+};
 
 /**
  * @summary Rotate Telegram bot secret reference and reconnect current assistant binding
  */
 export type postAssistantTelegramRotateResponse200 = {
-  data: GetAssistantTelegramIntegrationResponse
-  status: 200
-}
+  data: GetAssistantTelegramIntegrationResponse;
+  status: 200;
+};
 
 export type postAssistantTelegramRotateResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAssistantTelegramRotateResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantTelegramRotateResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantTelegramRotateResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantTelegramRotateResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantTelegramRotateResponseSuccess = (postAssistantTelegramRotateResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantTelegramRotateResponseSuccess = postAssistantTelegramRotateResponse200 & {
   headers: Headers;
 };
-export type postAssistantTelegramRotateResponseError = (postAssistantTelegramRotateResponse400 | postAssistantTelegramRotateResponse401 | postAssistantTelegramRotateResponse404 | postAssistantTelegramRotateResponse409 | postAssistantTelegramRotateResponse500) & {
+export type postAssistantTelegramRotateResponseError = (
+  | postAssistantTelegramRotateResponse400
+  | postAssistantTelegramRotateResponse401
+  | postAssistantTelegramRotateResponse404
+  | postAssistantTelegramRotateResponse409
+  | postAssistantTelegramRotateResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantTelegramRotateResponse = (postAssistantTelegramRotateResponseSuccess | postAssistantTelegramRotateResponseError)
+export type postAssistantTelegramRotateResponse =
+  | postAssistantTelegramRotateResponseSuccess
+  | postAssistantTelegramRotateResponseError;
 
 export const getPostAssistantTelegramRotateUrl = () => {
+  return `/assistant/integrations/telegram/rotate`;
+};
 
-
-  
-
-  return `/assistant/integrations/telegram/rotate`
-}
-
-export const postAssistantTelegramRotate = async (assistantTelegramRotateRequest: AssistantTelegramRotateRequest, options?: RequestInit): Promise<postAssistantTelegramRotateResponse> => {
-  
-  return customFetch<postAssistantTelegramRotateResponse>(getPostAssistantTelegramRotateUrl(),
-  {      
+export const postAssistantTelegramRotate = async (
+  assistantTelegramRotateRequest: AssistantTelegramRotateRequest,
+  options?: RequestInit
+): Promise<postAssistantTelegramRotateResponse> => {
+  return customFetch<postAssistantTelegramRotateResponse>(getPostAssistantTelegramRotateUrl(), {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantTelegramRotateRequest,)
-  }
-);}
-
-
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantTelegramRotateRequest)
+  });
+};
 
 /**
  * @summary Revoke Telegram secret reference and disable Telegram binding
  */
 export type postAssistantTelegramRevokeResponse200 = {
-  data: GetAssistantTelegramIntegrationResponse
-  status: 200
-}
+  data: GetAssistantTelegramIntegrationResponse;
+  status: 200;
+};
 
 export type postAssistantTelegramRevokeResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAssistantTelegramRevokeResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantTelegramRevokeResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantTelegramRevokeResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantTelegramRevokeResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantTelegramRevokeResponseSuccess = (postAssistantTelegramRevokeResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantTelegramRevokeResponseSuccess = postAssistantTelegramRevokeResponse200 & {
   headers: Headers;
 };
-export type postAssistantTelegramRevokeResponseError = (postAssistantTelegramRevokeResponse400 | postAssistantTelegramRevokeResponse401 | postAssistantTelegramRevokeResponse404 | postAssistantTelegramRevokeResponse409 | postAssistantTelegramRevokeResponse500) & {
+export type postAssistantTelegramRevokeResponseError = (
+  | postAssistantTelegramRevokeResponse400
+  | postAssistantTelegramRevokeResponse401
+  | postAssistantTelegramRevokeResponse404
+  | postAssistantTelegramRevokeResponse409
+  | postAssistantTelegramRevokeResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantTelegramRevokeResponse = (postAssistantTelegramRevokeResponseSuccess | postAssistantTelegramRevokeResponseError)
+export type postAssistantTelegramRevokeResponse =
+  | postAssistantTelegramRevokeResponseSuccess
+  | postAssistantTelegramRevokeResponseError;
 
 export const getPostAssistantTelegramRevokeUrl = () => {
+  return `/assistant/integrations/telegram/revoke`;
+};
 
-
-  
-
-  return `/assistant/integrations/telegram/revoke`
-}
-
-export const postAssistantTelegramRevoke = async (assistantTelegramSecretRevokeRequest?: AssistantTelegramSecretRevokeRequest, options?: RequestInit): Promise<postAssistantTelegramRevokeResponse> => {
-  
-  return customFetch<postAssistantTelegramRevokeResponse>(getPostAssistantTelegramRevokeUrl(),
-  {      
+export const postAssistantTelegramRevoke = async (
+  assistantTelegramSecretRevokeRequest?: AssistantTelegramSecretRevokeRequest,
+  options?: RequestInit
+): Promise<postAssistantTelegramRevokeResponse> => {
+  return customFetch<postAssistantTelegramRevokeResponse>(getPostAssistantTelegramRevokeUrl(), {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantTelegramSecretRevokeRequest,)
-  }
-);}
-
-
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantTelegramSecretRevokeRequest)
+  });
+};
 
 /**
  * @summary Emergency revoke Telegram secret reference and disable Telegram binding immediately
  */
 export type postAssistantTelegramEmergencyRevokeResponse200 = {
-  data: GetAssistantTelegramIntegrationResponse
-  status: 200
-}
+  data: GetAssistantTelegramIntegrationResponse;
+  status: 200;
+};
 
 export type postAssistantTelegramEmergencyRevokeResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAssistantTelegramEmergencyRevokeResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantTelegramEmergencyRevokeResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantTelegramEmergencyRevokeResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantTelegramEmergencyRevokeResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantTelegramEmergencyRevokeResponseSuccess = (postAssistantTelegramEmergencyRevokeResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type postAssistantTelegramEmergencyRevokeResponseError = (postAssistantTelegramEmergencyRevokeResponse400 | postAssistantTelegramEmergencyRevokeResponse401 | postAssistantTelegramEmergencyRevokeResponse404 | postAssistantTelegramEmergencyRevokeResponse409 | postAssistantTelegramEmergencyRevokeResponse500) & {
+
+export type postAssistantTelegramEmergencyRevokeResponseSuccess =
+  postAssistantTelegramEmergencyRevokeResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantTelegramEmergencyRevokeResponseError = (
+  | postAssistantTelegramEmergencyRevokeResponse400
+  | postAssistantTelegramEmergencyRevokeResponse401
+  | postAssistantTelegramEmergencyRevokeResponse404
+  | postAssistantTelegramEmergencyRevokeResponse409
+  | postAssistantTelegramEmergencyRevokeResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantTelegramEmergencyRevokeResponse = (postAssistantTelegramEmergencyRevokeResponseSuccess | postAssistantTelegramEmergencyRevokeResponseError)
+export type postAssistantTelegramEmergencyRevokeResponse =
+  | postAssistantTelegramEmergencyRevokeResponseSuccess
+  | postAssistantTelegramEmergencyRevokeResponseError;
 
 export const getPostAssistantTelegramEmergencyRevokeUrl = () => {
+  return `/assistant/integrations/telegram/emergency-revoke`;
+};
 
-
-  
-
-  return `/assistant/integrations/telegram/emergency-revoke`
-}
-
-export const postAssistantTelegramEmergencyRevoke = async (assistantTelegramSecretRevokeRequest?: AssistantTelegramSecretRevokeRequest, options?: RequestInit): Promise<postAssistantTelegramEmergencyRevokeResponse> => {
-  
-  return customFetch<postAssistantTelegramEmergencyRevokeResponse>(getPostAssistantTelegramEmergencyRevokeUrl(),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantTelegramSecretRevokeRequest,)
-  }
-);}
-
-
+export const postAssistantTelegramEmergencyRevoke = async (
+  assistantTelegramSecretRevokeRequest?: AssistantTelegramSecretRevokeRequest,
+  options?: RequestInit
+): Promise<postAssistantTelegramEmergencyRevokeResponse> => {
+  return customFetch<postAssistantTelegramEmergencyRevokeResponse>(
+    getPostAssistantTelegramEmergencyRevokeUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(assistantTelegramSecretRevokeRequest)
+    }
+  );
+};
 
 /**
  * @summary Update Telegram post-connect configuration for current assistant
  */
 export type patchAssistantTelegramConfigResponse200 = {
-  data: GetAssistantTelegramIntegrationResponse
-  status: 200
-}
+  data: GetAssistantTelegramIntegrationResponse;
+  status: 200;
+};
 
 export type patchAssistantTelegramConfigResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type patchAssistantTelegramConfigResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type patchAssistantTelegramConfigResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type patchAssistantTelegramConfigResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type patchAssistantTelegramConfigResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type patchAssistantTelegramConfigResponseSuccess = (patchAssistantTelegramConfigResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type patchAssistantTelegramConfigResponseError = (patchAssistantTelegramConfigResponse400 | patchAssistantTelegramConfigResponse401 | patchAssistantTelegramConfigResponse404 | patchAssistantTelegramConfigResponse409 | patchAssistantTelegramConfigResponse500) & {
+
+export type patchAssistantTelegramConfigResponseSuccess =
+  patchAssistantTelegramConfigResponse200 & {
+    headers: Headers;
+  };
+export type patchAssistantTelegramConfigResponseError = (
+  | patchAssistantTelegramConfigResponse400
+  | patchAssistantTelegramConfigResponse401
+  | patchAssistantTelegramConfigResponse404
+  | patchAssistantTelegramConfigResponse409
+  | patchAssistantTelegramConfigResponse500
+) & {
   headers: Headers;
 };
 
-export type patchAssistantTelegramConfigResponse = (patchAssistantTelegramConfigResponseSuccess | patchAssistantTelegramConfigResponseError)
+export type patchAssistantTelegramConfigResponse =
+  | patchAssistantTelegramConfigResponseSuccess
+  | patchAssistantTelegramConfigResponseError;
 
 export const getPatchAssistantTelegramConfigUrl = () => {
+  return `/assistant/integrations/telegram/config`;
+};
 
-
-  
-
-  return `/assistant/integrations/telegram/config`
-}
-
-export const patchAssistantTelegramConfig = async (assistantTelegramConfigUpdateRequest: AssistantTelegramConfigUpdateRequest, options?: RequestInit): Promise<patchAssistantTelegramConfigResponse> => {
-  
-  return customFetch<patchAssistantTelegramConfigResponse>(getPatchAssistantTelegramConfigUrl(),
-  {      
+export const patchAssistantTelegramConfig = async (
+  assistantTelegramConfigUpdateRequest: AssistantTelegramConfigUpdateRequest,
+  options?: RequestInit
+): Promise<patchAssistantTelegramConfigResponse> => {
+  return customFetch<patchAssistantTelegramConfigResponse>(getPatchAssistantTelegramConfigUrl(), {
     ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantTelegramConfigUpdateRequest,)
-  }
-);}
-
-
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantTelegramConfigUpdateRequest)
+  });
+};
 
 /**
  * @summary Send one web chat turn through backend transport and adapter boundary
  */
 export type postAssistantWebChatTurnResponse200 = {
-  data: GetAssistantWebChatTransportResponse
-  status: 200
-}
+  data: GetAssistantWebChatTransportResponse;
+  status: 200;
+};
 
 export type postAssistantWebChatTurnResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAssistantWebChatTurnResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantWebChatTurnResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantWebChatTurnResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantWebChatTurnResponse429 = {
-  data: ErrorEnvelope
-  status: 429
-}
+  data: ErrorEnvelope;
+  status: 429;
+};
 
 export type postAssistantWebChatTurnResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantWebChatTurnResponseSuccess = (postAssistantWebChatTurnResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantWebChatTurnResponseSuccess = postAssistantWebChatTurnResponse200 & {
   headers: Headers;
 };
-export type postAssistantWebChatTurnResponseError = (postAssistantWebChatTurnResponse400 | postAssistantWebChatTurnResponse401 | postAssistantWebChatTurnResponse404 | postAssistantWebChatTurnResponse409 | postAssistantWebChatTurnResponse429 | postAssistantWebChatTurnResponse500) & {
+export type postAssistantWebChatTurnResponseError = (
+  | postAssistantWebChatTurnResponse400
+  | postAssistantWebChatTurnResponse401
+  | postAssistantWebChatTurnResponse404
+  | postAssistantWebChatTurnResponse409
+  | postAssistantWebChatTurnResponse429
+  | postAssistantWebChatTurnResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantWebChatTurnResponse = (postAssistantWebChatTurnResponseSuccess | postAssistantWebChatTurnResponseError)
+export type postAssistantWebChatTurnResponse =
+  | postAssistantWebChatTurnResponseSuccess
+  | postAssistantWebChatTurnResponseError;
 
 export const getPostAssistantWebChatTurnUrl = () => {
+  return `/assistant/chat/web`;
+};
 
-
-  
-
-  return `/assistant/chat/web`
-}
-
-export const postAssistantWebChatTurn = async (assistantWebChatTurnRequest: AssistantWebChatTurnRequest, options?: RequestInit): Promise<postAssistantWebChatTurnResponse> => {
-  
-  return customFetch<postAssistantWebChatTurnResponse>(getPostAssistantWebChatTurnUrl(),
-  {      
+export const postAssistantWebChatTurn = async (
+  assistantWebChatTurnRequest: AssistantWebChatTurnRequest,
+  options?: RequestInit
+): Promise<postAssistantWebChatTurnResponse> => {
+  return customFetch<postAssistantWebChatTurnResponse>(getPostAssistantWebChatTurnUrl(), {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantWebChatTurnRequest,)
-  }
-);}
-
-
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantWebChatTurnRequest)
+  });
+};
 
 /**
  * @summary Send one web chat turn via streaming-first transport
  */
 export type postAssistantWebChatTurnStreamResponse200 = {
-  data: string
-  status: 200
-}
+  data: string;
+  status: 200;
+};
 
 export type postAssistantWebChatTurnStreamResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAssistantWebChatTurnStreamResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantWebChatTurnStreamResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantWebChatTurnStreamResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantWebChatTurnStreamResponse429 = {
-  data: ErrorEnvelope
-  status: 429
-}
+  data: ErrorEnvelope;
+  status: 429;
+};
 
 export type postAssistantWebChatTurnStreamResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantWebChatTurnStreamResponseSuccess = (postAssistantWebChatTurnStreamResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type postAssistantWebChatTurnStreamResponseError = (postAssistantWebChatTurnStreamResponse400 | postAssistantWebChatTurnStreamResponse401 | postAssistantWebChatTurnStreamResponse404 | postAssistantWebChatTurnStreamResponse409 | postAssistantWebChatTurnStreamResponse429 | postAssistantWebChatTurnStreamResponse500) & {
+
+export type postAssistantWebChatTurnStreamResponseSuccess =
+  postAssistantWebChatTurnStreamResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantWebChatTurnStreamResponseError = (
+  | postAssistantWebChatTurnStreamResponse400
+  | postAssistantWebChatTurnStreamResponse401
+  | postAssistantWebChatTurnStreamResponse404
+  | postAssistantWebChatTurnStreamResponse409
+  | postAssistantWebChatTurnStreamResponse429
+  | postAssistantWebChatTurnStreamResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantWebChatTurnStreamResponse = (postAssistantWebChatTurnStreamResponseSuccess | postAssistantWebChatTurnStreamResponseError)
+export type postAssistantWebChatTurnStreamResponse =
+  | postAssistantWebChatTurnStreamResponseSuccess
+  | postAssistantWebChatTurnStreamResponseError;
 
 export const getPostAssistantWebChatTurnStreamUrl = () => {
+  return `/assistant/chat/web/stream`;
+};
 
-
-  
-
-  return `/assistant/chat/web/stream`
-}
-
-export const postAssistantWebChatTurnStream = async (assistantWebChatTurnRequest: AssistantWebChatTurnRequest, options?: RequestInit): Promise<postAssistantWebChatTurnStreamResponse> => {
-  
-  return customFetch<postAssistantWebChatTurnStreamResponse>(getPostAssistantWebChatTurnStreamUrl(),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantWebChatTurnRequest,)
-  }
-);}
-
-
+export const postAssistantWebChatTurnStream = async (
+  assistantWebChatTurnRequest: AssistantWebChatTurnRequest,
+  options?: RequestInit
+): Promise<postAssistantWebChatTurnStreamResponse> => {
+  return customFetch<postAssistantWebChatTurnStreamResponse>(
+    getPostAssistantWebChatTurnStreamUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(assistantWebChatTurnRequest)
+    }
+  );
+};
 
 /**
  * @summary Apply admin abuse/rate-limit unblock override for assistant scope
  */
 export type postAdminAbuseControlsUnblockResponse200 = {
-  data: PostAdminAbuseUnblockResponse
-  status: 200
-}
+  data: PostAdminAbuseUnblockResponse;
+  status: 200;
+};
 
 export type postAdminAbuseControlsUnblockResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAdminAbuseControlsUnblockResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAdminAbuseControlsUnblockResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type postAdminAbuseControlsUnblockResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAdminAbuseControlsUnblockResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAdminAbuseControlsUnblockResponseSuccess = (postAdminAbuseControlsUnblockResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type postAdminAbuseControlsUnblockResponseError = (postAdminAbuseControlsUnblockResponse400 | postAdminAbuseControlsUnblockResponse401 | postAdminAbuseControlsUnblockResponse403 | postAdminAbuseControlsUnblockResponse404 | postAdminAbuseControlsUnblockResponse500) & {
+
+export type postAdminAbuseControlsUnblockResponseSuccess =
+  postAdminAbuseControlsUnblockResponse200 & {
+    headers: Headers;
+  };
+export type postAdminAbuseControlsUnblockResponseError = (
+  | postAdminAbuseControlsUnblockResponse400
+  | postAdminAbuseControlsUnblockResponse401
+  | postAdminAbuseControlsUnblockResponse403
+  | postAdminAbuseControlsUnblockResponse404
+  | postAdminAbuseControlsUnblockResponse500
+) & {
   headers: Headers;
 };
 
-export type postAdminAbuseControlsUnblockResponse = (postAdminAbuseControlsUnblockResponseSuccess | postAdminAbuseControlsUnblockResponseError)
+export type postAdminAbuseControlsUnblockResponse =
+  | postAdminAbuseControlsUnblockResponseSuccess
+  | postAdminAbuseControlsUnblockResponseError;
 
 export const getPostAdminAbuseControlsUnblockUrl = () => {
+  return `/admin/abuse-controls/unblock`;
+};
 
-
-  
-
-  return `/admin/abuse-controls/unblock`
-}
-
-export const postAdminAbuseControlsUnblock = async (adminAbuseUnblockRequest: AdminAbuseUnblockRequest, options?: RequestInit): Promise<postAdminAbuseControlsUnblockResponse> => {
-  
-  return customFetch<postAdminAbuseControlsUnblockResponse>(getPostAdminAbuseControlsUnblockUrl(),
-  {      
+export const postAdminAbuseControlsUnblock = async (
+  adminAbuseUnblockRequest: AdminAbuseUnblockRequest,
+  options?: RequestInit
+): Promise<postAdminAbuseControlsUnblockResponse> => {
+  return customFetch<postAdminAbuseControlsUnblockResponse>(getPostAdminAbuseControlsUnblockUrl(), {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      adminAbuseUnblockRequest,)
-  }
-);}
-
-
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminAbuseUnblockRequest)
+  });
+};
 
 /**
  * @summary Transfer assistant ownership between workspace members
  */
 export type postAdminAssistantOwnershipTransferResponse200 = {
-  data: PostAdminAssistantOwnershipResponse
-  status: 200
-}
+  data: PostAdminAssistantOwnershipResponse;
+  status: 200;
+};
 
 export type postAdminAssistantOwnershipTransferResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAdminAssistantOwnershipTransferResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAdminAssistantOwnershipTransferResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type postAdminAssistantOwnershipTransferResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAdminAssistantOwnershipTransferResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAdminAssistantOwnershipTransferResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAdminAssistantOwnershipTransferResponseSuccess = (postAdminAssistantOwnershipTransferResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type postAdminAssistantOwnershipTransferResponseError = (postAdminAssistantOwnershipTransferResponse400 | postAdminAssistantOwnershipTransferResponse401 | postAdminAssistantOwnershipTransferResponse403 | postAdminAssistantOwnershipTransferResponse404 | postAdminAssistantOwnershipTransferResponse409 | postAdminAssistantOwnershipTransferResponse500) & {
+
+export type postAdminAssistantOwnershipTransferResponseSuccess =
+  postAdminAssistantOwnershipTransferResponse200 & {
+    headers: Headers;
+  };
+export type postAdminAssistantOwnershipTransferResponseError = (
+  | postAdminAssistantOwnershipTransferResponse400
+  | postAdminAssistantOwnershipTransferResponse401
+  | postAdminAssistantOwnershipTransferResponse403
+  | postAdminAssistantOwnershipTransferResponse404
+  | postAdminAssistantOwnershipTransferResponse409
+  | postAdminAssistantOwnershipTransferResponse500
+) & {
   headers: Headers;
 };
 
-export type postAdminAssistantOwnershipTransferResponse = (postAdminAssistantOwnershipTransferResponseSuccess | postAdminAssistantOwnershipTransferResponseError)
+export type postAdminAssistantOwnershipTransferResponse =
+  | postAdminAssistantOwnershipTransferResponseSuccess
+  | postAdminAssistantOwnershipTransferResponseError;
 
 export const getPostAdminAssistantOwnershipTransferUrl = () => {
+  return `/admin/assistants/ownership/transfer`;
+};
 
-
-  
-
-  return `/admin/assistants/ownership/transfer`
-}
-
-export const postAdminAssistantOwnershipTransfer = async (adminAssistantOwnershipTransferRequest: AdminAssistantOwnershipTransferRequest, options?: RequestInit): Promise<postAdminAssistantOwnershipTransferResponse> => {
-  
-  return customFetch<postAdminAssistantOwnershipTransferResponse>(getPostAdminAssistantOwnershipTransferUrl(),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      adminAssistantOwnershipTransferRequest,)
-  }
-);}
-
-
+export const postAdminAssistantOwnershipTransfer = async (
+  adminAssistantOwnershipTransferRequest: AdminAssistantOwnershipTransferRequest,
+  options?: RequestInit
+): Promise<postAdminAssistantOwnershipTransferResponse> => {
+  return customFetch<postAdminAssistantOwnershipTransferResponse>(
+    getPostAdminAssistantOwnershipTransferUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminAssistantOwnershipTransferRequest)
+    }
+  );
+};
 
 /**
  * @summary Recover assistant ownership to designated workspace member
  */
 export type postAdminAssistantOwnershipRecoverResponse200 = {
-  data: PostAdminAssistantOwnershipResponse
-  status: 200
-}
+  data: PostAdminAssistantOwnershipResponse;
+  status: 200;
+};
 
 export type postAdminAssistantOwnershipRecoverResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAdminAssistantOwnershipRecoverResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAdminAssistantOwnershipRecoverResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type postAdminAssistantOwnershipRecoverResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAdminAssistantOwnershipRecoverResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAdminAssistantOwnershipRecoverResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAdminAssistantOwnershipRecoverResponseSuccess = (postAdminAssistantOwnershipRecoverResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type postAdminAssistantOwnershipRecoverResponseError = (postAdminAssistantOwnershipRecoverResponse400 | postAdminAssistantOwnershipRecoverResponse401 | postAdminAssistantOwnershipRecoverResponse403 | postAdminAssistantOwnershipRecoverResponse404 | postAdminAssistantOwnershipRecoverResponse409 | postAdminAssistantOwnershipRecoverResponse500) & {
+
+export type postAdminAssistantOwnershipRecoverResponseSuccess =
+  postAdminAssistantOwnershipRecoverResponse200 & {
+    headers: Headers;
+  };
+export type postAdminAssistantOwnershipRecoverResponseError = (
+  | postAdminAssistantOwnershipRecoverResponse400
+  | postAdminAssistantOwnershipRecoverResponse401
+  | postAdminAssistantOwnershipRecoverResponse403
+  | postAdminAssistantOwnershipRecoverResponse404
+  | postAdminAssistantOwnershipRecoverResponse409
+  | postAdminAssistantOwnershipRecoverResponse500
+) & {
   headers: Headers;
 };
 
-export type postAdminAssistantOwnershipRecoverResponse = (postAdminAssistantOwnershipRecoverResponseSuccess | postAdminAssistantOwnershipRecoverResponseError)
+export type postAdminAssistantOwnershipRecoverResponse =
+  | postAdminAssistantOwnershipRecoverResponseSuccess
+  | postAdminAssistantOwnershipRecoverResponseError;
 
 export const getPostAdminAssistantOwnershipRecoverUrl = () => {
+  return `/admin/assistants/ownership/recover`;
+};
 
-
-  
-
-  return `/admin/assistants/ownership/recover`
-}
-
-export const postAdminAssistantOwnershipRecover = async (adminAssistantOwnershipRecoveryRequest: AdminAssistantOwnershipRecoveryRequest, options?: RequestInit): Promise<postAdminAssistantOwnershipRecoverResponse> => {
-  
-  return customFetch<postAdminAssistantOwnershipRecoverResponse>(getPostAdminAssistantOwnershipRecoverUrl(),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      adminAssistantOwnershipRecoveryRequest,)
-  }
-);}
-
-
+export const postAdminAssistantOwnershipRecover = async (
+  adminAssistantOwnershipRecoveryRequest: AdminAssistantOwnershipRecoveryRequest,
+  options?: RequestInit
+): Promise<postAdminAssistantOwnershipRecoverResponse> => {
+  return customFetch<postAdminAssistantOwnershipRecoverResponse>(
+    getPostAdminAssistantOwnershipRecoverUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminAssistantOwnershipRecoveryRequest)
+    }
+  );
+};
 
 /**
  * @summary List web chat records for current assistant
  */
 export type getAssistantWebChatsResponse200 = {
-  data: GetAssistantWebChatListResponse
-  status: 200
-}
+  data: GetAssistantWebChatListResponse;
+  status: 200;
+};
 
 export type getAssistantWebChatsResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAssistantWebChatsResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type getAssistantWebChatsResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAssistantWebChatsResponseSuccess = (getAssistantWebChatsResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantWebChatsResponseSuccess = getAssistantWebChatsResponse200 & {
   headers: Headers;
 };
-export type getAssistantWebChatsResponseError = (getAssistantWebChatsResponse401 | getAssistantWebChatsResponse404 | getAssistantWebChatsResponse500) & {
+export type getAssistantWebChatsResponseError = (
+  | getAssistantWebChatsResponse401
+  | getAssistantWebChatsResponse404
+  | getAssistantWebChatsResponse500
+) & {
   headers: Headers;
 };
 
-export type getAssistantWebChatsResponse = (getAssistantWebChatsResponseSuccess | getAssistantWebChatsResponseError)
+export type getAssistantWebChatsResponse =
+  | getAssistantWebChatsResponseSuccess
+  | getAssistantWebChatsResponseError;
 
 export const getGetAssistantWebChatsUrl = () => {
+  return `/assistant/chats/web`;
+};
 
-
-  
-
-  return `/assistant/chats/web`
-}
-
-export const getAssistantWebChats = async ( options?: RequestInit): Promise<getAssistantWebChatsResponse> => {
-  
-  return customFetch<getAssistantWebChatsResponse>(getGetAssistantWebChatsUrl(),
-  {      
+export const getAssistantWebChats = async (
+  options?: RequestInit
+): Promise<getAssistantWebChatsResponse> => {
+  return customFetch<getAssistantWebChatsResponse>(getGetAssistantWebChatsUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Rename web chat record
  */
 export type patchAssistantWebChatResponse200 = {
-  data: GetAssistantWebChatListItemResponse
-  status: 200
-}
+  data: GetAssistantWebChatListItemResponse;
+  status: 200;
+};
 
 export type patchAssistantWebChatResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type patchAssistantWebChatResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type patchAssistantWebChatResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type patchAssistantWebChatResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type patchAssistantWebChatResponseSuccess = (patchAssistantWebChatResponse200) & {
-  headers: Headers;
-};
-export type patchAssistantWebChatResponseError = (patchAssistantWebChatResponse400 | patchAssistantWebChatResponse401 | patchAssistantWebChatResponse404 | patchAssistantWebChatResponse500) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
 
-export type patchAssistantWebChatResponse = (patchAssistantWebChatResponseSuccess | patchAssistantWebChatResponseError)
+export type patchAssistantWebChatResponseSuccess = patchAssistantWebChatResponse200 & {
+  headers: Headers;
+};
+export type patchAssistantWebChatResponseError = (
+  | patchAssistantWebChatResponse400
+  | patchAssistantWebChatResponse401
+  | patchAssistantWebChatResponse404
+  | patchAssistantWebChatResponse500
+) & {
+  headers: Headers;
+};
 
-export const getPatchAssistantWebChatUrl = (chatId: string,) => {
+export type patchAssistantWebChatResponse =
+  | patchAssistantWebChatResponseSuccess
+  | patchAssistantWebChatResponseError;
 
+export const getPatchAssistantWebChatUrl = (chatId: string) => {
+  return `/assistant/chats/web/${chatId}`;
+};
 
-  
-
-  return `/assistant/chats/web/${chatId}`
-}
-
-export const patchAssistantWebChat = async (chatId: string,
-    assistantWebChatRenameRequest: AssistantWebChatRenameRequest, options?: RequestInit): Promise<patchAssistantWebChatResponse> => {
-  
-  return customFetch<patchAssistantWebChatResponse>(getPatchAssistantWebChatUrl(chatId),
-  {      
+export const patchAssistantWebChat = async (
+  chatId: string,
+  assistantWebChatRenameRequest: AssistantWebChatRenameRequest,
+  options?: RequestInit
+): Promise<patchAssistantWebChatResponse> => {
+  return customFetch<patchAssistantWebChatResponse>(getPatchAssistantWebChatUrl(chatId), {
     ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantWebChatRenameRequest,)
-  }
-);}
-
-
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantWebChatRenameRequest)
+  });
+};
 
 /**
  * @summary Hard delete web chat with explicit confirmation
  */
 export type deleteAssistantWebChatResponse200 = {
-  data: DeleteAssistantWebChatResponse
-  status: 200
-}
+  data: DeleteAssistantWebChatResponse;
+  status: 200;
+};
 
 export type deleteAssistantWebChatResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type deleteAssistantWebChatResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type deleteAssistantWebChatResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type deleteAssistantWebChatResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type deleteAssistantWebChatResponseSuccess = (deleteAssistantWebChatResponse200) & {
-  headers: Headers;
-};
-export type deleteAssistantWebChatResponseError = (deleteAssistantWebChatResponse400 | deleteAssistantWebChatResponse401 | deleteAssistantWebChatResponse404 | deleteAssistantWebChatResponse500) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
 
-export type deleteAssistantWebChatResponse = (deleteAssistantWebChatResponseSuccess | deleteAssistantWebChatResponseError)
+export type deleteAssistantWebChatResponseSuccess = deleteAssistantWebChatResponse200 & {
+  headers: Headers;
+};
+export type deleteAssistantWebChatResponseError = (
+  | deleteAssistantWebChatResponse400
+  | deleteAssistantWebChatResponse401
+  | deleteAssistantWebChatResponse404
+  | deleteAssistantWebChatResponse500
+) & {
+  headers: Headers;
+};
 
-export const getDeleteAssistantWebChatUrl = (chatId: string,) => {
+export type deleteAssistantWebChatResponse =
+  | deleteAssistantWebChatResponseSuccess
+  | deleteAssistantWebChatResponseError;
 
+export const getDeleteAssistantWebChatUrl = (chatId: string) => {
+  return `/assistant/chats/web/${chatId}`;
+};
 
-  
-
-  return `/assistant/chats/web/${chatId}`
-}
-
-export const deleteAssistantWebChat = async (chatId: string,
-    assistantWebChatDeleteRequest: AssistantWebChatDeleteRequest, options?: RequestInit): Promise<deleteAssistantWebChatResponse> => {
-  
-  return customFetch<deleteAssistantWebChatResponse>(getDeleteAssistantWebChatUrl(chatId),
-  {      
+export const deleteAssistantWebChat = async (
+  chatId: string,
+  assistantWebChatDeleteRequest: AssistantWebChatDeleteRequest,
+  options?: RequestInit
+): Promise<deleteAssistantWebChatResponse> => {
+  return customFetch<deleteAssistantWebChatResponse>(getDeleteAssistantWebChatUrl(chatId), {
     ...options,
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantWebChatDeleteRequest,)
-  }
-);}
-
-
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantWebChatDeleteRequest)
+  });
+};
 
 /**
  * @summary Archive web chat record
  */
 export type postAssistantWebChatArchiveResponse200 = {
-  data: GetAssistantWebChatListItemResponse
-  status: 200
-}
+  data: GetAssistantWebChatListItemResponse;
+  status: 200;
+};
 
 export type postAssistantWebChatArchiveResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantWebChatArchiveResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantWebChatArchiveResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantWebChatArchiveResponseSuccess = (postAssistantWebChatArchiveResponse200) & {
-  headers: Headers;
-};
-export type postAssistantWebChatArchiveResponseError = (postAssistantWebChatArchiveResponse401 | postAssistantWebChatArchiveResponse404 | postAssistantWebChatArchiveResponse500) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
 
-export type postAssistantWebChatArchiveResponse = (postAssistantWebChatArchiveResponseSuccess | postAssistantWebChatArchiveResponseError)
+export type postAssistantWebChatArchiveResponseSuccess = postAssistantWebChatArchiveResponse200 & {
+  headers: Headers;
+};
+export type postAssistantWebChatArchiveResponseError = (
+  | postAssistantWebChatArchiveResponse401
+  | postAssistantWebChatArchiveResponse404
+  | postAssistantWebChatArchiveResponse500
+) & {
+  headers: Headers;
+};
 
-export const getPostAssistantWebChatArchiveUrl = (chatId: string,) => {
+export type postAssistantWebChatArchiveResponse =
+  | postAssistantWebChatArchiveResponseSuccess
+  | postAssistantWebChatArchiveResponseError;
 
+export const getPostAssistantWebChatArchiveUrl = (chatId: string) => {
+  return `/assistant/chats/web/${chatId}/archive`;
+};
 
-  
-
-  return `/assistant/chats/web/${chatId}/archive`
-}
-
-export const postAssistantWebChatArchive = async (chatId: string, options?: RequestInit): Promise<postAssistantWebChatArchiveResponse> => {
-  
-  return customFetch<postAssistantWebChatArchiveResponse>(getPostAssistantWebChatArchiveUrl(chatId),
-  {      
-    ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
+export const postAssistantWebChatArchive = async (
+  chatId: string,
+  options?: RequestInit
+): Promise<postAssistantWebChatArchiveResponse> => {
+  return customFetch<postAssistantWebChatArchiveResponse>(
+    getPostAssistantWebChatArchiveUrl(chatId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
 
 /**
  * @summary List active Memory Center items for the current assistant
  */
 export type getAssistantMemoryItemsResponse200 = {
-  data: GetAssistantMemoryItemsResponse
-  status: 200
-}
+  data: GetAssistantMemoryItemsResponse;
+  status: 200;
+};
 
 export type getAssistantMemoryItemsResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAssistantMemoryItemsResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type getAssistantMemoryItemsResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAssistantMemoryItemsResponseSuccess = (getAssistantMemoryItemsResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantMemoryItemsResponseSuccess = getAssistantMemoryItemsResponse200 & {
   headers: Headers;
 };
-export type getAssistantMemoryItemsResponseError = (getAssistantMemoryItemsResponse401 | getAssistantMemoryItemsResponse404 | getAssistantMemoryItemsResponse500) & {
+export type getAssistantMemoryItemsResponseError = (
+  | getAssistantMemoryItemsResponse401
+  | getAssistantMemoryItemsResponse404
+  | getAssistantMemoryItemsResponse500
+) & {
   headers: Headers;
 };
 
-export type getAssistantMemoryItemsResponse = (getAssistantMemoryItemsResponseSuccess | getAssistantMemoryItemsResponseError)
+export type getAssistantMemoryItemsResponse =
+  | getAssistantMemoryItemsResponseSuccess
+  | getAssistantMemoryItemsResponseError;
 
 export const getGetAssistantMemoryItemsUrl = () => {
+  return `/assistant/memory/items`;
+};
 
-
-  
-
-  return `/assistant/memory/items`
-}
-
-export const getAssistantMemoryItems = async ( options?: RequestInit): Promise<getAssistantMemoryItemsResponse> => {
-  
-  return customFetch<getAssistantMemoryItemsResponse>(getGetAssistantMemoryItemsUrl(),
-  {      
+export const getAssistantMemoryItems = async (
+  options?: RequestInit
+): Promise<getAssistantMemoryItemsResponse> => {
+  return customFetch<getAssistantMemoryItemsResponse>(getGetAssistantMemoryItemsUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Forget (soft-remove) one Memory Center item from the user's list
  */
 export type postAssistantMemoryItemForgetResponse200 = {
-  data: PostAssistantMemoryItemForgetResponse
-  status: 200
-}
+  data: PostAssistantMemoryItemForgetResponse;
+  status: 200;
+};
 
 export type postAssistantMemoryItemForgetResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantMemoryItemForgetResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantMemoryItemForgetResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantMemoryItemForgetResponseSuccess = (postAssistantMemoryItemForgetResponse200) & {
-  headers: Headers;
-};
-export type postAssistantMemoryItemForgetResponseError = (postAssistantMemoryItemForgetResponse401 | postAssistantMemoryItemForgetResponse404 | postAssistantMemoryItemForgetResponse500) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
 
-export type postAssistantMemoryItemForgetResponse = (postAssistantMemoryItemForgetResponseSuccess | postAssistantMemoryItemForgetResponseError)
+export type postAssistantMemoryItemForgetResponseSuccess =
+  postAssistantMemoryItemForgetResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantMemoryItemForgetResponseError = (
+  | postAssistantMemoryItemForgetResponse401
+  | postAssistantMemoryItemForgetResponse404
+  | postAssistantMemoryItemForgetResponse500
+) & {
+  headers: Headers;
+};
 
-export const getPostAssistantMemoryItemForgetUrl = (itemId: string,) => {
+export type postAssistantMemoryItemForgetResponse =
+  | postAssistantMemoryItemForgetResponseSuccess
+  | postAssistantMemoryItemForgetResponseError;
 
+export const getPostAssistantMemoryItemForgetUrl = (itemId: string) => {
+  return `/assistant/memory/items/${itemId}/forget`;
+};
 
-  
-
-  return `/assistant/memory/items/${itemId}/forget`
-}
-
-export const postAssistantMemoryItemForget = async (itemId: string, options?: RequestInit): Promise<postAssistantMemoryItemForgetResponse> => {
-  
-  return customFetch<postAssistantMemoryItemForgetResponse>(getPostAssistantMemoryItemForgetUrl(itemId),
-  {      
-    ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
+export const postAssistantMemoryItemForget = async (
+  itemId: string,
+  options?: RequestInit
+): Promise<postAssistantMemoryItemForgetResponse> => {
+  return customFetch<postAssistantMemoryItemForgetResponse>(
+    getPostAssistantMemoryItemForgetUrl(itemId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
 
 /**
  * @summary Request to stop treating a web chat turn as remembered; updates control-plane markers
  */
 export type postAssistantMemoryDoNotRememberResponse200 = {
-  data: PostAssistantMemoryDoNotRememberResponse
-  status: 200
-}
+  data: PostAssistantMemoryDoNotRememberResponse;
+  status: 200;
+};
 
 export type postAssistantMemoryDoNotRememberResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAssistantMemoryDoNotRememberResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantMemoryDoNotRememberResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantMemoryDoNotRememberResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantMemoryDoNotRememberResponseSuccess = (postAssistantMemoryDoNotRememberResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type postAssistantMemoryDoNotRememberResponseError = (postAssistantMemoryDoNotRememberResponse400 | postAssistantMemoryDoNotRememberResponse401 | postAssistantMemoryDoNotRememberResponse404 | postAssistantMemoryDoNotRememberResponse500) & {
+
+export type postAssistantMemoryDoNotRememberResponseSuccess =
+  postAssistantMemoryDoNotRememberResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantMemoryDoNotRememberResponseError = (
+  | postAssistantMemoryDoNotRememberResponse400
+  | postAssistantMemoryDoNotRememberResponse401
+  | postAssistantMemoryDoNotRememberResponse404
+  | postAssistantMemoryDoNotRememberResponse500
+) & {
   headers: Headers;
 };
 
-export type postAssistantMemoryDoNotRememberResponse = (postAssistantMemoryDoNotRememberResponseSuccess | postAssistantMemoryDoNotRememberResponseError)
+export type postAssistantMemoryDoNotRememberResponse =
+  | postAssistantMemoryDoNotRememberResponseSuccess
+  | postAssistantMemoryDoNotRememberResponseError;
 
 export const getPostAssistantMemoryDoNotRememberUrl = () => {
+  return `/assistant/memory/do-not-remember`;
+};
 
-
-  
-
-  return `/assistant/memory/do-not-remember`
-}
-
-export const postAssistantMemoryDoNotRemember = async (assistantMemoryDoNotRememberRequest: AssistantMemoryDoNotRememberRequest, options?: RequestInit): Promise<postAssistantMemoryDoNotRememberResponse> => {
-  
-  return customFetch<postAssistantMemoryDoNotRememberResponse>(getPostAssistantMemoryDoNotRememberUrl(),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      assistantMemoryDoNotRememberRequest,)
-  }
-);}
-
-
+export const postAssistantMemoryDoNotRemember = async (
+  assistantMemoryDoNotRememberRequest: AssistantMemoryDoNotRememberRequest,
+  options?: RequestInit
+): Promise<postAssistantMemoryDoNotRememberResponse> => {
+  return customFetch<postAssistantMemoryDoNotRememberResponse>(
+    getPostAssistantMemoryDoNotRememberUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(assistantMemoryDoNotRememberRequest)
+    }
+  );
+};
 
 /**
  * @summary List Tasks Center items for the current assistant (control-plane registry, not raw runtime)
  */
 export type getAssistantTaskItemsResponse200 = {
-  data: GetAssistantTaskItemsResponse
-  status: 200
-}
+  data: GetAssistantTaskItemsResponse;
+  status: 200;
+};
 
 export type getAssistantTaskItemsResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAssistantTaskItemsResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type getAssistantTaskItemsResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAssistantTaskItemsResponseSuccess = (getAssistantTaskItemsResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantTaskItemsResponseSuccess = getAssistantTaskItemsResponse200 & {
   headers: Headers;
 };
-export type getAssistantTaskItemsResponseError = (getAssistantTaskItemsResponse401 | getAssistantTaskItemsResponse404 | getAssistantTaskItemsResponse500) & {
+export type getAssistantTaskItemsResponseError = (
+  | getAssistantTaskItemsResponse401
+  | getAssistantTaskItemsResponse404
+  | getAssistantTaskItemsResponse500
+) & {
   headers: Headers;
 };
 
-export type getAssistantTaskItemsResponse = (getAssistantTaskItemsResponseSuccess | getAssistantTaskItemsResponseError)
+export type getAssistantTaskItemsResponse =
+  | getAssistantTaskItemsResponseSuccess
+  | getAssistantTaskItemsResponseError;
 
 export const getGetAssistantTaskItemsUrl = () => {
+  return `/assistant/tasks/items`;
+};
 
-
-  
-
-  return `/assistant/tasks/items`
-}
-
-export const getAssistantTaskItems = async ( options?: RequestInit): Promise<getAssistantTaskItemsResponse> => {
-  
-  return customFetch<getAssistantTaskItemsResponse>(getGetAssistantTaskItemsUrl(),
-  {      
+export const getAssistantTaskItems = async (
+  options?: RequestInit
+): Promise<getAssistantTaskItemsResponse> => {
+  return customFetch<getAssistantTaskItemsResponse>(getGetAssistantTaskItemsUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Pause an active task or reminder (control-plane)
  */
 export type postAssistantTaskItemDisableResponse200 = {
-  data: PostAssistantTaskItemDisableResponse
-  status: 200
-}
+  data: PostAssistantTaskItemDisableResponse;
+  status: 200;
+};
 
 export type postAssistantTaskItemDisableResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantTaskItemDisableResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantTaskItemDisableResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantTaskItemDisableResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantTaskItemDisableResponseSuccess = (postAssistantTaskItemDisableResponse200) & {
-  headers: Headers;
-};
-export type postAssistantTaskItemDisableResponseError = (postAssistantTaskItemDisableResponse401 | postAssistantTaskItemDisableResponse404 | postAssistantTaskItemDisableResponse409 | postAssistantTaskItemDisableResponse500) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
 
-export type postAssistantTaskItemDisableResponse = (postAssistantTaskItemDisableResponseSuccess | postAssistantTaskItemDisableResponseError)
+export type postAssistantTaskItemDisableResponseSuccess =
+  postAssistantTaskItemDisableResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantTaskItemDisableResponseError = (
+  | postAssistantTaskItemDisableResponse401
+  | postAssistantTaskItemDisableResponse404
+  | postAssistantTaskItemDisableResponse409
+  | postAssistantTaskItemDisableResponse500
+) & {
+  headers: Headers;
+};
 
-export const getPostAssistantTaskItemDisableUrl = (itemId: string,) => {
+export type postAssistantTaskItemDisableResponse =
+  | postAssistantTaskItemDisableResponseSuccess
+  | postAssistantTaskItemDisableResponseError;
 
+export const getPostAssistantTaskItemDisableUrl = (itemId: string) => {
+  return `/assistant/tasks/items/${itemId}/disable`;
+};
 
-  
-
-  return `/assistant/tasks/items/${itemId}/disable`
-}
-
-export const postAssistantTaskItemDisable = async (itemId: string, options?: RequestInit): Promise<postAssistantTaskItemDisableResponse> => {
-  
-  return customFetch<postAssistantTaskItemDisableResponse>(getPostAssistantTaskItemDisableUrl(itemId),
-  {      
-    ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
+export const postAssistantTaskItemDisable = async (
+  itemId: string,
+  options?: RequestInit
+): Promise<postAssistantTaskItemDisableResponse> => {
+  return customFetch<postAssistantTaskItemDisableResponse>(
+    getPostAssistantTaskItemDisableUrl(itemId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
 
 /**
  * @summary Resume a paused task or reminder (control-plane)
  */
 export type postAssistantTaskItemEnableResponse200 = {
-  data: PostAssistantTaskItemEnableResponse
-  status: 200
-}
+  data: PostAssistantTaskItemEnableResponse;
+  status: 200;
+};
 
 export type postAssistantTaskItemEnableResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantTaskItemEnableResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantTaskItemEnableResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantTaskItemEnableResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantTaskItemEnableResponseSuccess = (postAssistantTaskItemEnableResponse200) & {
-  headers: Headers;
-};
-export type postAssistantTaskItemEnableResponseError = (postAssistantTaskItemEnableResponse401 | postAssistantTaskItemEnableResponse404 | postAssistantTaskItemEnableResponse409 | postAssistantTaskItemEnableResponse500) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
 
-export type postAssistantTaskItemEnableResponse = (postAssistantTaskItemEnableResponseSuccess | postAssistantTaskItemEnableResponseError)
+export type postAssistantTaskItemEnableResponseSuccess = postAssistantTaskItemEnableResponse200 & {
+  headers: Headers;
+};
+export type postAssistantTaskItemEnableResponseError = (
+  | postAssistantTaskItemEnableResponse401
+  | postAssistantTaskItemEnableResponse404
+  | postAssistantTaskItemEnableResponse409
+  | postAssistantTaskItemEnableResponse500
+) & {
+  headers: Headers;
+};
 
-export const getPostAssistantTaskItemEnableUrl = (itemId: string,) => {
+export type postAssistantTaskItemEnableResponse =
+  | postAssistantTaskItemEnableResponseSuccess
+  | postAssistantTaskItemEnableResponseError;
 
+export const getPostAssistantTaskItemEnableUrl = (itemId: string) => {
+  return `/assistant/tasks/items/${itemId}/enable`;
+};
 
-  
-
-  return `/assistant/tasks/items/${itemId}/enable`
-}
-
-export const postAssistantTaskItemEnable = async (itemId: string, options?: RequestInit): Promise<postAssistantTaskItemEnableResponse> => {
-  
-  return customFetch<postAssistantTaskItemEnableResponse>(getPostAssistantTaskItemEnableUrl(itemId),
-  {      
-    ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
+export const postAssistantTaskItemEnable = async (
+  itemId: string,
+  options?: RequestInit
+): Promise<postAssistantTaskItemEnableResponse> => {
+  return customFetch<postAssistantTaskItemEnableResponse>(
+    getPostAssistantTaskItemEnableUrl(itemId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
 
 /**
  * @summary Stop a task or reminder permanently (control-plane)
  */
 export type postAssistantTaskItemCancelResponse200 = {
-  data: PostAssistantTaskItemCancelResponse
-  status: 200
-}
+  data: PostAssistantTaskItemCancelResponse;
+  status: 200;
+};
 
 export type postAssistantTaskItemCancelResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAssistantTaskItemCancelResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAssistantTaskItemCancelResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAssistantTaskItemCancelResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAssistantTaskItemCancelResponseSuccess = (postAssistantTaskItemCancelResponse200) & {
-  headers: Headers;
-};
-export type postAssistantTaskItemCancelResponseError = (postAssistantTaskItemCancelResponse401 | postAssistantTaskItemCancelResponse404 | postAssistantTaskItemCancelResponse409 | postAssistantTaskItemCancelResponse500) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
 
-export type postAssistantTaskItemCancelResponse = (postAssistantTaskItemCancelResponseSuccess | postAssistantTaskItemCancelResponseError)
+export type postAssistantTaskItemCancelResponseSuccess = postAssistantTaskItemCancelResponse200 & {
+  headers: Headers;
+};
+export type postAssistantTaskItemCancelResponseError = (
+  | postAssistantTaskItemCancelResponse401
+  | postAssistantTaskItemCancelResponse404
+  | postAssistantTaskItemCancelResponse409
+  | postAssistantTaskItemCancelResponse500
+) & {
+  headers: Headers;
+};
 
-export const getPostAssistantTaskItemCancelUrl = (itemId: string,) => {
+export type postAssistantTaskItemCancelResponse =
+  | postAssistantTaskItemCancelResponseSuccess
+  | postAssistantTaskItemCancelResponseError;
 
+export const getPostAssistantTaskItemCancelUrl = (itemId: string) => {
+  return `/assistant/tasks/items/${itemId}/cancel`;
+};
 
-  
-
-  return `/assistant/tasks/items/${itemId}/cancel`
-}
-
-export const postAssistantTaskItemCancel = async (itemId: string, options?: RequestInit): Promise<postAssistantTaskItemCancelResponse> => {
-  
-  return customFetch<postAssistantTaskItemCancelResponse>(getPostAssistantTaskItemCancelUrl(itemId),
-  {      
-    ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
+export const postAssistantTaskItemCancel = async (
+  itemId: string,
+  options?: RequestInit
+): Promise<postAssistantTaskItemCancelResponse> => {
+  return customFetch<postAssistantTaskItemCancelResponse>(
+    getPostAssistantTaskItemCancelUrl(itemId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
 
 /**
  * @summary List plan catalog entries for admin management
  */
 export type getAdminPlansResponse200 = {
-  data: GetAdminPlansResponse
-  status: 200
-}
+  data: GetAdminPlansResponse;
+  status: 200;
+};
 
 export type getAdminPlansResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAdminPlansResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type getAdminPlansResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAdminPlansResponseSuccess = (getAdminPlansResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminPlansResponseSuccess = getAdminPlansResponse200 & {
   headers: Headers;
 };
-export type getAdminPlansResponseError = (getAdminPlansResponse401 | getAdminPlansResponse403 | getAdminPlansResponse500) & {
+export type getAdminPlansResponseError = (
+  | getAdminPlansResponse401
+  | getAdminPlansResponse403
+  | getAdminPlansResponse500
+) & {
   headers: Headers;
 };
 
-export type getAdminPlansResponse = (getAdminPlansResponseSuccess | getAdminPlansResponseError)
+export type getAdminPlansResponse = getAdminPlansResponseSuccess | getAdminPlansResponseError;
 
 export const getGetAdminPlansUrl = () => {
+  return `/admin/plans`;
+};
 
-
-  
-
-  return `/admin/plans`
-}
-
-export const getAdminPlans = async ( options?: RequestInit): Promise<getAdminPlansResponse> => {
-  
-  return customFetch<getAdminPlansResponse>(getGetAdminPlansUrl(),
-  {      
+export const getAdminPlans = async (options?: RequestInit): Promise<getAdminPlansResponse> => {
+  return customFetch<getAdminPlansResponse>(getGetAdminPlansUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Create plan catalog entry with entitlement controls
  */
 export type postAdminPlanCreateResponse200 = {
-  data: PostAdminPlanResponse
-  status: 200
-}
+  data: PostAdminPlanResponse;
+  status: 200;
+};
 
 export type postAdminPlanCreateResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAdminPlanCreateResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAdminPlanCreateResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type postAdminPlanCreateResponse409 = {
-  data: ErrorEnvelope
-  status: 409
-}
+  data: ErrorEnvelope;
+  status: 409;
+};
 
 export type postAdminPlanCreateResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAdminPlanCreateResponseSuccess = (postAdminPlanCreateResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminPlanCreateResponseSuccess = postAdminPlanCreateResponse200 & {
   headers: Headers;
 };
-export type postAdminPlanCreateResponseError = (postAdminPlanCreateResponse400 | postAdminPlanCreateResponse401 | postAdminPlanCreateResponse403 | postAdminPlanCreateResponse409 | postAdminPlanCreateResponse500) & {
+export type postAdminPlanCreateResponseError = (
+  | postAdminPlanCreateResponse400
+  | postAdminPlanCreateResponse401
+  | postAdminPlanCreateResponse403
+  | postAdminPlanCreateResponse409
+  | postAdminPlanCreateResponse500
+) & {
   headers: Headers;
 };
 
-export type postAdminPlanCreateResponse = (postAdminPlanCreateResponseSuccess | postAdminPlanCreateResponseError)
+export type postAdminPlanCreateResponse =
+  | postAdminPlanCreateResponseSuccess
+  | postAdminPlanCreateResponseError;
 
 export const getPostAdminPlanCreateUrl = () => {
+  return `/admin/plans`;
+};
 
-
-  
-
-  return `/admin/plans`
-}
-
-export const postAdminPlanCreate = async (adminPlanCreateRequest: AdminPlanCreateRequest, options?: RequestInit): Promise<postAdminPlanCreateResponse> => {
-  
-  return customFetch<postAdminPlanCreateResponse>(getPostAdminPlanCreateUrl(),
-  {      
+export const postAdminPlanCreate = async (
+  adminPlanCreateRequest: AdminPlanCreateRequest,
+  options?: RequestInit
+): Promise<postAdminPlanCreateResponse> => {
+  return customFetch<postAdminPlanCreateResponse>(getPostAdminPlanCreateUrl(), {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      adminPlanCreateRequest,)
-  }
-);}
-
-
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminPlanCreateRequest)
+  });
+};
 
 /**
  * @summary Get admin-facing plan visibility and usage pressure
  */
 export type getAdminPlanVisibilityResponse200 = {
-  data: GetAdminPlanVisibilityResponse
-  status: 200
-}
+  data: GetAdminPlanVisibilityResponse;
+  status: 200;
+};
 
 export type getAdminPlanVisibilityResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAdminPlanVisibilityResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type getAdminPlanVisibilityResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type getAdminPlanVisibilityResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAdminPlanVisibilityResponseSuccess = (getAdminPlanVisibilityResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminPlanVisibilityResponseSuccess = getAdminPlanVisibilityResponse200 & {
   headers: Headers;
 };
-export type getAdminPlanVisibilityResponseError = (getAdminPlanVisibilityResponse401 | getAdminPlanVisibilityResponse403 | getAdminPlanVisibilityResponse404 | getAdminPlanVisibilityResponse500) & {
+export type getAdminPlanVisibilityResponseError = (
+  | getAdminPlanVisibilityResponse401
+  | getAdminPlanVisibilityResponse403
+  | getAdminPlanVisibilityResponse404
+  | getAdminPlanVisibilityResponse500
+) & {
   headers: Headers;
 };
 
-export type getAdminPlanVisibilityResponse = (getAdminPlanVisibilityResponseSuccess | getAdminPlanVisibilityResponseError)
+export type getAdminPlanVisibilityResponse =
+  | getAdminPlanVisibilityResponseSuccess
+  | getAdminPlanVisibilityResponseError;
 
 export const getGetAdminPlanVisibilityUrl = () => {
+  return `/admin/plans/visibility`;
+};
 
-
-  
-
-  return `/admin/plans/visibility`
-}
-
-export const getAdminPlanVisibility = async ( options?: RequestInit): Promise<getAdminPlanVisibilityResponse> => {
-  
-  return customFetch<getAdminPlanVisibilityResponse>(getGetAdminPlanVisibilityUrl(),
-  {      
+export const getAdminPlanVisibility = async (
+  options?: RequestInit
+): Promise<getAdminPlanVisibilityResponse> => {
+  return customFetch<getAdminPlanVisibilityResponse>(getGetAdminPlanVisibilityUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Get ops cockpit baseline state for control-plane operations
  */
 export type getAdminOpsCockpitResponse200 = {
-  data: GetAdminOpsCockpitResponse
-  status: 200
-}
+  data: GetAdminOpsCockpitResponse;
+  status: 200;
+};
 
 export type getAdminOpsCockpitResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAdminOpsCockpitResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type getAdminOpsCockpitResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAdminOpsCockpitResponseSuccess = (getAdminOpsCockpitResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminOpsCockpitResponseSuccess = getAdminOpsCockpitResponse200 & {
   headers: Headers;
 };
-export type getAdminOpsCockpitResponseError = (getAdminOpsCockpitResponse401 | getAdminOpsCockpitResponse403 | getAdminOpsCockpitResponse500) & {
+export type getAdminOpsCockpitResponseError = (
+  | getAdminOpsCockpitResponse401
+  | getAdminOpsCockpitResponse403
+  | getAdminOpsCockpitResponse500
+) & {
   headers: Headers;
 };
 
-export type getAdminOpsCockpitResponse = (getAdminOpsCockpitResponseSuccess | getAdminOpsCockpitResponseError)
+export type getAdminOpsCockpitResponse =
+  | getAdminOpsCockpitResponseSuccess
+  | getAdminOpsCockpitResponseError;
 
 export const getGetAdminOpsCockpitUrl = () => {
+  return `/admin/ops/cockpit`;
+};
 
-
-  
-
-  return `/admin/ops/cockpit`
-}
-
-export const getAdminOpsCockpit = async ( options?: RequestInit): Promise<getAdminOpsCockpitResponse> => {
-  
-  return customFetch<getAdminOpsCockpitResponse>(getGetAdminOpsCockpitUrl(),
-  {      
+export const getAdminOpsCockpit = async (
+  options?: RequestInit
+): Promise<getAdminOpsCockpitResponse> => {
+  return customFetch<getAdminOpsCockpitResponse>(getGetAdminOpsCockpitUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Get business cockpit baseline state for commercial and product visibility
  */
 export type getAdminBusinessCockpitResponse200 = {
-  data: GetAdminBusinessCockpitResponse
-  status: 200
-}
+  data: GetAdminBusinessCockpitResponse;
+  status: 200;
+};
 
 export type getAdminBusinessCockpitResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAdminBusinessCockpitResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type getAdminBusinessCockpitResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAdminBusinessCockpitResponseSuccess = (getAdminBusinessCockpitResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminBusinessCockpitResponseSuccess = getAdminBusinessCockpitResponse200 & {
   headers: Headers;
 };
-export type getAdminBusinessCockpitResponseError = (getAdminBusinessCockpitResponse401 | getAdminBusinessCockpitResponse403 | getAdminBusinessCockpitResponse500) & {
+export type getAdminBusinessCockpitResponseError = (
+  | getAdminBusinessCockpitResponse401
+  | getAdminBusinessCockpitResponse403
+  | getAdminBusinessCockpitResponse500
+) & {
   headers: Headers;
 };
 
-export type getAdminBusinessCockpitResponse = (getAdminBusinessCockpitResponseSuccess | getAdminBusinessCockpitResponseError)
+export type getAdminBusinessCockpitResponse =
+  | getAdminBusinessCockpitResponseSuccess
+  | getAdminBusinessCockpitResponseError;
 
 export const getGetAdminBusinessCockpitUrl = () => {
+  return `/admin/business/cockpit`;
+};
 
-
-  
-
-  return `/admin/business/cockpit`
-}
-
-export const getAdminBusinessCockpit = async ( options?: RequestInit): Promise<getAdminBusinessCockpitResponse> => {
-  
-  return customFetch<getAdminBusinessCockpitResponse>(getGetAdminBusinessCockpitUrl(),
-  {      
+export const getAdminBusinessCockpit = async (
+  options?: RequestInit
+): Promise<getAdminBusinessCockpitResponse> => {
+  return customFetch<getAdminBusinessCockpitResponse>(getGetAdminBusinessCockpitUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary List admin system-notification channels
  */
 export type getAdminNotificationChannelsResponse200 = {
-  data: GetAdminNotificationChannelsResponse
-  status: 200
-}
+  data: GetAdminNotificationChannelsResponse;
+  status: 200;
+};
 
 export type getAdminNotificationChannelsResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAdminNotificationChannelsResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type getAdminNotificationChannelsResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAdminNotificationChannelsResponseSuccess = (getAdminNotificationChannelsResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type getAdminNotificationChannelsResponseError = (getAdminNotificationChannelsResponse401 | getAdminNotificationChannelsResponse403 | getAdminNotificationChannelsResponse500) & {
+
+export type getAdminNotificationChannelsResponseSuccess =
+  getAdminNotificationChannelsResponse200 & {
+    headers: Headers;
+  };
+export type getAdminNotificationChannelsResponseError = (
+  | getAdminNotificationChannelsResponse401
+  | getAdminNotificationChannelsResponse403
+  | getAdminNotificationChannelsResponse500
+) & {
   headers: Headers;
 };
 
-export type getAdminNotificationChannelsResponse = (getAdminNotificationChannelsResponseSuccess | getAdminNotificationChannelsResponseError)
+export type getAdminNotificationChannelsResponse =
+  | getAdminNotificationChannelsResponseSuccess
+  | getAdminNotificationChannelsResponseError;
 
 export const getGetAdminNotificationChannelsUrl = () => {
+  return `/admin/notifications/channels`;
+};
 
-
-  
-
-  return `/admin/notifications/channels`
-}
-
-export const getAdminNotificationChannels = async ( options?: RequestInit): Promise<getAdminNotificationChannelsResponse> => {
-  
-  return customFetch<getAdminNotificationChannelsResponse>(getGetAdminNotificationChannelsUrl(),
-  {      
+export const getAdminNotificationChannels = async (
+  options?: RequestInit
+): Promise<getAdminNotificationChannelsResponse> => {
+  return customFetch<getAdminNotificationChannelsResponse>(getGetAdminNotificationChannelsUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Create or update admin system-notification webhook channel
  */
 export type patchAdminNotificationWebhookChannelResponse200 = {
-  data: PatchAdminNotificationWebhookChannelResponse
-  status: 200
-}
+  data: PatchAdminNotificationWebhookChannelResponse;
+  status: 200;
+};
 
 export type patchAdminNotificationWebhookChannelResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type patchAdminNotificationWebhookChannelResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type patchAdminNotificationWebhookChannelResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type patchAdminNotificationWebhookChannelResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type patchAdminNotificationWebhookChannelResponseSuccess = (patchAdminNotificationWebhookChannelResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type patchAdminNotificationWebhookChannelResponseError = (patchAdminNotificationWebhookChannelResponse400 | patchAdminNotificationWebhookChannelResponse401 | patchAdminNotificationWebhookChannelResponse403 | patchAdminNotificationWebhookChannelResponse500) & {
+
+export type patchAdminNotificationWebhookChannelResponseSuccess =
+  patchAdminNotificationWebhookChannelResponse200 & {
+    headers: Headers;
+  };
+export type patchAdminNotificationWebhookChannelResponseError = (
+  | patchAdminNotificationWebhookChannelResponse400
+  | patchAdminNotificationWebhookChannelResponse401
+  | patchAdminNotificationWebhookChannelResponse403
+  | patchAdminNotificationWebhookChannelResponse500
+) & {
   headers: Headers;
 };
 
-export type patchAdminNotificationWebhookChannelResponse = (patchAdminNotificationWebhookChannelResponseSuccess | patchAdminNotificationWebhookChannelResponseError)
+export type patchAdminNotificationWebhookChannelResponse =
+  | patchAdminNotificationWebhookChannelResponseSuccess
+  | patchAdminNotificationWebhookChannelResponseError;
 
 export const getPatchAdminNotificationWebhookChannelUrl = () => {
+  return `/admin/notifications/channels/webhook`;
+};
 
-
-  
-
-  return `/admin/notifications/channels/webhook`
-}
-
-export const patchAdminNotificationWebhookChannel = async (patchAdminNotificationWebhookChannelRequest: PatchAdminNotificationWebhookChannelRequest, options?: RequestInit): Promise<patchAdminNotificationWebhookChannelResponse> => {
-  
-  return customFetch<patchAdminNotificationWebhookChannelResponse>(getPatchAdminNotificationWebhookChannelUrl(),
-  {      
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      patchAdminNotificationWebhookChannelRequest,)
-  }
-);}
-
-
+export const patchAdminNotificationWebhookChannel = async (
+  patchAdminNotificationWebhookChannelRequest: PatchAdminNotificationWebhookChannelRequest,
+  options?: RequestInit
+): Promise<patchAdminNotificationWebhookChannelResponse> => {
+  return customFetch<patchAdminNotificationWebhookChannelResponse>(
+    getPatchAdminNotificationWebhookChannelUrl(),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(patchAdminNotificationWebhookChannelRequest)
+    }
+  );
+};
 
 /**
  * @summary Read global runtime provider settings
  */
 export type getAdminRuntimeProviderSettingsResponse200 = {
-  data: GetAdminRuntimeProviderSettingsResponse
-  status: 200
-}
+  data: GetAdminRuntimeProviderSettingsResponse;
+  status: 200;
+};
 
 export type getAdminRuntimeProviderSettingsResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAdminRuntimeProviderSettingsResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type getAdminRuntimeProviderSettingsResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAdminRuntimeProviderSettingsResponseSuccess = (getAdminRuntimeProviderSettingsResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type getAdminRuntimeProviderSettingsResponseError = (getAdminRuntimeProviderSettingsResponse401 | getAdminRuntimeProviderSettingsResponse403 | getAdminRuntimeProviderSettingsResponse500) & {
+
+export type getAdminRuntimeProviderSettingsResponseSuccess =
+  getAdminRuntimeProviderSettingsResponse200 & {
+    headers: Headers;
+  };
+export type getAdminRuntimeProviderSettingsResponseError = (
+  | getAdminRuntimeProviderSettingsResponse401
+  | getAdminRuntimeProviderSettingsResponse403
+  | getAdminRuntimeProviderSettingsResponse500
+) & {
   headers: Headers;
 };
 
-export type getAdminRuntimeProviderSettingsResponse = (getAdminRuntimeProviderSettingsResponseSuccess | getAdminRuntimeProviderSettingsResponseError)
+export type getAdminRuntimeProviderSettingsResponse =
+  | getAdminRuntimeProviderSettingsResponseSuccess
+  | getAdminRuntimeProviderSettingsResponseError;
 
 export const getGetAdminRuntimeProviderSettingsUrl = () => {
+  return `/admin/runtime/provider-settings`;
+};
 
-
-  
-
-  return `/admin/runtime/provider-settings`
-}
-
-export const getAdminRuntimeProviderSettings = async ( options?: RequestInit): Promise<getAdminRuntimeProviderSettingsResponse> => {
-  
-  return customFetch<getAdminRuntimeProviderSettingsResponse>(getGetAdminRuntimeProviderSettingsUrl(),
-  {      
-    ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+export const getAdminRuntimeProviderSettings = async (
+  options?: RequestInit
+): Promise<getAdminRuntimeProviderSettingsResponse> => {
+  return customFetch<getAdminRuntimeProviderSettingsResponse>(
+    getGetAdminRuntimeProviderSettingsUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
 
 /**
  * @summary Update global runtime provider settings
  */
 export type putAdminRuntimeProviderSettingsResponse200 = {
-  data: PutAdminRuntimeProviderSettingsResponse
-  status: 200
-}
+  data: PutAdminRuntimeProviderSettingsResponse;
+  status: 200;
+};
 
 export type putAdminRuntimeProviderSettingsResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type putAdminRuntimeProviderSettingsResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type putAdminRuntimeProviderSettingsResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type putAdminRuntimeProviderSettingsResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type putAdminRuntimeProviderSettingsResponseSuccess = (putAdminRuntimeProviderSettingsResponse200) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
-export type putAdminRuntimeProviderSettingsResponseError = (putAdminRuntimeProviderSettingsResponse400 | putAdminRuntimeProviderSettingsResponse401 | putAdminRuntimeProviderSettingsResponse403 | putAdminRuntimeProviderSettingsResponse500) & {
+
+export type putAdminRuntimeProviderSettingsResponseSuccess =
+  putAdminRuntimeProviderSettingsResponse200 & {
+    headers: Headers;
+  };
+export type putAdminRuntimeProviderSettingsResponseError = (
+  | putAdminRuntimeProviderSettingsResponse400
+  | putAdminRuntimeProviderSettingsResponse401
+  | putAdminRuntimeProviderSettingsResponse403
+  | putAdminRuntimeProviderSettingsResponse500
+) & {
   headers: Headers;
 };
 
-export type putAdminRuntimeProviderSettingsResponse = (putAdminRuntimeProviderSettingsResponseSuccess | putAdminRuntimeProviderSettingsResponseError)
+export type putAdminRuntimeProviderSettingsResponse =
+  | putAdminRuntimeProviderSettingsResponseSuccess
+  | putAdminRuntimeProviderSettingsResponseError;
 
 export const getPutAdminRuntimeProviderSettingsUrl = () => {
+  return `/admin/runtime/provider-settings`;
+};
 
-
-  
-
-  return `/admin/runtime/provider-settings`
-}
-
-export const putAdminRuntimeProviderSettings = async (adminRuntimeProviderSettingsRequest: AdminRuntimeProviderSettingsRequest, options?: RequestInit): Promise<putAdminRuntimeProviderSettingsResponse> => {
-  
-  return customFetch<putAdminRuntimeProviderSettingsResponse>(getPutAdminRuntimeProviderSettingsUrl(),
-  {      
-    ...options,
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      adminRuntimeProviderSettingsRequest,)
-  }
-);}
-
-
+export const putAdminRuntimeProviderSettings = async (
+  adminRuntimeProviderSettingsRequest: AdminRuntimeProviderSettingsRequest,
+  options?: RequestInit
+): Promise<putAdminRuntimeProviderSettingsResponse> => {
+  return customFetch<putAdminRuntimeProviderSettingsResponse>(
+    getPutAdminRuntimeProviderSettingsUrl(),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminRuntimeProviderSettingsRequest)
+    }
+  );
+};
 
 /**
  * @summary List platform-managed rollout operations
  */
 export type getAdminPlatformRolloutsResponse200 = {
-  data: GetAdminPlatformRolloutsResponse
-  status: 200
-}
+  data: GetAdminPlatformRolloutsResponse;
+  status: 200;
+};
 
 export type getAdminPlatformRolloutsResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getAdminPlatformRolloutsResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type getAdminPlatformRolloutsResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getAdminPlatformRolloutsResponseSuccess = (getAdminPlatformRolloutsResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminPlatformRolloutsResponseSuccess = getAdminPlatformRolloutsResponse200 & {
   headers: Headers;
 };
-export type getAdminPlatformRolloutsResponseError = (getAdminPlatformRolloutsResponse401 | getAdminPlatformRolloutsResponse403 | getAdminPlatformRolloutsResponse500) & {
+export type getAdminPlatformRolloutsResponseError = (
+  | getAdminPlatformRolloutsResponse401
+  | getAdminPlatformRolloutsResponse403
+  | getAdminPlatformRolloutsResponse500
+) & {
   headers: Headers;
 };
 
-export type getAdminPlatformRolloutsResponse = (getAdminPlatformRolloutsResponseSuccess | getAdminPlatformRolloutsResponseError)
+export type getAdminPlatformRolloutsResponse =
+  | getAdminPlatformRolloutsResponseSuccess
+  | getAdminPlatformRolloutsResponseError;
 
 export const getGetAdminPlatformRolloutsUrl = () => {
+  return `/admin/platform-rollouts`;
+};
 
-
-  
-
-  return `/admin/platform-rollouts`
-}
-
-export const getAdminPlatformRollouts = async ( options?: RequestInit): Promise<getAdminPlatformRolloutsResponse> => {
-  
-  return customFetch<getAdminPlatformRolloutsResponse>(getGetAdminPlatformRolloutsUrl(),
-  {      
+export const getAdminPlatformRollouts = async (
+  options?: RequestInit
+): Promise<getAdminPlatformRolloutsResponse> => {
+  return customFetch<getAdminPlatformRolloutsResponse>(getGetAdminPlatformRolloutsUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Apply platform-managed progressive rollout
  */
 export type postAdminPlatformRolloutResponse200 = {
-  data: PostAdminPlatformRolloutResponse
-  status: 200
-}
+  data: PostAdminPlatformRolloutResponse;
+  status: 200;
+};
 
 export type postAdminPlatformRolloutResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAdminPlatformRolloutResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAdminPlatformRolloutResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type postAdminPlatformRolloutResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAdminPlatformRolloutResponseSuccess = (postAdminPlatformRolloutResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminPlatformRolloutResponseSuccess = postAdminPlatformRolloutResponse200 & {
   headers: Headers;
 };
-export type postAdminPlatformRolloutResponseError = (postAdminPlatformRolloutResponse400 | postAdminPlatformRolloutResponse401 | postAdminPlatformRolloutResponse403 | postAdminPlatformRolloutResponse500) & {
+export type postAdminPlatformRolloutResponseError = (
+  | postAdminPlatformRolloutResponse400
+  | postAdminPlatformRolloutResponse401
+  | postAdminPlatformRolloutResponse403
+  | postAdminPlatformRolloutResponse500
+) & {
   headers: Headers;
 };
 
-export type postAdminPlatformRolloutResponse = (postAdminPlatformRolloutResponseSuccess | postAdminPlatformRolloutResponseError)
+export type postAdminPlatformRolloutResponse =
+  | postAdminPlatformRolloutResponseSuccess
+  | postAdminPlatformRolloutResponseError;
 
 export const getPostAdminPlatformRolloutUrl = () => {
+  return `/admin/platform-rollouts`;
+};
 
-
-  
-
-  return `/admin/platform-rollouts`
-}
-
-export const postAdminPlatformRollout = async (postAdminPlatformRolloutRequest: PostAdminPlatformRolloutRequest, options?: RequestInit): Promise<postAdminPlatformRolloutResponse> => {
-  
-  return customFetch<postAdminPlatformRolloutResponse>(getPostAdminPlatformRolloutUrl(),
-  {      
+export const postAdminPlatformRollout = async (
+  postAdminPlatformRolloutRequest: PostAdminPlatformRolloutRequest,
+  options?: RequestInit
+): Promise<postAdminPlatformRolloutResponse> => {
+  return customFetch<postAdminPlatformRolloutResponse>(getPostAdminPlatformRolloutUrl(), {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      postAdminPlatformRolloutRequest,)
-  }
-);}
-
-
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(postAdminPlatformRolloutRequest)
+  });
+};
 
 /**
  * @summary Roll back a platform-managed rollout operation
  */
 export type postAdminPlatformRolloutRollbackResponse200 = {
-  data: PostAdminPlatformRolloutRollbackResponse
-  status: 200
-}
+  data: PostAdminPlatformRolloutRollbackResponse;
+  status: 200;
+};
 
 export type postAdminPlatformRolloutRollbackResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAdminPlatformRolloutRollbackResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAdminPlatformRolloutRollbackResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type postAdminPlatformRolloutRollbackResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type postAdminPlatformRolloutRollbackResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAdminPlatformRolloutRollbackResponseSuccess = (postAdminPlatformRolloutRollbackResponse200) & {
-  headers: Headers;
-};
-export type postAdminPlatformRolloutRollbackResponseError = (postAdminPlatformRolloutRollbackResponse400 | postAdminPlatformRolloutRollbackResponse401 | postAdminPlatformRolloutRollbackResponse403 | postAdminPlatformRolloutRollbackResponse404 | postAdminPlatformRolloutRollbackResponse500) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
 
-export type postAdminPlatformRolloutRollbackResponse = (postAdminPlatformRolloutRollbackResponseSuccess | postAdminPlatformRolloutRollbackResponseError)
+export type postAdminPlatformRolloutRollbackResponseSuccess =
+  postAdminPlatformRolloutRollbackResponse200 & {
+    headers: Headers;
+  };
+export type postAdminPlatformRolloutRollbackResponseError = (
+  | postAdminPlatformRolloutRollbackResponse400
+  | postAdminPlatformRolloutRollbackResponse401
+  | postAdminPlatformRolloutRollbackResponse403
+  | postAdminPlatformRolloutRollbackResponse404
+  | postAdminPlatformRolloutRollbackResponse500
+) & {
+  headers: Headers;
+};
 
-export const getPostAdminPlatformRolloutRollbackUrl = (rolloutId: string,) => {
+export type postAdminPlatformRolloutRollbackResponse =
+  | postAdminPlatformRolloutRollbackResponseSuccess
+  | postAdminPlatformRolloutRollbackResponseError;
 
+export const getPostAdminPlatformRolloutRollbackUrl = (rolloutId: string) => {
+  return `/admin/platform-rollouts/${rolloutId}/rollback`;
+};
 
-  
-
-  return `/admin/platform-rollouts/${rolloutId}/rollback`
-}
-
-export const postAdminPlatformRolloutRollback = async (rolloutId: string, options?: RequestInit): Promise<postAdminPlatformRolloutRollbackResponse> => {
-  
-  return customFetch<postAdminPlatformRolloutRollbackResponse>(getPostAdminPlatformRolloutRollbackUrl(rolloutId),
-  {      
-    ...options,
-    method: 'POST'
-    
-    
-  }
-);}
-
-
+export const postAdminPlatformRolloutRollback = async (
+  rolloutId: string,
+  options?: RequestInit
+): Promise<postAdminPlatformRolloutRollbackResponse> => {
+  return customFetch<postAdminPlatformRolloutRollbackResponse>(
+    getPostAdminPlatformRolloutRollbackUrl(rolloutId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
 
 /**
  * @summary Update admin plan metadata, trial flags, and entitlement controls
  */
 export type patchAdminPlanResponse200 = {
-  data: PostAdminPlanResponse
-  status: 200
-}
+  data: PostAdminPlanResponse;
+  status: 200;
+};
 
 export type patchAdminPlanResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type patchAdminPlanResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type patchAdminPlanResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type patchAdminPlanResponse404 = {
-  data: ErrorEnvelope
-  status: 404
-}
+  data: ErrorEnvelope;
+  status: 404;
+};
 
 export type patchAdminPlanResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type patchAdminPlanResponseSuccess = (patchAdminPlanResponse200) & {
-  headers: Headers;
-};
-export type patchAdminPlanResponseError = (patchAdminPlanResponse400 | patchAdminPlanResponse401 | patchAdminPlanResponse403 | patchAdminPlanResponse404 | patchAdminPlanResponse500) & {
-  headers: Headers;
+  data: ErrorEnvelope;
+  status: 500;
 };
 
-export type patchAdminPlanResponse = (patchAdminPlanResponseSuccess | patchAdminPlanResponseError)
+export type patchAdminPlanResponseSuccess = patchAdminPlanResponse200 & {
+  headers: Headers;
+};
+export type patchAdminPlanResponseError = (
+  | patchAdminPlanResponse400
+  | patchAdminPlanResponse401
+  | patchAdminPlanResponse403
+  | patchAdminPlanResponse404
+  | patchAdminPlanResponse500
+) & {
+  headers: Headers;
+};
 
-export const getPatchAdminPlanUrl = (code: string,) => {
+export type patchAdminPlanResponse = patchAdminPlanResponseSuccess | patchAdminPlanResponseError;
 
+export const getPatchAdminPlanUrl = (code: string) => {
+  return `/admin/plans/${code}`;
+};
 
-  
-
-  return `/admin/plans/${code}`
-}
-
-export const patchAdminPlan = async (code: string,
-    adminPlanUpdateRequest: AdminPlanUpdateRequest, options?: RequestInit): Promise<patchAdminPlanResponse> => {
-  
-  return customFetch<patchAdminPlanResponse>(getPatchAdminPlanUrl(code),
-  {      
+export const patchAdminPlan = async (
+  code: string,
+  adminPlanUpdateRequest: AdminPlanUpdateRequest,
+  options?: RequestInit
+): Promise<patchAdminPlanResponse> => {
+  return customFetch<patchAdminPlanResponse>(getPatchAdminPlanUrl(code), {
     ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      adminPlanUpdateRequest,)
-  }
-);}
-
-
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminPlanUpdateRequest)
+  });
+};
 
 /**
  * @summary Issue short-lived step-up challenge token for dangerous admin actions
  */
 export type postAdminStepUpChallengeResponse200 = {
-  data: PostAdminStepUpChallengeResponse
-  status: 200
-}
+  data: PostAdminStepUpChallengeResponse;
+  status: 200;
+};
 
 export type postAdminStepUpChallengeResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postAdminStepUpChallengeResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postAdminStepUpChallengeResponse403 = {
-  data: ErrorEnvelope
-  status: 403
-}
+  data: ErrorEnvelope;
+  status: 403;
+};
 
 export type postAdminStepUpChallengeResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postAdminStepUpChallengeResponseSuccess = (postAdminStepUpChallengeResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminStepUpChallengeResponseSuccess = postAdminStepUpChallengeResponse200 & {
   headers: Headers;
 };
-export type postAdminStepUpChallengeResponseError = (postAdminStepUpChallengeResponse400 | postAdminStepUpChallengeResponse401 | postAdminStepUpChallengeResponse403 | postAdminStepUpChallengeResponse500) & {
+export type postAdminStepUpChallengeResponseError = (
+  | postAdminStepUpChallengeResponse400
+  | postAdminStepUpChallengeResponse401
+  | postAdminStepUpChallengeResponse403
+  | postAdminStepUpChallengeResponse500
+) & {
   headers: Headers;
 };
 
-export type postAdminStepUpChallengeResponse = (postAdminStepUpChallengeResponseSuccess | postAdminStepUpChallengeResponseError)
+export type postAdminStepUpChallengeResponse =
+  | postAdminStepUpChallengeResponseSuccess
+  | postAdminStepUpChallengeResponseError;
 
 export const getPostAdminStepUpChallengeUrl = () => {
+  return `/admin/step-up/challenge`;
+};
 
-
-  
-
-  return `/admin/step-up/challenge`
-}
-
-export const postAdminStepUpChallenge = async (adminStepUpChallengeRequest: AdminStepUpChallengeRequest, options?: RequestInit): Promise<postAdminStepUpChallengeResponse> => {
-  
-  return customFetch<postAdminStepUpChallengeResponse>(getPostAdminStepUpChallengeUrl(),
-  {      
+export const postAdminStepUpChallenge = async (
+  adminStepUpChallengeRequest: AdminStepUpChallengeRequest,
+  options?: RequestInit
+): Promise<postAdminStepUpChallengeResponse> => {
+  return customFetch<postAdminStepUpChallengeResponse>(getPostAdminStepUpChallengeUrl(), {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      adminStepUpChallengeRequest,)
-  }
-);}
-
-
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminStepUpChallengeRequest)
+  });
+};
 
 /**
  * @summary Get current authenticated app user state
  */
 export type getMeResponse200 = {
-  data: GetMeResponse
-  status: 200
-}
+  data: GetMeResponse;
+  status: 200;
+};
 
 export type getMeResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type getMeResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type getMeResponseSuccess = (getMeResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getMeResponseSuccess = getMeResponse200 & {
   headers: Headers;
 };
 export type getMeResponseError = (getMeResponse401 | getMeResponse500) & {
   headers: Headers;
 };
 
-export type getMeResponse = (getMeResponseSuccess | getMeResponseError)
+export type getMeResponse = getMeResponseSuccess | getMeResponseError;
 
 export const getGetMeUrl = () => {
+  return `/me`;
+};
 
-
-  
-
-  return `/me`
-}
-
-export const getMe = async ( options?: RequestInit): Promise<getMeResponse> => {
-  
-  return customFetch<getMeResponse>(getGetMeUrl(),
-  {      
+export const getMe = async (options?: RequestInit): Promise<getMeResponse> => {
+  return customFetch<getMeResponse>(getGetMeUrl(), {
     ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
+    method: "GET"
+  });
+};
 
 /**
  * @summary Upsert onboarding data for authenticated app user
  */
 export type postMeOnboardingResponse200 = {
-  data: GetMeResponse
-  status: 200
-}
+  data: GetMeResponse;
+  status: 200;
+};
 
 export type postMeOnboardingResponse400 = {
-  data: ErrorEnvelope
-  status: 400
-}
+  data: ErrorEnvelope;
+  status: 400;
+};
 
 export type postMeOnboardingResponse401 = {
-  data: ErrorEnvelope
-  status: 401
-}
+  data: ErrorEnvelope;
+  status: 401;
+};
 
 export type postMeOnboardingResponse500 = {
-  data: ErrorEnvelope
-  status: 500
-}
-    
-export type postMeOnboardingResponseSuccess = (postMeOnboardingResponse200) & {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postMeOnboardingResponseSuccess = postMeOnboardingResponse200 & {
   headers: Headers;
 };
-export type postMeOnboardingResponseError = (postMeOnboardingResponse400 | postMeOnboardingResponse401 | postMeOnboardingResponse500) & {
+export type postMeOnboardingResponseError = (
+  | postMeOnboardingResponse400
+  | postMeOnboardingResponse401
+  | postMeOnboardingResponse500
+) & {
   headers: Headers;
 };
 
-export type postMeOnboardingResponse = (postMeOnboardingResponseSuccess | postMeOnboardingResponseError)
+export type postMeOnboardingResponse =
+  | postMeOnboardingResponseSuccess
+  | postMeOnboardingResponseError;
 
 export const getPostMeOnboardingUrl = () => {
+  return `/me/onboarding`;
+};
 
-
-  
-
-  return `/me/onboarding`
-}
-
-export const postMeOnboarding = async (onboardingRequest: OnboardingRequest, options?: RequestInit): Promise<postMeOnboardingResponse> => {
-  
-  return customFetch<postMeOnboardingResponse>(getPostMeOnboardingUrl(),
-  {      
+export const postMeOnboarding = async (
+  onboardingRequest: OnboardingRequest,
+  options?: RequestInit
+): Promise<postMeOnboardingResponse> => {
+  return customFetch<postMeOnboardingResponse>(getPostMeOnboardingUrl(), {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      onboardingRequest,)
-  }
-);}
-
-
-
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(onboardingRequest)
+  });
+};
