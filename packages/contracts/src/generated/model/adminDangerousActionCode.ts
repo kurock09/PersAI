@@ -5,16 +5,16 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminDangerousActionCode = typeof AdminDangerousActionCode[keyof typeof AdminDangerousActionCode];
-
+export type AdminDangerousActionCode =
+  (typeof AdminDangerousActionCode)[keyof typeof AdminDangerousActionCode];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminDangerousActionCode = {
-  adminplancreate: 'admin.plan.create',
-  adminplanupdate: 'admin.plan.update',
-  adminruntime_provider_settingsupdate: 'admin.runtime_provider_settings.update',
-  adminrolloutapply: 'admin.rollout.apply',
-  adminrolloutrollback: 'admin.rollout.rollback',
-  adminassistanttransfer_ownership: 'admin.assistant.transfer_ownership',
-  adminassistantrecover_ownership: 'admin.assistant.recover_ownership',
+  adminplancreate: "admin.plan.create",
+  adminplanupdate: "admin.plan.update",
+  adminruntime_provider_settingsupdate: "admin.runtime_provider_settings.update",
+  adminrolloutapply: "admin.rollout.apply",
+  adminrolloutrollback: "admin.rollout.rollback",
+  adminassistanttransfer_ownership: "admin.assistant.transfer_ownership",
+  adminassistantrecover_ownership: "admin.assistant.recover_ownership"
 } as const;

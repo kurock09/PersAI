@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { BusinessCockpitPressureLevel } from './businessCockpitPressureLevel';
+import type { BusinessCockpitPressureLevel } from "./businessCockpitPressureLevel";
 
 export type AdminBusinessCockpitStateQuotaPressure = {
   tokenBudgetPercent: number;

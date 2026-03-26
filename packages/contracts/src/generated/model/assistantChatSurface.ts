@@ -5,10 +5,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantChatSurface = typeof AssistantChatSurface[keyof typeof AssistantChatSurface];
-
+export type AssistantChatSurface = (typeof AssistantChatSurface)[keyof typeof AssistantChatSurface];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantChatSurface = {
-  web: 'web',
+  web: "web"
 } as const;

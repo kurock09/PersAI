@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { TelegramIntegrationConfigSettingsDefaultParseMode } from './telegramIntegrationConfigSettingsDefaultParseMode';
+import type { TelegramIntegrationConfigSettingsDefaultParseMode } from "./telegramIntegrationConfigSettingsDefaultParseMode";
 
 export interface TelegramIntegrationConfigSettings {
   defaultParseMode: TelegramIntegrationConfigSettingsDefaultParseMode;

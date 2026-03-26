@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ComplianceRetentionDeleteBaselineStateTaskRegistryRetention = typeof ComplianceRetentionDeleteBaselineStateTaskRegistryRetention[keyof typeof ComplianceRetentionDeleteBaselineStateTaskRegistryRetention];
-
+export type ComplianceRetentionDeleteBaselineStateTaskRegistryRetention =
+  (typeof ComplianceRetentionDeleteBaselineStateTaskRegistryRetention)[keyof typeof ComplianceRetentionDeleteBaselineStateTaskRegistryRetention];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ComplianceRetentionDeleteBaselineStateTaskRegistryRetention = {
-  retained_until_user_control_change: 'retained_until_user_control_change',
+  retained_until_user_control_change: "retained_until_user_control_change"
 } as const;
