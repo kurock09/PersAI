@@ -30,6 +30,17 @@ Foundation Phase only.
 - no git push
 - no dead stubs or TODO scaffolding
 
+## Pre-commit / pre-push gate (MANDATORY)
+Before **every** commit (and definitely before push), the agent MUST run the full CI-equivalent checks locally and fix all failures **before** committing:
+1. `corepack pnpm -r --if-present run lint` — full workspace eslint (unused imports, etc.)
+2. `corepack pnpm run format:check` — prettier across all tracked globs (apps, packages, infra, root)
+3. `corepack pnpm --filter @persai/api run typecheck` — API tsc
+4. `corepack pnpm --filter @persai/web run typecheck` — Web tsc
+If any step fails, fix the issue and re-run **all four** before committing.
+Do NOT rely on partial file-by-file prettier checks — always run the full `format:check` command.
+If generated code (e.g. `packages/contracts/src/generated/`) needs formatting, run `prettier --write` on it before committing.
+Pushing code that fails CI is treated as a bug introduced by the agent.
+
 ## OpenClaw fork change workflow
 - when a slice changes the local OpenClaw fork (`C:\Users\alex\Documents\openclaw`), treat **OpenClaw + PersAI** as one delivery unit
 - before saying "ready to push", the agent must prepare **both** repos:

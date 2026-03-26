@@ -214,6 +214,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
       provide: ASSISTANT_RUNTIME_ADAPTER,
       useClass: OpenClawRuntimeAdapter
     },
+    OpenClawRuntimeAdapter,
     {
       provide: ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
       useClass: PrismaAssistantMaterializedSpecRepository
