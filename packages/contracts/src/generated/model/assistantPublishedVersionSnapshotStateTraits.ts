@@ -8,4 +8,4 @@
 /**
  * @nullable
  */
-export type AssistantPublishedVersionSnapshotStateTraits = { [key: string]: number } | null;
+export type AssistantPublishedVersionSnapshotStateTraits = {[key: string]: number} | null;

@@ -4,15 +4,15 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { TelegramIntegrationStateSchema } from "./telegramIntegrationStateSchema";
-import type { TelegramIntegrationStateProvider } from "./telegramIntegrationStateProvider";
-import type { TelegramIntegrationStateSurfaceType } from "./telegramIntegrationStateSurfaceType";
-import type { TelegramIntegrationConnectionStatus } from "./telegramIntegrationConnectionStatus";
-import type { TelegramIntegrationBindingState } from "./telegramIntegrationBindingState";
-import type { TelegramIntegrationBotState } from "./telegramIntegrationBotState";
-import type { TelegramIntegrationTokenHint } from "./telegramIntegrationTokenHint";
-import type { TelegramSecretLifecycleState } from "./telegramSecretLifecycleState";
-import type { TelegramIntegrationConfigPanel } from "./telegramIntegrationConfigPanel";
+import type { TelegramIntegrationStateSchema } from './telegramIntegrationStateSchema';
+import type { TelegramIntegrationStateProvider } from './telegramIntegrationStateProvider';
+import type { TelegramIntegrationStateSurfaceType } from './telegramIntegrationStateSurfaceType';
+import type { TelegramIntegrationConnectionStatus } from './telegramIntegrationConnectionStatus';
+import type { TelegramIntegrationBindingState } from './telegramIntegrationBindingState';
+import type { TelegramIntegrationBotState } from './telegramIntegrationBotState';
+import type { TelegramIntegrationTokenHint } from './telegramIntegrationTokenHint';
+import type { TelegramSecretLifecycleState } from './telegramSecretLifecycleState';
+import type { TelegramIntegrationConfigPanel } from './telegramIntegrationConfigPanel';
 
 export interface TelegramIntegrationState {
   schema: TelegramIntegrationStateSchema;

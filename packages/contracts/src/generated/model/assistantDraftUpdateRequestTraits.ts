@@ -8,4 +8,4 @@
 /**
  * @nullable
  */
-export type AssistantDraftUpdateRequestTraits = { [key: string]: number } | null;
+export type AssistantDraftUpdateRequestTraits = {[key: string]: number} | null;

@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminPlanInputBaseStatus =
-  (typeof AdminPlanInputBaseStatus)[keyof typeof AdminPlanInputBaseStatus];
+export type AdminPlanInputBaseStatus = typeof AdminPlanInputBaseStatus[keyof typeof AdminPlanInputBaseStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminPlanInputBaseStatus = {
-  active: "active",
-  inactive: "inactive"
+  active: 'active',
+  inactive: 'inactive',
 } as const;
