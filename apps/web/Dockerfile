@@ -10,6 +10,10 @@ RUN corepack enable
 COPY . .
 
 RUN pnpm install --frozen-lockfile
+
+ARG PERSAI_WEB_API_PROXY_TARGET="http://api:3001/api/v1"
+ENV PERSAI_WEB_API_PROXY_TARGET=${PERSAI_WEB_API_PROXY_TARGET}
+
 RUN pnpm --filter @persai/web run build
 
 WORKDIR /workspace/apps/web

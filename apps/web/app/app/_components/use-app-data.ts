@@ -32,6 +32,8 @@ export function deriveAssistantStatus(state: AssistantLifecycleState | null): As
 export interface AppData {
   assistant: AssistantLifecycleState | null;
   assistantStatus: AssistantStatus;
+  /** true once getAssistant resolved (even if result is null/404) */
+  assistantResolved: boolean;
   chats: AssistantWebChatListItemState[];
   telegram: TelegramIntegrationState | null;
   plan: UserPlanVisibilityState | null;
@@ -50,6 +52,7 @@ export function useAppData(): AppData {
   const [plan, setPlan] = useState<UserPlanVisibilityState | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [assistantResolved, setAssistantResolved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
@@ -68,7 +71,10 @@ export function useAppData(): AppData {
         getAdminPlanVisibility(token)
       ]);
 
-      if (assistantRes.status === "fulfilled") setAssistant(assistantRes.value);
+      if (assistantRes.status === "fulfilled") {
+        setAssistant(assistantRes.value);
+        setAssistantResolved(true);
+      }
       if (chatsRes.status === "fulfilled") setChats(chatsRes.value);
       if (telegramRes.status === "fulfilled") setTelegram(telegramRes.value);
       if (planRes.status === "fulfilled") setPlan(planRes.value);
@@ -98,6 +104,7 @@ export function useAppData(): AppData {
   return {
     assistant,
     assistantStatus: deriveAssistantStatus(assistant),
+    assistantResolved,
     chats,
     telegram,
     plan,
