@@ -162,4 +162,5 @@ Foundation Phase
   - [x] H8d — GKE Ingress for public webhook URL (`bot.persai.dev/telegram-webhook/*`)
   - [x] H8e — Prisma `assistant_telegram_groups` table + internal callback endpoint
   - [x] H8f — UI: Groups section (auto-populated list with status), Group reply mode toggle (mention/reply vs all)
-- [ ] H9 — WhatsApp/MAX readiness and secret-ref parity
+- [ ] H9 — thinking/reasoning UX (stream thinking tokens, collapsible "Thought for Xs" block with fade-out preview)
+- [ ] H10 — WhatsApp/MAX readiness and secret-ref parity
