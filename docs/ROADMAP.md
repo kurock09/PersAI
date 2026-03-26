@@ -120,35 +120,40 @@ Foundation Phase
 - [x] G4 — retention/delete/compliance baseline
 - [x] G5 — WhatsApp and MAX readiness hardening
 
-## Step 11 Product Experience and Visual Polish
+## Step 11 OpenClaw Native Runtime (ADR-048)
 
-- [x] **ADR-048 (OpenClaw fork)** — native PersAI runtime HTTP: **P0–P3** on applied-spec path (`agentCommandFromIngress` for web sync/stream; persona `instructions` → `extraSystemPrompt`); no-apply path now fails fast with `503` instead of compat echo so PersAI can surface a degraded runtime honestly. Pin SHA in `openclaw-approved-sha.txt` (update when fork advances); CI `validate-openclaw-persai-runtime.sh`; for multi-replica / restart-safe runtime state, configure the fork with `PERSAI_RUNTIME_SPEC_STORE=redis` and `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL` instead of process memory. Current dev chart also pins OpenClaw default model to `openai/gpt-5.4`, injects `OPENAI_API_KEY` from `persai-openclaw-secrets`, and raises `OPENCLAW_ADAPTER_TIMEOUT_MS` to `15000` for stable web streaming. Deeper workspace→session hydration = ongoing; see [ADR-048](ADR/048-native-openclaw-runtime-from-persai-apply-chat.md).
+- [x] P0–P3 — native PersAI→OpenClaw HTTP runtime: `agentCommandFromIngress` for web sync/stream, persona hydration, `503` fail-fast on missing spec, Redis-backed spec store, SHA pin in `openclaw-approved-sha.txt`, CI validation script
 
 ## Step 12 Admin-Driven Runtime Control Plane
 
-- [x] H1 — platform-admin runtime provider profile baseline (`OpenAI + Anthropic`, assistant-scoped primary/fallback model refs, provider credential refs, no raw secrets in PersAI state, first mutation surface via admin platform rollouts; see `ADR-050`)
-- [x] H1a — admin UI for runtime provider profile + provider credential refs (structured editor in existing admin rollout controls; preserves unrelated governance branches while submitting through the same rollout API, still platform-admin only)
-- [x] H1b — global runtime provider settings correction (simple admin UI for raw global `OpenAI` / `Anthropic` keys, primary/fallback models, and `availableModelsByProvider`; PersAI-managed encrypted provider-key storage; OpenClaw consumes generated `persai` secret refs; see `ADR-051`)
-- [x] H2 — tool credential refs and tool quota limits baseline (expanded tool catalog to 8 entries, managed tool-provider secret refs, per-tool daily call limits in plan activation, admin UI for tool credentials; see `ADR-052`) + OpenClaw tool policy integration (per-tool activation filtering via `PERSAI_TOOL_DENY`, credential resolution via `resolveSecretRefValues` + env injection, apply-time validation)
-- [x] H2 cleanup — consolidated tool catalog to single source (`tool-catalog-data.ts`), removed 5 dead capability flags (`assistantLifecycle`/`memoryCenter`/`tasksCenter`/`viewLimitPercentages`/`tasksExcludedFromCommercialQuotas`), added per-plan quota limits (`tokenBudgetLimit`/`costToolUnitsLimit`) and `primaryModelKey` to admin plans, implemented `dailyCallLimit` enforcement infrastructure, completed admin runtime UI (fallback, model editor, reapply summary), fixed `billingProviderHints` overwrite bug
-- [x] H3 — runtime hydration: persona, memory, per-user workspace isolation (ADR-053, continues ADR-048 `P2`)
-  - [x] H3a — persona hydration: schema migration (traits/avatar/birthday), materialization of 7 bootstrap documents (SOUL/USER/IDENTITY/TOOLS/AGENTS/HEARTBEAT/BOOTSTRAP), per-user workspace isolation with `PERSAI_WORKSPACE_ROOT` + GCS FUSE, `extraSystemPrompt` elimination
-  - [x] H3b — memory management: OpenClaw memory API (list/add/edit/forget/search), PersAI proxy, Memory Center UI (curated/timeline tabs, teach/forget in-chat), deprecate `AssistantMemoryRegistryItem`
-  - [x] H3c — chat history: message loading endpoint with pagination, UI load-on-thread-open
-- [x] H3.1 — **tech debt / scale**: replace O(N) inline mass-reapply and silent staleness across all 8 materialization data sources with two-tier lazy invalidation: global `configGeneration` counter (admin changes) + per-assistant `configDirtyAt` flag (user changes); OpenClaw detects staleness at chat time via cached generation + PersAI internal freshness endpoint, re-materializes on demand per-assistant; designed for 5 000–10 000 users (see `ADR-054`)
-- [x] H3.4 — **runtime integration hardening**:
-  - [x] H3.4a — fix OpenClaw credential refs parsing: PersAI sends Object-format `toolCredentialRefs`, OpenClaw only handled Array — added dual-format parser
-  - [x] H3.4b — eliminate `process.env` race condition for `PERSAI_TOOL_DENY`: replaced global env var with `AsyncLocalStorage` per-request context (`persaiRuntimeRequestContext`), each concurrent request gets isolated deny list
-  - [x] H3.4c — rename tool catalog codes to match OpenClaw tool names: `memory_center_read` → `memory_get`, `tasks_center_control` → `cron`; SQL data migration for `tool_catalog_tools` + `workspace_tool_usage_daily_counters`
-  - [x] H3.4d — auto-seed platform data at API startup: `SeedToolCatalogService` (OnModuleInit) syncs tool catalog, ensures default plan + entitlement + tool activations, seeds bootstrap presets — new users work on clean DB without manual `seed.ts`
-- [x] H3.2 — **assistant lifecycle audit**: end-to-end verification and hardening of create / edit / recreate flows
-  - [x] H3.2a — **create**: audited full pipeline; found and fixed trait key mismatch (`tone` → `playfulness`) that silently dropped the playfulness trait from SOUL.md
-  - [x] H3.2b — **edit**: audited full pipeline; edit flow correct (bootstrap overwrite semantics, BOOTSTRAP.md write-once preserved)
-  - [x] H3.2c — **recreate/reset**: found and fixed 3 bugs: reset/rollback not copying traits/avatar to new published version and draft; reset using `reapply=false` leaving stale BOOTSTRAP.md
-  - [x] H3.2d — **UI completeness**: all action buttons mapped with loading/error states and confirmation dialogs; avatar picker and file upload added in settings; reapply in user UI remains noted gap
-- [x] H3.3 — **assistant lifecycle rework** (CREATE/EDIT/RESET):
-  - [x] H3.3a — **EDIT simplification**: replaced separate "Save draft" + "Publish" buttons with a single "Save and apply" button; backend draft/publish versioning preserved internally
-  - [x] H3.3b — **RESET full wipe**: rewritten to hard-delete all chats, memory, published versions, materialized specs, workspace files; OpenClaw workspace cleanup endpoint; redirect to `/app/setup` with user data pre-filled
-  - [x] H3.3c — **admin-editable bootstrap presets**: `bootstrap_document_presets` table for SOUL/USER/IDENTITY/AGENTS templates with `{{placeholder}}` interpolation; admin API and `/admin/presets` UI with Markdown editors, variable chips, live preview
-- [ ] H4 — Telegram runtime readiness alignment against admin-driven runtime profile + managed secret refs
-- [ ] H5 — WhatsApp/MAX follow-up readiness and secret-ref parity before later delivery slices
+- [x] H1 — runtime provider profile baseline (OpenAI + Anthropic, primary/fallback model refs, encrypted credential refs; ADR-050)
+- [x] H1a — admin UI for provider profile (structured editor in rollout controls)
+- [x] H1b — global provider settings (admin UI for API keys, models, `availableModelsByProvider`; ADR-051)
+- [x] H2 — tool credentials and quota limits (8-tool catalog, per-tool daily limits, admin tool credentials UI; ADR-052)
+- [x] H2a — tool/plan cleanup (single-source catalog, dead flags removal, per-plan `primaryModelKey` + quota limits, `dailyCallLimit` enforcement)
+- [x] H3 — runtime hydration (persona, memory, workspace isolation; ADR-053)
+  - [x] H3a — persona: traits/avatar/birthday schema, 7 bootstrap docs, `PERSAI_WORKSPACE_ROOT` + GCS FUSE
+  - [x] H3b — memory: OpenClaw memory API, PersAI proxy, Memory Center UI
+  - [x] H3c — chat history: message pagination endpoint, UI load-on-open
+- [x] H4 — assistant lifecycle audit (create/edit/reset verification)
+  - [x] H4a — create: fixed `tone` → `playfulness` trait key mismatch
+  - [x] H4b — edit: verified correct (bootstrap write-once preserved)
+  - [x] H4c — reset: fixed 3 bugs (traits/avatar copy, stale BOOTSTRAP.md)
+  - [x] H4d — UI completeness: action buttons, avatar picker, file upload
+- [x] H5 — assistant lifecycle rework (CREATE/EDIT/RESET)
+  - [x] H5a — EDIT: single "Save and apply" button
+  - [x] H5b — RESET: full wipe (chats, memory, specs, workspace files)
+  - [x] H5c — admin-editable bootstrap presets (`{{placeholder}}` templates, admin UI)
+- [x] H6 — lazy invalidation for scale (ADR-054, designed for 5 000–10 000 users)
+  - [x] H6a — `configGeneration` counter + `configDirtyAt` per-assistant flag
+  - [x] H6b — OpenClaw two-tier freshness check (cached generation + PersAI endpoint)
+  - [x] H6c — Force Reapply All admin action (step-up protected)
+  - [x] H6d — Force Reapply bumps `configGeneration` before re-materialization
+- [x] H7 — runtime integration hardening
+  - [x] H7a — OpenClaw credential refs dual-format parser (Object + Array)
+  - [x] H7b — `AsyncLocalStorage` per-request context (eliminates `process.env` race)
+  - [x] H7c — tool catalog rename (`memory_get`, `cron`) + SQL data migration
+  - [x] H7d — auto-seed platform data at API startup (`SeedToolCatalogService`)
+  - [x] H7e — null-plan governance backfill (legacy assistants get default plan on startup)
+- [ ] H8 — Telegram runtime readiness (admin-driven profile + managed secret refs)
+- [ ] H9 — WhatsApp/MAX readiness and secret-ref parity

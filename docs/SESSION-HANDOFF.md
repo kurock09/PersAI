@@ -1,5 +1,28 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - Force Reapply fix + null-plan backfill
+
+### What changed
+
+- **Force Reapply bumps configGeneration:** `ForceReapplyAllService` now calls `bumpConfigGenerationService.execute()` before the re-materialization loop. New specs get a higher generation, so OpenClaw's freshness check reliably detects the update.
+- **Null-plan governance backfill:** `SeedToolCatalogService.onModuleInit()` now runs `backfillNullPlanGovernances()` — any `assistantGovernance` row with `quotaPlanCode=null` is updated to the active default plan. This fixes legacy assistants created before the plan catalog, which had empty `toolQuotaPolicy` and therefore empty deny lists.
+
+### Why changed
+
+- 5 of 6 assistants had no plan assigned → `resolveToolQuotaPolicy(null)` returned `[]` → no inactive tools → deny list empty. Only the 1 assistant created after plan system had a proper deny list.
+- Force Reapply didn't increment `configGeneration`, so OpenClaw's in-memory cache could consider specs "fresh" even after mass re-materialization.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/force-reapply-all.service.ts`
+- `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts`
+
+### Deploy notes
+
+- After deploy: API auto-backfills null plans at startup → press Force Reapply All → all assistants get correct deny lists.
+
+---
+
 ## 2026-03-26 - H3.4 runtime integration hardening
 
 ### What changed

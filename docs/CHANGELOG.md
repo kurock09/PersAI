@@ -4,6 +4,10 @@
 
 ### Added
 
+- **Force Reapply configGeneration bump + null-plan backfill:**
+  - `ForceReapplyAllService` now calls `bumpConfigGenerationService.execute()` before re-materializing, ensuring OpenClaw freshness checks detect the update.
+  - `SeedToolCatalogService` backfills `assistantGovernance` rows with `quotaPlanCode=null` to the default plan on every API startup, so legacy assistants created before the plan system get correct tool deny lists.
+
 - **Step 12 H3.4 — runtime integration hardening:**
   - Fixed OpenClaw credential refs parsing: `extractToolCredentialRefs` now accepts both Array and Object formats (PersAI sends Object keyed by tool code). API keys for web search, image generation, TTS, etc. now reach OpenClaw tools correctly.
   - Eliminated `process.env.PERSAI_TOOL_DENY` race condition: replaced global env var save/restore with `AsyncLocalStorage`-based `persaiRuntimeRequestContext`. Each concurrent request carries its own isolated `toolDenyList`.
