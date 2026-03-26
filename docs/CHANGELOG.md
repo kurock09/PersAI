@@ -4,6 +4,23 @@
 
 ### Added
 
+- **Step 12 H3.3 — assistant lifecycle rework (CREATE/EDIT/RESET):**
+  - **Admin-editable bootstrap presets:** new `bootstrap_document_presets` table with Prisma migration and seed data for 4 bootstrap templates (SOUL, USER, IDENTITY, AGENTS). Admin API (`GET`/`PATCH /api/v1/admin/bootstrap-presets/:id`) allows editing templates with `{{placeholder}}` interpolation. Materialization service now loads templates from DB (falls back to hardcoded defaults). New `/admin/presets` UI page with Markdown editors, variable chips (click-to-copy-and-insert), and live preview with sample data.
+  - **RESET full wipe:** `reset-assistant.service.ts` rewritten to hard-delete all chats, chat messages, memory registry items, materialized specs, and published versions in a single transaction. Workspace files and OpenClaw spec store cleaned up via new `POST /api/v1/runtime/workspace/cleanup` endpoint. After reset, frontend redirects to `/app/setup` with user data (name, birthday, gender, timezone) pre-filled from `/me`. Setup wizard handles the existing-assistant case (409 from create is silently caught).
+  - **EDIT simplification:** replaced separate "Save draft" + "Publish" buttons with a single "Save and apply" button in `assistant-settings.tsx`. Backend draft/publish versioning logic preserved internally. Removed unused `publishing`/`pubFb` state and `Upload`/`Save` icon imports.
+  - **OpenClaw workspace cleanup:** added `cleanupPersaiAssistantWorkspace()` in `persai-runtime-workspace.ts`, `remove(assistantId)` on `PersaiRuntimeSpecStore` interface (both InMemory and Redis implementations), and HTTP handler + route registration in `persai-runtime-http.ts` / `server-http.ts`.
+  - **App shell reset detection:** `app-shell.tsx` now detects post-reset state (assistant exists but has no published version and `applyStatus=not_requested`) and redirects to `/app/setup`.
+
+### Fixed
+
+- **Step 12 H3.2 — assistant lifecycle audit:**
+  - Fixed trait key mismatch: setup wizard used `"tone"` while settings and materialization used `"playfulness"`, causing the trait set during creation to be silently lost in SOUL.md and invisible in settings.
+  - Fixed rollback not copying `snapshotTraits`/`snapshotAvatarEmoji`/`snapshotAvatarUrl` to the new published version or restoring them in the draft — rolling back to an older version now fully restores its persona.
+  - Fixed reset not nulling `draftTraits`/`draftAvatarEmoji`/`draftAvatarUrl` in draft or explicitly nulling them in the reset published version — old persona data no longer leaks through after reset.
+  - Fixed reset calling apply with `reapply=false`, which left stale BOOTSTRAP.md (write-once) on the workspace; reset now uses `reapply=true` so the bootstrap greeting is regenerated with blank persona.
+
+### Added
+
 - **Step 12 H3 — runtime hydration depth (persona, memory, per-user workspace):**
   - H3a: persona hydration — Prisma schema migration for `draftTraits`/`draftAvatarEmoji`/`draftAvatarUrl` on assistants, `snapshotTraits`/`snapshotAvatarEmoji`/`snapshotAvatarUrl` on published versions, `birthday`/`gender` on `app_users`; materialization generates 7 Markdown bootstrap documents (`SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`, `AGENTS.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`); per-user workspace isolation with `PERSAI_WORKSPACE_ROOT` + GCS FUSE CSI driver; OpenClaw apply handler writes files with write-once semantics for bootstrap artifacts; `extraSystemPrompt` eliminated.
   - H3b: memory management — OpenClaw HTTP memory API (list/add/edit/forget/search); PersAI proxy via `OpenClawRuntimeAdapter`; Memory Center UI with Workspace (runtime memory) and History (registry summaries) tabs; teach/forget in-chat actions.

@@ -1173,7 +1173,7 @@ export function AppFlowClient() {
 
     try {
       setIsCreatingAssistant(true);
-      const assistantState = await postAssistantCreate(token);
+      const { assistant: assistantState } = await postAssistantCreate(token);
       setFlowState({
         type: "ready",
         data: {
@@ -1213,7 +1213,7 @@ export function AppFlowClient() {
       setResetFeedback(null);
 
       const existingAssistant = flowState.data.assistantState;
-      const assistantForUpdate = existingAssistant ?? (await postAssistantCreate(token));
+      const assistantForUpdate = existingAssistant ?? (await postAssistantCreate(token)).assistant;
 
       const updatedAssistant = await patchAssistantDraft(token, updater(assistantForUpdate));
 

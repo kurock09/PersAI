@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
@@ -12,6 +12,10 @@ import {
   ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
   type AssistantMaterializedSpecRepository
 } from "../domain/assistant-materialized-spec.repository";
+import {
+  BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY,
+  type BootstrapDocumentPresetRepository
+} from "../domain/bootstrap-document-preset.repository";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import type { Assistant } from "../domain/assistant.entity";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
@@ -60,11 +64,15 @@ function toDeterministicDocument(value: unknown): string {
 
 @Injectable()
 export class MaterializeAssistantPublishedVersionService {
+  private readonly logger = new Logger(MaterializeAssistantPublishedVersionService.name);
+
   constructor(
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
+    @Inject(BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY)
+    private readonly bootstrapPresetRepository: BootstrapDocumentPresetRepository,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly resolveEffectiveToolAvailabilityService: ResolveEffectiveToolAvailabilityService,
     private readonly resolveOpenClawChannelSurfaceBindingsService: ResolveOpenClawChannelSurfaceBindingsService,
@@ -113,7 +121,11 @@ export class MaterializeAssistantPublishedVersionService {
     const planPrimaryModelKey = await this.resolvePlanPrimaryModelKey(
       effectiveCapabilities.derivedFrom.planCode
     );
-    if (planPrimaryModelKey && runtimeProviderProfile.mode === "admin_managed" && runtimeProviderProfile.primary) {
+    if (
+      planPrimaryModelKey &&
+      runtimeProviderProfile.mode === "admin_managed" &&
+      runtimeProviderProfile.primary
+    ) {
       runtimeProviderProfile = {
         ...runtimeProviderProfile,
         primary: {
@@ -195,7 +207,7 @@ export class MaterializeAssistantPublishedVersionService {
     };
 
     const userContext = await this.resolveUserContext(assistant.userId, assistant.workspaceId);
-    const bootstrapDocuments = this.generateBootstrapDocuments({
+    const bootstrapDocuments = await this.generateBootstrapDocuments({
       publishedVersion,
       governance,
       toolAvailability,
@@ -361,7 +373,7 @@ export class MaterializeAssistantPublishedVersionService {
     };
   }
 
-  private generateBootstrapDocuments(ctx: {
+  private async generateBootstrapDocuments(ctx: {
     publishedVersion: AssistantPublishedVersion;
     governance: AssistantGovernance;
     toolAvailability: Record<string, unknown>;
@@ -380,42 +392,93 @@ export class MaterializeAssistantPublishedVersionService {
       locale: string;
       timezone: string;
     };
-  }): Record<string, string> {
+  }): Promise<Record<string, string>> {
+    const templates = await this.loadPresetTemplates();
+
     return {
-      soulDocument: this.generateSoulMd(ctx.publishedVersion),
-      userDocument: this.generateUserMd(ctx.userContext),
-      identityDocument: this.generateIdentityMd(ctx.publishedVersion),
+      soulDocument: this.generateSoulMd(ctx.publishedVersion, templates.soul ?? null),
+      userDocument: this.generateUserMd(ctx.userContext, templates.user ?? null),
+      identityDocument: this.generateIdentityMd(ctx.publishedVersion, templates.identity ?? null),
       toolsDocument: this.generateToolsMd(ctx.toolQuotaPolicy),
-      agentsDocument: this.generateAgentsMd(ctx),
+      agentsDocument: this.generateAgentsMd(ctx, templates.agents ?? null),
       heartbeatDocument: this.generateHeartbeatMd(ctx.tasksControl),
       bootstrapDocument: this.generateBootstrapMd(ctx.publishedVersion, ctx.userContext)
     };
   }
 
-  private generateSoulMd(pv: AssistantPublishedVersion): string {
-    const lines: string[] = ["# SOUL.md"];
-    lines.push("");
+  private async loadPresetTemplates(): Promise<Record<string, string | null>> {
+    try {
+      const presets = await this.bootstrapPresetRepository.findAll();
+      const map: Record<string, string | null> = {
+        soul: null,
+        user: null,
+        identity: null,
+        agents: null
+      };
+      for (const p of presets) {
+        map[p.id] = p.template;
+      }
+      return map;
+    } catch (err) {
+      this.logger.warn("Failed to load bootstrap presets from DB, using hardcoded fallbacks", err);
+      return { soul: null, user: null, identity: null, agents: null };
+    }
+  }
+
+  private interpolateTemplate(
+    template: string,
+    variables: Record<string, string | null | undefined>
+  ): string {
+    let result = template;
+    for (const [key, value] of Object.entries(variables)) {
+      const placeholder = `{{${key}}}`;
+      if (value === null || value === undefined || value.trim().length === 0) {
+        result = result
+          .split("\n")
+          .filter((line) => !line.includes(placeholder))
+          .join("\n");
+      } else {
+        result = result.replaceAll(placeholder, value);
+      }
+    }
+    return result;
+  }
+
+  private generateSoulMd(pv: AssistantPublishedVersion, template: string | null): string {
+    const traitsBlock = this.renderTraitsBlock(pv.snapshotTraits);
+    const instructionsBlock = pv.snapshotInstructions
+      ? `## Instructions\n\n${pv.snapshotInstructions}\n`
+      : "";
+
+    if (template) {
+      return this.interpolateTemplate(template, {
+        assistant_name: pv.snapshotDisplayName ?? "an assistant",
+        traits_block: traitsBlock,
+        instructions_block: instructionsBlock
+      });
+    }
+
+    const lines: string[] = ["# SOUL.md", ""];
     lines.push(`You are **${pv.snapshotDisplayName ?? "an assistant"}**.`);
     lines.push("");
-
-    const traits = pv.snapshotTraits;
-    if (traits && Object.keys(traits).length > 0) {
-      lines.push("## Personality Traits");
-      lines.push("");
-      for (const [trait, value] of Object.entries(traits)) {
-        const label = this.traitLabel(trait, value);
-        lines.push(`- **${trait}**: ${String(value)}/100 — ${label}`);
-      }
+    if (traitsBlock) {
+      lines.push(traitsBlock);
       lines.push("");
     }
-
-    if (pv.snapshotInstructions) {
-      lines.push("## Instructions");
-      lines.push("");
-      lines.push(pv.snapshotInstructions);
+    if (instructionsBlock) {
+      lines.push(instructionsBlock);
       lines.push("");
     }
+    return lines.join("\n");
+  }
 
+  private renderTraitsBlock(traits: Record<string, number> | null): string {
+    if (!traits || Object.keys(traits).length === 0) return "";
+    const lines = ["## Personality Traits", ""];
+    for (const [trait, value] of Object.entries(traits)) {
+      const label = this.traitLabel(trait, value);
+      lines.push(`- **${trait}**: ${String(value)}/100 — ${label}`);
+    }
     return lines.join("\n");
   }
 
@@ -434,15 +497,27 @@ export class MaterializeAssistantPublishedVersionService {
     return low ? entry[0] : high ? entry[2] : entry[1];
   }
 
-  private generateUserMd(userCtx: {
-    displayName: string | null;
-    birthday: string | null;
-    gender: string | null;
-    locale: string;
-    timezone: string;
-  }): string {
-    const lines: string[] = ["# USER.md — About Your Human"];
-    lines.push("");
+  private generateUserMd(
+    userCtx: {
+      displayName: string | null;
+      birthday: string | null;
+      gender: string | null;
+      locale: string;
+      timezone: string;
+    },
+    template: string | null
+  ): string {
+    if (template) {
+      return this.interpolateTemplate(template, {
+        user_name_line: userCtx.displayName ? `- **Name**: ${userCtx.displayName}` : null,
+        user_birthday_line: userCtx.birthday ? `- **Birthday**: ${userCtx.birthday}` : null,
+        user_gender_line: userCtx.gender ? `- **Gender**: ${userCtx.gender}` : null,
+        user_locale: userCtx.locale,
+        user_timezone: userCtx.timezone
+      });
+    }
+
+    const lines: string[] = ["# USER.md — About Your Human", ""];
     if (userCtx.displayName) lines.push(`- **Name**: ${userCtx.displayName}`);
     if (userCtx.birthday) lines.push(`- **Birthday**: ${userCtx.birthday}`);
     if (userCtx.gender) lines.push(`- **Gender**: ${userCtx.gender}`);
@@ -455,9 +530,20 @@ export class MaterializeAssistantPublishedVersionService {
     return lines.join("\n");
   }
 
-  private generateIdentityMd(pv: AssistantPublishedVersion): string {
-    const lines: string[] = ["# IDENTITY.md"];
-    lines.push("");
+  private generateIdentityMd(pv: AssistantPublishedVersion, template: string | null): string {
+    if (template) {
+      return this.interpolateTemplate(template, {
+        assistant_name: pv.snapshotDisplayName ?? "Assistant",
+        assistant_avatar_emoji_line: pv.snapshotAvatarEmoji
+          ? `- **Avatar**: ${pv.snapshotAvatarEmoji}`
+          : null,
+        assistant_avatar_url_line: pv.snapshotAvatarUrl
+          ? `- **Avatar URL**: ${pv.snapshotAvatarUrl}`
+          : null
+      });
+    }
+
+    const lines: string[] = ["# IDENTITY.md", ""];
     lines.push(`- **Name**: ${pv.snapshotDisplayName ?? "Assistant"}`);
     if (pv.snapshotAvatarEmoji) lines.push(`- **Avatar**: ${pv.snapshotAvatarEmoji}`);
     if (pv.snapshotAvatarUrl) lines.push(`- **Avatar URL**: ${pv.snapshotAvatarUrl}`);
@@ -506,34 +592,42 @@ export class MaterializeAssistantPublishedVersionService {
     return lines.join("\n");
   }
 
-  private generateAgentsMd(ctx: {
-    governance: AssistantGovernance;
-    effectiveCapabilities: Record<string, unknown>;
-    memoryControl: unknown;
-    tasksControl: unknown;
-  }): string {
-    const lines: string[] = ["# AGENTS.md — Governance & Capabilities"];
-    lines.push("");
-
+  private generateAgentsMd(
+    ctx: {
+      governance: AssistantGovernance;
+      effectiveCapabilities: Record<string, unknown>;
+      memoryControl: unknown;
+      tasksControl: unknown;
+    },
+    template: string | null
+  ): string {
     const mc = ctx.memoryControl as Record<string, unknown> | null;
-    if (mc) {
-      lines.push("## Memory Policy");
-      lines.push("");
-      lines.push("- Remember important facts about your human from conversations");
-      lines.push("- Update MEMORY.md with key information you learn");
-      lines.push("- Daily conversation notes go in memory/ directory");
-      lines.push("");
-    }
-
     const tc = ctx.tasksControl as Record<string, unknown> | null;
-    if (tc) {
-      lines.push("## Tasks Policy");
-      lines.push("");
-      lines.push("- You may manage reminders and recurring tasks for your human");
-      lines.push("- Track tasks in HEARTBEAT.md");
-      lines.push("");
+
+    const memoryPolicyBlock = mc
+      ? "## Memory Policy\n\n- Remember important facts about your human from conversations\n- Update MEMORY.md with key information you learn\n- Daily conversation notes go in memory/ directory\n"
+      : "";
+
+    const tasksPolicyBlock = tc
+      ? "## Tasks Policy\n\n- You may manage reminders and recurring tasks for your human\n- Track tasks in HEARTBEAT.md\n"
+      : "";
+
+    if (template) {
+      return this.interpolateTemplate(template, {
+        memory_policy_block: memoryPolicyBlock,
+        tasks_policy_block: tasksPolicyBlock
+      });
     }
 
+    const lines: string[] = ["# AGENTS.md — Governance & Capabilities", ""];
+    if (memoryPolicyBlock) {
+      lines.push(memoryPolicyBlock);
+      lines.push("");
+    }
+    if (tasksPolicyBlock) {
+      lines.push(tasksPolicyBlock);
+      lines.push("");
+    }
     return lines.join("\n");
   }
 

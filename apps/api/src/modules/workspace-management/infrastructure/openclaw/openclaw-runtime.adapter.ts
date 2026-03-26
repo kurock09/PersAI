@@ -120,6 +120,20 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     );
   }
 
+  async cleanupWorkspace(assistantId: string): Promise<void> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      return;
+    }
+
+    await this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/workspace/cleanup",
+      { assistantId },
+      config
+    );
+  }
+
   async sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult> {

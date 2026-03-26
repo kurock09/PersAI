@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
   Sparkles,
-  Upload,
-  Save,
   Rocket,
   RotateCcw,
   Trash2,
@@ -128,6 +127,7 @@ function ActionButton({
 }
 
 export function AssistantSettings({ data }: AssistantSettingsProps) {
+  const router = useRouter();
   const { getToken } = useAuth();
   const assistant = data.assistant;
   const statusCfg = STATUS_LABELS[data.assistantStatus] ?? STATUS_LABELS.none!;
@@ -152,8 +152,6 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     assistant?.draft.avatarEmoji ?? null
   );
 
-  const [publishing, setPublishing] = useState(false);
-  const [pubFb, setPubFb] = useState<ActionFeedback>(null);
   const [rollingBack, setRollingBack] = useState(false);
   const [rollbackConfirm, setRollbackConfirm] = useState(false);
   const [rollbackFb, setRollbackFb] = useState<ActionFeedback>(null);
@@ -265,7 +263,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     }
   }, [assistant, loadMemory, loadTasks, loadWsMemory]);
 
-  const handleSaveDraft = useCallback(async () => {
+  const handleSaveAndApply = useCallback(async () => {
     const token = await getToken();
     if (!token) return;
     setSaving(true);
@@ -277,28 +275,14 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         traits: draftTraits,
         avatarEmoji: draftAvatarEmoji
       });
-      setSaveFb({ type: "ok", text: "Draft saved." });
+      await postAssistantPublish(token);
+      setSaveFb({ type: "ok", text: "Saved and applied." });
       data.reload();
     } catch (e) {
       setSaveFb({ type: "err", text: e instanceof Error ? e.message : "Save failed." });
     }
     setSaving(false);
   }, [getToken, draftName, draftInstructions, draftTraits, draftAvatarEmoji, data]);
-
-  const handlePublish = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
-    setPublishing(true);
-    setPubFb(null);
-    try {
-      await postAssistantPublish(token);
-      setPubFb({ type: "ok", text: "Published and applying." });
-      data.reload();
-    } catch (e) {
-      setPubFb({ type: "err", text: e instanceof Error ? e.message : "Publish failed." });
-    }
-    setPublishing(false);
-  }, [getToken, data]);
 
   const handleRollback = useCallback(async () => {
     const token = await getToken();
@@ -325,14 +309,12 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     setResetFb(null);
     try {
       await postAssistantReset(token);
-      setResetFb({ type: "ok", text: "Assistant reset." });
-      setResetConfirm(false);
-      data.reload();
+      router.replace("/app/setup");
     } catch (e) {
       setResetFb({ type: "err", text: e instanceof Error ? e.message : "Reset failed." });
+      setResetting(false);
     }
-    setResetting(false);
-  }, [getToken, data]);
+  }, [getToken, router]);
 
   const handleForget = useCallback(
     async (itemId: string) => {
@@ -443,9 +425,9 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
 
         <div className="mt-3 flex items-center gap-2">
           <ActionButton
-            icon={<Save className="h-3.5 w-3.5" />}
-            label="Save draft"
-            onClick={() => void handleSaveDraft()}
+            icon={<Rocket className="h-3.5 w-3.5" />}
+            label="Save and apply"
+            onClick={() => void handleSaveAndApply()}
             busy={saving}
           />
         </div>
@@ -460,12 +442,6 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
           </p>
         )}
         <div className="flex flex-wrap gap-2">
-          <ActionButton
-            icon={<Upload className="h-3.5 w-3.5" />}
-            label="Publish"
-            onClick={() => void handlePublish()}
-            busy={publishing}
-          />
           {!rollbackConfirm ? (
             <ActionButton
               icon={<RotateCcw className="h-3.5 w-3.5" />}
@@ -518,7 +494,6 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
             </div>
           )}
         </div>
-        <FeedbackLine fb={pubFb} />
         <FeedbackLine fb={rollbackFb} />
         <FeedbackLine fb={resetFb} />
       </Section>

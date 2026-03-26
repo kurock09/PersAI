@@ -10,6 +10,7 @@ import { AdminNotificationsController } from "./interface/http/admin-notificatio
 import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
 import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
+import { AdminBootstrapPresetsController } from "./interface/http/admin-bootstrap-presets.controller";
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
@@ -88,6 +89,9 @@ import { PrismaAssistantChatRepository } from "./infrastructure/persistence/pris
 import { PrismaAssistantAbuseGuardRepository } from "./infrastructure/persistence/prisma-assistant-abuse-guard.repository";
 import { PrismaAssistantMemoryRegistryRepository } from "./infrastructure/persistence/prisma-assistant-memory-registry.repository";
 import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persistence/prisma-assistant-task-registry.repository";
+import { BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY } from "./domain/bootstrap-document-preset.repository";
+import { PrismaBootstrapDocumentPresetRepository } from "./infrastructure/persistence/prisma-bootstrap-document-preset.repository";
+import { ManageBootstrapPresetsService } from "./application/manage-bootstrap-presets.service";
 import { PrismaAssistantChannelSurfaceBindingRepository } from "./infrastructure/persistence/prisma-assistant-channel-surface-binding.repository";
 import { PrismaAssistantMaterializedSpecRepository } from "./infrastructure/persistence/prisma-assistant-materialized-spec.repository";
 import { PrismaAssistantPublishedVersionRepository } from "./infrastructure/persistence/prisma-assistant-published-version.repository";
@@ -107,6 +111,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminPlatformRolloutsController,
     AdminRuntimeProviderSettingsController,
     AdminToolCredentialsController,
+    AdminBootstrapPresetsController,
     InternalRuntimeProviderSecretsController
   ],
   providers: [
@@ -224,7 +229,12 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     {
       provide: ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
       useClass: PrismaAssistantMaterializedSpecRepository
-    }
+    },
+    {
+      provide: BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY,
+      useClass: PrismaBootstrapDocumentPresetRepository
+    },
+    ManageBootstrapPresetsService
   ],
   exports: [
     GetAssistantByUserIdService,

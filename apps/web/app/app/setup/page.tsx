@@ -38,7 +38,7 @@ interface TraitSlider {
 const DEFAULT_TRAITS: TraitSlider[] = [
   { key: "formality", labelLeft: "Formal", labelRight: "Casual", value: 50 },
   { key: "verbosity", labelLeft: "Concise", labelRight: "Detailed", value: 50 },
-  { key: "tone", labelLeft: "Serious", labelRight: "Playful", value: 50 },
+  { key: "playfulness", labelLeft: "Serious", labelRight: "Playful", value: 50 },
   { key: "initiative", labelLeft: "Reactive", labelRight: "Proactive", value: 50 },
   { key: "warmth", labelLeft: "Neutral", labelRight: "Warm", value: 50 }
 ];
@@ -100,7 +100,7 @@ function traitsToInstructions(
       if (v < 30) lines.push("Keep responses brief and to the point.");
       else if (v > 70) lines.push("Provide detailed, thorough explanations.");
     }
-    if (t.key === "tone") {
+    if (t.key === "playfulness") {
       if (v < 30) lines.push("Maintain a serious, focused demeanor.");
       else if (v > 70) lines.push("Be playful, use humor when appropriate.");
     }
@@ -119,7 +119,7 @@ function traitsToInstructions(
 }
 
 function generatePreview(assistantName: string, userName: string, traits: TraitSlider[]): string {
-  const tone = traits.find((t) => t.key === "tone")?.value ?? 50;
+  const tone = traits.find((t) => t.key === "playfulness")?.value ?? 50;
   const warmth = traits.find((t) => t.key === "warmth")?.value ?? 50;
   const verbosity = traits.find((t) => t.key === "verbosity")?.value ?? 50;
   const formality = traits.find((t) => t.key === "formality")?.value ?? 50;
@@ -184,7 +184,24 @@ export default function SetupWizardPage() {
 
   useEffect(() => {
     setTimezone(detectTimezone());
-  }, []);
+
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const me = await getMe(token);
+        if (me.me.onboarding.status !== "pending") {
+          const u = me.me.appUser;
+          if (u.displayName) setUserName(u.displayName);
+          if (u.birthday) setBirthday(u.birthday);
+          if (u.gender) setGender(u.gender as Gender);
+          if (me.me.workspace?.timezone) setTimezone(me.me.workspace.timezone);
+        }
+      } catch {
+        // Pre-fill is best-effort; ignore errors.
+      }
+    })();
+  }, [getToken]);
 
   const canProceed = useMemo(() => {
     if (step === 0) return userName.trim().length >= 2 && gender !== null && timezone.length > 0;

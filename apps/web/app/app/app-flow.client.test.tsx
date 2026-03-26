@@ -949,7 +949,10 @@ describe("AppFlowClient onboarding gate", () => {
   it("applies advanced setup path to draft and auto-creates assistant when absent", async () => {
     apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
     assistantApiMocks.getAssistant.mockResolvedValue(null);
-    assistantApiMocks.postAssistantCreate.mockResolvedValue(makeAssistantResponse());
+    assistantApiMocks.postAssistantCreate.mockResolvedValue({
+      assistant: makeAssistantResponse(),
+      alreadyExisted: false
+    });
     assistantApiMocks.patchAssistantDraft.mockResolvedValue(
       makeAssistantResponseWithDraft(
         "Analyst Assistant",

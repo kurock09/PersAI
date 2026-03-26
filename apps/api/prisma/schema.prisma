@@ -777,3 +777,12 @@ model AssistantTaskRegistryItem {
   @@index([assistantId, controlStatus, nextRunAt])
   @@map("assistant_task_registry_items")
 }
+
+model BootstrapDocumentPreset {
+  id        String   @id @db.VarChar(32)
+  template  String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("bootstrap_document_presets")
+}

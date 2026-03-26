@@ -13,6 +13,7 @@ import {
   Shield,
   ShieldAlert,
   Wrench,
+  FileText,
   Menu,
   X
 } from "lucide-react";
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: "/admin", label: "Overview", icon: Shield },
   { href: "/admin/runtime", label: "Runtime", icon: Server },
   { href: "/admin/tools", label: "Tools", icon: Wrench },
+  { href: "/admin/presets", label: "Bootstrap Presets", icon: FileText },
   { href: "/admin/plans", label: "Plans", icon: CreditCard },
   { href: "/admin/ops", label: "Ops Cockpit", icon: Activity },
   { href: "/admin/business", label: "Business", icon: TrendingUp },

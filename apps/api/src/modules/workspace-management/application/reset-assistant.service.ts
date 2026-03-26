@@ -1,21 +1,11 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import {
-  ASSISTANT_GOVERNANCE_REPOSITORY,
-  type AssistantGovernanceRepository
-} from "../domain/assistant-governance.repository";
-import {
-  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
-  type AssistantMaterializedSpecRepository
-} from "../domain/assistant-materialized-spec.repository";
-import {
-  ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
-  type AssistantPublishedVersionRepository
-} from "../domain/assistant-published-version.repository";
+import { Prisma } from "@prisma/client";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
-import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
-import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
-import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import {
+  ASSISTANT_RUNTIME_ADAPTER,
+  type AssistantRuntimeAdapter
+} from "./assistant-runtime-adapter.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 
 @Injectable()
@@ -23,77 +13,77 @@ export class ResetAssistantService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
-    @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
-    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
-    @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
-    private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
-    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
-    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
-    private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
-    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
+    @Inject(ASSISTANT_RUNTIME_ADAPTER)
+    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    private readonly prisma: WorkspaceManagementPrismaService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
-  async execute(userId: string): Promise<AssistantLifecycleState> {
+  async execute(userId: string): Promise<void> {
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
-    const resetVersion = await this.assistantPublishedVersionRepository.create({
-      assistantId: assistant.id,
-      publishedByUserId: userId,
-      snapshotDisplayName: null,
-      snapshotInstructions: null
+    await this.prisma.$transaction(async (tx) => {
+      await tx.assistant.update({
+        where: { id: assistant.id },
+        data: {
+          applyStatus: "not_requested",
+          applyTargetVersionId: null,
+          applyAppliedVersionId: null,
+          applyRequestedAt: null,
+          applyStartedAt: null,
+          applyFinishedAt: null,
+          applyErrorCode: null,
+          applyErrorMessage: null
+        }
+      });
+
+      await tx.assistantChatMessage.deleteMany({
+        where: { assistantId: assistant.id }
+      });
+      await tx.assistantChat.deleteMany({
+        where: { assistantId: assistant.id }
+      });
+      await tx.assistantMemoryRegistryItem.deleteMany({
+        where: { assistantId: assistant.id }
+      });
+      await tx.assistantMaterializedSpec.deleteMany({
+        where: { assistantId: assistant.id }
+      });
+      await tx.assistantPublishedVersion.deleteMany({
+        where: { assistantId: assistant.id }
+      });
+
+      await tx.assistant.update({
+        where: { id: assistant.id },
+        data: {
+          draftDisplayName: null,
+          draftInstructions: null,
+          draftTraits: Prisma.JsonNull,
+          draftAvatarEmoji: null,
+          draftAvatarUrl: null,
+          draftUpdatedAt: new Date()
+        }
+      });
     });
+
+    try {
+      await this.runtimeAdapter.cleanupWorkspace(assistant.id);
+    } catch {
+      // Workspace cleanup is best-effort; the DB wipe is the authoritative reset.
+    }
+
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,
       actorUserId: userId,
       eventCategory: "assistant_lifecycle",
-      eventCode: "assistant.reset_published",
-      summary: "Assistant reset published as a new blank version.",
-      details: {
-        publishedVersionId: resetVersion.id,
-        publishedVersionNumber: resetVersion.version
-      }
+      eventCode: "assistant.full_reset",
+      summary:
+        "Full assistant reset: all chats, memory, published versions, materialized specs and workspace files deleted.",
+      details: {}
     });
-
-    const updatedAssistant = await this.assistantRepository.updateDraft(userId, {
-      draftDisplayName: null,
-      draftInstructions: null
-    });
-    if (updatedAssistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-
-    const assistantWithPendingApply = await this.assistantRepository.markApplyPending(
-      userId,
-      resetVersion.id
-    );
-    if (assistantWithPendingApply === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-
-    await this.materializeAssistantPublishedVersionService.execute(
-      assistantWithPendingApply,
-      resetVersion,
-      "reset"
-    );
-    await this.applyAssistantPublishedVersionService.execute(userId, resetVersion, false);
-
-    const refreshedAssistant = await this.assistantRepository.findByUserId(userId);
-    if (refreshedAssistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-
-    const governance = await this.assistantGovernanceRepository.findByAssistantId(
-      refreshedAssistant.id
-    );
-    const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
-      refreshedAssistant.id
-    );
-
-    return toAssistantLifecycleState(refreshedAssistant, resetVersion, governance, materialization);
   }
 }

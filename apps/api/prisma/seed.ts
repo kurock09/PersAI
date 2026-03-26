@@ -9,6 +9,7 @@ import {
   WorkspaceSubscriptionStatus
 } from "@prisma/client";
 import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "./tool-catalog-data.js";
+import { BOOTSTRAP_PRESET_DEFAULTS } from "./bootstrap-preset-data.js";
 
 const prisma = new PrismaClient();
 
@@ -53,8 +54,19 @@ async function upsertToolCatalog(): Promise<void> {
   }
 }
 
+async function upsertBootstrapPresets(): Promise<void> {
+  for (const [id, template] of Object.entries(BOOTSTRAP_PRESET_DEFAULTS)) {
+    await prisma.bootstrapDocumentPreset.upsert({
+      where: { id },
+      update: { template },
+      create: { id, template }
+    });
+  }
+}
+
 async function main(): Promise<void> {
   await upsertToolCatalog();
+  await upsertBootstrapPresets();
 
   await prisma.appUser.upsert({
     where: { id: SEED_USER_ID },

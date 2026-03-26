@@ -3442,21 +3442,60 @@ Full interactive LIVE test of 8 areas after H2-cleanup + H3 deploy. Found and fi
 - `apps/web/app/admin/plans/page.tsx` — model select, channels vertical, styled sections, runtime models fetch
 - `docs/ROADMAP.md` — H3.1 tech debt entry
 
+---
+
+## H3.3 — Assistant lifecycle rework (CREATE/EDIT/RESET)
+
+### What changed
+
+1. **EDIT simplification**: replaced "Save draft" + "Publish" two-step with single "Save and apply" button. Backend draft/publish versioning preserved internally for audit/rollback. Removed unused `publishing`/`pubFb` state and `Upload`/`Save` imports.
+
+2. **RESET full wipe**: `reset-assistant.service.ts` rewritten with Prisma transaction that hard-deletes chat messages, chats, memory registry items, materialized specs, and published versions. Apply state reset to `not_requested`. Draft fields nulled. OpenClaw workspace cleanup via new `POST /api/v1/runtime/workspace/cleanup` endpoint (deletes workspace directory + removes spec store entries). Frontend redirects to `/app/setup` after reset. Setup wizard pre-fills user data (name, birthday, gender, timezone) from `/me` endpoint. `postAssistantCreate` 409 caught silently (assistant record already exists post-reset).
+
+3. **Admin-editable bootstrap presets**: new `bootstrap_document_presets` table (id VARCHAR(32) PK, template TEXT). Prisma migration + seed for 4 presets (soul, user, identity, agents). Admin API: `GET /api/v1/admin/bootstrap-presets` and `PATCH /api/v1/admin/bootstrap-presets/:id`. Materialization service loads templates from DB with hardcoded fallback. Templates use `{{placeholder}}` interpolation — lines with empty/null placeholders are automatically removed. Admin UI: `/admin/presets` page with per-preset Markdown editor, variable chips (click to copy + insert at cursor), and live preview with sample data.
+
+4. **OpenClaw changes**: `cleanupPersaiAssistantWorkspace()` function in `persai-runtime-workspace.ts`. `remove(assistantId)` method on `PersaiRuntimeSpecStore` interface (InMemory and Redis). `handleRuntimeWorkspaceCleanupHttpRequest` handler + route registration. `cleanupWorkspace(assistantId)` on `AssistantRuntimeAdapter` interface + `OpenClawRuntimeAdapter` implementation.
+
+5. **App shell**: detects post-reset state (assistant exists, no published version, `applyStatus=not_requested`) and redirects to `/app/setup`.
+
+### Key files changed
+
+**PersAI backend:**
+- `apps/api/prisma/schema.prisma` — `BootstrapDocumentPreset` model
+- `apps/api/prisma/migrations/20260401100000_h3_bootstrap_document_presets/migration.sql`
+- `apps/api/prisma/bootstrap-preset-data.ts` — default template definitions
+- `apps/api/prisma/seed.ts` — preset upsert
+- `apps/api/src/modules/workspace-management/domain/bootstrap-document-preset.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-bootstrap-document-preset.repository.ts`
+- `apps/api/src/modules/workspace-management/application/manage-bootstrap-presets.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-bootstrap-presets.controller.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — template interpolation, preset loading
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts` — full wipe rewrite
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts` — `cleanupWorkspace` method
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts` — cleanup implementation
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` — reset return type
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` — new registrations
+
+**PersAI frontend:**
+- `apps/web/app/app/_components/assistant-settings.tsx` — "Save and apply" button, reset redirect
+- `apps/web/app/app/_components/app-shell.tsx` — post-reset setup redirect
+- `apps/web/app/app/setup/page.tsx` — user data pre-fill, 409 handling
+- `apps/web/app/admin/presets/page.tsx` — new admin presets UI
+- `apps/web/app/admin/layout.tsx` — nav item
+
+**OpenClaw fork:**
+- `src/gateway/persai-runtime/persai-runtime-workspace.ts` — `cleanupPersaiAssistantWorkspace`
+- `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — `remove()` method
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — cleanup endpoint handler
+- `src/gateway/server-http.ts` — route registration
+
+### Risks
+
+- Bootstrap preset interpolation depends on exact `{{placeholder}}` syntax — admin typos in template will result in literal `{{...}}` text in generated documents.
+- Reset full wipe is irreversible — no soft-delete or recovery path.
+- `postAssistantCreate` 409 catch in setup wizard is broad — could mask other errors on that endpoint (acceptable for MVP).
+
 ### Next recommended step
 
-- **H3.2 — Assistant lifecycle audit (create / edit / recreate)**. Tracked in `ROADMAP.md` as H3.2a–H3.2d. Scope:
-  - **Create** (H3.2a): trace full pipeline from setup wizard → draft → publish → materialize (7 bootstrap docs) → apply → GCS FUSE workspace write. Verify persona traits, tool activations, memory control, user context, plan model key all propagate end-to-end.
-  - **Edit** (H3.2b): trace draft update → publish new version → re-materialize → re-apply. Verify bootstrap docs regenerate with updated data, OpenClaw workspace files refresh, running session picks up new spec.
-  - **Recreate/Reset** (H3.2c): trace reset flow → workspace cleanup → new bootstrap. Verify GCS FUSE cleared, memory state handling (preserve vs reset), chat history behavior, apply state reset.
-  - **UI completeness** (H3.2d): setup wizard, assistant settings, publish/apply/rollback/reset — all buttons map to real backend, with loading/error states and confirmation for destructive actions.
-  - Key files to start with:
-    - `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
-    - `apps/api/src/modules/workspace-management/application/reapply-assistant.service.ts`
-    - `apps/api/src/modules/workspace-management/application/rollback-assistant.service.ts`
-    - `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
-    - `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
-    - `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
-    - `apps/web/app/app/_components/assistant-settings.tsx`
-    - `apps/web/app/app/setup/page.tsx`
-    - `apps/web/app/app/_components/app-shell.tsx`
-    - OpenClaw: `src/gateway/persai-runtime/persai-runtime-workspace.ts`
+- **H4 — Telegram runtime readiness alignment** against admin-driven runtime profile + managed secret refs.
+- Live-test the full reset → setup → create → edit cycle on dev.

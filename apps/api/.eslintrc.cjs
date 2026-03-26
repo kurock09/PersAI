@@ -1,3 +1,4 @@
 module.exports = {
-  extends: ["@persai/eslint-config/nest.cjs"]
+  extends: ["@persai/eslint-config/nest.cjs"],
+  ignorePatterns: ["dist"]
 };

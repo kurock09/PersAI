@@ -497,8 +497,8 @@ function PlanForm({
             </div>
           </Sec>
           <p className="text-[10px] leading-snug text-text-subtle/80">
-            &quot;Cost&quot; tools consume quota units; &quot;Utility&quot; are free.
-            Quota flags enforce spending limits.
+            &quot;Cost&quot; tools consume quota units; &quot;Utility&quot; are free. Quota flags
+            enforce spending limits.
           </p>
         </div>
         <div className="space-y-2 rounded-md border border-accent/30 bg-surface-raised p-2.5">
@@ -564,22 +564,25 @@ function PlanForm({
               className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
             >
               <option value="">platform default</option>
-              {availableModelKeys.length > 0 ? (
-                Object.entries(
-                  availableModelKeys.reduce<Record<string, string[]>>((acc, { provider, model }) => {
-                    (acc[provider] ??= []).push(model);
-                    return acc;
-                  }, {})
-                ).map(([provider, models]) => (
-                  <optgroup key={provider} label={provider}>
-                    {models.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))
-              ) : null}
+              {availableModelKeys.length > 0
+                ? Object.entries(
+                    availableModelKeys.reduce<Record<string, string[]>>(
+                      (acc, { provider, model }) => {
+                        (acc[provider] ??= []).push(model);
+                        return acc;
+                      },
+                      {}
+                    )
+                  ).map(([provider, models]) => (
+                    <optgroup key={provider} label={provider}>
+                      {models.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))
+                : null}
             </select>
           </Sec>
         </div>

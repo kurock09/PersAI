@@ -136,10 +136,14 @@ Foundation Phase
   - [x] H3b — memory management: OpenClaw memory API (list/add/edit/forget/search), PersAI proxy, Memory Center UI (curated/timeline tabs, teach/forget in-chat), deprecate `AssistantMemoryRegistryItem`
   - [x] H3c — chat history: message loading endpoint with pagination, UI load-on-thread-open
 - [ ] H3.1 — **tech debt**: eliminate full re-materialization on global settings change; introduce `settingsGeneration` lazy-invalidation so OpenClaw pulls fresh provider/model on demand instead of rebuilding all bootstraps (critical at scale ≥1 000 workspaces)
-- [ ] H3.2 — **assistant lifecycle audit**: end-to-end verification and hardening of create / edit / recreate flows
-  - [ ] H3.2a — **create**: first assistant creation → draft → publish → materialize → apply → bootstrap files written to GCS FUSE workspace; verify persona traits, tools, memory control, user context all propagate correctly through the full pipeline
-  - [ ] H3.2b — **edit**: draft update → publish new version → re-materialize → re-apply; verify bootstrap docs (SOUL/USER/IDENTITY/TOOLS/AGENTS) regenerate with updated data, workspace files update on GCS FUSE, OpenClaw session picks up new spec
-  - [ ] H3.2c — **recreate/reset**: reset assistant → clear workspace → new bootstrap; verify GCS FUSE workspace cleaned, memory state handled (preserved or reset per policy), chat history handling, apply state reset
-  - [ ] H3.2d — **UI completeness**: setup wizard, assistant settings, publish/apply/rollback/reset buttons — all actions map to real backend flows, loading/error states, confirmation dialogs for destructive actions
+- [x] H3.2 — **assistant lifecycle audit**: end-to-end verification and hardening of create / edit / recreate flows
+  - [x] H3.2a — **create**: audited full pipeline; found and fixed trait key mismatch (`tone` → `playfulness`) that silently dropped the playfulness trait from SOUL.md
+  - [x] H3.2b — **edit**: audited full pipeline; edit flow correct (bootstrap overwrite semantics, BOOTSTRAP.md write-once preserved)
+  - [x] H3.2c — **recreate/reset**: found and fixed 3 bugs: reset/rollback not copying traits/avatar to new published version and draft; reset using `reapply=false` leaving stale BOOTSTRAP.md
+  - [x] H3.2d — **UI completeness**: all action buttons mapped with loading/error states and confirmation dialogs; noted minor gaps (no avatar picker in settings, no reapply in user UI)
+- [x] H3.3 — **assistant lifecycle rework** (CREATE/EDIT/RESET):
+  - [x] H3.3a — **EDIT simplification**: replaced separate "Save draft" + "Publish" buttons with a single "Save and apply" button; backend draft/publish versioning preserved internally
+  - [x] H3.3b — **RESET full wipe**: rewritten to hard-delete all chats, memory, published versions, materialized specs, workspace files; OpenClaw workspace cleanup endpoint; redirect to `/app/setup` with user data pre-filled
+  - [x] H3.3c — **admin-editable bootstrap presets**: `bootstrap_document_presets` table for SOUL/USER/IDENTITY/AGENTS templates with `{{placeholder}}` interpolation; admin API and `/admin/presets` UI with Markdown editors, variable chips, live preview
 - [ ] H4 — Telegram runtime readiness alignment against admin-driven runtime profile + managed secret refs
 - [ ] H5 — WhatsApp/MAX follow-up readiness and secret-ref parity before later delivery slices

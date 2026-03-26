@@ -521,7 +521,9 @@ export async function getAssistant(token: string): Promise<AssistantLifecycleSta
   }
 }
 
-export async function postAssistantCreate(token: string): Promise<AssistantLifecycleState> {
+export async function postAssistantCreate(
+  token: string
+): Promise<{ assistant: AssistantLifecycleState; alreadyExisted: boolean }> {
   try {
     const response = await postAssistantCreateContract({
       headers: getAuthHeaders(token)
@@ -536,8 +538,12 @@ export async function postAssistantCreate(token: string): Promise<AssistantLifec
       throw new Error("Unexpected non-success response for POST /assistant.");
     }
 
-    return response.data.assistant;
+    return { assistant: response.data.assistant, alreadyExisted: false };
   } catch (error) {
+    if (error instanceof ContractsApiError && error.status === 409) {
+      const existing = await getAssistant(token);
+      if (existing) return { assistant: existing, alreadyExisted: true };
+    }
     throw new Error(toErrorMessage(error));
   }
 }

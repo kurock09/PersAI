@@ -95,7 +95,10 @@ export class RollbackAssistantService {
       assistantId: assistant.id,
       publishedByUserId: userId,
       snapshotDisplayName: targetVersion.snapshotDisplayName,
-      snapshotInstructions: targetVersion.snapshotInstructions
+      snapshotInstructions: targetVersion.snapshotInstructions,
+      snapshotTraits: targetVersion.snapshotTraits,
+      snapshotAvatarEmoji: targetVersion.snapshotAvatarEmoji,
+      snapshotAvatarUrl: targetVersion.snapshotAvatarUrl
     });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
@@ -113,7 +116,10 @@ export class RollbackAssistantService {
 
     const updatedAssistant = await this.assistantRepository.updateDraft(userId, {
       draftDisplayName: targetVersion.snapshotDisplayName,
-      draftInstructions: targetVersion.snapshotInstructions
+      draftInstructions: targetVersion.snapshotInstructions,
+      draftTraits: targetVersion.snapshotTraits,
+      draftAvatarEmoji: targetVersion.snapshotAvatarEmoji,
+      draftAvatarUrl: targetVersion.snapshotAvatarUrl
     });
     if (updatedAssistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");
