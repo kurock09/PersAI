@@ -149,6 +149,11 @@ async function run(): Promise<void> {
   const prismaServiceMock = {
     assistant: { update: async () => ({}), updateMany: async () => ({}) }
   };
+  const secretStoreServiceMock = {
+    upsertProviderKey: async () => undefined,
+    deleteProviderKey: async () => undefined,
+    resolveSecretValueByProviderKey: async () => null
+  };
   const connectService = new ConnectTelegramIntegrationService(
     assistantRepository as never,
     governanceRepository as never,
@@ -156,6 +161,7 @@ async function run(): Promise<void> {
     capabilityResolver as never,
     resolveStateService,
     auditEventService as never,
+    secretStoreServiceMock as never,
     prismaServiceMock as never
   );
   const updateConfigService = new UpdateTelegramIntegrationConfigService(
@@ -170,6 +176,7 @@ async function run(): Promise<void> {
     bindingRepository as never,
     resolveStateService,
     auditEventService as never,
+    secretStoreServiceMock as never,
     prismaServiceMock as never
   );
 
