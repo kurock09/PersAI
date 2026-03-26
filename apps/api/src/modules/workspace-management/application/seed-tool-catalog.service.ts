@@ -108,7 +108,9 @@ export class SeedToolCatalogService implements OnModuleInit {
     });
 
     await this.syncToolActivations(plan.id);
-    this.logger.log(`Default plan "${DEFAULT_PLAN_CODE}" created with entitlement and tool activations`);
+    this.logger.log(
+      `Default plan "${DEFAULT_PLAN_CODE}" created with entitlement and tool activations`
+    );
   }
 
   private async syncToolActivations(planId: string): Promise<void> {
@@ -142,6 +144,8 @@ export class SeedToolCatalogService implements OnModuleInit {
         create: { id, template }
       });
     }
-    this.logger.log(`Bootstrap presets seeded: ${Object.keys(BOOTSTRAP_PRESET_DEFAULTS).length} entries`);
+    this.logger.log(
+      `Bootstrap presets seeded: ${Object.keys(BOOTSTRAP_PRESET_DEFAULTS).length} entries`
+    );
   }
 }
