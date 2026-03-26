@@ -82,7 +82,9 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/plans", method: RequestMethod.POST },
       { path: "api/v1/admin/plans/:code", method: RequestMethod.PATCH },
       { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.GET },
-      { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.PUT }
+      { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.PUT },
+      { path: "api/v1/admin/bootstrap-presets", method: RequestMethod.GET },
+      { path: "api/v1/admin/bootstrap-presets/:id", method: RequestMethod.PATCH }
     );
   }
 }
