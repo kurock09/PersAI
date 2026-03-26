@@ -192,7 +192,7 @@ export default function SetupWizardPage() {
         if (!token) return;
 
         const existing = await getAssistant(token);
-        if (existing && existing.applyStatus === "succeeded") {
+        if (existing && existing.runtimeApply.status === "succeeded") {
           router.replace("/app");
           return;
         }
