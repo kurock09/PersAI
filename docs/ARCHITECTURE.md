@@ -196,7 +196,7 @@ It is not part of backend domain logic.
   - it enforces policy at entry boundaries
   - it does not route runtime tool behavior
 - OpenClaw materialization includes explicit `toolAvailability` truth so runtime does not assume unavailable tool classes exist
-- per-plan model selection is resolved from `billing_provider_hints.primaryModelKey` and passed to runtime provider routing during materialization
+- per-plan model selection is resolved from `billing_provider_hints.primaryModelKey` during materialization; it overrides `runtimeProviderProfile.primary.model` (the field OpenClaw reads via `extractPersaiRuntimeModelOverride`) and takes priority over the global admin-managed model in routing resolution
 
 ## Tool catalog and activation boundary (Step 8 E1)
 

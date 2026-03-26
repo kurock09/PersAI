@@ -39,6 +39,15 @@
 - **Step 12 H1a runtime provider admin UI:** PersAI now exposes a structured platform-admin editor in the existing rollout controls for primary/fallback runtime provider selection and `OpenAI` / `Anthropic` credential refs. The UI hydrates from current assistant governance state, preserves unrelated `policyEnvelope` and `secretRefs` branches such as Telegram-managed refs, and still submits through the existing `POST /api/v1/admin/platform-rollouts` path instead of introducing a second mutation API.
 - **Step 12 H1 runtime provider profile baseline:** PersAI now supports an admin-managed runtime provider profile for `OpenAI + Anthropic` using existing governance containers: `policyEnvelope.runtimeProviderProfile` for assistant-scoped primary/fallback model selection and `secretRefs.refs.runtime_provider_credentials` for provider credential refs (no raw secrets in PersAI state). Materialization projects the resolved profile into `openclawBootstrap.governance.runtimeProviderProfile`, and the native OpenClaw apply/chat path consumes it via runtime validation plus per-run provider/model overrides.
 
+- **Live-test fixes (2026-03-26):**
+  - Plan `primaryModelKey` now overrides `runtimeProviderProfile.primary.model` during materialization so OpenClaw picks up per-plan model instead of global default.
+  - Runtime routing priority corrected: `planModelKey` takes precedence over `managedPrimary?.model`.
+  - `useChat` hook resets messages, activities, and chatId on `threadKey` change — fixes stale history when switching between chats.
+  - Admin Plans UI: AI Model field changed from free text input to `<select>` populated from runtime `availableModelsByProvider` (grouped by provider `<optgroup>`).
+  - Admin Plans UI: Channels section changed to vertical layout with full names (Web Chat, Telegram, WhatsApp, Max) and inline hint text.
+  - Admin Plans UI: Tool Classes, Channels, and Quota Limits sections styled with accent-bordered cards (`bg-surface-raised`, `border-accent/30`).
+  - H3.1 tech debt logged in ROADMAP: lazy `settingsGeneration` invalidation to replace full re-materialization at scale.
+
 ### Fixed
 
 - **ADR-048 OpenClaw pin advance:** `infra/dev/gitops/openclaw-approved-sha.txt` now points to fork commit `f74bb8c23286f4b2452897035489dd1cc41931d6`, where missing applied PersAI runtime specs return explicit `503` errors instead of compat-echo chat responses. This keeps PersAI chat history honest after runtime restarts or store drift and lets the OpenClaw image publish workflow build the correct fork revision on the next `main` push.

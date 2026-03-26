@@ -225,7 +225,7 @@ Opens on click of assistant card in sidebar. On mobile: fullscreen.
 - Access gated by admin role (hidden entirely if no admin role)
 - Premium but functional — a working tool, not a showcase
 - Sections:
-  - Plans (create/edit/manage — per-tool activations, quota limits, per-plan AI model)
+  - Plans (create/edit/manage — per-tool activations with daily call limits, quota limits with accent-bordered section, per-plan AI model via `<select>` populated from runtime `availableModelsByProvider`, tool classes and channels in vertical layout with inline hint text)
   - Ops Cockpit (runtime/health/apply status)
   - Business Cockpit (usage/commercial signals)
   - Rollouts (progressive rollout/rollback controls)

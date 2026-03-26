@@ -3416,3 +3416,32 @@
 ### Ops / runtime env
 
 - `PERSAI_WORKSPACE_ROOT`, `PERSAI_AGENT_WORKSPACE_DIR`
+
+## Live-test fixes session (2026-03-26)
+
+### What was done
+
+Full interactive LIVE test of 8 areas after H2-cleanup + H3 deploy. Found and fixed:
+
+1. **Plan model override not applied by OpenClaw**: `runtimeProviderProfile.primary.model` was always set to the global admin model; per-plan `primaryModelKey` was only in `runtimeProviderRouting` (which OpenClaw doesn't read). Fix: `materialize-assistant-published-version.service.ts` now overrides `runtimeProviderProfile.primary.model` with plan model key when present.
+2. **Routing priority wrong**: `managedPrimary?.model` took precedence over `planModelKey`. Fix: swapped order in `resolve-runtime-provider-routing.service.ts`.
+3. **Chat history stale on thread switch**: `useChat` hook didn't reset state when `threadKey` changed. Fix: added `prevThreadKeyRef` comparison and state reset in `use-chat.ts`.
+4. **Admin Plans UI polish**: quota/model fields were dim (`text-text-subtle`); AI Model was free text. Fix: accent-bordered card sections, `<select>` for model from runtime `availableModelsByProvider`, vertical channels layout with full names and hint text.
+5. **403 on runtime save**: user had `business_admin` role (legacy owner fallback) but `admin.runtime_provider_settings.update` requires `ops_admin`/`super_admin`. Fix: inserted `super_admin` role in `app_user_admin_roles` table for dev user.
+6. **H3.1 tech debt**: logged in ROADMAP — lazy `settingsGeneration` invalidation to replace full re-materialization at scale (critical for ≥1000 workspaces).
+
+### Commits
+
+- `543c2d9` → `9b1b15a` (rebased) — refactor + live-test fixes on `main`
+
+### Key files changed
+
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — plan model override in runtimeProviderProfile
+- `apps/api/src/modules/workspace-management/application/resolve-runtime-provider-routing.service.ts` — planModelKey priority fix
+- `apps/web/app/app/_components/use-chat.ts` — thread switch state reset
+- `apps/web/app/admin/plans/page.tsx` — model select, channels vertical, styled sections, runtime models fetch
+- `docs/ROADMAP.md` — H3.1 tech debt entry
+
+### Next recommended step
+
+- Assistant lifecycle flows: audit and fix create / edit / recreate paths with current H3 bootstrap infrastructure.

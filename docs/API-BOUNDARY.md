@@ -932,7 +932,8 @@ Behavior baseline:
   - `openclawBootstrap.governance.runtimeProviderProfile`
   - derived `runtimeProviderRouting` continues to surface routing truth for runtime/tool-policy alignment
 - When global runtime provider settings are configured, materialization precedence is:
-  - platform-global runtime provider settings
+  - per-plan `primaryModelKey` from `billingProviderHints` (overrides `runtimeProviderProfile.primary.model` if present)
+  - platform-global runtime provider settings (provider, model, credentials)
   - fallback to legacy assistant governance H1 runtime-provider profile + provider credential refs
   - fallback to legacy OpenClaw runtime default
 - The materialized runtime-provider profile may now include:
