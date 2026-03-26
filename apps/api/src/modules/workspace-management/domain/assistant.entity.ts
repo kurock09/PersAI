@@ -24,6 +24,7 @@ export type Assistant = {
   applyFinishedAt: Date | null;
   applyErrorCode: string | null;
   applyErrorMessage: string | null;
+  configDirtyAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };

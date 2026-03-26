@@ -11,6 +11,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  RefreshCw,
   X
 } from "lucide-react";
 import type {
@@ -23,7 +24,9 @@ import {
   getAdminPlans,
   getAdminRuntimeProviderSettings,
   patchAdminPlan,
-  postAdminPlanCreate
+  postAdminPlanCreate,
+  postAdminForceReapplyAll,
+  type ForceReapplyAllSummary
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
@@ -749,6 +752,8 @@ export default function AdminPlansPage() {
   const [availableModelKeys, setAvailableModelKeys] = useState<
     { provider: string; model: string }[]
   >([]);
+  const [reapplying, setReapplying] = useState(false);
+  const [reapplySummary, setReapplySummary] = useState<ForceReapplyAllSummary | null>(null);
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -801,6 +806,34 @@ export default function AdminPlansPage() {
   const patchEdit = useCallback((p: Partial<PlanDraft>) => {
     setEditDraft((d) => (d ? { ...d, ...p } : d));
   }, []);
+
+  const handleForceReapplyAll = useCallback(async () => {
+    if (
+      !window.confirm(
+        "This will re-materialize ALL assistants immediately. This may take a while. Continue?"
+      )
+    )
+      return;
+    const token = await getToken();
+    if (!token) return;
+    setReapplying(true);
+    setReapplySummary(null);
+    setFeedback(null);
+    try {
+      const summary = await postAdminForceReapplyAll(token);
+      setReapplySummary(summary);
+      setFeedback({
+        kind: "success",
+        message: `Force reapply complete: ${String(summary.succeeded)} succeeded, ${String(summary.failed)} failed, ${String(summary.skipped)} skipped.`
+      });
+    } catch (err) {
+      setFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Force reapply failed."
+      });
+    }
+    setReapplying(false);
+  }, [getToken]);
 
   const openCreate = useCallback(() => {
     setEditingCode(null);
@@ -913,27 +946,42 @@ export default function AdminPlansPage() {
           <h1 className="text-sm font-bold text-text">Plans</h1>
           <span className="text-[10px] text-text-muted">({plans.length})</span>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          disabled={saving}
-          className={cn(
-            "inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-semibold transition-colors",
-            createOpen
-              ? "border-border bg-surface-hover text-text"
-              : "border-accent/30 bg-accent/10 text-accent hover:bg-accent/20"
-          )}
-        >
-          {createOpen ? (
-            <>
-              <X className="h-3 w-3" /> Close
-            </>
-          ) : (
-            <>
-              <Plus className="h-3 w-3" /> New plan
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleForceReapplyAll()}
+            disabled={reapplying || saving}
+            className="inline-flex items-center gap-1 rounded border border-orange-400/40 bg-orange-500/10 px-2 py-1 text-[10px] font-semibold text-orange-600 transition-colors hover:bg-orange-500/20 disabled:opacity-50"
+          >
+            {reapplying ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3 w-3" />
+            )}
+            Force reapply all
+          </button>
+          <button
+            type="button"
+            onClick={openCreate}
+            disabled={saving}
+            className={cn(
+              "inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-semibold transition-colors",
+              createOpen
+                ? "border-border bg-surface-hover text-text"
+                : "border-accent/30 bg-accent/10 text-accent hover:bg-accent/20"
+            )}
+          >
+            {createOpen ? (
+              <>
+                <X className="h-3 w-3" /> Close
+              </>
+            ) : (
+              <>
+                <Plus className="h-3 w-3" /> New plan
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* feedback */}
@@ -952,6 +1000,15 @@ export default function AdminPlansPage() {
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           )}
           {feedback.message}
+        </div>
+      )}
+
+      {reapplySummary && (
+        <div className="mb-3 rounded border border-orange-400/30 bg-orange-500/10 p-2.5 text-[11px] text-orange-300">
+          <span className="font-semibold">Reapply summary:</span> {reapplySummary.totalAssistants}{" "}
+          total, {reapplySummary.withPublishedVersion} with version, {reapplySummary.succeeded}{" "}
+          succeeded, {reapplySummary.degraded} degraded, {reapplySummary.failed} failed,{" "}
+          {reapplySummary.skipped} skipped
         </div>
       )}
 

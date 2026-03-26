@@ -11,6 +11,7 @@ export interface UpdateAssistantDraftInput {
 }
 
 export interface AssistantRepository {
+  findById(id: string): Promise<Assistant | null>;
   findByUserId(userId: string): Promise<Assistant | null>;
   create(userId: string, workspaceId: string): Promise<Assistant>;
   updateDraft(userId: string, input: UpdateAssistantDraftInput): Promise<Assistant | null>;

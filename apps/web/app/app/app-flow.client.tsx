@@ -1611,9 +1611,8 @@ export function AppFlowClient() {
       });
       setRuntimeProviderKeyState(resolved.providerKeyState);
       setRuntimeProviderNotes(resolved.notes);
-      const summary = response.reapplySummary;
       setRuntimeProviderAdminFeedback(
-        `Global runtime settings saved. Reapplied ${summary.assistantsWithPublishedVersion} assistants: ${summary.applySucceededCount} succeeded, ${summary.applyDegradedCount} degraded, ${summary.applyFailedCount} failed, ${summary.skippedCount} skipped.`
+        `Global runtime settings saved (generation ${String(response.configGeneration)}). Changes will propagate lazily to all assistants.`
       );
     } catch (error) {
       const message =

@@ -3547,3 +3547,81 @@ Full interactive LIVE test of 8 areas after H2-cleanup + H3 deploy. Found and fi
 
 - **H4 — Telegram runtime readiness alignment** against admin-driven runtime profile + managed secret refs.
 - Live-test the full reset → setup → create → edit cycle on dev.
+
+---
+
+## H3.1 — configGeneration lazy invalidation (scale to 5 000–10 000 users)
+
+### What changed
+
+1. **New `PlatformConfigGeneration` singleton table** with monotonic `generation` counter. Atomically incremented on every admin config change: provider settings, plan create/update, bootstrap preset update. Seeded in migration.
+
+2. **New `configDirtyAt` column on `assistants`** — set to `NOW()` when per-user data changes (onboarding/profile, Telegram connect/revoke, subscription). Cleared to `NULL` after successful materialization.
+
+3. **New `materializedAtConfigGeneration` column on `assistant_materialized_specs`** — records which global generation the spec was built against. `configGeneration` also embedded in `openclawBootstrap.governance.configGeneration`.
+
+4. **Removed `reapplyLatestPublishedVersions()`** from `ManageAdminRuntimeProviderSettingsService` — the O(N) sequential mass-reapply loop that blocked admin requests. Admin settings save now persists data, bumps generation, returns immediately.
+
+5. **Generation bump wired into all admin write services**: `ManageAdminRuntimeProviderSettingsService`, `ManageAdminPlansService`, `ManageBootstrapPresetsService`. `configDirtyAt` wired into: `UpsertOnboardingService`, `ConnectTelegramIntegrationService`, `RevokeTelegramIntegrationSecretService`. Subscription hook ready for billing.
+
+6. **Two new PersAI internal endpoints**: `GET /internal/v1/runtime/config-generation` (returns current generation, cacheable); `POST /internal/v1/runtime/ensure-fresh-spec` (checks global + per-user staleness, re-materializes if needed, returns fresh spec or 204).
+
+7. **OpenClaw two-tier freshness check** in both chat handlers (sync + stream): cached global generation (TTL via `PERSAI_CONFIG_GENERATION_CACHE_TTL_MS`, default 1 hour) for fast-path zero-HTTP comparison; full PersAI freshness check when cache expires or generation mismatch. Reusable `applySpecLocally()` extracted from apply handler. Per-assistant mutex for dedup. Fail-open on PersAI unreachable.
+
+8. **Frontend**: admin runtime settings page — `reapplySummary` display removed, replaced with `configGeneration` feedback. Admin Plans page — new "Force reapply all" emergency button (step-up protected, shows summary). API client updated. OpenAPI spec updated.
+
+### Why changed
+
+The O(N) inline mass-reapply was the only auto-propagation mechanism and it blocked admin requests for minutes at 1 000+ workspaces. Meanwhile, 7 of 8 data sources (plans, presets, profile, bindings, subscription, tool catalog, tool activations) had zero auto-propagation — changes were silently stale until manual reapply. H3.1 replaces both problems with a unified lazy invalidation system that scales to 10 000 users.
+
+### Slice boundary
+
+- PersAI: schema migration, generation bumps in admin services, dirty flags in user services, materialization embedding, new internal endpoints, removed mass-reapply, updated admin API response, frontend update.
+- OpenClaw: freshness client, generation cache, local-apply helper, freshness check in chat handlers.
+- No changes to: publish, rollback, reset, manual reapply, platform rollouts, Telegram delivery.
+
+### Key files changed
+
+**PersAI backend:**
+- `apps/api/prisma/schema.prisma` — `PlatformConfigGeneration`, `Assistant.configDirtyAt`, `AssistantMaterializedSpec.materializedAtConfigGeneration`
+- `apps/api/prisma/migrations/...` — migration + seed
+- `apps/api/src/modules/workspace-management/application/manage-admin-runtime-provider-settings.service.ts` — removed mass-reapply, added generation bump
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` — added generation bump
+- `apps/api/src/modules/workspace-management/application/manage-bootstrap-presets.service.ts` — added generation bump
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — read generation, write to spec, clear dirty flag
+- `apps/api/src/modules/workspace-management/application/ensure-spec-freshness.service.ts` — new service
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts` — new controller
+- `apps/api/src/modules/identity-access/application/upsert-onboarding.service.ts` — set configDirtyAt
+- `apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts` — set configDirtyAt
+- `apps/api/src/modules/workspace-management/application/revoke-telegram-integration-secret.service.ts` — set configDirtyAt
+
+**PersAI frontend:**
+- `apps/web/app/admin/runtime/page.tsx` — removed reapplySummary, shows configGeneration feedback
+- `apps/web/app/admin/plans/page.tsx` — new "Force reapply all" button with step-up + summary
+- `apps/web/app/app/app-flow.client.tsx` — updated feedback to configGeneration
+- `apps/web/app/app/assistant-api-client.ts` — updated response validation, added `postAdminForceReapplyAll`
+
+**OpenClaw fork:**
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — freshness check in both chat handlers (sync + stream)
+- `src/gateway/persai-runtime/persai-runtime-freshness.ts` — new: two-tier freshness client with TTL cache + mutex
+
+### Tests run
+
+- `npx tsc --noEmit` — PersAI API (clean), PersAI Web (clean)
+- `npx tsc --noEmit` — OpenClaw (all new files clean; pre-existing test errors in extensions unchanged)
+- `npx prisma validate` — schema valid
+
+### Risks
+
+1. Changes propagate with up to TTL delay (default 1 hour). Manual reapply available as instant escape hatch.
+2. First chat after stale detection pays ~200-500ms materialization latency.
+3. Global `configGeneration` counter — plan change invalidates all assistants, not just those on the changed plan. Acceptable: only chatting assistants pay, plan changes are infrequent.
+4. OpenClaw depends on PersAI internal API for freshness checks. Mitigated by fail-open + cache.
+5. Migration needs `prisma migrate deploy` on running DB before deployment.
+
+### Next recommended step
+
+- **H4 — Telegram runtime readiness alignment** against admin-driven runtime profile + managed secret refs.
+- Monitor lazy invalidation latency in dev; tune TTL if needed.
+- When billing is connected (FINAL), subscription webhook sets `configDirtyAt` — no additional code needed.
+- Run `npx prisma migrate deploy` when DB is available to apply migration.

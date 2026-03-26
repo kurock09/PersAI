@@ -1120,8 +1120,7 @@ export async function putAdminRuntimeProviderSettings(
       response.status !== 200 ||
       typeof response.data !== "object" ||
       response.data === null ||
-      !("settings" in response.data) ||
-      !("reapplySummary" in response.data)
+      !("settings" in response.data)
     ) {
       throw new Error("Unexpected non-success response for PUT /admin/runtime/provider-settings.");
     }
@@ -1344,6 +1343,42 @@ export async function postAdminAbuseUnblock(
     }
 
     return response.data.unblock;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export type ForceReapplyAllSummary = {
+  totalAssistants: number;
+  withPublishedVersion: number;
+  succeeded: number;
+  degraded: number;
+  failed: number;
+  skipped: number;
+};
+
+export async function postAdminForceReapplyAll(token: string): Promise<ForceReapplyAllSummary> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.force_reapply_all");
+    const base = getApiBaseUrl();
+    const res = await fetch(`${base}/admin/runtime/force-reapply-all`, {
+      method: "POST",
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken,
+        "Content-Type": "application/json"
+      }
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const msg =
+        body && typeof body === "object" && "message" in body
+          ? String((body as Record<string, unknown>).message)
+          : `Force reapply failed (${String(res.status)}).`;
+      throw new Error(msg);
+    }
+    const data = (await res.json()) as { summary: ForceReapplyAllSummary };
+    return data.summary;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

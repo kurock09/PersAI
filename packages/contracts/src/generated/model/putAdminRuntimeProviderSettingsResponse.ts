@@ -5,11 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AdminRuntimeProviderSettingsState } from "./adminRuntimeProviderSettingsState";
-import type { AdminRuntimeProviderSettingsReapplySummary } from "./adminRuntimeProviderSettingsReapplySummary";
 
 export interface PutAdminRuntimeProviderSettingsResponse {
   /** @nullable */
   requestId?: string | null;
   settings: AdminRuntimeProviderSettingsState;
-  reapplySummary: AdminRuntimeProviderSettingsReapplySummary;
+  configGeneration: number;
 }

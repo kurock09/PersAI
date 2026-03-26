@@ -24,6 +24,7 @@ import type {
   TelegramSecretRevokeInput
 } from "./telegram-integration.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 @Injectable()
 export class RevokeTelegramIntegrationSecretService {
@@ -35,7 +36,8 @@ export class RevokeTelegramIntegrationSecretService {
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   parseInput(body: unknown): TelegramSecretRevokeInput {
@@ -141,6 +143,11 @@ export class RevokeTelegramIntegrationSecretService {
         reason: input.reason,
         emergency
       }
+    });
+
+    await this.prisma.assistant.update({
+      where: { id: assistant.id },
+      data: { configDirtyAt: new Date() }
     });
 
     return this.resolveTelegramIntegrationStateService.execute(userId);

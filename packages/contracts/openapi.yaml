@@ -4006,28 +4006,6 @@ components:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
         providerKeys:
           $ref: "#/components/schemas/AdminRuntimeProviderSettingsProviderKeysInput"
-    AdminRuntimeProviderSettingsReapplySummary:
-      type: object
-      required:
-        - totalAssistants
-        - assistantsWithPublishedVersion
-        - applySucceededCount
-        - applyDegradedCount
-        - applyFailedCount
-        - skippedCount
-      properties:
-        totalAssistants:
-          type: integer
-        assistantsWithPublishedVersion:
-          type: integer
-        applySucceededCount:
-          type: integer
-        applyDegradedCount:
-          type: integer
-        applyFailedCount:
-          type: integer
-        skippedCount:
-          type: integer
     GetAdminRuntimeProviderSettingsResponse:
       type: object
       required:
@@ -4042,15 +4020,16 @@ components:
       type: object
       required:
         - settings
-        - reapplySummary
+        - configGeneration
       properties:
         requestId:
           type: string
           nullable: true
         settings:
           $ref: "#/components/schemas/AdminRuntimeProviderSettingsState"
-        reapplySummary:
-          $ref: "#/components/schemas/AdminRuntimeProviderSettingsReapplySummary"
+        configGeneration:
+          type: integer
+          description: Current platform config generation after save
     PlatformRolloutStatus:
       type: string
       enum:
@@ -4356,6 +4335,7 @@ components:
         - admin.rollout.rollback
         - admin.assistant.transfer_ownership
         - admin.assistant.recover_ownership
+        - admin.force_reapply_all
     AdminStepUpChallengeRequest:
       type: object
       required:

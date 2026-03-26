@@ -190,6 +190,13 @@ export class UpsertOnboardingService {
       throw new BadRequestException("Unable to resolve updated app user after onboarding.");
     }
 
+    await this.prismaService.assistant
+      .updateMany({
+        where: { userId: resolvedAppUser.id },
+        data: { configDirtyAt: new Date() }
+      })
+      .catch(() => {});
+
     return this.getCurrentUserStateService.getCurrentUserState({
       id: refreshedAppUser.id,
       clerkUserId: refreshedAppUser.clerkUserId,

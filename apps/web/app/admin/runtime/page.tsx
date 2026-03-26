@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Server, Loader2, Save, CheckCircle2 } from "lucide-react";
+import { Server, Loader2, Save } from "lucide-react";
 import type {
   AdminRuntimeProviderSettingsState,
   AdminRuntimeProviderSettingsRequest,
-  AdminRuntimeProviderSettingsReapplySummary,
   ManagedRuntimeProvider,
   RuntimeProviderAvailableModelsByProviderState
 } from "@persai/contracts";
@@ -21,8 +20,6 @@ export default function AdminRuntimePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [reapplySummary, setReapplySummary] =
-    useState<AdminRuntimeProviderSettingsReapplySummary | null>(null);
 
   const [primaryProvider, setPrimaryProvider] = useState<ManagedRuntimeProvider>("openai");
   const [primaryModel, setPrimaryModel] = useState("gpt-4o");
@@ -74,7 +71,6 @@ export default function AdminRuntimePage() {
     if (!token || !settings) return;
     setSaving(true);
     setFeedback(null);
-    setReapplySummary(null);
     try {
       const parsedOpenai = openaiModelsText
         .split(",")
@@ -99,9 +95,8 @@ export default function AdminRuntimePage() {
           ...(anthropicKey ? { anthropic: anthropicKey } : {})
         }
       };
-      const result = await putAdminRuntimeProviderSettings(token, request);
-      setReapplySummary(result.reapplySummary);
-      setFeedback("Saved successfully.");
+      await putAdminRuntimeProviderSettings(token, request);
+      setFeedback("Saved successfully. Changes will propagate lazily to all assistants.");
       setOpenaiKey("");
       setAnthropicKey("");
       await load();
@@ -271,29 +266,6 @@ export default function AdminRuntimePage() {
         </button>
 
         {feedback && <p className="text-xs text-text-muted mt-2">{feedback}</p>}
-
-        {reapplySummary && (
-          <div className="rounded border border-border bg-surface p-3 space-y-1">
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-              <span className="text-xs font-medium text-text">Reapply summary</span>
-            </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] text-text-subtle">
-              <span>Total assistants:</span>
-              <span className="text-text">{reapplySummary.totalAssistants}</span>
-              <span>With published version:</span>
-              <span className="text-text">{reapplySummary.assistantsWithPublishedVersion}</span>
-              <span>Apply succeeded:</span>
-              <span className="text-text">{reapplySummary.applySucceededCount}</span>
-              <span>Apply degraded:</span>
-              <span className="text-text">{reapplySummary.applyDegradedCount}</span>
-              <span>Apply failed:</span>
-              <span className="text-text">{reapplySummary.applyFailedCount}</span>
-              <span>Skipped:</span>
-              <span className="text-text">{reapplySummary.skippedCount}</span>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

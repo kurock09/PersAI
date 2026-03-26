@@ -1,9 +1,6 @@
 import { Body, Controller, Get, Put, Req, UnauthorizedException } from "@nestjs/common";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
-import {
-  ManageAdminRuntimeProviderSettingsService,
-  type AdminRuntimeProviderSettingsReapplySummary
-} from "../../application/manage-admin-runtime-provider-settings.service";
+import { ManageAdminRuntimeProviderSettingsService } from "../../application/manage-admin-runtime-provider-settings.service";
 import type { PlatformRuntimeProviderSettingsState } from "../../application/platform-runtime-provider-settings";
 
 @Controller("api/v1/admin/runtime/provider-settings")
@@ -32,7 +29,7 @@ export class AdminRuntimeProviderSettingsController {
   ): Promise<{
     requestId: string | null;
     settings: PlatformRuntimeProviderSettingsState;
-    reapplySummary: AdminRuntimeProviderSettingsReapplySummary;
+    configGeneration: number;
   }> {
     const userId = this.resolveRequestUserId(req);
     const input = this.manageAdminRuntimeProviderSettingsService.parseUpdateInput(body);
@@ -44,7 +41,7 @@ export class AdminRuntimeProviderSettingsController {
     return {
       requestId: req.requestId ?? null,
       settings: result.settings,
-      reapplySummary: result.reapplySummary
+      configGeneration: result.configGeneration
     };
   }
 

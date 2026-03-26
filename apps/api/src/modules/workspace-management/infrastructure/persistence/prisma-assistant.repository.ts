@@ -11,6 +11,13 @@ import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.
 export class PrismaAssistantRepository implements AssistantRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
+  async findById(id: string): Promise<Assistant | null> {
+    const assistant = await this.prisma.assistant.findUnique({
+      where: { id }
+    });
+    return assistant ? this.mapToDomain(assistant) : null;
+  }
+
   async findByUserId(userId: string): Promise<Assistant | null> {
     const assistant = await this.prisma.assistant.findUnique({
       where: { userId }
@@ -211,6 +218,7 @@ export class PrismaAssistantRepository implements AssistantRepository {
       applyFinishedAt: assistant.applyFinishedAt,
       applyErrorCode: assistant.applyErrorCode,
       applyErrorMessage: assistant.applyErrorMessage,
+      configDirtyAt: assistant.configDirtyAt,
       createdAt: assistant.createdAt,
       updatedAt: assistant.updatedAt
     };

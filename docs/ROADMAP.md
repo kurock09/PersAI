@@ -135,7 +135,7 @@ Foundation Phase
   - [x] H3a — persona hydration: schema migration (traits/avatar/birthday), materialization of 7 bootstrap documents (SOUL/USER/IDENTITY/TOOLS/AGENTS/HEARTBEAT/BOOTSTRAP), per-user workspace isolation with `PERSAI_WORKSPACE_ROOT` + GCS FUSE, `extraSystemPrompt` elimination
   - [x] H3b — memory management: OpenClaw memory API (list/add/edit/forget/search), PersAI proxy, Memory Center UI (curated/timeline tabs, teach/forget in-chat), deprecate `AssistantMemoryRegistryItem`
   - [x] H3c — chat history: message loading endpoint with pagination, UI load-on-thread-open
-- [ ] H3.1 — **tech debt**: eliminate full re-materialization on global settings change; introduce `settingsGeneration` lazy-invalidation so OpenClaw pulls fresh provider/model on demand instead of rebuilding all bootstraps (critical at scale ≥1 000 workspaces)
+- [ ] H3.1 — **tech debt / scale**: replace O(N) inline mass-reapply and silent staleness across all 8 materialization data sources with two-tier lazy invalidation: global `configGeneration` counter (admin changes) + per-assistant `configDirtyAt` flag (user changes); OpenClaw detects staleness at chat time via cached generation + PersAI internal freshness endpoint, re-materializes on demand per-assistant; designed for 5 000–10 000 users (see `ADR-054`)
 - [x] H3.2 — **assistant lifecycle audit**: end-to-end verification and hardening of create / edit / recreate flows
   - [x] H3.2a — **create**: audited full pipeline; found and fixed trait key mismatch (`tone` → `playfulness`) that silently dropped the playfulness trait from SOUL.md
   - [x] H3.2b — **edit**: audited full pipeline; edit flow correct (bootstrap overwrite semantics, BOOTSTRAP.md write-once preserved)

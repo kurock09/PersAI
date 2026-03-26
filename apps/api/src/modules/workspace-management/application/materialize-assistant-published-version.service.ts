@@ -32,6 +32,7 @@ import {
   buildToolCredentialSecretRef
 } from "./tool-credential-settings";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
+import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
@@ -80,6 +81,7 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly resolveRuntimeProviderRoutingService: ResolveRuntimeProviderRoutingService,
     private readonly resolveOpenClawCapabilityEnvelopeService: ResolveOpenClawCapabilityEnvelopeService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -88,6 +90,8 @@ export class MaterializeAssistantPublishedVersionService {
     publishedVersion: AssistantPublishedVersion,
     sourceAction: AssistantMaterializationSourceAction
   ): Promise<void> {
+    const currentConfigGeneration = await this.bumpConfigGenerationService.current();
+
     const existingSpec = await this.assistantMaterializedSpecRepository.findByPublishedVersionId(
       publishedVersion.id
     );
@@ -189,6 +193,7 @@ export class MaterializeAssistantPublishedVersionService {
         workspaceId: assistant.workspaceId
       },
       governance: {
+        configGeneration: currentConfigGeneration,
         capabilityEnvelope: governance.capabilityEnvelope,
         policyEnvelope: governance.policyEnvelope,
         quota: {
@@ -253,6 +258,7 @@ export class MaterializeAssistantPublishedVersionService {
       publishedVersionId: publishedVersion.id,
       sourceAction: existingSpec?.sourceAction ?? sourceAction,
       algorithmVersion: MATERIALIZATION_ALGORITHM_VERSION,
+      materializedAtConfigGeneration: currentConfigGeneration,
       layers,
       openclawBootstrap,
       openclawWorkspace,
@@ -260,6 +266,11 @@ export class MaterializeAssistantPublishedVersionService {
       openclawBootstrapDocument,
       openclawWorkspaceDocument,
       contentHash
+    });
+
+    await this.prisma.assistant.update({
+      where: { id: assistant.id },
+      data: { configDirtyAt: null }
     });
   }
 

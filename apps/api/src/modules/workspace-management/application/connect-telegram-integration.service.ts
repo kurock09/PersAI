@@ -20,6 +20,7 @@ import { ResolveTelegramIntegrationStateService } from "./resolve-telegram-integ
 import type { TelegramConnectInput, TelegramIntegrationState } from "./telegram-integration.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { rotateTelegramBotSecretRef } from "./assistant-secret-refs-lifecycle";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 type TelegramGetMeResult = {
   id: number;
@@ -45,7 +46,8 @@ export class ConnectTelegramIntegrationService {
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   parseInput(body: unknown): TelegramConnectInput {
@@ -186,6 +188,11 @@ export class ConnectTelegramIntegrationService {
         tokenFingerprintPrefix: tokenFingerprint.slice(0, 12),
         tokenLastFour
       }
+    });
+
+    await this.prisma.assistant.update({
+      where: { id: assistant.id },
+      data: { configDirtyAt: new Date() }
     });
 
     return this.resolveTelegramIntegrationStateService.execute(userId);

@@ -5,6 +5,7 @@ import {
   type BootstrapDocumentPresetRepository
 } from "../domain/bootstrap-document-preset.repository";
 import { AdminAuthorizationService } from "./admin-authorization.service";
+import { BumpConfigGenerationService } from "./bump-config-generation.service";
 
 const VALID_PRESET_IDS = new Set(["soul", "user", "identity", "agents"]);
 
@@ -46,7 +47,8 @@ export class ManageBootstrapPresetsService {
   constructor(
     @Inject(BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY)
     private readonly presetRepository: BootstrapDocumentPresetRepository,
-    private readonly adminAuthorizationService: AdminAuthorizationService
+    private readonly adminAuthorizationService: AdminAuthorizationService,
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService
   ) {}
 
   async getAll(userId: string): Promise<BootstrapDocumentPreset[]> {
@@ -73,6 +75,8 @@ export class ManageBootstrapPresetsService {
       throw new NotFoundException(`Bootstrap preset "${id}" not found in database.`);
     }
 
-    return this.presetRepository.update(id, template);
+    const result = await this.presetRepository.update(id, template);
+    await this.bumpConfigGenerationService.execute();
+    return result;
   }
 }

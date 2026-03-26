@@ -256,6 +256,7 @@ model Assistant {
   applyFinishedAt      DateTime?                  @map("apply_finished_at") @db.Timestamptz(6)
   applyErrorCode       String?                    @map("apply_error_code")
   applyErrorMessage    String?                    @map("apply_error_message")
+  configDirtyAt        DateTime?                  @map("config_dirty_at") @db.Timestamptz(6)
   createdAt            DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
   user                 AppUser                    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -412,6 +413,14 @@ model AdminNotificationDelivery {
   @@index([workspaceId, attemptedAt(sort: Desc)])
   @@index([channelId, attemptedAt(sort: Desc)])
   @@map("admin_notification_deliveries")
+}
+
+model PlatformConfigGeneration {
+  id         String   @id @default("global") @db.VarChar(32)
+  generation Int      @default(1)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_config_generations")
 }
 
 model PlatformRuntimeProviderSettings {
@@ -693,10 +702,11 @@ model AssistantMaterializedSpec {
   layersDocument            String                              @map("layers_document") @db.Text
   openclawBootstrapDocument String                              @map("openclaw_bootstrap_document") @db.Text
   openclawWorkspaceDocument String                              @map("openclaw_workspace_document") @db.Text
-  contentHash               String                              @map("content_hash")
-  createdAt                 DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
-  assistant                 Assistant                           @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  publishedVersion          AssistantPublishedVersion           @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  contentHash                      String                              @map("content_hash")
+  materializedAtConfigGeneration   Int                                 @default(0) @map("materialized_at_config_generation")
+  createdAt                        DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant                        Assistant                           @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publishedVersion                 AssistantPublishedVersion           @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("assistant_materialized_specs")
 }

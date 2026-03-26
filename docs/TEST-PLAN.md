@@ -291,3 +291,57 @@ Required in CI:
 - Admin Runtime UI: fallback provider/model, available models per provider editor, reapply summary display.
 - Admin Plans UI: removed dead checkboxes, added quota limit inputs (`tokenBudgetLimit`, `costToolUnitsLimit`) and `primaryModelKey` field.
 - Tool catalog canonical definitions maintained in single file: `apps/api/prisma/tool-catalog-data.ts`.
+
+## Step 12 H3.1 focus — configGeneration lazy invalidation
+
+### Schema / migration
+
+- Prisma schema validates new `PlatformConfigGeneration` model (singleton, `generation INT @default(1)`).
+- `Assistant` has `configDirtyAt` nullable timestamp column.
+- `AssistantMaterializedSpec` has `materializedAtConfigGeneration INT @default(0)`.
+- `prisma migrate dev` succeeds; migration seeds the singleton row.
+
+### Generation bump coverage
+
+- Admin runtime provider settings save: `configGeneration` incremented atomically.
+- Admin plan create/update: `configGeneration` incremented.
+- Admin bootstrap preset update: `configGeneration` incremented.
+- Mass reapply loop (`reapplyLatestPublishedVersions`) removed from runtime settings service.
+- Admin settings save returns `configGeneration` instead of `reapplySummary`.
+
+### Per-user dirty flag coverage
+
+- Onboarding/profile update: `assistant.configDirtyAt` set on affected assistant(s).
+- Telegram connect/revoke: `assistant.configDirtyAt` set.
+- Subscription change hook: `assistant.configDirtyAt` set (ready for billing adapter).
+
+### Materialization
+
+- `MaterializeAssistantPublishedVersionService.execute()` reads current `configGeneration`, writes to `materializedAtConfigGeneration` on spec, embeds in `openclawBootstrap.governance.configGeneration`.
+- After successful materialization: `assistant.configDirtyAt` cleared to NULL.
+- Existing publish/rollback/reapply flows continue to work (they call `execute()` which now records generation).
+
+### Internal endpoints
+
+- `GET /internal/v1/runtime/config-generation` returns `{ generation }`, authenticated with gateway token.
+- `POST /internal/v1/runtime/ensure-fresh-spec` checks global generation + per-user dirty flag; returns 204 (fresh) or 200 (fresh spec); no callback to OpenClaw.
+
+### OpenClaw freshness check
+
+- Both chat handlers (sync + stream) check freshness before using stored spec.
+- Global generation cached in-memory with configurable TTL (`PERSAI_CONFIG_GENERATION_CACHE_TTL_MS`).
+- Generation mismatch → call ensure-fresh-spec → apply locally if stale.
+- Per-assistant mutex prevents concurrent re-materializations.
+- Fail-open on PersAI unreachable.
+
+### Frontend
+
+- Admin runtime settings page: `reapplySummary` removed, simple "Saved" feedback with `configGeneration`.
+- Admin plans page: "Force reapply all" button — step-up auth, confirm dialog, summary display.
+- API client response validation updated; `postAdminForceReapplyAll` added.
+
+### Regression
+
+- API lint + typecheck pass.
+- Existing publish/rollback/reapply/reset flows unaffected.
+- Platform rollout create/rollback unaffected (workspace-scoped, separate concern).

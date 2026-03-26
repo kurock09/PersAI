@@ -18,6 +18,7 @@ import type {
   AdminPlanToolActivationInput
 } from "./admin-plan-management.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import {
   AdminAuthorizationService,
   type DangerousAdminActionCode
@@ -110,7 +111,8 @@ export class ManageAdminPlansService {
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly planCatalogRepository: AssistantPlanCatalogRepository,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
-    private readonly adminAuthorizationService: AdminAuthorizationService
+    private readonly adminAuthorizationService: AdminAuthorizationService,
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService
   ) {}
 
   async listPlans(userId: string): Promise<AdminPlanState[]> {
@@ -157,6 +159,7 @@ export class ManageAdminPlansService {
     }
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
+    await this.bumpConfigGenerationService.execute();
     await this.appendAssistantAuditEventService.execute({
       workspaceId: access.workspaceId,
       assistantId: null,
@@ -197,6 +200,7 @@ export class ManageAdminPlansService {
     if (updated === null) {
       throw new NotFoundException("Plan not found.");
     }
+    await this.bumpConfigGenerationService.execute();
     await this.appendAssistantAuditEventService.execute({
       workspaceId: access.workspaceId,
       assistantId: null,

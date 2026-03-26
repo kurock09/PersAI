@@ -13,7 +13,8 @@ export type DangerousAdminActionCode =
   | "admin.rollout.apply"
   | "admin.rollout.rollback"
   | "admin.assistant.transfer_ownership"
-  | "admin.assistant.recover_ownership";
+  | "admin.assistant.recover_ownership"
+  | "admin.force_reapply_all";
 
 export interface AdminAccessContext {
   userId: string;

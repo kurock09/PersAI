@@ -4,6 +4,23 @@
 
 ### Added
 
+- **Step 12 H3.1 — configGeneration lazy invalidation (scale to 5 000–10 000 users):**
+  - New `platform_config_generations` singleton table with monotonic `generation` counter; atomically incremented on every admin config change (provider settings, plans, presets, tool catalog).
+  - New `config_dirty_at` column on `assistants` — set when per-user data changes (profile, channel bindings, subscription); cleared after successful materialization.
+  - New `materialized_at_config_generation` column on `assistant_materialized_specs` — records which global generation the spec was built against.
+  - `configGeneration` embedded in `openclawBootstrap.governance.configGeneration` for OpenClaw local comparison.
+  - Generation bump wired into `ManageAdminRuntimeProviderSettingsService`, `ManageAdminPlansService`, `ManageBootstrapPresetsService`.
+  - `configDirtyAt` set in `UpsertOnboardingService`, `ConnectTelegramIntegrationService`, `RevokeTelegramIntegrationSecretService`; subscription hook ready for billing.
+  - **Removed** `reapplyLatestPublishedVersions()` O(N) sequential loop from admin runtime settings save; replaced with instant `configGeneration` bump.
+  - **Added** `POST /api/v1/admin/runtime/force-reapply-all` — emergency manual reapply for all assistants (step-up protected, returns summary).
+  - **Added** "Force reapply all" button on Admin Plans page (orange, confirm dialog, step-up auth).
+  - New PersAI internal endpoints: `GET /internal/v1/runtime/config-generation`, `POST /internal/v1/runtime/ensure-fresh-spec` (authenticated, returns fresh spec or 204).
+  - OpenClaw: two-tier freshness check in both chat handlers (cached global generation + PersAI full freshness check); reusable `applySpecLocally()` helper; per-assistant mutex for dedup; fail-open on PersAI unreachable.
+  - `PERSAI_CONFIG_GENERATION_CACHE_TTL_MS` env var (default 3 600 000 = 1 hour).
+  - ADR-054 documents the full architecture.
+
+### Added
+
 - **Step 12 H3.3 — assistant lifecycle rework (CREATE/EDIT/RESET):**
   - **Admin-editable bootstrap presets:** new `bootstrap_document_presets` table with Prisma migration and seed data for 4 bootstrap templates (SOUL, USER, IDENTITY, AGENTS). Admin API (`GET`/`PATCH /api/v1/admin/bootstrap-presets/:id`) allows editing templates with `{{placeholder}}` interpolation. Materialization service now loads templates from DB (falls back to hardcoded defaults). New `/admin/presets` UI page with Markdown editors, variable chips (click-to-copy-and-insert), and live preview with sample data.
   - **RESET full wipe:** `reset-assistant.service.ts` rewritten to hard-delete all chats, chat messages, memory registry items, materialized specs, and published versions in a single transaction. Workspace files and OpenClaw spec store cleaned up via new `POST /api/v1/runtime/workspace/cleanup` endpoint. After reset, frontend redirects to `/app/setup` with user data (name, birthday, gender, timezone) pre-filled from `/me`. Setup wizard handles the existing-assistant case (409 from create is silently caught).

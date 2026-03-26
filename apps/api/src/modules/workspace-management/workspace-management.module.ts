@@ -12,6 +12,7 @@ import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-r
 import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
 import { AdminBootstrapPresetsController } from "./interface/http/admin-bootstrap-presets.controller";
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
+import { InternalRuntimeConfigGenerationController } from "./interface/http/internal-runtime-config-generation.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
@@ -92,6 +93,9 @@ import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persiste
 import { BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY } from "./domain/bootstrap-document-preset.repository";
 import { PrismaBootstrapDocumentPresetRepository } from "./infrastructure/persistence/prisma-bootstrap-document-preset.repository";
 import { ManageBootstrapPresetsService } from "./application/manage-bootstrap-presets.service";
+import { BumpConfigGenerationService } from "./application/bump-config-generation.service";
+import { ForceReapplyAllService } from "./application/force-reapply-all.service";
+import { AdminForceReapplyController } from "./interface/http/admin-force-reapply.controller";
 import { PrismaAssistantChannelSurfaceBindingRepository } from "./infrastructure/persistence/prisma-assistant-channel-surface-binding.repository";
 import { PrismaAssistantMaterializedSpecRepository } from "./infrastructure/persistence/prisma-assistant-materialized-spec.repository";
 import { PrismaAssistantPublishedVersionRepository } from "./infrastructure/persistence/prisma-assistant-published-version.repository";
@@ -112,7 +116,9 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminRuntimeProviderSettingsController,
     AdminToolCredentialsController,
     AdminBootstrapPresetsController,
-    InternalRuntimeProviderSecretsController
+    InternalRuntimeProviderSecretsController,
+    InternalRuntimeConfigGenerationController,
+    AdminForceReapplyController
   ],
   providers: [
     WorkspaceManagementPrismaService,
@@ -234,7 +240,9 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
       provide: BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY,
       useClass: PrismaBootstrapDocumentPresetRepository
     },
-    ManageBootstrapPresetsService
+    ManageBootstrapPresetsService,
+    BumpConfigGenerationService,
+    ForceReapplyAllService
   ],
   exports: [
     GetAssistantByUserIdService,

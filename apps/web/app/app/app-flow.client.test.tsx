@@ -870,14 +870,7 @@ describe("AppFlowClient onboarding gate", () => {
           }
         }
       },
-      reapplySummary: {
-        totalAssistants: 3,
-        assistantsWithPublishedVersion: 2,
-        applySucceededCount: 2,
-        applyDegradedCount: 0,
-        applyFailedCount: 0,
-        skippedCount: 1
-      }
+      configGeneration: 2
     });
 
     render(<AppFlowClient />);
@@ -900,7 +893,7 @@ describe("AppFlowClient onboarding gate", () => {
     await waitFor(() => {
       expect(assistantApiMocks.putAdminRuntimeProviderSettings).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getByText(/Global runtime settings saved\./)).toBeInTheDocument();
+    expect(screen.getByText(/Global runtime settings saved/)).toBeInTheDocument();
     expect(assistantApiMocks.putAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-user-1", {
       primary: {
         provider: "openai",

@@ -868,9 +868,10 @@ Behavior baseline:
   - stores raw provider keys only in dedicated encrypted PersAI secret storage
   - never returns stored raw keys in the response body
   - generates the provider credential refs required for OpenClaw consumption
-  - attempts best-effort reapply for assistants that already have a latest published version so live runtime converges toward the new global settings
-  - response includes a reapply summary (`reapplySummary`) with counts of assistants targeted, succeeded, failed, and skipped
+  - bumps global `configGeneration` counter; assistants re-materialize lazily at chat time (H3.1)
+  - response includes `configGeneration` (new counter value) instead of the former `reapplySummary`
   - writes an admin audit event for the update
+  - emergency manual reapply available via `POST /api/v1/admin/runtime/force-reapply-all` (step-up required)
   - this path replaces normal admin dependence on assistant-scoped rollout editing for provider keys/models
 
 ## Step 9 F6 progressive rollout and rollback controls
@@ -1262,3 +1263,65 @@ Implementation reference: [openclaw-runtime.adapter.ts](../apps/api/src/modules/
 - `GET /api/v1/assistant/chats/web/:chatId/messages` — cursor-paginated canonical backend messages for an existing web chat (loads thread history in UI).
 - Query params: `cursor` (opaque, optional), `limit` (optional, default 50, max 100).
 - Response: `messages[]`, `nextCursor` (nullable).
+
+## H3.1: Config generation lazy invalidation — internal endpoints
+
+### OpenClaw → PersAI internal contract (v1.1)
+
+Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness detection. Authenticated with `OPENCLAW_GATEWAY_TOKEN` Bearer (same token as existing runtime contract).
+
+### `GET /internal/v1/runtime/config-generation`
+
+- **Method:** `GET`, no body.
+- **Auth:** `Authorization: Bearer <OPENCLAW_GATEWAY_TOKEN>`
+- **Success:** `200` with `{ "generation": <number> }` — current global `PlatformConfigGeneration.generation` value.
+- **OpenClaw caching:** response cached in-memory with configurable TTL (`PERSAI_CONFIG_GENERATION_CACHE_TTL_MS`, default `3600000` = 1 hour).
+- **Failure mapping:** `401`/`403` → skip freshness check (fail-open). `5xx` / network error → skip freshness check (fail-open).
+
+### `POST /internal/v1/runtime/ensure-fresh-spec`
+
+- **Method:** `POST`
+- **Auth:** `Authorization: Bearer <OPENCLAW_GATEWAY_TOKEN>`
+- **Request body:**
+
+| Field                       | Type   | Required |
+| --------------------------- | ------ | -------- |
+| `assistantId`               | string | yes      |
+| `publishedVersionId`        | string | yes      |
+| `currentConfigGeneration`   | number | yes      |
+
+- **204 No Content:** spec is fresh (both global generation matches AND no per-user dirty flag).
+- **200 OK:** spec was stale; response contains fresh materialized data:
+
+| Field              | Type       | Description                                      |
+| ------------------ | ---------- | ------------------------------------------------ |
+| `bootstrap`        | JSON value | Fresh `openclawBootstrap` with updated generation |
+| `workspace`        | JSON value | Fresh `openclawWorkspace`                         |
+| `contentHash`      | string     | SHA-256 of concatenated documents                 |
+| `configGeneration` | number     | Current global generation after re-materialization |
+
+- **400:** invalid payload.
+- **404:** assistant or published version not found.
+- **Staleness logic:**
+  1. Read `PlatformConfigGeneration.generation`. If `currentConfigGeneration < generation` → stale (global admin change).
+  2. Read `assistant.configDirtyAt` and `materializedSpec.createdAt`. If `configDirtyAt IS NOT NULL AND configDirtyAt > createdAt` → stale (per-user change).
+  3. If neither → 204.
+  4. If stale → re-materialize via `MaterializeAssistantPublishedVersionService.execute()`, return fresh spec.
+- **Does NOT** call back to OpenClaw `/spec/apply` — returns data directly to avoid circular HTTP calls. OpenClaw applies locally (validate + write workspace files + store.put).
+
+### OpenClaw chat-time freshness flow
+
+1. `store.get(assistantId, publishedVersionId)` → stored spec
+2. Compare `bootstrap.governance.configGeneration` with cached global generation (from `GET /internal/v1/runtime/config-generation`)
+3. If match and cache valid → proceed with stored spec (fast path, zero HTTP)
+4. If mismatch or cache expired → call `POST /internal/v1/runtime/ensure-fresh-spec`
+5. 204 → update local cache, proceed with stored spec
+6. 200 → apply fresh spec locally (validate, write workspace, store.put), proceed
+7. Network error / 5xx → fail-open, use stored spec with warning log
+
+### Configuration (operational, OpenClaw side)
+
+| Variable                                   | Role                                                                                     |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `PERSAI_INTERNAL_API_BASE_URL`             | Origin for internal endpoints (e.g. `http://persai-api:3000`)                            |
+| `PERSAI_CONFIG_GENERATION_CACHE_TTL_MS`    | How long to cache the global generation locally. Default `3600000` (1 hour). `0` = no cache. |

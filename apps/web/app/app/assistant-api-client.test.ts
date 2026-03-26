@@ -139,14 +139,7 @@ describe("admin rollout client", () => {
           },
           notes: []
         },
-        reapplySummary: {
-          totalAssistants: 3,
-          assistantsWithPublishedVersion: 2,
-          applySucceededCount: 2,
-          applyDegradedCount: 0,
-          applyFailedCount: 0,
-          skippedCount: 1
-        }
+        configGeneration: 2
       }
     });
 
@@ -166,9 +159,7 @@ describe("admin rollout client", () => {
         }
       })
     ).resolves.toMatchObject({
-      reapplySummary: {
-        applySucceededCount: 2
-      }
+      configGeneration: 2
     });
   });
 

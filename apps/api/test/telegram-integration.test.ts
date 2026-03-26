@@ -146,13 +146,17 @@ async function run(): Promise<void> {
     bindingRepository as never,
     capabilityResolver as never
   );
+  const prismaServiceMock = {
+    assistant: { update: async () => ({}), updateMany: async () => ({}) }
+  };
   const connectService = new ConnectTelegramIntegrationService(
     assistantRepository as never,
     governanceRepository as never,
     bindingRepository as never,
     capabilityResolver as never,
     resolveStateService,
-    auditEventService as never
+    auditEventService as never,
+    prismaServiceMock as never
   );
   const updateConfigService = new UpdateTelegramIntegrationConfigService(
     assistantRepository as never,
@@ -165,7 +169,8 @@ async function run(): Promise<void> {
     governanceRepository as never,
     bindingRepository as never,
     resolveStateService,
-    auditEventService as never
+    auditEventService as never,
+    prismaServiceMock as never
   );
 
   const originalFetch = globalThis.fetch;

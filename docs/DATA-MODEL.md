@@ -637,3 +637,26 @@ Postgres with Prisma.
 - `AssistantPublishedVersionSnapshotState`: `traits`, `avatarEmoji`, `avatarUrl`
 - `OnboardingRequest`: `birthday`, `gender`
 - `AppUserSummary`: `birthday`, `gender`
+
+## H3.1: Config generation lazy invalidation — schema additions
+
+### platform_config_generations (new, singleton)
+
+- id (VARCHAR(32), PK, default "global")
+- generation (INT, default 1) — monotonically increasing; bumped on every admin config change (provider settings, plans, presets, tool catalog)
+- updated_at (TIMESTAMPTZ)
+
+### assistants (additions)
+
+- `config_dirty_at` (TIMESTAMPTZ, nullable) — set to NOW() when per-user data changes (profile, channel bindings, subscription); cleared to NULL after successful materialization
+
+### assistant_materialized_specs (additions)
+
+- `materialized_at_config_generation` (INT, default 0) — which global generation this spec was built against; compared with `platform_config_generations.generation` for staleness detection
+
+### Invariants
+
+- `platform_config_generations` always has exactly one row (id = "global"), seeded in migration
+- `config_dirty_at = NULL` means the assistant's materialized spec is fresh relative to per-user data
+- `materializedAtConfigGeneration < platformConfigGeneration.generation` means the spec is stale relative to admin data
+- both checks are performed by the `ensure-fresh-spec` internal endpoint; either condition triggers re-materialization

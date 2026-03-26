@@ -1,9 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import { Inject } from "@nestjs/common";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
-import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
+import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import {
   PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID,
   assertRequiredProviderKeysAvailable,
@@ -13,35 +12,7 @@ import {
 } from "./platform-runtime-provider-settings";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
-import {
-  ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
-  type AssistantPublishedVersionRepository
-} from "../domain/assistant-published-version.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-
-export type AdminRuntimeProviderSettingsReapplySummary = {
-  totalAssistants: number;
-  assistantsWithPublishedVersion: number;
-  applySucceededCount: number;
-  applyDegradedCount: number;
-  applyFailedCount: number;
-  skippedCount: number;
-};
-
-function mapOutcomeFromApplyStatus(
-  status: string | null
-): "succeeded" | "degraded" | "failed" | "skipped" {
-  if (status === "succeeded") {
-    return "succeeded";
-  }
-  if (status === "degraded") {
-    return "degraded";
-  }
-  if (status === null) {
-    return "skipped";
-  }
-  return "failed";
-}
 
 @Injectable()
 export class ManageAdminRuntimeProviderSettingsService {
@@ -50,10 +21,8 @@ export class ManageAdminRuntimeProviderSettingsService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
-    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
-    @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
-    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
 
   parseUpdateInput(body: unknown): UpdatePlatformRuntimeProviderSettingsInput {
@@ -77,7 +46,7 @@ export class ManageAdminRuntimeProviderSettingsService {
     stepUpToken: string | null
   ): Promise<{
     settings: PlatformRuntimeProviderSettingsState;
-    reapplySummary: AdminRuntimeProviderSettingsReapplySummary;
+    configGeneration: number;
   }> {
     await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
       userId,
@@ -128,7 +97,7 @@ export class ManageAdminRuntimeProviderSettingsService {
     }
 
     const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
-    const reapplySummary = await this.reapplyLatestPublishedVersions();
+    const configGeneration = await this.bumpConfigGenerationService.execute();
 
     await this.appendAssistantAuditEventService.execute({
       workspaceId: null,
@@ -144,70 +113,13 @@ export class ManageAdminRuntimeProviderSettingsService {
         updatedProviders: Object.entries(input.providerKeys)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
           .map(([provider]) => provider),
-        reapplySummary
+        configGeneration
       }
     });
 
     return {
       settings,
-      reapplySummary
+      configGeneration
     };
-  }
-  private async reapplyLatestPublishedVersions(): Promise<AdminRuntimeProviderSettingsReapplySummary> {
-    const assistants = await this.prisma.assistant.findMany({
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        userId: true
-      }
-    });
-
-    const summary: AdminRuntimeProviderSettingsReapplySummary = {
-      totalAssistants: assistants.length,
-      assistantsWithPublishedVersion: 0,
-      applySucceededCount: 0,
-      applyDegradedCount: 0,
-      applyFailedCount: 0,
-      skippedCount: 0
-    };
-
-    for (const assistant of assistants) {
-      const latestPublished =
-        await this.assistantPublishedVersionRepository.findLatestByAssistantId(assistant.id);
-      if (latestPublished === null) {
-        summary.skippedCount += 1;
-        continue;
-      }
-
-      summary.assistantsWithPublishedVersion += 1;
-
-      try {
-        await this.applyAssistantPublishedVersionService.execute(
-          assistant.userId,
-          latestPublished,
-          true
-        );
-        const afterApply = await this.prisma.assistant.findUnique({
-          where: { id: assistant.id },
-          select: {
-            applyStatus: true
-          }
-        });
-        const outcome = mapOutcomeFromApplyStatus(afterApply?.applyStatus ?? null);
-        if (outcome === "succeeded") {
-          summary.applySucceededCount += 1;
-        } else if (outcome === "degraded") {
-          summary.applyDegradedCount += 1;
-        } else if (outcome === "failed") {
-          summary.applyFailedCount += 1;
-        } else {
-          summary.skippedCount += 1;
-        }
-      } catch {
-        summary.applyFailedCount += 1;
-      }
-    }
-
-    return summary;
   }
 }
