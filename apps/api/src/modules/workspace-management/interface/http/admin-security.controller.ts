@@ -23,12 +23,13 @@ function parseStepUpAction(value: unknown): DangerousAdminActionCode {
     value === "admin.rollout.apply" ||
     value === "admin.rollout.rollback" ||
     value === "admin.assistant.transfer_ownership" ||
-    value === "admin.assistant.recover_ownership"
+    value === "admin.assistant.recover_ownership" ||
+    value === "admin.force_reapply_all"
   ) {
     return value;
   }
   throw new BadRequestException(
-    "action must be one of: admin.plan.create, admin.plan.update, admin.runtime_provider_settings.update, admin.tool_credentials.update, admin.rollout.apply, admin.rollout.rollback, admin.assistant.transfer_ownership, admin.assistant.recover_ownership."
+    "action must be one of: admin.plan.create, admin.plan.update, admin.runtime_provider_settings.update, admin.tool_credentials.update, admin.rollout.apply, admin.rollout.rollback, admin.assistant.transfer_ownership, admin.assistant.recover_ownership, admin.force_reapply_all."
   );
 }
 
