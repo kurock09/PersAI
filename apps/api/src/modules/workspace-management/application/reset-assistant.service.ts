@@ -29,47 +29,36 @@ export class ResetAssistantService {
 
     const aid = assistant.id;
 
-    await this.prisma.$transaction([
-      this.prisma.assistant.update({
-        where: { id: aid },
-        data: {
-          applyStatus: "not_requested",
-          applyTargetVersionId: null,
-          applyAppliedVersionId: null,
-          applyRequestedAt: null,
-          applyStartedAt: null,
-          applyFinishedAt: null,
-          applyErrorCode: null,
-          applyErrorMessage: null
-        }
-      }),
-      this.prisma.assistantChatMessage.deleteMany({
-        where: { assistantId: aid }
-      }),
-      this.prisma.assistantChat.deleteMany({
-        where: { assistantId: aid }
-      }),
-      this.prisma.assistantMemoryRegistryItem.deleteMany({
-        where: { assistantId: aid }
-      }),
-      this.prisma.assistantMaterializedSpec.deleteMany({
-        where: { assistantId: aid }
-      }),
-      this.prisma.assistantPublishedVersion.deleteMany({
-        where: { assistantId: aid }
-      }),
-      this.prisma.assistant.update({
-        where: { id: aid },
-        data: {
-          draftDisplayName: null,
-          draftInstructions: null,
-          draftTraits: Prisma.DbNull,
-          draftAvatarEmoji: null,
-          draftAvatarUrl: null,
-          draftUpdatedAt: new Date()
-        }
-      })
-    ]);
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.assistant.update({
+          where: { id: aid },
+          data: {
+            applyStatus: "not_requested",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftTraits: Prisma.DbNull,
+            draftAvatarEmoji: null,
+            draftAvatarUrl: null,
+            draftUpdatedAt: new Date()
+          }
+        });
+
+        await tx.assistantChatMessage.deleteMany({ where: { assistantId: aid } });
+        await tx.assistantChat.deleteMany({ where: { assistantId: aid } });
+        await tx.assistantMemoryRegistryItem.deleteMany({ where: { assistantId: aid } });
+        await tx.assistantMaterializedSpec.deleteMany({ where: { assistantId: aid } });
+        await tx.assistantPublishedVersion.deleteMany({ where: { assistantId: aid } });
+      },
+      { timeout: 30_000 }
+    );
 
     try {
       await this.runtimeAdapter.cleanupWorkspace(aid);
