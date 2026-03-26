@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-03-26 - H3.4 runtime integration hardening
+
+### What changed
+
+- **Credential refs parsing (OpenClaw):** `extractToolCredentialRefs` in `persai-runtime-tool-policy.ts` now handles both Array and Object (Record) formats. PersAI materializes `toolCredentialRefs` as `Record<toolCode, {refKey, secretRef, configured}>`, but OpenClaw previously only accepted `Array<{toolCode, secretRef, configured}>`. Shared parsing logic extracted into `parseCredentialRefRow`.
+- **process.env race condition (OpenClaw):** `PERSAI_TOOL_DENY` global env var replaced with `AsyncLocalStorage`-based `persaiRuntimeRequestContext` exported from `openclaw-tools.ts`. Each `agentCommandFromIngress` call runs inside `persaiRuntimeRequestContext.run()` with its own `toolDenyList`. Fallback to `process.env.PERSAI_TOOL_DENY` preserved for non-PersAI CLI usage.
+- **Tool catalog rename (PersAI):** `memory_center_read` → `memory_get`, `tasks_center_control` → `cron` in `tool-catalog-data.ts`, tests, and SQL data migration `20260326200000`. Migration also updates `workspace_tool_usage_daily_counters`. `PlanCatalogToolActivation` safe (references by UUID FK).
+- **Auto-seed at startup (PersAI):** `SeedToolCatalogService` (`OnModuleInit`) syncs tool catalog, ensures default `starter_trial` plan with entitlement + tool activations, seeds bootstrap presets if empty. Eliminates need for manual `seed.ts` / `seed-catalog.ts` for new deployments.
+
+### Why changed
+
+- Credential refs were silently empty — API keys for search/images/TTS never reached OpenClaw tools.
+- Concurrent web chat requests could corrupt each other's tool deny lists via shared `process.env`.
+- Tool codes `memory_center_read` / `tasks_center_control` didn't match OpenClaw tool names (`memory_get` / `cron`), causing deny list mismatches.
+- New user registration on clean DB required manual seed script execution.
+
+### Slice boundary
+
+- OpenClaw: 3 files (`persai-runtime-tool-policy.ts`, `persai-runtime-agent-turn.ts`, `openclaw-tools.ts`)
+- PersAI: `tool-catalog-data.ts`, `seed-tool-catalog.service.ts`, `workspace-management.module.ts`, 2 test files, 1 SQL migration, docs
+
+### Deploy notes
+
+- After deploy: run `prisma migrate deploy` → API auto-seeds at startup → Force Reapply All to re-materialize existing specs with correct tool names.
+
+---
+
 ## 2026-03-26 - H3.3 post-deploy fixes: user data, avatar editing, emoji picker
 
 ### What changed
@@ -171,7 +198,7 @@
 ### What changed
 
 - Added [ADR-052](ADR/052-tool-credential-refs-and-tool-quota-limits-h2.md) defining the H2 scope.
-- Expanded tool catalog from 3 to 8 entries (`web_search`, `web_fetch`, `image_generate`, `tts`, `browser`, `memory_search`, `memory_center_read`, `tasks_center_control`).
+- Expanded tool catalog from 3 to 8 entries (`web_search`, `web_fetch`, `image_generate`, `tts`, `browser`, `memory_search`, `memory_get`, `cron`).
 - Extended `PlanCatalogToolActivation` with `dailyCallLimit` for per-tool daily call limits.
 - Added `WorkspaceToolUsageDailyCounter` table for tracking daily tool usage per workspace.
 - Widened `PlatformRuntimeProviderSecret.providerKey` column from `VarChar(32)` to `VarChar(64)` to accommodate tool credential keys.

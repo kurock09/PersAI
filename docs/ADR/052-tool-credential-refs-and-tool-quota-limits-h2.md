@@ -39,8 +39,8 @@ The current quota system has a single `cost_or_token_driving_tool_class` dimensi
 
    Existing entries stay unchanged:
    - `web_search` — `cost_driving` / `knowledge`
-   - `memory_center_read` — `utility` / `workspace_ops`
-   - `tasks_center_control` — `utility` / `workspace_ops`
+   - `memory_get` — `utility` / `workspace_ops`
+   - `cron` — `utility` / `workspace_ops`
 
 2. **Extend the encrypted secret store for tool credentials.**
 

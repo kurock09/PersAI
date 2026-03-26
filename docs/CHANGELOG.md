@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Step 12 H3.4 — runtime integration hardening:**
+  - Fixed OpenClaw credential refs parsing: `extractToolCredentialRefs` now accepts both Array and Object formats (PersAI sends Object keyed by tool code). API keys for web search, image generation, TTS, etc. now reach OpenClaw tools correctly.
+  - Eliminated `process.env.PERSAI_TOOL_DENY` race condition: replaced global env var save/restore with `AsyncLocalStorage`-based `persaiRuntimeRequestContext`. Each concurrent request carries its own isolated `toolDenyList`.
+  - Renamed tool catalog codes to match OpenClaw tool names: `memory_center_read` → `memory_get`, `tasks_center_control` → `cron`. SQL data migration updates `tool_catalog_tools` and `workspace_tool_usage_daily_counters`.
+  - Auto-seed platform data at API startup (`SeedToolCatalogService` with `OnModuleInit`): syncs tool catalog, ensures default `starter_trial` plan with entitlement and tool activations, seeds bootstrap presets if empty. New users work on a clean database without manual `seed.ts`.
+
 - **Step 12 H3.1 — configGeneration lazy invalidation (scale to 5 000–10 000 users):**
   - New `platform_config_generations` singleton table with monotonic `generation` counter; atomically incremented on every admin config change (provider settings, plans, presets, tool catalog).
   - New `config_dirty_at` column on `assistants` — set when per-user data changes (profile, channel bindings, subscription); cleared after successful materialization.

@@ -24,9 +24,9 @@ async function run(): Promise<void> {
           planActivationStatus: "active"
         },
         {
-          toolCode: "memory_center_read",
-          displayName: "Memory Center Read",
-          description: "Utility read access for Memory Center summaries.",
+          toolCode: "memory_get",
+          displayName: "Memory Get",
+          description: "Safe snippet read from memory files with optional offset/lines.",
           toolClass: "utility",
           capabilityGroup: "workspace_ops",
           catalogStatus: "active",
@@ -83,7 +83,7 @@ async function run(): Promise<void> {
   assert.equal(resolved.toolClasses.utility.activation, "active");
   assert.equal(resolved.toolClasses.costDriving.activation, "inactive");
   assert.equal(
-    resolved.tools.find((tool) => tool.code === "memory_center_read")?.effectiveActivation,
+    resolved.tools.find((tool) => tool.code === "memory_get")?.effectiveActivation,
     "active"
   );
   assert.equal(

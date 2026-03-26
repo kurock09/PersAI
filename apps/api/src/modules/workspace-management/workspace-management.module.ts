@@ -93,6 +93,7 @@ import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persiste
 import { BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY } from "./domain/bootstrap-document-preset.repository";
 import { PrismaBootstrapDocumentPresetRepository } from "./infrastructure/persistence/prisma-bootstrap-document-preset.repository";
 import { ManageBootstrapPresetsService } from "./application/manage-bootstrap-presets.service";
+import { SeedToolCatalogService } from "./application/seed-tool-catalog.service";
 import { BumpConfigGenerationService } from "./application/bump-config-generation.service";
 import { ForceReapplyAllService } from "./application/force-reapply-all.service";
 import { AdminForceReapplyController } from "./interface/http/admin-force-reapply.controller";
@@ -241,6 +242,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
       useClass: PrismaBootstrapDocumentPresetRepository
     },
     ManageBootstrapPresetsService,
+    SeedToolCatalogService,
     BumpConfigGenerationService,
     ForceReapplyAllService
   ],

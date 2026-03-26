@@ -66,17 +66,17 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   },
   {
     id: "88888888-8888-8888-8888-888888888888",
-    code: "memory_center_read",
-    displayName: "Memory Center Read",
-    description: "Utility read access for Memory Center summaries.",
+    code: "memory_get",
+    displayName: "Memory Get",
+    description: "Safe snippet read from memory files with optional offset/lines.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass
   },
   {
     id: "99999999-9999-9999-9999-999999999999",
-    code: "tasks_center_control",
-    displayName: "Tasks Center Control",
-    description: "Utility control actions for task registry items.",
+    code: "cron",
+    displayName: "Cron",
+    description: "Manage gateway cron jobs and send wake events.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass
   }
@@ -92,6 +92,6 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   tts: { active: false, dailyCallLimit: null },
   browser: { active: false, dailyCallLimit: null },
   memory_search: { active: true, dailyCallLimit: null },
-  memory_center_read: { active: true, dailyCallLimit: null },
-  tasks_center_control: { active: true, dailyCallLimit: null }
+  memory_get: { active: true, dailyCallLimit: null },
+  cron: { active: true, dailyCallLimit: null }
 };
