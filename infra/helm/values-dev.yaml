@@ -144,6 +144,7 @@ openclaw:
     PERSAI_RUNTIME_SPEC_STORE_KEY_PREFIX: "persai:runtime-spec"
     PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS: "0"
     PERSAI_WORKSPACE_ROOT: /mnt/workspaces/persai
+    OPENCLAW_STATE_DIR: /mnt/workspaces/persai/.openclaw-state
   secretEnv:
     OPENCLAW_GATEWAY_TOKEN:
       secretName: persai-openclaw-secrets
