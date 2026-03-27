@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
@@ -27,29 +27,36 @@ function bustCache(url: string): string {
 export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: AssistantAvatarProps) {
   const s = SIZE_CLASSES[size];
   const resolvedUrl = useMemo(() => (avatarUrl ? bustCache(avatarUrl) : null), [avatarUrl]);
+  const [imgStatus, setImgStatus] = useState<"loading" | "loaded" | "error">("loading");
 
-  if (resolvedUrl) {
-    return (
-      <div
-        className={cn("shrink-0 overflow-hidden bg-accent/15", s.container, s.rounded, className)}
-      >
-        <img src={resolvedUrl} alt="" className="h-full w-full object-cover" />
-      </div>
-    );
-  }
+  const handleLoad = useCallback(() => setImgStatus("loaded"), []);
+  const handleError = useCallback(() => setImgStatus("error"), []);
 
-  if (avatarEmoji) {
+  const fallbackContent = avatarEmoji ? (
+    <span>{avatarEmoji}</span>
+  ) : (
+    <Sparkles className={s.icon} />
+  );
+
+  if (resolvedUrl && imgStatus !== "error") {
     return (
       <div
         className={cn(
-          "flex shrink-0 items-center justify-center bg-accent/20 text-accent",
+          "flex shrink-0 items-center justify-center overflow-hidden bg-accent/15 text-accent",
           s.container,
           s.text,
           s.rounded,
           className
         )}
       >
-        {avatarEmoji}
+        {imgStatus === "loading" && fallbackContent}
+        <img
+          src={resolvedUrl}
+          alt=""
+          onLoad={handleLoad}
+          onError={handleError}
+          className={cn("h-full w-full object-cover", imgStatus === "loading" && "hidden")}
+        />
       </div>
     );
   }
@@ -57,13 +64,15 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-center bg-accent/15 text-accent",
+        "flex shrink-0 items-center justify-center text-accent",
+        avatarEmoji ? "bg-accent/20" : "bg-accent/15",
         s.container,
+        s.text,
         s.rounded,
         className
       )}
     >
-      <Sparkles className={s.icon} />
+      {fallbackContent}
     </div>
   );
 }
