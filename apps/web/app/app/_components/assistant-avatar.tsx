@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
@@ -19,18 +20,62 @@ interface AssistantAvatarProps {
   className?: string;
 }
 
-function bustCache(url: string): string {
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}v=${Math.floor(Date.now() / 60_000)}`;
-}
-
 export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: AssistantAvatarProps) {
   const s = SIZE_CLASSES[size];
-  const resolvedUrl = useMemo(() => (avatarUrl ? bustCache(avatarUrl) : null), [avatarUrl]);
-  const [imgStatus, setImgStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const { getToken } = useAuth();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const prevUrlRef = useRef<string | null>(null);
 
-  const handleLoad = useCallback(() => setImgStatus("loaded"), []);
-  const handleError = useCallback(() => setImgStatus("error"), []);
+  useEffect(() => {
+    if (!avatarUrl) {
+      setStatus("idle");
+      return;
+    }
+
+    if (avatarUrl === prevUrlRef.current && status === "loaded" && blobUrl) {
+      return;
+    }
+    prevUrlRef.current = avatarUrl;
+
+    let cancelled = false;
+    setStatus("loading");
+
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+        const sep = avatarUrl.includes("?") ? "&" : "?";
+        const url = `${avatarUrl}${sep}v=${Math.floor(Date.now() / 60_000)}`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok || cancelled) {
+          if (!cancelled) setStatus("error");
+          return;
+        }
+        const blob = await res.blob();
+        if (cancelled) return;
+        setBlobUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return URL.createObjectURL(blob);
+        });
+        setStatus("loaded");
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [avatarUrl, getToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    return () => {
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fallbackContent = avatarEmoji ? (
     <span>{avatarEmoji}</span>
@@ -38,25 +83,12 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
     <Sparkles className={s.icon} />
   );
 
-  if (resolvedUrl && imgStatus !== "error") {
+  if (status === "loaded" && blobUrl) {
     return (
       <div
-        className={cn(
-          "flex shrink-0 items-center justify-center overflow-hidden bg-accent/15 text-accent",
-          s.container,
-          s.text,
-          s.rounded,
-          className
-        )}
+        className={cn("shrink-0 overflow-hidden bg-accent/15", s.container, s.rounded, className)}
       >
-        {imgStatus === "loading" && fallbackContent}
-        <img
-          src={resolvedUrl}
-          alt=""
-          onLoad={handleLoad}
-          onError={handleError}
-          className={cn("h-full w-full object-cover", imgStatus === "loading" && "hidden")}
-        />
+        <img src={blobUrl} alt="" className="h-full w-full object-cover" />
       </div>
     );
   }
