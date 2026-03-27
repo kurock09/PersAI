@@ -64,6 +64,7 @@ export class IdentityAccessModule implements NestModule {
         method: RequestMethod.POST
       },
       { path: "api/v1/assistant/integrations/telegram/config", method: RequestMethod.PATCH },
+      { path: "api/v1/assistant/integrations/telegram/groups", method: RequestMethod.GET },
       { path: "api/v1/admin/abuse-controls/unblock", method: RequestMethod.POST },
       { path: "api/v1/admin/assistants/ownership/transfer", method: RequestMethod.POST },
       { path: "api/v1/admin/assistants/ownership/recover", method: RequestMethod.POST },

@@ -45,8 +45,9 @@ export interface AssistantRuntimeWebChatTurnResult {
 }
 
 export interface AssistantRuntimeWebChatTurnStreamChunk {
-  type: "delta" | "done";
+  type: "delta" | "thinking" | "done";
   delta?: string;
+  accumulated?: string;
   respondedAt?: string;
 }
 

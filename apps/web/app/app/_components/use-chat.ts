@@ -18,6 +18,9 @@ export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
   status: ChatMessageStatus;
+  thought?: string;
+  thoughtStartedAt?: string | null;
+  thoughtFinishedAt?: string | null;
 }
 
 export type ChatEntry =
@@ -86,7 +89,15 @@ export function useChat(threadKey: string): UseChatReturn {
       setMessages((prev) => [
         ...prev,
         { id: userMsgId, role: "user", content: trimmed, status: "committed" },
-        { id: assistantMsgId, role: "assistant", content: "", status: "streaming" }
+        {
+          id: assistantMsgId,
+          role: "assistant",
+          content: "",
+          status: "streaming",
+          thought: "",
+          thoughtStartedAt: null,
+          thoughtFinishedAt: null
+        }
       ]);
 
       try {
@@ -98,6 +109,20 @@ export function useChat(threadKey: string): UseChatReturn {
               const c = chat as { id?: string } | null;
               if (typeof c?.id === "string") setChatId(c.id);
             },
+            onThinking: ({ accumulated }) => {
+              const startedAt = new Date().toISOString();
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId
+                    ? {
+                        ...m,
+                        thought: accumulated,
+                        thoughtStartedAt: m.thoughtStartedAt ?? startedAt
+                      }
+                    : m
+                )
+              );
+            },
             onDelta: ({ delta }) => {
               setMessages((prev) =>
                 prev.map((m) =>
@@ -106,6 +131,13 @@ export function useChat(threadKey: string): UseChatReturn {
               );
             },
             onRuntimeDone: ({ respondedAt }) => {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId && m.thought && !m.thoughtFinishedAt
+                    ? { ...m, thoughtFinishedAt: respondedAt }
+                    : m
+                )
+              );
               setActivities((prev) => [
                 ...prev,
                 {
@@ -150,19 +182,37 @@ export function useChat(threadKey: string): UseChatReturn {
               }
             },
             onInterrupted: () => {
+              const interruptedAt = new Date().toISOString();
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
-                    ? { ...m, status: m.content.trim().length > 0 ? "partial" : "streaming" }
+                    ? {
+                        ...m,
+                        status: m.content.trim().length > 0 ? "partial" : "streaming",
+                        thoughtFinishedAt:
+                          m.thought && !m.thoughtFinishedAt
+                            ? interruptedAt
+                            : (m.thoughtFinishedAt ?? null)
+                      }
                     : m
                 )
               );
             },
             onFailed: ({ message }) => {
               setIssue(toWebChatUxIssue(message));
+              const failedAt = new Date().toISOString();
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantMsgId ? { ...m, status: "partial" as const } : m
+                  m.id === assistantMsgId
+                    ? {
+                        ...m,
+                        status: "partial" as const,
+                        thoughtFinishedAt:
+                          m.thought && !m.thoughtFinishedAt
+                            ? failedAt
+                            : (m.thoughtFinishedAt ?? null)
+                      }
+                    : m
                 )
               );
             }
@@ -173,10 +223,18 @@ export function useChat(threadKey: string): UseChatReturn {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
           setIssue(toWebChatUxIssue(error));
         }
+        const abortedAt = new Date().toISOString();
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsgId && m.status === "streaming"
-              ? { ...m, status: m.content.trim().length > 0 ? "partial" : "committed" }
+              ? {
+                  ...m,
+                  status: m.content.trim().length > 0 ? "partial" : "committed",
+                  thoughtFinishedAt:
+                    m.thought && !m.thoughtFinishedAt
+                      ? abortedAt
+                      : (m.thoughtFinishedAt ?? null)
+                }
               : m
           )
         );

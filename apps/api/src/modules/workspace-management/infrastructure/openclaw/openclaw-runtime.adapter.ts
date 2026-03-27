@@ -249,6 +249,19 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         continue;
       }
 
+      if (type === "thinking") {
+        const delta = payload.delta;
+        const text = payload.text;
+        if (typeof delta !== "string" || typeof text !== "string") {
+          throw new AssistantRuntimeAdapterError(
+            "invalid_response",
+            "OpenClaw thinking payload is missing delta/text strings."
+          );
+        }
+        yield { type: "thinking", delta, accumulated: text };
+        continue;
+      }
+
       if (type === "done") {
         const respondedAt = payload.respondedAt;
         if (typeof respondedAt !== "string" || respondedAt.trim().length === 0) {

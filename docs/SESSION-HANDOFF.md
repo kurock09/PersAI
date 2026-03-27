@@ -1,5 +1,59 @@
 # SESSION-HANDOFF
 
+## 2026-03-27 - H10 Thinking/Reasoning UX + Telegram groups auth fix
+
+### What changed
+
+- **H10 stream plumbing:** OpenClaw PersAI runtime stream now emits `thinking` NDJSON chunks, and PersAI API forwards them as SSE `thinking` events to the web app.
+- **H10 web UX:** assistant messages can now carry ephemeral streamed thought text, rendered as a collapsible `Thought for Xs` panel with a fade-out collapsed preview above the final assistant answer.
+- **Reasoning enabled for web runtime:** PersAI web chat turns now request `reasoning=stream` from OpenClaw, so reasoning-capable models can surface live thought text during streaming without persisting it into the final assistant message.
+- **Telegram groups fix:** added `GET /api/v1/assistant/integrations/telegram/groups` to `ClerkAuthMiddleware` route registration, fixing the `401` that prevented the Groups section from loading even when `assistant_telegram_groups` rows already existed.
+
+### Why changed
+
+- H10 was the next roadmap slice after H9 and closes the last major chat UX gap: users can now see live model reasoning separately from the final answer instead of waiting on a silent stream.
+- The Telegram UI issue turned out to be an auth-routing omission, not runtime delivery: group join/leave callbacks were already reaching the API and updating the database, but the listing endpoint itself was not behind the same auth middleware as the other Telegram routes.
+
+### Files touched
+
+**OpenClaw fork:**
+- `src/agents/command/types.ts`
+- `src/agents/agent-command.ts`
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts`
+
+**PersAI:**
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/chat-message.tsx`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- IDE diagnostics (`ReadLints`) on all touched OpenClaw and PersAI files: 0 errors
+- Runtime audit in GKE:
+  - confirmed `openclaw` on new image
+  - confirmed Telegram `group-update` callbacks returning `200`
+  - identified repeated `401` on `/api/v1/assistant/integrations/telegram/groups` before the auth-route fix
+
+### Risks / follow-up
+
+- Thought text is intentionally ephemeral in the web client and is not persisted into chat history or backend message records.
+- Models without reasoning support will continue streaming only normal assistant deltas; the Thought panel simply will not appear.
+
+### Next recommended step
+
+- Deploy both repos, wait for new `openclaw` and `api` pods, then verify:
+  - one streaming web chat shows the Thought panel
+  - Telegram Groups section loads without `401`
+  - existing tracked groups appear without re-adding the bot
+
 ## 2026-03-27 - H9 Per-Request Tool Credential Isolation
 
 ### What changed

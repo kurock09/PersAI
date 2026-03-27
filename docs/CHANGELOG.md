@@ -4,6 +4,11 @@
 
 ### Added
 
+- **H10 — thinking/reasoning UX:**
+  - OpenClaw PersAI web runtime stream now emits `thinking` chunks in addition to assistant deltas, and PersAI API forwards them as SSE `thinking` events.
+  - Web chat now shows a collapsible assistant-side `Thought for Xs` block with a fade-out preview while preserving the final answer as the main message body.
+  - PersAI web turns now explicitly request `reasoning=stream` from OpenClaw so reasoning-capable models can surface live thought text during streaming.
+
 - **H9 — per-request tool credential isolation (ADR-055):**
   - Eliminated `process.env` race condition for tool credentials (`TAVILY_API_KEY`, `FIRECRAWL_API_KEY`). Concurrent agent turns no longer overwrite each other's API keys — safe at 1000+ concurrent users.
   - Extended `PersaiRuntimeRequestCtx` with `toolCredentials?: Map<string, string>`. Credentials flow through `AsyncLocalStorage` instead of global `process.env`.

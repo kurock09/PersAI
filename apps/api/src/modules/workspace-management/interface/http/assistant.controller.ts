@@ -702,6 +702,9 @@ export class AssistantController {
       onDelta: (delta, accumulated) => {
         sendSse("delta", { delta, accumulated });
       },
+      onThinking: (delta, accumulated) => {
+        sendSse("thinking", { delta, accumulated });
+      },
       onDone: (respondedAt) => {
         sendSse("runtime_done", { respondedAt });
       }

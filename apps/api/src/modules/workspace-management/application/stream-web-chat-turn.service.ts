@@ -185,6 +185,7 @@ export class StreamWebChatTurnService {
     callbacks: {
       isClientAborted: () => boolean;
       onDelta: (delta: string, accumulated: string) => void;
+      onThinking: (delta: string, accumulated: string) => void;
       onDone: (respondedAt: string) => void;
     }
   ): Promise<StreamWebChatTurnOutcome> {
@@ -207,6 +208,14 @@ export class StreamWebChatTurnService {
         if (chunk.type === "delta" && typeof chunk.delta === "string") {
           accumulated += chunk.delta;
           callbacks.onDelta(chunk.delta, accumulated);
+        }
+
+        if (
+          chunk.type === "thinking" &&
+          typeof chunk.delta === "string" &&
+          typeof chunk.accumulated === "string"
+        ) {
+          callbacks.onThinking(chunk.delta, chunk.accumulated);
         }
 
         if (chunk.type === "done" && typeof chunk.respondedAt === "string") {

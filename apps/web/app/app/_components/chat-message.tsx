@@ -6,7 +6,17 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { Copy, Check, EyeOff, RefreshCw, ThumbsUp, ThumbsDown, Sparkles } from "lucide-react";
+import {
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  EyeOff,
+  RefreshCw,
+  ThumbsUp,
+  ThumbsDown,
+  Sparkles
+} from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import type { ChatMessage } from "./use-chat";
 
@@ -38,6 +48,29 @@ function CopyButton({ text }: { text: string }) {
 }
 
 const COLLAPSE_LINE_THRESHOLD = 15;
+
+function formatThoughtDurationLabel(message: ChatMessage): string {
+  if (!message.thoughtStartedAt || !message.thoughtFinishedAt) {
+    return "Thinking";
+  }
+
+  const startedAt = Date.parse(message.thoughtStartedAt);
+  const finishedAt = Date.parse(message.thoughtFinishedAt);
+  if (Number.isNaN(startedAt) || Number.isNaN(finishedAt)) {
+    return "Thought";
+  }
+
+  const seconds = Math.max(1, Math.round((finishedAt - startedAt) / 1000));
+  return `Thought for ${seconds}s`;
+}
+
+function buildThoughtPreview(thought: string): string {
+  return thought
+    .replace(/^Reasoning:\s*/i, "")
+    .replace(/[_*`>#-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function CodeBlock({
   className,
@@ -86,6 +119,51 @@ function CodeBlock({
           >
             Collapse
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ThoughtBlock({ message }: { message: ChatMessage }) {
+  const thought = message.thought?.trim() ?? "";
+  const [expanded, setExpanded] = useState(message.status === "streaming");
+
+  if (!thought) {
+    return null;
+  }
+
+  const preview = buildThoughtPreview(thought);
+
+  return (
+    <div className="mb-3 overflow-hidden rounded-xl border border-border/70 bg-surface-raised/50">
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-hover/60"
+      >
+        <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
+          {formatThoughtDurationLabel(message)}
+        </span>
+        <span className="ml-auto text-text-subtle">
+          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </span>
+      </button>
+
+      {expanded ? (
+        <div className="border-t border-border/70 px-3 py-2 text-xs text-text-muted">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeKatex]}
+            components={markdownComponents}
+          >
+            {thought}
+          </ReactMarkdown>
+        </div>
+      ) : (
+        <div className="relative border-t border-border/70 px-3 py-2 text-xs text-text-subtle">
+          <div className="max-h-10 overflow-hidden pr-6">{preview}</div>
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-surface-raised/90 to-transparent" />
         </div>
       )}
     </div>
@@ -212,6 +290,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
           </p>
         ) : (
           <div className="prose-invert text-sm text-text">
+            <ThoughtBlock message={message} />
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[rehypeKatex]}

@@ -173,5 +173,8 @@ Foundation Phase
   - [x] H9b — remove `process.env` mutation from `persai-runtime-agent-turn.ts` (sync, telegram, stream)
   - [x] H9c — patch credential readers (Tavily, Firecrawl, web-fetch) to read from context first
   - [x] H9d — new `plugin-sdk/persai-credential` subpath for extension boundary compliance
-- [ ] H10 — thinking/reasoning UX (stream thinking tokens, collapsible "Thought for Xs" block with fade-out preview)
+- [x] H10 — thinking/reasoning UX (stream thinking tokens, collapsible "Thought for Xs" block with fade-out preview)
+  - [x] H10a — OpenClaw NDJSON thinking stream for PersAI web runtime
+  - [x] H10b — API/Web SSE transport for `thinking` events
+  - [x] H10c — web chat Thought block with collapsed preview and duration label
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity

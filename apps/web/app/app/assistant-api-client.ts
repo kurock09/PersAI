@@ -132,6 +132,7 @@ function isSuccessStatus(status: number): status is 200 | 201 {
 
 type WebChatStreamEvent =
   | { event: "started"; data: { chat: unknown; userMessage: unknown } }
+  | { event: "thinking"; data: { delta: string; accumulated: string } }
   | { event: "delta"; data: { delta: string; accumulated: string } }
   | { event: "runtime_done"; data: { respondedAt: string } }
   | { event: "completed"; data: { transport: unknown } }
@@ -146,6 +147,7 @@ export interface AssistantWebChatStreamPayload {
 
 export interface AssistantWebChatStreamHandlers {
   onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+  onThinking?: (payload: { delta: string; accumulated: string }) => void;
   onDelta?: (payload: { delta: string; accumulated: string }) => void;
   onRuntimeDone?: (payload: { respondedAt: string }) => void;
   onCompleted?: (payload: { transport: unknown }) => void;
@@ -316,6 +318,15 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       data: { delta: body.delta, accumulated: body.accumulated }
     };
   }
+  if (eventName === "thinking") {
+    if (typeof body.delta !== "string" || typeof body.accumulated !== "string") {
+      return null;
+    }
+    return {
+      event: "thinking",
+      data: { delta: body.delta, accumulated: body.accumulated }
+    };
+  }
   if (eventName === "runtime_done") {
     if (typeof body.respondedAt !== "string") {
       return null;
@@ -427,6 +438,8 @@ export async function streamAssistantWebChatTurn(
   const handleStreamEvent = (streamEvent: WebChatStreamEvent): void => {
     if (streamEvent.event === "started") {
       handlers.onStarted?.(streamEvent.data);
+    } else if (streamEvent.event === "thinking") {
+      handlers.onThinking?.(streamEvent.data);
     } else if (streamEvent.event === "delta") {
       handlers.onDelta?.(streamEvent.data);
     } else if (streamEvent.event === "runtime_done") {
