@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/app/lib/utils";
@@ -69,13 +69,13 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
     return () => {
       cancelled = true;
     };
-  }, [avatarUrl, getToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [avatarUrl, getToken]); // eslint-disable-line
 
   useEffect(() => {
     return () => {
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
 
   const fallbackContent = avatarEmoji ? (
     <span>{avatarEmoji}</span>
