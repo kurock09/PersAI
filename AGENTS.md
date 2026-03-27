@@ -59,6 +59,18 @@ Pushing code that fails CI is treated as a bug introduced by the agent.
   - that PersAI CI is expected to rebuild/re-pin the OpenClaw image after the PersAI push
 - do not claim deploy-ready if only one repo is prepared or if the fork SHA in PersAI still points at an older commit
 
+## OpenClaw upstream sync workflow
+When updating the fork from upstream OpenClaw:
+1. **Tag current state:** `git tag persai-pre-update-YYYYMMDD` (in openclaw repo)
+2. **Create branch:** `git checkout -b update/upstream-YYYYMMDD`
+3. **Fetch and merge:** `git fetch upstream && git merge upstream/main`
+4. **Resolve conflicts** using `docs/PERSAI-FORK-PATCHES.md` as the checklist — every cross-cutting patch listed there must survive the merge
+5. **Run verification:** `node scripts/verify-persai-patches.mjs` — must pass 24/24
+6. **Run OpenClaw checks:** `npx tsc --noEmit`, `node scripts/sync-plugin-sdk-exports.mjs --check`, `node scripts/check-plugin-sdk-subpath-exports.mjs`
+7. **Merge to main:** `git checkout main && git merge update/upstream-YYYYMMDD`
+8. **Update PersAI:** `openclaw-approved-sha.txt`, `values-dev.yaml`, `CHANGELOG.md`, `SESSION-HANDOFF.md`
+9. **Rollback** if broken: `git reset --hard persai-pre-update-YYYYMMDD`
+
 ## Live test guidance for agents
 - for local-frontend + GKE-backend validation, read `docs/LIVE-TEST-HYBRID.md` before running live checks
 
