@@ -165,5 +165,8 @@ Foundation Phase
   - [x] H8g — polling fallback (no `webhookUrl` → Grammy long polling, no public domain required)
   - [x] H8h — auto-apply on connect/disconnect (immediate OpenClaw spec sync)
   - [x] H8i — Telegram workspace isolation (agent turns use per-assistant `workspaceDir`, shared memory with web chat)
-- [ ] H9 — thinking/reasoning UX (stream thinking tokens, collapsible "Thought for Xs" block with fade-out preview)
-- [ ] H10 — WhatsApp/MAX readiness and secret-ref parity
+  - [x] H8j — fix `workspaceDir` race condition (`process.env` → `commandInput` passthrough)
+  - [x] H8k — fix session `cwd` drift + memory tools workspace: sync `header.cwd` on every turn, route memory reads through `persaiRuntimeRequestContext.workspaceDir`
+- [ ] H9 — per-request credential isolation (`AsyncLocalStorage` for `toolCredentials`, eliminates `process.env` race at 1000+ concurrent users)
+- [ ] H10 — thinking/reasoning UX (stream thinking tokens, collapsible "Thought for Xs" block with fade-out preview)
+- [ ] H11 — WhatsApp/MAX readiness and secret-ref parity
