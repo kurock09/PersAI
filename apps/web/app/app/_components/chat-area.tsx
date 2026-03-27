@@ -142,7 +142,11 @@ export function ChatArea({
     <div className="flex h-full flex-col">
       {/* Header */}
       <header className="flex items-center gap-3 border-b border-border px-5 py-3">
-        <AssistantAvatar avatarUrl={assistantAvatarUrl} avatarEmoji={assistantAvatarEmoji} size="sm" />
+        <AssistantAvatar
+          avatarUrl={assistantAvatarUrl}
+          avatarEmoji={assistantAvatarEmoji}
+          size="sm"
+        />
         {editing ? (
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             <input
@@ -185,7 +189,13 @@ export function ChatArea({
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {isEmpty ? (
-          <EmptyState name={assistantName} avatarUrl={assistantAvatarUrl} avatarEmoji={assistantAvatarEmoji} createdAt={assistantCreatedAt} onPrompt={sendPrompt} />
+          <EmptyState
+            name={assistantName}
+            avatarUrl={assistantAvatarUrl}
+            avatarEmoji={assistantAvatarEmoji}
+            createdAt={assistantCreatedAt}
+            onPrompt={sendPrompt}
+          />
         ) : (
           <div className="mx-auto max-w-3xl py-4">
             <div ref={sentinelRef} className="h-1" />

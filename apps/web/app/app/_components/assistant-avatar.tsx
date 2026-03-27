@@ -31,12 +31,7 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
   if (resolvedUrl) {
     return (
       <div
-        className={cn(
-          "shrink-0 overflow-hidden bg-accent/15",
-          s.container,
-          s.rounded,
-          className
-        )}
+        className={cn("shrink-0 overflow-hidden bg-accent/15", s.container, s.rounded, className)}
       >
         <img src={resolvedUrl} alt="" className="h-full w-full object-cover" />
       </div>

@@ -85,10 +85,16 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
     surfaceType: AssistantIntegrationSurfaceType,
     patch: Record<string, unknown>
   ): Promise<void> {
-    const existing = await this.findByAssistantProviderSurface(assistantId, providerKey, surfaceType);
+    const existing = await this.findByAssistantProviderSurface(
+      assistantId,
+      providerKey,
+      surfaceType
+    );
     if (!existing) return;
     const current =
-      existing.metadata !== null && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
+      existing.metadata !== null &&
+      typeof existing.metadata === "object" &&
+      !Array.isArray(existing.metadata)
         ? (existing.metadata as Record<string, unknown>)
         : {};
     const merged = { ...current, ...patch };

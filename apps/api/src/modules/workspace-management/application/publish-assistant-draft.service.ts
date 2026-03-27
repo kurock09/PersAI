@@ -83,7 +83,11 @@ export class PublishAssistantDraftService {
     );
     await this.applyAssistantPublishedVersionService.execute(userId, publishedVersion, false);
 
-    await this.syncTelegramBindingMetadata(assistant.id, assistant.draftDisplayName, assistant.draftAvatarUrl);
+    await this.syncTelegramBindingMetadata(
+      assistant.id,
+      assistant.draftDisplayName,
+      assistant.draftAvatarUrl
+    );
 
     const refreshedAssistant = await this.assistantRepository.findByUserId(userId);
     if (refreshedAssistant === null) {

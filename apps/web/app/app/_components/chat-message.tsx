@@ -278,7 +278,12 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   return (
     <div className={cn("group flex gap-3 px-4 py-3", isUser ? "justify-end" : "justify-start")}>
       {!isUser && (
-        <AssistantAvatar avatarUrl={assistantAvatarUrl} avatarEmoji={assistantAvatarEmoji} size="sm" className="mt-1" />
+        <AssistantAvatar
+          avatarUrl={assistantAvatarUrl}
+          avatarEmoji={assistantAvatarEmoji}
+          size="sm"
+          className="mt-1"
+        />
       )}
 
       <div
