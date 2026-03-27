@@ -115,7 +115,7 @@ openclaw:
   image:
     name: openclaw
     tag: 403f47b26bcc503c6b39f8249747ed03d22c7fe7
-    digest: sha256:c4e8ab399be37938fdfdd1e636b01d60f90f905b34e897fdd1c04c8c1ff0d4d4
+    digest: sha256:9cef7eb11cbbd4df3448ad58b9f08b77566af7b85569d6bb69e79d691aa51ba0
     pullPolicy: IfNotPresent
   controlUi:
     allowedOrigins:
