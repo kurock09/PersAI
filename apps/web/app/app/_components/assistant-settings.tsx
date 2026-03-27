@@ -41,6 +41,7 @@ import {
   uploadAssistantAvatar,
   type WorkspaceMemoryItem
 } from "../assistant-api-client";
+import { AssistantAvatar } from "./assistant-avatar";
 
 const TRAIT_SLIDERS = [
   { key: "formality", labelLeft: "Casual", labelRight: "Formal" },
@@ -158,6 +159,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   const [draftAvatarUrl, setDraftAvatarUrl] = useState<string | null>(
     assistant?.draft.avatarUrl ?? null
   );
+  const [avatarPreviewBlobUrl, setAvatarPreviewBlobUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
 
@@ -192,6 +194,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     if (t) setDraftTraits(t);
     setDraftAvatarEmoji(assistant?.draft.avatarEmoji ?? null);
     setDraftAvatarUrl(assistant?.draft.avatarUrl ?? null);
+    setAvatarPreviewBlobUrl(null);
   }, [assistant]);
 
   const loadMemory = useCallback(async () => {
@@ -397,8 +400,10 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
           >
             {avatarUploading ? (
               <Loader2 className="h-6 w-6 animate-spin text-accent" />
+            ) : avatarPreviewBlobUrl ? (
+              <img src={avatarPreviewBlobUrl} alt="Avatar" className="h-full w-full object-cover" />
             ) : draftAvatarUrl ? (
-              <img src={draftAvatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+              <AssistantAvatar avatarUrl={draftAvatarUrl} size="md" />
             ) : (
               draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />
             )}
@@ -461,7 +466,8 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (!file || !file.type.startsWith("image/")) return;
-            setDraftAvatarUrl(URL.createObjectURL(file));
+            const localBlob = URL.createObjectURL(file);
+            setAvatarPreviewBlobUrl(localBlob);
             setDraftAvatarEmoji(null);
             setEmojiPickerOpen(false);
             setAvatarUploading(true);
@@ -473,6 +479,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 setDraftAvatarUrl(result.avatarUrl);
               } catch {
                 setSaveFb({ type: "err", text: "Avatar upload failed." });
+                setAvatarPreviewBlobUrl(null);
               } finally {
                 setAvatarUploading(false);
               }
