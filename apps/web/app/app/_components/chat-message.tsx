@@ -146,7 +146,11 @@ function ThoughtBlock({ message }: { message: ChatMessage }) {
           {formatThoughtDurationLabel(message)}
         </span>
         <span className="ml-auto text-text-subtle">
-          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {expanded ? (
+            <ChevronUp className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" />
+          )}
         </span>
       </button>
 

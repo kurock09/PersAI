@@ -231,9 +231,7 @@ export function useChat(threadKey: string): UseChatReturn {
                   ...m,
                   status: m.content.trim().length > 0 ? "partial" : "committed",
                   thoughtFinishedAt:
-                    m.thought && !m.thoughtFinishedAt
-                      ? abortedAt
-                      : (m.thoughtFinishedAt ?? null)
+                    m.thought && !m.thoughtFinishedAt ? abortedAt : (m.thoughtFinishedAt ?? null)
                 }
               : m
           )
