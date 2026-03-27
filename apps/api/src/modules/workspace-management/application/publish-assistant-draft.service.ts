@@ -12,6 +12,10 @@ import {
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import {
+  ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
+  type AssistantChannelSurfaceBindingRepository
+} from "../domain/assistant-channel-surface-binding.repository";
 import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
@@ -29,6 +33,8 @@ export class PublishAssistantDraftService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
+    @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
+    private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
     private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
@@ -77,6 +83,8 @@ export class PublishAssistantDraftService {
     );
     await this.applyAssistantPublishedVersionService.execute(userId, publishedVersion, false);
 
+    await this.syncTelegramBindingMetadata(assistant.id, assistant.draftDisplayName, assistant.draftAvatarUrl);
+
     const refreshedAssistant = await this.assistantRepository.findByUserId(userId);
     if (refreshedAssistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");
@@ -95,5 +103,35 @@ export class PublishAssistantDraftService {
       governance,
       materialization
     );
+  }
+
+  private async syncTelegramBindingMetadata(
+    assistantId: string,
+    displayName: string | null,
+    avatarUrl: string | null
+  ): Promise<void> {
+    try {
+      const binding =
+        await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
+          assistantId,
+          "telegram",
+          "telegram_bot"
+        );
+      if (!binding || binding.bindingState !== "active") return;
+
+      const patch: Record<string, unknown> = {};
+      if (displayName !== null) patch.displayName = displayName;
+      if (avatarUrl !== null) patch.avatarUrl = avatarUrl;
+      if (Object.keys(patch).length === 0) return;
+
+      await this.assistantChannelSurfaceBindingRepository.patchMetadata(
+        assistantId,
+        "telegram",
+        "telegram_bot",
+        patch
+      );
+    } catch (err) {
+      console.warn("[publish] Non-fatal: failed to sync Telegram binding metadata:", err);
+    }
   }
 }

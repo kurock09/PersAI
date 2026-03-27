@@ -151,6 +151,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <TelegramConnect
             integration={appData.telegram}
             capabilityAllowed={appData.plan?.limits.activeWebChatsPercent !== undefined}
+            assistantAvatarUrl={appData.assistant?.draft.avatarUrl ?? undefined}
+            assistantAvatarEmoji={appData.assistant?.draft.avatarEmoji ?? undefined}
+            assistantDisplayName={appData.assistant?.draft.displayName ?? undefined}
             onUpdated={() => {
               void appData.reload();
             }}

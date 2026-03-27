@@ -29,6 +29,12 @@ export interface AssistantChannelSurfaceBindingRepository {
     surfaceType: AssistantIntegrationSurfaceType
   ): Promise<AssistantChannelSurfaceBinding | null>;
   upsert(input: UpsertAssistantChannelSurfaceBindingInput): Promise<AssistantChannelSurfaceBinding>;
+  patchMetadata(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    patch: Record<string, unknown>
+  ): Promise<void>;
   hasActiveBindingForProvider(
     assistantId: string,
     providerKey: AssistantIntegrationProviderKey

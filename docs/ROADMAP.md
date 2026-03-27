@@ -182,4 +182,11 @@ Foundation Phase
   - [x] UP2 — new chat appears in sidebar immediately on creation
   - [x] UP3 — avatar file upload to workspace (POST/GET endpoints in PersAI API + OpenClaw gateway, replaces blob: URLs)
   - [x] UP4 — Telegram bot profile sync (setMyName, setMyDescription, setMyProfilePhoto on every apply)
+- [x] Quota UX and avatar consistency hardening
+  - [x] QA1 — quota/capability 409 errors mapped to user-friendly messages (plan limit, feature unavailable)
+  - [x] QA2 — reapply/publish POST endpoints return HTTP 200 (was 201); frontend uses `isSuccessStatus` guard
+  - [x] QA3 — shared `AssistantAvatar` component (sm/md/lg) replaces all hardcoded Sparkles across chat header, messages, empty state, home dashboard, sidebar
+  - [x] QA4 — avatar cache-busting (minute-granularity `?v=` param) + backend `Cache-Control: no-cache, must-revalidate`
+  - [x] QA5 — Telegram binding metadata sync on publish (displayName + avatarUrl patched in DB after apply)
+  - [x] QA6 — Telegram settings UI shows assistant draft avatar/name instead of stale getMe data
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity

@@ -1,5 +1,55 @@
 # SESSION-HANDOFF
 
+## 2026-03-27 - Quota UX and Avatar Consistency Hardening
+
+### What changed
+
+- **Quota error UX:** `toWebChatUxIssue` in `assistant-api-client.ts` now classifies 409 quota errors into `quota_limit_reached` (budget/token/tool limits) and `feature_unavailable` (disabled capability) with user-friendly messages and guidance. Two new entries added to `WebChatUxIssueClass` union type.
+- **Reapply HTTP code fix:** `POST /assistant/publish` and `POST /assistant/reapply` now decorated with `@HttpCode(200)` in `assistant.controller.ts`. Frontend `postAssistantReapply` uses `isSuccessStatus` + full object guard.
+- **Shared AssistantAvatar component:** New `assistant-avatar.tsx` with sizes `sm` (28px), `md` (40px), `lg` (80px). Renders avatar image > emoji > Sparkles fallback. Used in chat header, message bubbles, empty state, home dashboard, sidebar, Telegram settings. Includes minute-granularity cache-busting `?v=` param on avatar URLs.
+- **Avatar cache headers:** Backend avatar endpoint `Cache-Control` changed from `public, max-age=300` to `no-cache, must-revalidate`.
+- **Telegram metadata sync:** After publish+apply, `PublishAssistantDraftService` patches the Telegram binding's `metadata.displayName` and `metadata.avatarUrl` with the assistant's draft values. New `patchMetadata` method in `AssistantChannelSurfaceBindingRepository`.
+- **Telegram settings UI:** `ConnectedView` now receives `assistantAvatarUrl`, `assistantAvatarEmoji`, `assistantDisplayName` from `app-shell.tsx` and prefers them over stale `bot.*` metadata.
+
+### Files touched
+
+**PersAI API:**
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` — `@HttpCode(200)` on publish/reapply, `Cache-Control` fix
+- `apps/api/src/modules/workspace-management/application/publish-assistant-draft.service.ts` — `syncTelegramBindingMetadata` after apply
+- `apps/api/src/modules/workspace-management/domain/assistant-channel-surface-binding.repository.ts` — `patchMetadata` interface
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-channel-surface-binding.repository.ts` — `patchMetadata` implementation
+
+**PersAI Web:**
+- `apps/web/app/app/_components/assistant-avatar.tsx` — new shared component
+- `apps/web/app/app/_components/chat-area.tsx` — uses `AssistantAvatar`, passes avatar props through
+- `apps/web/app/app/_components/chat-message.tsx` — uses `AssistantAvatar` for assistant messages
+- `apps/web/app/app/_components/home-dashboard.tsx` — uses `AssistantAvatar` in hero
+- `apps/web/app/app/_components/sidebar.tsx` — uses `AssistantAvatar` in assistant card
+- `apps/web/app/app/_components/telegram-connect.tsx` — uses `AssistantAvatar`, accepts assistant draft props
+- `apps/web/app/app/_components/app-shell.tsx` — passes assistant draft props to TelegramConnect
+- `apps/web/app/app/chat/page.tsx` — passes avatar props to ChatArea
+- `apps/web/app/app/assistant-api-client.ts` — quota UX classifiers, reapply guard fix, new issue class types
+
+**Docs:**
+- `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `tsc --noEmit` PersAI API: 0 errors
+- `tsc --noEmit` PersAI Web: 0 errors
+
+### Risks
+
+1. `patchMetadata` does read-then-write (not atomic JSON merge) — acceptable for low-concurrency publish flow.
+2. Cache-busting `?v=` changes every minute, which means avatar images refetch once per minute on navigation. Acceptable trade-off for immediate consistency after avatar change.
+3. Telegram metadata sync is non-fatal (try/catch). If it fails, UI falls back to assistant draft props anyway.
+
+### Next recommended step
+
+- Test full flow: change avatar in settings → publish → verify avatar consistency across chat, sidebar, home, Telegram settings.
+- Deploy and verify quota errors for `kurock09@gmail.com` show clear messages.
+- H11 — WhatsApp/MAX readiness and secret-ref parity.
+
 ## 2026-03-27 - UI Polish: chat scroll, sidebar, avatar upload, Telegram sync
 
 ### What changed

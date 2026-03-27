@@ -8,7 +8,6 @@ import {
   Send,
   Smartphone,
   MessageCircle,
-  Sparkles,
   X,
   MoreHorizontal,
   Loader2,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/app/lib/utils";
+import { AssistantAvatar } from "./assistant-avatar";
 import type { AppData, AssistantStatus } from "./use-app-data";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { useTheme } from "./use-theme";
@@ -168,17 +168,11 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
           onClick={onAssistantCardClick}
           className="flex w-full cursor-pointer items-center gap-3 rounded-xl bg-surface-raised p-3 transition-colors hover:bg-surface-hover"
         >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent text-xl overflow-hidden">
-            {data.assistant?.draft.avatarUrl ? (
-              <img
-                src={data.assistant.draft.avatarUrl}
-                alt=""
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              (data.assistant?.draft.avatarEmoji ?? <Sparkles className="h-5 w-5" />)
-            )}
-          </div>
+          <AssistantAvatar
+            avatarUrl={data.assistant?.draft.avatarUrl ?? undefined}
+            avatarEmoji={data.assistant?.draft.avatarEmoji ?? undefined}
+            size="md"
+          />
           <div className="min-w-0 text-left">
             <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
             <span className="flex items-center gap-1.5">

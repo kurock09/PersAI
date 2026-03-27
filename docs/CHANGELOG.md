@@ -4,6 +4,15 @@
 
 ### Added
 
+- **Quota UX and avatar consistency hardening:**
+  - 409 quota errors now map to clear user-facing messages: "You've reached your plan's usage limit" (quota/budget), "This feature is not available on your current plan" (disabled capability), instead of generic "Chat could not complete this turn."
+  - `POST /assistant/publish` and `POST /assistant/reapply` now return HTTP 200 (was 201). Frontend `postAssistantReapply` uses full `isSuccessStatus` + object guard to avoid silent failures.
+  - New shared `AssistantAvatar` component (sm/md/lg sizes) replaces all hardcoded Sparkles icons across chat header, message bubbles, empty state, home dashboard, sidebar, and Telegram settings.
+  - Avatar images now include minute-granularity cache-busting (`?v=` param). Backend avatar endpoint `Cache-Control` changed from `public, max-age=300` to `no-cache, must-revalidate`.
+  - On publish+apply, Telegram binding metadata in the DB is patched with the assistant's current `displayName` and `avatarUrl`, keeping displayed bot profile consistent.
+  - Telegram settings UI now shows the assistant's draft avatar and name (falling back to stored bot metadata) instead of stale `getMe` data from connection time.
+  - New `patchMetadata` method on `AssistantChannelSurfaceBindingRepository` for targeted JSON metadata updates.
+
 - **UI polish — chat scroll, sidebar, avatar upload, Telegram sync:**
   - Chat history now loads only the last 20 messages on open and lazy-loads older messages when user scrolls up (IntersectionObserver + reverse pagination). Initial load is instant (no scroll-from-top animation).
   - New chats appear in the sidebar immediately after the first message is sent (via `appData.reloadChats()` on chatId creation).

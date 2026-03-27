@@ -160,6 +160,8 @@ export type WebChatUxIssueClass =
   | "input_validation"
   | "assistant_not_live"
   | "active_chat_cap"
+  | "quota_limit_reached"
+  | "feature_unavailable"
   | "runtime_unreachable"
   | "runtime_timeout"
   | "runtime_degraded"
@@ -214,6 +216,32 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
       classId: "active_chat_cap",
       message: "You reached the active chat limit for new threads.",
       guidance: "Archive an active chat or continue in an existing thread."
+    };
+  }
+
+  if (
+    normalized.includes("quota limit reached") ||
+    normalized.includes("budget limit reached") ||
+    normalized.includes("quota refresh")
+  ) {
+    return {
+      classId: "quota_limit_reached",
+      message: "You've reached your plan's usage limit.",
+      guidance:
+        "Your message quota or tool usage limit has been exceeded. Wait for the next billing cycle or upgrade your plan."
+    };
+  }
+
+  if (
+    normalized.includes("unavailable") &&
+    (normalized.includes("capability") ||
+      normalized.includes("capabilities") ||
+      normalized.includes("plan"))
+  ) {
+    return {
+      classId: "feature_unavailable",
+      message: "This feature is not available on your current plan.",
+      guidance: "Upgrade your plan to unlock this capability."
     };
   }
 
@@ -1365,7 +1393,12 @@ export async function postAssistantReapply(token: string): Promise<AssistantLife
     const response = await postAssistantReapplyContract({
       headers: getAuthHeaders(token)
     });
-    if (response.status !== 200) {
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("assistant" in response.data)
+    ) {
       throw new Error("Unexpected non-success response for POST /assistant/reapply.");
     }
     return response.data.assistant;

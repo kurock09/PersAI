@@ -79,6 +79,27 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
     return this.toDomain(binding);
   }
 
+  async patchMetadata(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    patch: Record<string, unknown>
+  ): Promise<void> {
+    const existing = await this.findByAssistantProviderSurface(assistantId, providerKey, surfaceType);
+    if (!existing) return;
+    const current =
+      existing.metadata !== null && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
+        ? (existing.metadata as Record<string, unknown>)
+        : {};
+    const merged = { ...current, ...patch };
+    await this.prisma.assistantChannelSurfaceBinding.update({
+      where: {
+        assistantId_providerKey_surfaceType: { assistantId, providerKey, surfaceType }
+      },
+      data: { metadata: merged as Prisma.InputJsonValue }
+    });
+  }
+
   async hasActiveBindingForProvider(
     assistantId: string,
     providerKey: AssistantIntegrationProviderKey

@@ -14,14 +14,16 @@ import {
   EyeOff,
   RefreshCw,
   ThumbsUp,
-  ThumbsDown,
-  Sparkles
+  ThumbsDown
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { AssistantAvatar } from "./assistant-avatar";
 import type { ChatMessage } from "./use-chat";
 
 interface ChatMessageBubbleProps {
   message: ChatMessage;
+  assistantAvatarUrl?: string | undefined;
+  assistantAvatarEmoji?: string | undefined;
   onDoNotRemember?: ((messageId: string) => void) | undefined;
   forgotten?: boolean | undefined;
 }
@@ -265,6 +267,8 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
 
 export const ChatMessageBubble = memo(function ChatMessageBubble({
   message,
+  assistantAvatarUrl,
+  assistantAvatarEmoji,
   onDoNotRemember,
   forgotten
 }: ChatMessageBubbleProps) {
@@ -273,11 +277,8 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
 
   return (
     <div className={cn("group flex gap-3 px-4 py-3", isUser ? "justify-end" : "justify-start")}>
-      {/* Assistant avatar */}
       {!isUser && (
-        <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
-          <Sparkles className="h-3.5 w-3.5" />
-        </div>
+        <AssistantAvatar avatarUrl={assistantAvatarUrl} avatarEmoji={assistantAvatarEmoji} size="sm" className="mt-1" />
       )}
 
       <div

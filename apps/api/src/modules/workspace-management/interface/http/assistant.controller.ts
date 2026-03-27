@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   Patch,
@@ -181,7 +182,7 @@ export class AssistantController {
 
     res.statusCode = 200;
     res.setHeader("Content-Type", result.contentType);
-    res.setHeader("Cache-Control", "public, max-age=300");
+    res.setHeader("Cache-Control", "no-cache, must-revalidate");
     res.end(result.buffer);
   }
 
@@ -343,6 +344,7 @@ export class AssistantController {
   }
 
   @Post("assistant/publish")
+  @HttpCode(200)
   async publishAssistant(@Req() req: RequestWithPlatformContext): Promise<{
     requestId: string | null;
     assistant: AssistantLifecycleState;
@@ -393,6 +395,7 @@ export class AssistantController {
   }
 
   @Post("assistant/reapply")
+  @HttpCode(200)
   async reapplyAssistant(@Req() req: RequestWithPlatformContext): Promise<{
     requestId: string | null;
     assistant: AssistantLifecycleState;

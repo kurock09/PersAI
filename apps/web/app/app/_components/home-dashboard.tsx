@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Sparkles, MessageSquarePlus, Settings, Send, ArrowRight } from "lucide-react";
+import { MessageSquarePlus, Settings, Send, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { AssistantAvatar } from "./assistant-avatar";
 import type { AppData } from "./use-app-data";
 
 interface HomeDashboardProps {
@@ -45,9 +46,12 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
       <div className="w-full max-w-xl px-6 py-12">
         {/* Hero */}
         <div className="flex flex-col items-center text-center">
-          <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-accent/10 text-accent">
-            <Sparkles className="h-10 w-10" />
-          </div>
+          <AssistantAvatar
+            avatarUrl={data.assistant?.draft.avatarUrl ?? undefined}
+            avatarEmoji={data.assistant?.draft.avatarEmoji ?? undefined}
+            size="lg"
+            className="mb-5"
+          />
           <h1 className="text-2xl font-bold text-text sm:text-3xl">{assistantName}</h1>
           <p className="mt-2 text-sm text-text-muted">{greeting}</p>
           {daysTogether !== null && daysTogether > 1 && (

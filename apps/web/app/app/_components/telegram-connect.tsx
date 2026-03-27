@@ -14,6 +14,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { AssistantAvatar } from "./assistant-avatar";
 import {
   postAssistantTelegramConnect,
   postAssistantTelegramDisconnect,
@@ -27,6 +28,9 @@ import {
 interface TelegramConnectProps {
   integration: TelegramIntegrationState | null;
   capabilityAllowed: boolean;
+  assistantAvatarUrl?: string | undefined;
+  assistantAvatarEmoji?: string | undefined;
+  assistantDisplayName?: string | undefined;
   onUpdated: () => void;
 }
 
@@ -35,6 +39,9 @@ type Feedback = { type: "ok" | "err"; text: string } | null;
 export function TelegramConnect({
   integration,
   capabilityAllowed,
+  assistantAvatarUrl,
+  assistantAvatarEmoji,
+  assistantDisplayName,
   onUpdated
 }: TelegramConnectProps) {
   const connected = integration?.connectionStatus === "connected";
@@ -72,6 +79,9 @@ export function TelegramConnect({
   return (
     <ConnectedView
       integration={integration!}
+      assistantAvatarUrl={assistantAvatarUrl}
+      assistantAvatarEmoji={assistantAvatarEmoji}
+      assistantDisplayName={assistantDisplayName}
       onUpdated={onUpdated}
       onReconnect={() => setReconnecting(true)}
     />
@@ -243,10 +253,16 @@ function ConnectForm({
 
 function ConnectedView({
   integration,
+  assistantAvatarUrl,
+  assistantAvatarEmoji,
+  assistantDisplayName,
   onUpdated,
   onReconnect
 }: {
   integration: TelegramIntegrationState;
+  assistantAvatarUrl?: string | undefined;
+  assistantAvatarEmoji?: string | undefined;
+  assistantDisplayName?: string | undefined;
   onUpdated: () => void;
   onReconnect: () => void;
 }) {
@@ -338,20 +354,14 @@ function ConnectedView({
     <div className="space-y-5 px-5 py-5">
       {/* Bot info */}
       <div className="flex items-center gap-3 rounded-xl bg-surface-raised p-4">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent/15">
-          {bot.avatarUrl ? (
-            <img
-              src={bot.avatarUrl}
-              alt={bot.displayName ?? "Bot"}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <Send className="h-5 w-5 text-accent" />
-          )}
-        </div>
+        <AssistantAvatar
+          avatarUrl={assistantAvatarUrl ?? bot.avatarUrl}
+          avatarEmoji={assistantAvatarEmoji}
+          size="md"
+        />
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-text">
-            {bot.displayName ?? "Telegram Bot"}
+            {assistantDisplayName ?? bot.displayName ?? "Telegram Bot"}
           </p>
           {bot.username && <p className="text-xs text-text-muted">@{bot.username}</p>}
         </div>

@@ -47,6 +47,8 @@ function ChatPageInner() {
       chat={chat}
       title={existingChat?.chat.title ?? undefined}
       assistantName={appData.assistant?.draft.displayName ?? undefined}
+      assistantAvatarUrl={appData.assistant?.draft.avatarUrl ?? undefined}
+      assistantAvatarEmoji={appData.assistant?.draft.avatarEmoji ?? undefined}
       assistantCreatedAt={appData.assistant?.createdAt}
       assistantReady={appData.assistantStatus !== "none"}
       onTitleChanged={appData.reloadChats}

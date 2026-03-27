@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Sparkles, AlertCircle, X, Pencil, Check, Loader2 } from "lucide-react";
+import { AlertCircle, X, Pencil, Check, Loader2 } from "lucide-react";
 import { ChatMessageBubble } from "./chat-message";
 import { ChatInput } from "./chat-input";
 import { ActivityBadge } from "./activity-badge";
+import { AssistantAvatar } from "./assistant-avatar";
 import { patchAssistantWebChat, postAssistantMemoryDoNotRemember } from "../assistant-api-client";
 import type { UseChatReturn } from "./use-chat";
 
@@ -14,6 +15,8 @@ interface ChatAreaProps {
   title?: string | undefined;
   assistantReady?: boolean | undefined;
   assistantName?: string | undefined;
+  assistantAvatarUrl?: string | undefined;
+  assistantAvatarEmoji?: string | undefined;
   assistantCreatedAt?: string | undefined;
   onTitleChanged?: (() => void) | undefined;
 }
@@ -23,6 +26,8 @@ export function ChatArea({
   title,
   assistantReady = true,
   assistantName,
+  assistantAvatarUrl,
+  assistantAvatarEmoji,
   assistantCreatedAt,
   onTitleChanged
 }: ChatAreaProps) {
@@ -137,9 +142,7 @@ export function ChatArea({
     <div className="flex h-full flex-col">
       {/* Header */}
       <header className="flex items-center gap-3 border-b border-border px-5 py-3">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
-          <Sparkles className="h-3.5 w-3.5" />
-        </div>
+        <AssistantAvatar avatarUrl={assistantAvatarUrl} avatarEmoji={assistantAvatarEmoji} size="sm" />
         {editing ? (
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             <input
@@ -182,7 +185,7 @@ export function ChatArea({
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {isEmpty ? (
-          <EmptyState name={assistantName} createdAt={assistantCreatedAt} onPrompt={sendPrompt} />
+          <EmptyState name={assistantName} avatarUrl={assistantAvatarUrl} avatarEmoji={assistantAvatarEmoji} createdAt={assistantCreatedAt} onPrompt={sendPrompt} />
         ) : (
           <div className="mx-auto max-w-3xl py-4">
             <div ref={sentinelRef} className="h-1" />
@@ -196,6 +199,8 @@ export function ChatArea({
                 <ChatMessageBubble
                   key={entry.message.id}
                   message={entry.message}
+                  assistantAvatarUrl={assistantAvatarUrl}
+                  assistantAvatarEmoji={assistantAvatarEmoji}
                   onDoNotRemember={
                     entry.message.role === "assistant" &&
                     entry.message.status === "committed" &&
@@ -245,10 +250,14 @@ export function ChatArea({
 
 function EmptyState({
   name,
+  avatarUrl,
+  avatarEmoji,
   createdAt,
   onPrompt
 }: {
   name?: string | undefined;
+  avatarUrl?: string | undefined;
+  avatarEmoji?: string | undefined;
   createdAt?: string | undefined;
   onPrompt?: (text: string) => void;
 }) {
@@ -267,9 +276,7 @@ function EmptyState({
 
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-      <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-accent/10 text-accent">
-        <Sparkles className="h-10 w-10" />
-      </div>
+      <AssistantAvatar avatarUrl={avatarUrl} avatarEmoji={avatarEmoji} size="lg" className="mb-6" />
       <h2 className="text-xl font-bold text-text">{assistantName}</h2>
       <p className="mt-2 text-sm text-text-muted">{greeting}</p>
       {daysTogether !== null && daysTogether > 1 && (
