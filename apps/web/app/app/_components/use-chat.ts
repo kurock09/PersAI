@@ -110,6 +110,37 @@ export function useChat(threadKey: string): UseChatReturn {
         }
       ]);
 
+      const pendingDelta = { text: "", raf: 0 };
+      const pendingThought = { text: "", startedAt: null as string | null, raf: 0 };
+
+      const flushDelta = () => {
+        const chunk = pendingDelta.text;
+        pendingDelta.text = "";
+        pendingDelta.raf = 0;
+        if (!chunk) return;
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m))
+        );
+      };
+
+      const flushThought = () => {
+        const thought = pendingThought.text;
+        const startedAt = pendingThought.startedAt;
+        pendingThought.raf = 0;
+        if (!thought) return;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId
+              ? {
+                  ...m,
+                  thought,
+                  thoughtStartedAt: m.thoughtStartedAt ?? startedAt
+                }
+              : m
+          )
+        );
+      };
+
       try {
         await streamAssistantWebChatTurn(
           token,
@@ -120,27 +151,25 @@ export function useChat(threadKey: string): UseChatReturn {
               if (typeof c?.id === "string") setChatId(c.id);
             },
             onThinking: ({ accumulated }) => {
-              const startedAt = new Date().toISOString();
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? {
-                        ...m,
-                        thought: accumulated,
-                        thoughtStartedAt: m.thoughtStartedAt ?? startedAt
-                      }
-                    : m
-                )
-              );
+              pendingThought.text = accumulated;
+              if (!pendingThought.startedAt) {
+                pendingThought.startedAt = new Date().toISOString();
+              }
+              if (!pendingThought.raf) {
+                pendingThought.raf = requestAnimationFrame(flushThought);
+              }
             },
             onDelta: ({ delta }) => {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId ? { ...m, content: `${m.content}${delta}` } : m
-                )
-              );
+              pendingDelta.text += delta;
+              if (!pendingDelta.raf) {
+                pendingDelta.raf = requestAnimationFrame(flushDelta);
+              }
             },
             onRuntimeDone: ({ respondedAt }) => {
+              if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
+              flushDelta();
+              if (pendingThought.raf) cancelAnimationFrame(pendingThought.raf);
+              flushThought();
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId && m.thought && !m.thoughtFinishedAt
@@ -164,6 +193,8 @@ export function useChat(threadKey: string): UseChatReturn {
               ]);
             },
             onCompleted: ({ transport }) => {
+              if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
+              flushDelta();
               const t = transport as {
                 userMessage?: { id?: string };
                 assistantMessage?: { id?: string };

@@ -133,7 +133,7 @@ function isSuccessStatus(status: number): status is 200 | 201 {
 type WebChatStreamEvent =
   | { event: "started"; data: { chat: unknown; userMessage: unknown } }
   | { event: "thinking"; data: { delta: string; accumulated: string } }
-  | { event: "delta"; data: { delta: string; accumulated: string } }
+  | { event: "delta"; data: { delta: string } }
   | { event: "runtime_done"; data: { respondedAt: string } }
   | { event: "completed"; data: { transport: unknown } }
   | { event: "interrupted"; data: { transport: unknown } }
@@ -148,7 +148,7 @@ export interface AssistantWebChatStreamPayload {
 export interface AssistantWebChatStreamHandlers {
   onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
   onThinking?: (payload: { delta: string; accumulated: string }) => void;
-  onDelta?: (payload: { delta: string; accumulated: string }) => void;
+  onDelta?: (payload: { delta: string }) => void;
   onRuntimeDone?: (payload: { respondedAt: string }) => void;
   onCompleted?: (payload: { transport: unknown }) => void;
   onInterrupted?: (payload: { transport: unknown }) => void;
@@ -338,12 +338,12 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
     return { event: "started", data: { chat: body.chat, userMessage: body.userMessage } };
   }
   if (eventName === "delta") {
-    if (typeof body.delta !== "string" || typeof body.accumulated !== "string") {
+    if (typeof body.delta !== "string") {
       return null;
     }
     return {
       event: "delta",
-      data: { delta: body.delta, accumulated: body.accumulated }
+      data: { delta: body.delta }
     };
   }
   if (eventName === "thinking") {

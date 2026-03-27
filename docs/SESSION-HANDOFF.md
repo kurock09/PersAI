@@ -1,5 +1,43 @@
 # SESSION-HANDOFF
 
+## 2026-03-27 - Streaming Quality Hardening
+
+### What changed
+
+- **`res.flush()` on every SSE write:** `assistant.controller.ts` `sendSse` helper now merges event+data into one `res.write()` call and immediately calls `res.flush()` (with runtime check for availability). This eliminates TCP/Node output buffering that delayed token delivery to the client.
+- **Removed `accumulated` from delta events:** Backend `onDelta` callback now sends only `{ delta }` instead of `{ delta, accumulated }`. The `accumulated` field was redundant for delta events (client rebuilds text from deltas) and caused each SSE payload to grow linearly with response length. `accumulated` is still sent for `thinking` events where the client needs the full thought text.
+- **`requestAnimationFrame` batching:** Frontend `onDelta` and `onThinking` callbacks in `use-chat.ts` now buffer incoming tokens and flush to React state once per animation frame (~16ms / 60fps). Previous behavior was one `setMessages` per token (30-50 calls/sec). Pending deltas are synchronously flushed on `onRuntimeDone` and `onCompleted` to prevent text loss.
+
+### Files touched
+
+**PersAI API:**
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` — `sendSse` merges writes + `flush()`, delta event sends only `{ delta }`
+
+**PersAI Web:**
+- `apps/web/app/app/assistant-api-client.ts` — `WebChatStreamEvent` delta type updated to `{ delta: string }`, parser no longer requires `accumulated` for delta events
+- `apps/web/app/app/_components/use-chat.ts` — `requestAnimationFrame` batching for `onDelta` and `onThinking`, synchronous flush on `onRuntimeDone`/`onCompleted`
+
+**Docs:**
+- `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `tsc --noEmit` PersAI API: 0 errors
+- `tsc --noEmit` PersAI Web: 0 errors
+- Prettier: all files pass
+
+### Risks
+
+1. If any other consumer of the SSE stream expects `accumulated` in delta events, it will break. Currently only the web frontend consumes this stream, and it never used `accumulated` for deltas.
+2. `res.flush()` is cast via `(res as any).flush` — safe because Express/Node HTTP response always has it when not behind compression middleware. If compression is added later, ensure it supports `flush()`.
+3. `requestAnimationFrame` is browser-only — fine since `use-chat.ts` is a client-only React hook (`"use client"`).
+
+### Next recommended step
+
+- Deploy and verify streaming is smooth (tokens appear per-frame, not in batches).
+- Consider separating API onto `api.persai.dev` domain to eliminate the Next.js rewrite proxy layer for SSE.
+- H11 — WhatsApp/MAX readiness and secret-ref parity.
+
 ## 2026-03-27 - Telegram Group Deduplication (supergroup migration fix)
 
 ### What changed

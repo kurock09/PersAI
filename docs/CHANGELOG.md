@@ -4,6 +4,11 @@
 
 ### Added
 
+- **Streaming quality hardening:**
+  - Added `res.flush()` after every SSE write in the chat stream endpoint — eliminates TCP/Node buffering that caused chunks to arrive in batches instead of per-token.
+  - Removed redundant `accumulated` field from `delta` SSE events (was sending the full response text on every token). Payload size per event is now O(token) instead of O(total). `accumulated` is still sent for `thinking` events where it's needed.
+  - Frontend `onDelta` and `onThinking` callbacks now batch updates via `requestAnimationFrame` — one React re-render per animation frame (~60fps) instead of one per token (~30-50/sec). Pending deltas are flushed synchronously on `onRuntimeDone` and `onCompleted` to ensure no text is lost.
+
 - **Telegram group deduplication (supergroup migration fix):**
   - When a Telegram group is upgraded to a supergroup, Telegram changes the `chat_id`. Previously this created duplicate "Active" entries for the same group. Now, on a `joined` event, any existing active record with the same `title` but a different `telegramChatId` is automatically marked as "left" before the new record is upserted.
   - GET groups endpoint now deduplicates by `title` (keeps the most recently updated record), preventing stale entries from appearing even if old data exists.

@@ -189,6 +189,10 @@ Foundation Phase
   - [x] QA4 — avatar cache-busting (minute-granularity `?v=` param) + backend `Cache-Control: no-cache, must-revalidate`
   - [x] QA5 — Telegram binding metadata sync on publish (displayName + avatarUrl patched in DB after apply)
   - [x] QA6 — Telegram settings UI shows assistant draft avatar/name instead of stale getMe data
+- [x] Streaming quality hardening
+  - [x] SQ1 — `res.flush()` after each SSE write (eliminates Node/TCP buffering delay)
+  - [x] SQ2 — remove `accumulated` from delta SSE events (O(token) payload instead of O(total))
+  - [x] SQ3 — `requestAnimationFrame` batching for `onDelta`/`onThinking` setState (1 render per frame)
 - [x] Telegram group deduplication (supergroup migration fix)
   - [x] TG1 — backend: on `joined` event, mark stale active records with same title as "left" before upsert
   - [x] TG2 — backend: GET groups deduplicates by title (keeps most recently updated)

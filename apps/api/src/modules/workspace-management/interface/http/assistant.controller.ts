@@ -754,8 +754,10 @@ export class AssistantController {
         return;
       }
 
-      res.write(`event: ${event}\n`);
-      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+      if (typeof (res as any).flush === "function") {
+        (res as any).flush();
+      }
     };
 
     sendSse("started", {
@@ -766,8 +768,8 @@ export class AssistantController {
 
     const outcome = await this.streamWebChatTurnService.streamToCompletion(prepared, {
       isClientAborted: () => clientClosed,
-      onDelta: (delta, accumulated) => {
-        sendSse("delta", { delta, accumulated });
+      onDelta: (delta) => {
+        sendSse("delta", { delta });
       },
       onThinking: (delta, accumulated) => {
         sendSse("thinking", { delta, accumulated });
