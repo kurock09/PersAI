@@ -9,6 +9,7 @@ metadata:
 data:
   openclaw.json: |
     {
+      "persaiSecretResolverBaseUrl": {{ .Values.openclaw.persaiSecretResolver.baseUrl | toJson }},
       "agents": {
         "defaults": {
           "model": {
