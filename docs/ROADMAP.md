@@ -168,6 +168,10 @@ Foundation Phase
   - [x] H8j — fix `workspaceDir` race condition (`process.env` → `commandInput` passthrough)
   - [x] H8k — fix session `cwd` drift + memory tools workspace: sync `header.cwd` on every turn, route memory reads through `persaiRuntimeRequestContext.workspaceDir`
   - [x] H8l — fix group-update callback: read `baseUrl` from `cfg.secrets.providers["persai-runtime"]` (not nonexistent top-level key)
-- [ ] H9 — per-request credential isolation (`AsyncLocalStorage` for `toolCredentials`, eliminates `process.env` race at 1000+ concurrent users)
+- [x] H9 — per-request credential isolation (ADR-055, eliminates `process.env` race at 1000+ concurrent users)
+  - [x] H9a — extend `PersaiRuntimeRequestCtx` with `toolCredentials` + `getPersaiToolCredential` helper
+  - [x] H9b — remove `process.env` mutation from `persai-runtime-agent-turn.ts` (sync, telegram, stream)
+  - [x] H9c — patch credential readers (Tavily, Firecrawl, web-fetch) to read from context first
+  - [x] H9d — new `plugin-sdk/persai-credential` subpath for extension boundary compliance
 - [ ] H10 — thinking/reasoning UX (stream thinking tokens, collapsible "Thought for Xs" block with fade-out preview)
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity

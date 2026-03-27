@@ -1,5 +1,57 @@
 # SESSION-HANDOFF
 
+## 2026-03-27 - H9 Per-Request Tool Credential Isolation
+
+### What changed
+
+- **Eliminated `process.env` race for tool credentials:** Replaced global `process.env` mutation (`injectToolCredentials`/`cleanupInjectedEnv`) with per-request `AsyncLocalStorage` context in all three agent turn entry points (sync, telegram, stream).
+- **Extended `PersaiRuntimeRequestCtx`:** Added `toolCredentials?: Map<string, string>` field. Credentials now flow through `persaiRuntimeRequestContext.run()` alongside `toolDenyList` and `workspaceDir`.
+- **New `getPersaiToolCredential` helper:** Reads per-request credential by env var name. Exposed via new `openclaw/plugin-sdk/persai-credential` subpath so extensions can import it without violating lint boundaries.
+- **Patched 3 credential readers:** Tavily config (`extensions/tavily/src/config.ts`), Firecrawl config (`extensions/firecrawl/src/config.ts`), web-fetch tool (`src/agents/tools/web-fetch.ts`) — all check `getPersaiToolCredential(…)` before `process.env` fallback.
+- **Removed dead code:** `injectToolCredentials()`, `cleanupInjectedEnv()`, `PERSAI_AGENT_WORKSPACE_DIR` save/restore constants.
+- **Audit finding:** 3 of 5 `TOOL_CREDENTIAL_ENV_MAP` entries (`OPENAI_IMAGE_GEN_API_KEY`, `OPENAI_TTS_API_KEY`, `OPENAI_EMBEDDINGS_API_KEY`) are dead injections — no OpenClaw tool reads them today. Kept in the map for future wiring.
+
+### Why changed
+
+At 1000+ concurrent users, `process.env` mutation creates race conditions where different assistants' API keys overwrite each other. This produces credential cross-leak (security), incorrect billing (financial), and random tool failures (reliability). The `AsyncLocalStorage` pattern was already proven by H7b for `PERSAI_TOOL_DENY` — H9 extends it to cover all tool credentials.
+
+### Files touched
+
+**OpenClaw fork:**
+- `src/agents/persai-runtime-context.ts` — added `toolCredentials` to interface, added `getPersaiToolCredential` helper
+- `src/plugin-sdk/persai-credential.ts` — **new**, re-exports `getPersaiToolCredential`
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — removed `process.env` mutation, pass credentials through context
+- `extensions/tavily/src/config.ts` — read from context before `process.env`
+- `extensions/firecrawl/src/config.ts` — read from context before `process.env`
+- `src/agents/tools/web-fetch.ts` — read from context before `process.env`
+- `package.json` — added `./plugin-sdk/persai-credential` export
+- `scripts/lib/plugin-sdk-entrypoints.json` — registered new subpath
+
+**PersAI:**
+- `docs/ADR/055-per-request-tool-credential-isolation-h9.md` — **new**
+- `docs/ROADMAP.md` — marked H9 complete
+- `docs/CHANGELOG.md` — H9 entry
+- `docs/SESSION-HANDOFF.md` — this entry
+
+### Tests run
+
+- TypeScript typecheck (`tsc --noEmit`): 0 new errors (all errors pre-existing in unrelated files)
+- IDE linter: 0 errors on all changed files
+- `plugin-sdk:check-exports`: pass
+- `lint:plugins:plugin-sdk-subpaths-exported`: pass
+
+### Risks
+
+- **Low:** Extensions that resolve credentials at tool-creation time (not call time) may still read a stale `process.env` value if the tool is created outside a `persaiRuntimeRequestContext.run()` scope. Currently Tavily and Firecrawl resolve API keys inside `createWebSearchTool`/`createWebFetchTool` which are called within `createOpenClawTools` during the agent turn — inside the context scope. No issue today.
+- **None for CLI users:** `process.env` fallback is preserved — non-PersAI CLI still works.
+
+### Next recommended step
+
+- H10 — thinking/reasoning UX (stream thinking tokens, collapsible "Thought for Xs" block)
+- Or: wire the 3 dead credential refs (`OPENAI_IMAGE_GEN_API_KEY`, `OPENAI_TTS_API_KEY`, `OPENAI_EMBEDDINGS_API_KEY`) to actual OpenClaw tools so PersAI-managed keys for image generation, TTS, and embeddings are consumed at runtime.
+
+---
+
 ## 2026-03-27 - H8 Telegram Runtime Readiness
 
 ### What changed

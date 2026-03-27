@@ -4,6 +4,14 @@
 
 ### Added
 
+- **H9 — per-request tool credential isolation (ADR-055):**
+  - Eliminated `process.env` race condition for tool credentials (`TAVILY_API_KEY`, `FIRECRAWL_API_KEY`). Concurrent agent turns no longer overwrite each other's API keys — safe at 1000+ concurrent users.
+  - Extended `PersaiRuntimeRequestCtx` with `toolCredentials?: Map<string, string>`. Credentials flow through `AsyncLocalStorage` instead of global `process.env`.
+  - New `getPersaiToolCredential(envVar)` helper exposed via `openclaw/plugin-sdk/persai-credential` subpath for extension boundary compliance.
+  - Patched Tavily extension, Firecrawl extension, and `web-fetch.ts` to read credentials from per-request context first, falling back to `process.env` for CLI compatibility.
+  - Removed `injectToolCredentials`/`cleanupInjectedEnv` functions and `PERSAI_AGENT_WORKSPACE_DIR` save/restore (already covered by context since H8k).
+  - Audit finding: 3 of 5 credential injections (`OPENAI_IMAGE_GEN_API_KEY`, `OPENAI_TTS_API_KEY`, `OPENAI_EMBEDDINGS_API_KEY`) were dead — no OpenClaw tool reads them. They are now carried in the context map for future use but no longer pollute `process.env`.
+
 - **H8 — Telegram runtime readiness:**
   - Encrypted bot token storage: `ConnectTelegramIntegrationService` now persists the actual bot token via `PlatformRuntimeProviderSecretStoreService` (AES-256-GCM) under key `telegram_bot:{assistantId}`. Token deleted on revoke.
   - Materialize Telegram channel config into `openclawBootstrap.channels.telegram`: includes resolved `botToken`, `webhookUrl`, HMAC-derived `webhookSecret`, `groupReplyMode`, `parseMode`, inbound/outbound policy.
