@@ -33,11 +33,14 @@ export interface UseChatReturn {
   chatId: string | null;
   isStreaming: boolean;
   historyLoading: boolean;
+  hasOlderMessages: boolean;
+  olderMessagesLoading: boolean;
   issue: WebChatUxIssue | null;
   send: (text: string) => Promise<void>;
   stop: () => void;
   clearIssue: () => void;
   loadHistory: (chatId: string) => Promise<void>;
+  loadOlderMessages: () => Promise<void>;
 }
 
 export function useChat(threadKey: string): UseChatReturn {
@@ -47,9 +50,13 @@ export function useChat(threadKey: string): UseChatReturn {
   const [chatId, setChatId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [issue, setIssue] = useState<WebChatUxIssue | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const historyLoadedRef = useRef<Set<string>>(new Set());
+  const olderCursorRef = useRef<string | null>(null);
+  const activeChatIdRef = useRef<string | null>(null);
   const prevThreadKeyRef = useRef(threadKey);
 
   if (prevThreadKeyRef.current !== threadKey) {
@@ -58,7 +65,10 @@ export function useChat(threadKey: string): UseChatReturn {
     setActivities([]);
     setChatId(null);
     setIssue(null);
+    setHasOlderMessages(false);
     historyLoadedRef.current = new Set();
+    olderCursorRef.current = null;
+    activeChatIdRef.current = null;
   }
 
   const stop = useCallback(() => {
@@ -252,41 +262,68 @@ export function useChat(threadKey: string): UseChatReturn {
 
       setHistoryLoading(true);
       try {
-        const allMessages: ChatMessage[] = [];
-        let cursor: string | undefined;
-        let hasMore = true;
+        const page = await getChatMessages(token, targetChatId, undefined, 20);
+        const loaded: ChatMessage[] = page.messages.map((m) => ({
+          id: m.id,
+          role: m.author === "system" ? "assistant" : m.author,
+          content: m.content,
+          status: "committed"
+        }));
 
-        while (hasMore) {
-          const page = await getChatMessages(token, targetChatId, cursor, 100);
-          for (const m of page.messages) {
-            allMessages.push({
-              id: m.id,
-              role: m.author === "system" ? "assistant" : m.author,
-              content: m.content,
-              status: "committed"
-            });
-          }
-          cursor = page.nextCursor ?? undefined;
-          hasMore = !!page.nextCursor;
-        }
-
-        if (allMessages.length > 0) {
+        if (loaded.length > 0) {
           setMessages((prev) => {
             const existingIds = new Set(prev.map((m) => m.id));
-            const newHistory = allMessages.filter((m) => !existingIds.has(m.id));
+            const newHistory = loaded.filter((m) => !existingIds.has(m.id));
             return [...newHistory, ...prev];
           });
         }
 
+        olderCursorRef.current = page.nextCursor;
+        activeChatIdRef.current = targetChatId;
+        setHasOlderMessages(page.nextCursor !== null);
         setChatId(targetChatId);
         historyLoadedRef.current.add(targetChatId);
       } catch {
-        /* non-critical - chat still works */
+        /* non-critical */
       }
       setHistoryLoading(false);
     },
     [getToken]
   );
+
+  const loadOlderMessages = useCallback(async () => {
+    const cursor = olderCursorRef.current;
+    const targetChatId = activeChatIdRef.current;
+    if (!cursor || !targetChatId || olderMessagesLoading) return;
+
+    const token = await getToken();
+    if (!token) return;
+
+    setOlderMessagesLoading(true);
+    try {
+      const page = await getChatMessages(token, targetChatId, cursor, 20);
+      const loaded: ChatMessage[] = page.messages.map((m) => ({
+        id: m.id,
+        role: m.author === "system" ? "assistant" : m.author,
+        content: m.content,
+        status: "committed"
+      }));
+
+      if (loaded.length > 0) {
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id));
+          const newHistory = loaded.filter((m) => !existingIds.has(m.id));
+          return [...newHistory, ...prev];
+        });
+      }
+
+      olderCursorRef.current = page.nextCursor;
+      setHasOlderMessages(page.nextCursor !== null);
+    } catch {
+      /* non-critical */
+    }
+    setOlderMessagesLoading(false);
+  }, [getToken, olderMessagesLoading]);
 
   const entries: ChatEntry[] = [];
   const activityByMsg = new Map<string, ActivityEvent[]>();
@@ -311,10 +348,13 @@ export function useChat(threadKey: string): UseChatReturn {
     chatId,
     isStreaming,
     historyLoading,
+    hasOlderMessages,
+    olderMessagesLoading,
     issue,
     send,
     stop,
     clearIssue,
-    loadHistory
+    loadHistory,
+    loadOlderMessages
   };
 }

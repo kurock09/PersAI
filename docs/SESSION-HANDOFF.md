@@ -1,5 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-03-27 - UI Polish: chat scroll, sidebar, avatar upload, Telegram sync
+
+### What changed
+
+- **Chat loading optimization:** Backend `listChatMessages` now uses reverse pagination (newest-first, cursor-before semantics). Frontend `useChat` loads a single page of 20 messages; `loadOlderMessages()` fetches earlier pages. `ChatArea` uses IntersectionObserver sentinel at top with scroll position preservation via `useLayoutEffect`.
+- **New chat in sidebar:** `ChatPageInner` watches `chat.chatId` and calls `appData.reloadChats()` when a new chat is created during streaming.
+- **Avatar file upload:** Full upload pipeline: `POST /api/v1/assistant/avatar` (NestJS multipart, 2MB limit) → OpenClaw `POST /api/v1/runtime/workspace/avatar` (writes `avatar.{ext}` to workspace dir). Readback via `GET /api/v1/assistant/avatar` → OpenClaw `GET /api/v1/runtime/workspace/avatar`. Frontend shows spinner during upload, stores permanent URL instead of `blob:`.
+- **Telegram bot sync:** `syncBotProfile(bot, workspace, assistantId)` helper in `persai-runtime-telegram.ts` calls `setMyName`, `setMyDescription`, `setMyProfilePhoto` from workspace persona after bot initialization. Non-fatal (try/catch with warnings).
+
+### Files touched
+
+**OpenClaw fork (lower-risk PersAI bridge files):**
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — avatar POST/GET handler
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — syncBotProfile helper
+- `src/gateway/server-http.ts` — avatar request stage registration
+- `docs/PERSAI-FORK-PATCHES.md` — patches #8, #9
+- `scripts/verify-persai-patches.mjs` — checks #8, #9, #10
+
+**PersAI:**
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/chat/page.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `tsc --noEmit` PersAI API: 0 errors
+- `tsc --noEmit` PersAI Web: 0 errors
+- `tsc --noEmit` OpenClaw: 0 new errors (only pre-existing test/extension issues)
+- Prettier: all touched files unchanged
+- `verify-persai-patches.mjs`: 30/30 passed
+
+### Risks / follow-up
+
+- Avatar upload is synchronous and capped at 2MB; larger files or videos would need a streaming upload approach.
+- Telegram `setMyProfilePhoto` may fail if the bot doesn't have admin permissions in the channel; errors are logged as warnings and don't block bot startup.
+- Scroll position preservation uses `useLayoutEffect` which may cause minor visual jitter on very slow devices.
+
+---
+
 ## 2026-03-27 - H10 Thinking/Reasoning UX + Telegram groups auth fix
 
 ### What changed

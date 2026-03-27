@@ -951,6 +951,22 @@ export async function searchWorkspaceMemory(
   return data.items;
 }
 
+export async function uploadAssistantAvatar(
+  token: string,
+  file: File
+): Promise<{ avatarUrl: string }> {
+  const base = getApiBaseUrl();
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${base}/assistant/avatar`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  });
+  if (!res.ok) throw new Error("Failed to upload avatar.");
+  return (await res.json()) as { avatarUrl: string };
+}
+
 export type ChatHistoryMessage = {
   id: string;
   chatId: string;

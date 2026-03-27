@@ -38,6 +38,7 @@ import {
   addWorkspaceMemoryItem,
   forgetWorkspaceMemoryItem,
   searchWorkspaceMemory,
+  uploadAssistantAvatar,
   type WorkspaceMemoryItem
 } from "../assistant-api-client";
 
@@ -158,6 +159,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     assistant?.draft.avatarUrl ?? null
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   const [rollingBack, setRollingBack] = useState(false);
   const [rollbackConfirm, setRollbackConfirm] = useState(false);
@@ -393,7 +395,9 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
             className="flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center rounded-2xl bg-accent/15 text-3xl overflow-hidden transition-colors hover:bg-accent/25"
             title="Change avatar"
           >
-            {draftAvatarUrl ? (
+            {avatarUploading ? (
+              <Loader2 className="h-6 w-6 animate-spin text-accent" />
+            ) : draftAvatarUrl ? (
               <img src={draftAvatarUrl} alt="Avatar" className="h-full w-full object-cover" />
             ) : (
               draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />
@@ -460,6 +464,19 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
             setDraftAvatarUrl(URL.createObjectURL(file));
             setDraftAvatarEmoji(null);
             setEmojiPickerOpen(false);
+            setAvatarUploading(true);
+            void (async () => {
+              try {
+                const token = await getToken();
+                if (!token) return;
+                const result = await uploadAssistantAvatar(token, file);
+                setDraftAvatarUrl(result.avatarUrl);
+              } catch {
+                setSaveFb({ type: "err", text: "Avatar upload failed." });
+              } finally {
+                setAvatarUploading(false);
+              }
+            })();
           }}
         />
 

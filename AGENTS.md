@@ -43,6 +43,10 @@ Pushing code that fails CI is treated as a bug introduced by the agent.
 
 ## OpenClaw fork change workflow
 - when a slice changes the local OpenClaw fork (`C:\Users\alex\Documents\openclaw`), treat **OpenClaw + PersAI** as one delivery unit
+- use **boundary-first** decision making:
+  - prefer a PersAI-only patch when the problem is transport, API, UI, docs, deploy wiring, or control-plane logic
+  - touch native OpenClaw core only when runtime behavior must change inside the gateway/agent execution path
+  - before editing high-risk native files (for example `src/agents/agent-command.ts`, `src/agents/command/types.ts`, `src/config/*`, `src/secrets/*`, `src/memory/*`), record why a PersAI-only fix is insufficient
 - before saying "ready to push", the agent must prepare **both** repos:
   - commit the OpenClaw fork changes locally
   - capture the new OpenClaw commit SHA
@@ -64,12 +68,16 @@ When updating the fork from upstream OpenClaw:
 1. **Tag current state:** `git tag persai-pre-update-YYYYMMDD` (in openclaw repo)
 2. **Create branch:** `git checkout -b update/upstream-YYYYMMDD`
 3. **Fetch and merge:** `git fetch upstream && git merge upstream/main`
-4. **Resolve conflicts** using `docs/PERSAI-FORK-PATCHES.md` as the checklist — every cross-cutting patch listed there must survive the merge
-5. **Run verification:** `node scripts/verify-persai-patches.mjs` — must pass 24/24
-6. **Run OpenClaw checks:** `npx tsc --noEmit`, `node scripts/sync-plugin-sdk-exports.mjs --check`, `node scripts/check-plugin-sdk-subpath-exports.mjs`
-7. **Merge to main:** `git checkout main && git merge update/upstream-YYYYMMDD`
-8. **Update PersAI:** `openclaw-approved-sha.txt`, `values-dev.yaml`, `CHANGELOG.md`, `SESSION-HANDOFF.md`
-9. **Rollback** if broken: `git reset --hard persai-pre-update-YYYYMMDD`
+4. **Classify surviving patches** from `docs/PERSAI-FORK-PATCHES.md`:
+   - lower-risk PersAI bridge files
+   - higher-risk native OpenClaw files that need extra review
+5. **Resolve conflicts** using `docs/PERSAI-FORK-PATCHES.md` as the checklist — every cross-cutting patch listed there must survive the merge
+6. **Run verification:** `node scripts/verify-persai-patches.mjs` — must pass
+7. **Run OpenClaw checks:** `npx tsc --noEmit`, `node scripts/sync-plugin-sdk-exports.mjs --check`, `node scripts/check-plugin-sdk-subpath-exports.mjs`
+8. **Review high-risk native patches explicitly:** confirm each still has a valid runtime-side justification and is not replaceable by a PersAI-only fix after the upstream merge
+9. **Merge to main:** `git checkout main && git merge update/upstream-YYYYMMDD`
+10. **Update PersAI:** `openclaw-approved-sha.txt`, `values-dev.yaml`, `CHANGELOG.md`, `SESSION-HANDOFF.md`
+11. **Rollback** if broken: `git reset --hard persai-pre-update-YYYYMMDD`
 
 ## Live test guidance for agents
 - for local-frontend + GKE-backend validation, read `docs/LIVE-TEST-HYBRID.md` before running live checks

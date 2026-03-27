@@ -199,17 +199,18 @@ export class ManageWebChatListService {
       createdAt: m.createdAt.toISOString()
     }));
 
-    let startIndex = 0;
+    // Reverse pagination: newest first. No cursor = last N; cursor = N older than cursor.
+    let endIndex = mapped.length;
     if (pagination.cursor) {
       const cursorIndex = mapped.findIndex((m) => m.id === pagination.cursor);
       if (cursorIndex >= 0) {
-        startIndex = cursorIndex + 1;
+        endIndex = cursorIndex;
       }
     }
 
-    const page = mapped.slice(startIndex, startIndex + pagination.limit);
-    const hasMore = startIndex + pagination.limit < mapped.length;
-    const nextCursor = hasMore && page.length > 0 ? page[page.length - 1]!.id : null;
+    const startIndex = Math.max(0, endIndex - pagination.limit);
+    const page = mapped.slice(startIndex, endIndex);
+    const nextCursor = startIndex > 0 && page.length > 0 ? page[0]!.id : null;
 
     return { messages: page, nextCursor };
   }

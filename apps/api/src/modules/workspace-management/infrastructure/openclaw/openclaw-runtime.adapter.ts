@@ -614,6 +614,81 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     }
   }
 
+  async uploadWorkspaceAvatar(
+    assistantId: string,
+    fileBuffer: Buffer,
+    mimeType: string,
+    extension: string
+  ): Promise<{ avatarUrl: string }> {
+    const config = toOpenClawAdapterConfig();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
+
+    try {
+      const response = await fetch(
+        `${config.baseUrl}/api/v1/runtime/workspace/avatar?assistantId=${encodeURIComponent(assistantId)}&ext=${encodeURIComponent(extension)}`,
+        {
+          method: "POST",
+          headers: {
+            ...(config.token.length > 0 ? { Authorization: `Bearer ${config.token}` } : {}),
+            "Content-Type": mimeType
+          },
+          body: new Uint8Array(fileBuffer),
+          signal: controller.signal
+        }
+      );
+
+      if (!response.ok) {
+        throw new AssistantRuntimeAdapterError(
+          "invalid_response",
+          `OpenClaw avatar upload responded ${response.status}.`
+        );
+      }
+
+      return (await response.json()) as { avatarUrl: string };
+    } catch (error) {
+      if (error instanceof AssistantRuntimeAdapterError) throw error;
+      throw new AssistantRuntimeAdapterError(
+        "runtime_unreachable",
+        "OpenClaw runtime unreachable during avatar upload."
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async downloadWorkspaceAvatar(
+    assistantId: string
+  ): Promise<{ buffer: Buffer; contentType: string } | null> {
+    const config = toOpenClawAdapterConfig();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
+
+    try {
+      const response = await fetch(
+        `${config.baseUrl}/api/v1/runtime/workspace/avatar?assistantId=${encodeURIComponent(assistantId)}`,
+        {
+          method: "GET",
+          headers: {
+            ...(config.token.length > 0 ? { Authorization: `Bearer ${config.token}` } : {})
+          },
+          signal: controller.signal
+        }
+      );
+
+      if (response.status === 404) return null;
+      if (!response.ok) return null;
+
+      const contentType = response.headers.get("content-type") ?? "image/png";
+      const arrayBuffer = await response.arrayBuffer();
+      return { buffer: Buffer.from(arrayBuffer), contentType };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   private async *readNdjsonStream(response: Response): AsyncGenerator<unknown> {
     if (response.body === null) {
       throw new AssistantRuntimeAdapterError(

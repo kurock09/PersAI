@@ -177,4 +177,9 @@ Foundation Phase
   - [x] H10a — OpenClaw NDJSON thinking stream for PersAI web runtime
   - [x] H10b — API/Web SSE transport for `thinking` events
   - [x] H10c — web chat Thought block with collapsed preview and duration label
+- [x] UI polish — chat scroll, sidebar, avatar upload, Telegram sync
+  - [x] UP1 — reverse-paginated chat history (load last 20, lazy-load older on scroll up via IntersectionObserver)
+  - [x] UP2 — new chat appears in sidebar immediately on creation
+  - [x] UP3 — avatar file upload to workspace (POST/GET endpoints in PersAI API + OpenClaw gateway, replaces blob: URLs)
+  - [x] UP4 — Telegram bot profile sync (setMyName, setMyDescription, setMyProfilePhoto on every apply)
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity

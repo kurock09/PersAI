@@ -4,6 +4,12 @@
 
 ### Added
 
+- **UI polish — chat scroll, sidebar, avatar upload, Telegram sync:**
+  - Chat history now loads only the last 20 messages on open and lazy-loads older messages when user scrolls up (IntersectionObserver + reverse pagination). Initial load is instant (no scroll-from-top animation).
+  - New chats appear in the sidebar immediately after the first message is sent (via `appData.reloadChats()` on chatId creation).
+  - Avatar file upload now persists to the OpenClaw workspace directory (GCS FUSE) instead of creating a temporary `blob:` URL. New endpoints: `POST /api/v1/assistant/avatar` (multipart upload), `GET /api/v1/assistant/avatar` (proxy readback), `POST/GET /api/v1/runtime/workspace/avatar` (OpenClaw gateway).
+  - Telegram bot profile now syncs with the assistant persona on every apply: `setMyName` (display name), `setMyDescription` (instructions excerpt), `setMyProfilePhoto` (workspace avatar file). Non-fatal — failures logged as warnings.
+
 - **H10 — thinking/reasoning UX:**
   - OpenClaw PersAI web runtime stream now emits `thinking` chunks in addition to assistant deltas, and PersAI API forwards them as SSE `thinking` events.
   - Web chat now shows a collapsible assistant-side `Thought for Xs` block with a fade-out preview while preserving the final answer as the main message body.

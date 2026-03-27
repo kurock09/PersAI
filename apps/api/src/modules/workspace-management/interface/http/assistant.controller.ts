@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,8 +11,11 @@ import {
   Query,
   Req,
   Res,
-  UnauthorizedException
+  UnauthorizedException,
+  UploadedFile,
+  UseInterceptors
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import {
   RequestWithPlatformContext,
   ResponseWithPlatformContext
@@ -127,6 +131,58 @@ export class AssistantController {
       requestId: req.requestId ?? null,
       assistant
     };
+  }
+
+  @Post("assistant/avatar")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 2 * 1024 * 1024 } }))
+  async uploadAvatar(
+    @Req() req: RequestWithPlatformContext,
+    @UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string } | undefined
+  ): Promise<{ requestId: string | null; avatarUrl: string }> {
+    const userId = this.resolveRequestUserId(req);
+    if (!file || !file.mimetype.startsWith("image/")) {
+      throw new BadRequestException("An image file is required.");
+    }
+
+    const assistant = await this.getAssistantByUserIdService.execute(userId);
+    if (!assistant) {
+      throw new NotFoundException("Assistant does not exist for this user.");
+    }
+
+    const ext = file.originalname.split(".").pop()?.toLowerCase() ?? "png";
+    const result = await this.openClawRuntimeAdapter.uploadWorkspaceAvatar(
+      assistant.id,
+      file.buffer,
+      file.mimetype,
+      ext
+    );
+
+    return { requestId: req.requestId ?? null, avatarUrl: result.avatarUrl };
+  }
+
+  @Get("assistant/avatar")
+  async getAvatar(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext
+  ): Promise<void> {
+    const userId = this.resolveRequestUserId(req);
+    const assistant = await this.getAssistantByUserIdService.execute(userId);
+    if (!assistant) {
+      throw new NotFoundException("Assistant does not exist for this user.");
+    }
+
+    const result = await this.openClawRuntimeAdapter.downloadWorkspaceAvatar(assistant.id);
+    if (!result) {
+      res.statusCode = 404;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ message: "No avatar found." }));
+      return;
+    }
+
+    res.statusCode = 200;
+    res.setHeader("Content-Type", result.contentType);
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.end(result.buffer);
   }
 
   @Get("assistant/plan-visibility")

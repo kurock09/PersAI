@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Sparkles, AlertCircle, X, Pencil, Check } from "lucide-react";
+import { Sparkles, AlertCircle, X, Pencil, Check, Loader2 } from "lucide-react";
 import { ChatMessageBubble } from "./chat-message";
 import { ChatInput } from "./chat-input";
 import { ActivityBadge } from "./activity-badge";
@@ -57,9 +57,56 @@ export function ChatArea({
     [getToken]
   );
 
+  const isInitialLoad = useRef(true);
+  const prevMessageCount = useRef(0);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to bottom on new outgoing/incoming messages, but not on history prepend.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const count = chat.messages.length;
+    if (count > prevMessageCount.current && !isInitialLoad.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+    prevMessageCount.current = count;
   }, [chat.entries.length, chat.messages[chat.messages.length - 1]?.content]);
+
+  // On initial history load, jump to bottom instantly (no animation).
+  useEffect(() => {
+    if (!chat.historyLoading && chat.messages.length > 0 && isInitialLoad.current) {
+      isInitialLoad.current = false;
+      bottomRef.current?.scrollIntoView({ behavior: "instant" });
+    }
+  }, [chat.historyLoading, chat.messages.length]);
+
+  // Preserve scroll position when older messages are prepended.
+  const prevScrollHeight = useRef(0);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollHeight > prevScrollHeight.current && prevScrollHeight.current > 0) {
+      const delta = el.scrollHeight - prevScrollHeight.current;
+      el.scrollTop += delta;
+    }
+    prevScrollHeight.current = el.scrollHeight;
+  });
+
+  // IntersectionObserver on the top sentinel to trigger loading older messages.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = scrollRef.current;
+    if (!sentinel || !container) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && chat.hasOlderMessages && !chat.olderMessagesLoading) {
+          prevScrollHeight.current = container.scrollHeight;
+          void chat.loadOlderMessages();
+        }
+      },
+      { root: container, threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [chat.hasOlderMessages, chat.olderMessagesLoading, chat.loadOlderMessages]);
 
   const isEmpty = chat.messages.length === 0;
   const displayTitle = title ?? "New chat";
@@ -138,6 +185,12 @@ export function ChatArea({
           <EmptyState name={assistantName} createdAt={assistantCreatedAt} onPrompt={sendPrompt} />
         ) : (
           <div className="mx-auto max-w-3xl py-4">
+            <div ref={sentinelRef} className="h-1" />
+            {chat.olderMessagesLoading && (
+              <div className="flex justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+              </div>
+            )}
             {chat.entries.map((entry) =>
               entry.kind === "message" ? (
                 <ChatMessageBubble

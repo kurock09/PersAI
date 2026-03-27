@@ -54,6 +54,41 @@ Read these only when the current slice needs them.
 - Session/tool behavior assumptions are validated against current OpenClaw docs.
 - Any runtime-contract change is reflected in PersAI docs before code changes.
 
+## Fork patch safety rule
+
+Default rule: prefer a PersAI-side fix first. Touch native OpenClaw files only when the behavior must change inside the runtime itself.
+
+### Lower-risk fork areas
+
+- `src/gateway/persai-runtime/`
+- `src/agents/persai-runtime-context.ts`
+- `src/plugin-sdk/persai-credential.ts`
+- `docs/PERSAI-FORK-PATCHES.md`
+- `scripts/verify-persai-patches.mjs`
+
+### Higher-risk native OpenClaw areas
+
+- `src/agents/agent-command.ts`
+- `src/agents/command/types.ts`
+- `src/gateway/server-http.ts`
+- `src/config/*`
+- `src/secrets/*`
+- `src/memory/*`
+
+### Required justification before touching a higher-risk area
+
+At least one of these must be true:
+
+- the feature already exists in OpenClaw core, but PersAI's runtime bridge does not expose it yet
+- the bug is in runtime execution semantics and cannot be fixed only in PersAI API/web
+- the change is required for correctness, isolation, or security under PersAI load/concurrency
+
+If a higher-risk patch is needed, document all three:
+
+- why a PersAI-only patch is insufficient
+- exact native OpenClaw files touched
+- how the patch will be verified after the next upstream merge
+
 ## Update rule
 
 When this pack changes:
