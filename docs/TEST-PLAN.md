@@ -376,6 +376,7 @@ Required in CI:
 - Join event upserts group record with status `active`.
 - Leave event updates group record to status `left` with `leftAt` timestamp.
 - `GET /api/v1/assistant/integrations/telegram/groups` returns current group list.
+- Verify `openclaw.json` configmap includes `secrets.providers.persai-runtime` with correct `baseUrl`; without it group callbacks are silently dropped.
 
 ### UI
 
@@ -398,7 +399,9 @@ Required in CI:
 
 ### Workspace isolation
 
-- OpenClaw Telegram agent turns receive `workspaceDir` from stored spec.
+- OpenClaw Telegram agent turns receive `workspaceDir` via `commandInput` (not `process.env`).
+- Session `cwd` header is synced with runtime `workspaceDir` on every turn (no stale path drift).
+- Memory tools (`memory_get`, `memory_search`) use `persaiRuntimeRequestContext.workspaceDir` before falling back to `resolveAgentWorkspaceDir`.
 - Telegram bot reads/writes same `MEMORY.md` and bootstrap files as web chat for the same assistant.
 
 ### Regression

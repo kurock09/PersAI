@@ -26,7 +26,7 @@
 
 - **Step 12 H3.4 — runtime integration hardening:**
   - Fixed OpenClaw credential refs parsing: `extractToolCredentialRefs` now accepts both Array and Object formats (PersAI sends Object keyed by tool code). API keys for web search, image generation, TTS, etc. now reach OpenClaw tools correctly.
-  - Eliminated `process.env.PERSAI_TOOL_DENY` race condition: replaced global env var save/restore with `AsyncLocalStorage`-based `persaiRuntimeRequestContext`. Each concurrent request carries its own isolated `toolDenyList`.
+  - Eliminated `process.env.PERSAI_TOOL_DENY` race condition: replaced global env var save/restore with `AsyncLocalStorage`-based `persaiRuntimeRequestContext` (defined in `persai-runtime-context.ts`). Each concurrent request carries its own isolated `toolDenyList` and `workspaceDir`.
   - Renamed tool catalog codes to match OpenClaw tool names: `memory_center_read` → `memory_get`, `tasks_center_control` → `cron`. SQL data migration updates `tool_catalog_tools` and `workspace_tool_usage_daily_counters`.
   - Auto-seed platform data at API startup (`SeedToolCatalogService` with `OnModuleInit`): syncs tool catalog, ensures default `starter_trial` plan with entitlement and tool activations, seeds bootstrap presets if empty. New users work on a clean database without manual `seed.ts`.
 
@@ -56,6 +56,14 @@
   - **App shell reset detection:** `app-shell.tsx` now detects post-reset state (assistant exists but has no published version and `applyStatus=not_requested`) and redirects to `/app/setup`.
 
 ### Fixed
+
+- **H8k — session `cwd` drift + memory workspace alignment (OpenClaw `9d61739`):**
+  - Root cause: session transcript header stored `cwd` at creation time only; existing sessions kept a stale `cwd` after `workspaceDir` changed. Memory tooling (`readAgentMemoryFile`, memory manager, backend config, QMD manager) used `resolveAgentWorkspaceDir(cfg, agentId)` which always returned the static `workspace-persai` path, ignoring the per-assistant runtime override.
+  - Extracted `persaiRuntimeRequestContext` into dependency-free `persai-runtime-context.ts`; `session-manager-init.ts` now syncs `header.cwd` with `params.cwd` for existing sessions; memory modules consult `persaiRuntimeRequestContext.getStore()?.workspaceDir` before falling back.
+
+- **H8l — Telegram group callback URL (OpenClaw `6bcff3d2`):**
+  - `notifyPersaiGroupUpdate` tried to read a nonexistent top-level `persaiSecretResolverBaseUrl` config key. OpenClaw's strict schema validation rejects unknown top-level keys, and even when manually patched in, the value was never wired into the validated config.
+  - Fixed: reads `cfg.secrets.providers["persai-runtime"].baseUrl` — the same provider entry already used for secret resolution. No configmap changes needed.
 
 - **Step 12 H3.3 — post-deploy fixes:**
   - Fixed setup wizard not updating user profile data after reset: `postOnboarding` was skipped when `onboarding.status !== "pending"`, causing USER.md and other bootstrap files to show stale data. Now always calls the upsert endpoint regardless of onboarding status.

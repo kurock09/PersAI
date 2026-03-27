@@ -439,7 +439,7 @@ It is not part of backend domain logic.
   - dynamic Grammy bot lifecycle (start/stop on spec apply)
   - webhook mode (when `TELEGRAM_WEBHOOK_BASE_URL` is configured) or polling fallback (when unset)
   - `message:text` event handling → agent turn with per-assistant `workspaceDir`
-  - `my_chat_member` event handling → group status callback to PersAI
+  - `my_chat_member` event handling → group status callback to PersAI (uses `secrets.providers.persai-runtime.baseUrl` from config)
 - PersAI owns Telegram control-plane:
   - connect/disconnect/rotate/revoke via assistant integration APIs
   - encrypted token storage (`PlatformRuntimeProviderSecretStoreService`)
@@ -459,7 +459,8 @@ It is not part of backend domain logic.
 ### Per-user workspace isolation (OpenClaw)
 
 - Runtime uses per-assistant directories under `PERSAI_WORKSPACE_ROOT/<assistantId>/`.
-- Optional override: `PERSAI_AGENT_WORKSPACE_DIR` for agent process cwd.
+- `workspaceDir` is passed per-request via `commandInput` (not `process.env`), and carried through `persaiRuntimeRequestContext` (AsyncLocalStorage in `persai-runtime-context.ts`) so memory tools and session management resolve the correct workspace even under concurrent requests.
+- Session transcript `cwd` is synced with the runtime `workspaceDir` on every turn to prevent drift after workspace moves.
 - Helm: GCS FUSE via CSI driver volume mount; workload identity–bound ServiceAccount (`infra/helm/templates/openclaw-serviceaccount.yaml` and related chart values).
 
 ### Bootstrap file pipeline

@@ -611,6 +611,12 @@ Behavior baseline:
 - OpenClaw validates `X-Telegram-Bot-Api-Secret-Token` header against materialized `webhookSecret`
 - routes update to the dynamically managed Grammy bot for the assistant
 
+### OpenClaw config: secrets.providers.persai-runtime
+
+- Configured in `openclaw.json` under `secrets.providers.persai-runtime` (source `"persai"`, rendered by Helm `openclaw-configmap.yaml`)
+- `baseUrl` is used both for secret resolution and by `notifyPersaiGroupUpdate` for group status callbacks to PersAI
+- Must match the internal PersAI API address (e.g. `http://api:3001`); if the provider entry is missing, group join/leave callbacks are silently skipped
+
 ## Step 10 G1 secret lifecycle hardening
 
 ### POST /api/v1/assistant/integrations/telegram/connect

@@ -167,6 +167,7 @@ Foundation Phase
   - [x] H8i — Telegram workspace isolation (agent turns use per-assistant `workspaceDir`, shared memory with web chat)
   - [x] H8j — fix `workspaceDir` race condition (`process.env` → `commandInput` passthrough)
   - [x] H8k — fix session `cwd` drift + memory tools workspace: sync `header.cwd` on every turn, route memory reads through `persaiRuntimeRequestContext.workspaceDir`
+  - [x] H8l — fix group-update callback: read `baseUrl` from `cfg.secrets.providers["persai-runtime"]` (not nonexistent top-level key)
 - [ ] H9 — per-request credential isolation (`AsyncLocalStorage` for `toolCredentials`, eliminates `process.env` race at 1000+ concurrent users)
 - [ ] H10 — thinking/reasoning UX (stream thinking tokens, collapsible "Thought for Xs" block with fade-out preview)
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity

@@ -40,6 +40,21 @@
 - `src/gateway/persai-runtime/persai-runtime-spec-store.ts`
 - `src/gateway/server-http.ts`
 
+### H8j–H8k workspace isolation fixes
+
+- **H8j — `workspaceDir` race (`process.env` → `commandInput`):** Telegram and web agent turns now pass `workspaceDir` directly in `commandInput` to `agentCommandFromIngress`, removing reliance on `process.env.PERSAI_AGENT_WORKSPACE_DIR`.
+- **H8k — session `cwd` drift + memory tools:** Existing sessions stored stale `cwd` from creation time. Memory tools (`readAgentMemoryFile`, manager, backend-config, QMD) always used `resolveAgentWorkspaceDir(cfg, agentId)` → static `workspace-persai` path, ignoring runtime override. Fix: extracted `persaiRuntimeRequestContext` to `persai-runtime-context.ts`; `session-manager-init.ts` now syncs `header.cwd` on every turn; memory modules check `persaiRuntimeRequestContext.getStore()?.workspaceDir` first.
+- **H8l — group callback URL fix:** `notifyPersaiGroupUpdate` tried to read nonexistent top-level `persaiSecretResolverBaseUrl` (strict schema rejects unknown keys → CrashLoopBackOff). Fixed to read `cfg.secrets.providers["persai-runtime"].baseUrl` instead — same provider already configured for secret resolution.
+
+OpenClaw files touched:
+
+- `src/agents/persai-runtime-context.ts` (new)
+- `src/agents/openclaw-tools.ts` (re-export from new module)
+- `src/agents/pi-embedded-runner/session-manager-init.ts`
+- `src/memory/read-file.ts`, `src/memory/manager.ts`, `src/memory/backend-config.ts`, `src/memory/qmd-manager.ts`
+
+OpenClaw commit: `6bcff3d2f4b13483b03fac259462c01b9a0ccec0`
+
 ### Deploy notes
 
 1. Create K8s Secret entries: `TELEGRAM_WEBHOOK_HMAC_SECRET` in `persai-api-secrets`
@@ -48,6 +63,7 @@
 4. Create Google-managed certificate `persai-bot-cert` for `bot.persai.dev`
 5. Deploy PersAI API first (new migration + config vars), then OpenClaw (new Grammy bridge)
 6. Connect a Telegram bot in UI → publish/apply → bot should respond to DMs and group @mentions
+7. Verify `openclaw.json` configmap has `secrets.providers.persai-runtime` with correct `baseUrl` (used by group update callbacks)
 
 ---
 
@@ -79,7 +95,7 @@
 ### What changed
 
 - **Credential refs parsing (OpenClaw):** `extractToolCredentialRefs` in `persai-runtime-tool-policy.ts` now handles both Array and Object (Record) formats. PersAI materializes `toolCredentialRefs` as `Record<toolCode, {refKey, secretRef, configured}>`, but OpenClaw previously only accepted `Array<{toolCode, secretRef, configured}>`. Shared parsing logic extracted into `parseCredentialRefRow`.
-- **process.env race condition (OpenClaw):** `PERSAI_TOOL_DENY` global env var replaced with `AsyncLocalStorage`-based `persaiRuntimeRequestContext` exported from `openclaw-tools.ts`. Each `agentCommandFromIngress` call runs inside `persaiRuntimeRequestContext.run()` with its own `toolDenyList`. Fallback to `process.env.PERSAI_TOOL_DENY` preserved for non-PersAI CLI usage.
+- **process.env race condition (OpenClaw):** `PERSAI_TOOL_DENY` global env var replaced with `AsyncLocalStorage`-based `persaiRuntimeRequestContext` (defined in `persai-runtime-context.ts`, re-exported from `openclaw-tools.ts`). Each `agentCommandFromIngress` call runs inside `persaiRuntimeRequestContext.run()` with its own `toolDenyList` and `workspaceDir`. Fallback to `process.env.PERSAI_TOOL_DENY` preserved for non-PersAI CLI usage.
 - **Tool catalog rename (PersAI):** `memory_center_read` → `memory_get`, `tasks_center_control` → `cron` in `tool-catalog-data.ts`, tests, and SQL data migration `20260326200000`. Migration also updates `workspace_tool_usage_daily_counters`. `PlanCatalogToolActivation` safe (references by UUID FK).
 - **Auto-seed at startup (PersAI):** `SeedToolCatalogService` (`OnModuleInit`) syncs tool catalog, ensures default `starter_trial` plan with entitlement + tool activations, seeds bootstrap presets if empty. Eliminates need for manual `seed.ts` / `seed-catalog.ts` for new deployments.
 
@@ -92,7 +108,7 @@
 
 ### Slice boundary
 
-- OpenClaw: 3 files (`persai-runtime-tool-policy.ts`, `persai-runtime-agent-turn.ts`, `openclaw-tools.ts`)
+- OpenClaw: 4 files (`persai-runtime-tool-policy.ts`, `persai-runtime-agent-turn.ts`, `openclaw-tools.ts`, `persai-runtime-context.ts`)
 - PersAI: `tool-catalog-data.ts`, `seed-tool-catalog.service.ts`, `workspace-management.module.ts`, 2 test files, 1 SQL migration, docs
 
 ### Deploy notes
