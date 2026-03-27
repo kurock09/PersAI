@@ -4,6 +4,11 @@
 
 ### Added
 
+- **Telegram group deduplication (supergroup migration fix):**
+  - When a Telegram group is upgraded to a supergroup, Telegram changes the `chat_id`. Previously this created duplicate "Active" entries for the same group. Now, on a `joined` event, any existing active record with the same `title` but a different `telegramChatId` is automatically marked as "left" before the new record is upserted.
+  - GET groups endpoint now deduplicates by `title` (keeps the most recently updated record), preventing stale entries from appearing even if old data exists.
+  - Frontend groups list now filters to show only "active" groups (previously showed both active and left).
+
 - **Quota UX and avatar consistency hardening:**
   - 409 quota errors now map to clear user-facing messages: "You've reached your plan's usage limit" (quota/budget), "This feature is not available on your current plan" (disabled capability), instead of generic "Chat could not complete this turn."
   - `POST /assistant/publish` and `POST /assistant/reapply` now return HTTP 200 (was 201). Frontend `postAssistantReapply` uses full `isSuccessStatus` + object guard to avoid silent failures.

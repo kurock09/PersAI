@@ -149,6 +149,17 @@ export class InternalRuntimeConfigGenerationController {
     }
 
     if (event === "joined") {
+      if (title) {
+        await this.prisma.assistantTelegramGroup.updateMany({
+          where: {
+            assistantId,
+            title,
+            telegramChatId: { not: telegramChatId },
+            status: "active"
+          },
+          data: { status: "left", leftAt: new Date() }
+        });
+      }
       await this.prisma.assistantTelegramGroup.upsert({
         where: {
           assistantId_telegramChatId: { assistantId, telegramChatId }

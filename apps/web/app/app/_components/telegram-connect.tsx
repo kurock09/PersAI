@@ -527,37 +527,32 @@ function ConnectedView({
             <div className="flex items-center justify-center py-4">
               <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
             </div>
-          ) : groups.length === 0 ? (
+          ) : groups.filter((g) => g.status === "active").length === 0 ? (
             <p className="py-3 text-center text-xs text-text-subtle">
               Add the bot to a Telegram group — it will appear here automatically.
             </p>
           ) : (
             <ul className="space-y-2">
-              {groups.map((g) => (
-                <li
-                  key={g.id}
-                  className="flex items-center justify-between rounded-lg bg-surface-raised/50 px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-medium text-text">{g.title}</p>
-                    {g.memberCount !== null && (
-                      <p className="text-[10px] text-text-subtle">
-                        {g.memberCount} member{g.memberCount !== 1 ? "s" : ""}
-                      </p>
-                    )}
-                  </div>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                      g.status === "active"
-                        ? "bg-success/10 text-success"
-                        : "bg-destructive/10 text-destructive"
-                    )}
+              {groups
+                .filter((g) => g.status === "active")
+                .map((g) => (
+                  <li
+                    key={g.id}
+                    className="flex items-center justify-between rounded-lg bg-surface-raised/50 px-3 py-2"
                   >
-                    {g.status === "active" ? "Active" : "Left"}
-                  </span>
-                </li>
-              ))}
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-text">{g.title}</p>
+                      {g.memberCount !== null && (
+                        <p className="text-[10px] text-text-subtle">
+                          {g.memberCount} member{g.memberCount !== 1 ? "s" : ""}
+                        </p>
+                      )}
+                    </div>
+                    <span className="shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
+                      Active
+                    </span>
+                  </li>
+                ))}
             </ul>
           )}
         </div>

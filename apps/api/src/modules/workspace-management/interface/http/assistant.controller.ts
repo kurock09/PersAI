@@ -326,10 +326,18 @@ export class AssistantController {
     if (!assistant) {
       return { requestId: req.requestId ?? null, groups: [] };
     }
-    const groups = await this.prisma.assistantTelegramGroup.findMany({
+    const allGroups = await this.prisma.assistantTelegramGroup.findMany({
       where: { assistantId: assistant.id },
-      orderBy: { joinedAt: "desc" }
+      orderBy: { updatedAt: "desc" }
     });
+    const seen = new Map<string, (typeof allGroups)[number]>();
+    for (const g of allGroups) {
+      const key = g.title.toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, g);
+      }
+    }
+    const groups = Array.from(seen.values());
     return {
       requestId: req.requestId ?? null,
       groups: groups.map((g) => ({

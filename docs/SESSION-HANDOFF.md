@@ -1,5 +1,42 @@
 # SESSION-HANDOFF
 
+## 2026-03-27 - Telegram Group Deduplication (supergroup migration fix)
+
+### What changed
+
+- **Backend joined-event dedup:** When a `joined` event arrives, `internal-runtime-config-generation.controller.ts` now runs `updateMany` to mark any existing active records with the same `title` but a different `telegramChatId` as "left" before upserting the new record. This handles the Telegram group→supergroup migration where `chat_id` changes.
+- **Backend GET dedup:** `assistant.controller.ts` GET groups endpoint now deduplicates results by `title` (case-insensitive), keeping only the most recently updated record per title. Ordered by `updatedAt desc`.
+- **Frontend filter:** `telegram-connect.tsx` groups list now shows only `status === "active"` groups. Counter badge already counted active-only; the list rendering now matches.
+
+### Files touched
+
+**PersAI API:**
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts` — stale-title deactivation before upsert
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` — dedup-by-title in GET groups, order by `updatedAt`
+
+**PersAI Web:**
+- `apps/web/app/app/_components/telegram-connect.tsx` — filter to active-only in groups list
+
+**Docs:**
+- `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `tsc --noEmit` PersAI API: 0 errors
+- `tsc --noEmit` PersAI Web: 0 errors
+- Prettier: all files pass
+
+### Risks
+
+1. Title-based dedup assumes groups don't share the same name. In practice Telegram group names are unique per bot context, so this is safe. If a user intentionally has two groups named "Bots" they would see only one — acceptable edge case.
+2. The `updateMany` that marks old same-title entries as "left" uses `title` equality. If a group is renamed before migration, both old and new entries will remain — the GET dedup handles this at display time.
+
+### Next recommended step
+
+- Deploy and verify: add bot to a group, verify it shows once. If the group migrates to supergroup, the old entry should auto-deactivate.
+- Clean existing duplicates in DB (optional): `UPDATE assistant_telegram_groups SET status='left' WHERE ...` for known stale entries.
+- H11 — WhatsApp/MAX readiness and secret-ref parity.
+
 ## 2026-03-27 - Quota UX and Avatar Consistency Hardening
 
 ### What changed
