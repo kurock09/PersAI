@@ -755,8 +755,9 @@ export class AssistantController {
       }
 
       res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
-      if (typeof (res as any).flush === "function") {
-        (res as any).flush();
+      const flushable = res as unknown as { flush?: () => void };
+      if (typeof flushable.flush === "function") {
+        flushable.flush();
       }
     };
 
