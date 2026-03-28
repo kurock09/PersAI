@@ -1,5 +1,48 @@
 # SESSION-HANDOFF
 
+## 2026-03-28 - Reminder cleanup and delivery sanitization
+
+### What changed
+
+- Fixed Telegram reminder-task create for non-default PersAI agents: the runtime tool now sends `contextSessionKey` for chat-history lookup, but the backend no longer passes that value into cron job creation as a real cron session binding.
+- This keeps reminder context assembly working while stopping OpenClaw cron from inheriting `agentId=persai` on `systemEvent` reminder jobs, which was causing `sessionTarget "main" is only valid for the default agent`.
+- Fixed reminder delivery cleanup: `cron-fire` now strips the internal `Recent context:` appendix from reminder summaries before sending them to Telegram or the web reminders chat, so users only see the actual reminder text.
+- Fixed Telegram group rename drift: inbound group messages now resync the current group title back to PersAI, and the internal group-upsert path also dedupes against the previous stored title for the same `telegramChatId`, so a renamed Telegram group no longer shows up twice as two active groups.
+- Added a focused API regression test for the delivery sanitization path.
+- Added a focused API regression test for Telegram group rename deduplication.
+- Bumped PersAI dev GitOps OpenClaw pin to `e6625ad4ab6932ce0aa0be3249828798bf40d958` so the Telegram group title-sync fix deploys together with the backend cleanup.
+
+### Files touched
+
+**PersAI API:**
+
+- `apps/api/src/modules/workspace-management/application/handle-internal-cron-fire.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts`
+- `apps/api/test/handle-internal-cron-fire.test.ts`
+- `apps/api/test/telegram-group-rename-dedupe.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ROADMAP.md`
+
+**OpenClaw:**
+
+- `src/agents/tools/reminder-task-tool.ts`
+- `src/agents/tools/cron-tool.ts`
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run test`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm exec oxlint --type-aware src/agents/tools/reminder-task-tool.ts src/agents/tools/cron-tool.ts src/gateway/persai-runtime/persai-runtime-http.ts`
+- `corepack pnpm exec oxlint --type-aware src/gateway/persai-runtime/persai-runtime-telegram.ts`
+
+### Risks
+
+1. Reminder context is still appended into the internal cron payload text because that is the current low-diff way to preserve context across the timer boundary; delivery now sanitizes it before user-visible output, but a future cleanup could move this context into a dedicated non-user-visible field once the scheduler path is redesigned.
+
 ## 2026-03-28 - Reminder time-resolution hardening
 
 ### What changed

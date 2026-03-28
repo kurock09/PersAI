@@ -193,7 +193,7 @@ Foundation Phase
   - [x] SQ1 — `res.flush()` after each SSE write (eliminates Node/TCP buffering delay)
   - [x] SQ2 — remove `accumulated` from delta SSE events (O(token) payload instead of O(total))
   - [x] SQ3 — `requestAnimationFrame` batching for `onDelta`/`onThinking` setState (1 render per frame)
-- [x] Telegram group deduplication (supergroup migration fix)
+- [x] Telegram group deduplication (supergroup migration fix + title refresh on rename)
   - [x] TG1 — backend: on `joined` event, mark stale active records with same title as "left" before upsert
   - [x] TG2 — backend: GET groups deduplicates by title (keeps most recently updated)
   - [x] TG3 — frontend: groups list shows only active groups
@@ -206,7 +206,7 @@ Foundation Phase
   - [x] H12e — UI: notification channel toggle in assistant settings (shows only connected channels)
   - [x] H12f — Update `PERSAI-FORK-PATCHES.md` + `verify-persai-patches.mjs` with new patch entry
   - [x] H12g — Memory lifecycle on assistant create/reset: if `MEMORY.md` / `memory/` don't exist → create; if exist → clear. On edit/update — do NOT touch memory (implemented via minimal `openclaw/src/gateway/persai-runtime/*` bridge because pure API-only ownership was not technically viable)
-  - [x] H12h — PersAI-owned reminders/tasks replace product dependence on native `cron`: current scope covers internal registry upsert/delete by `externalRef`, hard-delete on assistant reset, one-time disappearance after successful webhook finish, recurring rows staying live with updated `nextRunAt`, new product-facing `reminder_task` tool for create/list/pause/resume/cancel, plan/seed policy that hides user-facing `cron`, and PersAI-owned write control-plane (`reminder_task` -> PersAI internal control endpoint -> backend-driven internal cron control via `persai-runtime`); future WhatsApp/MAX outbound or a backend-owned timer are separate follow-up work, not H12 blockers
+  - [x] H12h — PersAI-owned reminders/tasks replace product dependence on native `cron`: current scope covers internal registry upsert/delete by `externalRef`, hard-delete on assistant reset, one-time disappearance after successful webhook finish, recurring rows staying live with updated `nextRunAt`, new product-facing `reminder_task` tool for create/list/pause/resume/cancel, plan/seed policy that hides user-facing `cron`, PersAI-owned write control-plane (`reminder_task` -> PersAI internal control endpoint -> backend-driven internal cron control via `persai-runtime`), Telegram-safe context-only session lookup during create, and delivery-side stripping of internal `Recent context` artifacts from user-visible reminder messages; future WhatsApp/MAX outbound or a backend-owned timer are separate follow-up work, not H12 blockers
 - [ ] H13 — Unified messenger turn gateway
   - [ ] H13a — single PersAI API entry point for all channel turns (web, Telegram, WhatsApp, cron callback, future messengers)
   - [ ] H13b — unified enforcement: quota (tokens, messages), rate limits, tool daily limits applied to ALL channels (currently web-only)

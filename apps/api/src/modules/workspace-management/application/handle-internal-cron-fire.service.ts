@@ -8,6 +8,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 
 const REMINDER_WEB_CHAT_THREAD_KEY = "system:reminders";
 const REMINDER_WEB_CHAT_TITLE = "Reminders";
+const REMINDER_CONTEXT_MARKER = "\n\nRecent context:\n";
 
 export interface InternalCronFireRequest {
   assistantId: string;
@@ -25,6 +26,14 @@ function normalizeOptionalTrimmedString(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function stripReminderContextArtifact(value: string): string {
+  const markerIndex = value.indexOf(REMINDER_CONTEXT_MARKER);
+  if (markerIndex === -1) {
+    return value.trim();
+  }
+  return value.slice(0, markerIndex).trim();
 }
 
 @Injectable()
@@ -111,7 +120,7 @@ export class HandleInternalCronFireService {
       preferred !== "web" &&
       assistant.channelSurfaceBindings.some((binding) => binding.providerKey === preferred);
 
-    const summary = input.summary?.trim();
+    const summary = input.summary ? stripReminderContextArtifact(input.summary) : undefined;
     if (input.status !== "ok" || !summary) {
       return { ok: true, deliveredTo: "none" };
     }

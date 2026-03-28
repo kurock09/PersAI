@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Reminder delivery cleanup and Telegram cron-binding hardening:**
+  - `reminder_task` create now sends a dedicated `contextSessionKey` instead of binding the cron job itself to the Telegram `agent:persai:*` session, so Telegram reminders keep chat-context lookup without failing on `sessionTarget="main"` for non-default agents.
+  - `cron-fire` now strips the internal `Recent context:` appendix from reminder summaries before delivering them to Telegram or the web reminders chat, so users only see the clean reminder text.
+  - Added an API regression test covering reminder delivery sanitization for `cron-fire`.
+  - Telegram group bookkeeping now refreshes active group titles from normal inbound group messages and dedupes against the group's previous stored title, so renaming a Telegram group no longer leaves two active entries in the settings UI.
+  - Added an API regression test covering Telegram group rename deduplication.
+  - Dev GitOps OpenClaw pin now targets fork SHA `e6625ad4ab6932ce0aa0be3249828798bf40d958`.
+
 - **Reminder time-resolution hardening (post-H12 fix):**
   - `reminder_task` now accepts `delayMs` for relative one-shot reminders, so requests like "in 1 minute" can be scheduled from backend `now` instead of relying on model-generated absolute timestamps.
   - PersAI web inbound turns now pass `currentTimeIso` and `userTimezone` into the OpenClaw runtime request.

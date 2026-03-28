@@ -151,11 +151,24 @@ export class InternalRuntimeConfigGenerationController {
     }
 
     if (event === "joined") {
-      if (title) {
+      const existingGroup = await this.prisma.assistantTelegramGroup.findUnique({
+        where: {
+          assistantId_telegramChatId: { assistantId, telegramChatId }
+        },
+        select: { title: true }
+      });
+      const dedupeTitles = Array.from(
+        new Set(
+          [existingGroup?.title?.trim() ?? "", title]
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0)
+        )
+      );
+      if (dedupeTitles.length > 0) {
         await this.prisma.assistantTelegramGroup.updateMany({
           where: {
             assistantId,
-            title,
+            title: { in: dedupeTitles },
             telegramChatId: { not: telegramChatId },
             status: "active"
           },
