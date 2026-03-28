@@ -192,6 +192,55 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   const [notificationSaving, setNotificationSaving] = useState(false);
   const [notificationFb, setNotificationFb] = useState<ActionFeedback>(null);
 
+  const getTaskScheduleKind = useCallback(
+    (sourceLabel: string | null): "one_time" | "recurring" | "scheduled" => {
+      const normalized = sourceLabel?.trim().toLowerCase() ?? "";
+      if (normalized.includes("one-time")) return "one_time";
+      if (normalized.includes("recurring")) return "recurring";
+      return "scheduled";
+    },
+    []
+  );
+
+  const getTaskScheduleKindLabel = useCallback(
+    (sourceLabel: string | null): string => {
+      const kind = getTaskScheduleKind(sourceLabel);
+      if (kind === "one_time") return "One-time";
+      if (kind === "recurring") return "Recurring";
+      return "Scheduled";
+    },
+    [getTaskScheduleKind]
+  );
+
+  const getTaskTimingLabel = useCallback(
+    (item: AssistantTaskRegistryItemState): string => {
+      if (item.controlStatus === "disabled") {
+        return "Paused";
+      }
+      if (item.controlStatus === "cancelled") {
+        return "Stopped";
+      }
+      if (item.nextRunAt === null) {
+        return "Time not set";
+      }
+      const prefix = getTaskScheduleKind(item.sourceLabel) === "one_time" ? "Runs at" : "Next run";
+      return `${prefix}: ${new Date(item.nextRunAt).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short"
+      })}`;
+    },
+    [getTaskScheduleKind]
+  );
+
+  const getTaskStatusLabel = useCallback(
+    (controlStatus: AssistantTaskRegistryItemState["controlStatus"]) => {
+      if (controlStatus === "active") return "Active";
+      if (controlStatus === "disabled") return "Paused";
+      return "Stopped";
+    },
+    []
+  );
+
   useEffect(() => {
     setDraftName(assistant?.draft.displayName ?? "");
     setDraftInstructions(assistant?.draft.instructions ?? "");
@@ -786,15 +835,19 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                     <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
                       {item.title}
                     </span>
+                    <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                      {getTaskScheduleKindLabel(item.sourceLabel)}
+                    </span>
                     <span
                       className={cn(
                         "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
                         "bg-success/15 text-success"
                       )}
                     >
-                      {item.controlStatus}
+                      {getTaskStatusLabel(item.controlStatus)}
                     </span>
                   </div>
+                  <p className="mt-2 text-[11px] text-text-subtle">{getTaskTimingLabel(item)}</p>
                   <div className="mt-2 flex gap-1.5">
                     <ActionButton
                       icon={<RotateCcw className="h-3 w-3" />}

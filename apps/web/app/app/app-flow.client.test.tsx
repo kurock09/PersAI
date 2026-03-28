@@ -691,7 +691,7 @@ describe("AppFlowClient onboarding gate", () => {
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         title: "Daily check-in",
         sourceSurface: "web",
-        sourceLabel: "Web assistant",
+        sourceLabel: "Recurring reminder",
         controlStatus: "active",
         nextRunAt: nextRun,
         createdAt: "2026-03-26T10:00:00.000Z",
@@ -714,6 +714,7 @@ describe("AppFlowClient onboarding gate", () => {
     expect(await screen.findByText("Daily check-in")).toBeInTheDocument();
     expect(screen.queryByText("Weekly recap")).not.toBeInTheDocument();
     expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
+    expect(screen.getByText("Recurring")).toBeInTheDocument();
     expect(screen.queryByText("Paused")).not.toBeInTheDocument();
     expect(screen.getByText(/Next run:/i)).toBeInTheDocument();
   });

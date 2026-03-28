@@ -178,22 +178,36 @@ function formatMemorySourceLine(
   return String(sourceType);
 }
 
-function formatTaskSourceLine(
-  sourceSurface: AssistantTaskRegistryItemState["sourceSurface"],
+function resolveTaskScheduleKind(
+  sourceLabel: AssistantTaskRegistryItemState["sourceLabel"]
+): "one_time" | "recurring" | "scheduled" {
+  const normalized = sourceLabel?.trim().toLowerCase() ?? "";
+  if (normalized.includes("one-time")) {
+    return "one_time";
+  }
+  if (normalized.includes("recurring")) {
+    return "recurring";
+  }
+  return "scheduled";
+}
+
+function formatTaskScheduleKindLabel(
   sourceLabel: AssistantTaskRegistryItemState["sourceLabel"]
 ): string {
-  if (sourceLabel !== null && sourceLabel.trim().length > 0) {
-    return sourceLabel.trim();
+  const kind = resolveTaskScheduleKind(sourceLabel);
+  if (kind === "one_time") {
+    return "One-time";
   }
-  if (sourceSurface === "web") {
-    return "Web";
+  if (kind === "recurring") {
+    return "Recurring";
   }
-  return String(sourceSurface);
+  return "Scheduled";
 }
 
 function formatTaskNextRunText(
   nextRunAt: string | null,
-  controlStatus: AssistantTaskRegistryItemState["controlStatus"]
+  controlStatus: AssistantTaskRegistryItemState["controlStatus"],
+  sourceLabel: AssistantTaskRegistryItemState["sourceLabel"]
 ): string {
   if (controlStatus === "cancelled") {
     return "This reminder will not run again.";
@@ -204,7 +218,8 @@ function formatTaskNextRunText(
   if (nextRunAt === null) {
     return "Next run isn’t set yet.";
   }
-  return `Next run: ${new Date(nextRunAt).toLocaleString(undefined, {
+  const prefix = resolveTaskScheduleKind(sourceLabel) === "one_time" ? "Runs at" : "Next run";
+  return `${prefix}: ${new Date(nextRunAt).toLocaleString(undefined, {
     dateStyle: "medium",
     timeStyle: "short"
   })}`;
@@ -2820,14 +2835,18 @@ export function AppFlowClient() {
                         <p className="task-item-title">{item.title}</p>
                         <p className="task-item-meta">
                           <span className="task-pill-surface">
-                            {formatTaskSourceLine(item.sourceSurface, item.sourceLabel)}
+                            {formatTaskScheduleKindLabel(item.sourceLabel)}
                           </span>
                           <span className={taskStatusPillClass(item.controlStatus)}>
                             {taskStatusLabel(item.controlStatus)}
                           </span>
                         </p>
                         <p className="task-item-next">
-                          {formatTaskNextRunText(item.nextRunAt, item.controlStatus)}
+                          {formatTaskNextRunText(
+                            item.nextRunAt,
+                            item.controlStatus,
+                            item.sourceLabel
+                          )}
                         </p>
                         <div className="task-item-actions">
                           <button

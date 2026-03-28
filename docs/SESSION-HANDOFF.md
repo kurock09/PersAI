@@ -14,6 +14,8 @@
 - Bumped PersAI dev GitOps OpenClaw pin to `9e0ca6cd6600a3d8c946fdfb9389721b62fe5df0` so this runtime fix can actually deploy.
 - Fixed live reminder delivery auth gap: Helm OpenClaw config now sets `cron.webhookToken` from env `OPENCLAW_GATEWAY_TOKEN`, so runtime cron callbacks to `POST /api/v1/internal/cron-fire` include the bearer token required by PersAI API.
 - Fixed stale one-shot task rows after successful delivery: some OpenClaw finished events include `nextRunAtMs` that is already in the past, so PersAI now treats `status=ok + nextRunAtMs<=now` as a completed one-shot and deletes the registry row instead of keeping it active.
+- Polished reminder/task UI: new reminder rows now carry a schedule-aware label (`One-time reminder` / `Recurring reminder`), and web surfaces render clearer `Runs at` / `Next run` text plus a schedule-type badge in both Tasks Center and assistant settings.
+- Fixed task control semantics: assistant-facing `disable`, `enable`, and `cancel` actions now call the backend runtime-control path (`pause` / `resume` / `cancel`) so recurring reminders stop at the OpenClaw cron layer instead of only disappearing from PersAI UI state.
 
 ### Files touched
 

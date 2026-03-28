@@ -10,6 +10,7 @@ import {
 import { getTasksUserControlFlags } from "../domain/tasks-user-controls";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import { ControlInternalAssistantReminderTaskService } from "./control-internal-assistant-reminder-task.service";
 
 @Injectable()
 export class CancelAssistantTaskRegistryItemService {
@@ -19,7 +20,8 @@ export class CancelAssistantTaskRegistryItemService {
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_TASK_REGISTRY_REPOSITORY)
-    private readonly taskRegistryRepository: AssistantTaskRegistryRepository
+    private readonly taskRegistryRepository: AssistantTaskRegistryRepository,
+    private readonly controlInternalAssistantReminderTaskService: ControlInternalAssistantReminderTaskService
   ) {}
 
   async execute(userId: string, itemId: string): Promise<{ cancelled: true }> {
@@ -43,14 +45,11 @@ export class CancelAssistantTaskRegistryItemService {
       return { cancelled: true };
     }
 
-    const ok = await this.taskRegistryRepository.updateControlStatus(itemId, assistant.id, {
-      controlStatus: "cancelled",
-      disabledAt: null,
-      cancelledAt: new Date()
+    await this.controlInternalAssistantReminderTaskService.execute({
+      assistantId: assistant.id,
+      action: "cancel",
+      taskId: itemId
     });
-    if (!ok) {
-      throw new NotFoundException("Task was not found for this assistant.");
-    }
 
     return { cancelled: true };
   }

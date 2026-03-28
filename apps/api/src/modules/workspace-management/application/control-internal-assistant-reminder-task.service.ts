@@ -58,6 +58,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function resolveTaskSourceLabel(job: unknown): string {
+  if (!isRecord(job)) {
+    return "Scheduled reminder";
+  }
+  const schedule = isRecord(job.schedule) ? job.schedule : null;
+  const kind = typeof schedule?.kind === "string" ? schedule.kind.trim().toLowerCase() : "";
+  if (kind === "at") {
+    return "One-time reminder";
+  }
+  if (kind === "every" || kind === "cron") {
+    return "Recurring reminder";
+  }
+  return "Scheduled reminder";
+}
+
 function buildTaskRegistrySyncPayload(params: { assistantId: string; job: unknown }) {
   if (!isRecord(params.job)) {
     return null;
@@ -80,7 +95,7 @@ function buildTaskRegistrySyncPayload(params: { assistantId: string; job: unknow
     externalRef,
     title,
     sourceSurface: "web" as const,
-    sourceLabel: "Assistant reminders",
+    sourceLabel: resolveTaskSourceLabel(params.job),
     controlStatus: enabled ? ("active" as const) : ("disabled" as const),
     nextRunAt: nextRunAtMs === null ? null : new Date(nextRunAtMs).toISOString()
   };

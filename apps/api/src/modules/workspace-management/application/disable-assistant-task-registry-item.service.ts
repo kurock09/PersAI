@@ -10,6 +10,7 @@ import {
 import { getTasksUserControlFlags } from "../domain/tasks-user-controls";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import { ControlInternalAssistantReminderTaskService } from "./control-internal-assistant-reminder-task.service";
 
 @Injectable()
 export class DisableAssistantTaskRegistryItemService {
@@ -19,7 +20,8 @@ export class DisableAssistantTaskRegistryItemService {
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_TASK_REGISTRY_REPOSITORY)
-    private readonly taskRegistryRepository: AssistantTaskRegistryRepository
+    private readonly taskRegistryRepository: AssistantTaskRegistryRepository,
+    private readonly controlInternalAssistantReminderTaskService: ControlInternalAssistantReminderTaskService
   ) {}
 
   async execute(userId: string, itemId: string): Promise<{ disabled: true }> {
@@ -43,14 +45,11 @@ export class DisableAssistantTaskRegistryItemService {
       throw new ConflictException("Only active tasks can be paused.");
     }
 
-    const ok = await this.taskRegistryRepository.updateControlStatus(itemId, assistant.id, {
-      controlStatus: "disabled",
-      disabledAt: new Date(),
-      cancelledAt: null
+    await this.controlInternalAssistantReminderTaskService.execute({
+      assistantId: assistant.id,
+      action: "pause",
+      taskId: itemId
     });
-    if (!ok) {
-      throw new NotFoundException("Task was not found for this assistant.");
-    }
 
     return { disabled: true };
   }
