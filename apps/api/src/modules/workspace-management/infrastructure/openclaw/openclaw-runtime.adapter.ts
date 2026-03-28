@@ -334,7 +334,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       {
         ...(input.action ? { action: input.action } : {}),
         ...(input.args ? { args: input.args } : {}),
-        ...(input.sessionKey ? { sessionKey: input.sessionKey } : {})
+        ...(input.sessionKey ? { sessionKey: input.sessionKey } : {}),
+        ...(input.contextSessionKey ? { contextSessionKey: input.contextSessionKey } : {})
       },
       config,
       { acceptedErrorStatuses: [400] }

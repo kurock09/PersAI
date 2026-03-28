@@ -19,7 +19,7 @@ type CreateReminderTaskControlRequest = {
   title: string;
   reminderText: string;
   callbackBaseUrl: string;
-  sessionKey?: string;
+  contextSessionKey?: string;
   runAt?: string;
   delayMs?: number;
   everyMs?: number;
@@ -209,9 +209,11 @@ export class ControlInternalAssistantReminderTaskService {
         reminderText:
           normalizeOptionalString(row.reminderText) ?? normalizeRequiredString(row.title, "title"),
         callbackBaseUrl,
-        ...(normalizeOptionalString(row.sessionKey)
-          ? { sessionKey: normalizeOptionalString(row.sessionKey)! }
-          : {}),
+        ...(normalizeOptionalString(row.contextSessionKey)
+          ? { contextSessionKey: normalizeOptionalString(row.contextSessionKey)! }
+          : normalizeOptionalString(row.sessionKey)
+            ? { contextSessionKey: normalizeOptionalString(row.sessionKey)! }
+            : {}),
         ...(normalizeOptionalString(row.runAt)
           ? { runAt: normalizeOptionalString(row.runAt)! }
           : {}),
@@ -312,7 +314,7 @@ export class ControlInternalAssistantReminderTaskService {
     try {
       createdJob = await this.runtimeAdapter.controlCronJob({
         action: "add",
-        ...(input.sessionKey ? { sessionKey: input.sessionKey } : {}),
+        ...(input.contextSessionKey ? { contextSessionKey: input.contextSessionKey } : {}),
         args: {
           job: {
             name: input.title,

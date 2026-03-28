@@ -57,6 +57,7 @@ export interface AssistantRuntimeCronControlInput {
   action?: string;
   args?: Record<string, unknown>;
   sessionKey?: string;
+  contextSessionKey?: string;
 }
 
 export interface AssistantRuntimeAdapter {
