@@ -10,6 +10,7 @@
   - OpenClaw PersAI web runtime appends an explicit scheduling context (`current UTC time` + `user timezone` + formatted local time when available) to the system prompt, reducing bad `runAt` calculations for absolute local-time reminder requests.
   - Backend-side past-time validation remains in place, so invalid reminder times now fail as user-facing `400` errors instead of generic `500` runtime failures.
   - Dev GitOps pin now targets OpenClaw fork SHA `9e0ca6cd6600a3d8c946fdfb9389721b62fe5df0` for rollout of this reminder runtime fix.
+  - Helm OpenClaw runtime config now maps `cron.webhookToken` to env `OPENCLAW_GATEWAY_TOKEN`, so cron webhook deliveries to PersAI internal endpoints include `Authorization` and stop failing with `401`.
 
 - **H12 reminder/task runtime sync slice:**
   - Added PersAI internal endpoints `POST /api/v1/internal/runtime/tasks/sync` and `POST /api/v1/internal/cron-fire`.

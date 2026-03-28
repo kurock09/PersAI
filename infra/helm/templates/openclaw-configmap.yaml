@@ -26,6 +26,13 @@ data:
           }
         }
       },
+      "cron": {
+        "webhookToken": {
+          "source": "env",
+          "provider": "default",
+          "id": "OPENCLAW_GATEWAY_TOKEN"
+        }
+      },
       "gateway": {
         "controlUi": {
           "allowedOrigins": {{ .Values.openclaw.controlUi.allowedOrigins | toJson }},
