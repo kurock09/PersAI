@@ -682,7 +682,7 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByTestId("user-button")).toBeInTheDocument();
   });
 
-  it("shows Tasks Center active and inactive groups when task items load", async () => {
+  it("shows only current active tasks in Tasks Center when task items load", async () => {
     apiMocks.getMe.mockResolvedValue(makeMeResponse("completed"));
     assistantApiMocks.getAssistant.mockResolvedValue(makeAssistantResponse());
     const nextRun = new Date("2026-03-28T15:30:00.000Z").toISOString();
@@ -712,9 +712,9 @@ describe("AppFlowClient onboarding gate", () => {
     render(<AppFlowClient />);
 
     expect(await screen.findByText("Daily check-in")).toBeInTheDocument();
-    expect(screen.getByText("Weekly recap")).toBeInTheDocument();
+    expect(screen.queryByText("Weekly recap")).not.toBeInTheDocument();
     expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
-    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
     expect(screen.getByText(/Next run:/i)).toBeInTheDocument();
   });
 
