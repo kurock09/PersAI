@@ -197,6 +197,15 @@ Foundation Phase
   - [x] TG1 — backend: on `joined` event, mark stale active records with same title as "left" before upsert
   - [x] TG2 — backend: GET groups deduplicates by title (keeps most recently updated)
   - [x] TG3 — frontend: groups list shows only active groups
+- [ ] H8-scale — Telegram runtime lifecycle hardening for 1000+ users
+  - [ ] H8s1 — stop restarting Telegram bots on every no-op `spec apply`; only rotate runtime bot state when token/webhook mode/webhook URL actually changed
+  - [ ] H8s2 — remove eager `syncBotProfile` from startup/reinit path; run profile sync only after real persona/avatar changes or explicit reconnect
+  - [ ] H8s3 — persist Telegram runtime/profile fingerprints (`botToken` hash, webhook mode/url, persona hash, avatar hash) so sync decisions are idempotent
+  - [ ] H8s4 — add bounded startup/reinit concurrency with jitter/backoff instead of reinitializing all bots at once
+  - [ ] H8s5 — add cooldown/rate-limit guards for `setMyName` / `setMyDescription` / `setMyProfilePhoto` to prevent Telegram `429` storms
+  - [ ] H8s6 — keep startup cheap and readiness-safe: defer non-critical Telegram profile work until after gateway becomes ready
+  - [ ] H8s7 — review kube probe budgets (`startupProbe` / timeout / failureThreshold) only after lifecycle/idempotency fixes land; probes are not the root fix
+  - [ ] H8s8 — add runtime session lifecycle control: clear `agent:persai:<assistantId>:*` sessions on assistant reset/recreate, enforce TTL/GC for stale channel sessions, and keep session growth bounded for 1000+ users
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity
 - [x] H12 — Cron webhook callback + preferred notification channel + memory lifecycle
   - [x] H12a — Prisma: `preferredNotificationChannel` field on assistant model + migration

@@ -141,12 +141,7 @@ export function ChatArea({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-border px-5 py-3">
-        <AssistantAvatar
-          avatarUrl={assistantAvatarUrl}
-          avatarEmoji={assistantAvatarEmoji}
-          size="sm"
-        />
+      <header className="flex items-center border-b border-border px-5 py-3">
         {editing ? (
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             <input

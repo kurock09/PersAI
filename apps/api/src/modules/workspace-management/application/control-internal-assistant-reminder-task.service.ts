@@ -6,6 +6,10 @@ import {
 } from "./assistant-runtime-adapter.types";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
+  ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
+  type AssistantChannelSurfaceBindingRepository
+} from "../domain/assistant-channel-surface-binding.repository";
+import {
   ASSISTANT_TASK_REGISTRY_REPOSITORY,
   type AssistantTaskRegistryRepository
 } from "../domain/assistant-task-registry.repository";
@@ -56,6 +60,152 @@ function normalizeOptionalString(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+type StoredTelegramReminderTarget = {
+  chatId: string;
+  chatType: string;
+  title: string | null;
+  username: string | null;
+  source: "telegram_dm" | "telegram_group" | "web_telegram_dm";
+  updatedAt: string;
+};
+
+function normalizeTelegramReminderTarget(value: unknown): StoredTelegramReminderTarget | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const chatId = typeof value.chatId === "string" ? value.chatId.trim() : "";
+  const chatType = typeof value.chatType === "string" ? value.chatType.trim() : "";
+  const source = value.source;
+  if (!chatId || !chatType) {
+    return null;
+  }
+  if (source !== "telegram_dm" && source !== "telegram_group" && source !== "web_telegram_dm") {
+    return null;
+  }
+  return {
+    chatId,
+    chatType,
+    title: typeof value.title === "string" ? value.title.trim() || null : null,
+    username: typeof value.username === "string" ? value.username.trim() || null : null,
+    source,
+    updatedAt:
+      typeof value.updatedAt === "string" && value.updatedAt.trim().length > 0
+        ? value.updatedAt
+        : new Date().toISOString()
+  };
+}
+
+function parseTelegramChatIdFromSessionKey(sessionKey: string | undefined): string | undefined {
+  if (!sessionKey) {
+    return undefined;
+  }
+  const marker = ":telegram:";
+  const index = sessionKey.indexOf(marker);
+  if (index === -1) {
+    return undefined;
+  }
+  const chatId = sessionKey.slice(index + marker.length).trim();
+  return chatId.length > 0 ? chatId : undefined;
+}
+
+function normalizeBindingMetadata(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? { ...value } : {};
+}
+
+function normalizeReminderTaskTargetsMap(
+  metadata: Record<string, unknown>
+): Record<string, StoredTelegramReminderTarget> {
+  const raw = metadata.reminderTaskTargets;
+  if (!isRecord(raw)) {
+    return {};
+  }
+  const entries = Object.entries(raw)
+    .map(([jobId, target]) => [jobId, normalizeTelegramReminderTarget(target)] as const)
+    .filter((entry): entry is readonly [string, StoredTelegramReminderTarget] => entry[1] !== null);
+  return Object.fromEntries(entries);
+}
+
+function resolveTelegramReminderTargetForCreate(params: {
+  metadata: Record<string, unknown>;
+  contextSessionKey?: string;
+}): StoredTelegramReminderTarget | null {
+  const { metadata, contextSessionKey } = params;
+  const contextChatId = parseTelegramChatIdFromSessionKey(contextSessionKey);
+  const dmChatId = typeof metadata.telegramDmChatId === "string" ? metadata.telegramDmChatId.trim() : "";
+  const dmUsername =
+    typeof metadata.telegramDmUsername === "string" ? metadata.telegramDmUsername.trim() : "";
+  const groupChatId =
+    typeof metadata.telegramLastGroupChatId === "string" ? metadata.telegramLastGroupChatId.trim() : "";
+  const groupChatType =
+    typeof metadata.telegramLastGroupChatType === "string"
+      ? metadata.telegramLastGroupChatType.trim()
+      : "";
+  const groupTitle =
+    typeof metadata.telegramLastGroupChatTitle === "string"
+      ? metadata.telegramLastGroupChatTitle.trim()
+      : "";
+  const genericChatId =
+    typeof metadata.reminderDeliveryChatId === "string" ? metadata.reminderDeliveryChatId.trim() : "";
+  const genericChatType =
+    typeof metadata.reminderDeliveryChatType === "string"
+      ? metadata.reminderDeliveryChatType.trim()
+      : "";
+  const genericTitle =
+    typeof metadata.reminderDeliveryChatTitle === "string"
+      ? metadata.reminderDeliveryChatTitle.trim()
+      : "";
+  const genericUsername =
+    typeof metadata.reminderDeliveryUsername === "string"
+      ? metadata.reminderDeliveryUsername.trim()
+      : "";
+
+  if (contextChatId) {
+    if (contextChatId === dmChatId) {
+      return {
+        chatId: dmChatId,
+        chatType: "private",
+        title: null,
+        username: dmUsername || null,
+        source: "telegram_dm",
+        updatedAt: new Date().toISOString()
+      };
+    }
+    if (contextChatId === groupChatId && (groupChatType === "group" || groupChatType === "supergroup")) {
+      return {
+        chatId: groupChatId,
+        chatType: groupChatType,
+        title: groupTitle || null,
+        username: null,
+        source: "telegram_group",
+        updatedAt: new Date().toISOString()
+      };
+    }
+    if (contextChatId === genericChatId && genericChatType) {
+      return {
+        chatId: genericChatId,
+        chatType: genericChatType,
+        title: genericTitle || null,
+        username: genericChatType === "private" ? genericUsername || null : null,
+        source: genericChatType === "private" ? "telegram_dm" : "telegram_group",
+        updatedAt: new Date().toISOString()
+      };
+    }
+    return null;
+  }
+
+  if (!dmChatId) {
+    return null;
+  }
+  return {
+    chatId: dmChatId,
+    chatType: "private",
+    title: null,
+    username: dmUsername || null,
+    source: "web_telegram_dm",
+    updatedAt: new Date().toISOString()
+  };
 }
 
 function resolveTaskSourceLabel(job: unknown): string {
@@ -152,6 +302,8 @@ export class ControlInternalAssistantReminderTaskService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
+    @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
+    private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
     @Inject(ASSISTANT_TASK_REGISTRY_REPOSITORY)
     private readonly assistantTaskRegistryRepository: AssistantTaskRegistryRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
@@ -275,6 +427,7 @@ export class ControlInternalAssistantReminderTaskService {
         }
       }
       await this.deleteTaskRegistryRow(assistant.id, task.externalRef);
+      await this.deleteTelegramReminderTarget(assistant.id, task.externalRef);
       return {
         ok: true,
         cancelled: true,
@@ -354,6 +507,7 @@ export class ControlInternalAssistantReminderTaskService {
       throw new BadRequestException("Runtime create response is missing reminder metadata.");
     }
     await this.syncAssistantTaskRegistryService.execute(syncPayload);
+    await this.persistTelegramReminderTarget(input.assistantId, syncPayload.externalRef, input.contextSessionKey);
 
     const taskRow = await this.findTaskByExternalRef(input.assistantId, syncPayload.externalRef);
     return {
@@ -396,5 +550,61 @@ export class ControlInternalAssistantReminderTaskService {
       assistantId,
       externalRef
     });
+  }
+
+  private async persistTelegramReminderTarget(
+    assistantId: string,
+    externalRef: string,
+    contextSessionKey: string | undefined
+  ): Promise<void> {
+    const binding = await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
+      assistantId,
+      "telegram",
+      "telegram_bot"
+    );
+    if (binding === null || binding.bindingState !== "active") {
+      return;
+    }
+
+    const metadata = normalizeBindingMetadata(binding.metadata);
+    const target = resolveTelegramReminderTargetForCreate(
+      contextSessionKey !== undefined ? { metadata, contextSessionKey } : { metadata }
+    );
+    if (target === null) {
+      return;
+    }
+
+    const reminderTaskTargets = normalizeReminderTaskTargetsMap(metadata);
+    reminderTaskTargets[externalRef] = target;
+    await this.assistantChannelSurfaceBindingRepository.patchMetadata(
+      assistantId,
+      "telegram",
+      "telegram_bot",
+      { reminderTaskTargets }
+    );
+  }
+
+  private async deleteTelegramReminderTarget(assistantId: string, externalRef: string): Promise<void> {
+    const binding = await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
+      assistantId,
+      "telegram",
+      "telegram_bot"
+    );
+    if (binding === null || binding.bindingState !== "active") {
+      return;
+    }
+
+    const metadata = normalizeBindingMetadata(binding.metadata);
+    const reminderTaskTargets = normalizeReminderTaskTargetsMap(metadata);
+    if (!(externalRef in reminderTaskTargets)) {
+      return;
+    }
+    delete reminderTaskTargets[externalRef];
+    await this.assistantChannelSurfaceBindingRepository.patchMetadata(
+      assistantId,
+      "telegram",
+      "telegram_bot",
+      { reminderTaskTargets }
+    );
   }
 }

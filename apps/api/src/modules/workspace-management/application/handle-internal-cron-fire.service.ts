@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -26,6 +27,100 @@ function normalizeOptionalTrimmedString(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+type StoredTelegramReminderTarget = {
+  chatId: string;
+  chatType: string;
+  title: string | null;
+  username: string | null;
+  source: "telegram_dm" | "telegram_group" | "web_telegram_dm";
+  updatedAt: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeBindingMetadata(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function normalizeTelegramReminderTarget(value: unknown): StoredTelegramReminderTarget | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const chatId = typeof value.chatId === "string" ? value.chatId.trim() : "";
+  const chatType = typeof value.chatType === "string" ? value.chatType.trim() : "";
+  const source = value.source;
+  if (!chatId || !chatType) {
+    return null;
+  }
+  if (source !== "telegram_dm" && source !== "telegram_group" && source !== "web_telegram_dm") {
+    return null;
+  }
+  return {
+    chatId,
+    chatType,
+    title: typeof value.title === "string" ? value.title.trim() || null : null,
+    username: typeof value.username === "string" ? value.username.trim() || null : null,
+    source,
+    updatedAt:
+      typeof value.updatedAt === "string" && value.updatedAt.trim().length > 0
+        ? value.updatedAt
+        : new Date().toISOString()
+  };
+}
+
+function resolveTaskTelegramTarget(metadata: Record<string, unknown>, jobId: string) {
+  const reminderTaskTargets = metadata.reminderTaskTargets;
+  if (!isRecord(reminderTaskTargets)) {
+    return null;
+  }
+  return normalizeTelegramReminderTarget(reminderTaskTargets[jobId]);
+}
+
+function resolveDefaultTelegramDmTarget(metadata: Record<string, unknown>): StoredTelegramReminderTarget | null {
+  const dmChatId = typeof metadata.telegramDmChatId === "string" ? metadata.telegramDmChatId.trim() : "";
+  if (dmChatId) {
+    return {
+      chatId: dmChatId,
+      chatType: "private",
+      title: null,
+      username:
+        typeof metadata.telegramDmUsername === "string" ? metadata.telegramDmUsername.trim() || null : null,
+      source: "web_telegram_dm",
+      updatedAt:
+        typeof metadata.telegramDmUpdatedAt === "string" && metadata.telegramDmUpdatedAt.trim().length > 0
+          ? metadata.telegramDmUpdatedAt
+          : new Date().toISOString()
+    };
+  }
+
+  const legacyChatId =
+    typeof metadata.reminderDeliveryChatId === "string" ? metadata.reminderDeliveryChatId.trim() : "";
+  const legacyChatType =
+    typeof metadata.reminderDeliveryChatType === "string"
+      ? metadata.reminderDeliveryChatType.trim()
+      : "";
+  if (!legacyChatId || legacyChatType !== "private") {
+    return null;
+  }
+  return {
+    chatId: legacyChatId,
+    chatType: "private",
+    title: null,
+    username:
+      typeof metadata.reminderDeliveryUsername === "string"
+        ? metadata.reminderDeliveryUsername.trim() || null
+        : null,
+    source: "web_telegram_dm",
+    updatedAt:
+      typeof metadata.reminderDeliveryUpdatedAt === "string" &&
+      metadata.reminderDeliveryUpdatedAt.trim().length > 0
+        ? metadata.reminderDeliveryUpdatedAt
+        : new Date().toISOString()
+  };
 }
 
 function stripReminderContextArtifact(value: string): string {
@@ -128,6 +223,7 @@ export class HandleInternalCronFireService {
     if (preferred === "telegram") {
       const delivered = await this.tryDeliverReminderToTelegram({
         assistantId: assistant.id,
+        jobId: input.jobId,
         summary,
         bindings: assistant.channelSurfaceBindings
       });
@@ -149,6 +245,7 @@ export class HandleInternalCronFireService {
 
   private async tryDeliverReminderToTelegram(params: {
     assistantId: string;
+    jobId: string;
     summary: string;
     bindings: Array<{ providerKey: string; metadata: unknown }>;
   }): Promise<boolean> {
@@ -157,17 +254,10 @@ export class HandleInternalCronFireService {
       return false;
     }
 
-    const metadata =
-      telegramBinding.metadata &&
-      typeof telegramBinding.metadata === "object" &&
-      !Array.isArray(telegramBinding.metadata)
-        ? (telegramBinding.metadata as Record<string, unknown>)
-        : null;
-    const reminderDeliveryChatId =
-      typeof metadata?.reminderDeliveryChatId === "string"
-        ? metadata.reminderDeliveryChatId.trim()
-        : "";
-    if (!reminderDeliveryChatId) {
+    const metadata = normalizeBindingMetadata(telegramBinding.metadata);
+    const target =
+      resolveTaskTelegramTarget(metadata, params.jobId) ?? resolveDefaultTelegramDmTarget(metadata);
+    if (!target) {
       return false;
     }
 
@@ -183,7 +273,7 @@ export class HandleInternalCronFireService {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chat_id: reminderDeliveryChatId,
+        chat_id: target.chatId,
         text: params.summary
       })
     }).catch(() => null);
@@ -206,6 +296,7 @@ export class HandleInternalCronFireService {
           externalRef: input.jobId
         }
       });
+      await this.deleteTelegramReminderTarget(input.assistantId, input.jobId);
       return;
     }
 
@@ -223,6 +314,37 @@ export class HandleInternalCronFireService {
         }
       });
     }
+  }
+
+  private async deleteTelegramReminderTarget(assistantId: string, externalRef: string): Promise<void> {
+    const binding = await this.prisma.assistantChannelSurfaceBinding.findFirst({
+      where: {
+        assistantId,
+        providerKey: "telegram",
+        surfaceType: "telegram_bot",
+        bindingState: "active"
+      },
+      select: { id: true, metadata: true }
+    });
+    if (binding === null) {
+      return;
+    }
+
+    const metadata = normalizeBindingMetadata(binding.metadata);
+    const reminderTaskTargets = isRecord(metadata.reminderTaskTargets)
+      ? { ...metadata.reminderTaskTargets }
+      : null;
+    if (reminderTaskTargets === null || !(externalRef in reminderTaskTargets)) {
+      return;
+    }
+
+    delete reminderTaskTargets[externalRef];
+    await this.prisma.assistantChannelSurfaceBinding.update({
+      where: { id: binding.id },
+      data: {
+        metadata: { ...metadata, reminderTaskTargets } as Prisma.InputJsonValue
+      }
+    });
   }
 
   private async deliverReminderToWeb(params: {

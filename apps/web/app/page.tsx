@@ -8,6 +8,15 @@ export default async function HomePage() {
     redirect("/app");
   }
 
+  const signInTrigger = (
+    <button
+      type="button"
+      className="mt-10 cursor-pointer rounded-xl bg-accent px-10 py-3.5 text-base font-semibold text-white shadow-lg shadow-accent-glow transition-colors duration-200 hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent animate-fade-in-up-delay"
+    >
+      Get started
+    </button>
+  );
+
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
       {/* Ambient glow orbs */}
@@ -26,13 +35,12 @@ export default async function HomePage() {
           One mind. Everywhere.
         </p>
 
-        <SignInButton mode="modal">
-          <button
-            type="button"
-            className="mt-10 cursor-pointer rounded-xl bg-accent px-10 py-3.5 text-base font-semibold text-white shadow-lg shadow-accent-glow transition-colors duration-200 hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent animate-fade-in-up-delay"
-          >
-            Get started
-          </button>
+        <SignInButton
+          mode="modal"
+          fallbackRedirectUrl="/app"
+          signUpFallbackRedirectUrl="/app"
+        >
+          {signInTrigger}
         </SignInButton>
 
         <p className="mt-16 text-xs text-text-subtle">

@@ -50,11 +50,24 @@ export class SyncTelegramChatTargetService {
   }
 
   async execute(input: TelegramChatTargetSyncRequest): Promise<void> {
+    const isPrivateChat = input.chatType === "private";
     await this.assistantChannelSurfaceBindingRepository.patchMetadata(
       input.assistantId,
       "telegram",
       "telegram_bot",
       {
+        ...(isPrivateChat
+          ? {
+              telegramDmChatId: input.telegramChatId,
+              telegramDmUsername: input.username,
+              telegramDmUpdatedAt: new Date().toISOString()
+            }
+          : {
+              telegramLastGroupChatId: input.telegramChatId,
+              telegramLastGroupChatType: input.chatType,
+              telegramLastGroupChatTitle: input.title,
+              telegramLastGroupUpdatedAt: new Date().toISOString()
+            }),
         reminderDeliveryChatId: input.telegramChatId,
         reminderDeliveryChatType: input.chatType,
         reminderDeliveryChatTitle: input.title,
