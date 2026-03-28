@@ -11,6 +11,7 @@
   - Backend-side past-time validation remains in place, so invalid reminder times now fail as user-facing `400` errors instead of generic `500` runtime failures.
   - Dev GitOps pin now targets OpenClaw fork SHA `9e0ca6cd6600a3d8c946fdfb9389721b62fe5df0` for rollout of this reminder runtime fix.
   - Helm OpenClaw runtime config now maps `cron.webhookToken` to env `OPENCLAW_GATEWAY_TOKEN`, so cron webhook deliveries to PersAI internal endpoints include `Authorization` and stop failing with `401`.
+  - `cron-fire` now treats `finished ok` callbacks with missing or already-past `nextRunAtMs` as completed one-shot reminders and hard-removes them from the PersAI task registry instead of leaving stale `active` rows in `Tasks`.
 
 - **H12 reminder/task runtime sync slice:**
   - Added PersAI internal endpoints `POST /api/v1/internal/runtime/tasks/sync` and `POST /api/v1/internal/cron-fire`.

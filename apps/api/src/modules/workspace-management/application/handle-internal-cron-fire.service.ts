@@ -183,7 +183,14 @@ export class HandleInternalCronFireService {
   }
 
   private async syncTaskRegistryFromCronRun(input: InternalCronFireRequest): Promise<void> {
-    if (input.status === "ok" && input.nextRunAtMs === undefined) {
+    const nextRunAtMs =
+      typeof input.nextRunAtMs === "number" && Number.isFinite(input.nextRunAtMs)
+        ? input.nextRunAtMs
+        : undefined;
+    const completedOneShot =
+      input.status === "ok" && (nextRunAtMs === undefined || nextRunAtMs <= Date.now());
+
+    if (completedOneShot) {
       await this.prisma.assistantTaskRegistryItem.deleteMany({
         where: {
           assistantId: input.assistantId,
@@ -193,14 +200,14 @@ export class HandleInternalCronFireService {
       return;
     }
 
-    if (input.nextRunAtMs !== undefined) {
+    if (nextRunAtMs !== undefined) {
       await this.prisma.assistantTaskRegistryItem.updateMany({
         where: {
           assistantId: input.assistantId,
           externalRef: input.jobId
         },
         data: {
-          nextRunAt: new Date(input.nextRunAtMs),
+          nextRunAt: new Date(nextRunAtMs),
           ...(input.status === "error"
             ? {}
             : { controlStatus: "active", disabledAt: null, cancelledAt: null })
