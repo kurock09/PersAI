@@ -1,5 +1,46 @@
 # SESSION-HANDOFF
 
+## 2026-03-28 - Reminder time-resolution hardening
+
+### What changed
+
+- Added backend-supported `delayMs` to PersAI reminder-task control so relative one-shot reminders no longer depend on a model inventing a correct absolute `runAt`.
+- PersAI web inbound turns now pass live `currentTimeIso` and `userTimezone` into the OpenClaw runtime request.
+- OpenClaw PersAI web runtime now appends a dynamic scheduling context to the system prompt:
+  - current UTC time
+  - user timezone
+  - formatted current local time in that timezone when it can be rendered
+- The existing backend validation for `runAt in the past` remains, so invalid timestamps still stop at the PersAI boundary with a clear `400` instead of surfacing as a generic `500`.
+
+### Files touched
+
+**PersAI API:**
+
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+**OpenClaw:**
+
+- `src/agents/tools/reminder-task-tool.ts`
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+
+### Tests run
+
+- `corepack pnpm run typecheck` in `apps/api`
+- `corepack pnpm exec oxlint --type-aware src/agents/tools/reminder-task-tool.ts src/gateway/persai-runtime/persai-runtime-http.ts`
+- `node scripts/verify-persai-patches.mjs`
+
+### Risks
+
+1. Relative one-shot reminders are now deterministic via `delayMs`, but absolute local-time reminder resolution still depends on model/tool argument quality; the new runtime time context is meant to reduce that failure mode rather than fully replace semantic parsing.
+2. Full-repo `openclaw` `tsc --noEmit` still reports unrelated pre-existing errors outside the touched reminder/runtime files.
+
 ## 2026-03-28 - H12 reminder_task control-plane ownership follow-up
 
 ### What changed

@@ -90,7 +90,9 @@ export class SendWebChatTurnService {
         chatId: prepared.chat.id,
         surfaceThreadKey: prepared.chat.surfaceThreadKey,
         userMessageId: prepared.userMessage.id,
-        userMessage: prepared.userMessage.content
+        userMessage: prepared.userMessage.content,
+        userTimezone: prepared.workspaceTimezone,
+        currentTimeIso: new Date().toISOString()
       })
       .catch((error: unknown) => {
         throw toAssistantInboundHttpException(error);

@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
   ASSISTANT_RUNTIME_ADAPTER,
+  AssistantRuntimeAdapterError,
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
@@ -20,6 +21,7 @@ type CreateReminderTaskControlRequest = {
   callbackBaseUrl: string;
   sessionKey?: string;
   runAt?: string;
+  delayMs?: number;
   everyMs?: number;
   anchorAt?: string;
   cronExpr?: string;
@@ -87,13 +89,29 @@ function buildTaskRegistrySyncPayload(params: { assistantId: string; job: unknow
 function buildSchedule(input: CreateReminderTaskControlRequest) {
   const definedCount =
     Number(Boolean(input.runAt)) +
+    Number(input.delayMs !== undefined) +
     Number(input.everyMs !== undefined) +
     Number(Boolean(input.cronExpr));
   if (definedCount !== 1) {
-    throw new BadRequestException("Exactly one of runAt, everyMs, or cronExpr is required.");
+    throw new BadRequestException(
+      "Exactly one of runAt, delayMs, everyMs, or cronExpr is required."
+    );
   }
   if (input.runAt) {
+    const runAtMs = Date.parse(input.runAt);
+    if (!Number.isFinite(runAtMs)) {
+      throw new BadRequestException("runAt must be a valid ISO datetime.");
+    }
+    if (runAtMs <= Date.now()) {
+      throw new BadRequestException(
+        "Reminder time resolved to the past. Please ask again with a future time."
+      );
+    }
     return { kind: "at" as const, at: input.runAt };
+  }
+  if (input.delayMs !== undefined) {
+    const delayMs = Math.max(1_000, Math.floor(input.delayMs));
+    return { kind: "at" as const, at: new Date(Date.now() + delayMs).toISOString() };
   }
   if (input.everyMs !== undefined) {
     return {
@@ -139,6 +157,13 @@ export class ControlInternalAssistantReminderTaskService {
     }
 
     if (action === "create") {
+      const delayMsRaw = row.delayMs;
+      if (
+        delayMsRaw !== undefined &&
+        (typeof delayMsRaw !== "number" || !Number.isFinite(delayMsRaw) || delayMsRaw < 1)
+      ) {
+        throw new BadRequestException("delayMs must be a positive number.");
+      }
       const everyMsRaw = row.everyMs;
       if (
         everyMsRaw !== undefined &&
@@ -175,6 +200,7 @@ export class ControlInternalAssistantReminderTaskService {
         ...(normalizeOptionalString(row.runAt)
           ? { runAt: normalizeOptionalString(row.runAt)! }
           : {}),
+        ...(delayMsRaw !== undefined ? { delayMs: delayMsRaw as number } : {}),
         ...(everyMsRaw !== undefined ? { everyMs: everyMsRaw as number } : {}),
         ...(normalizeOptionalString(row.anchorAt)
           ? { anchorAt: normalizeOptionalString(row.anchorAt)! }
@@ -267,26 +293,40 @@ export class ControlInternalAssistantReminderTaskService {
   }
 
   private async createReminderTask(input: CreateReminderTaskControlRequest): Promise<unknown> {
-    const createdJob = await this.runtimeAdapter.controlCronJob({
-      action: "add",
-      ...(input.sessionKey ? { sessionKey: input.sessionKey } : {}),
-      args: {
-        job: {
-          name: input.title,
-          schedule: buildSchedule(input),
-          payload: {
-            kind: "systemEvent",
-            text: input.reminderText
+    let createdJob: unknown;
+    try {
+      createdJob = await this.runtimeAdapter.controlCronJob({
+        action: "add",
+        ...(input.sessionKey ? { sessionKey: input.sessionKey } : {}),
+        args: {
+          job: {
+            name: input.title,
+            schedule: buildSchedule(input),
+            payload: {
+              kind: "systemEvent",
+              text: input.reminderText
+            },
+            enabled: true,
+            delivery: {
+              mode: "webhook",
+              to: buildCronWebhookUrl(input.callbackBaseUrl, input.assistantId)
+            }
           },
-          enabled: true,
-          delivery: {
-            mode: "webhook",
-            to: buildCronWebhookUrl(input.callbackBaseUrl, input.assistantId)
-          }
-        },
-        ...(input.contextMessages !== undefined ? { contextMessages: input.contextMessages } : {})
+          ...(input.contextMessages !== undefined ? { contextMessages: input.contextMessages } : {})
+        }
+      });
+    } catch (error) {
+      if (
+        error instanceof AssistantRuntimeAdapterError &&
+        error.code === "invalid_response" &&
+        error.message.toLowerCase().includes("schedule.at is in the past")
+      ) {
+        throw new BadRequestException(
+          "Reminder time resolved to the past. Please ask again with a future time."
+        );
       }
-    });
+      throw error;
+    }
 
     const normalizedJob = this.unwrapToolDetails(createdJob);
     const syncPayload = buildTaskRegistrySyncPayload({

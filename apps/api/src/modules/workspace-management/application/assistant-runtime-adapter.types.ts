@@ -37,6 +37,8 @@ export interface AssistantRuntimeWebChatTurnInput {
   surfaceThreadKey: string;
   userMessageId: string;
   userMessage: string;
+  userTimezone?: string;
+  currentTimeIso?: string;
 }
 
 export interface AssistantRuntimeWebChatTurnResult {

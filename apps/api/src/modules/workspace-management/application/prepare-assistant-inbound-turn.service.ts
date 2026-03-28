@@ -14,6 +14,7 @@ import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.s
 import type { Assistant } from "../domain/assistant.entity";
 import type { AssistantWebChatMessageState, AssistantWebChatState } from "./web-chat.types";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 export type AssistantInboundSurface = "web_chat";
 
@@ -33,6 +34,7 @@ export interface PreparedAssistantInboundTurn {
   publishedVersionId: string;
   userId: string;
   workspaceId: string;
+  workspaceTimezone: string;
 }
 
 @Injectable()
@@ -46,7 +48,8 @@ export class PrepareAssistantInboundTurnService {
     private readonly assistantChatRepository: AssistantChatRepository,
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
     private readonly enforceAbuseRateLimitService: EnforceAbuseRateLimitService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   async execute(input: PrepareAssistantInboundTurnInput): Promise<PreparedAssistantInboundTurn> {
@@ -124,6 +127,13 @@ export class PrepareAssistantInboundTurnService {
       activeWebChatsCurrent,
       source: "web_chat_turn_prepare"
     });
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: assistant.workspaceId },
+      select: { timezone: true }
+    });
+    if (workspace === null) {
+      throw new NotFoundException("Workspace does not exist for this assistant.");
+    }
 
     return {
       chat: {
@@ -149,7 +159,8 @@ export class PrepareAssistantInboundTurnService {
       assistantId: assistant.id,
       publishedVersionId: latestPublishedVersion.id,
       userId: assistant.userId,
-      workspaceId: assistant.workspaceId
+      workspaceId: assistant.workspaceId,
+      workspaceTimezone: workspace.timezone
     };
   }
 }

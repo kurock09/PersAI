@@ -191,7 +191,9 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         chatId: input.chatId,
         surfaceThreadKey: input.surfaceThreadKey,
         userMessageId: input.userMessageId,
-        userMessage: input.userMessage
+        userMessage: input.userMessage,
+        ...(input.userTimezone ? { userTimezone: input.userTimezone } : {}),
+        ...(input.currentTimeIso ? { currentTimeIso: input.currentTimeIso } : {})
       },
       config
     );
@@ -251,7 +253,9 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         chatId: input.chatId,
         surfaceThreadKey: input.surfaceThreadKey,
         userMessageId: input.userMessageId,
-        userMessage: input.userMessage
+        userMessage: input.userMessage,
+        ...(input.userTimezone ? { userTimezone: input.userTimezone } : {}),
+        ...(input.currentTimeIso ? { currentTimeIso: input.currentTimeIso } : {})
       },
       config
     );
