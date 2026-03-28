@@ -35,11 +35,7 @@ export default async function HomePage() {
           One mind. Everywhere.
         </p>
 
-        <SignInButton
-          mode="modal"
-          fallbackRedirectUrl="/app"
-          signUpFallbackRedirectUrl="/app"
-        >
+        <SignInButton mode="modal" fallbackRedirectUrl="/app" signUpFallbackRedirectUrl="/app">
           {signInTrigger}
         </SignInButton>
 

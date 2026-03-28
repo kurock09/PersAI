@@ -80,25 +80,33 @@ function resolveTaskTelegramTarget(metadata: Record<string, unknown>, jobId: str
   return normalizeTelegramReminderTarget(reminderTaskTargets[jobId]);
 }
 
-function resolveDefaultTelegramDmTarget(metadata: Record<string, unknown>): StoredTelegramReminderTarget | null {
-  const dmChatId = typeof metadata.telegramDmChatId === "string" ? metadata.telegramDmChatId.trim() : "";
+function resolveDefaultTelegramDmTarget(
+  metadata: Record<string, unknown>
+): StoredTelegramReminderTarget | null {
+  const dmChatId =
+    typeof metadata.telegramDmChatId === "string" ? metadata.telegramDmChatId.trim() : "";
   if (dmChatId) {
     return {
       chatId: dmChatId,
       chatType: "private",
       title: null,
       username:
-        typeof metadata.telegramDmUsername === "string" ? metadata.telegramDmUsername.trim() || null : null,
+        typeof metadata.telegramDmUsername === "string"
+          ? metadata.telegramDmUsername.trim() || null
+          : null,
       source: "web_telegram_dm",
       updatedAt:
-        typeof metadata.telegramDmUpdatedAt === "string" && metadata.telegramDmUpdatedAt.trim().length > 0
+        typeof metadata.telegramDmUpdatedAt === "string" &&
+        metadata.telegramDmUpdatedAt.trim().length > 0
           ? metadata.telegramDmUpdatedAt
           : new Date().toISOString()
     };
   }
 
   const legacyChatId =
-    typeof metadata.reminderDeliveryChatId === "string" ? metadata.reminderDeliveryChatId.trim() : "";
+    typeof metadata.reminderDeliveryChatId === "string"
+      ? metadata.reminderDeliveryChatId.trim()
+      : "";
   const legacyChatType =
     typeof metadata.reminderDeliveryChatType === "string"
       ? metadata.reminderDeliveryChatType.trim()
@@ -316,7 +324,10 @@ export class HandleInternalCronFireService {
     }
   }
 
-  private async deleteTelegramReminderTarget(assistantId: string, externalRef: string): Promise<void> {
+  private async deleteTelegramReminderTarget(
+    assistantId: string,
+    externalRef: string
+  ): Promise<void> {
     const binding = await this.prisma.assistantChannelSurfaceBinding.findFirst({
       where: {
         assistantId,

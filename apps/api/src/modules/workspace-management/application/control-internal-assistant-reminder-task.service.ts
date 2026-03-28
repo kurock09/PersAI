@@ -133,11 +133,14 @@ function resolveTelegramReminderTargetForCreate(params: {
 }): StoredTelegramReminderTarget | null {
   const { metadata, contextSessionKey } = params;
   const contextChatId = parseTelegramChatIdFromSessionKey(contextSessionKey);
-  const dmChatId = typeof metadata.telegramDmChatId === "string" ? metadata.telegramDmChatId.trim() : "";
+  const dmChatId =
+    typeof metadata.telegramDmChatId === "string" ? metadata.telegramDmChatId.trim() : "";
   const dmUsername =
     typeof metadata.telegramDmUsername === "string" ? metadata.telegramDmUsername.trim() : "";
   const groupChatId =
-    typeof metadata.telegramLastGroupChatId === "string" ? metadata.telegramLastGroupChatId.trim() : "";
+    typeof metadata.telegramLastGroupChatId === "string"
+      ? metadata.telegramLastGroupChatId.trim()
+      : "";
   const groupChatType =
     typeof metadata.telegramLastGroupChatType === "string"
       ? metadata.telegramLastGroupChatType.trim()
@@ -147,7 +150,9 @@ function resolveTelegramReminderTargetForCreate(params: {
       ? metadata.telegramLastGroupChatTitle.trim()
       : "";
   const genericChatId =
-    typeof metadata.reminderDeliveryChatId === "string" ? metadata.reminderDeliveryChatId.trim() : "";
+    typeof metadata.reminderDeliveryChatId === "string"
+      ? metadata.reminderDeliveryChatId.trim()
+      : "";
   const genericChatType =
     typeof metadata.reminderDeliveryChatType === "string"
       ? metadata.reminderDeliveryChatType.trim()
@@ -172,7 +177,10 @@ function resolveTelegramReminderTargetForCreate(params: {
         updatedAt: new Date().toISOString()
       };
     }
-    if (contextChatId === groupChatId && (groupChatType === "group" || groupChatType === "supergroup")) {
+    if (
+      contextChatId === groupChatId &&
+      (groupChatType === "group" || groupChatType === "supergroup")
+    ) {
       return {
         chatId: groupChatId,
         chatType: groupChatType,
@@ -507,7 +515,11 @@ export class ControlInternalAssistantReminderTaskService {
       throw new BadRequestException("Runtime create response is missing reminder metadata.");
     }
     await this.syncAssistantTaskRegistryService.execute(syncPayload);
-    await this.persistTelegramReminderTarget(input.assistantId, syncPayload.externalRef, input.contextSessionKey);
+    await this.persistTelegramReminderTarget(
+      input.assistantId,
+      syncPayload.externalRef,
+      input.contextSessionKey
+    );
 
     const taskRow = await this.findTaskByExternalRef(input.assistantId, syncPayload.externalRef);
     return {
@@ -557,11 +569,12 @@ export class ControlInternalAssistantReminderTaskService {
     externalRef: string,
     contextSessionKey: string | undefined
   ): Promise<void> {
-    const binding = await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
-      assistantId,
-      "telegram",
-      "telegram_bot"
-    );
+    const binding =
+      await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
+        assistantId,
+        "telegram",
+        "telegram_bot"
+      );
     if (binding === null || binding.bindingState !== "active") {
       return;
     }
@@ -584,12 +597,16 @@ export class ControlInternalAssistantReminderTaskService {
     );
   }
 
-  private async deleteTelegramReminderTarget(assistantId: string, externalRef: string): Promise<void> {
-    const binding = await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
-      assistantId,
-      "telegram",
-      "telegram_bot"
-    );
+  private async deleteTelegramReminderTarget(
+    assistantId: string,
+    externalRef: string
+  ): Promise<void> {
+    const binding =
+      await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
+        assistantId,
+        "telegram",
+        "telegram_bot"
+      );
     if (binding === null || binding.bindingState !== "active") {
       return;
     }

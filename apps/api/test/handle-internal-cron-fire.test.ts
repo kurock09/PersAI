@@ -133,7 +133,9 @@ async function runTelegramTaskTargetTest(): Promise<void> {
     });
 
     assert.equal(result.deliveredTo, "telegram");
-    assert.deepEqual(sentPayloads, [{ chat_id: "group-locked", text: "Пора идти гулять с Симбой!" }]);
+    assert.deepEqual(sentPayloads, [
+      { chat_id: "group-locked", text: "Пора идти гулять с Симбой!" }
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
