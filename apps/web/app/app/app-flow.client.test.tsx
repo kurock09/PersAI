@@ -665,7 +665,7 @@ describe("AppFlowClient onboarding gate", () => {
     expect(screen.getByRole("button", { name: "Reset assistant" })).toBeInTheDocument();
     expect(screen.getByText("Assistant activity and updates")).toBeInTheDocument();
     expect(screen.getByText("Plan and limits visibility")).toBeInTheDocument();
-    expect(screen.getAllByText("Token budget:").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Token budget:")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("24%").length).toBeGreaterThan(0);
     expect(screen.getByText("Admin plan visibility")).toBeInTheDocument();
     expect(screen.getByText("Admin system notifications")).toBeInTheDocument();
