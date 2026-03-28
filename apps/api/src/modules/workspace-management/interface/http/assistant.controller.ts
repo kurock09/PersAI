@@ -36,8 +36,11 @@ import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn
 import { UpdateAssistantDraftService } from "../../application/update-assistant-draft.service";
 import { ResolvePlanVisibilityService } from "../../application/resolve-plan-visibility.service";
 import { ResolveTelegramIntegrationStateService } from "../../application/resolve-telegram-integration-state.service";
+import type { AssistantNotificationPreferenceState } from "../../application/assistant-notification-preference.types";
+import { ResolveAssistantNotificationPreferenceService } from "../../application/resolve-assistant-notification-preference.service";
 import { ConnectTelegramIntegrationService } from "../../application/connect-telegram-integration.service";
 import { UpdateTelegramIntegrationConfigService } from "../../application/update-telegram-integration-config.service";
+import { UpdateAssistantNotificationPreferenceService } from "../../application/update-assistant-notification-preference.service";
 import { RevokeTelegramIntegrationSecretService } from "../../application/revoke-telegram-integration-secret.service";
 import { DoNotRememberAssistantMemoryService } from "../../application/do-not-remember-assistant-memory.service";
 import { ForgetAssistantMemoryItemService } from "../../application/forget-assistant-memory-item.service";
@@ -71,8 +74,10 @@ export class AssistantController {
     private readonly updateAssistantDraftService: UpdateAssistantDraftService,
     private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
+    private readonly resolveAssistantNotificationPreferenceService: ResolveAssistantNotificationPreferenceService,
     private readonly connectTelegramIntegrationService: ConnectTelegramIntegrationService,
     private readonly updateTelegramIntegrationConfigService: UpdateTelegramIntegrationConfigService,
+    private readonly updateAssistantNotificationPreferenceService: UpdateAssistantNotificationPreferenceService,
     private readonly revokeTelegramIntegrationSecretService: RevokeTelegramIntegrationSecretService,
     private readonly listAssistantMemoryItemsService: ListAssistantMemoryItemsService,
     private readonly forgetAssistantMemoryItemService: ForgetAssistantMemoryItemService,
@@ -210,6 +215,39 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       integration
+    };
+  }
+
+  @Get("assistant/notification-preference")
+  async getNotificationPreference(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    preference: AssistantNotificationPreferenceState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const preference = await this.resolveAssistantNotificationPreferenceService.execute(userId);
+    return {
+      requestId: req.requestId ?? null,
+      preference
+    };
+  }
+
+  @Patch("assistant/notification-preference")
+  async updateNotificationPreference(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    preference: AssistantNotificationPreferenceState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.updateAssistantNotificationPreferenceService.parseInput(body);
+    const preference = await this.updateAssistantNotificationPreferenceService.execute(
+      userId,
+      input
+    );
+    return {
+      requestId: req.requestId ?? null,
+      preference
     };
   }
 
@@ -792,7 +830,11 @@ export class AssistantController {
       return;
     }
 
-    sendSse("failed", { message: outcome.message, transport: outcome.transport });
+    sendSse("failed", {
+      code: outcome.code,
+      message: outcome.message,
+      transport: outcome.transport
+    });
     res.end();
   }
 

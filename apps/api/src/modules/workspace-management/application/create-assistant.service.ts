@@ -10,6 +10,10 @@ import {
 } from "../domain/assistant-materialized-spec.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import {
+  ASSISTANT_RUNTIME_ADAPTER,
+  type AssistantRuntimeAdapter
+} from "./assistant-runtime-adapter.types";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
@@ -23,6 +27,8 @@ export class CreateAssistantService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
+    @Inject(ASSISTANT_RUNTIME_ADAPTER)
+    private readonly runtimeAdapter: AssistantRuntimeAdapter,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
@@ -59,6 +65,11 @@ export class CreateAssistantService {
     const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
       assistant.id
     );
+    try {
+      await this.runtimeAdapter.resetMemoryWorkspace(assistant.id);
+    } catch (err) {
+      console.warn("[assistant.create] Non-fatal: failed to initialize memory workspace:", err);
+    }
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,

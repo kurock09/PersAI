@@ -53,6 +53,8 @@ Postgres with Prisma.
 - apply_finished_at (nullable)
 - apply_error_code (nullable)
 - apply_error_message (nullable)
+- Step 12 H12 implemented extension:
+  - `preferred_notification_channel` (`web|telegram|whatsapp`, non-null, default `web`; PersAI-owned reminder delivery preference)
 - created_at
 - updated_at
 - Step 10 G3 ownership transfer/recovery semantics:
@@ -148,6 +150,10 @@ Postgres with Prisma.
 - disabled_at, cancelled_at (nullable)
 - external_ref (nullable) — optional correlation to runtime (not exposed in product API)
 - created_at, updated_at
+- Step 12 H12 evolution:
+  - row becomes PersAI-owned current-state reminder/task truth rather than display-only hint data
+  - one-time successful tasks may be removed from current-state listing
+  - recurring tasks stay as one live row with updated `next_run_at`
 
 ### plan_catalog_plans (Step 7 P1 baseline)
 

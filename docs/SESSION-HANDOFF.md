@@ -1,5 +1,417 @@
 # SESSION-HANDOFF
 
+## 2026-03-28 - H12 reminder_task control-plane ownership follow-up
+
+### What changed
+
+- Moved `reminder_task` write actions off the direct runtime-side `cron.add/update/remove` path.
+- Added PersAI internal control endpoint:
+  - `POST /api/v1/internal/runtime/tasks/control`
+- Added PersAI application service that:
+  - validates `create/pause/resume/cancel` requests from the runtime tool
+  - calls OpenClaw `POST /api/v1/runtime/cron/control` from the backend as an internal driver
+  - writes PersAI task registry state after successful backend-driven cron mutations
+- `reminder_task` now behaves like this:
+  - `list` reads PersAI registry state
+  - `create/pause/resume/cancel` call PersAI internal control-plane first
+  - only PersAI backend now invokes internal `cron` writes
+- The backend now derives the cron callback base URL from the authenticated internal request host instead of trusting a runtime-provided base URL.
+- `cancel` now soft-reconciles stale runtime jobs: if the cron id is already gone, the PersAI registry row is still deleted.
+
+### Files touched
+
+**PersAI API:**
+
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-task-registry.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ROADMAP.md`
+
+**OpenClaw:**
+
+- `src/agents/tools/reminder-task-tool.ts`
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+- `src/gateway/server-http.ts`
+- `docs/PERSAI-FORK-PATCHES.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm exec oxlint --type-aware src/agents/tools/reminder-task-tool.ts`
+- `node scripts/verify-persai-patches.mjs`
+
+### Risks
+
+1. Scheduler execution still relies on OpenClaw native `cron` under the hood; this step removes product write-path dependence from the runtime tool, but it is not yet a fully PersAI-owned scheduler engine.
+2. `cancel` now goes through backend-driven internal `cron.remove`; if a runtime job was manually deleted out-of-band, we currently treat that as a runtime failure instead of silently reconciling the stale row.
+
+## 2026-03-28 - H12 product-facing reminder_task tool + plan policy
+
+### What changed
+
+- Added a new user-facing OpenClaw tool `reminder_task` for PersAI assistants.
+- The tool now handles reminder/task semantics directly:
+  - `create`
+  - `list`
+  - `pause`
+  - `resume`
+  - `cancel`
+- `reminder_task` uses the existing cron/webhook bridge under the hood, but the model no longer needs raw native cron semantics for normal product behavior.
+- Added PersAI internal endpoint:
+  - `GET /api/v1/internal/runtime/tasks/items`
+- That internal endpoint lets runtime-side tools resolve current tasks through PersAI task registry state, including registry ids and underlying `externalRef`, so pause/resume/cancel can work without exposing native cron ids as the primary UX.
+- Updated tool catalog / plan seed policy:
+  - added `reminder_task` to the governed tool catalog
+  - disabled user-facing `cron` across seeded plan activations
+  - enabled `reminder_task` across seeded plan activations
+
+### Files touched
+
+**PersAI API:**
+
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/application/list-internal-assistant-task-items.service.ts`
+- `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-task-registry.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+
+**OpenClaw:**
+
+- `src/agents/tools/reminder-task-tool.ts`
+- `src/agents/tools/cron-tool.ts`
+- `src/agents/openclaw-tools.ts`
+- `docs/PERSAI-FORK-PATCHES.md`
+- `scripts/verify-persai-patches.mjs`
+
+**Docs:**
+
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm exec oxlint --type-aware src/agents/tools/reminder-task-tool.ts src/agents/tools/cron-tool.ts src/agents/openclaw-tools.ts`
+- `node scripts/verify-persai-patches.mjs`
+
+### Risks
+
+1. `reminder_task` is now the product-facing scheduling tool, but under the hood it still uses the existing OpenClaw cron scheduler bridge. This is the intended intermediate step, not the final PersAI-owned scheduler.
+2. The global seed policy now forces `cron` inactive and `reminder_task` active for plan activations. If later we want per-plan exceptions, that should become an explicit product rule rather than startup defaulting.
+3. The tool currently resolves pause/resume/cancel targets from PersAI registry state by `taskId` or `titleMatch`; ambiguous title matches intentionally return an error instead of guessing.
+
+## 2026-03-28 - H12 Telegram reminder outbound bridge
+
+### What changed
+
+- Extended the current H12 cron callback slice from `web-only fallback` to real Telegram outbound delivery.
+- Added PersAI internal runtime ingress:
+  - `POST /api/v1/internal/runtime/telegram/chat-target`
+- Added PersAI service logic that:
+  - stores the latest inbound Telegram chat target on the assistant's active Telegram binding metadata
+  - reads the PersAI-managed bot token from the secret store
+  - sends reminder summaries through Telegram Bot API when `preferredNotificationChannel=telegram` and a delivery chat is known
+  - falls back to the existing web reminders chat if Telegram target/token is unavailable or send fails
+- Added minimal OpenClaw bridge change:
+  - `persai-runtime-telegram.ts` now POSTs the latest inbound Telegram chat target back to PersAI before executing the assistant turn
+
+### Files touched
+
+**PersAI API:**
+
+- `apps/api/src/modules/workspace-management/application/handle-internal-cron-fire.service.ts`
+- `apps/api/src/modules/workspace-management/application/sync-telegram-chat-target.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-cron-fire.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+
+**OpenClaw:**
+
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts`
+- `docs/PERSAI-FORK-PATCHES.md`
+- `scripts/verify-persai-patches.mjs`
+
+**Docs:**
+
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm exec oxlint src/gateway/persai-runtime/persai-runtime-telegram.ts`
+- `node scripts/verify-persai-patches.mjs`
+
+### Risks
+
+1. Telegram reminder outbound starts only after the assistant has received at least one inbound Telegram message, because that is when PersAI learns the concrete `telegramChatId` to send into.
+2. WhatsApp and other non-web channels still degrade to `web` fallback for reminder delivery.
+3. `cron-fire` currently sends the reminder summary text directly; full "re-enter agent turn on reminder fire" behavior is still follow-up work if we decide the callback should trigger a richer assistant action instead of message fanout only.
+
+## 2026-03-28 - H12g memory lifecycle bridge
+
+### What changed
+
+- Implemented assistant memory lifecycle reset on both assistant creation and assistant reset.
+- Added a minimal OpenClaw PersAI-runtime endpoint:
+  - `POST /api/v1/runtime/workspace/memory/reset`
+  - `POST /api/v1/runtime/workspace/reset`
+- Added runtime-side memory workspace helper that:
+  - ensures assistant workspace exists
+  - recreates clean `MEMORY.md`
+  - recreates empty `memory/`
+  - removes legacy lowercase `memory.md` fallback file if present
+- Wired PersAI backend calls:
+  - `CreateAssistantService` now triggers memory workspace reset right after baseline assistant creation
+  - `ResetAssistantService` now uses the combined runtime workspace reset path instead of two best-effort calls
+- `edit/update/reapply` flows are intentionally untouched, so memory is not cleared outside create/reset.
+
+### Files touched
+
+**PersAI API:**
+
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/src/modules/workspace-management/application/create-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+
+**OpenClaw:**
+
+- `src/gateway/persai-runtime/persai-runtime-workspace.ts`
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+- `src/gateway/server-http.ts`
+- `docs/PERSAI-FORK-PATCHES.md`
+- `scripts/verify-persai-patches.mjs`
+
+**Docs:**
+
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm lint -- src/gateway/persai-runtime/persai-runtime-workspace.ts src/gateway/persai-runtime/persai-runtime-http.ts src/gateway/server-http.ts`
+
+### Risks
+
+1. This satisfies the product behavior, but no longer matches the earlier "zero OpenClaw changes" hope. The implementation uses a minimal `persai-runtime` bridge because PersAI API does not directly own the workspace filesystem.
+2. `CreateAssistantService` still treats memory initialization as best-effort. `ResetAssistantService` is now strict and will fail the request if runtime workspace reset fails after the DB-side destructive reset has already committed.
+
+## 2026-03-28 - H12 task registry + cron callback delivery slice
+
+### What changed
+
+- Added PersAI internal reminder/task control-plane ingress:
+  - `POST /api/v1/internal/runtime/tasks/sync`
+  - `POST /api/v1/internal/cron-fire`
+- Added `assistantId + externalRef` uniqueness for `assistant_task_registry_items`, so recurring reminders can keep single-row semantics keyed by the OpenClaw cron job id.
+- Added PersAI service logic that:
+  - upserts/deletes current task rows from OpenClaw `cron.add` / `cron.update` / `cron.remove`
+  - updates/removes those rows again when cron finished webhooks arrive
+  - removes one-shot rows after successful completion
+  - advances recurring rows by updating `nextRunAt`
+- Added real web reminder delivery:
+  - cron callbacks now create/find a dedicated web chat thread `system:reminders`
+  - successful reminder summaries are stored there as assistant messages
+  - preferred external channels currently degrade to `web` fallback instead of silently dropping the reminder
+- Added minimal OpenClaw runtime bridge changes:
+  - `persai-runtime-context.ts` now carries `assistantId` and `cronWebhookUrl`
+  - PersAI runtime web/telegram turns populate those fields
+  - `cron-tool.ts` auto-injects webhook delivery when PersAI runtime provides a callback URL
+  - `cron-tool.ts` mirrors create/update/remove events to PersAI task registry sync endpoint
+- Assistant reset now hard-deletes `assistant_task_registry_items` in the same destructive reset flow as chats/memory/materialized specs.
+
+### Files touched
+
+**PersAI API:**
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260402123000_step12_h12_task_registry_external_ref_unique/migration.sql`
+- `apps/api/src/modules/workspace-management/application/sync-assistant-task-registry.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-cron-fire.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-task-registry.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-cron-fire.controller.ts`
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+
+**OpenClaw:**
+
+- `src/agents/persai-runtime-context.ts`
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts`
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts`
+- `src/agents/tools/cron-tool.ts`
+- `docs/PERSAI-FORK-PATCHES.md`
+- `scripts/verify-persai-patches.mjs`
+
+**Docs:**
+
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm lint -- src/agents/persai-runtime-context.ts src/gateway/persai-runtime/persai-runtime-agent-turn.ts src/gateway/persai-runtime/persai-runtime-http.ts src/agents/tools/cron-tool.ts`
+- `ReadLints` on touched PersAI/OpenClaw files: 0 diagnostics
+
+### Risks
+
+1. `cron-fire` currently delivers reminders only into the in-product web chat. If preferred channel is `telegram` / `whatsapp`, the current behavior is explicit fallback to `web`, not true outbound messenger send yet.
+2. The new task registry sync depends on OpenClaw reaching PersAI at `cfg.secrets.providers["persai-runtime"].baseUrl` and authenticating with `OPENCLAW_GATEWAY_TOKEN`.
+3. The OpenClaw file `src/gateway/persai-runtime/persai-runtime-telegram.ts` still carries pre-existing `curly` style lint noise outside this slice; I did not expand this task into a full style-only refactor there.
+
+## 2026-03-28 - H12 preferred notification channel slice
+
+### What changed
+
+- Added PersAI-side reminder delivery preference persistence:
+  - Prisma enum `AssistantPreferredNotificationChannel`
+  - new `assistants.preferred_notification_channel` column with default `web`
+- Added authenticated assistant preference endpoints:
+  - `GET /api/v1/assistant/notification-preference`
+  - `PATCH /api/v1/assistant/notification-preference`
+- Added backend services that:
+  - resolve only currently available delivery channels from active assistant bindings
+  - always keep `web` available as the safe default
+  - reject choosing disconnected external channels
+  - append an assistant audit event when the reminder delivery preference changes
+- Added settings UI under Channels:
+  - real "Reminder delivery" selector backed by PersAI API
+  - only available channels are shown
+  - current behavior text matches the agreed semantics: preferred channel first, fallback when unavailable
+- Updated `ROADMAP`, `DATA-MODEL`, and `CHANGELOG` to reflect that H12a and H12e are now implemented.
+
+### Files touched
+
+**PersAI API:**
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260402110000_step12_h12_preferred_notification_channel/migration.sql`
+- `apps/api/src/modules/workspace-management/application/assistant-notification-preference.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-notification-preference.service.ts`
+- `apps/api/src/modules/workspace-management/application/update-assistant-notification-preference.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+
+**PersAI Web:**
+
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/_components/use-app-data.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+
+**Docs:**
+
+- `docs/ROADMAP.md`
+- `docs/DATA-MODEL.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched API/Web files: 0 linter diagnostics
+
+### Risks
+
+1. This slice persists and exposes channel preference, but it does not yet execute reminder delivery through that preference. `cron-fire`, actual channel fanout, and fallback delivery still need the next H12 slice.
+2. Availability currently derives from assistant channel bindings plus implicit `web`; WhatsApp is structurally supported in the enum/API but remains product-inactive until its integration exists.
+3. The existing memory lifecycle blocker remains unchanged: true create/reset initialization of `MEMORY.md` / `memory/` is still not feasible as "PersAI API only, zero OpenClaw changes" under the current runtime boundary.
+
+## 2026-03-28 - H12/H13 foundation: unified inbound turn + code-first web/task UX
+
+### What changed
+
+- **Doc-first architecture freeze:** added `ADR-056` and aligned `ROADMAP`, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, and `TEST-PLAN` around the new direction:
+  - PersAI becomes the unified inbound turn gateway for `web`, Telegram, reminder callbacks, and future messengers
+  - PersAI-owned reminders/tasks replace product dependence on native OpenClaw cron over time
+  - stable backend error codes become the UX contract across surfaces
+- **Canonical API error envelope actually enforced:** added a global Nest exception filter (`ApiExceptionFilter`) and `ApiErrorHttpException` helper so API failures now consistently return:
+  - `requestId`
+  - `error.code`
+  - `error.category`
+  - `error.message`
+- **Shared inbound turn foundation for web:** extracted `PrepareAssistantInboundTurnService` and moved the duplicated web prepare logic out of `SendWebChatTurnService` / `StreamWebChatTurnService`. Web sync and web stream now share the same assistant/live-state/chat-create/enforcement/abuse/active-chat-refresh path.
+- **Code-first enforcement errors:** `EnforceAssistantCapabilityAndQuotaService` and `EnforceAbuseRateLimitService` now emit stable codes instead of plain conflict strings for the key chat gateway cases:
+  - `assistant_not_live`
+  - `plan_feature_unavailable`
+  - `active_chat_cap_reached`
+  - `quota_limit_reached`
+  - `rate_limited`
+- **Runtime errors normalized:** runtime adapter failures are normalized into stable frontend-consumable codes (`runtime_unreachable`, `runtime_timeout`, `runtime_degraded`, `runtime_auth_failure`, `runtime_invalid_response`) for both sync HTTP failures and streaming `failed` SSE events.
+- **Web client updated to use backend codes first:** `assistant-api-client.ts` and `custom-fetch.ts` now read `error.code` from the canonical envelope / SSE payload and only fall back to string heuristics when no stable code is available.
+- **Tasks UI aligned with agreed semantics:** both task surfaces now show only the current active reminders/tasks:
+  - `assistant-settings.tsx` Tasks section
+  - `app-flow.client.tsx` task center
+    Paused/stopped items are no longer rendered as a separate “history-like” section.
+
+### Files touched
+
+**Docs / architecture:**
+
+- `docs/ADR/056-unified-inbound-turn-gateway-and-persai-owned-reminders-h12-h13.md` — new ADR
+- `docs/ROADMAP.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+**PersAI API:**
+
+- `apps/api/src/main.ts` — registers global API exception filter
+- `apps/api/src/modules/platform-core/interface/http/api-error.ts` — canonical API error helper
+- `apps/api/src/modules/platform-core/interface/http/api-exception.filter.ts` — canonical error envelope filter
+- `apps/api/src/modules/workspace-management/application/assistant-inbound-error.ts` — shared inbound/runtime error normalization
+- `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts` — shared web prepare path
+- `apps/api/src/modules/workspace-management/application/enforce-assistant-capability-and-quota.service.ts`
+- `apps/api/src/modules/workspace-management/application/enforce-abuse-rate-limit.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/enforcement-points.test.ts`
+
+**Contracts / Web:**
+
+- `packages/contracts/src/mutator/custom-fetch.ts`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/app-flow.client.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched API/Web files: 0 linter diagnostics
+
+### Risks
+
+1. This is the **foundation slice**, not the full H12/H13 delivery. Telegram ingress, reminder callbacks, preferred notification channel persistence, and PersAI-owned task/reminder writers are still follow-up work.
+2. Existing backend endpoints outside the chat path still benefit from the new canonical error envelope, but only the chat gateway path has been explicitly normalized to stable product error codes in this slice.
+3. Tasks UI now hides inactive items by design. Backend control endpoints for disable/enable/cancel still exist and remain valid, but the current product view intentionally shows only current active tasks/reminders.
+
+### Next recommended step
+
+- Implement the next H12/H13 product slice on top of this foundation:
+  - add PersAI-owned reminder/task write path and preferred notification channel persistence
+  - move Telegram ingress onto the shared PersAI inbound turn path
+  - add internal callback ingress for reminder firing / cron webhook compatibility
+  - extend stable error-code formatting from web to messenger/callback surfaces
+
 ## 2026-03-27 - Streaming Quality Hardening
 
 ### What changed
@@ -11,13 +423,16 @@
 ### Files touched
 
 **PersAI API:**
+
 - `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` — `sendSse` merges writes + `flush()`, delta event sends only `{ delta }`
 
 **PersAI Web:**
+
 - `apps/web/app/app/assistant-api-client.ts` — `WebChatStreamEvent` delta type updated to `{ delta: string }`, parser no longer requires `accumulated` for delta events
 - `apps/web/app/app/_components/use-chat.ts` — `requestAnimationFrame` batching for `onDelta` and `onThinking`, synchronous flush on `onRuntimeDone`/`onCompleted`
 
 **Docs:**
+
 - `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
 
 ### Tests run
@@ -49,13 +464,16 @@
 ### Files touched
 
 **PersAI API:**
+
 - `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts` — stale-title deactivation before upsert
 - `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` — dedup-by-title in GET groups, order by `updatedAt`
 
 **PersAI Web:**
+
 - `apps/web/app/app/_components/telegram-connect.tsx` — filter to active-only in groups list
 
 **Docs:**
+
 - `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
 
 ### Tests run
@@ -89,12 +507,14 @@
 ### Files touched
 
 **PersAI API:**
+
 - `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` — `@HttpCode(200)` on publish/reapply, `Cache-Control` fix
 - `apps/api/src/modules/workspace-management/application/publish-assistant-draft.service.ts` — `syncTelegramBindingMetadata` after apply
 - `apps/api/src/modules/workspace-management/domain/assistant-channel-surface-binding.repository.ts` — `patchMetadata` interface
 - `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-channel-surface-binding.repository.ts` — `patchMetadata` implementation
 
 **PersAI Web:**
+
 - `apps/web/app/app/_components/assistant-avatar.tsx` — new shared component
 - `apps/web/app/app/_components/chat-area.tsx` — uses `AssistantAvatar`, passes avatar props through
 - `apps/web/app/app/_components/chat-message.tsx` — uses `AssistantAvatar` for assistant messages
@@ -106,6 +526,7 @@
 - `apps/web/app/app/assistant-api-client.ts` — quota UX classifiers, reapply guard fix, new issue class types
 
 **Docs:**
+
 - `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
 
 ### Tests run
@@ -137,6 +558,7 @@
 ### Files touched
 
 **OpenClaw fork (lower-risk PersAI bridge files):**
+
 - `src/gateway/persai-runtime/persai-runtime-http.ts` — avatar POST/GET handler
 - `src/gateway/persai-runtime/persai-runtime-telegram.ts` — syncBotProfile helper
 - `src/gateway/server-http.ts` — avatar request stage registration
@@ -144,6 +566,7 @@
 - `scripts/verify-persai-patches.mjs` — checks #8, #9, #10
 
 **PersAI:**
+
 - `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
 - `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
 - `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
@@ -188,11 +611,13 @@
 ### Files touched
 
 **OpenClaw fork:**
+
 - `src/agents/command/types.ts`
 - `src/agents/agent-command.ts`
 - `src/gateway/persai-runtime/persai-runtime-agent-turn.ts`
 
 **PersAI:**
+
 - `apps/api/src/modules/identity-access/identity-access.module.ts`
 - `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
 - `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
@@ -243,6 +668,7 @@ At 1000+ concurrent users, `process.env` mutation creates race conditions where 
 ### Files touched
 
 **OpenClaw fork:**
+
 - `src/agents/persai-runtime-context.ts` — added `toolCredentials` to interface, added `getPersaiToolCredential` helper
 - `src/plugin-sdk/persai-credential.ts` — **new**, re-exports `getPersaiToolCredential`
 - `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — removed `process.env` mutation, pass credentials through context
@@ -253,6 +679,7 @@ At 1000+ concurrent users, `process.env` mutation creates race conditions where 
 - `scripts/lib/plugin-sdk-entrypoints.json` — registered new subpath
 
 **PersAI:**
+
 - `docs/ADR/055-per-request-tool-credential-isolation-h9.md` — **new**
 - `docs/ROADMAP.md` — marked H9 complete
 - `docs/CHANGELOG.md` — H9 entry

@@ -15,6 +15,7 @@ export class SeedToolCatalogService implements OnModuleInit {
     try {
       await this.syncToolCatalog();
       await this.ensureDefaultPlan();
+      await this.syncReminderTaskPolicyAcrossPlans();
       await this.backfillNullPlanGovernances();
       await this.syncBootstrapPresets();
     } catch (err) {
@@ -131,6 +132,57 @@ export class SeedToolCatalogService implements OnModuleInit {
         update: { activationStatus, dailyCallLimit },
         create: { planId, toolId: tool.id, activationStatus, dailyCallLimit }
       });
+    }
+  }
+
+  private async syncReminderTaskPolicyAcrossPlans(): Promise<void> {
+    const [plans, tools] = await Promise.all([
+      this.prisma.planCatalogPlan.findMany({
+        select: { id: true }
+      }),
+      this.prisma.toolCatalogTool.findMany({
+        where: {
+          code: { in: ["cron", "reminder_task"] },
+          status: "active"
+        },
+        select: { id: true, code: true }
+      })
+    ]);
+
+    if (plans.length === 0 || tools.length === 0) {
+      return;
+    }
+
+    const toolByCode = new Map(tools.map((tool) => [tool.code, tool.id]));
+    const cronToolId = toolByCode.get("cron");
+    const reminderTaskToolId = toolByCode.get("reminder_task");
+
+    for (const plan of plans) {
+      if (cronToolId) {
+        await this.prisma.planCatalogToolActivation.upsert({
+          where: { planId_toolId: { planId: plan.id, toolId: cronToolId } },
+          update: { activationStatus: "inactive", dailyCallLimit: null },
+          create: {
+            planId: plan.id,
+            toolId: cronToolId,
+            activationStatus: "inactive",
+            dailyCallLimit: null
+          }
+        });
+      }
+
+      if (reminderTaskToolId) {
+        await this.prisma.planCatalogToolActivation.upsert({
+          where: { planId_toolId: { planId: plan.id, toolId: reminderTaskToolId } },
+          update: { activationStatus: "active", dailyCallLimit: null },
+          create: {
+            planId: plan.id,
+            toolId: reminderTaskToolId,
+            activationStatus: "active",
+            dailyCallLimit: null
+          }
+        });
+      }
     }
   }
 

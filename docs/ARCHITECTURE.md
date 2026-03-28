@@ -198,6 +198,37 @@ It is not part of backend domain logic.
 - OpenClaw materialization includes explicit `toolAvailability` truth so runtime does not assume unavailable tool classes exist
 - per-plan model selection is resolved from `billing_provider_hints.primaryModelKey` during materialization; it overrides `runtimeProviderProfile.primary.model` (the field OpenClaw reads via `extractPersaiRuntimeModelOverride`) and takes priority over the global admin-managed model in routing resolution
 
+## Unified inbound turn gateway boundary (Step 12 H13)
+
+- PersAI owns one application-layer inbound turn gateway for all product surfaces:
+  - web chat
+  - Telegram
+  - reminder/cron callbacks
+  - future messengers such as WhatsApp/MAX
+- the shared gateway is responsible for:
+  - assistant/live-state resolution
+  - capability/quota/tool-limit/abuse enforcement
+  - runtime adapter invocation
+  - usage accounting
+  - stable error-code emission
+- OpenClaw remains runtime execution/transport, but PersAI becomes the product-policy authority for inbound turns
+- user-facing denial and degradation semantics are derived from stable backend codes, then formatted per surface
+
+## Reminder/task ownership boundary (Step 12 H12)
+
+- PersAI now owns reminders/tasks as a product/control-plane feature
+- native OpenClaw cron may still be used as a thin timer/webhook bridge during transition, but it is not the long-term product scheduler boundary
+- PersAI-owned reminder/task behavior includes:
+  - task/reminder registry truth
+  - preferred notification channel
+  - fallback delivery ordering across active channels
+  - retry/failure state
+  - reset-time hard delete
+- Tasks Center becomes a current-state surface, not a passive mirror:
+  - one-time tasks disappear after successful execution
+  - recurring tasks remain one row with `nextRunAt` advanced
+  - v1 exposes pause/resume/cancel only
+
 ## Tool catalog and activation boundary (Step 8 E1)
 
 - backend owns canonical tool catalog and plan activation truth in control plane:

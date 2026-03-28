@@ -346,6 +346,60 @@ Required in CI:
 - Existing publish/rollback/reapply/reset flows unaffected.
 - Platform rollout create/rollback unaffected (workspace-scoped, separate concern).
 
+## Step 12 H12 focus
+
+### Schema / lifecycle
+
+- Prisma migration validates assistant reminder-delivery preference field and any task/reminder persistence additions.
+- Assistant create/reset flow validates memory lifecycle:
+  - `MEMORY.md` created when missing
+  - `memory/` created when missing
+  - both cleared on reset
+  - edit/update does not touch memory lifecycle artifacts
+
+### Reminders/tasks
+
+- Current-state task listing validates:
+  - only active/current reminders/tasks are shown
+  - one-time successful tasks disappear from the current list
+  - recurring items stay as one row with updated `nextRunAt`
+- Pause/resume/cancel behavior remains correct for PersAI-owned items.
+- Preferred notification channel and fallback ordering validate against active assistant channel bindings.
+
+### Compatibility bridge
+
+- If OpenClaw cron webhook callback is used as a transition seam, callback auth and assistant resolution are validated without native cron schema changes.
+
+## Step 12 H13 focus
+
+### Unified gateway
+
+- Shared inbound turn orchestration validates the same enforcement path for:
+  - web chat
+  - Telegram/internal messenger ingress
+  - reminder callback ingress
+- Capability/quota/abuse/tool-limit checks are exercised from the shared path rather than duplicated surface-specific code.
+
+### Structured errors
+
+- Stable backend error codes are validated for:
+  - feature unavailable
+  - quota limit reached
+  - tool daily limit reached
+  - rate-limited / abuse slowdown-block
+  - runtime unavailable/degraded
+- Web non-stream and stream paths emit the same code family:
+  - HTTP failures via canonical `ErrorEnvelope`
+  - SSE failure payloads via structured code-bearing event payloads
+
+### Surface formatting
+
+- The same backend error code maps correctly to:
+  - web inline guidance
+  - Telegram/markdown response text
+  - plain-text messenger copy
+  - structured JSON callback response
+
 ## Step 12 H8 Telegram runtime readiness
 
 ### Token storage

@@ -64,10 +64,13 @@ export class ResetAssistantService {
           this.logger.log("Step 4: deleting memory items");
           await tx.assistantMemoryRegistryItem.deleteMany({ where: { assistantId: aid } });
 
-          this.logger.log("Step 5: deleting materialized specs");
+          this.logger.log("Step 5: deleting task items");
+          await tx.assistantTaskRegistryItem.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 6: deleting materialized specs");
           await tx.assistantMaterializedSpec.deleteMany({ where: { assistantId: aid } });
 
-          this.logger.log("Step 6: disabling immutability trigger and deleting published versions");
+          this.logger.log("Step 7: disabling immutability trigger and deleting published versions");
           await tx.$executeRawUnsafe(
             `ALTER TABLE "assistant_published_versions" DISABLE TRIGGER "assistant_published_versions_no_delete"`
           );
@@ -85,11 +88,8 @@ export class ResetAssistantService {
       throw err;
     }
 
-    try {
-      await this.runtimeAdapter.cleanupWorkspace(aid);
-    } catch (err) {
-      this.logger.warn("Workspace cleanup failed (best-effort)", err);
-    }
+    this.logger.log("Resetting runtime workspace to clean memory baseline");
+    await this.runtimeAdapter.resetWorkspace(aid);
 
     try {
       await this.appendAssistantAuditEventService.execute({
@@ -99,7 +99,7 @@ export class ResetAssistantService {
         eventCategory: "assistant_lifecycle",
         eventCode: "assistant.full_reset",
         summary:
-          "Full assistant reset: all chats, memory, published versions, materialized specs and workspace files deleted.",
+          "Full assistant reset: all chats, memory, tasks, published versions, materialized specs and workspace files deleted.",
         details: {}
       });
     } catch (err) {

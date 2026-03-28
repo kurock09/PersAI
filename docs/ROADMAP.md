@@ -198,3 +198,21 @@ Foundation Phase
   - [x] TG2 — backend: GET groups deduplicates by title (keeps most recently updated)
   - [x] TG3 — frontend: groups list shows only active groups
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity
+- [x] H12 — Cron webhook callback + preferred notification channel + memory lifecycle
+  - [x] H12a — Prisma: `preferredNotificationChannel` field on assistant model + migration
+  - [x] H12b — PersAI API: `POST /api/internal/cron-fire` webhook endpoint (current scope: receives OpenClaw cron callback, updates registry rows, delivers directly to Telegram when the assistant has an active Telegram binding plus a known inbound chat target, otherwise falls back to the dedicated web reminders chat; future WhatsApp/MAX outbound remains outside H12 scope)
+  - [x] H12c — OpenClaw `persai-runtime-context.ts`: add `cronWebhookUrl` to request context (PersAI-only file)
+  - [x] H12d — OpenClaw `cron-tool.ts`: auto-inject `delivery: { mode: "webhook", to: cronWebhookUrl }` from context (~5 lines, same pattern as toolDenyList)
+  - [x] H12e — UI: notification channel toggle in assistant settings (shows only connected channels)
+  - [x] H12f — Update `PERSAI-FORK-PATCHES.md` + `verify-persai-patches.mjs` with new patch entry
+  - [x] H12g — Memory lifecycle on assistant create/reset: if `MEMORY.md` / `memory/` don't exist → create; if exist → clear. On edit/update — do NOT touch memory (implemented via minimal `openclaw/src/gateway/persai-runtime/*` bridge because pure API-only ownership was not technically viable)
+  - [x] H12h — PersAI-owned reminders/tasks replace product dependence on native `cron`: current scope covers internal registry upsert/delete by `externalRef`, hard-delete on assistant reset, one-time disappearance after successful webhook finish, recurring rows staying live with updated `nextRunAt`, new product-facing `reminder_task` tool for create/list/pause/resume/cancel, plan/seed policy that hides user-facing `cron`, and PersAI-owned write control-plane (`reminder_task` -> PersAI internal control endpoint -> backend-driven internal cron control via `persai-runtime`); future WhatsApp/MAX outbound or a backend-owned timer are separate follow-up work, not H12 blockers
+- [ ] H13 — Unified messenger turn gateway
+  - [ ] H13a — single PersAI API entry point for all channel turns (web, Telegram, WhatsApp, cron callback, future messengers)
+  - [ ] H13b — unified enforcement: quota (tokens, messages), rate limits, tool daily limits applied to ALL channels (currently web-only)
+  - [ ] H13c — human-readable error messages across all channels: quota exhausted, tool daily limit hit, feature unavailable — formatted per channel (HTML for web, markdown for Telegram, plain text for WhatsApp, structured JSON for cron callback)
+  - [ ] H13d — adapter pattern: new messenger = new adapter in PersAI API, OpenClaw untouched
+  - [ ] H13e — stable backend error codes replace string-only UX heuristics; web and messenger surfaces render from the same code family
+- [ ] H14 — Fork-diff reduction (tech debt, trigger: next upstream sync or stable sprint)
+  - [ ] H14a — secrets + tool credentials → `exec` provider + PersAI API bridge (removes 9 native OpenClaw files)
+  - [ ] H14b — remove explicit store from `server-runtime-state.ts` (1 file, trivial)

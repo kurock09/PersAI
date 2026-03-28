@@ -63,6 +63,12 @@ enum AssistantTaskRegistryControlStatus {
   cancelled
 }
 
+enum AssistantPreferredNotificationChannel {
+  web
+  telegram
+  whatsapp
+}
+
 enum PlanCatalogStatus {
   active
   inactive
@@ -169,114 +175,115 @@ enum AbuseSurface {
 }
 
 model AppUser {
-  id                        String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  clerkUserId               String?                    @unique @map("clerk_user_id")
-  email                     String                     @unique
-  displayName               String?                    @map("display_name")
-  birthday                  DateTime?                  @map("birthday") @db.Date
-  gender                    String?                    @map("gender") @db.VarChar(32)
-  termsOfServiceAcceptedAt  DateTime?                  @map("terms_of_service_accepted_at") @db.Timestamptz(6)
-  termsOfServiceVersion     String?                    @map("terms_of_service_version") @db.VarChar(64)
-  privacyPolicyAcceptedAt   DateTime?                  @map("privacy_policy_accepted_at") @db.Timestamptz(6)
-  privacyPolicyVersion      String?                    @map("privacy_policy_version") @db.VarChar(64)
-  createdAt                 DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant                 Assistant?
-  workspaceLinks            WorkspaceMember[]
-  publishedAssistantVersion AssistantPublishedVersion[] @relation("AssistantVersionPublisher")
-  assistantAuditEvents      AssistantAuditEvent[]      @relation("AssistantAuditActor")
-  adminRoles                AppUserAdminRole[]
-  createdAdminNotificationChannels WorkspaceAdminNotificationChannel[]
-  createdPlatformRollouts AssistantPlatformRollout[]
-  platformRolloutItems      AssistantPlatformRolloutItem[]
-  abuseGuardStates          AssistantAbuseGuardState[]
-  updatedPlatformRuntimeProviderSettings PlatformRuntimeProviderSettings[] @relation("PlatformRuntimeProviderSettingsUpdatedByUser")
-  updatedPlatformRuntimeProviderSecrets PlatformRuntimeProviderSecret[] @relation("PlatformRuntimeProviderSecretsUpdatedByUser")
+  id                                     String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clerkUserId                            String?                             @unique @map("clerk_user_id")
+  email                                  String                              @unique
+  displayName                            String?                             @map("display_name")
+  birthday                               DateTime?                           @map("birthday") @db.Date
+  gender                                 String?                             @map("gender") @db.VarChar(32)
+  termsOfServiceAcceptedAt               DateTime?                           @map("terms_of_service_accepted_at") @db.Timestamptz(6)
+  termsOfServiceVersion                  String?                             @map("terms_of_service_version") @db.VarChar(64)
+  privacyPolicyAcceptedAt                DateTime?                           @map("privacy_policy_accepted_at") @db.Timestamptz(6)
+  privacyPolicyVersion                   String?                             @map("privacy_policy_version") @db.VarChar(64)
+  createdAt                              DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                              DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant                              Assistant?
+  workspaceLinks                         WorkspaceMember[]
+  publishedAssistantVersion              AssistantPublishedVersion[]         @relation("AssistantVersionPublisher")
+  assistantAuditEvents                   AssistantAuditEvent[]               @relation("AssistantAuditActor")
+  adminRoles                             AppUserAdminRole[]
+  createdAdminNotificationChannels       WorkspaceAdminNotificationChannel[]
+  createdPlatformRollouts                AssistantPlatformRollout[]
+  platformRolloutItems                   AssistantPlatformRolloutItem[]
+  abuseGuardStates                       AssistantAbuseGuardState[]
+  updatedPlatformRuntimeProviderSettings PlatformRuntimeProviderSettings[]   @relation("PlatformRuntimeProviderSettingsUpdatedByUser")
+  updatedPlatformRuntimeProviderSecrets  PlatformRuntimeProviderSecret[]     @relation("PlatformRuntimeProviderSecretsUpdatedByUser")
 
   @@map("app_users")
 }
 
 model Workspace {
-  id        String            @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  name      String
-  locale    String
-  timezone  String
-  status    WorkspaceStatus
-  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistants Assistant[]
-  members   WorkspaceMember[]
-  subscription WorkspaceSubscription?
-  quotaAccountingState WorkspaceQuotaAccountingState?
-  quotaUsageEvents WorkspaceQuotaUsageEvent[]
-  assistantAuditEvents AssistantAuditEvent[]
-  adminRoles AppUserAdminRole[]
-  adminNotificationChannels WorkspaceAdminNotificationChannel[]
+  id                          String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                        String
+  locale                      String
+  timezone                    String
+  status                      WorkspaceStatus
+  createdAt                   DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistants                  Assistant[]
+  members                     WorkspaceMember[]
+  subscription                WorkspaceSubscription?
+  quotaAccountingState        WorkspaceQuotaAccountingState?
+  quotaUsageEvents            WorkspaceQuotaUsageEvent[]
+  assistantAuditEvents        AssistantAuditEvent[]
+  adminRoles                  AppUserAdminRole[]
+  adminNotificationChannels   WorkspaceAdminNotificationChannel[]
   adminNotificationDeliveries AdminNotificationDelivery[]
-  platformRollouts AssistantPlatformRollout[]
-  abuseGuardStates AssistantAbuseGuardState[]
-  toolUsageDailyCounters WorkspaceToolUsageDailyCounter[]
+  platformRollouts            AssistantPlatformRollout[]
+  abuseGuardStates            AssistantAbuseGuardState[]
+  toolUsageDailyCounters      WorkspaceToolUsageDailyCounter[]
 
   @@map("workspaces")
 }
 
 model WorkspaceMember {
-  id             String          @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  workspaceId    String          @map("workspace_id") @db.Uuid
-  userId         String          @map("user_id") @db.Uuid
-  role           WorkspaceRole
-  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  assistant                   Assistant?                    @relation("AssistantWorkspaceScope")
-  assistantChats              AssistantChat[]
+  id                           String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId                  String                        @map("workspace_id") @db.Uuid
+  userId                       String                        @map("user_id") @db.Uuid
+  role                         WorkspaceRole
+  createdAt                    DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant                    Assistant?                    @relation("AssistantWorkspaceScope")
+  assistantChats               AssistantChat[]
   assistantMemoryRegistryItems AssistantMemoryRegistryItem[]
-  assistantTaskRegistryItems  AssistantTaskRegistryItem[]
-  abuseGuardStates            AssistantAbuseGuardState[]
-  workspace                   Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  user           AppUser         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistantTaskRegistryItems   AssistantTaskRegistryItem[]
+  abuseGuardStates             AssistantAbuseGuardState[]
+  workspace                    Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user                         AppUser                       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([workspaceId, userId])
   @@map("workspace_members")
 }
 
 model Assistant {
-  id                   String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  userId               String                     @unique @map("user_id") @db.Uuid
-  workspaceId          String                     @map("workspace_id") @db.Uuid
-  draftDisplayName     String?                    @map("draft_display_name")
-  draftInstructions    String?                    @map("draft_instructions")
-  draftTraits          Json?                      @map("draft_traits") @db.JsonB
-  draftAvatarEmoji     String?                    @map("draft_avatar_emoji") @db.VarChar(8)
-  draftAvatarUrl       String?                    @map("draft_avatar_url")
-  draftUpdatedAt       DateTime?                  @map("draft_updated_at") @db.Timestamptz(6)
-  applyStatus          AssistantApplyStatus       @default(not_requested) @map("apply_status")
-  applyTargetVersionId String?                    @map("apply_target_version_id") @db.Uuid
-  applyAppliedVersionId String?                   @map("apply_applied_version_id") @db.Uuid
-  applyRequestedAt     DateTime?                  @map("apply_requested_at") @db.Timestamptz(6)
-  applyStartedAt       DateTime?                  @map("apply_started_at") @db.Timestamptz(6)
-  applyFinishedAt      DateTime?                  @map("apply_finished_at") @db.Timestamptz(6)
-  applyErrorCode       String?                    @map("apply_error_code")
-  applyErrorMessage    String?                    @map("apply_error_message")
-  configDirtyAt        DateTime?                  @map("config_dirty_at") @db.Timestamptz(6)
-  createdAt            DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user                 AppUser                    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace            Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember      WorkspaceMember            @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
-  applyTargetVersion   AssistantPublishedVersion? @relation("AssistantApplyTargetVersion", fields: [applyTargetVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  applyAppliedVersion  AssistantPublishedVersion? @relation("AssistantApplyAppliedVersion", fields: [applyAppliedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  governance       AssistantGovernance?
-  materializedSpecs AssistantMaterializedSpec[]
-  publishedVersions AssistantPublishedVersion[]
-  chats                 AssistantChat[]
-  chatMessages          AssistantChatMessage[]
-  memoryRegistryItems   AssistantMemoryRegistryItem[]
-  taskRegistryItems     AssistantTaskRegistryItem[]
-  channelSurfaceBindings AssistantChannelSurfaceBinding[]
-  auditEvents            AssistantAuditEvent[]
-  platformRolloutItems   AssistantPlatformRolloutItem[]
-  abuseGuardStates       AssistantAbuseGuardState[]
-  abuseAssistantStates   AssistantAbuseAssistantState[]
-  telegramGroups         AssistantTelegramGroup[]
+  id                           String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                       String                                @unique @map("user_id") @db.Uuid
+  workspaceId                  String                                @map("workspace_id") @db.Uuid
+  preferredNotificationChannel AssistantPreferredNotificationChannel @default(web) @map("preferred_notification_channel")
+  draftDisplayName             String?                               @map("draft_display_name")
+  draftInstructions            String?                               @map("draft_instructions")
+  draftTraits                  Json?                                 @map("draft_traits") @db.JsonB
+  draftAvatarEmoji             String?                               @map("draft_avatar_emoji") @db.VarChar(8)
+  draftAvatarUrl               String?                               @map("draft_avatar_url")
+  draftUpdatedAt               DateTime?                             @map("draft_updated_at") @db.Timestamptz(6)
+  applyStatus                  AssistantApplyStatus                  @default(not_requested) @map("apply_status")
+  applyTargetVersionId         String?                               @map("apply_target_version_id") @db.Uuid
+  applyAppliedVersionId        String?                               @map("apply_applied_version_id") @db.Uuid
+  applyRequestedAt             DateTime?                             @map("apply_requested_at") @db.Timestamptz(6)
+  applyStartedAt               DateTime?                             @map("apply_started_at") @db.Timestamptz(6)
+  applyFinishedAt              DateTime?                             @map("apply_finished_at") @db.Timestamptz(6)
+  applyErrorCode               String?                               @map("apply_error_code")
+  applyErrorMessage            String?                               @map("apply_error_message")
+  configDirtyAt                DateTime?                             @map("config_dirty_at") @db.Timestamptz(6)
+  createdAt                    DateTime                              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                    DateTime                              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                         AppUser                               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace                    Workspace                             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember              WorkspaceMember                       @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  applyTargetVersion           AssistantPublishedVersion?            @relation("AssistantApplyTargetVersion", fields: [applyTargetVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  applyAppliedVersion          AssistantPublishedVersion?            @relation("AssistantApplyAppliedVersion", fields: [applyAppliedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  governance                   AssistantGovernance?
+  materializedSpecs            AssistantMaterializedSpec[]
+  publishedVersions            AssistantPublishedVersion[]
+  chats                        AssistantChat[]
+  chatMessages                 AssistantChatMessage[]
+  memoryRegistryItems          AssistantMemoryRegistryItem[]
+  taskRegistryItems            AssistantTaskRegistryItem[]
+  channelSurfaceBindings       AssistantChannelSurfaceBinding[]
+  auditEvents                  AssistantAuditEvent[]
+  platformRolloutItems         AssistantPlatformRolloutItem[]
+  abuseGuardStates             AssistantAbuseGuardState[]
+  abuseAssistantStates         AssistantAbuseAssistantState[]
+  telegramGroups               AssistantTelegramGroup[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -284,21 +291,21 @@ model Assistant {
 }
 
 model AssistantChannelSurfaceBinding {
-  id                String                         @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  assistantId       String                         @map("assistant_id") @db.Uuid
-  providerKey       AssistantIntegrationProviderKey @map("provider_key")
-  surfaceType       AssistantIntegrationSurfaceType @map("surface_type")
-  bindingState      AssistantChannelBindingState   @default(unconfigured) @map("binding_state")
-  tokenFingerprint  String?                        @map("token_fingerprint") @db.VarChar(128)
-  tokenLastFour     String?                        @map("token_last_four") @db.VarChar(4)
-  policy            Json?                          @db.JsonB
-  config            Json?                          @db.JsonB
-  metadata          Json?                          @db.JsonB
-  connectedAt       DateTime?                      @map("connected_at") @db.Timestamptz(6)
-  disconnectedAt    DateTime?                      @map("disconnected_at") @db.Timestamptz(6)
-  createdAt         DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant         Assistant                      @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id               String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId      String                          @map("assistant_id") @db.Uuid
+  providerKey      AssistantIntegrationProviderKey @map("provider_key")
+  surfaceType      AssistantIntegrationSurfaceType @map("surface_type")
+  bindingState     AssistantChannelBindingState    @default(unconfigured) @map("binding_state")
+  tokenFingerprint String?                         @map("token_fingerprint") @db.VarChar(128)
+  tokenLastFour    String?                         @map("token_last_four") @db.VarChar(4)
+  policy           Json?                           @db.JsonB
+  config           Json?                           @db.JsonB
+  metadata         Json?                           @db.JsonB
+  connectedAt      DateTime?                       @map("connected_at") @db.Timestamptz(6)
+  disconnectedAt   DateTime?                       @map("disconnected_at") @db.Timestamptz(6)
+  createdAt        DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant        Assistant                       @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([assistantId, providerKey, surfaceType])
   @@index([assistantId, providerKey, bindingState])
@@ -306,20 +313,20 @@ model AssistantChannelSurfaceBinding {
 }
 
 model AssistantPublishedVersion {
-  id                  String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  assistantId         String    @map("assistant_id") @db.Uuid
-  version             Int
-  snapshotDisplayName  String?   @map("snapshot_display_name")
-  snapshotInstructions String?   @map("snapshot_instructions")
-  snapshotTraits       Json?     @map("snapshot_traits") @db.JsonB
-  snapshotAvatarEmoji  String?   @map("snapshot_avatar_emoji") @db.VarChar(8)
-  snapshotAvatarUrl    String?   @map("snapshot_avatar_url")
-  publishedByUserId    String    @map("published_by_user_id") @db.Uuid
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  assistant             Assistant   @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  publishedByUser       AppUser     @relation("AssistantVersionPublisher", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  applyTargetAssistants Assistant[] @relation("AssistantApplyTargetVersion")
-  applyAppliedAssistants Assistant[] @relation("AssistantApplyAppliedVersion")
+  id                     String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId            String                     @map("assistant_id") @db.Uuid
+  version                Int
+  snapshotDisplayName    String?                    @map("snapshot_display_name")
+  snapshotInstructions   String?                    @map("snapshot_instructions")
+  snapshotTraits         Json?                      @map("snapshot_traits") @db.JsonB
+  snapshotAvatarEmoji    String?                    @map("snapshot_avatar_emoji") @db.VarChar(8)
+  snapshotAvatarUrl      String?                    @map("snapshot_avatar_url")
+  publishedByUserId      String                     @map("published_by_user_id") @db.Uuid
+  createdAt              DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant              Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publishedByUser        AppUser                    @relation("AssistantVersionPublisher", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  applyTargetAssistants  Assistant[]                @relation("AssistantApplyTargetVersion")
+  applyAppliedAssistants Assistant[]                @relation("AssistantApplyAppliedVersion")
   materializedSpec       AssistantMaterializedSpec?
 
   @@unique([assistantId, version])
@@ -327,7 +334,7 @@ model AssistantPublishedVersion {
 }
 
 model AssistantGovernance {
-  id                 String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   assistantId        String    @unique @map("assistant_id") @db.Uuid
   capabilityEnvelope Json?     @map("capability_envelope")
   secretRefs         Json?     @map("secret_refs")
@@ -345,7 +352,7 @@ model AssistantGovernance {
 }
 
 model AppUserAdminRole {
-  id          String               @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  id          String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId      String               @map("user_id") @db.Uuid
   workspaceId String?              @map("workspace_id") @db.Uuid
   roleCode    AppUserAdminRoleCode @map("role_code")
@@ -360,19 +367,19 @@ model AppUserAdminRole {
 }
 
 model AssistantAuditEvent {
-  id           String     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  workspaceId  String?    @map("workspace_id") @db.Uuid
-  assistantId  String?    @map("assistant_id") @db.Uuid
-  actorUserId  String?    @map("actor_user_id") @db.Uuid
-  eventCategory String    @map("event_category") @db.VarChar(64)
-  eventCode    String     @map("event_code") @db.VarChar(128)
-  outcome      String     @default("succeeded") @db.VarChar(24)
-  summary      String     @db.VarChar(255)
-  details      Json       @default("{}") @db.JsonB
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  workspace    Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  assistant    Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  actorUser    AppUser?   @relation("AssistantAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String?    @map("workspace_id") @db.Uuid
+  assistantId   String?    @map("assistant_id") @db.Uuid
+  actorUserId   String?    @map("actor_user_id") @db.Uuid
+  eventCategory String     @map("event_category") @db.VarChar(64)
+  eventCode     String     @map("event_code") @db.VarChar(128)
+  outcome       String     @default("succeeded") @db.VarChar(24)
+  summary       String     @db.VarChar(255)
+  details       Json       @default("{}") @db.JsonB
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace     Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  assistant     Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  actorUser     AppUser?   @relation("AssistantAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([assistantId, createdAt(sort: Desc)])
   @@index([workspaceId, createdAt(sort: Desc)])
@@ -381,18 +388,18 @@ model AssistantAuditEvent {
 }
 
 model WorkspaceAdminNotificationChannel {
-  id               String                         @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  workspaceId      String                         @map("workspace_id") @db.Uuid
-  channelType      AdminNotificationChannelType   @map("channel_type")
-  status           AdminNotificationChannelStatus @default(inactive) @map("status")
-  endpointUrl      String?                        @map("endpoint_url") @db.VarChar(512)
-  signingSecret    String?                        @map("signing_secret") @db.VarChar(256)
-  createdByUserId  String?                        @map("created_by_user_id") @db.Uuid
-  createdAt        DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace        Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdByUser    AppUser?                       @relation(fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  deliveries       AdminNotificationDelivery[]
+  id              String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String                         @map("workspace_id") @db.Uuid
+  channelType     AdminNotificationChannelType   @map("channel_type")
+  status          AdminNotificationChannelStatus @default(inactive) @map("status")
+  endpointUrl     String?                        @map("endpoint_url") @db.VarChar(512)
+  signingSecret   String?                        @map("signing_secret") @db.VarChar(256)
+  createdByUserId String?                        @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace       Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdByUser   AppUser?                       @relation(fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  deliveries      AdminNotificationDelivery[]
 
   @@unique([workspaceId, channelType])
   @@index([workspaceId, status])
@@ -400,16 +407,16 @@ model WorkspaceAdminNotificationChannel {
 }
 
 model AdminNotificationDelivery {
-  id              String                       @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  workspaceId     String                       @map("workspace_id") @db.Uuid
-  channelId       String                       @map("channel_id") @db.Uuid
-  signalCode      String                       @map("signal_code") @db.VarChar(128)
-  deliveryStatus  AdminNotificationDeliveryStatus @map("delivery_status")
-  payload         Json                         @default("{}") @db.JsonB
-  errorMessage    String?                      @map("error_message") @db.VarChar(512)
-  attemptedAt     DateTime                     @default(now()) @map("attempted_at") @db.Timestamptz(6)
-  workspace       Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  channel         WorkspaceAdminNotificationChannel @relation(fields: [channelId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id             String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId    String                            @map("workspace_id") @db.Uuid
+  channelId      String                            @map("channel_id") @db.Uuid
+  signalCode     String                            @map("signal_code") @db.VarChar(128)
+  deliveryStatus AdminNotificationDeliveryStatus   @map("delivery_status")
+  payload        Json                              @default("{}") @db.JsonB
+  errorMessage   String?                           @map("error_message") @db.VarChar(512)
+  attemptedAt    DateTime                          @default(now()) @map("attempted_at") @db.Timestamptz(6)
+  workspace      Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  channel        WorkspaceAdminNotificationChannel @relation(fields: [channelId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([workspaceId, attemptedAt(sort: Desc)])
   @@index([channelId, attemptedAt(sort: Desc)])
@@ -425,84 +432,84 @@ model PlatformConfigGeneration {
 }
 
 model PlatformRuntimeProviderSettings {
-  id                       String   @id @default("global") @db.VarChar(32)
-  primaryProvider          String   @map("primary_provider") @db.VarChar(32)
-  primaryModel             String   @map("primary_model") @db.VarChar(256)
-  fallbackProvider         String?  @map("fallback_provider") @db.VarChar(32)
-  fallbackModel            String?  @map("fallback_model") @db.VarChar(256)
-  availableModelsByProvider Json    @map("available_models_by_provider") @db.JsonB
-  updatedByUserId          String?  @map("updated_by_user_id") @db.Uuid
-  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-  updatedByUser            AppUser? @relation("PlatformRuntimeProviderSettingsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  secrets                  PlatformRuntimeProviderSecret[]
+  id                        String                          @id @default("global") @db.VarChar(32)
+  primaryProvider           String                          @map("primary_provider") @db.VarChar(32)
+  primaryModel              String                          @map("primary_model") @db.VarChar(256)
+  fallbackProvider          String?                         @map("fallback_provider") @db.VarChar(32)
+  fallbackModel             String?                         @map("fallback_model") @db.VarChar(256)
+  availableModelsByProvider Json                            @map("available_models_by_provider") @db.JsonB
+  updatedByUserId           String?                         @map("updated_by_user_id") @db.Uuid
+  createdAt                 DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedByUser             AppUser?                        @relation("PlatformRuntimeProviderSettingsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  secrets                   PlatformRuntimeProviderSecret[]
 
   @@map("platform_runtime_provider_settings")
 }
 
 model PlatformRuntimeProviderSecret {
-  id                      String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  settingsId              String   @default("global") @map("settings_id") @db.VarChar(32)
-  providerKey             String   @unique @map("provider_key") @db.VarChar(64)
-  encryptionSchemaVersion Int      @default(1) @map("encryption_schema_version")
-  ciphertext              String   @db.Text
-  iv                      String   @db.VarChar(128)
-  authTag                 String   @map("auth_tag") @db.VarChar(128)
-  lastFour                String?  @map("last_four") @db.VarChar(8)
-  updatedByUserId         String?  @map("updated_by_user_id") @db.Uuid
-  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                      String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  settingsId              String                          @default("global") @map("settings_id") @db.VarChar(32)
+  providerKey             String                          @unique @map("provider_key") @db.VarChar(64)
+  encryptionSchemaVersion Int                             @default(1) @map("encryption_schema_version")
+  ciphertext              String                          @db.Text
+  iv                      String                          @db.VarChar(128)
+  authTag                 String                          @map("auth_tag") @db.VarChar(128)
+  lastFour                String?                         @map("last_four") @db.VarChar(8)
+  updatedByUserId         String?                         @map("updated_by_user_id") @db.Uuid
+  createdAt               DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
   settings                PlatformRuntimeProviderSettings @relation(fields: [settingsId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  updatedByUser           AppUser? @relation("PlatformRuntimeProviderSecretsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  updatedByUser           AppUser?                        @relation("PlatformRuntimeProviderSecretsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([settingsId])
   @@map("platform_runtime_provider_secrets")
 }
 
 model AssistantPlatformRollout {
-  id                String               @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  workspaceId       String               @map("workspace_id") @db.Uuid
-  createdByUserId   String?              @map("created_by_user_id") @db.Uuid
-  status            PlatformRolloutStatus @default(in_progress)
-  rolloutPercent    Int                  @map("rollout_percent")
-  targetPatch       Json                 @map("target_patch") @db.JsonB
-  totalAssistants   Int                  @default(0) @map("total_assistants")
-  targetedAssistants Int                 @default(0) @map("targeted_assistants")
-  applySucceededCount Int                @default(0) @map("apply_succeeded_count")
-  applyDegradedCount Int                 @default(0) @map("apply_degraded_count")
-  applyFailedCount  Int                  @default(0) @map("apply_failed_count")
-  rolledBackAt      DateTime?            @map("rolled_back_at") @db.Timestamptz(6)
-  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace         Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdByUser     AppUser?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  items             AssistantPlatformRolloutItem[]
+  id                  String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId         String                         @map("workspace_id") @db.Uuid
+  createdByUserId     String?                        @map("created_by_user_id") @db.Uuid
+  status              PlatformRolloutStatus          @default(in_progress)
+  rolloutPercent      Int                            @map("rollout_percent")
+  targetPatch         Json                           @map("target_patch") @db.JsonB
+  totalAssistants     Int                            @default(0) @map("total_assistants")
+  targetedAssistants  Int                            @default(0) @map("targeted_assistants")
+  applySucceededCount Int                            @default(0) @map("apply_succeeded_count")
+  applyDegradedCount  Int                            @default(0) @map("apply_degraded_count")
+  applyFailedCount    Int                            @default(0) @map("apply_failed_count")
+  rolledBackAt        DateTime?                      @map("rolled_back_at") @db.Timestamptz(6)
+  createdAt           DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace           Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdByUser       AppUser?                       @relation(fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  items               AssistantPlatformRolloutItem[]
 
   @@index([workspaceId, createdAt(sort: Desc)])
   @@map("assistant_platform_rollouts")
 }
 
 model AssistantPlatformRolloutItem {
-  id                   String                    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  rolloutId            String                    @map("rollout_id") @db.Uuid
-  assistantId          String                    @map("assistant_id") @db.Uuid
-  userId               String                    @map("user_id") @db.Uuid
-  previousGovernance   Json                      @map("previous_governance") @db.JsonB
-  updatedGovernance    Json                      @map("updated_governance") @db.JsonB
+  id                   String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rolloutId            String                     @map("rollout_id") @db.Uuid
+  assistantId          String                     @map("assistant_id") @db.Uuid
+  userId               String                     @map("user_id") @db.Uuid
+  previousGovernance   Json                       @map("previous_governance") @db.JsonB
+  updatedGovernance    Json                       @map("updated_governance") @db.JsonB
   applyOutcome         PlatformRolloutItemOutcome @default(pending) @map("apply_outcome")
   rollbackOutcome      PlatformRolloutItemOutcome @default(pending) @map("rollback_outcome")
-  applyStatus          AssistantApplyStatus?     @map("apply_status")
-  applyErrorCode       String?                   @map("apply_error_code") @db.VarChar(128)
-  applyErrorMessage    String?                   @map("apply_error_message") @db.VarChar(512)
-  rollbackStatus       AssistantApplyStatus?     @map("rollback_status")
-  rollbackErrorCode    String?                   @map("rollback_error_code") @db.VarChar(128)
-  rollbackErrorMessage String?                   @map("rollback_error_message") @db.VarChar(512)
-  appliedAt            DateTime?                 @map("applied_at") @db.Timestamptz(6)
-  rolledBackAt         DateTime?                 @map("rolled_back_at") @db.Timestamptz(6)
-  createdAt            DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  rollout              AssistantPlatformRollout  @relation(fields: [rolloutId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  assistant            Assistant                 @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  user                 AppUser                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  applyStatus          AssistantApplyStatus?      @map("apply_status")
+  applyErrorCode       String?                    @map("apply_error_code") @db.VarChar(128)
+  applyErrorMessage    String?                    @map("apply_error_message") @db.VarChar(512)
+  rollbackStatus       AssistantApplyStatus?      @map("rollback_status")
+  rollbackErrorCode    String?                    @map("rollback_error_code") @db.VarChar(128)
+  rollbackErrorMessage String?                    @map("rollback_error_message") @db.VarChar(512)
+  appliedAt            DateTime?                  @map("applied_at") @db.Timestamptz(6)
+  rolledBackAt         DateTime?                  @map("rolled_back_at") @db.Timestamptz(6)
+  createdAt            DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  rollout              AssistantPlatformRollout   @relation(fields: [rolloutId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant            Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user                 AppUser                    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([rolloutId, assistantId])
   @@index([assistantId, createdAt(sort: Desc)])
@@ -510,24 +517,24 @@ model AssistantPlatformRolloutItem {
 }
 
 model AssistantAbuseGuardState {
-  id                  String       @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  assistantId         String       @map("assistant_id") @db.Uuid
-  userId              String       @map("user_id") @db.Uuid
-  workspaceId         String       @map("workspace_id") @db.Uuid
-  surface             AbuseSurface
-  windowStartedAt     DateTime     @map("window_started_at") @db.Timestamptz(6)
-  requestCount        Int          @default(0) @map("request_count")
-  slowedUntil         DateTime?    @map("slowed_until") @db.Timestamptz(6)
-  blockedUntil        DateTime?    @map("blocked_until") @db.Timestamptz(6)
-  blockReason         String?      @map("block_reason") @db.VarChar(255)
-  adminOverrideUntil  DateTime?    @map("admin_override_until") @db.Timestamptz(6)
-  lastSeenAt          DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(6)
-  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant           Assistant    @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember     WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
-  user                AppUser      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace           Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                 String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId        String          @map("assistant_id") @db.Uuid
+  userId             String          @map("user_id") @db.Uuid
+  workspaceId        String          @map("workspace_id") @db.Uuid
+  surface            AbuseSurface
+  windowStartedAt    DateTime        @map("window_started_at") @db.Timestamptz(6)
+  requestCount       Int             @default(0) @map("request_count")
+  slowedUntil        DateTime?       @map("slowed_until") @db.Timestamptz(6)
+  blockedUntil       DateTime?       @map("blocked_until") @db.Timestamptz(6)
+  blockReason        String?         @map("block_reason") @db.VarChar(255)
+  adminOverrideUntil DateTime?       @map("admin_override_until") @db.Timestamptz(6)
+  lastSeenAt         DateTime        @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant          Assistant       @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember    WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  user               AppUser         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace          Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([assistantId, userId, surface])
   @@index([workspaceId, surface, blockedUntil])
@@ -535,19 +542,19 @@ model AssistantAbuseGuardState {
 }
 
 model AssistantAbuseAssistantState {
-  id                  String       @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  assistantId         String       @map("assistant_id") @db.Uuid
-  surface             AbuseSurface
-  windowStartedAt     DateTime     @map("window_started_at") @db.Timestamptz(6)
-  requestCount        Int          @default(0) @map("request_count")
-  slowedUntil         DateTime?    @map("slowed_until") @db.Timestamptz(6)
-  blockedUntil        DateTime?    @map("blocked_until") @db.Timestamptz(6)
-  blockReason         String?      @map("block_reason") @db.VarChar(255)
-  adminOverrideUntil  DateTime?    @map("admin_override_until") @db.Timestamptz(6)
-  lastSeenAt          DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(6)
-  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant           Assistant    @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId        String       @map("assistant_id") @db.Uuid
+  surface            AbuseSurface
+  windowStartedAt    DateTime     @map("window_started_at") @db.Timestamptz(6)
+  requestCount       Int          @default(0) @map("request_count")
+  slowedUntil        DateTime?    @map("slowed_until") @db.Timestamptz(6)
+  blockedUntil       DateTime?    @map("blocked_until") @db.Timestamptz(6)
+  blockReason        String?      @map("block_reason") @db.VarChar(255)
+  adminOverrideUntil DateTime?    @map("admin_override_until") @db.Timestamptz(6)
+  lastSeenAt         DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant          Assistant    @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([assistantId, surface])
   @@index([surface, blockedUntil])
@@ -555,56 +562,56 @@ model AssistantAbuseAssistantState {
 }
 
 model PlanCatalogPlan {
-  id                            String                 @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  code                          String                 @unique @db.VarChar(64)
-  displayName                   String                 @map("display_name") @db.VarChar(120)
-  description                   String?                @db.Text
-  status                        PlanCatalogStatus      @default(active)
-  isDefaultFirstRegistrationPlan Boolean               @default(false) @map("is_default_first_registration_plan")
-  isTrialPlan                   Boolean                @default(false) @map("is_trial_plan")
-  trialDurationDays             Int?                   @map("trial_duration_days")
-  billingProviderHints          Json?                  @map("billing_provider_hints")
-  createdAt                     DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                     DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
-  entitlement                   PlanCatalogEntitlement?
-  toolActivations               PlanCatalogToolActivation[]
+  id                             String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                           String                      @unique @db.VarChar(64)
+  displayName                    String                      @map("display_name") @db.VarChar(120)
+  description                    String?                     @db.Text
+  status                         PlanCatalogStatus           @default(active)
+  isDefaultFirstRegistrationPlan Boolean                     @default(false) @map("is_default_first_registration_plan")
+  isTrialPlan                    Boolean                     @default(false) @map("is_trial_plan")
+  trialDurationDays              Int?                        @map("trial_duration_days")
+  billingProviderHints           Json?                       @map("billing_provider_hints")
+  createdAt                      DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                      DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  entitlement                    PlanCatalogEntitlement?
+  toolActivations                PlanCatalogToolActivation[]
 
   @@map("plan_catalog_plans")
 }
 
 model PlanCatalogEntitlement {
-  id                           String          @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  planId                       String          @unique @map("plan_id") @db.Uuid
-  schemaVersion                Int             @default(1) @map("schema_version")
-  capabilities                 Json            @default("[]") @db.JsonB
-  toolClasses                  Json            @default("[]") @map("tool_classes") @db.JsonB
-  channelsAndSurfaces          Json            @default("[]") @map("channels_and_surfaces") @db.JsonB
-  limitsPermissions            Json            @default("[]") @map("limits_permissions") @db.JsonB
-  createdAt                    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
-  plan                         PlanCatalogPlan @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                  String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  planId              String          @unique @map("plan_id") @db.Uuid
+  schemaVersion       Int             @default(1) @map("schema_version")
+  capabilities        Json            @default("[]") @db.JsonB
+  toolClasses         Json            @default("[]") @map("tool_classes") @db.JsonB
+  channelsAndSurfaces Json            @default("[]") @map("channels_and_surfaces") @db.JsonB
+  limitsPermissions   Json            @default("[]") @map("limits_permissions") @db.JsonB
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  plan                PlanCatalogPlan @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("plan_catalog_entitlements")
 }
 
 model ToolCatalogTool {
-  id              String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  code            String                     @unique @db.VarChar(64)
-  displayName     String                     @map("display_name") @db.VarChar(120)
-  description     String?                    @db.Text
-  capabilityGroup ToolCatalogCapabilityGroup @map("capability_group")
-  toolClass       ToolCatalogToolClass       @map("tool_class")
-  status          ToolCatalogStatus          @default(active)
-  providerHints   Json?                      @map("provider_hints")
-  createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id              String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code            String                      @unique @db.VarChar(64)
+  displayName     String                      @map("display_name") @db.VarChar(120)
+  description     String?                     @db.Text
+  capabilityGroup ToolCatalogCapabilityGroup  @map("capability_group")
+  toolClass       ToolCatalogToolClass        @map("tool_class")
+  status          ToolCatalogStatus           @default(active)
+  providerHints   Json?                       @map("provider_hints")
+  createdAt       DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
   planActivations PlanCatalogToolActivation[]
 
   @@map("tool_catalog_tools")
 }
 
 model PlanCatalogToolActivation {
-  id               String                   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  id               String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   planId           String                   @map("plan_id") @db.Uuid
   toolId           String                   @map("tool_id") @db.Uuid
   activationStatus PlanToolActivationStatus @default(inactive) @map("activation_status")
@@ -620,70 +627,70 @@ model PlanCatalogToolActivation {
 }
 
 model WorkspaceSubscription {
-  id                     String                    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  workspaceId            String                    @unique @map("workspace_id") @db.Uuid
-  planCode               String                    @map("plan_code") @db.VarChar(64)
-  status                 WorkspaceSubscriptionStatus
-  trialStartedAt         DateTime?                 @map("trial_started_at") @db.Timestamptz(6)
-  trialEndsAt            DateTime?                 @map("trial_ends_at") @db.Timestamptz(6)
-  currentPeriodStartedAt DateTime?                 @map("current_period_started_at") @db.Timestamptz(6)
-  currentPeriodEndsAt    DateTime?                 @map("current_period_ends_at") @db.Timestamptz(6)
-  cancelAtPeriodEnd      Boolean                   @default(false) @map("cancel_at_period_end")
-  billingProvider        String?                   @map("billing_provider") @db.VarChar(64)
-  providerCustomerRef    String?                   @map("provider_customer_ref") @db.VarChar(128)
-  providerSubscriptionRef String?                  @map("provider_subscription_ref") @db.VarChar(128)
-  metadata               Json?                     @db.JsonB
-  createdAt              DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace              Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                      String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId             String                      @unique @map("workspace_id") @db.Uuid
+  planCode                String                      @map("plan_code") @db.VarChar(64)
+  status                  WorkspaceSubscriptionStatus
+  trialStartedAt          DateTime?                   @map("trial_started_at") @db.Timestamptz(6)
+  trialEndsAt             DateTime?                   @map("trial_ends_at") @db.Timestamptz(6)
+  currentPeriodStartedAt  DateTime?                   @map("current_period_started_at") @db.Timestamptz(6)
+  currentPeriodEndsAt     DateTime?                   @map("current_period_ends_at") @db.Timestamptz(6)
+  cancelAtPeriodEnd       Boolean                     @default(false) @map("cancel_at_period_end")
+  billingProvider         String?                     @map("billing_provider") @db.VarChar(64)
+  providerCustomerRef     String?                     @map("provider_customer_ref") @db.VarChar(128)
+  providerSubscriptionRef String?                     @map("provider_subscription_ref") @db.VarChar(128)
+  metadata                Json?                       @db.JsonB
+  createdAt               DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace               Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([planCode, status])
   @@map("workspace_subscriptions")
 }
 
 model WorkspaceQuotaAccountingState {
-  id                                   String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  workspaceId                          String   @unique @map("workspace_id") @db.Uuid
-  tokenBudgetUsed                      BigInt   @default(0) @map("token_budget_used")
-  tokenBudgetLimit                     BigInt?  @map("token_budget_limit")
-  costOrTokenDrivingToolClassUnitsUsed Int      @default(0) @map("cost_or_token_driving_tool_class_units_used")
-  costOrTokenDrivingToolClassUnitsLimit Int?    @map("cost_or_token_driving_tool_class_units_limit")
-  activeWebChatsCurrent                Int      @default(0) @map("active_web_chats_current")
-  activeWebChatsLimit                  Int?     @map("active_web_chats_limit")
-  lastComputedAt                       DateTime @default(now()) @map("last_computed_at") @db.Timestamptz(6)
-  createdAt                            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace                            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId                           String    @unique @map("workspace_id") @db.Uuid
+  tokenBudgetUsed                       BigInt    @default(0) @map("token_budget_used")
+  tokenBudgetLimit                      BigInt?   @map("token_budget_limit")
+  costOrTokenDrivingToolClassUnitsUsed  Int       @default(0) @map("cost_or_token_driving_tool_class_units_used")
+  costOrTokenDrivingToolClassUnitsLimit Int?      @map("cost_or_token_driving_tool_class_units_limit")
+  activeWebChatsCurrent                 Int       @default(0) @map("active_web_chats_current")
+  activeWebChatsLimit                   Int?      @map("active_web_chats_limit")
+  lastComputedAt                        DateTime  @default(now()) @map("last_computed_at") @db.Timestamptz(6)
+  createdAt                             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace                             Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("workspace_quota_accounting_state")
 }
 
 model WorkspaceQuotaUsageEvent {
-  id           String                @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  workspaceId  String                @map("workspace_id") @db.Uuid
-  assistantId  String?               @map("assistant_id") @db.Uuid
-  userId       String?               @map("user_id") @db.Uuid
+  id           String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId  String                  @map("workspace_id") @db.Uuid
+  assistantId  String?                 @map("assistant_id") @db.Uuid
+  userId       String?                 @map("user_id") @db.Uuid
   dimension    WorkspaceQuotaDimension
-  delta        BigInt                @default(0)
-  currentValue BigInt?               @map("current_value")
-  limitValue   BigInt?               @map("limit_value")
-  source       String                @db.VarChar(64)
-  metadata     Json?                 @db.JsonB
-  createdAt    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  workspace    Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  delta        BigInt                  @default(0)
+  currentValue BigInt?                 @map("current_value")
+  limitValue   BigInt?                 @map("limit_value")
+  source       String                  @db.VarChar(64)
+  metadata     Json?                   @db.JsonB
+  createdAt    DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace    Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([workspaceId, dimension, createdAt])
   @@map("workspace_quota_usage_events")
 }
 
 model WorkspaceToolUsageDailyCounter {
-  id          String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  workspaceId String   @map("workspace_id") @db.Uuid
-  toolCode    String   @map("tool_code") @db.VarChar(64)
-  date        DateTime @db.Date
-  callCount   Int      @default(0) @map("call_count")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  toolCode    String    @map("tool_code") @db.VarChar(64)
+  date        DateTime  @db.Date
+  callCount   Int       @default(0) @map("call_count")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([workspaceId, toolCode, date])
@@ -692,40 +699,40 @@ model WorkspaceToolUsageDailyCounter {
 }
 
 model AssistantMaterializedSpec {
-  id                        String                              @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  assistantId               String                              @map("assistant_id") @db.Uuid
-  publishedVersionId        String                              @unique @map("published_version_id") @db.Uuid
-  sourceAction              AssistantMaterializationSourceAction @map("source_action")
-  algorithmVersion          Int                                 @default(1) @map("algorithm_version")
-  layers                    Json                                @map("layers")
-  openclawBootstrap         Json                                @map("openclaw_bootstrap")
-  openclawWorkspace         Json                                @map("openclaw_workspace")
-  layersDocument            String                              @map("layers_document") @db.Text
-  openclawBootstrapDocument String                              @map("openclaw_bootstrap_document") @db.Text
-  openclawWorkspaceDocument String                              @map("openclaw_workspace_document") @db.Text
-  contentHash                      String                              @map("content_hash")
-  materializedAtConfigGeneration   Int                                 @default(0) @map("materialized_at_config_generation")
-  createdAt                        DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
-  assistant                        Assistant                           @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  publishedVersion                 AssistantPublishedVersion           @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                             String                               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId                    String                               @map("assistant_id") @db.Uuid
+  publishedVersionId             String                               @unique @map("published_version_id") @db.Uuid
+  sourceAction                   AssistantMaterializationSourceAction @map("source_action")
+  algorithmVersion               Int                                  @default(1) @map("algorithm_version")
+  layers                         Json                                 @map("layers")
+  openclawBootstrap              Json                                 @map("openclaw_bootstrap")
+  openclawWorkspace              Json                                 @map("openclaw_workspace")
+  layersDocument                 String                               @map("layers_document") @db.Text
+  openclawBootstrapDocument      String                               @map("openclaw_bootstrap_document") @db.Text
+  openclawWorkspaceDocument      String                               @map("openclaw_workspace_document") @db.Text
+  contentHash                    String                               @map("content_hash")
+  materializedAtConfigGeneration Int                                  @default(0) @map("materialized_at_config_generation")
+  createdAt                      DateTime                             @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant                      Assistant                            @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publishedVersion               AssistantPublishedVersion            @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("assistant_materialized_specs")
 }
 
 model AssistantChat {
-  id               String                @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  assistantId      String                @map("assistant_id") @db.Uuid
-  userId           String                @map("user_id") @db.Uuid
-  workspaceId      String                @map("workspace_id") @db.Uuid
+  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId      String                 @map("assistant_id") @db.Uuid
+  userId           String                 @map("user_id") @db.Uuid
+  workspaceId      String                 @map("workspace_id") @db.Uuid
   surface          AssistantChatSurface
-  surfaceThreadKey String                @map("surface_thread_key")
+  surfaceThreadKey String                 @map("surface_thread_key")
   title            String?
-  archivedAt       DateTime?             @map("archived_at") @db.Timestamptz(6)
-  lastMessageAt    DateTime?             @map("last_message_at") @db.Timestamptz(6)
-  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant        Assistant             @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember  WorkspaceMember       @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  archivedAt       DateTime?              @map("archived_at") @db.Timestamptz(6)
+  lastMessageAt    DateTime?              @map("last_message_at") @db.Timestamptz(6)
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant        Assistant              @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember  WorkspaceMember        @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
   messages         AssistantChatMessage[]
 
   @@unique([assistantId, surface, surfaceThreadKey])
@@ -734,7 +741,7 @@ model AssistantChat {
 }
 
 model AssistantChatMessage {
-  id          String                     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  id          String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   chatId      String                     @map("chat_id") @db.Uuid
   assistantId String                     @map("assistant_id") @db.Uuid
   author      AssistantChatMessageAuthor
@@ -748,58 +755,59 @@ model AssistantChatMessage {
 }
 
 model AssistantMemoryRegistryItem {
-  id                        String                           @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  assistantId               String                           @map("assistant_id") @db.Uuid
-  userId                    String                           @map("user_id") @db.Uuid
-  workspaceId               String                           @map("workspace_id") @db.Uuid
-  chatId                    String?                          @map("chat_id") @db.Uuid
-  relatedUserMessageId      String?                          @map("related_user_message_id") @db.Uuid
-  relatedAssistantMessageId String?                          @map("related_assistant_message_id") @db.Uuid
-  summary                   String                           @db.VarChar(500)
+  id                        String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId               String                            @map("assistant_id") @db.Uuid
+  userId                    String                            @map("user_id") @db.Uuid
+  workspaceId               String                            @map("workspace_id") @db.Uuid
+  chatId                    String?                           @map("chat_id") @db.Uuid
+  relatedUserMessageId      String?                           @map("related_user_message_id") @db.Uuid
+  relatedAssistantMessageId String?                           @map("related_assistant_message_id") @db.Uuid
+  summary                   String                            @db.VarChar(500)
   sourceType                AssistantMemoryRegistrySourceType @map("source_type")
-  sourceLabel               String?                          @map("source_label") @db.VarChar(64)
-  forgottenAt               DateTime?                        @map("forgotten_at") @db.Timestamptz(6)
-  createdAt                 DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
-  assistant                 Assistant                        @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember           WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  sourceLabel               String?                           @map("source_label") @db.VarChar(64)
+  forgottenAt               DateTime?                         @map("forgotten_at") @db.Timestamptz(6)
+  createdAt                 DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant                 Assistant                         @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember           WorkspaceMember                   @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([assistantId, createdAt(sort: Desc)])
   @@map("assistant_memory_registry_items")
 }
 
 model AssistantTaskRegistryItem {
-  id              String                           @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  assistantId     String                           @map("assistant_id") @db.Uuid
-  userId          String                           @map("user_id") @db.Uuid
-  workspaceId     String                           @map("workspace_id") @db.Uuid
-  title           String                           @db.VarChar(500)
+  id              String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId     String                             @map("assistant_id") @db.Uuid
+  userId          String                             @map("user_id") @db.Uuid
+  workspaceId     String                             @map("workspace_id") @db.Uuid
+  title           String                             @db.VarChar(500)
   sourceSurface   AssistantTaskRegistrySourceSurface @map("source_surface")
-  sourceLabel     String?                          @map("source_label") @db.VarChar(64)
+  sourceLabel     String?                            @map("source_label") @db.VarChar(64)
   controlStatus   AssistantTaskRegistryControlStatus @map("control_status")
-  nextRunAt       DateTime?                        @map("next_run_at") @db.Timestamptz(6)
-  disabledAt      DateTime?                        @map("disabled_at") @db.Timestamptz(6)
-  cancelledAt     DateTime?                        @map("cancelled_at") @db.Timestamptz(6)
-  externalRef     String?                          @map("external_ref") @db.VarChar(128)
-  createdAt       DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant       Assistant                        @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  nextRunAt       DateTime?                          @map("next_run_at") @db.Timestamptz(6)
+  disabledAt      DateTime?                          @map("disabled_at") @db.Timestamptz(6)
+  cancelledAt     DateTime?                          @map("cancelled_at") @db.Timestamptz(6)
+  externalRef     String?                            @map("external_ref") @db.VarChar(128)
+  createdAt       DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant       Assistant                          @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember WorkspaceMember                    @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
 
+  @@unique([assistantId, externalRef])
   @@index([assistantId, controlStatus, nextRunAt])
   @@map("assistant_task_registry_items")
 }
 
 model AssistantTelegramGroup {
-  id              String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  assistantId     String   @map("assistant_id") @db.Uuid
-  telegramChatId  String   @map("telegram_chat_id") @db.VarChar(64)
-  title           String   @db.VarChar(255)
-  memberCount     Int?     @map("member_count")
-  status          String   @default("active") @db.VarChar(16)
-  joinedAt        DateTime @default(now()) @map("joined_at") @db.Timestamptz(6)
-  leftAt          DateTime? @map("left_at") @db.Timestamptz(6)
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant       Assistant @relation(fields: [assistantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId    String    @map("assistant_id") @db.Uuid
+  telegramChatId String    @map("telegram_chat_id") @db.VarChar(64)
+  title          String    @db.VarChar(255)
+  memberCount    Int?      @map("member_count")
+  status         String    @default("active") @db.VarChar(16)
+  joinedAt       DateTime  @default(now()) @map("joined_at") @db.Timestamptz(6)
+  leftAt         DateTime? @map("left_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant      Assistant @relation(fields: [assistantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([assistantId, telegramChatId])
   @@map("assistant_telegram_groups")

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type { Assistant } from "../domain/assistant.entity";
 import {
@@ -10,6 +10,7 @@ import {
   WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
   type WorkspaceQuotaAccountingRepository
 } from "../domain/workspace-quota-accounting.repository";
+import { createAssistantInboundRateLimitError } from "./assistant-inbound-error";
 
 const WINDOW_MS = 60_000;
 
@@ -30,7 +31,7 @@ function maxDate(a: Date | null, b: Date | null): Date | null {
 }
 
 function throwTooManyRequests(message: string): never {
-  throw new HttpException(message, HttpStatus.TOO_MANY_REQUESTS);
+  throw createAssistantInboundRateLimitError(message);
 }
 
 @Injectable()

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { ConflictException } from "@nestjs/common";
 import { EnforceAssistantCapabilityAndQuotaService } from "../src/modules/workspace-management/application/enforce-assistant-capability-and-quota.service";
+import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import type { ResolveEffectiveCapabilityStateService } from "../src/modules/workspace-management/application/resolve-effective-capability-state.service";
 import type { ResolveEffectiveSubscriptionStateService } from "../src/modules/workspace-management/application/resolve-effective-subscription-state.service";
 import type { AssistantGovernanceRepository } from "../src/modules/workspace-management/domain/assistant-governance.repository";
@@ -158,9 +158,9 @@ async function run(): Promise<void> {
         activeWebChatsCount: 20
       }),
     (error: unknown) =>
-      error instanceof ConflictException &&
-      typeof error.message === "string" &&
-      error.message.includes("Active web chats cap reached")
+      error instanceof ApiErrorHttpException &&
+      error.errorObject.code === "active_chat_cap_reached" &&
+      error.errorObject.message.includes("Active web chats cap reached")
   );
 
   const serviceWithDisabledWebChat = new EnforceAssistantCapabilityAndQuotaService(
@@ -190,9 +190,9 @@ async function run(): Promise<void> {
         activeWebChatsCount: 1
       }),
     (error: unknown) =>
-      error instanceof ConflictException &&
-      typeof error.message === "string" &&
-      error.message.includes("Web chat is unavailable")
+      error instanceof ApiErrorHttpException &&
+      error.errorObject.code === "plan_feature_unavailable" &&
+      error.errorObject.message.includes("Web chat is unavailable")
   );
 }
 

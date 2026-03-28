@@ -79,6 +79,14 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Manage gateway cron jobs and send wake events.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass
+  },
+  {
+    id: "12121212-1212-1212-1212-121212121212",
+    code: "reminder_task",
+    displayName: "Reminder Task",
+    description: "Create, list, pause, resume, and cancel reminders or recurring tasks.",
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass
   }
 ];
 
@@ -93,5 +101,6 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   browser: { active: false, dailyCallLimit: null },
   memory_search: { active: true, dailyCallLimit: null },
   memory_get: { active: true, dailyCallLimit: null },
-  cron: { active: true, dailyCallLimit: null }
+  cron: { active: false, dailyCallLimit: null },
+  reminder_task: { active: true, dailyCallLimit: null }
 };

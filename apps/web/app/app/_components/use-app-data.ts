@@ -10,10 +10,12 @@ import type {
 } from "@persai/contracts";
 import {
   getAssistant,
+  getAssistantNotificationPreference,
   getAssistantWebChats,
   getAssistantTelegramIntegration,
   getAssistantPlanVisibility,
-  getAdminPlanVisibility
+  getAdminPlanVisibility,
+  type AssistantNotificationPreferenceState
 } from "../assistant-api-client";
 
 export type AssistantStatus = "live" | "applying" | "draft" | "failed" | "degraded" | "none";
@@ -36,6 +38,7 @@ export interface AppData {
   assistantResolved: boolean;
   chats: AssistantWebChatListItemState[];
   telegram: TelegramIntegrationState | null;
+  notificationPreference: AssistantNotificationPreferenceState | null;
   plan: UserPlanVisibilityState | null;
   isAdmin: boolean;
   isLoading: boolean;
@@ -49,6 +52,8 @@ export function useAppData(): AppData {
   const [assistant, setAssistant] = useState<AssistantLifecycleState | null>(null);
   const [chats, setChats] = useState<AssistantWebChatListItemState[]>([]);
   const [telegram, setTelegram] = useState<TelegramIntegrationState | null>(null);
+  const [notificationPreference, setNotificationPreference] =
+    useState<AssistantNotificationPreferenceState | null>(null);
   const [plan, setPlan] = useState<UserPlanVisibilityState | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -63,13 +68,15 @@ export function useAppData(): AppData {
     setError(null);
 
     try {
-      const [assistantRes, chatsRes, telegramRes, planRes, adminProbe] = await Promise.allSettled([
-        getAssistant(token),
-        getAssistantWebChats(token),
-        getAssistantTelegramIntegration(token),
-        getAssistantPlanVisibility(token),
-        getAdminPlanVisibility(token)
-      ]);
+      const [assistantRes, chatsRes, telegramRes, preferenceRes, planRes, adminProbe] =
+        await Promise.allSettled([
+          getAssistant(token),
+          getAssistantWebChats(token),
+          getAssistantTelegramIntegration(token),
+          getAssistantNotificationPreference(token),
+          getAssistantPlanVisibility(token),
+          getAdminPlanVisibility(token)
+        ]);
 
       if (assistantRes.status === "fulfilled") {
         setAssistant(assistantRes.value);
@@ -77,6 +84,7 @@ export function useAppData(): AppData {
       }
       if (chatsRes.status === "fulfilled") setChats(chatsRes.value);
       if (telegramRes.status === "fulfilled") setTelegram(telegramRes.value);
+      if (preferenceRes.status === "fulfilled") setNotificationPreference(preferenceRes.value);
       if (planRes.status === "fulfilled") setPlan(planRes.value);
       setIsAdmin(adminProbe.status === "fulfilled");
     } catch (e) {
@@ -107,6 +115,7 @@ export function useAppData(): AppData {
     assistantResolved,
     chats,
     telegram,
+    notificationPreference,
     plan,
     isAdmin,
     isLoading,

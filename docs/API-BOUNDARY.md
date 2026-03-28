@@ -168,6 +168,25 @@ Behavior baseline:
 - normal user path does not expose raw runtime internals, stack traces, or low-level transport details.
 - support/admin depth remains outside this user-facing C6 slice.
 
+## Step 12 H13 unified inbound turn rule
+
+- PersAI API becomes the canonical inbound turn boundary for all product surfaces.
+- web chat remains public/authenticated user API.
+- Telegram, reminder callbacks, and future messengers are expected to converge on internal/application-layer orchestration that reuses the same enforcement/runtime/accounting path.
+- stable backend error codes are the contract:
+  - HTTP failures use canonical `ErrorEnvelope`
+  - streaming failures must emit the same code family in event payloads
+  - messenger/callback surfaces format from those codes instead of ad hoc string matching
+
+## Step 12 H12 reminder/task boundary
+
+- reminder/task creation is a PersAI product API concern, not a native OpenClaw cron schema concern
+- preferred notification channel resolution and fallback delivery order belong to PersAI control plane
+- temporary compatibility bridge allowed:
+  - native OpenClaw cron may call `POST /api/v1/internal/cron-fire`
+  - no native cron schema expansion is required for PersAI metadata
+- Tasks Center reads current PersAI-owned reminder/task state instead of runtime hints only
+
 ### POST /api/v1/assistant
 
 Behavior baseline:

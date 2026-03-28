@@ -51,7 +51,6 @@ import {
   postAssistantMemoryItemForget,
   postAssistantTaskItemCancel,
   postAssistantTaskItemDisable,
-  postAssistantTaskItemEnable,
   postAssistantPublish,
   postAssistantReapply,
   postAssistantReset,
@@ -1680,27 +1679,6 @@ export function AppFlowClient() {
     }
   }
 
-  async function onResumeTaskItem(itemId: string): Promise<void> {
-    const token = await getToken();
-    if (token === null) {
-      setFlowState({ type: "error", message: "Missing Clerk session token." });
-      return;
-    }
-
-    try {
-      setTaskActionWorkingId(itemId);
-      await postAssistantTaskItemEnable(token, itemId);
-      setTaskItemsFeedback("That reminder is active again.");
-      await loadTaskItems();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Could not turn this reminder back on.";
-      setTaskItemsFeedback(message);
-    } finally {
-      setTaskActionWorkingId(null);
-    }
-  }
-
   async function onStopTaskItem(itemId: string): Promise<void> {
     const token = await getToken();
     if (token === null) {
@@ -1898,7 +1876,7 @@ export function AppFlowClient() {
             );
             void loadWebChatList();
           },
-          onFailed: ({ message }) => {
+          onFailed: (payload) => {
             setChatMessages((current) =>
               current.map((entry) =>
                 entry.id === assistantMessageId
@@ -1909,7 +1887,7 @@ export function AppFlowClient() {
                   : entry
               )
             );
-            setStreamingIssue(toWebChatUxIssue(message));
+            setStreamingIssue(toWebChatUxIssue(payload));
             setStreamingMeta("Streaming failed. Any partial output shown is preserved as-is.");
             void loadWebChatList();
           }
@@ -2826,111 +2804,53 @@ export function AppFlowClient() {
             {taskItemsFeedback !== null && <p className="task-feedback">{taskItemsFeedback}</p>}
             {isLoadingTaskItems ? (
               <p>Loading reminders…</p>
-            ) : taskItems.length === 0 ? (
+            ) : taskItems.filter((t) => t.controlStatus === "active").length === 0 ? (
               <p className="task-empty">
-                Nothing here yet. When your assistant sets up reminders or repeating tasks, they’ll
-                show up so you can pause or stop them anytime.
+                No current reminders right now. When your assistant sets up reminders or repeating
+                tasks, they’ll show up here so you can pause or stop them anytime.
               </p>
             ) : (
-              <>
-                <section className="task-center-group">
-                  <h4 className="task-center-subheading">Active</h4>
-                  {taskItems.filter((t) => t.controlStatus === "active").length === 0 ? (
-                    <p className="task-empty-inline">No active reminders right now.</p>
-                  ) : (
-                    <ul className="task-item-list">
-                      {taskItems
-                        .filter((t) => t.controlStatus === "active")
-                        .map((item) => (
-                          <li key={item.id} className="task-item-card">
-                            <p className="task-item-title">{item.title}</p>
-                            <p className="task-item-meta">
-                              <span className="task-pill-surface">
-                                {formatTaskSourceLine(item.sourceSurface, item.sourceLabel)}
-                              </span>
-                              <span className={taskStatusPillClass(item.controlStatus)}>
-                                {taskStatusLabel(item.controlStatus)}
-                              </span>
-                            </p>
-                            <p className="task-item-next">
-                              {formatTaskNextRunText(item.nextRunAt, item.controlStatus)}
-                            </p>
-                            <div className="task-item-actions">
-                              <button
-                                type="button"
-                                className="btn-quiet"
-                                disabled={taskActionWorkingId !== null}
-                                onClick={() => void onPauseTaskItem(item.id)}
-                              >
-                                {taskActionWorkingId === item.id ? "Working…" : "Pause"}
-                              </button>
-                              <button
-                                type="button"
-                                className="btn-quiet"
-                                disabled={taskActionWorkingId !== null}
-                                onClick={() => void onStopTaskItem(item.id)}
-                              >
-                                {taskActionWorkingId === item.id ? "Working…" : "Stop"}
-                              </button>
-                            </div>
-                          </li>
-                        ))}
-                    </ul>
-                  )}
-                </section>
-                <section className="task-center-group">
-                  <h4 className="task-center-subheading">Inactive</h4>
-                  <p className="task-inactive-hint">
-                    Paused or stopped items stay listed so you always know what you changed.
-                  </p>
-                  {taskItems.filter((t) => t.controlStatus !== "active").length === 0 ? (
-                    <p className="task-empty-inline">No paused or stopped reminders.</p>
-                  ) : (
-                    <ul className="task-item-list">
-                      {taskItems
-                        .filter((t) => t.controlStatus !== "active")
-                        .map((item) => (
-                          <li key={item.id} className="task-item-card">
-                            <p className="task-item-title">{item.title}</p>
-                            <p className="task-item-meta">
-                              <span className="task-pill-surface">
-                                {formatTaskSourceLine(item.sourceSurface, item.sourceLabel)}
-                              </span>
-                              <span className={taskStatusPillClass(item.controlStatus)}>
-                                {taskStatusLabel(item.controlStatus)}
-                              </span>
-                            </p>
-                            <p className="task-item-next">
-                              {formatTaskNextRunText(item.nextRunAt, item.controlStatus)}
-                            </p>
-                            <div className="task-item-actions">
-                              {item.controlStatus === "disabled" ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="btn-quiet"
-                                    disabled={taskActionWorkingId !== null}
-                                    onClick={() => void onResumeTaskItem(item.id)}
-                                  >
-                                    {taskActionWorkingId === item.id ? "Working…" : "Turn back on"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn-quiet"
-                                    disabled={taskActionWorkingId !== null}
-                                    onClick={() => void onStopTaskItem(item.id)}
-                                  >
-                                    {taskActionWorkingId === item.id ? "Working…" : "Stop"}
-                                  </button>
-                                </>
-                              ) : null}
-                            </div>
-                          </li>
-                        ))}
-                    </ul>
-                  )}
-                </section>
-              </>
+              <section className="task-center-group">
+                <h4 className="task-center-subheading">Current</h4>
+                <ul className="task-item-list">
+                  {taskItems
+                    .filter((t) => t.controlStatus === "active")
+                    .map((item) => (
+                      <li key={item.id} className="task-item-card">
+                        <p className="task-item-title">{item.title}</p>
+                        <p className="task-item-meta">
+                          <span className="task-pill-surface">
+                            {formatTaskSourceLine(item.sourceSurface, item.sourceLabel)}
+                          </span>
+                          <span className={taskStatusPillClass(item.controlStatus)}>
+                            {taskStatusLabel(item.controlStatus)}
+                          </span>
+                        </p>
+                        <p className="task-item-next">
+                          {formatTaskNextRunText(item.nextRunAt, item.controlStatus)}
+                        </p>
+                        <div className="task-item-actions">
+                          <button
+                            type="button"
+                            className="btn-quiet"
+                            disabled={taskActionWorkingId !== null}
+                            onClick={() => void onPauseTaskItem(item.id)}
+                          >
+                            {taskActionWorkingId === item.id ? "Working…" : "Pause"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-quiet"
+                            disabled={taskActionWorkingId !== null}
+                            onClick={() => void onStopTaskItem(item.id)}
+                          >
+                            {taskActionWorkingId === item.id ? "Working…" : "Stop"}
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                </ul>
+              </section>
             )}
           </section>
 

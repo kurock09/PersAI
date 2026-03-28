@@ -137,7 +137,7 @@ type WebChatStreamEvent =
   | { event: "runtime_done"; data: { respondedAt: string } }
   | { event: "completed"; data: { transport: unknown } }
   | { event: "interrupted"; data: { transport: unknown } }
-  | { event: "failed"; data: { message: string; transport: unknown } };
+  | { event: "failed"; data: { code?: string; message: string; transport: unknown } };
 
 export interface AssistantWebChatStreamPayload {
   surfaceThreadKey: string;
@@ -152,7 +152,7 @@ export interface AssistantWebChatStreamHandlers {
   onRuntimeDone?: (payload: { respondedAt: string }) => void;
   onCompleted?: (payload: { transport: unknown }) => void;
   onInterrupted?: (payload: { transport: unknown }) => void;
-  onFailed?: (payload: { message: string; transport: unknown }) => void;
+  onFailed?: (payload: { code?: string; message: string; transport: unknown }) => void;
 }
 
 export type WebChatUxIssueClass =
@@ -182,6 +182,21 @@ function normalizeRawErrorMessage(source: string): string {
   return source.trim().toLowerCase();
 }
 
+function extractErrorCode(error: unknown): string | null {
+  if (
+    error instanceof ContractsApiError &&
+    typeof error.code === "string" &&
+    error.code.length > 0
+  ) {
+    return error.code;
+  }
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const value = (error as { code?: unknown }).code;
+    return typeof value === "string" && value.length > 0 ? value : null;
+  }
+  return null;
+}
+
 export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   const rawMessage =
     typeof error === "string"
@@ -194,6 +209,80 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
 
   const normalized = normalizeRawErrorMessage(rawMessage);
   const status = error instanceof ContractsApiError ? error.status : null;
+  const code = extractErrorCode(error);
+
+  if (code === "assistant_not_live") {
+    return {
+      classId: "assistant_not_live",
+      message: "Chat is unavailable until your assistant is live on the latest publish.",
+      guidance: "Publish/apply the assistant first, then retry."
+    };
+  }
+
+  if (code === "active_chat_cap_reached") {
+    return {
+      classId: "active_chat_cap",
+      message: "You reached the active chat limit for new threads.",
+      guidance: "Archive an active chat or continue in an existing thread."
+    };
+  }
+
+  if (code === "quota_limit_reached") {
+    return {
+      classId: "quota_limit_reached",
+      message: "You've reached your plan's usage limit.",
+      guidance:
+        "Your message quota or tool usage limit has been exceeded. Wait for the next billing cycle or upgrade your plan."
+    };
+  }
+
+  if (code === "plan_feature_unavailable") {
+    return {
+      classId: "feature_unavailable",
+      message: "This feature is not available on your current plan.",
+      guidance: "Upgrade your plan to unlock this capability."
+    };
+  }
+
+  if (code === "rate_limited") {
+    return {
+      classId: "quota_limit_reached",
+      message: "Requests are temporarily limited right now.",
+      guidance: "Wait a moment, then retry the same thread."
+    };
+  }
+
+  if (code === "runtime_timeout") {
+    return {
+      classId: "runtime_timeout",
+      message: "The chat response timed out before completion.",
+      guidance: "Retry the message. Partial output may already be preserved."
+    };
+  }
+
+  if (code === "runtime_degraded") {
+    return {
+      classId: "runtime_degraded",
+      message: "Chat runtime is currently degraded.",
+      guidance: "Retry shortly, or continue with a simpler request."
+    };
+  }
+
+  if (code === "runtime_unreachable") {
+    return {
+      classId: "runtime_unreachable",
+      message: "Chat runtime is temporarily unreachable.",
+      guidance: "Retry in a moment. Your chat history is preserved."
+    };
+  }
+
+  if (code === "runtime_auth_failure") {
+    return {
+      classId: "runtime_auth",
+      message: "Runtime authorization failed for this chat turn.",
+      guidance: "Try again shortly. If it persists, contact support."
+    };
+  }
 
   if (status === 401) {
     return {
@@ -373,7 +462,10 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
     }
     return {
       event: "failed",
-      data: { message: body.message, transport: body.transport }
+      data:
+        typeof body.code === "string"
+          ? { code: body.code, message: body.message, transport: body.transport }
+          : { message: body.message, transport: body.transport }
     };
   }
 
@@ -443,15 +535,28 @@ export async function streamAssistantWebChatTurn(
       errorPayload = await response.text();
     }
 
+    const envelope =
+      typeof errorPayload === "object" && errorPayload !== null
+        ? (errorPayload as {
+            error?: { message?: unknown; code?: unknown };
+            message?: unknown;
+            code?: unknown;
+          })
+        : null;
     const message =
-      typeof errorPayload === "object" &&
-      errorPayload !== null &&
-      "error" in errorPayload &&
-      typeof (errorPayload as { error?: { message?: unknown } }).error?.message === "string"
-        ? (errorPayload as { error: { message: string } }).error.message
-        : `Request failed with status ${response.status}.`;
+      typeof envelope?.error?.message === "string"
+        ? envelope.error.message
+        : typeof envelope?.message === "string"
+          ? envelope.message
+          : `Request failed with status ${response.status}.`;
+    const code =
+      typeof envelope?.error?.code === "string"
+        ? envelope.error.code
+        : typeof envelope?.code === "string"
+          ? envelope.code
+          : undefined;
 
-    throw new ContractsApiError(message, response.status, errorPayload);
+    throw new ContractsApiError(message, response.status, errorPayload, code);
   }
 
   if (response.body === null) {
@@ -916,6 +1021,13 @@ export type WorkspaceMemoryItem = {
   source: string;
 };
 
+export type AssistantPreferredNotificationChannel = "web" | "telegram" | "whatsapp";
+
+export type AssistantNotificationPreferenceState = {
+  selectedChannel: AssistantPreferredNotificationChannel;
+  availableChannels: AssistantPreferredNotificationChannel[];
+};
+
 export async function getWorkspaceMemoryItems(token: string): Promise<WorkspaceMemoryItem[]> {
   const base = getApiBaseUrl();
   const res = await fetch(`${base}/assistant/memory/workspace/items`, {
@@ -1054,6 +1166,89 @@ export async function getAssistantPlanVisibility(token: string): Promise<UserPla
       throw new Error("Unexpected non-success response for GET /assistant/plan-visibility.");
     }
     return response.data.visibility;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAssistantNotificationPreference(
+  token: string
+): Promise<AssistantNotificationPreferenceState> {
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/assistant/notification-preference`, {
+      headers: getAuthHeaders(token)
+    });
+    if (!response.ok) {
+      throw new Error(
+        "Unexpected non-success response for GET /assistant/notification-preference."
+      );
+    }
+
+    const payload = (await response.json()) as {
+      preference?: AssistantNotificationPreferenceState;
+    };
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      payload.preference === undefined ||
+      typeof payload.preference !== "object" ||
+      payload.preference === null
+    ) {
+      throw new Error(
+        "Unexpected non-success response for GET /assistant/notification-preference."
+      );
+    }
+
+    return payload.preference;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchAssistantNotificationPreference(
+  token: string,
+  channel: AssistantPreferredNotificationChannel
+): Promise<AssistantNotificationPreferenceState> {
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/assistant/notification-preference`, {
+      method: "PATCH",
+      headers: {
+        ...getAuthHeaders(token),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ channel })
+    });
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => null);
+      const message =
+        errorPayload &&
+        typeof errorPayload === "object" &&
+        "error" in errorPayload &&
+        typeof errorPayload.error === "object" &&
+        errorPayload.error !== null &&
+        "message" in errorPayload.error &&
+        typeof errorPayload.error.message === "string"
+          ? errorPayload.error.message
+          : "Unexpected non-success response for PATCH /assistant/notification-preference.";
+      throw new Error(message);
+    }
+
+    const payload = (await response.json()) as {
+      preference?: AssistantNotificationPreferenceState;
+    };
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      payload.preference === undefined ||
+      typeof payload.preference !== "object" ||
+      payload.preference === null
+    ) {
+      throw new Error(
+        "Unexpected non-success response for PATCH /assistant/notification-preference."
+      );
+    }
+
+    return payload.preference;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

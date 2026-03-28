@@ -28,11 +28,12 @@ import {
   postAssistantPublish,
   postAssistantRollback,
   postAssistantReset,
+  patchAssistantNotificationPreference,
   getAssistantMemoryItems,
+  type AssistantPreferredNotificationChannel,
   getAssistantTaskItems,
   postAssistantMemoryItemForget,
   postAssistantTaskItemDisable,
-  postAssistantTaskItemEnable,
   postAssistantTaskItemCancel,
   getWorkspaceMemoryItems,
   addWorkspaceMemoryItem,
@@ -186,6 +187,10 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   const [taskItems, setTaskItems] = useState<AssistantTaskRegistryItemState[]>([]);
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
+  const [notificationChannel, setNotificationChannel] =
+    useState<AssistantPreferredNotificationChannel>("web");
+  const [notificationSaving, setNotificationSaving] = useState(false);
+  const [notificationFb, setNotificationFb] = useState<ActionFeedback>(null);
 
   useEffect(() => {
     setDraftName(assistant?.draft.displayName ?? "");
@@ -196,6 +201,10 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     setDraftAvatarUrl(assistant?.draft.avatarUrl ?? null);
     setAvatarPreviewBlobUrl(null);
   }, [assistant]);
+
+  useEffect(() => {
+    setNotificationChannel(data.notificationPreference?.selectedChannel ?? "web");
+  }, [data.notificationPreference]);
 
   const loadMemory = useCallback(async () => {
     const token = await getToken();
@@ -348,13 +357,12 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   );
 
   const handleTaskAction = useCallback(
-    async (itemId: string, action: "enable" | "disable" | "cancel") => {
+    async (itemId: string, action: "disable" | "cancel") => {
       const token = await getToken();
       if (!token) return;
       setTaskActionId(itemId);
       try {
-        if (action === "enable") await postAssistantTaskItemEnable(token, itemId);
-        else if (action === "disable") await postAssistantTaskItemDisable(token, itemId);
+        if (action === "disable") await postAssistantTaskItemDisable(token, itemId);
         else await postAssistantTaskItemCancel(token, itemId);
         await loadTasks();
       } catch {
@@ -363,6 +371,28 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       setTaskActionId(null);
     },
     [getToken, loadTasks]
+  );
+
+  const handleNotificationPreferenceChange = useCallback(
+    async (channel: AssistantPreferredNotificationChannel) => {
+      const token = await getToken();
+      if (!token) return;
+      setNotificationSaving(true);
+      setNotificationFb(null);
+      try {
+        const updated = await patchAssistantNotificationPreference(token, channel);
+        setNotificationChannel(updated.selectedChannel);
+        setNotificationFb({ type: "ok", text: "Reminder delivery channel updated." });
+        data.reload();
+      } catch (error) {
+        setNotificationFb({
+          type: "err",
+          text: error instanceof Error ? error.message : "Failed to update reminder delivery."
+        });
+      }
+      setNotificationSaving(false);
+    },
+    [getToken, data]
   );
 
   if (resetting) {
@@ -744,45 +774,34 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
           <div className="flex justify-center py-4">
             <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
           </div>
-        ) : taskItems.length === 0 ? (
-          <p className="text-xs text-text-subtle">No tasks registered.</p>
+        ) : taskItems.filter((item) => item.controlStatus === "active").length === 0 ? (
+          <p className="text-xs text-text-subtle">No current tasks right now.</p>
         ) : (
           <ul className="space-y-2">
-            {taskItems.map((item) => (
-              <li key={item.id} className="rounded-lg bg-surface-raised p-3">
-                <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
-                    {item.title}
-                  </span>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                      item.controlStatus === "active" && "bg-success/15 text-success",
-                      item.controlStatus === "disabled" && "bg-warning/15 text-warning",
-                      item.controlStatus === "cancelled" && "bg-text-subtle/15 text-text-subtle"
-                    )}
-                  >
-                    {item.controlStatus}
-                  </span>
-                </div>
-                <div className="mt-2 flex gap-1.5">
-                  {item.controlStatus === "active" && (
+            {taskItems
+              .filter((item) => item.controlStatus === "active")
+              .map((item) => (
+                <li key={item.id} className="rounded-lg bg-surface-raised p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
+                      {item.title}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                        "bg-success/15 text-success"
+                      )}
+                    >
+                      {item.controlStatus}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex gap-1.5">
                     <ActionButton
                       icon={<RotateCcw className="h-3 w-3" />}
                       label="Disable"
                       onClick={() => void handleTaskAction(item.id, "disable")}
                       busy={taskActionId === item.id}
                     />
-                  )}
-                  {item.controlStatus === "disabled" && (
-                    <ActionButton
-                      icon={<Rocket className="h-3 w-3" />}
-                      label="Enable"
-                      onClick={() => void handleTaskAction(item.id, "enable")}
-                      busy={taskActionId === item.id}
-                    />
-                  )}
-                  {item.controlStatus !== "cancelled" && (
                     <ActionButton
                       icon={<Trash2 className="h-3 w-3" />}
                       label="Cancel"
@@ -790,10 +809,9 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                       onClick={() => void handleTaskAction(item.id, "cancel")}
                       busy={taskActionId === item.id}
                     />
-                  )}
-                </div>
-              </li>
-            ))}
+                  </div>
+                </li>
+              ))}
           </ul>
         )}
       </Section>
@@ -804,6 +822,39 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
           <ChannelRow name="Telegram" connected={data.telegram?.connectionStatus === "connected"} />
           <ChannelRow name="WhatsApp" comingSoon />
           <ChannelRow name="MAX" comingSoon />
+        </div>
+        <div className="mt-4 rounded-xl border border-border bg-surface-raised/60 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-text">Reminder delivery</p>
+              <p className="mt-1 text-[11px] text-text-subtle">
+                PersAI sends reminders to the preferred connected channel and falls back if it is
+                unavailable.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(data.notificationPreference?.availableChannels ?? ["web"]).map((channel) => {
+              const active = notificationChannel === channel;
+              return (
+                <button
+                  key={channel}
+                  type="button"
+                  disabled={notificationSaving}
+                  onClick={() => void handleNotificationPreferenceChange(channel)}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50",
+                    active
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-border bg-background text-text-muted hover:bg-surface-hover"
+                  )}
+                >
+                  {formatNotificationChannelLabel(channel)}
+                </button>
+              );
+            })}
+          </div>
+          <FeedbackLine fb={notificationFb} />
         </div>
       </Section>
 
@@ -871,6 +922,12 @@ function ChannelRow({
       {connected && <span className="text-[10px] text-success">Connected</span>}
     </div>
   );
+}
+
+function formatNotificationChannelLabel(channel: AssistantPreferredNotificationChannel): string {
+  if (channel === "telegram") return "Telegram";
+  if (channel === "whatsapp") return "WhatsApp";
+  return "Web";
 }
 
 function LimitBar({ label, pct }: { label: string; pct: number }) {

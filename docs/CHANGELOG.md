@@ -4,6 +4,45 @@
 
 ### Added
 
+- **H12 reminder/task runtime sync slice:**
+  - Added PersAI internal endpoints `POST /api/v1/internal/runtime/tasks/sync` and `POST /api/v1/internal/cron-fire`.
+  - Added PersAI internal endpoint `GET /api/v1/internal/runtime/tasks/items` so runtime-side tools can resolve current assistant tasks without exposing native cron ids to the model.
+  - OpenClaw PersAI runtime now carries `assistantId` + `cronWebhookUrl` in request context, and `cron-tool` auto-injects webhook delivery for PersAI-owned cron jobs when no explicit delivery target is set.
+  - `cron-tool` now mirrors `cron.add` / `cron.update` / `cron.remove` into PersAI task registry rows keyed by `externalRef=job.id`, keeping one current-state row per reminder/task.
+  - `cron-fire` now updates those rows on successful finish: one-shot reminders disappear, recurring reminders keep one live row with refreshed `nextRunAt`.
+  - Telegram reminder delivery is now real for assistants that already have an active Telegram bot binding and at least one inbound Telegram chat: OpenClaw syncs the latest inbound `telegramChatId` back to PersAI, and `cron-fire` sends the reminder through Telegram Bot API before falling back to web.
+  - Web reminder delivery remains the safe fallback path: cron callbacks append assistant messages into a dedicated in-product `Reminders` chat whenever the preferred external channel is unavailable or not yet implemented.
+  - Added a new product-facing OpenClaw tool `reminder_task` for `create`, `list`, `pause`, `resume`, and `cancel`. `list` resolves current tasks through PersAI registry state, and write actions now route through a PersAI internal control-plane endpoint before backend-driven internal cron control via `persai-runtime`, so user-flow no longer depends on direct runtime-side `cron.add/update/remove` or native `/tools/invoke`.
+  - Reminder-task create no longer trusts a runtime-provided PersAI base URL; the backend derives the callback base from the authenticated internal request origin.
+  - Reminder-task cancel now tolerates stale runtime jobs with missing cron ids by deleting the PersAI registry row instead of failing the whole cancellation.
+  - Plan/tool seed policy now activates `reminder_task` and deactivates user-facing `cron`, so PersAI assistants stop seeing native cron as the scheduling surface while the internal scheduler bridge remains in place.
+  - Assistant reset now hard-deletes `assistant_task_registry_items` together with chats/memory/materialized specs.
+
+- **H12g memory lifecycle on create/reset:**
+  - Added minimal OpenClaw PersAI-runtime endpoints:
+    - `POST /api/v1/runtime/workspace/memory/reset`
+    - `POST /api/v1/runtime/workspace/reset`
+  - PersAI now calls that endpoint on assistant create and on assistant reset.
+  - The runtime now guarantees a clean memory workspace state for those lifecycle events:
+    - recreates `MEMORY.md` with the canonical header
+    - recreates empty `memory/`
+    - removes stale lowercase `memory.md` fallback file if present
+  - Assistant reset is now stricter: it uses the combined runtime workspace reset path and no longer silently ignores runtime-side memory reset failures.
+  - Edit/update/reapply flows do not call this endpoint, so existing memory remains untouched outside create/reset.
+
+- **H12 preferred reminder delivery channel (PersAI-side slice):**
+  - Added Prisma enum/column `assistants.preferred_notification_channel` with default `web`, plus a migration.
+  - Added authenticated PersAI API endpoints `GET/PATCH /api/v1/assistant/notification-preference` that expose only currently available channels and reject selecting disconnected ones.
+  - Assistant settings now show a real "Reminder delivery" selector backed by PersAI state, so the product has backend-owned channel preference before cron callback / fallback delivery wiring lands.
+
+- **H12/H13 foundation — unified inbound turn + code-first chat errors:**
+  - Added ADR-056 to freeze the new boundary: PersAI owns the inbound turn gateway across web/messenger/reminder surfaces, and PersAI-owned reminders/tasks replace product dependence on native OpenClaw cron over time.
+  - Added a global API exception filter that consistently returns the canonical `ErrorEnvelope` shape (`requestId` + `error.code/category/message`), instead of mixed Nest default payloads.
+  - Added shared inbound-turn foundation in PersAI API: web sync and web stream now reuse one prepare path before runtime execution, which centralizes the current gateway seam for later Telegram/reminder adoption.
+  - Web chat UX now prefers backend error codes such as `assistant_not_live`, `active_chat_cap_reached`, `quota_limit_reached`, `plan_feature_unavailable`, `rate_limited`, `runtime_*` instead of relying only on brittle string heuristics.
+  - Streaming `failed` events now carry a stable `code` alongside `message`, so SSE and non-stream failures map through the same UX model.
+  - Tasks UI now shows only the current active reminder/task list in both settings and the main task center, matching the agreed product semantics.
+
 - **Streaming quality hardening:**
   - Added `res.flush()` after every SSE write in the chat stream endpoint — eliminates TCP/Node buffering that caused chunks to arrive in batches instead of per-token.
   - Removed redundant `accumulated` field from `delta` SSE events (was sending the full response text on every token). Payload size per event is now O(token) instead of O(total). `accumulated` is still sent for `thinking` events where it's needed.

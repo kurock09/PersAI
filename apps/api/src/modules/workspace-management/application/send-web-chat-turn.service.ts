@@ -1,29 +1,18 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException
-} from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import {
-  ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
-  type AssistantPublishedVersionRepository
-} from "../domain/assistant-published-version.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
 import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
-import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
-import { EnforceAbuseRateLimitService } from "./enforce-abuse-rate-limit.service";
 import type { AssistantWebChatTurnState } from "./web-chat.types";
+import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-turn.service";
+import { toAssistantInboundHttpException } from "./assistant-inbound-error";
 
 export interface SendWebChatTurnRequest {
   surfaceThreadKey: string;
@@ -50,16 +39,11 @@ function normalizeOptionalTitle(value: unknown): string | null | undefined {
 @Injectable()
 export class SendWebChatTurnService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
-    @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
-    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
-    private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
-    private readonly enforceAbuseRateLimitService: EnforceAbuseRateLimitService,
+    private readonly prepareAssistantInboundTurnService: PrepareAssistantInboundTurnService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
@@ -92,134 +76,53 @@ export class SendWebChatTurnService {
     userId: string,
     request: SendWebChatTurnRequest
   ): Promise<AssistantWebChatTurnState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const prepared = await this.prepareAssistantInboundTurnService.execute({
+      userId,
+      surface: "web_chat",
+      surfaceThreadKey: request.surfaceThreadKey,
+      message: request.message,
+      ...(request.title !== undefined ? { title: request.title } : {})
+    });
+    const runtimeResponse = await this.assistantRuntimeAdapter
+      .sendWebChatTurn({
+        assistantId: prepared.assistantId,
+        publishedVersionId: prepared.publishedVersionId,
+        chatId: prepared.chat.id,
+        surfaceThreadKey: prepared.chat.surfaceThreadKey,
+        userMessageId: prepared.userMessage.id,
+        userMessage: prepared.userMessage.content
+      })
+      .catch((error: unknown) => {
+        throw toAssistantInboundHttpException(error);
+      });
 
-    const latestPublishedVersion =
-      await this.assistantPublishedVersionRepository.findLatestByAssistantId(assistant.id);
-    if (latestPublishedVersion === null) {
-      throw new ConflictException(
-        "Assistant transport is unavailable until at least one version is published."
-      );
-    }
-
-    if (
-      assistant.applyStatus !== "succeeded" ||
-      assistant.applyAppliedVersionId !== latestPublishedVersion.id
-    ) {
-      throw new ConflictException(
-        "Assistant transport requires the latest published version to be successfully applied."
-      );
-    }
-
-    const existingChat = await this.assistantChatRepository.findChatBySurfaceThread(
-      assistant.id,
-      "web",
-      request.surfaceThreadKey
+    const assistantMessage = await this.recordAssistantMessage(
+      prepared.chat.id,
+      prepared.assistantId,
+      runtimeResponse.assistantMessage
     );
-    const activeChatsCount =
-      await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
-        assistant.id,
-        "web"
-      );
-    await this.enforceAssistantCapabilityAndQuotaService.enforceWebChatTurn({
-      assistant,
-      isNewThread: existingChat === null,
-      activeWebChatsCount: activeChatsCount
-    });
-    await this.enforceAbuseRateLimitService.enforceAndRegisterAttempt({
-      assistant,
-      surface: "web_chat"
-    });
-    const chat =
-      existingChat ??
-      (await this.assistantChatRepository.createChat({
-        assistantId: assistant.id,
-        userId: assistant.userId,
-        workspaceId: assistant.workspaceId,
-        surface: "web",
-        surfaceThreadKey: request.surfaceThreadKey,
-        title: request.title ?? null
-      }));
-
-    const userMessage = await this.assistantChatRepository.createMessage({
-      chatId: chat.id,
-      assistantId: assistant.id,
-      author: "user",
-      content: request.message
-    });
-
-    const runtimeResponse = await this.assistantRuntimeAdapter.sendWebChatTurn({
-      assistantId: assistant.id,
-      publishedVersionId: latestPublishedVersion.id,
-      chatId: chat.id,
-      surfaceThreadKey: chat.surfaceThreadKey,
-      userMessageId: userMessage.id,
-      userMessage: userMessage.content
-    });
-
-    const assistantMessage = await this.assistantChatRepository.createMessage({
-      chatId: chat.id,
-      assistantId: assistant.id,
-      author: "assistant",
-      content: runtimeResponse.assistantMessage
-    });
 
     await this.recordWebChatMemoryTurnService.execute({
-      assistantId: assistant.id,
-      userId: assistant.userId,
-      workspaceId: assistant.workspaceId,
-      chatId: chat.id,
-      userMessageId: userMessage.id,
+      assistantId: prepared.assistantId,
+      userId: prepared.userId,
+      workspaceId: prepared.workspaceId,
+      chatId: prepared.chat.id,
+      userMessageId: prepared.userMessage.id,
       assistantMessageId: assistantMessage.id,
-      userContent: userMessage.content,
+      userContent: prepared.userMessage.content,
       assistantContent: runtimeResponse.assistantMessage,
       memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
     });
     await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
-      assistant,
-      userContent: userMessage.content,
+      assistant: prepared.assistant,
+      userContent: prepared.userMessage.content,
       assistantContent: assistantMessage.content,
       source: "web_chat_turn_sync"
     });
-    const activeWebChatsCurrent =
-      await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
-        assistant.id,
-        "web"
-      );
-    await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
-      assistant,
-      activeWebChatsCurrent,
-      source: "web_chat_turn_prepare"
-    });
-
-    const refreshedChat = await this.assistantChatRepository.findChatById(chat.id);
-    if (refreshedChat === null) {
-      throw new NotFoundException("Chat does not exist for this assistant.");
-    }
 
     return {
-      chat: {
-        id: refreshedChat.id,
-        assistantId: refreshedChat.assistantId,
-        surface: refreshedChat.surface,
-        surfaceThreadKey: refreshedChat.surfaceThreadKey,
-        title: refreshedChat.title,
-        archivedAt: refreshedChat.archivedAt?.toISOString() ?? null,
-        lastMessageAt: refreshedChat.lastMessageAt?.toISOString() ?? null,
-        createdAt: refreshedChat.createdAt.toISOString(),
-        updatedAt: refreshedChat.updatedAt.toISOString()
-      },
-      userMessage: {
-        id: userMessage.id,
-        chatId: userMessage.chatId,
-        assistantId: userMessage.assistantId,
-        author: userMessage.author,
-        content: userMessage.content,
-        createdAt: userMessage.createdAt.toISOString()
-      },
+      chat: prepared.chat,
+      userMessage: prepared.userMessage,
       assistantMessage: {
         id: assistantMessage.id,
         chatId: assistantMessage.chatId,
@@ -232,5 +135,14 @@ export class SendWebChatTurnService {
         respondedAt: runtimeResponse.respondedAt
       }
     };
+  }
+
+  private async recordAssistantMessage(chatId: string, assistantId: string, content: string) {
+    return this.assistantChatRepository.createMessage({
+      chatId,
+      assistantId,
+      author: "assistant",
+      content
+    });
   }
 }

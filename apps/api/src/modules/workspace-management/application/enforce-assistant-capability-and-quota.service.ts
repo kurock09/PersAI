@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
 import {
@@ -16,6 +16,8 @@ import {
 } from "../domain/workspace-quota-accounting.repository";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
+import { createAssistantInboundConflict } from "./assistant-inbound-error";
+import type { AssistantInboundSurface } from "./prepare-assistant-inbound-turn.service";
 
 type ResolvedQuotaLimits = {
   tokenBudgetLimit: bigint | null;
@@ -62,11 +64,19 @@ export class EnforceAssistantCapabilityAndQuotaService {
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
   ) {}
 
-  async enforceWebChatTurn(params: {
+  async enforceInboundTurn(params: {
     assistant: Assistant;
+    surface: AssistantInboundSurface;
     isNewThread: boolean;
-    activeWebChatsCount: number;
+    activeSurfaceChatsCount: number;
   }): Promise<void> {
+    if (params.surface !== "web_chat") {
+      throw createAssistantInboundConflict(
+        "surface_not_supported",
+        `Inbound surface "${params.surface}" is not supported.`
+      );
+    }
+
     const governance = await this.resolveGovernance(params.assistant.id);
     const effectiveCapabilities = await this.resolveEffectiveCapabilityStateService.execute({
       assistant: params.assistant,
@@ -75,24 +85,29 @@ export class EnforceAssistantCapabilityAndQuotaService {
     const limits = await this.resolveLimits(params.assistant, governance);
 
     if (!effectiveCapabilities.channelsAndSurfaces.webChat) {
-      throw new ConflictException(
+      throw createAssistantInboundConflict(
+        "plan_feature_unavailable",
         "Web chat is unavailable for this assistant under current plan/governance capabilities."
       );
     }
     if (!effectiveCapabilities.mediaClasses.text) {
-      throw new ConflictException(
+      throw createAssistantInboundConflict(
+        "plan_feature_unavailable",
         "Text media class is unavailable for this assistant under current plan/governance capabilities."
       );
     }
     if (!effectiveCapabilities.toolClasses.utility.allowed) {
-      throw new ConflictException(
+      throw createAssistantInboundConflict(
+        "plan_feature_unavailable",
         "Utility tool class is unavailable for this assistant under current plan/governance capabilities."
       );
     }
 
-    if (params.isNewThread && params.activeWebChatsCount >= limits.activeWebChatsLimit) {
-      throw new ConflictException(
-        `Active web chats cap reached (${limits.activeWebChatsLimit}). Archive an existing chat or continue in an existing thread.`
+    if (params.isNewThread && params.activeSurfaceChatsCount >= limits.activeWebChatsLimit) {
+      throw createAssistantInboundConflict(
+        "active_chat_cap_reached",
+        `Active web chats cap reached (${limits.activeWebChatsLimit}). Archive an existing chat or continue in an existing thread.`,
+        { limit: limits.activeWebChatsLimit }
       );
     }
 
@@ -105,7 +120,8 @@ export class EnforceAssistantCapabilityAndQuotaService {
       quotaState !== null &&
       quotaState.tokenBudgetUsed >= limits.tokenBudgetLimit
     ) {
-      throw new ConflictException(
+      throw createAssistantInboundConflict(
+        "quota_limit_reached",
         "Token budget limit reached for current workspace plan. Upgrade or wait for quota refresh."
       );
     }
@@ -117,10 +133,24 @@ export class EnforceAssistantCapabilityAndQuotaService {
       quotaState.costOrTokenDrivingToolClassUnitsUsed >=
         limits.costOrTokenDrivingToolClassUnitsLimit
     ) {
-      throw new ConflictException(
+      throw createAssistantInboundConflict(
+        "quota_limit_reached",
         "Cost-driving tool class quota limit reached for current workspace plan."
       );
     }
+  }
+
+  async enforceWebChatTurn(params: {
+    assistant: Assistant;
+    isNewThread: boolean;
+    activeWebChatsCount: number;
+  }): Promise<void> {
+    await this.enforceInboundTurn({
+      assistant: params.assistant,
+      surface: "web_chat",
+      isNewThread: params.isNewThread,
+      activeSurfaceChatsCount: params.activeWebChatsCount
+    });
   }
 
   private async resolveGovernance(assistantId: string): Promise<AssistantGovernance> {

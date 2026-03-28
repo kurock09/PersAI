@@ -51,16 +51,25 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   respondedAt?: string;
 }
 
+export interface AssistantRuntimeCronControlInput {
+  action?: string;
+  args?: Record<string, unknown>;
+  sessionKey?: string;
+}
+
 export interface AssistantRuntimeAdapter {
   preflight(): Promise<AssistantRuntimePreflightResult>;
   applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void>;
   cleanupWorkspace(assistantId: string): Promise<void>;
+  resetWorkspace(assistantId: string): Promise<void>;
+  resetMemoryWorkspace(assistantId: string): Promise<void>;
   sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;
   streamWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk>;
+  controlCronJob(input: AssistantRuntimeCronControlInput): Promise<unknown>;
 }
 
 export const ASSISTANT_RUNTIME_ADAPTER = Symbol("ASSISTANT_RUNTIME_ADAPTER");

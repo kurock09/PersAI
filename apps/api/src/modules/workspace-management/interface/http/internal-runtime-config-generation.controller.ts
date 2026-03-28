@@ -23,6 +23,7 @@ import {
   type AssistantPublishedVersionRepository
 } from "../../domain/assistant-published-version.repository";
 import { ApplyAssistantPublishedVersionService } from "../../application/apply-assistant-published-version.service";
+import { SyncTelegramChatTargetService } from "../../application/sync-telegram-chat-target.service";
 
 type InternalRequestLike = {
   headers: Record<string, string | string[] | undefined>;
@@ -66,6 +67,7 @@ export class InternalRuntimeConfigGenerationController {
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly publishedVersionRepository: AssistantPublishedVersionRepository,
     private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
+    private readonly syncTelegramChatTargetService: SyncTelegramChatTargetService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -188,6 +190,18 @@ export class InternalRuntimeConfigGenerationController {
       this.logger.log(`Telegram group left: ${telegramChatId} for assistant ${assistantId}`);
     }
 
+    return { ok: true };
+  }
+
+  @HttpCode(200)
+  @Post("telegram/chat-target")
+  async handleTelegramChatTarget(
+    @Req() req: InternalRequestLike,
+    @Body() body: unknown
+  ): Promise<{ ok: boolean }> {
+    this.assertAuthorized(req);
+    const input = this.syncTelegramChatTargetService.parseInput(body);
+    await this.syncTelegramChatTargetService.execute(input);
     return { ok: true };
   }
 

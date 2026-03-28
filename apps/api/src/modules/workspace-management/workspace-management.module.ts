@@ -11,8 +11,10 @@ import { AdminPlatformRolloutsController } from "./interface/http/admin-platform
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
 import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
 import { AdminBootstrapPresetsController } from "./interface/http/admin-bootstrap-presets.controller";
+import { InternalCronFireController } from "./interface/http/internal-cron-fire.controller";
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
 import { InternalRuntimeConfigGenerationController } from "./interface/http/internal-runtime-config-generation.controller";
+import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
@@ -20,8 +22,10 @@ import { ResolveOpenClawChannelSurfaceBindingsService } from "./application/reso
 import { ResolveOpenClawCapabilityEnvelopeService } from "./application/resolve-openclaw-capability-envelope.service";
 import { ResolveRuntimeProviderRoutingService } from "./application/resolve-runtime-provider-routing.service";
 import { ResolveTelegramIntegrationStateService } from "./application/resolve-telegram-integration-state.service";
+import { ResolveAssistantNotificationPreferenceService } from "./application/resolve-assistant-notification-preference.service";
 import { ConnectTelegramIntegrationService } from "./application/connect-telegram-integration.service";
 import { UpdateTelegramIntegrationConfigService } from "./application/update-telegram-integration-config.service";
+import { UpdateAssistantNotificationPreferenceService } from "./application/update-assistant-notification-preference.service";
 import { RevokeTelegramIntegrationSecretService } from "./application/revoke-telegram-integration-secret.service";
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
 import { AppendAssistantAuditEventService } from "./application/append-assistant-audit-event.service";
@@ -46,6 +50,8 @@ import { EnforceAssistantCapabilityAndQuotaService } from "./application/enforce
 import { ForgetAssistantMemoryItemService } from "./application/forget-assistant-memory-item.service";
 import { ListAssistantMemoryItemsService } from "./application/list-assistant-memory-items.service";
 import { ListAssistantTaskItemsService } from "./application/list-assistant-task-items.service";
+import { ListInternalAssistantTaskItemsService } from "./application/list-internal-assistant-task-items.service";
+import { ControlInternalAssistantReminderTaskService } from "./application/control-internal-assistant-reminder-task.service";
 import { DisableAssistantTaskRegistryItemService } from "./application/disable-assistant-task-registry-item.service";
 import { EnableAssistantTaskRegistryItemService } from "./application/enable-assistant-task-registry-item.service";
 import { CancelAssistantTaskRegistryItemService } from "./application/cancel-assistant-task-registry-item.service";
@@ -60,6 +66,10 @@ import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
+import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
+import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
+import { SyncAssistantTaskRegistryService } from "./application/sync-assistant-task-registry.service";
+import { SyncTelegramChatTargetService } from "./application/sync-telegram-chat-target.service";
 import { TrackWorkspaceQuotaUsageService } from "./application/track-workspace-quota-usage.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
@@ -117,8 +127,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminRuntimeProviderSettingsController,
     AdminToolCredentialsController,
     AdminBootstrapPresetsController,
+    InternalCronFireController,
     InternalRuntimeProviderSecretsController,
     InternalRuntimeConfigGenerationController,
+    InternalRuntimeTaskRegistryController,
     AdminForceReapplyController
   ],
   providers: [
@@ -137,6 +149,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     EnforceAbuseRateLimitService,
     ManageAdminAbuseControlsService,
     ManageAdminAssistantOwnershipService,
+    HandleInternalCronFireService,
     GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,
@@ -149,8 +162,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ResolveRuntimeProviderRoutingService,
     ResolveOpenClawCapabilityEnvelopeService,
     ResolveTelegramIntegrationStateService,
+    ResolveAssistantNotificationPreferenceService,
     ConnectTelegramIntegrationService,
     UpdateTelegramIntegrationConfigService,
+    UpdateAssistantNotificationPreferenceService,
     RevokeTelegramIntegrationSecretService,
     ResolvePlanVisibilityService,
     EnforceAssistantCapabilityAndQuotaService,
@@ -166,9 +181,14 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ForgetAssistantMemoryItemService,
     DoNotRememberAssistantMemoryService,
     ListAssistantTaskItemsService,
+    ListInternalAssistantTaskItemsService,
+    ControlInternalAssistantReminderTaskService,
     DisableAssistantTaskRegistryItemService,
     EnableAssistantTaskRegistryItemService,
     CancelAssistantTaskRegistryItemService,
+    SyncAssistantTaskRegistryService,
+    SyncTelegramChatTargetService,
+    PrepareAssistantInboundTurnService,
     SendWebChatTurnService,
     StreamWebChatTurnService,
     UpdateAssistantDraftService,

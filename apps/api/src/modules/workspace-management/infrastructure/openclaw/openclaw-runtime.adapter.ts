@@ -3,6 +3,7 @@ import { loadApiConfig } from "@persai/config";
 import type {
   AssistantRuntimeAdapter,
   AssistantRuntimeApplyInput,
+  AssistantRuntimeCronControlInput,
   AssistantRuntimePreflightResult,
   AssistantRuntimeWebChatTurnStreamChunk,
   AssistantRuntimeWebChatTurnInput,
@@ -129,6 +130,34 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     await this.requestWithRetries(
       "POST",
       "/api/v1/runtime/workspace/cleanup",
+      { assistantId },
+      config
+    );
+  }
+
+  async resetWorkspace(assistantId: string): Promise<void> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      return;
+    }
+
+    await this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/workspace/reset",
+      { assistantId },
+      config
+    );
+  }
+
+  async resetMemoryWorkspace(assistantId: string): Promise<void> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      return;
+    }
+
+    await this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/workspace/memory/reset",
       { assistantId },
       config
     );
@@ -287,6 +316,44 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         "OpenClaw stream completed without done event."
       );
     }
+  }
+
+  async controlCronJob(input: AssistantRuntimeCronControlInput): Promise<unknown> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
+    }
+
+    const payload = await this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/cron/control",
+      {
+        ...(input.action ? { action: input.action } : {}),
+        ...(input.args ? { args: input.args } : {}),
+        ...(input.sessionKey ? { sessionKey: input.sessionKey } : {})
+      },
+      config,
+      { acceptedErrorStatuses: [400] }
+    );
+
+    if (!isObject(payload)) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw cron control response is not a JSON object."
+      );
+    }
+
+    if (payload.ok !== true) {
+      const errorMessage =
+        typeof payload.error === "string"
+          ? payload.error
+          : isObject(payload.error) && typeof payload.error.message === "string"
+            ? payload.error.message
+            : "OpenClaw cron control failed.";
+      throw new AssistantRuntimeAdapterError("invalid_response", errorMessage);
+    }
+
+    return payload.result;
   }
 
   async listMemoryItems(assistantId: string): Promise<unknown> {

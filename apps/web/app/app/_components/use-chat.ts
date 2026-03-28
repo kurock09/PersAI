@@ -239,8 +239,8 @@ export function useChat(threadKey: string): UseChatReturn {
                 )
               );
             },
-            onFailed: ({ message }) => {
-              setIssue(toWebChatUxIssue(message));
+            onFailed: (payload) => {
+              setIssue(toWebChatUxIssue(payload));
               const failedAt = new Date().toISOString();
               setMessages((prev) =>
                 prev.map((m) =>

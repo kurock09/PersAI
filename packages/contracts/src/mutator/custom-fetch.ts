@@ -2,7 +2,8 @@ export class ContractsApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly payload: unknown
+    public readonly payload: unknown,
+    public readonly code?: string
   ) {
     super(message);
     this.name = "ContractsApiError";
@@ -12,6 +13,25 @@ export class ContractsApiError extends Error {
 interface ApiErrorEnvelope {
   error?: {
     message?: string;
+    code?: string;
+  };
+  message?: string;
+  code?: string;
+}
+
+function extractApiError(payload: unknown): { message: string | null; code: string | null } {
+  if (typeof payload !== "object" || payload === null) {
+    return { message: null, code: null };
+  }
+
+  const envelope = payload as ApiErrorEnvelope;
+  return {
+    message:
+      (typeof envelope.error?.message === "string" ? envelope.error.message : null) ??
+      (typeof envelope.message === "string" ? envelope.message : null),
+    code:
+      (typeof envelope.error?.code === "string" ? envelope.error.code : null) ??
+      (typeof envelope.code === "string" ? envelope.code : null)
   };
 }
 
@@ -44,15 +64,13 @@ export async function customFetch<TData>(url: string, options?: RequestInit): Pr
   const payload = isJson ? await response.json() : await response.text();
 
   if (!response.ok) {
-    const messageFromEnvelope =
-      typeof payload === "object" && payload !== null
-        ? ((payload as ApiErrorEnvelope).error?.message ?? null)
-        : null;
+    const extracted = extractApiError(payload);
 
     throw new ContractsApiError(
-      messageFromEnvelope ?? `Request failed with status ${response.status}.`,
+      extracted.message ?? `Request failed with status ${response.status}.`,
       response.status,
-      payload
+      payload,
+      extracted.code ?? undefined
     );
   }
 
