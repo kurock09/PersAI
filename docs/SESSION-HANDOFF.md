@@ -11,6 +11,7 @@
   - user timezone
   - formatted current local time in that timezone when it can be rendered
 - The existing backend validation for `runAt in the past` remains, so invalid timestamps still stop at the PersAI boundary with a clear `400` instead of surfacing as a generic `500`.
+- Bumped PersAI dev GitOps OpenClaw pin to `9e0ca6cd6600a3d8c946fdfb9389721b62fe5df0` so this runtime fix can actually deploy.
 
 ### Files touched
 
