@@ -4,6 +4,11 @@
 
 ### Added
 
+- **OpenClaw Telegram hotfix for stale specs and 429 retry_after handling:**
+  - OpenClaw now keeps only the latest persisted runtime spec per assistant during local apply and startup reinit, preventing stale Telegram configs from reviving after pod restarts.
+  - Telegram profile sync now treats Bot API `429` responses as real failures, persists the error state, and waits for Telegram `retry_after` before retrying instead of marking the sync as successful.
+  - Dev GitOps OpenClaw pin now targets fork SHA `4fe968ad407980e5708535ec96aada03e36fea91`.
+
 - **H8-scale Telegram lifecycle hardening + assistant-scoped freshness reconcile:**
   - Added ADR-057 and updated architecture/boundary docs to freeze the new rule: user settings changes stay assistant-scoped, while broad reapply remains admin/platform-only.
   - `POST /api/v1/internal/runtime/ensure-fresh-spec` no longer routes through backend runtime apply; PersAI now re-materializes only and returns a fresh single-assistant spec payload for local OpenClaw reconcile.

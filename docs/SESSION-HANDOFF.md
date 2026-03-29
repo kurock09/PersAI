@@ -22,6 +22,10 @@
 - Added assistant-scoped runtime session cleanup for create/reset paths by clearing `agent:persai:<assistantId>:*` sessions and archiving removed transcripts.
 - Helm OpenClaw config now enables enforced session maintenance limits for bounded session-store growth in deployed environments.
 - Bumped PersAI dev GitOps OpenClaw pin to `b33f10e32b80cc4e9643e879ded92b5081df4ce0` and updated `values-dev.yaml` to rebuild/re-pin that fork image on the next PersAI push.
+- Follow-up OpenClaw hotfix `4fe968ad407980e5708535ec96aada03e36fea91` now:
+  - removes stale per-assistant runtime spec duplicates before Telegram bot reinit
+  - persists Telegram `retry_after` cooldown windows and stops marking `429` profile syncs as successful
+  - updates the dev GitOps OpenClaw pin / `values-dev.yaml` for rollout of that fix
 - Added focused OpenClaw tests for:
   - fresh-spec local apply path
   - assistant-scoped session cleanup path
