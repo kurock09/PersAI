@@ -6,7 +6,7 @@
 
 - **OpenClaw Telegram markdown fallback hotfix:**
   - OpenClaw now retries Telegram replies as plain text when `MarkdownV2` entity parsing fails, so assistant answers no longer disappear behind the generic `"Sorry, I encountered an error"` fallback for normal punctuation-heavy text.
-  - Dev GitOps OpenClaw pin now targets fork SHA `7ab9df9d0fc4f5e4f95e578a81afaf34c390e8c1`.
+  - Dev GitOps OpenClaw pin now targets fork SHA `7ab9df9d0fb285987bc73f34d723af13eb231448`.
 
 - **PersAI Telegram config auto-apply fix:**
   - `PATCH /api/v1/assistant/integrations/telegram/config` now marks the assistant as `configDirtyAt` and immediately runs an assistant-scoped apply of the latest published version, so saved Telegram user settings reach live OpenClaw runtime without waiting for a later freshness path.

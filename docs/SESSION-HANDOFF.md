@@ -26,7 +26,7 @@
   - removes stale per-assistant runtime spec duplicates before Telegram bot reinit
   - persists Telegram `retry_after` cooldown windows and stops marking `429` profile syncs as successful
   - updates the dev GitOps OpenClaw pin / `values-dev.yaml` for rollout of that fix
-- Follow-up OpenClaw hotfix `7ab9df9d0fc4f5e4f95e578a81afaf34c390e8c1` now:
+- Follow-up OpenClaw hotfix `7ab9df9d0fb285987bc73f34d723af13eb231448` now:
   - retries Telegram replies as plain text when `MarkdownV2` entity parsing fails
   - prevents normal assistant answers from falling through to the generic `"Sorry, I encountered an error"` message when markdown punctuation is not escaped
   - updates the dev GitOps OpenClaw pin / `values-dev.yaml` for rollout of that fix
