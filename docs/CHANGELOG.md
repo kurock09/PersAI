@@ -4,6 +4,10 @@
 
 ### Added
 
+- **PersAI Telegram config auto-apply fix:**
+  - `PATCH /api/v1/assistant/integrations/telegram/config` now marks the assistant as `configDirtyAt` and immediately runs an assistant-scoped apply of the latest published version, so saved Telegram user settings reach live OpenClaw runtime without waiting for a later freshness path.
+  - This closes the gap where `groupReplyMode`, parse mode, and inbound/outbound toggles were persisted in PersAI but Telegram runtime could keep serving the previous materialized spec.
+
 - **OpenClaw Telegram hotfix for stale specs and 429 retry_after handling:**
   - OpenClaw now keeps only the latest persisted runtime spec per assistant during local apply and startup reinit, preventing stale Telegram configs from reviving after pod restarts.
   - Telegram profile sync now treats Bot API `429` responses as real failures, persists the error state, and waits for Telegram `retry_after` before retrying instead of marking the sync as successful.

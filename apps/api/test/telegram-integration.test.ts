@@ -155,10 +155,15 @@ async function run(): Promise<void> {
     resolveSecretValueByProviderKey: async () => null
   };
   const publishedVersionRepositoryMock = {
-    findLatestByAssistantId: async () => null
+    findLatestByAssistantId: async () => ({
+      id: "published-1"
+    })
   };
+  let applyCallCount = 0;
   const applyServiceMock = {
-    execute: async () => undefined
+    execute: async () => {
+      applyCallCount += 1;
+    }
   };
   const connectService = new ConnectTelegramIntegrationService(
     assistantRepository as never,
@@ -175,8 +180,11 @@ async function run(): Promise<void> {
   const updateConfigService = new UpdateTelegramIntegrationConfigService(
     assistantRepository as never,
     bindingRepository as never,
+    publishedVersionRepositoryMock as never,
+    applyServiceMock as never,
     resolveStateService,
-    auditEventService as never
+    auditEventService as never,
+    prismaServiceMock as never
   );
   const revokeService = new RevokeTelegramIntegrationSecretService(
     assistantRepository as never,
@@ -212,15 +220,19 @@ async function run(): Promise<void> {
     assert.equal(connected.bot.username, "persai_bot");
     assert.equal(connected.configPanel.available, true);
 
+    applyCallCount = 0;
     const updated = await updateConfigService.execute("user-1", {
       defaultParseMode: "markdown",
       inboundUserMessagesEnabled: true,
       outboundAssistantMessagesEnabled: false,
+      groupReplyMode: "mention_reply",
       notes: "Only outbound notifications for now"
     });
     assert.equal(updated.configPanel.settings.defaultParseMode, "markdown");
     assert.equal(updated.configPanel.settings.outboundAssistantMessagesEnabled, false);
+    assert.equal(updated.configPanel.settings.groupReplyMode, "mention_reply");
     assert.equal(updated.configPanel.settings.notes, "Only outbound notifications for now");
+    assert.equal(applyCallCount, 1);
 
     const revoked = await revokeService.execute("user-1", { reason: "token leaked" }, false);
     assert.equal(revoked.connectionStatus, "not_connected");

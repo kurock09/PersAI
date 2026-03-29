@@ -3,12 +3,17 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException
 } from "@nestjs/common";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
 } from "../domain/assistant-channel-surface-binding.repository";
+import {
+  ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
+  type AssistantPublishedVersionRepository
+} from "../domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { ResolveTelegramIntegrationStateService } from "./resolve-telegram-integration-state.service";
 import type {
@@ -16,6 +21,8 @@ import type {
   TelegramIntegrationState
 } from "./telegram-integration.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 function asObject(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -25,13 +32,19 @@ function asObject(value: unknown): Record<string, unknown> {
 
 @Injectable()
 export class UpdateTelegramIntegrationConfigService {
+  private readonly logger = new Logger(UpdateTelegramIntegrationConfigService.name);
+
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
+    @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
+    private readonly publishedVersionRepository: AssistantPublishedVersionRepository,
+    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   parseInput(body: unknown): TelegramConfigUpdateInput {
@@ -155,6 +168,29 @@ export class UpdateTelegramIntegrationConfigService {
       }
     });
 
+    await this.prisma.assistant.update({
+      where: { id: assistant.id },
+      data: { configDirtyAt: new Date() }
+    });
+
+    await this.autoApplySpec(userId, assistant.id);
+
     return this.resolveTelegramIntegrationStateService.execute(userId);
+  }
+
+  private async autoApplySpec(userId: string, assistantId: string): Promise<void> {
+    try {
+      const latestPublished =
+        await this.publishedVersionRepository.findLatestByAssistantId(assistantId);
+      if (latestPublished === null) {
+        return;
+      }
+      await this.applyAssistantPublishedVersionService.execute(userId, latestPublished, true);
+      this.logger.log(`Auto-applied spec after Telegram config update for assistant ${assistantId}`);
+    } catch (error) {
+      this.logger.warn(
+        `Auto-apply after Telegram config update failed for ${assistantId}: ${error instanceof Error ? error.message : "unknown"}`
+      );
+    }
   }
 }
