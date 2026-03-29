@@ -186,7 +186,9 @@ export class UpdateTelegramIntegrationConfigService {
         return;
       }
       await this.applyAssistantPublishedVersionService.execute(userId, latestPublished, true);
-      this.logger.log(`Auto-applied spec after Telegram config update for assistant ${assistantId}`);
+      this.logger.log(
+        `Auto-applied spec after Telegram config update for assistant ${assistantId}`
+      );
     } catch (error) {
       this.logger.warn(
         `Auto-apply after Telegram config update failed for ${assistantId}: ${error instanceof Error ? error.message : "unknown"}`
