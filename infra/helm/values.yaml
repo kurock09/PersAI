@@ -122,6 +122,14 @@ openclaw:
     dangerouslyAllowHostHeaderOriginFallback: false
   persaiSecretResolver:
     baseUrl: http://api:3001
+  sessionMaintenance:
+    mode: enforce
+    pruneAfter: 14d
+    maxEntries: 2000
+    rotateBytes: 25mb
+    resetArchiveRetention: 14d
+    maxDiskBytes: 2gb
+    highWaterBytes: 1600mb
   workspace:
     gcsFuse:
       enabled: false

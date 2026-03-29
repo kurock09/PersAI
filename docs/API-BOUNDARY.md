@@ -177,6 +177,9 @@ Behavior baseline:
   - HTTP failures use canonical `ErrorEnvelope`
   - streaming failures must emit the same code family in event payloads
   - messenger/callback surfaces format from those codes instead of ad hoc string matching
+- user-scoped runtime-affecting changes must remain assistant-scoped:
+  - one assistant's settings change may trigger a fresh spec and runtime reconcile for that assistant
+  - it must not trigger broad backend `full apply` behavior for unrelated assistants
 
 ## Step 12 H12 reminder/task boundary
 
@@ -1375,6 +1378,7 @@ Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness dete
   3. If neither → 204.
   4. If stale → re-materialize via `MaterializeAssistantPublishedVersionService.execute()`, return fresh spec.
 - **Does NOT** call back to OpenClaw `/spec/apply` — returns data directly to avoid circular HTTP calls. OpenClaw applies locally (validate + write workspace files + store.put).
+- **Single-assistant rule:** this endpoint is a one-assistant refresh seam. It must not execute the normal backend runtime-apply lifecycle for that assistant, and it must never broaden into a mass reapply path.
 
 ### OpenClaw chat-time freshness flow
 
@@ -1385,6 +1389,17 @@ Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness dete
 5. 204 → update local cache, proceed with stored spec
 6. 200 → apply fresh spec locally (validate, write workspace, store.put), proceed
 7. Network error / 5xx → fail-open, use stored spec with warning log
+
+## Step 12 H8-scale Telegram lifecycle hardening
+
+- Telegram no-op `spec/apply` must be idempotent.
+- Runtime bot restart is allowed only when effective transport inputs changed:
+  - bot token
+  - webhook mode
+  - webhook URL
+- Telegram profile sync is allowed only when effective persona/avatar inputs changed, or when an explicit reconnect flow requires it.
+- Runtime persists transport/profile fingerprints so those decisions survive restart and reapply.
+- Assistant create/reset semantics include runtime-side cleanup of assistant-scoped PersAI sessions; generic session maintenance is only a bounded-growth backstop.
 
 ### Configuration (operational, OpenClaw side)
 

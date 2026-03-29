@@ -8,6 +8,7 @@ import {
   Logger,
   Post,
   Req,
+  Res,
   UnauthorizedException
 } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
@@ -22,7 +23,7 @@ import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../../domain/assistant-published-version.repository";
-import { ApplyAssistantPublishedVersionService } from "../../application/apply-assistant-published-version.service";
+import { MaterializeAssistantPublishedVersionService } from "../../application/materialize-assistant-published-version.service";
 import { SyncTelegramChatTargetService } from "../../application/sync-telegram-chat-target.service";
 
 type InternalRequestLike = {
@@ -32,6 +33,17 @@ type InternalRequestLike = {
 type EnsureFreshSpecRequest = {
   assistantId: string;
   currentConfigGeneration: number;
+};
+
+type EnsureFreshSpecResponse = {
+  generation: number;
+  assistantId: string;
+  publishedVersionId: string;
+  contentHash: string;
+  spec: {
+    bootstrap: unknown;
+    workspace: unknown;
+  };
 };
 
 function parseEnsureFreshSpecInput(body: unknown): EnsureFreshSpecRequest {
@@ -66,7 +78,7 @@ export class InternalRuntimeConfigGenerationController {
     private readonly materializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly publishedVersionRepository: AssistantPublishedVersionRepository,
-    private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
+    private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
     private readonly syncTelegramChatTargetService: SyncTelegramChatTargetService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
@@ -84,12 +96,9 @@ export class InternalRuntimeConfigGenerationController {
   @Post("ensure-fresh-spec")
   async ensureFreshSpec(
     @Req() req: InternalRequestLike,
-    @Body() body: unknown
-  ): Promise<{
-    fresh: boolean;
-    rematerialized: boolean;
-    generation: number;
-  }> {
+    @Body() body: unknown,
+    @Res({ passthrough: true }) res: { status(code: number): unknown }
+  ): Promise<EnsureFreshSpecResponse | void> {
     this.assertAuthorized(req);
     const input = parseEnsureFreshSpecInput(body);
 
@@ -104,26 +113,46 @@ export class InternalRuntimeConfigGenerationController {
     );
     const specGeneration = latestSpec?.materializedAtConfigGeneration ?? 0;
     const globalStale = specGeneration < currentGeneration;
-    const perUserStale = assistant.configDirtyAt !== null;
+    const perUserStale =
+      assistant.configDirtyAt !== null &&
+      (latestSpec === null || assistant.configDirtyAt.getTime() > latestSpec.createdAt.getTime());
 
     if (!globalStale && !perUserStale) {
-      return { fresh: true, rematerialized: false, generation: currentGeneration };
+      res.status(204);
+      return;
     }
 
     const latestPublished = await this.publishedVersionRepository.findLatestByAssistantId(
       input.assistantId
     );
     if (latestPublished === null) {
-      return { fresh: true, rematerialized: false, generation: currentGeneration };
+      res.status(204);
+      return;
     }
 
-    await this.applyAssistantPublishedVersionService.execute(
-      assistant.userId,
+    await this.materializeAssistantPublishedVersionService.execute(
+      assistant,
       latestPublished,
-      true
+      latestSpec?.sourceAction ?? "publish"
     );
 
-    return { fresh: true, rematerialized: true, generation: currentGeneration };
+    const refreshedSpec = await this.materializedSpecRepository.findByPublishedVersionId(
+      latestPublished.id
+    );
+    if (refreshedSpec === null) {
+      throw new BadRequestException("Fresh materialized spec was not found.");
+    }
+
+    return {
+      generation: currentGeneration,
+      assistantId: assistant.id,
+      publishedVersionId: refreshedSpec.publishedVersionId,
+      contentHash: refreshedSpec.contentHash,
+      spec: {
+        bootstrap: refreshedSpec.openclawBootstrap,
+        workspace: refreshedSpec.openclawWorkspace
+      }
+    };
   }
 
   @HttpCode(200)

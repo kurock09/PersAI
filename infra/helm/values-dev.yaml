@@ -114,8 +114,8 @@ openclaw:
     gcpServiceAccountEmail: openclaw-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: openclaw
-    tag: e6625ad4ab6932ce0aa0be3249828798bf40d958
-    digest: sha256:445863fce5ddb75fb35e19094e66efd789c203a443e2b569d4dfacec5815ced3
+    tag: b33f10e32b80cc4e9643e879ded92b5081df4ce0
+    digest: ""
     pullPolicy: IfNotPresent
   controlUi:
     allowedOrigins:
@@ -124,6 +124,14 @@ openclaw:
     dangerouslyAllowHostHeaderOriginFallback: false
   persaiSecretResolver:
     baseUrl: http://api:3001
+  sessionMaintenance:
+    mode: enforce
+    pruneAfter: 14d
+    maxEntries: 2000
+    rotateBytes: 25mb
+    resetArchiveRetention: 14d
+    maxDiskBytes: 2gb
+    highWaterBytes: 1600mb
   workspace:
     gcsFuse:
       enabled: true

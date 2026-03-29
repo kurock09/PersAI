@@ -463,3 +463,36 @@ Required in CI:
 - Existing Telegram connect/config/revoke flows unaffected.
 - API lint + typecheck pass (PersAI + OpenClaw).
 - Pre-existing Telegram bindings without `groupReplyMode` default to `"mention_reply"` — no seed needed.
+
+## Step 12 H8-scale Telegram lifecycle hardening
+
+### Freshness contract
+
+- `POST /internal/v1/runtime/ensure-fresh-spec` returns:
+  - `204` when assistant runtime state is already fresh
+  - `200` with fresh `{generation, assistantId, publishedVersionId, contentHash, spec}` when only that assistant needs refresh
+- Backend must not trigger `ApplyAssistantPublishedVersionService` from this path.
+- OpenClaw chat-time freshness must apply the returned spec locally and continue the turn without waiting for a backend `full apply`.
+
+### Telegram runtime idempotency
+
+- Re-applying the same effective Telegram transport config does not stop/start the bot again.
+- Changing only persona/avatar state does not restart transport; it only schedules profile reconcile.
+- Pod restart reinitializes persisted Telegram bots with bounded concurrency, jitter, and retry backoff.
+- Startup reinit defers non-critical profile sync until the gateway reports ready.
+- Telegram profile API calls honor cooldown and do not spam `setMyName` / `setMyDescription` / `setMyProfilePhoto` on repeated no-op apply.
+
+### Session lifecycle
+
+- Assistant reset clears runtime-side `agent:persai:<assistantId>:*` sessions.
+- Assistant recreate path (`resetMemoryWorkspace` during create) also clears stale runtime sessions for that assistant.
+- Removed session transcripts are archived with reset semantics.
+- Helm-rendered OpenClaw config enables enforced session maintenance bounds for stale-session pruning and disk growth control.
+
+### Focused verification
+
+- OpenClaw focused tests:
+  - `src/gateway/persai-runtime/persai-runtime-freshness.test.ts`
+  - `src/gateway/persai-runtime/persai-runtime-session-cleanup.test.ts`
+  - `src/gateway/persai-runtime/persai-runtime-spec-store.test.ts`
+- PersAI API typecheck stays green after controller contract change.

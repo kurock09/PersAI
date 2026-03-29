@@ -1,5 +1,69 @@
 # SESSION-HANDOFF
 
+## 2026-03-29 - H8-scale Telegram lifecycle hardening
+
+### What changed
+
+- Added ADR-057 and updated architecture/boundary docs for the corrected runtime rule:
+  - user settings changes stay assistant-scoped
+  - `ensure-fresh-spec` returns fresh single-assistant materialized spec data
+  - OpenClaw applies that spec locally instead of forcing backend runtime apply
+- Fixed PersAI internal freshness controller:
+  - stale single-assistant refresh now re-materializes and returns `{generation, assistantId, publishedVersionId, contentHash, spec}`
+  - fresh path returns `204`
+  - backend `ApplyAssistantPublishedVersionService` is no longer called from `ensure-fresh-spec`
+- Added OpenClaw local runtime-apply helper so both HTTP `spec/apply` and chat-time freshness use the same validation/workspace/store flow.
+- Hardened Telegram runtime lifecycle:
+  - persisted transport/profile fingerprints in runtime spec store
+  - no-op apply no longer restarts Telegram transport
+  - profile sync no longer runs eagerly on every startup/reinit
+  - startup reinit now uses bounded concurrency + jitter + retry backoff
+  - profile API calls now honor cooldown and can defer until gateway readiness
+- Added assistant-scoped runtime session cleanup for create/reset paths by clearing `agent:persai:<assistantId>:*` sessions and archiving removed transcripts.
+- Helm OpenClaw config now enables enforced session maintenance limits for bounded session-store growth in deployed environments.
+- Bumped PersAI dev GitOps OpenClaw pin to `b33f10e32b80cc4e9643e879ded92b5081df4ce0` and updated `values-dev.yaml` to rebuild/re-pin that fork image on the next PersAI push.
+- Added focused OpenClaw tests for:
+  - fresh-spec local apply path
+  - assistant-scoped session cleanup path
+
+### Files touched
+
+**PersAI API / docs / infra:**
+
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts`
+- `docs/ADR/057-assistant-scoped-runtime-reconcile-and-telegram-lifecycle-h8-scale.md`
+- `docs/API-BOUNDARY.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CHANGELOG.md`
+- `docs/ROADMAP.md`
+- `docs/SESSION-HANDOFF.md`
+- `infra/helm/templates/openclaw-configmap.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+
+**OpenClaw:**
+
+- `src/gateway/persai-runtime/persai-runtime-local-apply.ts`
+- `src/gateway/persai-runtime/persai-runtime-freshness.ts`
+- `src/gateway/persai-runtime/persai-runtime-freshness.test.ts`
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+- `src/gateway/persai-runtime/persai-runtime-session-cleanup.ts`
+- `src/gateway/persai-runtime/persai-runtime-session-cleanup.test.ts`
+- `src/gateway/persai-runtime/persai-runtime-spec-store.ts`
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts`
+- `src/gateway/server-http.ts`
+- `docs/PERSAI-FORK-PATCHES.md`
+
+### Tests run
+
+- `pnpm exec vitest run --config vitest.gateway.config.ts src/gateway/persai-runtime/persai-runtime-freshness.test.ts src/gateway/persai-runtime/persai-runtime-session-cleanup.test.ts src/gateway/persai-runtime/persai-runtime-spec-store.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks
+
+1. `H8s7` probe-budget review is still intentionally pending; lifecycle/idempotency fixes landed first.
+2. Full `openclaw` repository typecheck still has unrelated pre-existing failures outside the PersAI runtime slice, so verification relied on targeted tests plus PersAI API typecheck.
+
 ## 2026-03-28 - Reminder cleanup and delivery sanitization
 
 ### What changed

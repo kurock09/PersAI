@@ -33,6 +33,17 @@ data:
           "id": "OPENCLAW_GATEWAY_TOKEN"
         }
       },
+      "session": {
+        "maintenance": {
+          "mode": {{ .Values.openclaw.sessionMaintenance.mode | toJson }},
+          "pruneAfter": {{ .Values.openclaw.sessionMaintenance.pruneAfter | toJson }},
+          "maxEntries": {{ .Values.openclaw.sessionMaintenance.maxEntries }},
+          "rotateBytes": {{ .Values.openclaw.sessionMaintenance.rotateBytes | toJson }},
+          "resetArchiveRetention": {{ .Values.openclaw.sessionMaintenance.resetArchiveRetention | toJson }},
+          "maxDiskBytes": {{ .Values.openclaw.sessionMaintenance.maxDiskBytes | toJson }},
+          "highWaterBytes": {{ .Values.openclaw.sessionMaintenance.highWaterBytes | toJson }}
+        }
+      },
       "gateway": {
         "controlUi": {
           "allowedOrigins": {{ .Values.openclaw.controlUi.allowedOrigins | toJson }},

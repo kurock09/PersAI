@@ -213,6 +213,9 @@ It is not part of backend domain logic.
   - stable error-code emission
 - OpenClaw remains runtime execution/transport, but PersAI becomes the product-policy authority for inbound turns
 - user-facing denial and degradation semantics are derived from stable backend codes, then formatted per surface
+- user-scoped runtime-affecting changes remain assistant-scoped:
+  - one assistant's settings change can invalidate and reconcile that assistant only
+  - broad `full apply` behavior is reserved for explicit admin/platform changes
 
 ## Reminder/task ownership boundary (Step 12 H12)
 
@@ -478,6 +481,15 @@ It is not part of backend domain logic.
   - auto-apply after connect/disconnect to push config changes to OpenClaw immediately
 - Telegram agent turns share the same per-assistant workspace as web chat (same `MEMORY.md`, bootstrap files).
 - Backend does not route Telegram messages or manage bot lifecycle directly.
+
+## Telegram lifecycle hardening boundary (Step 12 H8-scale)
+
+- OpenClaw runtime reconcile must be fingerprint-driven and idempotent:
+  - transport fingerprint decides whether Telegram bot rotation is required
+  - profile fingerprint decides whether Telegram profile APIs should run
+- startup/reinit must be bounded with concurrency control, jitter, and retry backoff; non-critical profile work is deferred until after gateway readiness
+- the single-assistant freshness seam returns fresh materialized spec data to OpenClaw for local reconcile; it does not route through the normal backend runtime-apply lifecycle
+- PersAI assistant create/reset flows must trigger assistant-scoped runtime session cleanup; generic OpenClaw session maintenance remains a safety backstop, not the primary reset semantic
 
 ## Memory source policy enforcement (Step 6 D3)
 

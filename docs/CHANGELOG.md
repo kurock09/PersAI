@@ -4,6 +4,16 @@
 
 ### Added
 
+- **H8-scale Telegram lifecycle hardening + assistant-scoped freshness reconcile:**
+  - Added ADR-057 and updated architecture/boundary docs to freeze the new rule: user settings changes stay assistant-scoped, while broad reapply remains admin/platform-only.
+  - `POST /api/v1/internal/runtime/ensure-fresh-spec` no longer routes through backend runtime apply; PersAI now re-materializes only and returns a fresh single-assistant spec payload for local OpenClaw reconcile.
+  - OpenClaw chat-time freshness now consumes that payload and applies it locally, keeping immediate user-setting changes without backend-side `full apply`.
+  - Telegram runtime reconcile is now fingerprint-driven: no-op `spec/apply` no longer restarts a bot, transport rotation happens only on effective transport changes, and profile sync runs only when persona/avatar fingerprint changed (with cooldown protection).
+  - Telegram startup/reinit is now bounded with concurrency, jitter, retry backoff, and deferred non-critical profile sync until readiness.
+  - Assistant reset/recreate now clears assistant-scoped runtime sessions (`agent:persai:<assistantId>:*`) in OpenClaw, and Helm OpenClaw config now enables enforced session maintenance budgets for bounded growth.
+  - Added focused OpenClaw regression tests for fresh-spec local apply and assistant-scoped runtime session cleanup.
+  - Dev GitOps OpenClaw pin now targets fork SHA `b33f10e32b80cc4e9643e879ded92b5081df4ce0`.
+
 - **Reminder delivery cleanup and Telegram cron-binding hardening:**
   - `reminder_task` create now sends a dedicated `contextSessionKey` instead of binding the cron job itself to the Telegram `agent:persai:*` session, so Telegram reminders keep chat-context lookup without failing on `sessionTarget="main"` for non-default agents.
   - `cron-fire` now strips the internal `Recent context:` appendix from reminder summaries before delivering them to Telegram or the web reminders chat, so users only see the clean reminder text.
