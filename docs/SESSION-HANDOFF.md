@@ -26,6 +26,10 @@
   - removes stale per-assistant runtime spec duplicates before Telegram bot reinit
   - persists Telegram `retry_after` cooldown windows and stops marking `429` profile syncs as successful
   - updates the dev GitOps OpenClaw pin / `values-dev.yaml` for rollout of that fix
+- Follow-up OpenClaw hotfix `7ab9df9d0fc4f5e4f95e578a81afaf34c390e8c1` now:
+  - retries Telegram replies as plain text when `MarkdownV2` entity parsing fails
+  - prevents normal assistant answers from falling through to the generic `"Sorry, I encountered an error"` message when markdown punctuation is not escaped
+  - updates the dev GitOps OpenClaw pin / `values-dev.yaml` for rollout of that fix
 - Added focused OpenClaw tests for:
   - fresh-spec local apply path
   - assistant-scoped session cleanup path
@@ -65,7 +69,7 @@
 
 ### Risks
 
-1. `H8s7` probe-budget review is still intentionally pending; lifecycle/idempotency fixes landed first.
+1. Probe-budget tuning is intentionally no longer tracked inside `H8-scale`; it moved into the later system-wide GKE tuning slice for 5000+ users, where startup/readiness budgets can be tuned across `api`, `web`, and `openclaw` together.
 2. Full `openclaw` repository typecheck still has unrelated pre-existing failures outside the PersAI runtime slice, so verification relied on targeted tests plus PersAI API typecheck.
 
 ## 2026-03-28 - Reminder cleanup and delivery sanitization

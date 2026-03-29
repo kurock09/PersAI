@@ -133,7 +133,7 @@ Generic OpenClaw session maintenance remains a bounded-growth backstop, not the 
 
 - replacing OpenClaw cron with a backend-owned scheduler
 - WhatsApp/MAX runtime delivery implementation
-- broad probe-budget tuning before lifecycle fixes land
+- system-wide GKE probe-budget tuning for 5000+ users
 - speculative refactors of native OpenClaw session architecture outside the minimal cleanup seam
 
 ## Relation to prior ADRs

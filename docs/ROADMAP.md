@@ -197,7 +197,7 @@ Foundation Phase
   - [x] TG1 — backend: on `joined` event, mark stale active records with same title as "left" before upsert
   - [x] TG2 — backend: GET groups deduplicates by title (keeps most recently updated)
   - [x] TG3 — frontend: groups list shows only active groups
-- [ ] H8-scale — Telegram runtime lifecycle hardening for 1000+ users
+- [x] H8-scale — Telegram runtime lifecycle hardening for 1000+ users
   - design note: ADR-057 defines assistant-scoped runtime reconcile and corrected single-assistant freshness semantics
   - rule: user settings changes stay partial/assistant-scoped; broad reapply remains admin/platform-only
   - [x] H8s1 — stop restarting Telegram bots on every no-op `spec apply`; only rotate runtime bot state when token/webhook mode/webhook URL actually changed
@@ -207,7 +207,6 @@ Foundation Phase
   - [x] H8s4 — add bounded startup/reinit concurrency with jitter/backoff instead of reinitializing all bots at once
   - [x] H8s5 — add cooldown/rate-limit guards for `setMyName` / `setMyDescription` / `setMyProfilePhoto` to prevent Telegram `429` storms
   - [x] H8s6 — keep startup cheap and readiness-safe: defer non-critical Telegram profile work until after gateway becomes ready
-  - [ ] H8s7 — review kube probe budgets (`startupProbe` / timeout / failureThreshold) only after lifecycle/idempotency fixes land; probes are not the root fix
   - [x] H8s8 — add runtime session lifecycle control: clear `agent:persai:<assistantId>:*` sessions on assistant reset/recreate, enforce TTL/GC for stale channel sessions, and keep session growth bounded for 1000+ users
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity
 - [x] H12 — Cron webhook callback + preferred notification channel + memory lifecycle
@@ -228,3 +227,7 @@ Foundation Phase
 - [ ] H14 — Fork-diff reduction (tech debt, trigger: next upstream sync or stable sprint)
   - [ ] H14a — secrets + tool credentials → `exec` provider + PersAI API bridge (removes 9 native OpenClaw files)
   - [ ] H14b — remove explicit store from `server-runtime-state.ts` (1 file, trivial)
+- [ ] H15 — GKE runtime tuning for 5000+ users
+  - scope note: this is a system-wide platform slice, not Telegram-specific hardening
+  - [ ] H15a — review and tune Kubernetes probe budgets (`startupProbe`, `readinessProbe`, `livenessProbe`, timeout, `failureThreshold`) from measured rollout/warmup behavior
+  - [ ] H15b — validate rollout safety and startup latency budgets for `api`, `web`, and `openclaw` under realistic cold-start and recovery scenarios
