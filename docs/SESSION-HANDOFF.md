@@ -1,5 +1,22 @@
 # SESSION-HANDOFF
 
+## 2026-03-31 - Fix: tool-generated media routing to user workspace
+
+### What changed
+- OpenClaw `saveMediaBuffer` now takes optional `baseDirOverride` — `image_generate` uses it to write directly to `workspaceDir/media/tool-image-generation/` instead of the ephemeral `.openclaw-state/media/` dir (TTL=2min).
+- `resolveMediaFilePath` in the PersAI gateway bridge now accepts any path under `PERSAI_WORKSPACE_ROOT`, so the download proxy serves tool media correctly.
+- PersAI `ClerkAuthMiddleware` now covers attachment upload/download/voice transcribe routes (was causing 401 on file uploads).
+- Fork SHA: `f6b5d02a7c6cee60ef9397a2f0005614502abaeb`.
+- PERSAI-FORK-PATCHES.md updated (patch #17), verify-persai-patches.mjs updated (84/84 pass).
+
+### Known issues
+- None introduced by this fix.
+
+### Next steps
+- Push OpenClaw first, then PersAI. CI will rebuild OpenClaw image and re-pin digest.
+
+---
+
 ## 2026-03-31 - M-series implementation complete (M1–M7, ADR-059)
 
 ### What changed

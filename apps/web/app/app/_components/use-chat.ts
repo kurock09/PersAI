@@ -270,12 +270,11 @@ export function useChat(threadKey: string): UseChatReturn {
 
               if (pendingFiles.length > 0 && realUserMsgId && realChatId) {
                 void (async () => {
-                  const freshToken = await getToken();
-                  if (!freshToken) return;
+                  const uploadToken = (await getToken()) ?? token;
                   for (const file of pendingFiles) {
                     try {
                       const uploaded = await uploadChatAttachment(
-                        freshToken,
+                        uploadToken,
                         realChatId,
                         realUserMsgId,
                         file

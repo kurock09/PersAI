@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Fix: tool-generated images save to user workspace and arrive in chat:**
+  - OpenClaw `saveMediaBuffer` now accepts `baseDirOverride`, `image_generate` tool redirects output to `workspaceDir/media/` instead of ephemeral `.openclaw-state/media/`.
+  - `resolveMediaFilePath` expanded to accept paths under `PERSAI_WORKSPACE_ROOT` for download.
+  - Auth middleware routes added for attachment upload/download/transcribe endpoints.
+  - Dev GitOps OpenClaw pin now targets fork SHA `f6b5d02a7c6cee60ef9397a2f0005614502abaeb`.
+
 - **M-series: Systemic media, attachments, and voice — full implementation (ADR-059, M1–M7):**
   - **M1 foundation:** `assistant_chat_message_attachments` Prisma table, `media_storage_bytes` quota dimension, attachment repository + media service, upload/download proxy endpoints, chat hard-delete + reset cleanup, plan-governed `mediaClasses` capability gate.
   - **M2 tool media delivery (web):** OpenClaw bridge extracts structured `media[]` from agent payloads (`image_generate`, `tts`), emits NDJSON `media` event, PersAI downloads + persists tool-generated attachments, `AttachmentStrip` component renders in chat bubbles.

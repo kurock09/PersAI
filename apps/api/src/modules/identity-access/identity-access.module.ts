@@ -90,7 +90,13 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.PUT },
       { path: "api/v1/admin/bootstrap-presets", method: RequestMethod.GET },
       { path: "api/v1/admin/bootstrap-presets/:id", method: RequestMethod.PATCH },
-      { path: "api/v1/admin/runtime/force-reapply-all", method: RequestMethod.POST }
+      { path: "api/v1/admin/runtime/force-reapply-all", method: RequestMethod.POST },
+      {
+        path: "api/v1/assistant/chat/:chatId/message/:messageId/attachment",
+        method: RequestMethod.POST
+      },
+      { path: "api/v1/assistant/attachment/:attachmentId", method: RequestMethod.GET },
+      { path: "api/v1/assistant/voice/transcribe", method: RequestMethod.POST }
     );
   }
 }
