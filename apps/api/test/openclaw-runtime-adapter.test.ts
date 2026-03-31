@@ -115,10 +115,21 @@ async function run(): Promise<void> {
         headers: { "content-type": "application/json" }
       });
     }
+    if (url.endsWith("/api/v1/runtime/chat/web/session/delete")) {
+      return new Response(JSON.stringify({ ok: true, removedSessions: 1 }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
     throw new Error(`Unexpected fetch url: ${url}`);
   }) as typeof fetch;
 
   await adapter.consumeBootstrapWorkspace("assistant-1");
+  await adapter.deleteWebChatSession({
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    surfaceThreadKey: "thread-1"
+  });
 
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);

@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Assistant runtime session hygiene order:**
+  - OpenClaw PersAI web chat session keys now use the assistant-scoped `agent:persai:...` namespace instead of falling back into the legacy `main` session bucket, so new web turns no longer leave assistant traces under `agents/main/sessions`.
+  - Full assistant reset now purges assistant session traces from both the current `persai` store and legacy `main` store leftovers, and removes transcript files directly instead of leaving `*.jsonl.reset...` archives behind.
+  - Added a new runtime bridge seam `POST /api/v1/runtime/chat/web/session/delete`, and PersAI hard-delete chat now calls it before removing the chat row so web chat deletion clears the corresponding runtime session too.
+  - Added focused regression coverage for assistant session cleanup across `persai` + legacy `main`, new assistant-scoped web session key generation, and PersAI hard-delete web chat runtime cleanup.
+  - Dev GitOps OpenClaw pin now targets fork SHA `06e69c278cefdfc406bdae8200f4d9841ed4276d`.
+
 - **Bootstrap/heartbeat hygiene for PersAI workspaces:**
   - Assistant-scoped `BOOTSTRAP.md` is now treated as a true one-time birth certificate: PersAI consumes it after the first successful web/Telegram turn through a new runtime bridge seam `POST /api/v1/runtime/workspace/bootstrap/consume`, and later normal applies no longer recreate it while that workspace still exists.
   - Full assistant reset/recreate still gets a fresh `BOOTSTRAP.md` because the assistant workspace is deleted/recreated before the next apply.

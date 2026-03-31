@@ -72,6 +72,12 @@ export interface AssistantRuntimeCronControlInput {
   contextSessionKey?: string;
 }
 
+export interface AssistantRuntimeWebChatSessionDeleteInput {
+  assistantId: string;
+  chatId: string;
+  surfaceThreadKey: string;
+}
+
 export interface AssistantRuntimeAdapter {
   preflight(): Promise<AssistantRuntimePreflightResult>;
   applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void>;
@@ -79,6 +85,7 @@ export interface AssistantRuntimeAdapter {
   consumeBootstrapWorkspace(assistantId: string): Promise<void>;
   resetWorkspace(assistantId: string): Promise<void>;
   resetMemoryWorkspace(assistantId: string): Promise<void>;
+  deleteWebChatSession(input: AssistantRuntimeWebChatSessionDeleteInput): Promise<void>;
   sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;

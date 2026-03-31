@@ -4,6 +4,10 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import {
+  ASSISTANT_RUNTIME_ADAPTER,
+  type AssistantRuntimeAdapter
+} from "./assistant-runtime-adapter.types";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatListItemState, AssistantWebChatMessageState } from "./web-chat.types";
 
@@ -46,6 +50,8 @@ export class ManageWebChatListService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
+    @Inject(ASSISTANT_RUNTIME_ADAPTER)
+    private readonly runtimeAdapter: AssistantRuntimeAdapter,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
@@ -233,6 +239,12 @@ export class ManageWebChatListService {
     if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
+
+    await this.runtimeAdapter.deleteWebChatSession({
+      assistantId: assistant.id,
+      chatId: chat.id,
+      surfaceThreadKey: chat.surfaceThreadKey
+    });
 
     const deleted = await this.assistantChatRepository.hardDeleteChat(chatId, assistant.id);
     if (!deleted) {

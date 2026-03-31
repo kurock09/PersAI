@@ -10,6 +10,7 @@ import type {
   AssistantRuntimeChannelTurnInput,
   AssistantRuntimeCronControlInput,
   AssistantRuntimePreflightResult,
+  AssistantRuntimeWebChatSessionDeleteInput,
   AssistantRuntimeWebChatTurnStreamChunk,
   AssistantRuntimeWebChatTurnInput,
   AssistantRuntimeWebChatTurnResult
@@ -199,6 +200,24 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       "POST",
       "/api/v1/runtime/workspace/memory/reset",
       { assistantId },
+      config
+    );
+  }
+
+  async deleteWebChatSession(input: AssistantRuntimeWebChatSessionDeleteInput): Promise<void> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      return;
+    }
+
+    await this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/chat/web/session/delete",
+      {
+        assistantId: input.assistantId,
+        chatId: input.chatId,
+        surfaceThreadKey: input.surfaceThreadKey
+      },
       config
     );
   }

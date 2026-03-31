@@ -1,5 +1,60 @@
 # SESSION-HANDOFF
 
+## 2026-03-31 - Assistant runtime session hygiene order
+
+### What changed
+
+- **Fork** (`kurock09/openclaw`): commit `06e69c278cefdfc406bdae8200f4d9841ed4276d`
+- Web assistant turns no longer create new runtime sessions in the legacy `main` agent bucket:
+  - OpenClaw now derives PersAI web session keys as `agent:persai:<assistantId>:web:<chatId>:<surfaceThreadKey>`
+  - that keeps new web turns in `agents/persai/sessions/...` alongside Telegram instead of defaulting into `agents/main/sessions/...`
+- Full assistant reset is now stricter:
+  - it still clears assistant workspace/spec/memory
+  - it now also purges assistant session entries from both the current `persai` store and legacy `main` store leftovers
+  - transcript files are removed directly instead of being left behind as `*.jsonl.reset...` archives
+- Hard-delete web chat now clears runtime context too:
+  - PersAI calls a new runtime seam `POST /api/v1/runtime/chat/web/session/delete`
+  - OpenClaw removes the matching assistant web session from current and legacy stores before PersAI deletes the chat from DB
+
+### Files touched
+
+**PersAI:**
+
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/test/openclaw-runtime-adapter.test.ts`
+- `apps/api/test/manage-web-chat-list.service.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `infra/dev/gitops/openclaw-approved-sha.txt`
+- `infra/helm/values-dev.yaml`
+
+**OpenClaw:**
+
+- `src/gateway/persai-runtime/persai-runtime-session.ts`
+- `src/gateway/persai-runtime/persai-runtime-session.test.ts`
+- `src/gateway/persai-runtime/persai-runtime-session-cleanup.ts`
+- `src/gateway/persai-runtime/persai-runtime-session-cleanup.test.ts`
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.test.ts`
+- `src/gateway/server-http.ts`
+
+### Tests run
+
+- `pnpm exec vitest run src/gateway/persai-runtime/persai-runtime-session.test.ts src/gateway/persai-runtime/persai-runtime-agent-turn.test.ts src/gateway/persai-runtime/persai-runtime-session-cleanup.test.ts`
+- `pnpm exec tsc --noEmit`
+- `pnpm exec tsx test/openclaw-runtime-adapter.test.ts`
+- `pnpm exec tsx test/manage-web-chat-list.service.test.ts`
+- `pnpm run typecheck`
+
+### Risks
+
+1. Reset now aggressively deletes assistant transcript files instead of archiving them, so operator-side forensic recovery of reset state is intentionally reduced.
+2. Legacy `main` cleanup uses assistant-id matching to purge old traces; that is the right product behavior for reset hygiene, but it should remain scoped to assistant lifecycle paths and not be generalized into unrelated core session pruning.
+
 ## 2026-03-31 - Bootstrap and heartbeat hygiene
 
 ### What changed

@@ -1301,6 +1301,7 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 
 - Same body limit and **400**/**408**/**413**/**405** as spec apply.
 - Response header `X-Persai-Runtime-Session-Key` set to the derived web session key (P1).
+- The derived web session key is now assistant-scoped in the runtime agent namespace: `agent:persai:<assistantId>:web:<chatId>:<surfaceThreadKey>`.
 - **200** with `ok: true` and `assistantMessage` / `respondedAt`: after a successful apply for the same `(assistantId, publishedVersionId)`, the fork runs a full embedded agent turn via `agentCommandFromIngress` (session key = P1 mapping); `assistantMessage` is model/tool output (persona `instructions` from stored workspace are passed as `extraSystemPrompt` when present).
 - **503** with `{ ok: false, error }`: the requested `(assistantId, publishedVersionId)` has no applied runtime spec in the OpenClaw store; PersAI should treat this as degraded runtime state rather than a successful assistant reply.
 - **500** with `{ ok: false, error }` may occur when the agent run throws (e.g. missing provider credentials); the adapter maps non-2xx to `invalid_response`.
@@ -1327,6 +1328,30 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 
 - After apply, streams real assistant deltas from the embedded agent (`onAgentEvent` / same path as OpenAI-compat streaming), then one `done` line; **405**/**400**/**408**/**413** same family as above; same `X-Persai-Runtime-Session-Key` header as sync.
 - Without apply, the endpoint returns **503** JSON error before the NDJSON stream starts.
+
+### `POST /api/v1/runtime/chat/web/session/delete`
+
+**Request**
+
+| field              | type   | required |
+| ------------------ | ------ | -------- |
+| `assistantId`      | string | yes      |
+| `chatId`           | string | yes      |
+| `surfaceThreadKey` | string | yes      |
+
+**Success response**
+
+- HTTP **200**, JSON object with:
+  - `ok: true`
+  - `assistantId`
+  - `chatId`
+  - `surfaceThreadKey`
+  - `removedSessions`: number
+
+**Fork implementation reference**
+
+- Used by PersAI hard-delete web chat flow before DB deletion.
+- Removes the matching assistant web chat runtime session from the current `persai` namespace and from legacy `main` leftovers that still use the old web key shape.
 
 ### HTTP status and adapter error mapping
 

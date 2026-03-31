@@ -63,7 +63,7 @@ At scale (order of **1k–2k** concurrent interactive users, multiple gateway re
 Non-exhaustive integration map (native PersAI runtime in fork; pin in PersAI `openclaw-approved-sha.txt`):
 
 - `src/gateway/persai-runtime/persai-runtime-spec-store.ts` — apply persistence interface + `memory`/`redis` store factory (`PERSAI_RUNTIME_SPEC_STORE*`).
-- `src/gateway/persai-runtime/persai-runtime-session.ts` — stable web session key (P1).
+- `src/gateway/persai-runtime/persai-runtime-session.ts` — stable assistant-scoped web session key (`agent:persai:<assistantId>:web:<chatId>:<surfaceThreadKey>`).
 - `src/gateway/persai-runtime/persai-runtime-http.ts` — `/api/v1/runtime/*` HTTP handlers.
 - `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — P3 `agentCommandFromIngress` sync + NDJSON stream bridge.
 - `src/gateway/server-http.ts` — registers PersAI runtime stages.
@@ -79,7 +79,7 @@ PersAI materialization source of truth for payload shapes:
 
 ## Contract stability
 
-Changes to HTTP paths or JSON shapes require updating [API-BOUNDARY.md](../API-BOUNDARY.md) and this ADR if semantics change.
+Changes to HTTP paths or JSON shapes require updating [API-BOUNDARY.md](../API-BOUNDARY.md) and this ADR if semantics change. Current runtime hygiene also depends on keeping assistant-specific web turns in the `persai` agent namespace rather than letting them fall back into `main`.
 
 ## Relation to prior ADRs
 
