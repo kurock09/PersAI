@@ -21,7 +21,7 @@ export class InternalRuntimeTurnController {
     @Req() req: InternalRequestLike,
     @Body() body: unknown
   ): Promise<
-    | { ok: true; assistantMessage: string; respondedAt: string }
+    | { ok: true; assistantMessage: string; respondedAt: string; media: unknown[] }
     | { ok: false; code: string; message: string; renderedMessage: string }
   > {
     this.assertAuthorized(req);
@@ -32,7 +32,8 @@ export class InternalRuntimeTurnController {
       return {
         ok: true,
         assistantMessage: result.assistantMessage,
-        respondedAt: result.respondedAt
+        respondedAt: result.respondedAt,
+        media: result.media
       };
     } catch (error) {
       const failure = toAssistantInboundFailurePayload(error);

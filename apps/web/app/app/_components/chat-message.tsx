@@ -14,11 +14,15 @@ import {
   EyeOff,
   RefreshCw,
   ThumbsUp,
-  ThumbsDown
+  ThumbsDown,
+  FileText,
+  Download,
+  Loader2
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { AssistantAvatar } from "./assistant-avatar";
-import type { ChatMessage } from "./use-chat";
+import { getAttachmentDownloadUrl } from "../assistant-api-client";
+import type { ChatAttachment, ChatMessage } from "./use-chat";
 
 interface ChatMessageBubbleProps {
   message: ChatMessage;
@@ -265,6 +269,124 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${String(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function AttachmentStrip({ attachments }: { attachments: ChatAttachment[] }) {
+  if (attachments.length === 0) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {attachments.map((att) => {
+        const isPending = att.processingStatus === "pending";
+        const isFailed = att.processingStatus === "failed";
+        const downloadUrl = att.id.startsWith("local-")
+          ? undefined
+          : getAttachmentDownloadUrl(att.id);
+        const previewUrl = att.localPreviewUrl ?? downloadUrl;
+
+        if (att.attachmentType === "image") {
+          return (
+            <div key={att.id} className="relative">
+              {previewUrl ? (
+                <a href={downloadUrl ?? "#"} target="_blank" rel="noopener noreferrer">
+                  <img
+                    src={previewUrl}
+                    alt={att.originalFilename ?? "image"}
+                    className={cn(
+                      "max-h-48 max-w-[240px] rounded-lg border border-border object-cover transition-opacity",
+                      isPending && "opacity-50"
+                    )}
+                  />
+                </a>
+              ) : (
+                <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-border bg-surface-raised">
+                  <FileText className="h-6 w-6 text-text-subtle" />
+                </div>
+              )}
+              {isPending && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-accent" />
+                </div>
+              )}
+              {isFailed && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-destructive/10">
+                  <span className="text-[10px] font-medium text-destructive">Upload failed</span>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        if (att.attachmentType === "audio" || att.attachmentType === "voice") {
+          return (
+            <div key={att.id} className="w-full max-w-xs">
+              {downloadUrl && !isPending ? (
+                <audio controls preload="metadata" className="w-full h-9" src={downloadUrl}>
+                  <track kind="captions" />
+                </audio>
+              ) : (
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
+                  {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  <span>{att.originalFilename ?? "Audio"}</span>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        if (att.attachmentType === "video") {
+          return (
+            <div key={att.id} className="w-full max-w-sm">
+              {downloadUrl && !isPending ? (
+                <video
+                  controls
+                  preload="metadata"
+                  className="max-h-56 w-full rounded-lg border border-border"
+                  src={downloadUrl}
+                >
+                  <track kind="captions" />
+                </video>
+              ) : (
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
+                  {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  <span>{att.originalFilename ?? "Video"}</span>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        return (
+          <a
+            key={att.id}
+            href={downloadUrl ?? "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              "flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs transition-colors",
+              downloadUrl ? "hover:border-border-strong hover:bg-surface-hover" : "opacity-50"
+            )}
+          >
+            {isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-text-subtle" />
+            ) : (
+              <Download className="h-3.5 w-3.5 text-text-subtle" />
+            )}
+            <span className="max-w-[150px] truncate text-text-muted">
+              {att.originalFilename ?? "File"}
+            </span>
+            <span className="text-text-subtle">{formatBytes(att.sizeBytes)}</span>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 export const ChatMessageBubble = memo(function ChatMessageBubble({
   message,
   assistantAvatarUrl,
@@ -295,9 +417,14 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         )}
       >
         {isUser ? (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">
-            {message.content}
-          </p>
+          <>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">
+              {message.content}
+            </p>
+            {message.attachments && message.attachments.length > 0 && (
+              <AttachmentStrip attachments={message.attachments} />
+            )}
+          </>
         ) : (
           <div className="prose-invert text-sm text-text">
             <ThoughtBlock message={message} />
@@ -312,6 +439,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             {/* Streaming cursor */}
             {isStreaming && (
               <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
+            )}
+            {message.attachments && message.attachments.length > 0 && (
+              <AttachmentStrip attachments={message.attachments} />
             )}
           </div>
         )}

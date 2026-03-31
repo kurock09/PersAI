@@ -103,13 +103,13 @@ Postgres with Prisma.
 - content_hash
 - created_at
 
-### assistant_chats (Step 5 C1 baseline)
+### assistant_chats (Step 5 C1 baseline, extended M5)
 
 - id (UUID)
 - assistant_id
 - user_id
 - workspace_id
-- surface (`web`)
+- surface (`web|telegram`)
 - surface_thread_key (opaque per-surface thread identity key)
 - title (nullable)
 - archived_at (nullable)
@@ -177,6 +177,7 @@ Postgres with Prisma.
 - capabilities (jsonb array) — deprecated: columns remain in schema but are no longer surfaced in API contracts or admin UI
 - tool_classes (jsonb array)
 - channels_and_surfaces (jsonb array)
+- media_classes (jsonb array, default `[]`) — M1: enables `image`, `audio`, `video`, `file` media capabilities per plan; drives `effectiveCapabilities.mediaClasses` activation
 - limits_permissions (jsonb array) — deprecated: columns remain in schema but are no longer surfaced in API contracts or admin UI
 - created_at
 - updated_at
@@ -680,3 +681,46 @@ Postgres with Prisma.
 - `config_dirty_at = NULL` means the assistant's materialized spec is fresh relative to per-user data
 - `materializedAtConfigGeneration < platformConfigGeneration.generation` means the spec is stale relative to admin data
 - both checks are performed by the `ensure-fresh-spec` internal endpoint; either condition triggers re-materialization
+
+### assistant_chat_message_attachments (M-series M1 baseline, ADR-059)
+
+- id (UUID)
+- message_id (UUID FK -> `assistant_chat_messages.id`)
+- chat_id (UUID FK -> `assistant_chats.id`)
+- assistant_id (UUID FK -> `assistants.id`)
+- workspace_id (UUID FK -> `workspaces.id`)
+- attachment_type (`image|audio|voice|video|document|tool_output`)
+- storage_path (varchar 512) -- relative path within assistant workspace (e.g. `media/<chatId>/<messageId>/photo.jpg`)
+- original_filename (nullable varchar 255)
+- mime_type (varchar 128)
+- size_bytes (bigint)
+- duration_ms (nullable int) -- for audio/voice/video
+- width (nullable int) -- for image/video
+- height (nullable int) -- for image/video
+- processing_status (`pending|ready|failed`)
+- transcription (nullable text) -- STT result for voice attachments
+- metadata (nullable jsonb) -- extensible (thumbnails, provider info, etc.)
+- created_at
+
+Prisma baseline:
+
+- `assistant_chat_message_attachments`:
+  - primary key: `id`
+  - foreign keys: `message_id -> assistant_chat_messages.id`, `chat_id -> assistant_chats.id`, `assistant_id -> assistants.id`, `workspace_id -> workspaces.id`
+  - indexes:
+    - `(message_id)` -- load attachments with message
+    - `(chat_id)` -- bulk delete on chat hard-delete
+    - `(assistant_id)` -- bulk delete on assistant reset
+    - `(workspace_id, created_at DESC)` -- quota aggregation
+  - stores attachment metadata only; physical files live in GCS FUSE workspace
+  - cascade: rows deleted in same DB transaction as parent messages/chats (hard-delete, reset)
+  - quota tracking: `SUM(size_bytes)` by workspace_id drives `media_storage_bytes` accounting dimension
+
+### workspace_quota_accounting_state (M1 extension)
+
+- media_storage_bytes_used (bigint, default 0)
+- media_storage_bytes_limit (nullable bigint)
+
+### WorkspaceQuotaDimension enum (M1 extension)
+
+- adds: `media_storage_bytes`

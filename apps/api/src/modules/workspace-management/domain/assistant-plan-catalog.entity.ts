@@ -20,6 +20,7 @@ export type AssistantPlanCatalog = {
     capabilities: unknown[];
     toolClasses: unknown[];
     channelsAndSurfaces: unknown[];
+    mediaClasses: unknown[];
     limitsPermissions: unknown[];
   } | null;
   toolActivations: AssistantPlanCatalogToolActivation[];

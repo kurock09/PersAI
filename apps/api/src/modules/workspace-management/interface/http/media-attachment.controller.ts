@@ -1,0 +1,113 @@
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+  UploadedFile,
+  UseInterceptors
+} from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import {
+  RequestWithPlatformContext,
+  ResponseWithPlatformContext
+} from "../../../platform-core/interface/http/request-http.types";
+import { ManageChatMediaService } from "../../application/manage-chat-media.service";
+
+@Controller("api/v1")
+export class MediaAttachmentController {
+  constructor(private readonly manageChatMediaService: ManageChatMediaService) {}
+
+  @Post("assistant/chat/:chatId/message/:messageId/attachment")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))
+  async uploadAttachment(
+    @Req() req: RequestWithPlatformContext,
+    @Param("chatId") chatId: string,
+    @Param("messageId") messageId: string,
+    @UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string } | undefined
+  ) {
+    const userId = this.resolveRequestUserId(req);
+    if (!file) {
+      throw new NotFoundException("A file is required.");
+    }
+
+    const attachment = await this.manageChatMediaService.uploadAttachment({
+      userId,
+      chatId,
+      messageId,
+      file
+    });
+
+    return {
+      requestId: req.requestId ?? null,
+      attachment: {
+        id: attachment.id,
+        messageId: attachment.messageId,
+        chatId: attachment.chatId,
+        attachmentType: attachment.attachmentType,
+        originalFilename: attachment.originalFilename,
+        mimeType: attachment.mimeType,
+        sizeBytes: Number(attachment.sizeBytes),
+        processingStatus: attachment.processingStatus,
+        createdAt: attachment.createdAt.toISOString()
+      }
+    };
+  }
+
+  @Post("assistant/voice/transcribe")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))
+  async transcribeVoice(
+    @Req() req: RequestWithPlatformContext,
+    @UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string } | undefined
+  ) {
+    const userId = this.resolveRequestUserId(req);
+    if (!file) {
+      throw new NotFoundException("An audio file is required.");
+    }
+
+    const result = await this.manageChatMediaService.transcribeVoice({
+      userId,
+      file
+    });
+
+    return {
+      requestId: req.requestId ?? null,
+      text: result.text
+    };
+  }
+
+  @Get("assistant/attachment/:attachmentId")
+  async downloadAttachment(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("attachmentId") attachmentId: string
+  ): Promise<void> {
+    const userId = this.resolveRequestUserId(req);
+
+    const result = await this.manageChatMediaService.downloadAttachment({
+      userId,
+      attachmentId
+    });
+
+    res.statusCode = 200;
+    res.setHeader("Content-Type", result.contentType);
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    if (result.filename) {
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${encodeURIComponent(result.filename)}"`
+      );
+    }
+    res.end(result.buffer);
+  }
+
+  private resolveRequestUserId(req: RequestWithPlatformContext): string {
+    if (req.resolvedAppUser === undefined) {
+      throw new UnauthorizedException("Authenticated user context is missing.");
+    }
+    return req.resolvedAppUser.id;
+  }
+}

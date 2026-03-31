@@ -36,6 +36,7 @@ const baseApiConfigSchema = z.object({
   WEB_ACTIVE_CHATS_CAP: z.coerce.number().int().positive().default(20),
   QUOTA_TOKEN_BUDGET_DEFAULT: z.coerce.number().int().positive().default(200_000),
   QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT: z.coerce.number().int().positive().default(1_000),
+  QUOTA_MEDIA_STORAGE_BYTES_DEFAULT: z.coerce.number().int().positive().default(104_857_600),
   ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(8),
   ABUSE_USER_BLOCK_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(20),
   ABUSE_ASSISTANT_SLOWDOWN_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(40),

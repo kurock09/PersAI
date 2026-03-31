@@ -55,7 +55,10 @@ export class ResetAssistantService {
             }
           });
 
-          this.logger.log("Step 2: deleting chat messages");
+          this.logger.log("Step 2a: deleting chat message attachments");
+          await tx.assistantChatMessageAttachment.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 2b: deleting chat messages");
           await tx.assistantChatMessage.deleteMany({ where: { assistantId: aid } });
 
           this.logger.log("Step 3: deleting chats");

@@ -21,6 +21,7 @@ export type AssistantPlanCatalogWriteInput = {
     capabilities: unknown[];
     toolClasses: unknown[];
     channelsAndSurfaces: unknown[];
+    mediaClasses: unknown[];
     limitsPermissions: unknown[];
   };
   toolActivationOverrides?: AssistantPlanCatalogToolActivationOverride[];

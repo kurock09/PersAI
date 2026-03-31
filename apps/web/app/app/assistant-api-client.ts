@@ -1115,12 +1115,23 @@ export async function uploadAssistantAvatar(
   return (await res.json()) as { avatarUrl: string };
 }
 
+export type ChatHistoryAttachment = {
+  id: string;
+  attachmentType: string;
+  originalFilename: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  processingStatus: string;
+  createdAt: string;
+};
+
 export type ChatHistoryMessage = {
   id: string;
   chatId: string;
   assistantId: string;
   author: "user" | "assistant" | "system";
   content: string;
+  attachments: ChatHistoryAttachment[];
   createdAt: string;
 };
 
@@ -1662,6 +1673,44 @@ export type ForceReapplyAllSummary = {
   skipped: number;
 };
 
+export function getAttachmentDownloadUrl(attachmentId: string): string {
+  return `${getApiBaseUrl()}/assistant/attachment/${encodeURIComponent(attachmentId)}`;
+}
+
+export type UploadedAttachment = {
+  id: string;
+  messageId: string;
+  chatId: string;
+  attachmentType: string;
+  originalFilename: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  processingStatus: string;
+  createdAt: string;
+};
+
+export async function uploadChatAttachment(
+  token: string,
+  chatId: string,
+  messageId: string,
+  file: File
+): Promise<UploadedAttachment> {
+  const base = getApiBaseUrl();
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(
+    `${base}/assistant/chat/${encodeURIComponent(chatId)}/message/${encodeURIComponent(messageId)}/attachment`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData
+    }
+  );
+  if (!res.ok) throw new Error("Failed to upload attachment.");
+  const data = (await res.json()) as { attachment: UploadedAttachment };
+  return data.attachment;
+}
+
 export async function postAdminForceReapplyAll(token: string): Promise<ForceReapplyAllSummary> {
   try {
     const stepUpToken = await issueAdminStepUpToken(token, "admin.force_reapply_all");
@@ -1687,4 +1736,22 @@ export async function postAdminForceReapplyAll(token: string): Promise<ForceReap
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
+}
+
+export async function transcribeVoice(
+  token: string,
+  audioBlob: Blob,
+  filename: string
+): Promise<string> {
+  const base = getApiBaseUrl();
+  const formData = new FormData();
+  formData.append("file", audioBlob, filename);
+  const res = await fetch(`${base}/assistant/voice/transcribe`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  });
+  if (!res.ok) throw new Error("Voice transcription failed.");
+  const data = (await res.json()) as { text: string };
+  return data.text;
 }

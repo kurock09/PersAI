@@ -7,7 +7,11 @@ import { ChatMessageBubble } from "./chat-message";
 import { ChatInput } from "./chat-input";
 import { ActivityBadge } from "./activity-badge";
 import { AssistantAvatar } from "./assistant-avatar";
-import { patchAssistantWebChat, postAssistantMemoryDoNotRemember } from "../assistant-api-client";
+import {
+  patchAssistantWebChat,
+  postAssistantMemoryDoNotRemember,
+  transcribeVoice
+} from "../assistant-api-client";
 import type { UseChatReturn } from "./use-chat";
 
 interface ChatAreaProps {
@@ -40,8 +44,8 @@ export function ChatArea({
   const [forgottenIds, setForgottenIds] = useState<Set<string>>(new Set());
 
   const sendPrompt = useCallback(
-    (text: string) => {
-      if (assistantReady) void chat.send(text);
+    (text: string, files?: File[]) => {
+      if (assistantReady) void chat.send(text, files);
     },
     [assistantReady, chat]
   );
@@ -244,7 +248,12 @@ export function ChatArea({
 
       {/* Input */}
       <ChatInput
-        onSend={(text) => void chat.send(text)}
+        onSend={(text, files) => void chat.send(text, files)}
+        onTranscribeVoice={async (blob, filename) => {
+          const t = await getToken();
+          if (!t) throw new Error("Not authenticated.");
+          return transcribeVoice(t, blob, filename);
+        }}
         onStop={chat.stop}
         isStreaming={chat.isStreaming}
         disabled={!assistantReady}

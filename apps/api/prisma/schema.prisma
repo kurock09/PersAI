@@ -41,6 +41,7 @@ enum AssistantMaterializationSourceAction {
 
 enum AssistantChatSurface {
   web
+  telegram
 }
 
 enum AssistantChatMessageAuthor {
@@ -110,6 +111,26 @@ enum WorkspaceQuotaDimension {
   token_budget
   cost_or_token_driving_tool_class
   active_web_chats_cap
+  media_storage_bytes
+}
+
+enum AttachmentType {
+  image
+  audio
+  voice
+  video
+  document
+  tool_output
+
+  @@map("attachment_type")
+}
+
+enum AttachmentProcessingStatus {
+  pending
+  ready
+  failed
+
+  @@map("attachment_processing_status")
 }
 
 enum AssistantIntegrationProviderKey {
@@ -222,6 +243,7 @@ model Workspace {
   platformRollouts            AssistantPlatformRollout[]
   abuseGuardStates            AssistantAbuseGuardState[]
   toolUsageDailyCounters      WorkspaceToolUsageDailyCounter[]
+  chatMessageAttachments      AssistantChatMessageAttachment[]
 
   @@map("workspaces")
 }
@@ -284,6 +306,7 @@ model Assistant {
   abuseGuardStates             AssistantAbuseGuardState[]
   abuseAssistantStates         AssistantAbuseAssistantState[]
   telegramGroups               AssistantTelegramGroup[]
+  chatMessageAttachments       AssistantChatMessageAttachment[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -586,6 +609,7 @@ model PlanCatalogEntitlement {
   capabilities        Json            @default("[]") @db.JsonB
   toolClasses         Json            @default("[]") @map("tool_classes") @db.JsonB
   channelsAndSurfaces Json            @default("[]") @map("channels_and_surfaces") @db.JsonB
+  mediaClasses        Json            @default("[]") @map("media_classes") @db.JsonB
   limitsPermissions   Json            @default("[]") @map("limits_permissions") @db.JsonB
   createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -657,6 +681,8 @@ model WorkspaceQuotaAccountingState {
   costOrTokenDrivingToolClassUnitsLimit Int?      @map("cost_or_token_driving_tool_class_units_limit")
   activeWebChatsCurrent                 Int       @default(0) @map("active_web_chats_current")
   activeWebChatsLimit                   Int?      @map("active_web_chats_limit")
+  mediaStorageBytesUsed                 BigInt    @default(0) @map("media_storage_bytes_used")
+  mediaStorageBytesLimit                BigInt?   @map("media_storage_bytes_limit")
   lastComputedAt                        DateTime  @default(now()) @map("last_computed_at") @db.Timestamptz(6)
   createdAt                             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -734,6 +760,7 @@ model AssistantChat {
   assistant        Assistant              @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
   workspaceMember  WorkspaceMember        @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
   messages         AssistantChatMessage[]
+  attachments      AssistantChatMessageAttachment[]
 
   @@unique([assistantId, surface, surfaceThreadKey])
   @@unique([id, assistantId])
@@ -741,17 +768,48 @@ model AssistantChat {
 }
 
 model AssistantChatMessage {
-  id          String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chatId      String                     @map("chat_id") @db.Uuid
-  assistantId String                     @map("assistant_id") @db.Uuid
+  id          String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatId      String                              @map("chat_id") @db.Uuid
+  assistantId String                              @map("assistant_id") @db.Uuid
   author      AssistantChatMessageAuthor
-  content     String                     @db.Text
-  createdAt   DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-  chat        AssistantChat              @relation(fields: [chatId, assistantId], references: [id, assistantId], onDelete: Restrict, onUpdate: Cascade)
-  assistant   Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  content     String                              @db.Text
+  createdAt   DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
+  chat        AssistantChat                       @relation(fields: [chatId, assistantId], references: [id, assistantId], onDelete: Restrict, onUpdate: Cascade)
+  assistant   Assistant                           @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attachments AssistantChatMessageAttachment[]
 
   @@index([chatId, createdAt])
   @@map("assistant_chat_messages")
+}
+
+model AssistantChatMessageAttachment {
+  id               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId        String                     @map("message_id") @db.Uuid
+  chatId           String                     @map("chat_id") @db.Uuid
+  assistantId      String                     @map("assistant_id") @db.Uuid
+  workspaceId      String                     @map("workspace_id") @db.Uuid
+  attachmentType   AttachmentType             @map("attachment_type")
+  storagePath      String                     @map("storage_path") @db.VarChar(512)
+  originalFilename String?                    @map("original_filename") @db.VarChar(255)
+  mimeType         String                     @map("mime_type") @db.VarChar(128)
+  sizeBytes        BigInt                     @map("size_bytes")
+  durationMs       Int?                       @map("duration_ms")
+  width            Int?
+  height           Int?
+  processingStatus AttachmentProcessingStatus @default(ready) @map("processing_status")
+  transcription    String?                    @db.Text
+  metadata         Json?                      @db.JsonB
+  createdAt        DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  message          AssistantChatMessage       @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  chat             AssistantChat              @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  assistant        Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([messageId])
+  @@index([chatId])
+  @@index([assistantId])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@map("assistant_chat_message_attachments")
 }
 
 model AssistantMemoryRegistryItem {

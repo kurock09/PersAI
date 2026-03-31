@@ -127,6 +127,7 @@ export class ResolveEffectiveCapabilityStateService {
     const entitlements = plan?.entitlementModel;
     const toolClasses = entitlements?.toolClasses ?? [];
     const channels = entitlements?.channelsAndSurfaces ?? [];
+    const mediaClasses = entitlements?.mediaClasses ?? [];
 
     const governanceEnvelope = asGovernanceEnvelope(params.governance.capabilityEnvelope);
 
@@ -194,10 +195,30 @@ export class ResolveEffectiveCapabilityStateService {
       },
       mediaClasses: {
         text: applyGovernance(textMediaBaseline, governanceEnvelope, "mediaClasses", "text"),
-        image: applyGovernance(false, governanceEnvelope, "mediaClasses", "image"),
-        audio: applyGovernance(false, governanceEnvelope, "mediaClasses", "audio"),
-        video: applyGovernance(false, governanceEnvelope, "mediaClasses", "video"),
-        file: applyGovernance(false, governanceEnvelope, "mediaClasses", "file")
+        image: applyGovernance(
+          hasAllowed(mediaClasses, "image"),
+          governanceEnvelope,
+          "mediaClasses",
+          "image"
+        ),
+        audio: applyGovernance(
+          hasAllowed(mediaClasses, "audio"),
+          governanceEnvelope,
+          "mediaClasses",
+          "audio"
+        ),
+        video: applyGovernance(
+          hasAllowed(mediaClasses, "video"),
+          governanceEnvelope,
+          "mediaClasses",
+          "video"
+        ),
+        file: applyGovernance(
+          hasAllowed(mediaClasses, "file"),
+          governanceEnvelope,
+          "mediaClasses",
+          "file"
+        )
       }
     };
   }

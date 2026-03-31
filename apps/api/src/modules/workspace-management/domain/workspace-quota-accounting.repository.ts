@@ -11,6 +11,7 @@ export type WorkspaceQuotaLimitsInput = {
   tokenBudgetLimit: bigint | null;
   costOrTokenDrivingToolClassUnitsLimit: number | null;
   activeWebChatsLimit: number | null;
+  mediaStorageBytesLimit: bigint | null;
 };
 
 export type IncrementWorkspaceQuotaUsageInput = {

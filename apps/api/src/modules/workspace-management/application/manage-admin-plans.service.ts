@@ -231,6 +231,9 @@ export class ManageAdminPlansService {
       entitlements.channelsAndSurfaces,
       "entitlements.channelsAndSurfaces"
     );
+    const mediaClassesRaw = entitlements.mediaClasses
+      ? parseObject(entitlements.mediaClasses, "entitlements.mediaClasses")
+      : {};
     const metadata = parseObject(parsed.metadata, "metadata");
     const quotaLimitsRaw =
       parsed.quotaLimits !== undefined && parsed.quotaLimits !== null
@@ -262,6 +265,12 @@ export class ManageAdminPlansService {
           telegram: toBoolean(channelsAndSurfaces.telegram),
           whatsapp: toBoolean(channelsAndSurfaces.whatsapp),
           max: toBoolean(channelsAndSurfaces.max)
+        },
+        mediaClasses: {
+          image: toBoolean(mediaClassesRaw.image),
+          audio: toBoolean(mediaClassesRaw.audio),
+          video: toBoolean(mediaClassesRaw.video),
+          file: toBoolean(mediaClassesRaw.file)
         }
       },
       quotaLimits: {
@@ -355,6 +364,12 @@ export class ManageAdminPlansService {
           { key: "whatsapp", allowed: input.entitlements.channelsAndSurfaces.whatsapp },
           { key: "max", allowed: input.entitlements.channelsAndSurfaces.max }
         ],
+        mediaClasses: [
+          { key: "image", allowed: input.entitlements.mediaClasses.image },
+          { key: "audio", allowed: input.entitlements.mediaClasses.audio },
+          { key: "video", allowed: input.entitlements.mediaClasses.video },
+          { key: "file", allowed: input.entitlements.mediaClasses.file }
+        ],
         limitsPermissions: []
       },
       toolActivationOverrides: (input.toolActivations ?? []).map((ta) => ({
@@ -381,6 +396,7 @@ export class ManageAdminPlansService {
     const entitlement = plan.entitlementModel;
     const toolClasses = entitlement?.toolClasses ?? [];
     const channelsAndSurfaces = entitlement?.channelsAndSurfaces ?? [];
+    const mediaClasses = entitlement?.mediaClasses ?? [];
 
     return {
       code: plan.code,
@@ -406,6 +422,12 @@ export class ManageAdminPlansService {
           telegram: hasAllowedFlag(channelsAndSurfaces, "telegram"),
           whatsapp: hasAllowedFlag(channelsAndSurfaces, "whatsapp"),
           max: hasAllowedFlag(channelsAndSurfaces, "max")
+        },
+        mediaClasses: {
+          image: hasAllowedFlag(mediaClasses, "image"),
+          audio: hasAllowedFlag(mediaClasses, "audio"),
+          video: hasAllowedFlag(mediaClasses, "video"),
+          file: hasAllowedFlag(mediaClasses, "file")
         }
       },
       quotaLimits: {

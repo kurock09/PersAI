@@ -30,7 +30,9 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
         ? { tokenBudgetUsed: { increment: input.delta } }
         : input.dimension === "cost_or_token_driving_tool_class"
           ? { costOrTokenDrivingToolClassUnitsUsed: { increment: Number(input.delta) } }
-          : {};
+          : input.dimension === "media_storage_bytes"
+            ? { mediaStorageBytesUsed: { increment: input.delta } }
+            : {};
 
     const [state] = await this.prisma.$transaction([
       this.prisma.workspaceQuotaAccountingState.upsert({
@@ -117,6 +119,10 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
         : BigInt(limits.costOrTokenDrivingToolClassUnitsLimit);
     }
 
+    if (dimension === "media_storage_bytes") {
+      return limits.mediaStorageBytesLimit;
+    }
+
     return limits.activeWebChatsLimit === null ? null : BigInt(limits.activeWebChatsLimit);
   }
 
@@ -125,12 +131,13 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     delta: bigint
   ): Pick<
     Prisma.WorkspaceQuotaAccountingStateCreateInput,
-    "tokenBudgetUsed" | "costOrTokenDrivingToolClassUnitsUsed"
+    "tokenBudgetUsed" | "costOrTokenDrivingToolClassUnitsUsed" | "mediaStorageBytesUsed"
   > {
     return {
       tokenBudgetUsed: dimension === "token_budget" ? delta : BigInt(0),
       costOrTokenDrivingToolClassUnitsUsed:
-        dimension === "cost_or_token_driving_tool_class" ? Number(delta) : 0
+        dimension === "cost_or_token_driving_tool_class" ? Number(delta) : 0,
+      mediaStorageBytesUsed: dimension === "media_storage_bytes" ? delta : BigInt(0)
     };
   }
 
@@ -138,7 +145,10 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     limits: IncrementWorkspaceQuotaUsageInput["limits"]
   ): Pick<
     Prisma.WorkspaceQuotaAccountingStateCreateInput,
-    "tokenBudgetLimit" | "costOrTokenDrivingToolClassUnitsLimit" | "activeWebChatsLimit"
+    | "tokenBudgetLimit"
+    | "costOrTokenDrivingToolClassUnitsLimit"
+    | "activeWebChatsLimit"
+    | "mediaStorageBytesLimit"
   > {
     return {
       tokenBudgetLimit: limits.tokenBudgetLimit,
@@ -146,7 +156,8 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
         limits.costOrTokenDrivingToolClassUnitsLimit === null
           ? null
           : limits.costOrTokenDrivingToolClassUnitsLimit,
-      activeWebChatsLimit: limits.activeWebChatsLimit
+      activeWebChatsLimit: limits.activeWebChatsLimit,
+      mediaStorageBytesLimit: limits.mediaStorageBytesLimit
     };
   }
 
@@ -154,7 +165,10 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     limits: IncrementWorkspaceQuotaUsageInput["limits"]
   ): Pick<
     Prisma.WorkspaceQuotaAccountingStateUpdateInput,
-    "tokenBudgetLimit" | "costOrTokenDrivingToolClassUnitsLimit" | "activeWebChatsLimit"
+    | "tokenBudgetLimit"
+    | "costOrTokenDrivingToolClassUnitsLimit"
+    | "activeWebChatsLimit"
+    | "mediaStorageBytesLimit"
   > {
     return {
       tokenBudgetLimit: limits.tokenBudgetLimit,
@@ -162,7 +176,8 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
         limits.costOrTokenDrivingToolClassUnitsLimit === null
           ? null
           : limits.costOrTokenDrivingToolClassUnitsLimit,
-      activeWebChatsLimit: limits.activeWebChatsLimit
+      activeWebChatsLimit: limits.activeWebChatsLimit,
+      mediaStorageBytesLimit: limits.mediaStorageBytesLimit
     };
   }
 
@@ -176,6 +191,8 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
       costOrTokenDrivingToolClassUnitsLimit: state.costOrTokenDrivingToolClassUnitsLimit,
       activeWebChatsCurrent: state.activeWebChatsCurrent,
       activeWebChatsLimit: state.activeWebChatsLimit,
+      mediaStorageBytesUsed: state.mediaStorageBytesUsed,
+      mediaStorageBytesLimit: state.mediaStorageBytesLimit,
       lastComputedAt: state.lastComputedAt,
       createdAt: state.createdAt,
       updatedAt: state.updatedAt

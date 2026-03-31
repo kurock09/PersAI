@@ -1,5 +1,9 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
+  type AssistantChatMessageAttachmentRepository
+} from "../domain/assistant-chat-message-attachment.repository";
+import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
@@ -9,7 +13,11 @@ import {
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
-import type { AssistantWebChatListItemState, AssistantWebChatMessageState } from "./web-chat.types";
+import type {
+  AssistantWebChatListItemState,
+  AssistantWebChatMessageAttachmentState,
+  AssistantWebChatMessageState
+} from "./web-chat.types";
 
 export interface RenameWebChatRequest {
   title: string | null;
@@ -22,7 +30,7 @@ export interface DeleteWebChatRequest {
 function toChatState(chat: {
   id: string;
   assistantId: string;
-  surface: "web";
+  surface: "web" | "telegram";
   surfaceThreadKey: string;
   title: string | null;
   archivedAt: Date | null;
@@ -50,6 +58,8 @@ export class ManageWebChatListService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
+    @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
+    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
@@ -196,12 +206,30 @@ export class ManageWebChatListService {
     }
 
     const allMessages = await this.assistantChatRepository.listMessagesByChatId(chatId);
+    const messageIds = allMessages.map((m) => m.id);
+    const allAttachments = await this.attachmentRepository.listByMessageIds(messageIds);
+    const attachmentsByMessageId = new Map<string, AssistantWebChatMessageAttachmentState[]>();
+    for (const att of allAttachments) {
+      const list = attachmentsByMessageId.get(att.messageId) ?? [];
+      list.push({
+        id: att.id,
+        attachmentType: att.attachmentType,
+        originalFilename: att.originalFilename,
+        mimeType: att.mimeType,
+        sizeBytes: Number(att.sizeBytes),
+        processingStatus: att.processingStatus,
+        createdAt: att.createdAt.toISOString()
+      });
+      attachmentsByMessageId.set(att.messageId, list);
+    }
+
     const mapped: AssistantWebChatMessageState[] = allMessages.map((m) => ({
       id: m.id,
       chatId: m.chatId,
       assistantId: m.assistantId,
       author: m.author,
       content: m.content,
+      attachments: attachmentsByMessageId.get(m.id) ?? [],
       createdAt: m.createdAt.toISOString()
     }));
 
@@ -245,6 +273,9 @@ export class ManageWebChatListService {
       chatId: chat.id,
       surfaceThreadKey: chat.surfaceThreadKey
     });
+
+    await this.runtimeAdapter.deleteChatMediaBatch(assistant.id, chat.id);
+    await this.attachmentRepository.deleteByChatId(chat.id);
 
     const deleted = await this.assistantChatRepository.hardDeleteChat(chatId, assistant.id);
     if (!deleted) {

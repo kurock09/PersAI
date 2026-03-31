@@ -4,6 +4,16 @@
 
 ### Added
 
+- **M-series: Systemic media, attachments, and voice — full implementation (ADR-059, M1–M7):**
+  - **M1 foundation:** `assistant_chat_message_attachments` Prisma table, `media_storage_bytes` quota dimension, attachment repository + media service, upload/download proxy endpoints, chat hard-delete + reset cleanup, plan-governed `mediaClasses` capability gate.
+  - **M2 tool media delivery (web):** OpenClaw bridge extracts structured `media[]` from agent payloads (`image_generate`, `tts`), emits NDJSON `media` event, PersAI downloads + persists tool-generated attachments, `AttachmentStrip` component renders in chat bubbles.
+  - **M3 web voice messages:** microphone recording (opus/webm) via `MediaRecorder` API, STT transcription endpoint (`POST /api/v1/assistant/voice/transcribe`) via OpenClaw Whisper, voice waveform player in message bubbles.
+  - **M4 web file upload:** file picker (images/docs), preview chips, optimistic local blob URLs, async post-turn upload.
+  - **M5 Telegram inbound media:** Grammy handlers for `message:voice`, `message:photo`, `message:document`, download + STT + forward structured attachments to PersAI internal turn, `AssistantChatSurface` enum extended to `telegram`.
+  - **M6 Telegram outbound media:** `deliverTelegramMedia` sends `sendPhoto`/`sendVoice`/`sendAudio`/`sendVideo`/`sendDocument`, all 4 Telegram handlers deliver media after text reply.
+  - **M7 Yandex SpeechKit TTS:** new `src/tts/providers/yandex.ts` (v1 REST API, API-Key + IAM Token auth, 18 voices, emotions, oggopus/mp3), registered in provider-registry, config types, secret collector, env fallbacks.
+  - Updated docs: ARCHITECTURE.md (media boundary), API-BOUNDARY.md (media endpoints), DATA-MODEL.md (attachment table, surface enum), TEST-PLAN.md (M-series focus), ROADMAP.md (Step 13 M-series complete), SESSION-HANDOFF.md.
+
 - **Tool credential provider selection (web_search + tts):**
   - Admin can now choose which provider a tool credential targets (e.g., Brave vs Tavily for web search, OpenAI vs ElevenLabs vs Yandex for TTS) instead of a hardcoded default.
   - Provider selection stored encrypted alongside the API key (no DB migration).

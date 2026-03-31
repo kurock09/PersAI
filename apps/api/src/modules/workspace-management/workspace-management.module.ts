@@ -78,6 +78,7 @@ import { SyncAssistantTaskRegistryService } from "./application/sync-assistant-t
 import { SyncTelegramChatTargetService } from "./application/sync-telegram-chat-target.service";
 import { TrackWorkspaceQuotaUsageService } from "./application/track-workspace-quota-usage.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
+import { ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY } from "./domain/assistant-chat-message-attachment.repository";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
 import { ASSISTANT_ABUSE_GUARD_REPOSITORY } from "./domain/assistant-abuse-guard.repository";
 import { ASSISTANT_PLAN_CATALOG_REPOSITORY } from "./domain/assistant-plan-catalog.repository";
@@ -102,6 +103,7 @@ import { PrismaToolCatalogRepository } from "./infrastructure/persistence/prisma
 import { PrismaWorkspaceSubscriptionRepository } from "./infrastructure/persistence/prisma-workspace-subscription.repository";
 import { PrismaWorkspaceQuotaAccountingRepository } from "./infrastructure/persistence/prisma-workspace-quota-accounting.repository";
 import { BILLING_PROVIDER_PORT } from "./application/billing-provider.port";
+import { PrismaAssistantChatMessageAttachmentRepository } from "./infrastructure/persistence/prisma-assistant-chat-message-attachment.repository";
 import { PrismaAssistantChatRepository } from "./infrastructure/persistence/prisma-assistant-chat.repository";
 import { PrismaAssistantAbuseGuardRepository } from "./infrastructure/persistence/prisma-assistant-abuse-guard.repository";
 import { PrismaAssistantMemoryRegistryRepository } from "./infrastructure/persistence/prisma-assistant-memory-registry.repository";
@@ -113,6 +115,8 @@ import { SeedToolCatalogService } from "./application/seed-tool-catalog.service"
 import { BumpConfigGenerationService } from "./application/bump-config-generation.service";
 import { ForceReapplyAllService } from "./application/force-reapply-all.service";
 import { AdminForceReapplyController } from "./interface/http/admin-force-reapply.controller";
+import { MediaAttachmentController } from "./interface/http/media-attachment.controller";
+import { ManageChatMediaService } from "./application/manage-chat-media.service";
 import { PrismaAssistantChannelSurfaceBindingRepository } from "./infrastructure/persistence/prisma-assistant-channel-surface-binding.repository";
 import { PrismaAssistantMaterializedSpecRepository } from "./infrastructure/persistence/prisma-assistant-materialized-spec.repository";
 import { PrismaAssistantPublishedVersionRepository } from "./infrastructure/persistence/prisma-assistant-published-version.repository";
@@ -139,7 +143,8 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     InternalRuntimeTaskRegistryController,
     InternalRuntimeTurnController,
     InternalRuntimeToolQuotaController,
-    AdminForceReapplyController
+    AdminForceReapplyController,
+    MediaAttachmentController
   ],
   providers: [
     WorkspaceManagementPrismaService,
@@ -241,6 +246,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
       useClass: PrismaAssistantGovernanceRepository
     },
     {
+      provide: ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
+      useClass: PrismaAssistantChatMessageAttachmentRepository
+    },
+    {
       provide: ASSISTANT_CHAT_REPOSITORY,
       useClass: PrismaAssistantChatRepository
     },
@@ -273,6 +282,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
       provide: BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY,
       useClass: PrismaBootstrapDocumentPresetRepository
     },
+    ManageChatMediaService,
     ManageBootstrapPresetsService,
     SeedToolCatalogService,
     BumpConfigGenerationService,

@@ -1,4 +1,4 @@
-export type AssistantChatSurfaceState = "web";
+export type AssistantChatSurfaceState = "web" | "telegram";
 
 export type AssistantChatMessageAuthorState = "user" | "assistant" | "system";
 
@@ -14,12 +14,23 @@ export interface AssistantWebChatState {
   updatedAt: string;
 }
 
+export interface AssistantWebChatMessageAttachmentState {
+  id: string;
+  attachmentType: string;
+  originalFilename: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  processingStatus: string;
+  createdAt: string;
+}
+
 export interface AssistantWebChatMessageState {
   id: string;
   chatId: string;
   assistantId: string;
   author: AssistantChatMessageAuthorState;
   content: string;
+  attachments: AssistantWebChatMessageAttachmentState[];
   createdAt: string;
 }
 

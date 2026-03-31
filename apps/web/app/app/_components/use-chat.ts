@@ -6,6 +6,8 @@ import {
   getChatMessages,
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
+  uploadChatAttachment,
+  type ChatHistoryAttachment,
   type WebChatUxIssue
 } from "../assistant-api-client";
 import type { ActivityEvent } from "./activity-badge";
@@ -13,11 +15,16 @@ import type { ActivityEvent } from "./activity-badge";
 export type ChatMessageRole = "user" | "assistant";
 export type ChatMessageStatus = "committed" | "streaming" | "partial";
 
+export type ChatAttachment = ChatHistoryAttachment & {
+  localPreviewUrl?: string | undefined;
+};
+
 export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
   content: string;
   status: ChatMessageStatus;
+  attachments?: ChatAttachment[] | undefined;
   thought?: string;
   thoughtStartedAt?: string | null;
   thoughtFinishedAt?: string | null;
@@ -36,7 +43,7 @@ export interface UseChatReturn {
   hasOlderMessages: boolean;
   olderMessagesLoading: boolean;
   issue: WebChatUxIssue | null;
-  send: (text: string) => Promise<void>;
+  send: (text: string, files?: File[]) => Promise<void>;
   stop: () => void;
   clearIssue: () => void;
   loadHistory: (chatId: string) => Promise<void>;
@@ -79,7 +86,7 @@ export function useChat(threadKey: string): UseChatReturn {
   const clearIssue = useCallback(() => setIssue(null), []);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, files?: File[]) => {
       const trimmed = text.trim();
       if (trimmed.length === 0 || isStreaming) return;
 
@@ -89,6 +96,24 @@ export function useChat(threadKey: string): UseChatReturn {
         return;
       }
 
+      const pendingFiles = files ?? [];
+      const localAttachments: ChatAttachment[] = pendingFiles.map((f, i) => ({
+        id: `local-att-${Date.now()}-${String(i)}`,
+        attachmentType: f.type.startsWith("image/")
+          ? "image"
+          : f.type.startsWith("audio/")
+            ? "audio"
+            : f.type.startsWith("video/")
+              ? "video"
+              : "document",
+        originalFilename: f.name,
+        mimeType: f.type || "application/octet-stream",
+        sizeBytes: f.size,
+        processingStatus: "pending",
+        createdAt: new Date().toISOString(),
+        localPreviewUrl: f.type.startsWith("image/") ? URL.createObjectURL(f) : undefined
+      }));
+
       const userMsgId = `local-user-${Date.now()}`;
       const assistantMsgId = `local-assistant-${Date.now()}`;
       const controller = new AbortController();
@@ -96,19 +121,23 @@ export function useChat(threadKey: string): UseChatReturn {
 
       setIsStreaming(true);
       setIssue(null);
-      setMessages((prev) => [
-        ...prev,
-        { id: userMsgId, role: "user", content: trimmed, status: "committed" },
-        {
-          id: assistantMsgId,
-          role: "assistant",
-          content: "",
-          status: "streaming",
-          thought: "",
-          thoughtStartedAt: null,
-          thoughtFinishedAt: null
-        }
-      ]);
+      const userMsg: ChatMessage = {
+        id: userMsgId,
+        role: "user",
+        content: trimmed,
+        status: "committed",
+        attachments: localAttachments.length > 0 ? localAttachments : undefined
+      };
+      const assistantMsg: ChatMessage = {
+        id: assistantMsgId,
+        role: "assistant",
+        content: "",
+        status: "streaming",
+        thought: "",
+        thoughtStartedAt: null,
+        thoughtFinishedAt: null
+      };
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
 
       const pendingDelta = { text: "", raf: 0 };
       const pendingThought = { text: "", startedAt: null as string | null, raf: 0 };
@@ -196,18 +225,35 @@ export function useChat(threadKey: string): UseChatReturn {
               if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
               flushDelta();
               const t = transport as {
-                userMessage?: { id?: string };
-                assistantMessage?: { id?: string };
+                userMessage?: { id?: string; chatId?: string };
+                assistantMessage?: {
+                  id?: string;
+                  attachments?: ChatAttachment[];
+                };
               } | null;
+              const realUserMsgId =
+                typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
+              const realChatId =
+                typeof t?.userMessage?.chatId === "string" ? t.userMessage.chatId : null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+              const assistantAttachments =
+                Array.isArray(t?.assistantMessage?.attachments) &&
+                t.assistantMessage.attachments.length > 0
+                  ? (t.assistantMessage.attachments as ChatAttachment[])
+                  : undefined;
               setMessages((prev) =>
                 prev.map((m) => {
                   if (m.id === assistantMsgId && newAssistantId) {
-                    return { ...m, id: newAssistantId, status: "committed" as const };
+                    return {
+                      ...m,
+                      id: newAssistantId,
+                      status: "committed" as const,
+                      attachments: assistantAttachments
+                    };
                   }
-                  if (m.id === userMsgId && typeof t?.userMessage?.id === "string") {
-                    return { ...m, id: t.userMessage.id };
+                  if (m.id === userMsgId && realUserMsgId) {
+                    return { ...m, id: realUserMsgId };
                   }
                   return m;
                 })
@@ -220,6 +266,45 @@ export function useChat(threadKey: string): UseChatReturn {
                       : a
                   )
                 );
+              }
+
+              if (pendingFiles.length > 0 && realUserMsgId && realChatId) {
+                const uploadToken = token;
+                void (async () => {
+                  for (const file of pendingFiles) {
+                    try {
+                      const uploaded = await uploadChatAttachment(
+                        uploadToken,
+                        realChatId,
+                        realUserMsgId,
+                        file
+                      );
+                      setMessages((prev) =>
+                        prev.map((m) => {
+                          if (m.id !== realUserMsgId) return m;
+                          const atts = (m.attachments ?? []).map((a) =>
+                            a.originalFilename === file.name && a.processingStatus === "pending"
+                              ? { ...a, ...uploaded, processingStatus: "ready" }
+                              : a
+                          );
+                          return { ...m, attachments: atts };
+                        })
+                      );
+                    } catch {
+                      setMessages((prev) =>
+                        prev.map((m) => {
+                          if (m.id !== realUserMsgId) return m;
+                          const atts = (m.attachments ?? []).map((a) =>
+                            a.originalFilename === file.name && a.processingStatus === "pending"
+                              ? { ...a, processingStatus: "failed" }
+                              : a
+                          );
+                          return { ...m, attachments: atts };
+                        })
+                      );
+                    }
+                  }
+                })();
               }
             },
             onInterrupted: () => {
@@ -298,7 +383,8 @@ export function useChat(threadKey: string): UseChatReturn {
           id: m.id,
           role: m.author === "system" ? "assistant" : m.author,
           content: m.content,
-          status: "committed"
+          status: "committed" as const,
+          attachments: m.attachments.length > 0 ? (m.attachments as ChatAttachment[]) : undefined
         }));
 
         if (loaded.length > 0) {
@@ -337,7 +423,8 @@ export function useChat(threadKey: string): UseChatReturn {
         id: m.id,
         role: m.author === "system" ? "assistant" : m.author,
         content: m.content,
-        status: "committed"
+        status: "committed" as const,
+        attachments: m.attachments.length > 0 ? (m.attachments as ChatAttachment[]) : undefined
       }));
 
       if (loaded.length > 0) {

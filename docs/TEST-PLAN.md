@@ -512,3 +512,56 @@ Required in CI:
   - `src/gateway/persai-runtime/persai-runtime-session-cleanup.test.ts`
   - `src/gateway/persai-runtime/persai-runtime-spec-store.test.ts`
 - PersAI API typecheck stays green after controller contract change.
+
+## M-series: Media, attachments, and voice (ADR-059)
+
+### M1 foundation focus
+
+- Prisma schema/migration validates `assistant_chat_message_attachments` table and `media_storage_bytes` quota dimension extension.
+- Attachment repository validates CRUD operations: create, findByMessageIds, findById, deleteByMessageIds, deleteByChatId, deleteByAssistantId.
+- Chat hard-delete flow validates attachment row cleanup + workspace media directory cleanup via runtime adapter.
+- Assistant reset transaction validates attachment row bulk delete (physical files already cleaned by workspace directory delete).
+- Media upload endpoint validates MIME allowlist, size limit, `mediaClasses` capability gate, and workspace storage proxy.
+- Media download endpoint validates authenticated proxy with ownership check.
+- `media_storage_bytes` quota dimension validates increment on upload and decrement on delete.
+- Contracts/OpenAPI generation includes upload, download, and extended message response shapes.
+
+### M2 tool media delivery focus
+
+- OpenClaw bridge `resolveAgentResponse` validates extraction of `mediaUrl`/`mediaUrls`/`audioAsVoice` from agent payloads.
+- Runtime adapter validates parsing of `media[]` from sync response and stream `media` NDJSON event.
+- Web chat send/stream services validate: tool media files copied to workspace media path, attachment rows created, response includes attachments.
+- Web UI validates: image attachments render inline, audio attachments render with player, tool_output attachments display correctly.
+
+### M3 web voice focus
+
+- Web UI validates: microphone recording produces opus/webm, upload flow returns attachmentId.
+- STT proxy endpoint validates: OpenClaw `transcribeAudioFile` called, transcription text returned.
+- Turn service validates: voice attachment triggers STT before runtime turn, transcription used as `userMessage`, attachment `processing_status` updated.
+- Voice message bubbles validate: waveform player + transcription text display.
+
+### M4 web file upload focus
+
+- File picker validates: allowed MIME types, max file size, max attachments per message.
+- Image attachments render inline in user message bubbles.
+- Document attachments render as download cards.
+- Quota enforcement validates: `media_storage_bytes` limit blocks upload when exceeded.
+
+### M5 Telegram inbound media focus
+
+- Telegram bot handler validates: `message:voice` downloads audio and calls STT, `message:photo` downloads image, `message:document` downloads file.
+- Internal Telegram turn request validates: attachment fields parsed and persisted.
+- PersAI chat records for Telegram turns with media validate attachment rows created.
+
+### M6 Telegram outbound media focus
+
+- Telegram reply handler validates: `media[]` in turn response triggers `sendPhoto`/`sendVoice`/`sendDocument`.
+- Tool-generated images sent as Telegram photos with caption.
+- TTS voice output sent as Telegram voice note (opus).
+- Typing indicator sent for long-running media generation.
+
+### M7 Yandex TTS focus
+
+- OpenClaw Yandex provider validates: API call to `tts.api.cloud.yandex.net`, opus output for voice-bubble channels, mp3 for web.
+- Provider registry includes Yandex in built-in list.
+- PersAI admin UI validates: Yandex selectable as TTS provider, credential stored and delivered to runtime.

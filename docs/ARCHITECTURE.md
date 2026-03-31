@@ -529,3 +529,18 @@ It is not part of backend domain logic.
 
 - **Registry** (D2/D3): PersAI DB + `GET/POST /assistant/memory/items` family — global policy summaries from web chat.
 - **Workspace memory** (H3): file-backed store in OpenClaw; PersAI proxies CRUD/search to runtime HTTP (`OpenClawRuntimeAdapter`); UI “Workspace” tab talks to proxy routes, “History” tab to registry list where applicable.
+
+## Media, attachments, and voice boundary (M-series, ADR-059)
+
+- PersAI owns canonical chat message attachment lifecycle in `assistant_chat_message_attachments` (control plane)
+- attachment types: `image`, `audio`, `voice`, `video`, `document`, `tool_output`
+- physical media files live inside per-assistant GCS FUSE workspace under `<assistantId>/media/<chatId>/<messageId>/`
+- PersAI proxies media upload/download through OpenClaw workspace HTTP endpoints (same pattern as avatar)
+- tool-generated media (`image_generate`, `tts`) is captured from OpenClaw agent response payloads and persisted as `tool_output` attachments after turn completion; delivery is post-completion with natural model status text during generation
+- inbound voice messages (web microphone + Telegram `message:voice`) are transcribed via existing OpenClaw `transcribeAudioFile()` (Whisper); transcription text becomes the runtime `userMessage`, original audio is preserved as attachment
+- outbound media for Telegram uses existing Grammy `sendPhoto`/`sendVoice`/`sendDocument` from `extensions/telegram/src/send.ts`
+- media capabilities (`image`, `audio`, `video`, `file`) are plan-governed via `effectiveCapabilities.mediaClasses` (activated from plan entitlements, no longer hardcoded false)
+- media storage is quota-tracked via `media_storage_bytes` dimension in the existing workspace quota accounting system
+- cleanup: chat hard-delete removes media files from workspace + attachment rows from DB; assistant reset deletes entire workspace directory (already covers media)
+- OpenClaw remains runtime executor; PersAI owns attachment persistence, quota enforcement, and per-surface delivery formatting
+- native OpenClaw changes in M-series: one new TTS provider file (`src/tts/providers/yandex.ts`) + one registry line; everything else is PersAI-only or PersAI bridge files in the fork

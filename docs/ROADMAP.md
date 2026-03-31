@@ -228,10 +228,62 @@ Foundation Phase
   - [x] H13c — human-readable error messages across web, Telegram, and reminder callback delivery now render from the same backend code family
   - [x] H13d — adapter pattern: new messenger = new adapter in PersAI API, OpenClaw stays a thin runtime executor via `/api/v1/runtime/chat/channel`
   - [x] H13e — stable backend error codes replace string-only UX heuristics for shared web/Telegram/reminder-facing failure semantics
+## Step 13 Media, Attachments, and Voice (M-series, ADR-059)
+
+- [x] M1 — media foundation (DB model, storage, contracts, cleanup, quota dimension)
+  - [x] M1a — Prisma: `assistant_chat_message_attachments` table + `media_storage_bytes` quota extension + migration
+  - [x] M1b — `AssistantChatMessageAttachmentRepository` (create, findByMessageIds, findById, deleteByMessageIds, deleteByChatId, deleteByAssistantId)
+  - [x] M1c — OpenClaw bridge: workspace media upload/download/delete-chat HTTP handlers (`persai-runtime-media.ts`)
+  - [x] M1d — PersAI adapter: `uploadChatMedia`, `downloadChatMedia`, `deleteChatMedia` on `OpenClawRuntimeAdapter`
+  - [x] M1e — API endpoints: `POST /assistant/chat/:chatId/message/:messageId/attachment` (multipart) + `GET /assistant/attachment/:attachmentId` (proxy download)
+  - [x] M1f — extend message history response with `attachments[]`
+  - [x] M1g — extend `hardDeleteChat` with media directory cleanup + attachment row deletion
+  - [x] M1h — extend `resetAssistant` transaction with `assistant_chat_message_attachments.deleteMany`
+  - [x] M1i — `media_storage_bytes` quota tracking on upload/delete via existing `TrackWorkspaceQuotaUsageService`
+  - [x] M1j — `mediaClasses` capability activation from plan entitlements (replace hardcoded false)
+  - [x] M1k — contracts: attachment schemas in web chat types
+- [x] M2 — tool media delivery (web chat)
+  - [x] M2a — OpenClaw bridge: `resolveAgentResponse` returns `{ text, media[] }` from payloads (replaces `resolveAgentResponseText`)
+  - [x] M2b — OpenClaw bridge: sync/stream HTTP response includes `media[]`; stream NDJSON emits `media` event after `done`
+  - [x] M2c — PersAI adapter: parse `media[]` from sync response and stream events
+  - [x] M2d — send/stream services: copy tool media to workspace `media/<chatId>/<messageId>/`, create attachment rows
+  - [x] M2e — web UI: `ChatMessageBubble` renders image attachments inline, audio with `<audio>` player, tool_output with appropriate display
+  - [x] M2f — web UI: message history load includes attachments
+- [x] M3 — web voice messages (send + receive)
+  - [x] M3a — web UI: `ChatInput` microphone button + `MediaRecorder` API (opus/webm) + recording UX
+  - [x] M3b — upload voice → transcribe via `POST /assistant/voice/transcribe` → receive transcription
+  - [x] M3c — OpenClaw bridge: `POST /api/v1/runtime/workspace/media/transcribe` (calls native `transcribeAudioFile`)
+  - [x] M3d — PersAI adapter: `transcribeMedia(assistantId, storagePath)` method
+  - [x] M3e — turn service: voice recording → STT → transcription as message text + voice attachment uploaded post-turn
+  - [x] M3f — web UI: voice message bubbles with audio player + transcription text
+- [x] M4 — web file/image upload
+  - [x] M4a — web UI: activate paperclip, file picker (images + documents)
+  - [x] M4b — web UI: preview chips before send, upload on send (optimistic UI with local blob URLs)
+  - [x] M4c — web UI: user message image inline display, audio player, document download cards via `AttachmentStrip`
+  - [x] M4d — validation: max file size, allowed MIME types at upload boundary
+  - [x] M4e — quota enforcement: `media_storage_bytes` limit tracked via existing quota service
+- [x] M5 — Telegram media inbound (voice, photo, document)
+  - [x] M5a — OpenClaw bridge: `persai-runtime-telegram.ts` handlers for `message:voice`, `message:photo`, `message:document`
+  - [x] M5b — voice handler: Grammy `getFile` → `transcribeAudioFile()` → send transcription to PersAI turn with attachment metadata
+  - [x] M5c — photo/document handler: download → store in workspace → send to PersAI turn with attachment metadata
+  - [x] M5d — extend `InternalTelegramTurnRequest` and `HandleInternalTelegramTurnService` with attachment fields
+  - [x] M5e — persist Telegram inbound media as attachment rows on resulting message records
+- [x] M6 — Telegram media outbound (voice, photo, tool results)
+  - [x] M6a — OpenClaw bridge: extend Telegram reply handling with `sendPhoto`/`sendVoice`/`sendAudio`/`sendVideo`/`sendDocument` via `deliverTelegramMedia`
+  - [x] M6b — tool-generated images → Telegram photo
+  - [x] M6c — TTS/voice tool output → Telegram voice note (opus, `audioAsVoice` flag)
+  - [x] M6d — all 4 message handlers (text, voice, photo, document) deliver media after text reply
+- [x] M7 — Yandex SpeechKit TTS provider
+  - [x] M7a — **native OpenClaw**: new `src/tts/providers/yandex.ts` (SpeechKit v1 REST API, oggopus + mp3 output, API-Key + IAM Token auth)
+  - [x] M7b — **native OpenClaw**: register `buildYandexSpeechProvider` in `src/tts/provider-registry.ts` + `TTS_PROVIDERS` + `ResolvedTtsConfig.yandex` + secret collector
+  - [x] M7c — verify PersAI admin UI Yandex TTS provider selection + credential delivery (already wired via `TOOL_PROVIDER_OPTIONS` + `TOOL_PROVIDER_ENV_FALLBACKS`)
+
+## Step 14 Tech Debt and Scale
+
 - [ ] H14 — Fork-diff reduction (tech debt, trigger: next upstream sync or stable sprint)
   - [ ] H14a — secrets + tool credentials → `exec` provider + PersAI API bridge (removes 9 native OpenClaw files)
   - [ ] H14b — remove explicit store from `server-runtime-state.ts` (1 file, trivial)
-- [ ] H15 — GKE runtime tuning for 5000+ users
+- [ ] H15 — GKE runtime tuning for 5 000+ users
   - scope note: this is a system-wide platform slice, not Telegram-specific hardening
   - [ ] H15a — review and tune Kubernetes probe budgets (`startupProbe`, `readinessProbe`, `livenessProbe`, timeout, `failureThreshold`) from measured rollout/warmup behavior
   - [ ] H15b — validate rollout safety and startup latency budgets for `api`, `web`, and `openclaw` under realistic cold-start and recovery scenarios

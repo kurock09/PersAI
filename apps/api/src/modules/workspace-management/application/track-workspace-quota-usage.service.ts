@@ -278,7 +278,8 @@ export class TrackWorkspaceQuotaUsageService {
       costOrTokenDrivingToolClassUnitsLimit:
         planQuotaHints.costOrTokenDrivingToolClassUnitsLimit ??
         config.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT,
-      activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
+      activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP,
+      mediaStorageBytesLimit: BigInt(config.QUOTA_MEDIA_STORAGE_BYTES_DEFAULT)
     };
   }
 }

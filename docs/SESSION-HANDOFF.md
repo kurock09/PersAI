@@ -1,5 +1,185 @@
 # SESSION-HANDOFF
 
+## 2026-03-31 - M-series implementation complete (M1–M7, ADR-059)
+
+### What changed
+
+All 7 milestones of the M-series (media, attachments, voice) are implemented and TypeCheck-clean across both repos.
+
+**M1 — Media foundation:**
+- Prisma: `assistant_chat_message_attachments` table, `media_storage_bytes` quota dimension, `AttachmentType`/`AttachmentProcessingStatus` enums, migration
+- `AssistantChatMessageAttachmentRepository` (create, findByMessageIds, findById, deleteByMessageIds, deleteByChatId, deleteByAssistantId)
+- `ManageChatMediaService` (upload/download business logic)
+- `MediaAttachmentController` (upload + download proxy endpoints)
+- OpenClaw bridge: `persai-runtime-media.ts` (workspace media upload/download/delete-chat/transcribe HTTP handlers)
+- Runtime adapter: `uploadChatMedia`, `downloadChatMedia`, `deleteChatMedia`, `deleteChatMediaBatch`, `transcribeMedia`
+- Extended `hardDeleteChat` with media cleanup, `resetAssistant` with attachment row deletion
+- `mediaClasses` capability activation from plan entitlements
+- `media_storage_bytes` quota tracking
+
+**M2 — Tool media delivery (web chat):**
+- OpenClaw bridge: `resolveAgentResponse` extracts `{ text, media[] }` from payloads, NDJSON `media` event after `done`
+- PersAI adapter: parses `media[]` from sync response and stream events
+- Send/stream services: download tool media, re-upload to permanent storage, create attachment rows
+- Web UI: `AttachmentStrip` component renders images, audio, video, documents in message bubbles
+- Message history load includes attachments
+
+**M3 — Web voice messages:**
+- Web UI: microphone button, `MediaRecorder` API (opus/webm), recording timer, transcription spinner
+- OpenClaw bridge: `POST /api/v1/runtime/workspace/media/transcribe` (calls `transcribeAudioFile`)
+- PersAI adapter: `transcribeMedia(assistantId, storagePath)`
+- `ManageChatMediaService.transcribeVoice` with temp file cleanup
+- PersAI API: `POST /api/v1/assistant/voice/transcribe` endpoint
+- Web client: `transcribeVoice()` API call
+
+**M4 — Web file/image upload:**
+- Web UI: activated paperclip button, file picker, preview chips, optimistic local blob URLs
+- Upload happens asynchronously after streaming turn completes
+- `AttachmentStrip` renders all media types in user messages
+
+**M5 — Telegram inbound media:**
+- OpenClaw bridge: `bot.on("message:voice")`, `bot.on("message:photo")`, `bot.on("message:document")` handlers
+- Downloads via Grammy `getFile`, stores in workspace, STT for voice
+- Forwards structured `attachments[]` to PersAI internal turn
+- PersAI: `AssistantChatSurface` enum extended to `web | telegram`
+- `HandleInternalTelegramTurnService`: finds/creates Telegram chats, creates user messages, persists attachment rows
+
+**M6 — Telegram outbound media:**
+- `requestPersaiTelegramTurn` returns `{ text, media[] }` instead of plain string
+- `deliverTelegramMedia`: sends `sendPhoto`/`sendVoice`/`sendAudio`/`sendVideo`/`sendDocument` via Grammy `InputFile`
+- All 4 handlers (text, voice, photo, document) deliver media after text reply
+
+**M7 — Yandex SpeechKit TTS:**
+- New provider: `src/tts/providers/yandex.ts` (SpeechKit v1 REST API, oggopus + mp3, API-Key + IAM Token auth)
+- Registered in `provider-registry.ts`, `TTS_PROVIDERS`, `ResolvedTtsConfig.yandex`
+- Config types: `TtsConfig.yandex` in `types.tts.ts`
+- Secret collector: `runtime-config-collectors-tts.ts` handles `yandex.apiKey`
+- Env fallbacks: `TOOL_PROVIDER_ENV_FALLBACKS.tts.yandex` in `persai-runtime-context.ts`
+- PersAI already had Yandex wired in `TOOL_PROVIDER_OPTIONS` — no PersAI changes needed
+
+### Key files changed
+
+**PersAI backend:**
+
+- `apps/api/prisma/schema.prisma` — `AssistantChatMessageAttachment` model, `AttachmentType`/`AttachmentProcessingStatus` enums, `WorkspaceQuotaDimension.media_storage_bytes`, `AssistantChatSurface.telegram`
+- `apps/api/prisma/migrations/20260403100000_step13_m1_media_attachments_foundation/migration.sql`
+- `apps/api/prisma/migrations/20260403200000_step14_m5_telegram_chat_surface/migration.sql`
+- `apps/api/src/modules/workspace-management/domain/assistant-chat-message-attachment.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-chat-message-attachment.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat-message-attachment.repository.ts`
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/media-attachment.controller.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/src/modules/workspace-management/application/web-chat.types.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-effective-capability-state.service.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-chat.entity.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+
+**PersAI frontend:**
+
+- `apps/web/app/app/assistant-api-client.ts` — attachment upload, download URL, transcribeVoice
+- `apps/web/app/app/_components/use-chat.ts` — attachments in ChatMessage, optimistic upload, history hydration
+- `apps/web/app/app/_components/chat-input.tsx` — file picker, voice recording, preview chips
+- `apps/web/app/app/_components/chat-area.tsx` — sendPrompt with files, transcribe callback
+- `apps/web/app/app/_components/chat-message.tsx` — AttachmentStrip component
+
+**OpenClaw fork:**
+
+- `src/gateway/persai-runtime/persai-runtime-media.ts` (new — media upload/download/delete/transcribe)
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — resolveAgentResponse with media extraction
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — sync response includes media[]
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts` — inbound voice/photo/document handlers, outbound media delivery
+- `src/gateway/server-http.ts` — registered media + transcribe endpoints
+- `src/tts/providers/yandex.ts` (new — Yandex SpeechKit TTS provider)
+- `src/tts/provider-registry.ts` — registered Yandex provider
+- `src/tts/tts.ts` — Yandex in TTS_PROVIDERS, ResolvedTtsConfig.yandex, resolveTtsApiKey, resolveTtsConfig
+- `src/config/types.tts.ts` — TtsConfig.yandex section
+- `src/secrets/runtime-config-collectors-tts.ts` — Yandex apiKey collector
+- `src/agents/persai-runtime-context.ts` — Yandex env fallbacks in TOOL_PROVIDER_ENV_FALLBACKS
+
+### Tests run
+
+- `npx tsc --noEmit` — PersAI API (clean)
+- `npx tsc --noEmit` — PersAI Web (clean at each milestone)
+- `npx tsc --noEmit` — OpenClaw (clean)
+
+### Risks
+
+1. GCS FUSE latency (~5-15ms per file op) acceptable for current scale; direct GCS API with signed URLs can be swapped later.
+2. Post-completion media delivery means tool-generated images appear only after full streaming turn completes.
+3. Voice STT adds OpenAI Whisper API cost per voice message — governed by existing quota/tool-limit infrastructure.
+4. Telegram media delivery is sequential (one `sendPhoto`/`sendVoice` per media item); sufficient for current scale.
+5. Migrations need `prisma migrate deploy` on running DB before deployment.
+
+### Next recommended step
+
+- Deploy and test M-series end-to-end on dev environment (run migrations, verify upload/download/voice/Telegram flows).
+- Step 14 tech debt: H11 (WhatsApp/MAX readiness), H14 (fork-diff reduction), H15 (GKE tuning), H16 (heartbeat isolation).
+- Configure Yandex SpeechKit API key in admin tool credentials UI to activate Yandex TTS.
+
+---
+
+## 2026-03-31 - ADR-059: Systemic media, attachments, and voice plan (M-series)
+
+### What changed
+
+- Added ADR-059 (`docs/ADR/059-systemic-media-attachments-voice-m-series.md`) defining the full M-series architecture for universal media support across all channels (web, Telegram, future WhatsApp/MAX).
+- Added Step 13 (M-series) to `docs/ROADMAP.md` with 7 slices (M1-M7) and sub-tasks.
+- Updated `docs/ARCHITECTURE.md` with media boundary section.
+- Updated `docs/API-BOUNDARY.md` with media endpoint contracts.
+- Updated `docs/DATA-MODEL.md` with `assistant_chat_message_attachments` table and quota extension.
+- Updated `docs/TEST-PLAN.md` with M-series test focus.
+- Updated `docs/CHANGELOG.md`.
+
+### Files touched
+
+**PersAI:**
+
+- `docs/ADR/059-systemic-media-attachments-voice-m-series.md` (new)
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Key architectural decisions
+
+- **Separate table** (`assistant_chat_message_attachments`) over JSONB for clean quota aggregation, async processing status, and lifecycle management.
+- **Post-completion media delivery** with natural model status text ("Generating image...") during tool execution — no fake inline binary streaming.
+- **Existing workspace storage** (GCS FUSE) for media files under `<assistantId>/media/<chatId>/<messageId>/`.
+- **Existing STT** (`transcribeAudioFile` / Whisper) for voice message transcription — no new STT infrastructure.
+- **Existing TTS** (OpenAI, ElevenLabs, Microsoft) + new Yandex SpeechKit provider (1 new native OpenClaw file).
+- **`mediaClasses` capabilities** activated from plan entitlements instead of hardcoded false.
+- **Only 2 lines of native OpenClaw change** in entire M-series (Yandex provider + registry); everything else is PersAI-only or PersAI bridge files.
+
+### Slice dependency graph
+
+```
+M1 (foundation) ─┬─► M2 (tool media web) ─► M4 (web file upload)
+                  ├─► M3 (web voice) ───────► M5 (Telegram inbound) ─► M6 (Telegram outbound)
+                  └─► M7 (Yandex TTS) [independent]
+```
+
+### Risks
+
+1. GCS FUSE latency (~5-15ms per file op) may be noticeable for large media; can swap to direct GCS API with signed URLs later without API/DB changes.
+2. Post-completion delivery means images appear only after full response; acceptable tradeoff for reliability.
+3. Seven slices require sustained focus; partial delivery (M1-M2) still provides value.
+
+### Next recommended step
+
+- Begin M1: Prisma migration for `assistant_chat_message_attachments`, repository, workspace media endpoints in OpenClaw bridge, upload/download API, cleanup integration, quota dimension.
+
+---
+
 ## 2026-03-31 - Tool credential provider selection (web_search + tts)
 
 ### What changed

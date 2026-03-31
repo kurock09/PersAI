@@ -60,9 +60,10 @@ Default rule: prefer a PersAI-side fix first. Touch native OpenClaw files only w
 
 ### Lower-risk fork areas
 
-- `src/gateway/persai-runtime/`
+- `src/gateway/persai-runtime/` (15 files, including `persai-runtime-media.ts`)
 - `src/agents/persai-runtime-context.ts`
 - `src/plugin-sdk/persai-credential.ts`
+- `src/tts/providers/yandex.ts` (M7 Yandex SpeechKit TTS — new native file)
 - `docs/PERSAI-FORK-PATCHES.md`
 - `scripts/verify-persai-patches.mjs`
 

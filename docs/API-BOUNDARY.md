@@ -1476,3 +1476,71 @@ Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness dete
 | --------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `PERSAI_INTERNAL_API_BASE_URL`          | Origin for internal endpoints (e.g. `http://persai-api:3000`)                                |
 | `PERSAI_CONFIG_GENERATION_CACHE_TTL_MS` | How long to cache the global generation locally. Default `3600000` (1 hour). `0` = no cache. |
+
+## M-series: Media, attachments, and voice (ADR-059)
+
+### POST /api/v1/assistant/chats/web/upload (M1)
+
+- authenticated caller only
+- `Content-Type: multipart/form-data` with `file` field
+- validates: MIME type allowlist (`image/*`, `audio/*`, `video/*`, `application/pdf`, `text/plain`, `text/markdown`), max size (configurable, default 10MB), `mediaClasses` capability gate
+- stores file in workspace via OpenClaw runtime proxy (`POST /api/v1/runtime/workspace/media/upload`)
+- creates `assistant_chat_message_attachments` row with `processing_status: ready` (or `pending` for voice requiring STT)
+- returns `{ attachmentId, type, mimeType, sizeBytes }`
+- tracks `media_storage_bytes` quota dimension on successful upload
+
+### GET /api/v1/assistant/chats/web/{chatId}/messages/{messageId}/attachments/{attachmentId} (M1)
+
+- authenticated caller only
+- validates: attachment belongs to caller's assistant + chat
+- proxies binary content from workspace via OpenClaw runtime (`GET /api/v1/runtime/workspace/media/download`)
+- returns binary with `Content-Type` from stored `mimeType`
+
+### POST /api/v1/assistant/chat/web (updated M2)
+
+Request body fields (extended):
+
+- `surfaceThreadKey` (string, required)
+- `message` (string, required; may be empty when voice attachment provides transcription)
+- `title` (string | null, optional)
+- `attachmentIds` (string[], optional; references from prior upload)
+
+Response: `AssistantWebChatTurnState` now includes `attachments[]` on each `AssistantWebChatMessageState`
+
+### POST /api/v1/assistant/chat/web/stream (updated M2)
+
+- same extended request body as sync
+- new SSE event after `runtime_done`: `media` with `{ media: [{ attachmentId, type, mimeType, url }] }`
+- `completed` event transport now includes `attachments[]` on assistant message
+
+### GET /api/v1/assistant/chats/web/{chatId}/messages (updated M1)
+
+- response `messages[]` now includes optional `attachments[]` per message
+- each attachment: `{ id, type, mimeType, sizeBytes, durationMs, width, height, transcription, processingStatus, url, createdAt }`
+
+### POST /api/v1/internal/runtime/turns/telegram (updated M5)
+
+Request body fields (extended):
+
+- `assistantId` (string, required)
+- `threadId` (string, required)
+- `message` (string, required; transcription for voice messages)
+- `attachments` (array, optional): `[{ type, storagePath, mimeType, sizeBytes, originalFilename, transcription?, duration? }]`
+
+Response (extended M6):
+
+- `reply` (string)
+- `media` (array, optional): `[{ url, type, audioAsVoice? }]`
+
+### OpenClaw runtime workspace media endpoints (M1, bridge)
+
+- `POST /api/v1/runtime/workspace/media/upload?assistantId=...&chatId=...&messageId=...&filename=...` — binary body, writes to `<assistantId>/media/<chatId>/<messageId>/<filename>`
+- `GET /api/v1/runtime/workspace/media/download?assistantId=...&path=...` — streams file from workspace
+- `DELETE /api/v1/runtime/workspace/media/delete-chat?assistantId=...&chatId=...` — removes `<assistantId>/media/<chatId>/` directory
+- `POST /api/v1/runtime/media/transcribe?assistantId=...` — binary audio body, returns `{ text }` via `transcribeAudioFile()`
+
+### OpenClaw runtime chat response (updated M2, bridge)
+
+- `POST /api/v1/runtime/chat/web` response now includes optional `media[]`: `[{ url, type, audioAsVoice? }]`
+- `POST /api/v1/runtime/chat/web/stream` NDJSON now emits optional `{ type: "media", media: [...] }` record after `done`
+- `POST /api/v1/runtime/chat/channel` response now includes optional `media[]`

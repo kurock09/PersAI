@@ -51,18 +51,26 @@ export interface AssistantRuntimeChannelTurnInput {
   currentTimeIso?: string;
 }
 
+export interface RuntimeMediaArtifact {
+  url: string;
+  type: "image" | "audio" | "video" | "document";
+  audioAsVoice?: boolean;
+}
+
 export interface AssistantRuntimeWebChatTurnResult {
   assistantMessage: string;
   respondedAt: string;
+  media: RuntimeMediaArtifact[];
 }
 
 export interface AssistantRuntimeWebChatTurnStreamChunk {
-  type: "delta" | "thinking" | "done" | "failed";
+  type: "delta" | "thinking" | "done" | "failed" | "media";
   delta?: string;
   accumulated?: string;
   respondedAt?: string;
   code?: string;
   message?: string;
+  media?: RuntimeMediaArtifact[];
 }
 
 export interface AssistantRuntimeCronControlInput {
@@ -76,6 +84,29 @@ export interface AssistantRuntimeWebChatSessionDeleteInput {
   assistantId: string;
   chatId: string;
   surfaceThreadKey: string;
+}
+
+export interface AssistantRuntimeMediaUploadInput {
+  assistantId: string;
+  chatId: string;
+  messageId: string;
+  fileBuffer: Buffer;
+  mimeType: string;
+}
+
+export interface AssistantRuntimeMediaUploadResult {
+  storagePath: string;
+  sizeBytes: number;
+  mimeType: string;
+}
+
+export interface AssistantRuntimeMediaDownloadResult {
+  buffer: Buffer;
+  contentType: string;
+}
+
+export interface AssistantRuntimeTranscribeResult {
+  text: string;
 }
 
 export interface AssistantRuntimeAdapter {
@@ -96,6 +127,19 @@ export interface AssistantRuntimeAdapter {
     input: AssistantRuntimeWebChatTurnInput
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk>;
   controlCronJob(input: AssistantRuntimeCronControlInput): Promise<unknown>;
+  uploadChatMedia(
+    input: AssistantRuntimeMediaUploadInput
+  ): Promise<AssistantRuntimeMediaUploadResult>;
+  downloadChatMedia(
+    assistantId: string,
+    storagePath: string
+  ): Promise<AssistantRuntimeMediaDownloadResult | null>;
+  deleteChatMedia(assistantId: string, storagePath: string): Promise<void>;
+  deleteChatMediaBatch(assistantId: string, chatId: string): Promise<void>;
+  transcribeMedia(
+    assistantId: string,
+    storagePath: string
+  ): Promise<AssistantRuntimeTranscribeResult>;
 }
 
 export const ASSISTANT_RUNTIME_ADAPTER = Symbol("ASSISTANT_RUNTIME_ADAPTER");

@@ -131,6 +131,7 @@ export class PrepareAssistantInboundTurnService {
         assistantId: userMessage.assistantId,
         author: userMessage.author,
         content: userMessage.content,
+        attachments: [],
         createdAt: userMessage.createdAt.toISOString()
       },
       assistant,

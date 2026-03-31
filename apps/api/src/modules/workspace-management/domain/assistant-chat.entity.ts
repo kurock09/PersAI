@@ -1,4 +1,4 @@
-export type AssistantChatSurface = "web";
+export type AssistantChatSurface = "web" | "telegram";
 
 export type AssistantChat = {
   id: string;
