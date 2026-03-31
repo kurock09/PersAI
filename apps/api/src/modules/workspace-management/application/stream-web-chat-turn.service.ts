@@ -106,6 +106,11 @@ export class StreamWebChatTurnService {
     let respondedAt: string | null = null;
     const collectedMedia: RuntimeMediaArtifact[] = [];
 
+    const attachmentContext = await this.buildAttachmentContext(prepared.chat.id);
+    const enrichedUserMessage = attachmentContext
+      ? `${attachmentContext}\n${prepared.userMessage.content}`
+      : prepared.userMessage.content;
+
     try {
       for await (const chunk of this.assistantRuntimeAdapter.streamWebChatTurn({
         assistantId: prepared.assistantId,
@@ -113,7 +118,7 @@ export class StreamWebChatTurnService {
         chatId: prepared.chat.id,
         surfaceThreadKey: prepared.chat.surfaceThreadKey,
         userMessageId: prepared.userMessage.id,
-        userMessage: prepared.userMessage.content,
+        userMessage: enrichedUserMessage,
         userTimezone: prepared.workspaceTimezone,
         currentTimeIso: new Date().toISOString()
       })) {
@@ -323,6 +328,22 @@ export class StreamWebChatTurnService {
       }
     }
     return results;
+  }
+
+  private async buildAttachmentContext(chatId: string): Promise<string | null> {
+    try {
+      const attachments = await this.attachmentRepository.listByChatId(chatId);
+      const ready = attachments.filter((a) => a.processingStatus === "ready");
+      if (ready.length === 0) return null;
+
+      const lines = ready.map((a) => {
+        const name = a.originalFilename ? ` "${a.originalFilename}"` : "";
+        return `- media/${a.storagePath} (${a.attachmentType}${name})`;
+      });
+      return `[Files available in your workspace:\n${lines.join("\n")}\nYou can read or reference them by their path.]`;
+    } catch {
+      return null;
+    }
   }
 
   private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {
