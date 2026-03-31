@@ -179,7 +179,7 @@ It is not part of backend domain logic.
   - usage/snapshot event log (`workspace_quota_usage_events`)
 - quota limits resolve from provider-agnostic plan hints with config fallback defaults; no billing vendor coupling
 - tasks/reminders remain explicitly non-commercial-quota dimensions in this slice
-- per-tool daily call limits are enforced via `workspace_tool_usage_daily_counters` persistence and `TrackWorkspaceQuotaUsageService.checkToolDailyLimit` / `incrementToolDailyUsage` methods (Step 12 H2 extension)
+- per-tool daily call limits are enforced via `workspace_tool_usage_daily_counters` persistence plus atomic backend consumption through `TrackWorkspaceQuotaUsageService.consumeToolDailyLimit`; OpenClaw only calls back through the existing `before_tool_call` seam for PersAI runtime turns, it does not become the policy owner
 - no backend behavior routing and no BI/reporting expansion in P5
 
 ## Enforcement points boundary (Step 7 P6)
@@ -211,11 +211,19 @@ It is not part of backend domain logic.
   - runtime adapter invocation
   - usage accounting
   - stable error-code emission
+- concrete H13 gateway seams now are:
+  - public web turn APIs (`POST /api/v1/assistant/chat/web`, `POST /api/v1/assistant/chat/web/stream`)
+  - internal Telegram ingress (`POST /api/v1/internal/runtime/turns/telegram`)
+  - reminder callback ingress (`POST /api/v1/internal/cron-fire`) with the same backend error-code family before delivery fanout
+- OpenClaw runtime execution for non-web channel turns stays behind a thin bridge:
+  - `POST /api/v1/runtime/chat/channel`
+  - current concrete non-web surface: `telegram`
 - OpenClaw remains runtime execution/transport, but PersAI becomes the product-policy authority for inbound turns
 - user-facing denial and degradation semantics are derived from stable backend codes, then formatted per surface
 - user-scoped runtime-affecting changes remain assistant-scoped:
   - one assistant's settings change can invalidate and reconcile that assistant only
   - broad `full apply` behavior is reserved for explicit admin/platform changes
+- per-tool daily usage callbacks from runtime execution are now active through a minimal existing OpenClaw `before_tool_call` seam, while PersAI remains the policy owner and counter authority
 
 ## Reminder/task ownership boundary (Step 12 H12)
 

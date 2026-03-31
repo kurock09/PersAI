@@ -218,12 +218,12 @@ Foundation Phase
   - [x] H12f — Update `PERSAI-FORK-PATCHES.md` + `verify-persai-patches.mjs` with new patch entry
   - [x] H12g — Memory lifecycle on assistant create/reset: if `MEMORY.md` / `memory/` don't exist → create; if exist → clear. On edit/update — do NOT touch memory (implemented via minimal `openclaw/src/gateway/persai-runtime/*` bridge because pure API-only ownership was not technically viable)
   - [x] H12h — PersAI-owned reminders/tasks replace product dependence on native `cron`: current scope covers internal registry upsert/delete by `externalRef`, hard-delete on assistant reset, one-time disappearance after successful webhook finish, recurring rows staying live with updated `nextRunAt`, new product-facing `reminder_task` tool for create/list/pause/resume/cancel, plan/seed policy that hides user-facing `cron`, PersAI-owned write control-plane (`reminder_task` -> PersAI internal control endpoint -> backend-driven internal cron control via `persai-runtime`), Telegram-safe context-only session lookup during create, and delivery-side stripping of internal `Recent context` artifacts from user-visible reminder messages; future WhatsApp/MAX outbound or a backend-owned timer are separate follow-up work, not H12 blockers
-- [ ] H13 — Unified messenger turn gateway
-  - [ ] H13a — single PersAI API entry point for all channel turns (web, Telegram, WhatsApp, cron callback, future messengers)
-  - [ ] H13b — unified enforcement: quota (tokens, messages), rate limits, tool daily limits applied to ALL channels (currently web-only)
-  - [ ] H13c — human-readable error messages across all channels: quota exhausted, tool daily limit hit, feature unavailable — formatted per channel (HTML for web, markdown for Telegram, plain text for WhatsApp, structured JSON for cron callback)
-  - [ ] H13d — adapter pattern: new messenger = new adapter in PersAI API, OpenClaw untouched
-  - [ ] H13e — stable backend error codes replace string-only UX heuristics; web and messenger surfaces render from the same code family
+- [x] H13 — Unified messenger turn gateway
+  - [x] H13a — single PersAI API entry point for web + Telegram turns, with reminder callback ingress normalized under the same backend error/render family; future WhatsApp/MAX/VK can follow the same PersAI adapter pattern
+  - [x] H13b — unified enforcement: quota (tokens, messages), rate limits, and per-tool daily limits now apply across the supported inbound turn surfaces (`web_chat`, `telegram`, `reminder_callback` policy ingress), with runtime tool calls gated through a minimal existing OpenClaw `before_tool_call` seam
+  - [x] H13c — human-readable error messages across web, Telegram, and reminder callback delivery now render from the same backend code family
+  - [x] H13d — adapter pattern: new messenger = new adapter in PersAI API, OpenClaw stays a thin runtime executor via `/api/v1/runtime/chat/channel`
+  - [x] H13e — stable backend error codes replace string-only UX heuristics for shared web/Telegram/reminder-facing failure semantics
 - [ ] H14 — Fork-diff reduction (tech debt, trigger: next upstream sync or stable sprint)
   - [ ] H14a — secrets + tool credentials → `exec` provider + PersAI API bridge (removes 9 native OpenClaw files)
   - [ ] H14b — remove explicit store from `server-runtime-state.ts` (1 file, trivial)
@@ -231,3 +231,9 @@ Foundation Phase
   - scope note: this is a system-wide platform slice, not Telegram-specific hardening
   - [ ] H15a — review and tune Kubernetes probe budgets (`startupProbe`, `readinessProbe`, `livenessProbe`, timeout, `failureThreshold`) from measured rollout/warmup behavior
   - [ ] H15b — validate rollout safety and startup latency budgets for `api`, `web`, and `openclaw` under realistic cold-start and recovery scenarios
+- [ ] H16 — Autonomous workspace heartbeat isolation and cheap-model routing
+  - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated
+  - [ ] H16a — verify which runtime paths still read `HEARTBEAT.md` from the default OpenClaw workspace instead of assistant-scoped `workspaceDir`
+  - [ ] H16b — bind heartbeat polling and related autonomous file checks to the correct assistant/user workspace where product behavior is expected per assistant
+  - [ ] H16c — document the role of the main/default workspace vs assistant-scoped workspaces so background agent behavior is understandable and debuggable
+  - [ ] H16d — route low-value background polling / heartbeat reads to a dedicated cheaper model tier, separate from user-facing turn models

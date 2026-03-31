@@ -236,6 +236,14 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
     };
   }
 
+  if (code === "tool_daily_limit_reached") {
+    return {
+      classId: "quota_limit_reached",
+      message: "A daily tool usage limit has been reached.",
+      guidance: "Try again later or use a request that does not need the exhausted tool."
+    };
+  }
+
   if (code === "plan_feature_unavailable") {
     return {
       classId: "feature_unavailable",

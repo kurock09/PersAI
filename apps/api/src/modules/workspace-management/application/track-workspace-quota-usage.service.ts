@@ -107,14 +107,16 @@ export class TrackWorkspaceQuotaUsageService {
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService
   ) {}
 
-  async recordWebChatTurnUsage(params: {
+  async recordInboundTurnUsage(params: {
     assistant: Assistant;
     userContent: string;
     assistantContent: string;
     source:
       | "web_chat_turn_sync"
       | "web_chat_turn_stream_completed"
-      | "web_chat_turn_stream_partial";
+      | "web_chat_turn_stream_partial"
+      | "telegram_turn_sync"
+      | "reminder_callback_delivery";
   }): Promise<void> {
     const governance = await this.resolveGovernance(params.assistant.id);
     const limits = await this.resolveLimits(params.assistant, governance);
@@ -156,6 +158,18 @@ export class TrackWorkspaceQuotaUsageService {
         limits
       });
     }
+  }
+
+  async recordWebChatTurnUsage(params: {
+    assistant: Assistant;
+    userContent: string;
+    assistantContent: string;
+    source:
+      | "web_chat_turn_sync"
+      | "web_chat_turn_stream_completed"
+      | "web_chat_turn_stream_partial";
+  }): Promise<void> {
+    await this.recordInboundTurnUsage(params);
   }
 
   async refreshActiveWebChatsUsage(params: {
@@ -202,6 +216,31 @@ export class TrackWorkspaceQuotaUsageService {
 
   async incrementToolDailyUsage(workspaceId: string, toolCode: string): Promise<number> {
     return this.toolDailyUsageRepository.incrementAndGet(workspaceId, toolCode);
+  }
+
+  async consumeToolDailyLimit(params: {
+    assistant: Assistant;
+    toolCode: string;
+    dailyCallLimit: number | null;
+  }): Promise<{ allowed: boolean; currentCount: number; limit: number | null }> {
+    if (params.dailyCallLimit === null || params.dailyCallLimit <= 0) {
+      return {
+        allowed: true,
+        currentCount: 0,
+        limit: null
+      };
+    }
+
+    const result = await this.toolDailyUsageRepository.consumeWithinLimit(
+      params.assistant.workspaceId,
+      params.toolCode,
+      params.dailyCallLimit
+    );
+    return {
+      allowed: result.allowed,
+      currentCount: result.currentCount,
+      limit: params.dailyCallLimit
+    };
   }
 
   private async resolveGovernance(assistantId: string): Promise<AssistantGovernance> {

@@ -10,4 +10,9 @@ export type DailyUsageRecord = {
 export interface WorkspaceToolDailyUsageRepository {
   incrementAndGet(workspaceId: string, toolCode: string): Promise<number>;
   getUsageForDate(workspaceId: string, toolCode: string, date: Date): Promise<number>;
+  consumeWithinLimit(
+    workspaceId: string,
+    toolCode: string,
+    dailyCallLimit: number
+  ): Promise<{ allowed: boolean; currentCount: number }>;
 }

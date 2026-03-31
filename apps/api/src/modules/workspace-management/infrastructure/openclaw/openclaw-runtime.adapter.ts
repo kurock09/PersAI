@@ -1,8 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
+import {
+  ApiErrorHttpException,
+  type ApiErrorObject
+} from "../../../platform-core/interface/http/api-error";
 import type {
   AssistantRuntimeAdapter,
   AssistantRuntimeApplyInput,
+  AssistantRuntimeChannelTurnInput,
   AssistantRuntimeCronControlInput,
   AssistantRuntimePreflightResult,
   AssistantRuntimeWebChatTurnStreamChunk,
@@ -32,6 +37,27 @@ function isObject(value: unknown): value is JsonObject {
 function toBooleanValue(payload: JsonObject, key: string): boolean | null {
   const value = payload[key];
   return typeof value === "boolean" ? value : null;
+}
+
+function parseApiErrorResponse(payload: unknown): ApiErrorObject | null {
+  if (!isObject(payload)) {
+    return null;
+  }
+  const error = isObject(payload.error) ? payload.error : payload;
+  if (
+    typeof error.code !== "string" ||
+    typeof error.category !== "string" ||
+    typeof error.message !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    code: error.code,
+    category: error.category,
+    message: error.message,
+    ...(isObject(error.details) ? { details: error.details } : {})
+  } as ApiErrorObject;
 }
 
 function toOpenClawAdapterConfig(): OpenClawAdapterConfig {
@@ -226,6 +252,68 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     };
   }
 
+  async sendChannelTurn(
+    input: AssistantRuntimeChannelTurnInput
+  ): Promise<AssistantRuntimeWebChatTurnResult> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError(
+        "runtime_unreachable",
+        "OpenClaw adapter is disabled by configuration."
+      );
+    }
+
+    const preflight = await this.preflight();
+    if (!preflight.live || !preflight.ready) {
+      throw new AssistantRuntimeAdapterError(
+        "runtime_degraded",
+        `OpenClaw runtime degraded: live=${preflight.live}, ready=${preflight.ready}.`
+      );
+    }
+
+    const payload = await this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/chat/channel",
+      {
+        assistantId: input.assistantId,
+        publishedVersionId: input.publishedVersionId,
+        surface: input.surface,
+        threadId: input.threadId,
+        userMessage: input.userMessage,
+        ...(input.userTimezone ? { userTimezone: input.userTimezone } : {}),
+        ...(input.currentTimeIso ? { currentTimeIso: input.currentTimeIso } : {})
+      },
+      config
+    );
+
+    if (!isObject(payload)) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw channel chat response is not a JSON object."
+      );
+    }
+
+    const assistantMessage = payload.assistantMessage;
+    const respondedAt = payload.respondedAt;
+    if (typeof assistantMessage !== "string" || assistantMessage.trim().length === 0) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw channel chat response is missing assistantMessage."
+      );
+    }
+    if (typeof respondedAt !== "string" || respondedAt.trim().length === 0) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw channel chat response is missing respondedAt."
+      );
+    }
+
+    return {
+      assistantMessage: assistantMessage.trim(),
+      respondedAt: respondedAt.trim()
+    };
+  }
+
   async *streamWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk> {
@@ -306,6 +394,22 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         hasDone = true;
         yield { type: "done", respondedAt: respondedAt.trim() };
         break;
+      }
+
+      if (type === "failed") {
+        const code = typeof payload.code === "string" ? payload.code.trim() : "";
+        const message = typeof payload.message === "string" ? payload.message.trim() : "";
+        if (!code || !message) {
+          throw new AssistantRuntimeAdapterError(
+            "invalid_response",
+            "OpenClaw failed payload is missing code/message."
+          );
+        }
+        throw new ApiErrorHttpException(code === "tool_daily_limit_reached" ? 409 : 500, {
+          code,
+          category: code === "tool_daily_limit_reached" ? "conflict" : "infra",
+          message
+        });
       }
 
       throw new AssistantRuntimeAdapterError(
@@ -538,6 +642,18 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
 
       const acceptedErrorStatuses = new Set(options.acceptedErrorStatuses ?? []);
       if (!response.ok && !acceptedErrorStatuses.has(response.status)) {
+        let responsePayload: unknown = null;
+        try {
+          responsePayload = await response.json();
+        } catch {
+          responsePayload = null;
+        }
+
+        const apiError = parseApiErrorResponse(responsePayload);
+        if (apiError !== null) {
+          throw new ApiErrorHttpException(response.status, apiError);
+        }
+
         if (response.status === 502 || response.status === 503 || response.status === 504) {
           throw new AssistantRuntimeAdapterError(
             "runtime_degraded",
@@ -645,6 +761,18 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       }
 
       if (!response.ok) {
+        let responsePayload: unknown = null;
+        try {
+          responsePayload = await response.json();
+        } catch {
+          responsePayload = null;
+        }
+
+        const apiError = parseApiErrorResponse(responsePayload);
+        if (apiError !== null) {
+          throw new ApiErrorHttpException(response.status, apiError);
+        }
+
         if (response.status === 502 || response.status === 503 || response.status === 504) {
           throw new AssistantRuntimeAdapterError(
             "runtime_degraded",

@@ -3,6 +3,7 @@ import {
   getAdminRuntimeProviderSettings,
   postAdminPlatformRollout,
   postAdminPlatformRolloutRollback,
+  toWebChatUxIssue,
   putAdminRuntimeProviderSettings,
   streamAssistantWebChatTurn
 } from "./assistant-api-client";
@@ -275,5 +276,20 @@ describe("streamAssistantWebChatTurn", () => {
     ).resolves.toBeUndefined();
 
     expect(onCompleted).toHaveBeenCalledWith({ transport: { mode: "sse" } });
+  });
+});
+
+describe("toWebChatUxIssue", () => {
+  it("maps tool daily limit errors to quota-style guidance", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "tool_daily_limit_reached",
+        message: "Tool limit exhausted."
+      })
+    ).toEqual({
+      classId: "quota_limit_reached",
+      message: "A daily tool usage limit has been reached.",
+      guidance: "Try again later or use a request that does not need the exhausted tool."
+    });
   });
 });

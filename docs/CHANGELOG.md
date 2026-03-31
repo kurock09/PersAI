@@ -4,6 +4,15 @@
 
 ### Added
 
+- **H13 core — unified PersAI-owned turn gateway for web + Telegram:**
+  - Added concrete PersAI internal Telegram turn ingress: `POST /api/v1/internal/runtime/turns/telegram`.
+  - Telegram inbound no longer decides turn admission inside OpenClaw alone; PersAI now resolves assistant live-state, applies capability/quota/rate checks, emits stable error codes, and then invokes OpenClaw as runtime executor.
+  - Added thin OpenClaw runtime execute seam for non-web channel turns: `POST /api/v1/runtime/chat/channel` (current concrete surface: `telegram`).
+  - Added PersAI-owned per-tool daily limit consume endpoint `POST /api/v1/internal/runtime/tools/consume` and atomic backend counter consumption so tool limits now enforce at actual runtime tool-call time instead of only existing as plan metadata.
+  - OpenClaw uses the already existing `before_tool_call` hook seam plus `persai-runtime` AsyncLocalStorage/request context to call that PersAI limit endpoint only for PersAI runtime turns; no broad native tool assembly rewrite is required.
+  - Reminder callback delivery now evaluates the same PersAI live-state/capability/quota error family before fanout and renders reminder-safe denial copy from stable backend codes.
+  - Added focused regression coverage for Telegram internal turn ingress, reminder error rendering, runtime adapter channel execution, web client error mapping, backend tool-limit counter consumption, and cross-surface enforcement semantics.
+
 - **OpenClaw Telegram markdown fallback hotfix:**
   - OpenClaw now retries Telegram replies as plain text when `MarkdownV2` entity parsing fails, so assistant answers no longer disappear behind the generic `"Sorry, I encountered an error"` fallback for normal punctuation-heavy text.
   - Dev GitOps OpenClaw pin now targets fork SHA `7ab9df9d0fb285987bc73f34d723af13eb231448`.

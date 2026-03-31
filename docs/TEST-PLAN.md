@@ -379,6 +379,15 @@ Required in CI:
   - Telegram/internal messenger ingress
   - reminder callback ingress
 - Capability/quota/abuse/tool-limit checks are exercised from the shared path rather than duplicated surface-specific code.
+- Concrete focused coverage in this slice includes:
+  - `test/enforcement-points.test.ts`
+  - `test/internal-runtime-turn.controller.test.ts`
+  - `test/internal-runtime-tool-quota.controller.test.ts`
+  - `test/handle-internal-cron-fire.test.ts`
+  - `test/openclaw-runtime-adapter.test.ts`
+  - `test/quota-accounting.test.ts`
+  - `test/render-assistant-inbound-surface-message.test.ts`
+  - `openclaw/src/gateway/persai-runtime/persai-runtime-agent-turn.test.ts`
 
 ### Structured errors
 

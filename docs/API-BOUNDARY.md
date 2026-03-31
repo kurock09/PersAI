@@ -172,7 +172,10 @@ Behavior baseline:
 
 - PersAI API becomes the canonical inbound turn boundary for all product surfaces.
 - web chat remains public/authenticated user API.
-- Telegram, reminder callbacks, and future messengers are expected to converge on internal/application-layer orchestration that reuses the same enforcement/runtime/accounting path.
+- Telegram, reminder callbacks, and future messengers converge on internal/application-layer orchestration that reuses the same enforcement/runtime/accounting path.
+- concrete internal ingress in this slice:
+  - `POST /api/v1/internal/runtime/turns/telegram`
+  - existing `POST /api/v1/internal/cron-fire` now renders denial/degradation copy from the same backend code family before delivery fanout
 - stable backend error codes are the contract:
   - HTTP failures use canonical `ErrorEnvelope`
   - streaming failures must emit the same code family in event payloads
@@ -251,6 +254,18 @@ Behavior baseline:
 - does not create published versions
 - does not perform runtime apply/openclaw actions
 - returns not found when assistant does not exist
+
+### Internal runtime tool-limit consume seam (H13b)
+
+- `POST /api/v1/internal/runtime/tools/consume`
+- caller: OpenClaw `persai-runtime` only
+- auth: same internal bearer token (`OPENCLAW_GATEWAY_TOKEN`)
+- purpose: atomically consume/check per-tool `dailyCallLimit` at actual runtime tool-call time
+- backend response on exhaustion uses stable error code family:
+  - `tool_daily_limit_reached`
+- OpenClaw stays a thin executor:
+  - it invokes this endpoint through the already existing `before_tool_call` seam
+  - it does not own plan/quota policy or counter state
 
 ### POST /api/v1/assistant/publish (Step 3 A3 baseline)
 
@@ -1173,6 +1188,12 @@ This subsection is the **design-freeze** contract between PersAI `apps/api` and 
 **Out of scope for v1 (not defined on this HTTP surface)**
 
 - Telegram, WhatsApp, MAX, or other channel transports toward OpenClaw. Those remain separate product/adapter slices.
+
+**H13 concrete extension (internal, still PersAI-owned policy)**
+
+- `POST /api/v1/runtime/chat/channel`
+- current concrete surface: `telegram`
+- PersAI evaluates policy first through its internal turn gateway, then calls this runtime execute seam as a thin executor bridge
 
 ### Fork build (native runtime)
 

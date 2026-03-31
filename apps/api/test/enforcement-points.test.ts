@@ -192,7 +192,49 @@ async function run(): Promise<void> {
     (error: unknown) =>
       error instanceof ApiErrorHttpException &&
       error.errorObject.code === "plan_feature_unavailable" &&
-      error.errorObject.message.includes("Web chat is unavailable")
+      error.errorObject.message.includes('Inbound surface "web_chat" is unavailable')
+  );
+
+  const serviceWithTelegram = new EnforceAssistantCapabilityAndQuotaService(
+    governanceRepo as AssistantGovernanceRepository,
+    planRepo as AssistantPlanCatalogRepository,
+    {
+      async findByWorkspaceId() {
+        return null;
+      }
+    } as QuotaRepoStub as WorkspaceQuotaAccountingRepository,
+    {
+      async execute() {
+        return {
+          ...(await capabilityResolver.execute()),
+          channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
+        };
+      }
+    } as CapabilityResolverStub as ResolveEffectiveCapabilityStateService,
+    subscriptionResolver as ResolveEffectiveSubscriptionStateService
+  );
+
+  await assert.doesNotReject(() =>
+    serviceWithTelegram.enforceInboundTurn({
+      assistant,
+      surface: "telegram",
+      isNewThread: false,
+      activeSurfaceChatsCount: 0
+    })
+  );
+
+  await assert.rejects(
+    () =>
+      serviceWithDisabledWebChat.enforceInboundTurn({
+        assistant,
+        surface: "telegram",
+        isNewThread: false,
+        activeSurfaceChatsCount: 0
+      }),
+    (error: unknown) =>
+      error instanceof ApiErrorHttpException &&
+      error.errorObject.code === "plan_feature_unavailable" &&
+      error.errorObject.message.includes('Inbound surface "telegram" is unavailable')
   );
 }
 

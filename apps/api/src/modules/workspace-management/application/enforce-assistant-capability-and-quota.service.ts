@@ -17,7 +17,7 @@ import {
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
-import type { AssistantInboundSurface } from "./prepare-assistant-inbound-turn.service";
+import type { AssistantInboundSurface } from "./assistant-inbound.types";
 
 type ResolvedQuotaLimits = {
   tokenBudgetLimit: bigint | null;
@@ -70,13 +70,6 @@ export class EnforceAssistantCapabilityAndQuotaService {
     isNewThread: boolean;
     activeSurfaceChatsCount: number;
   }): Promise<void> {
-    if (params.surface !== "web_chat") {
-      throw createAssistantInboundConflict(
-        "surface_not_supported",
-        `Inbound surface "${params.surface}" is not supported.`
-      );
-    }
-
     const governance = await this.resolveGovernance(params.assistant.id);
     const effectiveCapabilities = await this.resolveEffectiveCapabilityStateService.execute({
       assistant: params.assistant,
@@ -84,10 +77,24 @@ export class EnforceAssistantCapabilityAndQuotaService {
     });
     const limits = await this.resolveLimits(params.assistant, governance);
 
-    if (!effectiveCapabilities.channelsAndSurfaces.webChat) {
+    const surfaceAllowed = (() => {
+      switch (params.surface) {
+        case "web_chat":
+        case "reminder_callback":
+          return effectiveCapabilities.channelsAndSurfaces.webChat;
+        case "telegram":
+          return effectiveCapabilities.channelsAndSurfaces.telegram;
+        case "whatsapp":
+          return effectiveCapabilities.channelsAndSurfaces.whatsapp;
+        case "max":
+          return effectiveCapabilities.channelsAndSurfaces.max;
+      }
+    })();
+
+    if (!surfaceAllowed) {
       throw createAssistantInboundConflict(
         "plan_feature_unavailable",
-        "Web chat is unavailable for this assistant under current plan/governance capabilities."
+        `Inbound surface "${params.surface}" is unavailable for this assistant under current plan/governance capabilities.`
       );
     }
     if (!effectiveCapabilities.mediaClasses.text) {
@@ -103,7 +110,11 @@ export class EnforceAssistantCapabilityAndQuotaService {
       );
     }
 
-    if (params.isNewThread && params.activeSurfaceChatsCount >= limits.activeWebChatsLimit) {
+    if (
+      params.surface === "web_chat" &&
+      params.isNewThread &&
+      params.activeSurfaceChatsCount >= limits.activeWebChatsLimit
+    ) {
       throw createAssistantInboundConflict(
         "active_chat_cap_reached",
         `Active web chats cap reached (${limits.activeWebChatsLimit}). Archive an existing chat or continue in an existing thread.`,

@@ -15,6 +15,8 @@ import { InternalCronFireController } from "./interface/http/internal-cron-fire.
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
 import { InternalRuntimeConfigGenerationController } from "./interface/http/internal-runtime-config-generation.controller";
 import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
+import { InternalRuntimeTurnController } from "./interface/http/internal-runtime-turn.controller";
+import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
@@ -68,6 +70,10 @@ import { SendWebChatTurnService } from "./application/send-web-chat-turn.service
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
+import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
+import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
+import { ResolveAssistantInboundRuntimeContextService } from "./application/resolve-assistant-inbound-runtime-context.service";
+import { RenderAssistantInboundSurfaceMessageService } from "./application/render-assistant-inbound-surface-message.service";
 import { SyncAssistantTaskRegistryService } from "./application/sync-assistant-task-registry.service";
 import { SyncTelegramChatTargetService } from "./application/sync-telegram-chat-target.service";
 import { TrackWorkspaceQuotaUsageService } from "./application/track-workspace-quota-usage.service";
@@ -131,6 +137,8 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     InternalRuntimeProviderSecretsController,
     InternalRuntimeConfigGenerationController,
     InternalRuntimeTaskRegistryController,
+    InternalRuntimeTurnController,
+    InternalRuntimeToolQuotaController,
     AdminForceReapplyController
   ],
   providers: [
@@ -150,6 +158,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManageAdminAbuseControlsService,
     ManageAdminAssistantOwnershipService,
     HandleInternalCronFireService,
+    HandleInternalTelegramTurnService,
+    ConsumeInternalRuntimeToolDailyLimitService,
+    ResolveAssistantInboundRuntimeContextService,
+    RenderAssistantInboundSurfaceMessageService,
     GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,

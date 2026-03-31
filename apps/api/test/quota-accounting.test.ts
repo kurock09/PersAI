@@ -15,7 +15,7 @@ type QuotaRepoStub = Pick<
 >;
 type ToolDailyUsageRepoStub = Pick<
   WorkspaceToolDailyUsageRepository,
-  "incrementAndGet" | "getUsageForDate"
+  "incrementAndGet" | "getUsageForDate" | "consumeWithinLimit"
 >;
 type SubscriptionResolverStub = Pick<ResolveEffectiveSubscriptionStateService, "execute">;
 type CapabilityResolverStub = Pick<ResolveEffectiveCapabilityStateService, "execute">;
@@ -180,6 +180,12 @@ async function run(): Promise<void> {
     },
     async getUsageForDate() {
       return 0;
+    },
+    async consumeWithinLimit(_workspaceId: string, _toolCode: string, dailyCallLimit: number) {
+      return {
+        allowed: true,
+        currentCount: dailyCallLimit
+      };
     }
   };
 
@@ -224,6 +230,12 @@ async function run(): Promise<void> {
     source: "web_chat_archive"
   });
 
+  const toolLimit = await service.consumeToolDailyLimit({
+    assistant,
+    toolCode: "web_search",
+    dailyCallLimit: 3
+  });
+
   assert.equal(incrementCalls.length, 2);
   assert.equal(incrementCalls[0]?.dimension, "token_budget");
   assert.ok((incrementCalls[0]?.delta ?? BigInt(0)) > BigInt(0));
@@ -231,6 +243,11 @@ async function run(): Promise<void> {
   assert.equal(incrementCalls[1]?.delta, BigInt(1));
   assert.equal(refreshCalls.length, 1);
   assert.equal(refreshCalls[0]?.currentActiveWebChats, 7);
+  assert.deepEqual(toolLimit, {
+    allowed: true,
+    currentCount: 3,
+    limit: 3
+  });
 }
 
 void run();

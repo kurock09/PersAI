@@ -1,5 +1,91 @@
 # SESSION-HANDOFF
 
+## 2026-03-31 - H13 core unified turn gateway
+
+### What changed
+
+- Added a concrete PersAI-owned Telegram turn gateway:
+  - new internal ingress `POST /api/v1/internal/runtime/turns/telegram`
+  - backend now resolves assistant live-state, applies capability/quota/rate checks, invokes runtime, and returns Telegram-rendered denial copy from stable backend codes when blocked
+- Added a thin OpenClaw non-web runtime execute seam:
+  - `POST /api/v1/runtime/chat/channel`
+  - current concrete surface: `telegram`
+- Web and Telegram now share the same backend code family for user-facing failures instead of Telegram falling back to generic runtime-side messaging.
+- Reminder callback delivery (`POST /api/v1/internal/cron-fire`) now evaluates the same PersAI live-state/capability/quota gates before fanout and renders reminder-safe denial copy from the same backend code family.
+- Added true backend-owned per-tool daily limit enforcement:
+  - PersAI now exposes `POST /api/v1/internal/runtime/tools/consume`
+  - daily counters are consumed atomically in backend before the runtime tool call is allowed
+  - OpenClaw uses the already existing `before_tool_call` seam for PersAI runtime turns instead of a broad native tool-assembly fork
+- Added focused tests for:
+  - Telegram internal turn controller
+  - reminder callback rendered fallback
+  - channel runtime adapter execution
+  - H13 surface enforcement semantics
+- Added focused tests for backend tool-limit consumption + propagation through web/runtime seams.
+- Added ADR-058 to document the concrete H13 shape.
+
+### Files touched
+
+**PersAI API / web / docs:**
+
+- `apps/api/src/modules/workspace-management/application/assistant-inbound.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-inbound-runtime-context.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/render-assistant-inbound-surface-message.service.ts`
+- `apps/api/src/modules/workspace-management/application/enforce-assistant-capability-and-quota.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-cron-fire.service.ts`
+- `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
+- `apps/api/src/modules/workspace-management/application/consume-internal-runtime-tool-daily-limit.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-turn.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-tool-quota.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/enforcement-points.test.ts`
+- `apps/api/test/handle-internal-cron-fire.test.ts`
+- `apps/api/test/internal-runtime-turn.controller.test.ts`
+- `apps/api/test/internal-runtime-tool-quota.controller.test.ts`
+- `apps/api/test/openclaw-runtime-adapter.test.ts`
+- `apps/api/test/quota-accounting.test.ts`
+- `apps/api/test/render-assistant-inbound-surface-message.test.ts`
+- `apps/web/app/app/assistant-api-client.ts`
+- `docs/ADR/058-concrete-h13-unified-turn-gateway.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/ROADMAP.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+**OpenClaw:**
+
+- `src/agents/pi-tools.before-tool-call.ts`
+- `src/agents/persai-runtime-context.ts`
+- `src/agents/persai-runtime-tool-limits.ts`
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts`
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+- `src/gateway/persai-runtime/persai-runtime-telegram.ts`
+- `src/gateway/server-http.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec node --import tsx test/enforcement-points.test.ts`
+- `corepack pnpm --filter @persai/api exec node --import tsx test/handle-internal-cron-fire.test.ts`
+- `corepack pnpm --filter @persai/api exec node --import tsx test/openclaw-runtime-adapter.test.ts`
+- `corepack pnpm --filter @persai/api exec node --import tsx test/quota-accounting.test.ts`
+- `corepack pnpm --filter @persai/api exec node --import tsx test/internal-runtime-tool-quota.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec node --import tsx test/render-assistant-inbound-surface-message.test.ts`
+- `corepack pnpm --filter @persai/api exec node --import tsx test/internal-runtime-turn.controller.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm vitest run --config vitest.gateway.config.ts src/gateway/persai-runtime/persai-runtime-telegram.test.ts src/gateway/persai-runtime/persai-runtime-agent-turn.test.ts src/agents/pi-tools.before-tool-call.integration.e2e.test.ts`
+
+### Risks
+
+1. Reminder callbacks are now policy-gated by the same backend code family, but they still use the existing callback-delivery model rather than a fully redesigned backend-owned scheduler/runtime turn architecture.
+2. Future messenger surfaces (WhatsApp/MAX/VK) still need their own PersAI adapters, but they can now plug into the same backend enforcement + runtime tool-limit seam without reopening OpenClaw policy ownership.
+
 ## 2026-03-29 - H8-scale Telegram lifecycle hardening
 
 ### What changed

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { HandleInternalCronFireService } from "../src/modules/workspace-management/application/handle-internal-cron-fire.service";
+import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 
 async function runWebDeliveryArtifactTest(): Promise<void> {
   const deliveredMessages: string[] = [];
@@ -42,6 +43,27 @@ async function runWebDeliveryArtifactTest(): Promise<void> {
   const service = new HandleInternalCronFireService(
     prisma as never,
     platformRuntimeProviderSecretStoreService as never,
+    {
+      async resolveByAssistantId() {
+        return {
+          assistant: {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "ws-1"
+          }
+        };
+      }
+    } as never,
+    {
+      async enforceInboundTurn() {
+        return;
+      }
+    } as never,
+    {
+      renderError() {
+        return { code: "ok", text: "rendered" };
+      }
+    } as never,
     assistantChatRepository as never
   );
 
@@ -121,6 +143,27 @@ async function runTelegramTaskTargetTest(): Promise<void> {
     const service = new HandleInternalCronFireService(
       prisma as never,
       platformRuntimeProviderSecretStoreService as never,
+      {
+        async resolveByAssistantId() {
+          return {
+            assistant: {
+              id: "assistant-1",
+              userId: "user-1",
+              workspaceId: "ws-1"
+            }
+          };
+        }
+      } as never,
+      {
+        async enforceInboundTurn() {
+          return;
+        }
+      } as never,
+      {
+        renderError() {
+          return { code: "ok", text: "rendered" };
+        }
+      } as never,
       assistantChatRepository as never
     );
 
@@ -141,9 +184,83 @@ async function runTelegramTaskTargetTest(): Promise<void> {
   }
 }
 
+async function runQuotaRenderedFallbackTest(): Promise<void> {
+  const deliveredMessages: string[] = [];
+  const prisma = {
+    assistant: {
+      findUnique: async () => ({
+        id: "assistant-1",
+        userId: "user-1",
+        workspaceId: "ws-1",
+        preferredNotificationChannel: "web" as const,
+        channelSurfaceBindings: []
+      })
+    },
+    assistantTaskRegistryItem: {
+      deleteMany: async () => ({ count: 1 }),
+      updateMany: async () => ({ count: 0 })
+    },
+    assistantChannelSurfaceBinding: {
+      findFirst: async () => null,
+      update: async () => ({})
+    }
+  };
+
+  const service = new HandleInternalCronFireService(
+    prisma as never,
+    {
+      resolveSecretValueByProviderKey: async () => null
+    } as never,
+    {
+      async resolveByAssistantId() {
+        throw new ApiErrorHttpException(409, {
+          code: "quota_limit_reached",
+          category: "conflict",
+          message: "Quota reached."
+        });
+      }
+    } as never,
+    {
+      async enforceInboundTurn() {
+        return;
+      }
+    } as never,
+    {
+      renderError() {
+        return {
+          code: "quota_limit_reached",
+          text: "Reminder could not be delivered because the current plan limit was reached."
+        };
+      }
+    } as never,
+    {
+      findChatBySurfaceThread: async () => null,
+      createChat: async () => ({ id: "chat-1" }),
+      createMessage: async (input: { content: string }) => {
+        deliveredMessages.push(input.content);
+        return { id: "message-1" };
+      }
+    } as never
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    jobId: "job-1",
+    action: "finished",
+    status: "ok",
+    summary: "Пора спать!"
+  });
+
+  assert.equal(result.deliveredTo, "web");
+  assert.deepEqual(deliveredMessages, [
+    "Reminder could not be delivered because the current plan limit was reached."
+  ]);
+}
+
 async function run(): Promise<void> {
   await runWebDeliveryArtifactTest();
   await runTelegramTaskTargetTest();
+  await runQuotaRenderedFallbackTest();
   console.log("handle-internal-cron-fire tests passed");
 }
 

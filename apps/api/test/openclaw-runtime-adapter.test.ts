@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { AssistantRuntimeAdapterError } from "../src/modules/workspace-management/application/assistant-runtime-adapter.types";
 import { OpenClawRuntimeAdapter } from "../src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter";
 
@@ -65,6 +66,18 @@ async function run(): Promise<void> {
         headers: { "content-type": "application/json" }
       });
     }
+    if (url.endsWith("/api/v1/runtime/chat/channel")) {
+      return new Response(
+        JSON.stringify({
+          assistantMessage: "Telegram reply",
+          respondedAt: "2026-03-31T00:00:00.000Z"
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      );
+    }
     throw new Error(`Unexpected fetch url: ${url}`);
   }) as typeof fetch;
 
@@ -80,6 +93,68 @@ async function run(): Promise<void> {
       }),
     (error: unknown) =>
       error instanceof AssistantRuntimeAdapterError && error.code === "runtime_degraded"
+  );
+
+  const channelResult = await adapter.sendChannelTurn({
+    assistantId: "assistant-1",
+    publishedVersionId: "pub-1",
+    surface: "telegram",
+    threadId: "chat-telegram-1",
+    userMessage: "hello"
+  });
+  assert.deepEqual(channelResult, {
+    assistantMessage: "Telegram reply",
+    respondedAt: "2026-03-31T00:00:00.000Z"
+  });
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.endsWith("/healthz")) {
+      return new Response(JSON.stringify({ ok: true, status: "live" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (url.endsWith("/readyz")) {
+      return new Response(JSON.stringify({ ready: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (url.endsWith("/api/v1/runtime/chat/web/stream")) {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "failed",
+            code: "tool_daily_limit_reached",
+            message: 'Daily tool usage limit reached for "web_search".'
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: { "content-type": "application/x-ndjson" }
+        }
+      );
+    }
+    throw new Error(`Unexpected fetch url: ${url}`);
+  }) as typeof fetch;
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of adapter.streamWebChatTurn({
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        chatId: "chat-1",
+        surfaceThreadKey: "thread-1",
+        userMessageId: "msg-1",
+        userMessage: "hello"
+      })) {
+        void chunk;
+      }
+    },
+    (error: unknown) =>
+      error instanceof ApiErrorHttpException &&
+      error.errorObject.code === "tool_daily_limit_reached"
   );
 }
 

@@ -41,16 +41,28 @@ export interface AssistantRuntimeWebChatTurnInput {
   currentTimeIso?: string;
 }
 
+export interface AssistantRuntimeChannelTurnInput {
+  assistantId: string;
+  publishedVersionId: string;
+  surface: "telegram";
+  threadId: string;
+  userMessage: string;
+  userTimezone?: string;
+  currentTimeIso?: string;
+}
+
 export interface AssistantRuntimeWebChatTurnResult {
   assistantMessage: string;
   respondedAt: string;
 }
 
 export interface AssistantRuntimeWebChatTurnStreamChunk {
-  type: "delta" | "thinking" | "done";
+  type: "delta" | "thinking" | "done" | "failed";
   delta?: string;
   accumulated?: string;
   respondedAt?: string;
+  code?: string;
+  message?: string;
 }
 
 export interface AssistantRuntimeCronControlInput {
@@ -68,6 +80,9 @@ export interface AssistantRuntimeAdapter {
   resetMemoryWorkspace(assistantId: string): Promise<void>;
   sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
+  ): Promise<AssistantRuntimeWebChatTurnResult>;
+  sendChannelTurn(
+    input: AssistantRuntimeChannelTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;
   streamWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput

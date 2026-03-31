@@ -6,6 +6,10 @@ import {
 } from "../domain/assistant-chat.repository";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
+import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
+import { RenderAssistantInboundSurfaceMessageService } from "./render-assistant-inbound-surface-message.service";
+import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 
 const REMINDER_WEB_CHAT_THREAD_KEY = "system:reminders";
 const REMINDER_WEB_CHAT_TITLE = "Reminders";
@@ -144,6 +148,9 @@ export class HandleInternalCronFireService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
+    private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
+    private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
+    private readonly renderAssistantInboundSurfaceMessageService: RenderAssistantInboundSurfaceMessageService,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository
   ) {}
@@ -223,9 +230,29 @@ export class HandleInternalCronFireService {
       preferred !== "web" &&
       assistant.channelSurfaceBindings.some((binding) => binding.providerKey === preferred);
 
-    const summary = input.summary ? stripReminderContextArtifact(input.summary) : undefined;
-    if (input.status !== "ok" || !summary) {
+    const rawSummary = input.summary ? stripReminderContextArtifact(input.summary) : undefined;
+    if (input.status !== "ok" || !rawSummary) {
       return { ok: true, deliveredTo: "none" };
+    }
+
+    let summary = rawSummary;
+    try {
+      const resolved = await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
+        input.assistantId
+      );
+      await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
+        assistant: resolved.assistant,
+        surface: "reminder_callback",
+        isNewThread: false,
+        activeSurfaceChatsCount: 0
+      });
+    } catch (error) {
+      const failure = toAssistantInboundFailurePayload(error);
+      summary = this.renderAssistantInboundSurfaceMessageService.renderError(
+        "reminder_callback",
+        failure.code,
+        failure.message
+      ).text;
     }
 
     if (preferred === "telegram") {
