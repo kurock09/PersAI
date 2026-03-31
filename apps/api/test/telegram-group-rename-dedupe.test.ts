@@ -23,6 +23,12 @@ async function run(): Promise<void> {
       { findLatestByAssistantId: async () => null } as never,
       { execute: async () => undefined } as never,
       {
+        execute: async () => ({
+          mode: "global_settings",
+          primary: { provider: "openai", model: "gpt-4.1" }
+        })
+      } as never,
+      {
         parseInput: () => ({ assistantId: "assistant-1" }),
         execute: async () => undefined
       } as never,
