@@ -104,7 +104,8 @@ async function run(): Promise<void> {
   });
   assert.deepEqual(channelResult, {
     assistantMessage: "Telegram reply",
-    respondedAt: "2026-03-31T00:00:00.000Z"
+    respondedAt: "2026-03-31T00:00:00.000Z",
+    media: []
   });
 
   globalThis.fetch = (async (input: string | URL | Request) => {

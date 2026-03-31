@@ -55,6 +55,11 @@ async function run(): Promise<void> {
       countActiveChatsByAssistantIdAndSurface: async () => 0
     } as never,
     {
+      deleteByChatId: async () => {
+        callOrder.push("attachments-delete");
+      }
+    } as never,
+    {
       deleteWebChatSession: async (input: {
         assistantId: string;
         chatId: string;
@@ -66,6 +71,9 @@ async function run(): Promise<void> {
           chatId: "chat-1",
           surfaceThreadKey: "thread-1"
         });
+      },
+      deleteChatMediaBatch: async () => {
+        callOrder.push("runtime-media-delete");
       }
     } as never,
     {
@@ -79,7 +87,13 @@ async function run(): Promise<void> {
   );
 
   await service.hardDeleteChat("user-1", "chat-1", { confirmText: "DELETE" });
-  assert.deepEqual(callOrder, ["runtime-delete", "repo-delete", "quota-web_chat_hard_delete-0"]);
+  assert.deepEqual(callOrder, [
+    "runtime-delete",
+    "runtime-media-delete",
+    "attachments-delete",
+    "repo-delete",
+    "quota-web_chat_hard_delete-0"
+  ]);
 }
 
 void run();
