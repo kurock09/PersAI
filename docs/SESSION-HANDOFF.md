@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-03-31 - Fix: stream race condition — media NDJSON event was never emitted
+
+### What changed
+- Removed lifecycle `end` event handler from `runPersaiWebRuntimeAgentTurnStream` that was prematurely closing the HTTP response before `resolveAgentResponse` could extract and write the `{ type: "media" }` NDJSON event.
+- The `finally` block already handled closing properly — the lifecycle handler was redundant and caused the `if (closed) return` guard to skip media extraction.
+- Fork SHA: `43bcb54ab7891803e7b4e2e376640febc2bcf58c`.
+- PERSAI-FORK-PATCHES.md updated (patch #18), verify-persai-patches.mjs updated (85/85 pass).
+
+### Known issues
+- None.
+
+### Next steps
+- Verify generated images now appear in web chat after this fix is deployed.
+
+---
+
 ## 2026-03-31 - Fix: tool-generated media routing to user workspace
 
 ### What changed

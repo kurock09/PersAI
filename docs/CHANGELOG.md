@@ -4,6 +4,11 @@
 
 ### Added
 
+- **Fix: stream race condition — media NDJSON event was never emitted:**
+  - Removed lifecycle `end` event handler from stream function that prematurely closed the response before media extraction.
+  - Generated images now flow through the full pipeline: tool result → `resolveAgentResponse` → NDJSON `media` event → PersAI persist → frontend render.
+  - Dev GitOps OpenClaw pin now targets fork SHA `43bcb54ab7891803e7b4e2e376640febc2bcf58c`.
+
 - **Fix: tool-generated images save to user workspace and arrive in chat:**
   - OpenClaw `saveMediaBuffer` now accepts `baseDirOverride`, `image_generate` tool redirects output to `workspaceDir/media/` instead of ephemeral `.openclaw-state/media/`.
   - `resolveMediaFilePath` expanded to accept paths under `PERSAI_WORKSPACE_ROOT` for download.
