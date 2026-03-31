@@ -1,5 +1,67 @@
 # SESSION-HANDOFF
 
+## 2026-03-31 - Systemic PersAI runtime tool credential resolution
+
+### What changed
+
+- **Fork** (`kurock09/openclaw`): commit `67d2503d999a61c5b13882001a302d8a81305a61`
+- OpenClaw runtime credential lookup for PersAI-managed tools is now centralized instead of relying on scattered per-tool fallbacks:
+  - `persai-runtime-context.ts` now exposes a shared `resolvePersaiToolCredentialForEnvVars(...)` helper and tracks the active tool name in request-local context
+  - server-side tool execution now runs inside `withPersaiActiveTool(...)`, so generic provider-auth code can resolve the right tool-specific PersAI credential at runtime
+  - provider auth now checks request-scoped PersAI tool credentials before global `process.env`
+- This fixes the concrete runtime gap where PersAI-managed keys could exist in bootstrap/runtime context but still not be consumed by native OpenClaw execution:
+  - `web_search` now prefers the provider that actually has a PersAI-injected credential, even when stale runtime metadata points at another provider
+  - `tts` now resolves PersAI-managed OpenAI / ElevenLabs credentials during provider auto-pick and synthesis
+  - `image_generate` mount-time auth inference now sees PersAI-managed image-generation credentials
+  - `web_fetch` Firecrawl auth now uses the same shared runtime resolver
+  - `memory_search` / embedding-provider auth now resolves PersAI-managed embeddings credentials through the same central auth path
+- PersAI admin plan UI now explains "cost-driving tools" in plain language and renames the toggles to clearer labels for allow vs quota-governed behavior.
+- Fork-maintenance docs were updated so future upstream merges can verify this native patch explicitly instead of rediscovering it by breakage.
+
+### Files touched
+
+**PersAI:**
+
+- `apps/web/app/app/app-flow.client.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `infra/dev/gitops/openclaw-approved-sha.txt`
+- `infra/helm/values-dev.yaml`
+
+**OpenClaw:**
+
+- `docs/PERSAI-FORK-PATCHES.md`
+- `scripts/verify-persai-patches.mjs`
+- `src/agents/persai-runtime-context.ts`
+- `src/agents/pi-tool-definition-adapter.ts`
+- `src/agents/model-auth-env.ts`
+- `src/agents/tools/model-config.helpers.ts`
+- `src/agents/tools/image-generate-tool.ts`
+- `src/agents/tools/image-generate-tool.test.ts`
+- `src/agents/tools/web-fetch.ts`
+- `src/agents/model-auth.profiles.test.ts`
+- `src/tts/tts.ts`
+- `src/tts/tts.test.ts`
+- `src/tts/providers/openai.ts`
+- `src/tts/providers/elevenlabs.ts`
+- `src/web-search/runtime.ts`
+- `src/web-search/runtime.test.ts`
+
+### Tests run
+
+- **OpenClaw**
+- `corepack pnpm exec tsc --noEmit --pretty false`
+- `corepack pnpm exec vitest run --config vitest.unit.config.ts src/tts/tts.test.ts`
+- `corepack pnpm exec vitest run --config vitest.unit.config.ts src/web-search/runtime.test.ts`
+- `corepack pnpm exec vitest run --config vitest.config.ts src/agents/tools/image-generate-tool.test.ts`
+- `corepack pnpm exec vitest run --config vitest.config.ts src/agents/model-auth.profiles.test.ts -t "honors PersAI|honors active memory_search"`
+- `node scripts/verify-persai-patches.mjs`
+
+### Risks
+
+1. This is an intentional native OpenClaw patch because the final provider/tool auth resolution happens inside runtime execution; PersAI alone cannot force native provider selection/auth lookup to honor request-scoped credentials after the turn enters OpenClaw.
+2. Full `src/agents/model-auth.profiles.test.ts` in upstream OpenClaw still has two unrelated red cases (`legacy oauth.json` timeout and stale `openai-codex/gpt-5.4` expectation); the new PersAI credential-resolution assertions inside that file were run separately and passed.
+
 ## 2026-03-31 - Assistant runtime session hygiene order
 
 ### What changed

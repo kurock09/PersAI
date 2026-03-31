@@ -3743,6 +3743,10 @@ export function AppFlowClient() {
               <p>
                 <strong>Entitlements</strong>
               </p>
+              <p>
+                Cost-driving tools are the expensive external tools such as `web_search`,
+                `web_fetch`, `browser`, `image_generate`, and `tts`.
+              </p>
               <label>
                 <input
                   type="checkbox"
@@ -3754,7 +3758,7 @@ export function AppFlowClient() {
                     }))
                   }
                 />
-                Cost-driving tools available
+                Allow cost-driving tools (web search, web fetch, browser, image generation, TTS)
               </label>
               <label>
                 <input
@@ -3767,7 +3771,7 @@ export function AppFlowClient() {
                     }))
                   }
                 />
-                Cost-driving tools quota-governed
+                Enforce quota limits for cost-driving tools
               </label>
               <label>
                 <input
@@ -4003,6 +4007,10 @@ export function AppFlowClient() {
                     }))
                   }
                 />
+                <p>
+                  Cost-driving tools are the expensive external tools such as `web_search`,
+                  `web_fetch`, `browser`, `image_generate`, and `tts`.
+                </p>
                 <label>
                   <input
                     type="checkbox"
@@ -4014,7 +4022,7 @@ export function AppFlowClient() {
                       }))
                     }
                   />
-                  Cost-driving tools available
+                  Allow cost-driving tools (web search, web fetch, browser, image generation, TTS)
                 </label>
                 <label>
                   <input
@@ -4027,7 +4035,7 @@ export function AppFlowClient() {
                       }))
                     }
                   />
-                  Cost-driving tools quota-governed
+                  Enforce quota limits for cost-driving tools
                 </label>
                 <label>
                   <input

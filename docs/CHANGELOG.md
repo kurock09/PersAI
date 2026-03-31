@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Systemic PersAI tool credential resolution + admin plan clarity:**
+  - OpenClaw native runtime credential resolution is now centralized around request-scoped PersAI context instead of scattered per-tool fallbacks, so PersAI-managed keys now flow correctly into `web_search`, `tts`, `image_generate`, `web_fetch`, and provider-auth-backed runtime paths without relying on transient global `process.env` mutation.
+  - This closes the previously dead runtime paths for `OPENAI_IMAGE_GEN_API_KEY`, `OPENAI_TTS_API_KEY`, and `OPENAI_EMBEDDINGS_API_KEY`, and makes future tool-specific credential wiring go through one shared OpenClaw resolver instead of ad hoc patches.
+  - Admin plan UI now explains what "cost-driving tools" means and renames the switches to clearer labels for allow/quota-governed behavior.
+  - Dev GitOps OpenClaw pin now targets fork SHA `67d2503d999a61c5b13882001a302d8a81305a61`.
+
 - **Assistant runtime session hygiene order:**
   - OpenClaw PersAI web chat session keys now use the assistant-scoped `agent:persai:...` namespace instead of falling back into the legacy `main` session bucket, so new web turns no longer leave assistant traces under `agents/main/sessions`.
   - Full assistant reset now purges assistant session traces from both the current `persai` store and legacy `main` store leftovers, and removes transcript files directly instead of leaving `*.jsonl.reset...` archives behind.
