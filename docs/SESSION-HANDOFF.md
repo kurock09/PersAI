@@ -1,5 +1,42 @@
 # SESSION-HANDOFF
 
+## 2026-03-31 - Tool credential provider selection (web_search + tts)
+
+### What changed
+
+- **Fork** (`kurock09/openclaw`): commit `552dff354331f2a6a56e4cecea16d63f81e2e7d1`
+- Admin can now choose which provider a tool credential targets instead of the hardcoded Tavily/OpenAI defaults.
+- Supported provider selections:
+  - `web_search`: Tavily (default), Brave, Perplexity, Google (Gemini)
+  - `tts`: OpenAI (default), ElevenLabs, Yandex SpeechKit (ready for native integration)
+- Provider selection is stored as a separate encrypted entry in the existing `platform_runtime_provider_secrets` table using a convention key (`tool_web_search__provider`), avoiding DB migration.
+- OpenClaw bridge (`persai-runtime-tool-policy.ts`) uses `PROVIDER_ENV_OVERRIDES` map to resolve the correct env var dynamically based on `providerId` from the bootstrap payload.
+- Admin UI shows a provider dropdown only for tools with >1 provider option.
+
+### Files touched
+
+**PersAI:**
+
+- `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/web/app/admin/tools/page.tsx`
+- `infra/dev/gitops/openclaw-approved-sha.txt`
+- `infra/helm/values-dev.yaml`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+**OpenClaw:**
+
+- `src/gateway/persai-runtime/persai-runtime-tool-policy.ts` (PersAI-only bridge file, zero merge risk)
+
+### Risks
+
+- Yandex SpeechKit TTS is listed as a provider option but OpenClaw has no native Yandex TTS provider yet; selecting it will set `YANDEX_TTS_API_KEY` in the runtime env which won't be consumed until native support is added.
+- Existing users with a Tavily key and no explicit provider selection will continue to work (default = tavily).
+
+---
+
 ## 2026-03-31 - Systemic PersAI runtime tool credential resolution
 
 ### What changed

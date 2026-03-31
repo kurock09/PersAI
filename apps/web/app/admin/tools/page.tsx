@@ -4,6 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Wrench, Loader2, Save, CheckCircle, XCircle } from "lucide-react";
 
+type ProviderOption = {
+  id: string;
+  label: string;
+  envVar: string;
+};
+
 type ToolCredentialStatus = {
   credentialKey: string;
   toolCode: string;
@@ -11,6 +17,8 @@ type ToolCredentialStatus = {
   configured: boolean;
   lastFour: string | null;
   updatedAt: string | null;
+  providerId: string | null;
+  providerOptions: ProviderOption[] | null;
 };
 
 type AdminToolCredentialsState = {
@@ -26,6 +34,7 @@ export default function AdminToolsPage() {
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+  const [providerInputs, setProviderInputs] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -71,8 +80,13 @@ export default function AdminToolsPage() {
         if (value.trim()) keysToSend[key] = value.trim();
       }
 
-      if (Object.keys(keysToSend).length === 0) {
-        setFeedback("No keys to save.");
+      const providersToSend: Record<string, string> = {};
+      for (const [key, value] of Object.entries(providerInputs)) {
+        if (value.trim()) providersToSend[key] = value.trim();
+      }
+
+      if (Object.keys(keysToSend).length === 0 && Object.keys(providersToSend).length === 0) {
+        setFeedback("No changes to save.");
         setSaving(false);
         return;
       }
@@ -84,7 +98,7 @@ export default function AdminToolsPage() {
           "Content-Type": "application/json",
           "x-persai-step-up-token": stepUpToken
         },
-        body: JSON.stringify({ keys: keysToSend })
+        body: JSON.stringify({ keys: keysToSend, providers: providersToSend })
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -92,15 +106,20 @@ export default function AdminToolsPage() {
       }
       setFeedback("Saved successfully.");
       setKeyInputs({});
+      setProviderInputs({});
       await load();
     } catch (e) {
       setFeedback(e instanceof Error ? e.message : "Save failed.");
     }
     setSaving(false);
-  }, [getToken, keyInputs, load]);
+  }, [getToken, keyInputs, providerInputs, load]);
 
   const updateKeyInput = (credentialKey: string, value: string) => {
     setKeyInputs((prev) => ({ ...prev, [credentialKey]: value }));
+  };
+
+  const updateProviderInput = (credentialKey: string, value: string) => {
+    setProviderInputs((prev) => ({ ...prev, [credentialKey]: value }));
   };
 
   if (loading) {
@@ -155,6 +174,22 @@ export default function AdminToolsPage() {
                 )}
               </div>
             </div>
+            {cred.providerOptions && cred.providerOptions.length > 1 && (
+              <div className="mb-2">
+                <label className="text-[11px] text-text-muted block mb-1">Provider</label>
+                <select
+                  value={providerInputs[cred.credentialKey] ?? cred.providerId ?? ""}
+                  onChange={(e) => updateProviderInput(cred.credentialKey, e.target.value)}
+                  className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                >
+                  {cred.providerOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <input
               type="password"
               value={keyInputs[cred.credentialKey] ?? ""}

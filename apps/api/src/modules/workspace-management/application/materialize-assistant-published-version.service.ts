@@ -30,7 +30,10 @@ import { resolveRuntimeProviderProfileState } from "./runtime-provider-profile";
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
   TOOL_CODE_BY_CREDENTIAL_KEY,
-  buildToolCredentialSecretRef
+  TOOL_DEFAULT_PROVIDER,
+  TOOL_PROVIDER_OPTIONS,
+  buildToolCredentialSecretRef,
+  providerStorageKey
 } from "./tool-credential-settings";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
@@ -286,6 +289,7 @@ export class MaterializeAssistantPublishedVersionService {
         refKey: string;
         secretRef: { source: string; provider: string; id: string };
         configured: boolean;
+        providerId?: string;
       }
     >
   > {
@@ -298,14 +302,26 @@ export class MaterializeAssistantPublishedVersionService {
         refKey: string;
         secretRef: { source: string; provider: string; id: string };
         configured: boolean;
+        providerId?: string;
       }
     > = {};
     for (const credentialKey of ALL_TOOL_CREDENTIAL_KEYS) {
       const toolCode = TOOL_CODE_BY_CREDENTIAL_KEY[credentialKey];
       const secretRef = buildToolCredentialSecretRef(credentialKey);
+
+      let providerId: string | undefined;
+      if (TOOL_PROVIDER_OPTIONS[credentialKey]) {
+        const stored =
+          await this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
+            providerStorageKey(credentialKey)
+          );
+        providerId = stored ?? TOOL_DEFAULT_PROVIDER[credentialKey] ?? undefined;
+      }
+
       refs[toolCode] = {
         ...secretRef,
-        configured: keyMetadata[credentialKey]?.configured ?? false
+        configured: keyMetadata[credentialKey]?.configured ?? false,
+        ...(providerId ? { providerId } : {})
       };
     }
     return refs;

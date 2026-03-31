@@ -173,6 +173,9 @@ Foundation Phase
   - [x] H9b — remove `process.env` mutation from `persai-runtime-agent-turn.ts` (sync, telegram, stream)
   - [x] H9c — patch credential readers (Tavily, Firecrawl, web-fetch) to read from context first
   - [x] H9d — new `plugin-sdk/persai-credential` subpath for extension boundary compliance
+  - [x] H9e — systemic credential centralization: replace per-tool `getPersaiToolCredential` with centralized `resolvePersaiToolCredentialForEnvVars` + `withPersaiActiveTool` context wrapper; integrate into `model-auth-env` so all provider auth resolution prioritizes PersAI-injected credentials
+  - [x] H9f — fix dead credential paths for `web_search` (Tavily provider selection), `tts` (OpenAI + ElevenLabs), `image_generate`, `web_fetch` (Firecrawl), and `memory_search` embeddings
+  - [x] H9g — admin plan UI: expose `toolCostDriving` and `toolCostDrivingQuotaGoverned` flags with descriptive labels in plan management
 - [x] H10 — thinking/reasoning UX (stream thinking tokens, collapsible "Thought for Xs" block with fade-out preview)
   - [x] H10a — OpenClaw NDJSON thinking stream for PersAI web runtime
   - [x] H10b — API/Web SSE transport for `thinking` events
@@ -208,6 +211,7 @@ Foundation Phase
   - [x] H8s5 — add cooldown/rate-limit guards for `setMyName` / `setMyDescription` / `setMyProfilePhoto` to prevent Telegram `429` storms
   - [x] H8s6 — keep startup cheap and readiness-safe: defer non-critical Telegram profile work until after gateway becomes ready
   - [x] H8s8 — add runtime session lifecycle control: clear `agent:persai:<assistantId>:*` sessions on assistant reset/recreate, enforce TTL/GC for stale channel sessions, and keep session growth bounded for 1000+ users
+  - [x] H8s9 — full session purge on reset/recreate: delete all runtime sessions (`agent:main` + `agent:persai`) for the assistant's workspace and delete per-chat sessions on web chat deletion; policy decision: no archive, full purge
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity
 - [x] H12 — Cron webhook callback + preferred notification channel + memory lifecycle
   - [x] H12a — Prisma: `preferredNotificationChannel` field on assistant model + migration
@@ -233,7 +237,11 @@ Foundation Phase
   - [ ] H15b — validate rollout safety and startup latency budgets for `api`, `web`, and `openclaw` under realistic cold-start and recovery scenarios
 - [ ] H16 — Autonomous workspace heartbeat isolation and cheap-model routing
   - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated
-  - immediate hygiene landed already: assistant `BOOTSTRAP.md` is now one-time/consumed, heartbeat uses a dedicated background session, and background default-model selection can follow PersAI admin global settings
+  - immediate hygiene (landed):
+  - [x] H16-hygiene-a — `BOOTSTRAP.md` is now one-time/consumed: deleted from workspace after first successful bootstrap read, re-created only on full reset/recreate
+  - [x] H16-hygiene-b — heartbeat/background polling uses a dedicated background session key (`__bg_heartbeat`), separated from user assistant turn sessions
+  - [x] H16-hygiene-c — background default-model selection follows PersAI admin global settings (`defaultModelKey`) instead of hardcoded `gpt-4.1`
+  - remaining deeper isolation:
   - [ ] H16a — verify which runtime paths still read `HEARTBEAT.md` from the default OpenClaw workspace instead of assistant-scoped `workspaceDir`
   - [ ] H16b — bind heartbeat polling and related autonomous file checks to the correct assistant/user workspace where product behavior is expected per assistant
   - [ ] H16c — document the role of the main/default workspace vs assistant-scoped workspaces so background agent behavior is understandable and debuggable

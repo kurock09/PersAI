@@ -28,6 +28,35 @@ export const CREDENTIAL_KEY_BY_SECRET_ID: Record<string, ToolCredentialKey> = Ob
   return accumulator;
 }, {});
 
+export type ToolProviderOption = {
+  id: string;
+  label: string;
+  envVar: string;
+};
+
+export const TOOL_PROVIDER_OPTIONS: Partial<Record<ToolCredentialKey, ToolProviderOption[]>> = {
+  tool_web_search: [
+    { id: "tavily", label: "Tavily", envVar: "TAVILY_API_KEY" },
+    { id: "brave", label: "Brave Search", envVar: "BRAVE_API_KEY" },
+    { id: "perplexity", label: "Perplexity", envVar: "PERPLEXITY_API_KEY" },
+    { id: "google", label: "Google (Gemini)", envVar: "GEMINI_API_KEY" }
+  ],
+  tool_tts: [
+    { id: "openai", label: "OpenAI TTS", envVar: "OPENAI_TTS_API_KEY" },
+    { id: "elevenlabs", label: "ElevenLabs", envVar: "ELEVENLABS_API_KEY" },
+    { id: "yandex", label: "Yandex SpeechKit", envVar: "YANDEX_TTS_API_KEY" }
+  ]
+};
+
+export const TOOL_DEFAULT_PROVIDER: Partial<Record<ToolCredentialKey, string>> = {
+  tool_web_search: "tavily",
+  tool_tts: "openai"
+};
+
+export function providerStorageKey(credentialKey: ToolCredentialKey): string {
+  return `${credentialKey}__provider`;
+}
+
 export type ToolCredentialStatus = {
   credentialKey: ToolCredentialKey;
   toolCode: string;
@@ -35,6 +64,8 @@ export type ToolCredentialStatus = {
   configured: boolean;
   lastFour: string | null;
   updatedAt: string | null;
+  providerId: string | null;
+  providerOptions: ToolProviderOption[] | null;
 };
 
 export type AdminToolCredentialsState = {
@@ -45,6 +76,7 @@ export type AdminToolCredentialsState = {
 
 export type UpdateToolCredentialsInput = {
   keys: Partial<Record<ToolCredentialKey, string>>;
+  providers: Partial<Record<ToolCredentialKey, string>>;
 };
 
 const MAX_KEY_LENGTH = 512;
@@ -97,7 +129,30 @@ export function parseUpdateToolCredentialsInput(body: unknown): UpdateToolCreden
     }
     keys[credentialKey] = trimmed;
   }
-  return { keys };
+
+  const providers: Partial<Record<ToolCredentialKey, string>> = {};
+  const providersRaw = body.providers;
+  if (isObject(providersRaw)) {
+    for (const credentialKey of ALL_TOOL_CREDENTIAL_KEYS) {
+      const value = providersRaw[credentialKey];
+      if (typeof value !== "string" || value.trim().length === 0) {
+        continue;
+      }
+      const options = TOOL_PROVIDER_OPTIONS[credentialKey];
+      if (!options) {
+        continue;
+      }
+      const trimmed = value.trim();
+      if (!options.some((opt) => opt.id === trimmed)) {
+        throw new Error(
+          `providers.${credentialKey} must be one of: ${options.map((o) => o.id).join(", ")}.`
+        );
+      }
+      providers[credentialKey] = trimmed;
+    }
+  }
+
+  return { keys, providers };
 }
 
 export function buildToolCredentialSecretRef(credentialKey: ToolCredentialKey): {
@@ -117,6 +172,7 @@ export function buildToolCredentialSecretRef(credentialKey: ToolCredentialKey): 
 
 export function buildAdminToolCredentialsState(params: {
   keyMetadata: Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata>;
+  providerSelections: Partial<Record<ToolCredentialKey, string>>;
 }): AdminToolCredentialsState {
   const DISPLAY_NAMES: Record<ToolCredentialKey, string> = {
     tool_web_search: "Web Search API Key",
@@ -134,7 +190,10 @@ export function buildAdminToolCredentialsState(params: {
       displayName: DISPLAY_NAMES[credentialKey],
       configured: params.keyMetadata[credentialKey].configured,
       lastFour: params.keyMetadata[credentialKey].lastFour,
-      updatedAt: params.keyMetadata[credentialKey].updatedAt
+      updatedAt: params.keyMetadata[credentialKey].updatedAt,
+      providerId:
+        params.providerSelections[credentialKey] ?? TOOL_DEFAULT_PROVIDER[credentialKey] ?? null,
+      providerOptions: TOOL_PROVIDER_OPTIONS[credentialKey] ?? null
     })),
     notes: [
       "Tool credentials are managed globally for all assistants.",

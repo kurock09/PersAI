@@ -7,6 +7,8 @@ import {
   ALL_TOOL_CREDENTIAL_KEYS,
   buildAdminToolCredentialsState,
   parseUpdateToolCredentialsInput,
+  providerStorageKey,
+  TOOL_PROVIDER_OPTIONS,
   type AdminToolCredentialsState,
   type ToolCredentialKey,
   type UpdateToolCredentialsInput
@@ -32,7 +34,8 @@ export class ManageAdminToolCredentialsService {
   async getCredentials(userId: string): Promise<AdminToolCredentialsState> {
     await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const keyMetadata = await this.loadToolKeyMetadata();
-    return buildAdminToolCredentialsState({ keyMetadata });
+    const providerSelections = await this.loadProviderSelections();
+    return buildAdminToolCredentialsState({ keyMetadata, providerSelections });
   }
 
   async updateCredentials(
@@ -57,10 +60,19 @@ export class ManageAdminToolCredentialsService {
           userId
         );
       }
+      const providerId = input.providers[credentialKey];
+      if (typeof providerId === "string" && providerId.trim().length > 0) {
+        await this.platformRuntimeProviderSecretStoreService.upsertProviderKey(
+          providerStorageKey(credentialKey),
+          providerId,
+          userId
+        );
+      }
     }
 
     const keyMetadata = await this.loadToolKeyMetadata();
-    const state = buildAdminToolCredentialsState({ keyMetadata });
+    const providerSelections = await this.loadProviderSelections();
+    const state = buildAdminToolCredentialsState({ keyMetadata, providerSelections });
 
     await this.appendAssistantAuditEventService.execute({
       workspaceId: null,
@@ -77,6 +89,23 @@ export class ManageAdminToolCredentialsService {
     });
 
     return state;
+  }
+
+  private async loadProviderSelections(): Promise<Partial<Record<ToolCredentialKey, string>>> {
+    const result: Partial<Record<ToolCredentialKey, string>> = {};
+    const keysWithProviders = ALL_TOOL_CREDENTIAL_KEYS.filter(
+      (k) => TOOL_PROVIDER_OPTIONS[k] !== undefined
+    );
+    for (const credentialKey of keysWithProviders) {
+      const stored =
+        await this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
+          providerStorageKey(credentialKey)
+        );
+      if (stored) {
+        result[credentialKey] = stored;
+      }
+    }
+    return result;
   }
 
   private async loadToolKeyMetadata(): Promise<

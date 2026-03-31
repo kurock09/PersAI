@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Tool credential provider selection (web_search + tts):**
+  - Admin can now choose which provider a tool credential targets (e.g., Brave vs Tavily for web search, OpenAI vs ElevenLabs vs Yandex for TTS) instead of a hardcoded default.
+  - Provider selection stored encrypted alongside the API key (no DB migration).
+  - OpenClaw bridge dynamically maps credential to the correct env var based on selected provider.
+  - Yandex SpeechKit added as a TTS provider option for future native integration.
+  - Dev GitOps OpenClaw pin now targets fork SHA `552dff354331f2a6a56e4cecea16d63f81e2e7d1`.
+
 - **Systemic PersAI tool credential resolution + admin plan clarity:**
   - OpenClaw native runtime credential resolution is now centralized around request-scoped PersAI context instead of scattered per-tool fallbacks, so PersAI-managed keys now flow correctly into `web_search`, `tts`, `image_generate`, `web_fetch`, and provider-auth-backed runtime paths without relying on transient global `process.env` mutation.
   - This closes the previously dead runtime paths for `OPENAI_IMAGE_GEN_API_KEY`, `OPENAI_TTS_API_KEY`, and `OPENAI_EMBEDDINGS_API_KEY`, and makes future tool-specific credential wiring go through one shared OpenClaw resolver instead of ad hoc patches.
