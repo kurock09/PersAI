@@ -269,12 +269,13 @@ export function useChat(threadKey: string): UseChatReturn {
               }
 
               if (pendingFiles.length > 0 && realUserMsgId && realChatId) {
-                const uploadToken = token;
                 void (async () => {
+                  const freshToken = await getToken();
+                  if (!freshToken) return;
                   for (const file of pendingFiles) {
                     try {
                       const uploaded = await uploadChatAttachment(
-                        uploadToken,
+                        freshToken,
                         realChatId,
                         realUserMsgId,
                         file
