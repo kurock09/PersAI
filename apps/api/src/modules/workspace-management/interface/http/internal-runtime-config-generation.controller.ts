@@ -24,6 +24,7 @@ import {
   type AssistantPublishedVersionRepository
 } from "../../domain/assistant-published-version.repository";
 import { MaterializeAssistantPublishedVersionService } from "../../application/materialize-assistant-published-version.service";
+import { ResolvePlatformRuntimeProviderSettingsService } from "../../application/resolve-platform-runtime-provider-settings.service";
 import { SyncTelegramChatTargetService } from "../../application/sync-telegram-chat-target.service";
 
 type InternalRequestLike = {
@@ -79,6 +80,7 @@ export class InternalRuntimeConfigGenerationController {
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly publishedVersionRepository: AssistantPublishedVersionRepository,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly syncTelegramChatTargetService: SyncTelegramChatTargetService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
@@ -90,6 +92,24 @@ export class InternalRuntimeConfigGenerationController {
     this.assertAuthorized(req);
     const generation = await this.bumpConfigGenerationService.current();
     return { generation };
+  }
+
+  @Get("provider-settings/default")
+  async getDefaultProviderSettings(@Req() req: InternalRequestLike): Promise<{
+    generation: number;
+    mode: "legacy_openclaw_default" | "global_settings";
+    primary: { provider: "openai" | "anthropic"; model: string } | null;
+  }> {
+    this.assertAuthorized(req);
+    const [generation, settings] = await Promise.all([
+      this.bumpConfigGenerationService.current(),
+      this.resolvePlatformRuntimeProviderSettingsService.execute()
+    ]);
+    return {
+      generation,
+      mode: settings.mode,
+      primary: settings.primary
+    };
   }
 
   @HttpCode(200)

@@ -356,6 +356,11 @@ Required in CI:
   - `memory/` created when missing
   - both cleared on reset
   - edit/update does not touch memory lifecycle artifacts
+- Assistant bootstrap lifecycle validates:
+  - fresh assistant workspace apply creates `BOOTSTRAP.md`
+  - first successful web/Telegram assistant turn consumes `BOOTSTRAP.md`
+  - ordinary later applies do not recreate `BOOTSTRAP.md` while the same workspace still exists
+  - full reset/recreate gets a fresh `BOOTSTRAP.md` because the assistant workspace is recreated
 
 ### Reminders/tasks
 
@@ -466,6 +471,8 @@ Required in CI:
 - Session `cwd` header is synced with runtime `workspaceDir` on every turn (no stale path drift).
 - Memory tools (`memory_get`, `memory_search`) use `persaiRuntimeRequestContext.workspaceDir` before falling back to `resolveAgentWorkspaceDir`.
 - Telegram bot reads/writes same `MEMORY.md` and bootstrap files as web chat for the same assistant.
+- Heartbeat/background runs use a dedicated heartbeat session key and must not reuse the main user chat transcript/bootstrap set.
+- Background heartbeat without an explicit heartbeat model override should prefer the PersAI admin global default model when that setting is active.
 
 ### Regression
 

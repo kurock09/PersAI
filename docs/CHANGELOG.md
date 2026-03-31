@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Bootstrap/heartbeat hygiene for PersAI workspaces:**
+  - Assistant-scoped `BOOTSTRAP.md` is now treated as a true one-time birth certificate: PersAI consumes it after the first successful web/Telegram turn through a new runtime bridge seam `POST /api/v1/runtime/workspace/bootstrap/consume`, and later normal applies no longer recreate it while that workspace still exists.
+  - Full assistant reset/recreate still gets a fresh `BOOTSTRAP.md` because the assistant workspace is deleted/recreated before the next apply.
+  - OpenClaw heartbeat/background runs now use a dedicated heartbeat session instead of the main chat session, so stale bootstrap/startup context no longer bleeds into user-facing transcript flow.
+  - Background heartbeat now prefers the PersAI admin global runtime default via internal endpoint `GET /api/v1/internal/runtime/provider-settings/default` when no explicit heartbeat model override is configured, falling back to native OpenClaw defaults only when PersAI global settings are not active.
+  - Added focused regression coverage for assistant bootstrap-consume behavior, heartbeat session isolation/filtering, heartbeat model override resolution, and the PersAI runtime adapter consume endpoint.
+
 - **H13 core — unified PersAI-owned turn gateway for web + Telegram:**
   - Added concrete PersAI internal Telegram turn ingress: `POST /api/v1/internal/runtime/turns/telegram`.
   - Telegram inbound no longer decides turn admission inside OpenClaw alone; PersAI now resolves assistant live-state, applies capability/quota/rate checks, emits stable error codes, and then invokes OpenClaw as runtime executor.

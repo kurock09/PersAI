@@ -233,6 +233,7 @@ Foundation Phase
   - [ ] H15b — validate rollout safety and startup latency budgets for `api`, `web`, and `openclaw` under realistic cold-start and recovery scenarios
 - [ ] H16 — Autonomous workspace heartbeat isolation and cheap-model routing
   - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated
+  - immediate hygiene landed already: assistant `BOOTSTRAP.md` is now one-time/consumed, heartbeat uses a dedicated background session, and background default-model selection can follow PersAI admin global settings
   - [ ] H16a — verify which runtime paths still read `HEARTBEAT.md` from the default OpenClaw workspace instead of assistant-scoped `workspaceDir`
   - [ ] H16b — bind heartbeat polling and related autonomous file checks to the correct assistant/user workspace where product behavior is expected per assistant
   - [ ] H16c — document the role of the main/default workspace vs assistant-scoped workspaces so background agent behavior is understandable and debuggable

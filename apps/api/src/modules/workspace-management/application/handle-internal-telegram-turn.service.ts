@@ -90,7 +90,16 @@ export class HandleInternalTelegramTurnService {
       assistantContent: runtimeResponse.assistantMessage,
       source: "telegram_turn_sync"
     });
+    await this.consumeBootstrapBestEffort(resolved.assistantId);
 
     return runtimeResponse;
+  }
+
+  private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {
+    try {
+      await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId);
+    } catch (error) {
+      console.warn("[telegram-turn] Non-fatal: failed to consume BOOTSTRAP.md:", error);
+    }
   }
 }

@@ -1,5 +1,72 @@
 # SESSION-HANDOFF
 
+## 2026-03-31 - Bootstrap and heartbeat hygiene
+
+### What changed
+
+- Assistant-scoped `BOOTSTRAP.md` is now truly one-time:
+  - fresh assistant workspace apply still creates it
+  - after the first successful web or Telegram assistant turn, PersAI calls a new runtime bridge seam `POST /api/v1/runtime/workspace/bootstrap/consume`
+  - OpenClaw deletes `BOOTSTRAP.md` and writes a tiny consumed marker so later ordinary applies do not recreate it in that same workspace
+- Full reset/recreate behavior is preserved:
+  - `resetWorkspace` still deletes the whole assistant workspace
+  - recreate/reset therefore clears the consumed marker too
+  - the next fresh apply into the new workspace writes a fresh `BOOTSTRAP.md` again
+- Heartbeat/background polling is now separated from user turn flow:
+  - OpenClaw heartbeat runs in a dedicated `:heartbeat` session instead of the main user chat session
+  - bootstrap-file filtering now treats heartbeat sessions like other background contexts, so stale `BOOTSTRAP.md` no longer bleeds into background runs as phantom user traffic
+- Background heartbeat model selection is less confusing:
+  - when no explicit heartbeat model override is configured, OpenClaw now asks PersAI internal endpoint `GET /api/v1/internal/runtime/provider-settings/default`
+  - if PersAI global runtime settings are active, heartbeat uses that admin default model instead of only the local OpenClaw fallback
+  - if PersAI global settings are not active / unavailable, fallback remains the native OpenClaw configured default
+
+### Files touched
+
+**PersAI:**
+
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts`
+- `apps/api/test/openclaw-runtime-adapter.test.ts`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/ROADMAP.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+**OpenClaw:**
+
+- `src/agents/workspace.ts`
+- `src/agents/workspace.test.ts`
+- `src/gateway/persai-runtime/persai-runtime-heartbeat-model.ts`
+- `src/gateway/persai-runtime/persai-runtime-http.ts`
+- `src/gateway/persai-runtime/persai-runtime-workspace.ts`
+- `src/gateway/persai-runtime/persai-runtime-workspace.test.ts`
+- `src/gateway/server-http.ts`
+- `src/infra/heartbeat-runner.ts`
+- `src/infra/heartbeat-runner.model-override.test.ts`
+- `src/plugin-sdk/provider-auth.ts`
+- `src/plugin-sdk/provider-auth-api-key.ts`
+- `src/secrets/configure.ts`
+- `tsconfig.json`
+- `openclaw/docs/PERSAI-FORK-PATCHES.md`
+- `openclaw/scripts/verify-persai-patches.mjs`
+
+### Tests run
+
+- `corepack pnpm exec tsc --noEmit`
+- `corepack pnpm vitest run src/gateway/persai-runtime/persai-runtime-workspace.test.ts src/infra/heartbeat-runner.model-override.test.ts src/agents/workspace.test.ts`
+- `corepack pnpm --filter @persai/api exec node --import tsx test/openclaw-runtime-adapter.test.ts`
+- `corepack pnpm --filter @persai/api typecheck`
+
+### Risks
+
+1. The immediate hygiene fix isolates heartbeat from main user flow, but it does not fully finish broader H16 work around assistant-scoped autonomous loops and cheap-model routing for every background path.
+
 ## 2026-03-31 - H13 core unified turn gateway
 
 ### What changed

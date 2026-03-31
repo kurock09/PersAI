@@ -121,6 +121,7 @@ export class SendWebChatTurnService {
       assistantContent: assistantMessage.content,
       source: "web_chat_turn_sync"
     });
+    await this.consumeBootstrapBestEffort(prepared.assistantId);
 
     return {
       chat: prepared.chat,
@@ -137,6 +138,14 @@ export class SendWebChatTurnService {
         respondedAt: runtimeResponse.respondedAt
       }
     };
+  }
+
+  private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {
+    try {
+      await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId);
+    } catch (error) {
+      console.warn("[web-chat] Non-fatal: failed to consume BOOTSTRAP.md:", error);
+    }
   }
 
   private async recordAssistantMessage(chatId: string, assistantId: string, content: string) {

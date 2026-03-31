@@ -518,6 +518,12 @@ It is not part of backend domain logic.
 
 - PersAI `MaterializeAssistantPublishedVersionService` emits seven Markdown bootstrap docs into materialized `openclawWorkspace.bootstrapDocuments` (e.g. SOUL.md, USER.md, IDENTITY.md, TOOLS.md, AGENTS.md, HEARTBEAT.md, BOOTSTRAP.md).
 - Apply path: materialized spec → `POST /api/v1/runtime/spec/apply` → OpenClaw `persai-runtime-workspace.ts` writes files on disk with **write-once / never overwrite** rules for bootstrap artifacts.
+- PersAI assistant workspaces treat `BOOTSTRAP.md` as a one-time birth certificate:
+  - it is created on first apply into a fresh assistant workspace
+  - after the first successful web or Telegram assistant turn, PersAI calls the runtime bootstrap-consume seam and OpenClaw deletes `BOOTSTRAP.md` plus writes a small consumed marker
+  - later ordinary applies/re-materializations do **not** recreate `BOOTSTRAP.md` while that workspace still exists
+  - full reset/recreate deletes the whole assistant workspace, so the next fresh apply creates `BOOTSTRAP.md` again
+- OpenClaw heartbeat/background runs now use a dedicated `:heartbeat` session sibling instead of the main user session, so background polling no longer reuses the main chat transcript or re-injects assistant `BOOTSTRAP.md` as if it were user traffic.
 
 ### Memory delegation
 

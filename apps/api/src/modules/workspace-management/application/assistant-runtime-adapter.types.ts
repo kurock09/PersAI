@@ -76,6 +76,7 @@ export interface AssistantRuntimeAdapter {
   preflight(): Promise<AssistantRuntimePreflightResult>;
   applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void>;
   cleanupWorkspace(assistantId: string): Promise<void>;
+  consumeBootstrapWorkspace(assistantId: string): Promise<void>;
   resetWorkspace(assistantId: string): Promise<void>;
   resetMemoryWorkspace(assistantId: string): Promise<void>;
   sendWebChatTurn(

@@ -161,6 +161,7 @@ export class StreamWebChatTurnService {
         assistantContent: accumulated,
         source: "web_chat_turn_stream_completed"
       });
+      await this.consumeBootstrapBestEffort(prepared.assistantId);
       const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
       if (refreshedChat === null) {
         throw new NotFoundException("Chat does not exist for this assistant.");
@@ -207,6 +208,14 @@ export class StreamWebChatTurnService {
         code: normalized.code,
         message: normalized.message
       };
+    }
+  }
+
+  private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {
+    try {
+      await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId);
+    } catch (error) {
+      console.warn("[web-chat-stream] Non-fatal: failed to consume BOOTSTRAP.md:", error);
     }
   }
 

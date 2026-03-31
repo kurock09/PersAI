@@ -109,6 +109,19 @@ async function run(): Promise<void> {
 
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);
+    if (url.endsWith("/api/v1/runtime/workspace/bootstrap/consume")) {
+      return new Response(JSON.stringify({ ok: true, deleted: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    throw new Error(`Unexpected fetch url: ${url}`);
+  }) as typeof fetch;
+
+  await adapter.consumeBootstrapWorkspace("assistant-1");
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
     if (url.endsWith("/healthz")) {
       return new Response(JSON.stringify({ ok: true, status: "live" }), {
         status: 200,

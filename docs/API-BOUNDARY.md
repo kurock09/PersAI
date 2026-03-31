@@ -1194,6 +1194,7 @@ This subsection is the **design-freeze** contract between PersAI `apps/api` and 
 - `POST /api/v1/runtime/chat/channel`
 - current concrete surface: `telegram`
 - PersAI evaluates policy first through its internal turn gateway, then calls this runtime execute seam as a thin executor bridge
+- After the first successful web/Telegram turn, PersAI may call `POST /api/v1/runtime/workspace/bootstrap/consume` so assistant-scoped `BOOTSTRAP.md` is removed and ordinary future applies do not recreate it unless the workspace was reset/recreated.
 
 ### Fork build (native runtime)
 
@@ -1261,6 +1262,18 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 - Request body limit **1_000_000** bytes; **413** / **408** / **400** for read errors.
 - **405** for non-POST.
 - **200** with `{ ok: true, accepted: true, assistantId, publishedVersionId, contentHash, reapply, appliedAt }` on success (informative; adapter does not assert this shape); apply payload is persisted server-side for subsequent chat (see ADR-048).
+
+### `POST /api/v1/runtime/workspace/bootstrap/consume`
+
+- **Method:** `POST`
+- **Body:** `{ assistantId: string }`
+- **Auth:** same Bearer gateway token as the other runtime bridge endpoints
+- **Success:** `200` JSON `{ ok: true, assistantId, workspaceDir, bootstrapPath, deleted }`
+- **Behavior:**
+  - deletes assistant-scoped `BOOTSTRAP.md`
+  - writes a small consumed marker into that assistant workspace
+  - later ordinary `spec/apply` calls skip `BOOTSTRAP.md` while that marker exists
+  - full workspace reset/recreate clears the marker because the assistant workspace directory is deleted/recreated
 
 ### `POST /api/v1/runtime/chat/web`
 
@@ -1410,6 +1423,16 @@ Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness dete
 5. 204 → update local cache, proceed with stored spec
 6. 200 → apply fresh spec locally (validate, write workspace, store.put), proceed
 7. Network error / 5xx → fail-open, use stored spec with warning log
+
+### `GET /api/v1/internal/runtime/provider-settings/default`
+
+- **Method:** `GET`
+- **Auth:** internal `OPENCLAW_GATEWAY_TOKEN`
+- **Success:** `200` JSON `{ generation, mode, primary }`
+- **Behavior:**
+  - exposes the current PersAI global runtime-provider default (`primary.provider` + `primary.model`) for background runtime flows
+  - OpenClaw heartbeat uses this as the background default model when no explicit heartbeat model override is configured
+  - fallback remains the native OpenClaw configured default when PersAI settings are still in `legacy_openclaw_default` mode or the internal fetch is unavailable
 
 ## Step 12 H8-scale Telegram lifecycle hardening
 
