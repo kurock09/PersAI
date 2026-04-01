@@ -4,6 +4,15 @@
 
 ### Added
 
+- **Fix: Telegram image delivery — media missing from agent turn response:**
+  - Root cause: `runPersaiTelegramAgentTurn` used `resolveAgentResponseText` (text only) instead of `resolveAgentResponse` (text + media). The HTTP handler also omitted `media` from the Telegram channel JSON response.
+  - Tool-generated images were captured by `_capturedBlockReplyMedia` but silently dropped before reaching `deliverTelegramMedia`.
+  - Dev GitOps OpenClaw pin now targets fork SHA `3aa3806349c035e6d85662ae0467891abe62916f`.
+
+- **Fix: auth proxy for attachment downloads (web):**
+  - Browser `<img>`/`<audio>`/`<video>` tags don't send Bearer tokens. Created Next.js API proxy route `/api/attachment/[id]` that authenticates via Clerk session cookie and forwards with Bearer token server-side.
+  - Updated `getAttachmentDownloadUrl` to route through the proxy, protected by Clerk middleware.
+
 - **Fix: tool-generated media silently lost — onBlockReply fallback:**
   - Root cause: `agentCommandFromIngress` does not pass `onBlockReply` to `runEmbeddedPiAgent`. Tool media from `pendingToolMediaUrls` flows exclusively through block-reply callbacks, which were silently dropped.
   - Added a fallback `onBlockReply` in `runEmbeddedPiAgent` (OpenClaw `run.ts`) that captures media-bearing block replies and merges them into `result.payloads`.
