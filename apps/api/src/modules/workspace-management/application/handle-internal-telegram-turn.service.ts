@@ -129,12 +129,14 @@ export class HandleInternalTelegramTurnService {
       throw new NotFoundException("Workspace does not exist for this assistant.");
     }
 
+    const enrichedMessage = this.enrichMessageWithAttachments(input.message, input.attachments);
+
     const runtimeResponse = await this.assistantRuntimeAdapter.sendChannelTurn({
       assistantId: resolved.assistantId,
       publishedVersionId: resolved.publishedVersionId,
       surface: "telegram",
       threadId: input.threadId,
-      userMessage: input.message,
+      userMessage: enrichedMessage,
       userTimezone: workspace.timezone,
       currentTimeIso: new Date().toISOString()
     });
@@ -210,6 +212,19 @@ export class HandleInternalTelegramTurnService {
         this.logger.warn(`Failed to persist Telegram attachment: ${att.storagePath}`, error);
       }
     }
+  }
+
+  private enrichMessageWithAttachments(
+    message: string,
+    attachments?: InternalTelegramAttachmentInput[]
+  ): string {
+    if (!attachments || attachments.length === 0) return message;
+    const lines = attachments.map((a) => {
+      const name = a.originalFilename ? ` "${a.originalFilename}"` : "";
+      return `- media/${a.storagePath} (${a.type}${name})`;
+    });
+    const prefix = `[Files attached by user:\n${lines.join("\n")}\nYou can read or reference them by their path.]`;
+    return `${prefix}\n${message}`;
   }
 
   private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {
