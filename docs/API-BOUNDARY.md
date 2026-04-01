@@ -853,6 +853,7 @@ Behavior baseline:
 - requires admin read role:
   - `ops_admin|business_admin|security_admin|super_admin`
   - or legacy owner fallback
+- optional query param: `userId` — if provided, returns cockpit data for that user instead of the caller
 - returns bounded ops cockpit snapshot:
   - assistant presence + latest published version pointer
   - runtime apply status/error truth

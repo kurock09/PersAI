@@ -24,14 +24,15 @@ export class ResolveAdminOpsCockpitService {
     private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService
   ) {}
 
-  async execute(userId: string): Promise<AdminOpsCockpitState> {
-    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+  async execute(callerUserId: string, targetUserId?: string): Promise<AdminOpsCockpitState> {
+    await this.adminAuthorizationService.assertCanReadAdminSurface(callerUserId);
+    const lookupUserId = targetUserId ?? callerUserId;
     const config = loadApiConfig(process.env);
     const openclawBaseUrlHost = config.OPENCLAW_ADAPTER_ENABLED
       ? new URL(config.OPENCLAW_BASE_URL).host
       : null;
     const preflight = await this.assistantRuntimePreflightService.execute();
-    const assistant = await this.assistantRepository.findByUserId(userId);
+    const assistant = await this.assistantRepository.findByUserId(lookupUserId);
 
     if (assistant === null) {
       const incidentSignals: AdminOpsCockpitState["incidentSignals"] = [

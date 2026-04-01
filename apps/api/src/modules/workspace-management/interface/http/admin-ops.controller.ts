@@ -27,12 +27,16 @@ export class AdminOpsController {
   ) {}
 
   @Get("cockpit")
-  async getOpsCockpit(@Req() req: RequestWithPlatformContext): Promise<{
+  async getOpsCockpit(
+    @Req() req: RequestWithPlatformContext,
+    @Query("userId") targetUserId?: string
+  ): Promise<{
     requestId: string | null;
     cockpit: AdminOpsCockpitState;
   }> {
-    const userId = this.resolveRequestUserId(req);
-    const cockpit = await this.resolveAdminOpsCockpitService.execute(userId);
+    const callerId = this.resolveRequestUserId(req);
+    const trimmedTarget = targetUserId?.trim() || undefined;
+    const cockpit = await this.resolveAdminOpsCockpitService.execute(callerId, trimmedTarget);
     return {
       requestId: req.requestId ?? null,
       cockpit

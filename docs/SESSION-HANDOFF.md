@@ -8,17 +8,19 @@ Extended the Admin Ops Cockpit with a user directory table and per-user reapply 
 
 - Backend: `AdminOpsUserDirectoryService` — paginated user list with assistant summary via `GET /api/v1/admin/ops/users`.
 - Backend: `POST /api/v1/admin/ops/users/:userId/reapply` — reuses existing `ReapplyAssistantService` to reapply any user's assistant.
-- Frontend: compact user table with search (debounce 300ms), pagination (20/page), per-row Reapply button. Integrated into existing Ops Cockpit page (no new page/route).
+- Frontend: compact user table with search (debounce 300ms), pagination (20/page), per-row Reapply button. Clicking a row loads that user's cockpit (assistant, apply, runtime) below; "Show self" returns to admin's own view.
+- `GET /admin/ops/cockpit` now accepts optional `?userId=` to load cockpit for any user.
 - Routes registered in `ClerkAuthMiddleware` and `WorkspaceManagementModule`.
 
 ### Files touched
 
 - `apps/api/src/modules/workspace-management/application/admin-ops-user-directory.service.ts` (new)
+- `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts` (callerUserId/targetUserId split)
 - `apps/api/src/modules/workspace-management/interface/http/admin-ops.controller.ts` (extended)
 - `apps/api/src/modules/workspace-management/workspace-management.module.ts` (provider added)
 - `apps/api/src/modules/identity-access/identity-access.module.ts` (routes added)
-- `apps/web/app/admin/ops/page.tsx` (rewritten with UsersDirectory section)
-- `docs/API-BOUNDARY.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+- `apps/web/app/admin/ops/page.tsx` (rewritten with UsersDirectory + user-scoped cockpit)
+- `docs/API-BOUNDARY.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`, `docs/UI-SPEC.md`
 
 ### Risks
 

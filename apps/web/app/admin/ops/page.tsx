@@ -30,7 +30,7 @@ import {
   AssistantRuntimeApplyStatus,
   type AssistantRuntimeApplyStatus as ApplyStatus
 } from "@persai/contracts";
-import { getAdminOpsCockpit, postAssistantReapply } from "@/app/app/assistant-api-client";
+import { postAssistantReapply } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -185,7 +185,15 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
 
 const PAGE_SIZE = 20;
 
-function UsersDirectory({ getToken }: { getToken: () => Promise<string | null> }) {
+function UsersDirectory({
+  getToken,
+  selectedUserId,
+  onSelectUser
+}: {
+  getToken: () => Promise<string | null>;
+  selectedUserId: string | null;
+  onSelectUser: (userId: string, email: string) => void;
+}) {
   const [users, setUsers] = useState<OpsUserRow[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -310,7 +318,11 @@ function UsersDirectory({ getToken }: { getToken: () => Promise<string | null> }
                 {users.map((u) => (
                   <tr
                     key={u.userId}
-                    className="border-b border-border/50 transition-colors hover:bg-surface-hover/50"
+                    onClick={() => onSelectUser(u.userId, u.email)}
+                    className={cn(
+                      "cursor-pointer border-b border-border/50 transition-colors hover:bg-surface-hover/50",
+                      selectedUserId === u.userId && "bg-accent/10 hover:bg-accent/15"
+                    )}
                   >
                     <td className="max-w-[160px] truncate py-1.5 pr-2 font-mono text-text">
                       {u.email}
@@ -402,6 +414,16 @@ function UsersDirectory({ getToken }: { getToken: () => Promise<string | null> }
 /*  Main Page                                                          */
 /* ------------------------------------------------------------------ */
 
+async function fetchCockpit(token: string, userId?: string): Promise<AdminOpsCockpitState> {
+  const params = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  const res = await fetch(`/api/v1/admin/ops/cockpit${params}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  const data = (await res.json()) as { cockpit: AdminOpsCockpitState };
+  return data.cockpit;
+}
+
 export default function AdminOpsPage() {
   const { getToken } = useAuth();
   const [cockpit, setCockpit] = useState<AdminOpsCockpitState | null>(null);
@@ -412,34 +434,53 @@ export default function AdminOpsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [reapplyBusy, setReapplyBusy] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedUserLabel, setSelectedUserLabel] = useState<string | null>(null);
+  const selectedUserIdRef = useRef<string | null>(null);
+  selectedUserIdRef.current = selectedUserId;
 
-  const load = useCallback(async () => {
-    const token = await getToken();
-    if (!token) {
-      setLoadError("Not signed in.");
-      setCockpit(null);
-      setLoading(false);
-      setRefreshing(false);
-      return;
-    }
-    setLoadError(null);
-    const incremental = cockpitRef.current !== null;
-    if (incremental) setRefreshing(true);
-    else setLoading(true);
-    try {
-      setCockpit(await getAdminOpsCockpit(token));
-    } catch (e) {
-      setCockpit(null);
-      setLoadError(e instanceof Error ? e.message : "Unable to load ops data.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [getToken]);
+  const load = useCallback(
+    async (targetUserId?: string) => {
+      const token = await getToken();
+      if (!token) {
+        setLoadError("Not signed in.");
+        setCockpit(null);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+      setLoadError(null);
+      const incremental = cockpitRef.current !== null;
+      if (incremental) setRefreshing(true);
+      else setLoading(true);
+      try {
+        setCockpit(
+          await fetchCockpit(token, targetUserId ?? selectedUserIdRef.current ?? undefined)
+        );
+      } catch (e) {
+        setCockpit(null);
+        setLoadError(e instanceof Error ? e.message : "Unable to load ops data.");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [getToken]
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const onSelectUser = useCallback(
+    (userId: string, email: string) => {
+      setSelectedUserId(userId);
+      setSelectedUserLabel(email);
+      setActionMessage(null);
+      void load(userId);
+    },
+    [load]
+  );
 
   const onReapply = useCallback(async () => {
     if (!cockpit?.controls.reapplySupported) return;
@@ -451,7 +492,14 @@ export default function AdminOpsPage() {
     }
     setReapplyBusy(true);
     try {
-      await postAssistantReapply(token);
+      if (selectedUserId) {
+        await fetch(`/api/v1/admin/ops/users/${selectedUserId}/reapply`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } else {
+        await postAssistantReapply(token);
+      }
       setActionMessage("Reapply completed.");
       await load();
     } catch (e) {
@@ -459,7 +507,7 @@ export default function AdminOpsPage() {
     } finally {
       setReapplyBusy(false);
     }
-  }, [cockpit?.controls.reapplySupported, getToken, load]);
+  }, [cockpit?.controls.reapplySupported, getToken, load, selectedUserId]);
 
   const onRestart = useCallback(() => {
     setActionMessage("Runtime restart is not wired in this admin UI yet.");
@@ -479,19 +527,40 @@ export default function AdminOpsPage() {
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-accent" />
           <h1 className="text-lg font-bold tracking-tight text-text">Ops Cockpit</h1>
-        </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={refreshing || loading}
-          className={cn(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-text transition-colors",
-            "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+          {selectedUserLabel && (
+            <span className="rounded bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">
+              {selectedUserLabel}
+            </span>
           )}
-        >
-          <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
-          Refresh
-        </button>
+        </div>
+        <div className="flex items-center gap-2">
+          {selectedUserId && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedUserId(null);
+                setSelectedUserLabel(null);
+                setActionMessage(null);
+                void load(undefined);
+              }}
+              className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-surface px-2 py-1.5 text-[10px] font-medium text-text-muted transition-colors hover:bg-surface-hover"
+            >
+              Show self
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={refreshing || loading}
+            className={cn(
+              "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-text transition-colors",
+              "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+            )}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+            Refresh
+          </button>
+        </div>
       </header>
 
       {loadError && (
@@ -501,7 +570,11 @@ export default function AdminOpsPage() {
       )}
 
       {/* Users directory */}
-      <UsersDirectory getToken={getToken} />
+      <UsersDirectory
+        getToken={getToken}
+        selectedUserId={selectedUserId}
+        onSelectUser={onSelectUser}
+      />
 
       {cockpit && (
         <>
@@ -639,7 +712,7 @@ export default function AdminOpsPage() {
                   ) : (
                     <RotateCcw className="h-3 w-3" />
                   )}
-                  Reapply (self)
+                  Reapply{selectedUserId ? "" : " (self)"}
                 </button>
                 <button
                   type="button"

@@ -8,7 +8,7 @@
   - Added `GET /api/v1/admin/ops/users?q=&offset=&limit=` — paginated user directory with assistant summary (name, gender, applyStatus, latest published version).
   - Added `POST /api/v1/admin/ops/users/:userId/reapply` — admin can trigger reapply for any user's assistant.
   - `AdminOpsUserDirectoryService` performs paginated Prisma query with search by email/displayName.
-  - Ops Cockpit frontend (`admin/ops/page.tsx`) now shows compact user table at top with search (300ms debounce), pagination (20 per page), and per-row Reapply button; existing cockpit cards (assistant self, runtime, controls, incidents) remain below.
+  - Ops Cockpit frontend (`admin/ops/page.tsx`) now shows compact user table at top with search (300ms debounce), pagination (20 per page), and per-row Reapply button; clicking a user row loads their cockpit data (assistant, apply, runtime) below; "Show self" button returns to admin's own view.
   - Routes registered in `ClerkAuthMiddleware` and `WorkspaceManagementModule`.
 
 - **Fix: run TTS pipeline on PersAI runtime payloads (OpenClaw fork):**
