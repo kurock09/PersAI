@@ -71,9 +71,15 @@ function parseAttachments(raw: unknown): InternalTelegramAttachmentInput[] {
   return result;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 @Injectable()
 export class HandleInternalTelegramTurnService {
   private readonly logger = new Logger(HandleInternalTelegramTurnService.name);
+  private static readonly TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS = 6;
+  private static readonly TELEGRAM_MEDIA_DOWNLOAD_DELAY_MS = 400;
 
   constructor(
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
@@ -199,7 +205,7 @@ export class HandleInternalTelegramTurnService {
     const results: RawInboundAttachment[] = [];
     for (const att of attachments) {
       try {
-        const downloaded = await this.assistantRuntimeAdapter.downloadChatMedia(
+        const downloaded = await this.downloadTelegramAttachmentWithRetry(
           assistantId,
           att.storagePath
         );
@@ -216,6 +222,40 @@ export class HandleInternalTelegramTurnService {
       }
     }
     return results;
+  }
+
+  private async downloadTelegramAttachmentWithRetry(
+    assistantId: string,
+    storagePath: string
+  ) {
+    for (
+      let attempt = 1;
+      attempt <= HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS;
+      attempt += 1
+    ) {
+      const downloaded = await this.assistantRuntimeAdapter.downloadChatMedia(
+        assistantId,
+        storagePath
+      );
+      if (downloaded) {
+        if (attempt > 1) {
+          this.logger.log(
+            `TG attachment became available on retry ${attempt}/${HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS}: ${storagePath}`
+          );
+        }
+        return downloaded;
+      }
+      if (attempt < HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS) {
+        await delay(
+          HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_DELAY_MS * attempt
+        );
+      }
+    }
+
+    this.logger.warn(
+      `TG attachment unavailable after ${HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS} attempts: ${storagePath}`
+    );
+    return null;
   }
 
   private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {
