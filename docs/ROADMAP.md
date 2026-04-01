@@ -278,6 +278,21 @@ Foundation Phase
   - [x] M7b — **native OpenClaw**: register `buildYandexSpeechProvider` in `src/tts/provider-registry.ts` + `TTS_PROVIDERS` + `ResolvedTtsConfig.yandex` + secret collector
   - [x] M7c — verify PersAI admin UI Yandex TTS provider selection + credential delivery (already wired via `TOOL_PROVIDER_OPTIONS` + `TOOL_PROVIDER_ENV_FALLBACKS`)
 
+## Step 13.1 Unified Media Pipeline (ADR-060)
+
+- [x] ADR-060: unified media pipeline architecture (preprocessor + delivery + inbound)
+- [x] MediaPreprocessorService: audio normalize (webm/ogg→mp3), image normalize (heic→jpg, resize), PDF text extract, video audio STT
+- [x] InboundMediaService: unified resolve() replacing per-channel buildAttachmentContext + enrichMessageWithAttachments
+- [x] MediaDeliveryService: unified deliver() replacing per-channel persistToolMediaAttachments
+- [x] ChannelMediaAdapter interface + WebMediaAdapter + TelegramMediaAdapter
+- [x] Refactor StreamWebChatTurnService to use InboundMediaService + MediaDeliveryService
+- [x] Refactor SendWebChatTurnService to use InboundMediaService + MediaDeliveryService
+- [x] Refactor HandleInternalTelegramTurnService to use InboundMediaService
+- [x] Remove duplicated media logic from turn services (~200 lines)
+- [x] Module registration with factory-based adapter injection
+- [ ] Add WhatsApp adapter (future, when WhatsApp channel is implemented)
+- [ ] Add VK adapter (future, when VK channel is implemented)
+
 ## Step 14 Tech Debt and Scale
 
 - [ ] H14 — Fork-diff reduction (tech debt, trigger: next upstream sync or stable sprint)

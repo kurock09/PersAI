@@ -1,5 +1,63 @@
 # SESSION-HANDOFF
 
+## 2026-04-01 - Fix: TTS provider selection (Yandex/ElevenLabs/OpenAI)
+
+### What changed
+
+PersAI admin provider selection was broken — `getTtsProvider()` in OpenClaw never saw the chosen provider. Fixed by propagating `toolProviderOverrides` through the PersAI runtime context.
+
+**OpenClaw changes (7 files):**
+- `persai-runtime-context.ts` — added `toolProviderOverrides` field + `getPersaiToolProviderOverride()` helper
+- `persai-runtime-tool-policy.ts` — added `extractToolProviderOverrides()` extractor
+- `persai-runtime-agent-turn.ts` — all 3 turn functions propagate overrides to context
+- `persai-runtime-http.ts` — all 3 HTTP handlers extract overrides from bootstrap
+- `tts.ts` — `getTtsProvider()` checks PersAI override first; added `YANDEX_TTS_API_KEY` to primary lookup
+- `providers/yandex.ts` — added `YANDEX_TTS_API_KEY` to primary env var lookup
+- `tts.test.ts` — 2 new tests (Yandex override + precedence over env)
+
+**PERSAI-FORK-PATCHES.md:** patch #22 added.
+
+### Known issues
+- None.
+
+### Next steps
+- Deploy and verify Yandex TTS works end-to-end.
+- Consider adding voice/model selection UI in PersAI admin for OpenAI TTS.
+
+---
+
+## 2026-04-01 - Unified media pipeline (ADR-060)
+
+### What changed
+
+Replaced fragmented per-channel media logic with a unified three-service architecture:
+
+**New services** (all in `apps/api/src/modules/workspace-management/application/media/`):
+- `MediaPreprocessorService` — normalizes all inbound media before storage: audio webm/ogg→mp3 (ffmpeg), image heic→jpg + resize (sharp), PDF text extraction, video audio track STT. Single point for all format handling.
+- `InboundMediaService` — unified `resolve()` method replaces `buildAttachmentContext` (web) and `enrichMessageWithAttachments` (telegram). Preprocesses → stores → creates attachment records → builds model context block.
+- `MediaDeliveryService` — unified `deliver()` method replaces `persistToolMediaAttachments` (duplicated in stream + sync services). Downloads tool output → re-uploads to permanent storage → creates attachment records → delegates to channel adapter.
+- `ChannelMediaAdapter` interface — `WebMediaAdapter` (no-op, proxy-based), `TelegramMediaAdapter` (bridge-delegated). Adding WhatsApp/VK = one new file.
+
+**Refactored consumers:**
+- `StreamWebChatTurnService` — uses `InboundMediaService.buildContextForExistingAttachments()` + `MediaDeliveryService.deliver()`. Removed `persistToolMediaAttachments`, `buildAttachmentContext`, `inferMimeType` private methods.
+- `SendWebChatTurnService` — same refactoring as stream service.
+- `HandleInternalTelegramTurnService` — uses `InboundMediaService.resolve()` instead of inline `enrichMessageWithAttachments` + `persistTelegramAttachments`.
+
+**ADR:** `docs/ADR/060-unified-media-pipeline-preprocessor-delivery-inbound.md`
+
+### Known issues
+- `sharp` and `pdf-parse` are optional runtime dependencies — if not installed, image/PDF processing degrades gracefully (passthrough).
+- `ffmpeg` must be available in container PATH for audio conversion (already present in current images).
+- Telegram inbound media flow now downloads files from workspace storage to get Buffer for preprocessing — adds one extra IO hop vs the old direct-persist path. This is intentional: all channels go through the same preprocessing pipeline.
+
+### Next steps
+- Deploy and verify web + Telegram media flows work end-to-end through the new pipeline.
+- Install `sharp` and `pdf-parse` in API container if not already present.
+- ~~Fix Yandex TTS provider selection~~ — done (see session entry above).
+- Fix web voice webm transcription (now handled by MediaPreprocessor audio normalization).
+
+---
+
 ## 2026-03-31 - Fix: stream race condition — media NDJSON event was never emitted
 
 ### What changed

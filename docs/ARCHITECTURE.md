@@ -530,7 +530,7 @@ It is not part of backend domain logic.
 - **Registry** (D2/D3): PersAI DB + `GET/POST /assistant/memory/items` family — global policy summaries from web chat.
 - **Workspace memory** (H3): file-backed store in OpenClaw; PersAI proxies CRUD/search to runtime HTTP (`OpenClawRuntimeAdapter`); UI “Workspace” tab talks to proxy routes, “History” tab to registry list where applicable.
 
-## Media, attachments, and voice boundary (M-series, ADR-059)
+## Media, attachments, and voice boundary (M-series, ADR-059, ADR-060)
 
 - PersAI owns canonical chat message attachment lifecycle in `assistant_chat_message_attachments` (control plane)
 - attachment types: `image`, `audio`, `voice`, `video`, `document`, `tool_output`
@@ -538,9 +538,19 @@ It is not part of backend domain logic.
 - PersAI proxies media upload/download through OpenClaw workspace HTTP endpoints (same pattern as avatar)
 - tool-generated media (`image_generate`, `tts`) is captured from OpenClaw agent response payloads and persisted as `tool_output` attachments after turn completion; delivery is post-completion with natural model status text during generation
 - inbound voice messages (web microphone + Telegram `message:voice`) are transcribed via existing OpenClaw `transcribeAudioFile()` (Whisper); transcription text becomes the runtime `userMessage`, original audio is preserved as attachment
-- outbound media for Telegram uses existing Grammy `sendPhoto`/`sendVoice`/`sendDocument` from `extensions/telegram/src/send.ts`
 - media capabilities (`image`, `audio`, `video`, `file`) are plan-governed via `effectiveCapabilities.mediaClasses` (activated from plan entitlements, no longer hardcoded false)
 - media storage is quota-tracked via `media_storage_bytes` dimension in the existing workspace quota accounting system
 - cleanup: chat hard-delete removes media files from workspace + attachment rows from DB; assistant reset deletes entire workspace directory (already covers media)
 - OpenClaw remains runtime executor; PersAI owns attachment persistence, quota enforcement, and per-surface delivery formatting
 - native OpenClaw changes in M-series: one new TTS provider file (`src/tts/providers/yandex.ts`) + one registry line; everything else is PersAI-only or PersAI bridge files in the fork
+
+### Unified media pipeline (ADR-060)
+
+- all media handling goes through three unified services in `apps/api/src/modules/workspace-management/application/media/`:
+  - `MediaPreprocessorService` — normalizes inbound media: audio webm/ogg→mp3 (ffmpeg), image heic→jpg + resize (sharp), PDF text extraction, video audio track STT
+  - `InboundMediaService` — single `resolve()` entry point for all inbound user attachments (any channel); preprocesses → stores → creates attachment records → builds model context block
+  - `MediaDeliveryService` — single `deliver()` entry point for all outbound tool-generated media; downloads → re-uploads → creates attachment records → delegates to channel adapter
+- `ChannelMediaAdapter` interface defines per-channel delivery contract (`sendImage`, `sendVoice`, `sendAudio`, `sendDocument`, `sendVideo`)
+- current adapters: `WebMediaAdapter` (no-op, proxy-based), `TelegramMediaAdapter` (bridge-delegated via turn response)
+- adding a new channel (WhatsApp, VK, Matrix) = one new adapter file implementing `ChannelMediaAdapter`, zero changes to core pipeline
+- turn services (`StreamWebChatTurnService`, `SendWebChatTurnService`, `HandleInternalTelegramTurnService`) are consumers of the pipeline, not implementors of media logic

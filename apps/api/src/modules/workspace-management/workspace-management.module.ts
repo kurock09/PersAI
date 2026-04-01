@@ -117,6 +117,12 @@ import { ForceReapplyAllService } from "./application/force-reapply-all.service"
 import { AdminForceReapplyController } from "./interface/http/admin-force-reapply.controller";
 import { MediaAttachmentController } from "./interface/http/media-attachment.controller";
 import { ManageChatMediaService } from "./application/manage-chat-media.service";
+import { MediaPreprocessorService } from "./application/media/media-preprocessor.service";
+import { InboundMediaService } from "./application/media/inbound-media.service";
+import { MediaDeliveryService } from "./application/media/media-delivery.service";
+import { CHANNEL_MEDIA_ADAPTERS } from "./application/media/channel-adapters/channel-media-adapter.interface";
+import { WebMediaAdapter } from "./application/media/channel-adapters/web-media.adapter";
+import { TelegramMediaAdapter } from "./application/media/channel-adapters/telegram-media.adapter";
 import { PrismaAssistantChannelSurfaceBindingRepository } from "./infrastructure/persistence/prisma-assistant-channel-surface-binding.repository";
 import { PrismaAssistantMaterializedSpecRepository } from "./infrastructure/persistence/prisma-assistant-materialized-spec.repository";
 import { PrismaAssistantPublishedVersionRepository } from "./infrastructure/persistence/prisma-assistant-published-version.repository";
@@ -283,6 +289,16 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
       useClass: PrismaBootstrapDocumentPresetRepository
     },
     ManageChatMediaService,
+    MediaPreprocessorService,
+    InboundMediaService,
+    MediaDeliveryService,
+    WebMediaAdapter,
+    TelegramMediaAdapter,
+    {
+      provide: CHANNEL_MEDIA_ADAPTERS,
+      useFactory: (web: WebMediaAdapter, telegram: TelegramMediaAdapter) => [web, telegram],
+      inject: [WebMediaAdapter, TelegramMediaAdapter]
+    },
     ManageBootstrapPresetsService,
     SeedToolCatalogService,
     BumpConfigGenerationService,

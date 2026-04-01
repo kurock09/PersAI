@@ -5,10 +5,6 @@ import {
   type RuntimeMediaArtifact
 } from "./assistant-runtime-adapter.types";
 import {
-  ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
-  type AssistantChatMessageAttachmentRepository
-} from "../domain/assistant-chat-message-attachment.repository";
-import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
@@ -17,6 +13,8 @@ import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-c
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { InboundMediaService } from "./media/inbound-media.service";
+import type { RawInboundAttachment } from "./media/media.types";
 
 export interface InternalTelegramAttachmentInput {
   type: "image" | "audio" | "voice" | "video" | "document";
@@ -80,15 +78,14 @@ export class HandleInternalTelegramTurnService {
   constructor(
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
-    @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
-    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly chatRepository: AssistantChatRepository,
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
     private readonly enforceAbuseRateLimitService: EnforceAbuseRateLimitService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly inboundMediaService: InboundMediaService
   ) {}
 
   parseInput(payload: unknown): InternalTelegramTurnRequest {
@@ -129,7 +126,50 @@ export class HandleInternalTelegramTurnService {
       throw new NotFoundException("Workspace does not exist for this assistant.");
     }
 
-    const enrichedMessage = this.enrichMessageWithAttachments(input.message, input.attachments);
+    let enrichedMessage = input.message;
+
+    if (input.attachments && input.attachments.length > 0) {
+      let chat = await this.chatRepository.findChatBySurfaceThread(
+        resolved.assistantId,
+        "telegram",
+        input.threadId
+      );
+      if (!chat) {
+        chat = await this.chatRepository.createChat({
+          assistantId: resolved.assistantId,
+          userId: resolved.userId,
+          workspaceId: resolved.workspaceId,
+          surface: "telegram",
+          surfaceThreadKey: input.threadId,
+          title: null
+        });
+      }
+
+      const userMessage = await this.chatRepository.createMessage({
+        chatId: chat.id,
+        assistantId: resolved.assistantId,
+        author: "user",
+        content: input.message
+      });
+
+      const rawAttachments: RawInboundAttachment[] = await this.downloadTelegramAttachments(
+        input.attachments,
+        resolved.assistantId
+      );
+
+      const resolved2 = await this.inboundMediaService.resolve({
+        channel: "telegram",
+        assistantId: resolved.assistantId,
+        chatId: chat.id,
+        messageId: userMessage.id,
+        workspaceId: resolved.workspaceId,
+        userMessage: input.message,
+        rawAttachments
+      });
+      enrichedMessage = resolved2.enrichedMessage;
+    } else {
+      enrichedMessage = input.message;
+    }
 
     const runtimeResponse = await this.assistantRuntimeAdapter.sendChannelTurn({
       assistantId: resolved.assistantId,
@@ -140,14 +180,6 @@ export class HandleInternalTelegramTurnService {
       userTimezone: workspace.timezone,
       currentTimeIso: new Date().toISOString()
     });
-
-    await this.persistTelegramAttachments(
-      input,
-      resolved.assistantId,
-      resolved.workspaceId,
-      resolved.userId,
-      input.threadId
-    );
 
     await this.trackWorkspaceQuotaUsageService.recordInboundTurnUsage({
       assistant: resolved.assistant,
@@ -160,71 +192,30 @@ export class HandleInternalTelegramTurnService {
     return runtimeResponse;
   }
 
-  private async persistTelegramAttachments(
-    input: InternalTelegramTurnRequest,
-    assistantId: string,
-    workspaceId: string,
-    userId: string,
-    threadId: string
-  ): Promise<void> {
-    const attachments = input.attachments;
-    if (!attachments || attachments.length === 0) return;
-
-    let chat = await this.chatRepository.findChatBySurfaceThread(assistantId, "telegram", threadId);
-    if (!chat) {
-      chat = await this.chatRepository.createChat({
-        assistantId,
-        userId,
-        workspaceId,
-        surface: "telegram",
-        surfaceThreadKey: threadId,
-        title: null
-      });
-    }
-
-    const userMessage = await this.chatRepository.createMessage({
-      chatId: chat.id,
-      assistantId,
-      author: "user",
-      content: input.message
-    });
-
+  private async downloadTelegramAttachments(
+    attachments: InternalTelegramAttachmentInput[],
+    assistantId: string
+  ): Promise<RawInboundAttachment[]> {
+    const results: RawInboundAttachment[] = [];
     for (const att of attachments) {
       try {
-        await this.attachmentRepository.create({
-          messageId: userMessage.id,
-          chatId: chat.id,
+        const downloaded = await this.assistantRuntimeAdapter.downloadChatMedia(
           assistantId,
-          workspaceId,
-          attachmentType: att.type,
-          storagePath: att.storagePath,
-          originalFilename: att.originalFilename,
-          mimeType: att.mimeType,
-          sizeBytes: BigInt(att.sizeBytes),
-          durationMs: null,
-          width: null,
-          height: null,
-          processingStatus: "ready",
-          transcription: att.transcription ?? null,
-          metadata: { source: "telegram_inbound" }
+          att.storagePath
+        );
+        if (!downloaded) continue;
+
+        results.push({
+          buffer: downloaded.buffer,
+          mime: att.mimeType,
+          originalFilename: att.originalFilename ?? `telegram-${att.type}`,
+          source: "telegram_download"
         });
-      } catch (error) {
-        this.logger.warn(`Failed to persist Telegram attachment: ${att.storagePath}`, error);
+      } catch (err) {
+        this.logger.warn(`Failed to download TG attachment ${att.storagePath}: ${String(err)}`);
       }
     }
-  }
-
-  private enrichMessageWithAttachments(
-    message: string,
-    attachments?: InternalTelegramAttachmentInput[]
-  ): string {
-    if (!attachments || attachments.length === 0) return message;
-    const lines = attachments.map((a) => {
-      const name = a.originalFilename ? ` "${a.originalFilename}"` : "";
-      return `- media/${a.storagePath} (${a.type}${name})`;
-    });
-    const prefix = `[Files attached by user:\n${lines.join("\n")}\nYou can read or reference them by their path.]`;
-    return `${prefix}\n${message}`;
+    return results;
   }
 
   private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {

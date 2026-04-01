@@ -4,6 +4,21 @@
 
 ### Added
 
+- **Fix: TTS provider selection — PersAI admin provider override now reaches OpenClaw runtime:**
+  - Root cause: `getTtsProvider()` in OpenClaw resolved provider from config file or filesystem prefs — neither populated by PersAI. When admin selected "yandex", the `providerId` was stored in `toolCredentialRefs` but never reached the TTS selector. The API key resolved correctly via fallback, but the wrong provider (openai) was always used because `OPENAI_API_KEY` exists globally.
+  - Fix: added `toolProviderOverrides` to PersAI runtime context. All HTTP handlers extract `providerId` from bootstrap `toolCredentialRefs` and propagate through `persaiRuntimeRequestContext`. `getTtsProvider()` now checks PersAI context first (highest priority). Also added `YANDEX_TTS_API_KEY` to primary lookup arrays in both `resolveTtsApiKey` and `resolveYandexApiKey`.
+  - Affects all TTS providers (Yandex, ElevenLabs, OpenAI) — admin selection now works for all.
+  - 2 new tests added and passing (30/30).
+
+- **Unified media pipeline — MediaPreprocessor, InboundMediaService, MediaDeliveryService (ADR-060):**
+  - Replaced fragmented per-channel media logic with three unified services in `apps/api/src/modules/workspace-management/application/media/`.
+  - `MediaPreprocessorService`: normalizes all inbound media — audio webm/ogg→mp3 via ffmpeg, image heic→jpg + resize via sharp, PDF text extraction, video audio track STT. Single stateless service for all channels.
+  - `InboundMediaService`: replaces duplicated `buildAttachmentContext` (web) and `enrichMessageWithAttachments` (telegram) with one `resolve()` method that preprocesses, stores, and builds model context for any channel.
+  - `MediaDeliveryService`: replaces duplicated `persistToolMediaAttachments` (web sync/stream) with one `deliver()` method that persists tool output and delegates to channel adapters.
+  - `ChannelMediaAdapter` interface + `WebMediaAdapter` (proxy-based, no-op send) + `TelegramMediaAdapter` (bridge-delegated).
+  - Refactored `StreamWebChatTurnService`, `SendWebChatTurnService`, `HandleInternalTelegramTurnService` to use new services — removed ~200 lines of duplicated media logic.
+  - All services registered in `WorkspaceManagementModule` with factory-based adapter injection.
+
 - **Fix: web file uploads 401 — stage-attachment missing from auth whitelist:**
   - Root cause: the new `POST /api/v1/assistant/chat/web/stage-attachment` endpoint was not registered in the `ClerkAuthMiddleware` route whitelist in `identity-access.module.ts`. All stage-attachment requests received `userId=null` and returned 401.
   - This blocked web image, voice, and PDF uploads entirely.
