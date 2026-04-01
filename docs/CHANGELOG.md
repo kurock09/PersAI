@@ -4,6 +4,11 @@
 
 ### Added
 
+- **Fix: web file uploads 401 — stage-attachment missing from auth whitelist:**
+  - Root cause: the new `POST /api/v1/assistant/chat/web/stage-attachment` endpoint was not registered in the `ClerkAuthMiddleware` route whitelist in `identity-access.module.ts`. All stage-attachment requests received `userId=null` and returned 401.
+  - This blocked web image, voice, and PDF uploads entirely.
+  - Fix: added the route to the explicit whitelist alongside other assistant API routes.
+
 - **Fix: Telegram image delivery — media missing from agent turn response:**
   - Root cause: `runPersaiTelegramAgentTurn` used `resolveAgentResponseText` (text only) instead of `resolveAgentResponse` (text + media). The HTTP handler also omitted `media` from the Telegram channel JSON response.
   - Tool-generated images were captured by `_capturedBlockReplyMedia` but silently dropped before reaching `deliverTelegramMedia`.
