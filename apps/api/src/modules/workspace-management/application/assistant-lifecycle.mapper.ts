@@ -7,6 +7,7 @@ import type {
   AssistantLifecycleState,
   AssistantPublishedVersionState
 } from "./assistant-lifecycle.types";
+import { normalizeAssistantGender } from "./assistant-gender";
 
 export function toAssistantPublishedVersionState(
   publishedVersion: AssistantPublishedVersion
@@ -22,7 +23,7 @@ export function toAssistantPublishedVersionState(
       traits: publishedVersion.snapshotTraits,
       avatarEmoji: publishedVersion.snapshotAvatarEmoji,
       avatarUrl: publishedVersion.snapshotAvatarUrl,
-      assistantGender: publishedVersion.snapshotAssistantGender
+      assistantGender: normalizeAssistantGender(publishedVersion.snapshotAssistantGender)
     }
   };
 }
@@ -55,7 +56,7 @@ export function toAssistantLifecycleState(
       traits: assistant.draftTraits,
       avatarEmoji: assistant.draftAvatarEmoji,
       avatarUrl: assistant.draftAvatarUrl,
-      assistantGender: assistant.draftAssistantGender,
+      assistantGender: normalizeAssistantGender(assistant.draftAssistantGender),
       updatedAt: assistant.draftUpdatedAt?.toISOString() ?? null
     },
     latestPublishedVersion:

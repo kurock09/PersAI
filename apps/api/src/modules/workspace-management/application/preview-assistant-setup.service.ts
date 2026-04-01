@@ -13,6 +13,7 @@ import type { AssistantPublishedVersion } from "../domain/assistant-published-ve
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { toAssistantInboundHttpException } from "./assistant-inbound-error";
+import { normalizeAssistantGender } from "./assistant-gender";
 
 export interface AssistantSetupPreviewState {
   message: string;
@@ -52,7 +53,7 @@ export class PreviewAssistantSetupService {
       snapshotTraits: assistant.draftTraits,
       snapshotAvatarEmoji: assistant.draftAvatarEmoji,
       snapshotAvatarUrl: assistant.draftAvatarUrl,
-      snapshotAssistantGender: assistant.draftAssistantGender,
+      snapshotAssistantGender: normalizeAssistantGender(assistant.draftAssistantGender),
       publishedByUserId: userId,
       createdAt: new Date()
     };

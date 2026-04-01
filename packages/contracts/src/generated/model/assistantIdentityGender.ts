@@ -12,6 +12,5 @@ export type AssistantIdentityGender =
 export const AssistantIdentityGender = {
   male: "male",
   female: "female",
-  neutral: "neutral",
-  other: "other"
+  neutral: "neutral"
 } as const;

@@ -6,6 +6,7 @@
 
 - **Fix: setup/recreate flow now uses runtime preview + persistent assistant identity:**
   - Added `assistantGender` to assistant draft/published snapshot, setup flow, settings UI, contracts, and bootstrap materialization (`SOUL.md` / `IDENTITY.md`).
+  - Assistant gender options are now restricted to `female`, `male`, and `neutral`; legacy `other` is no longer offered or accepted.
   - Added `POST /assistant/setup/preview` for a runtime-backed final setup preview without creating a published version or normal chat history.
   - Added ADR-061 documenting setup runtime preview and assistant identity enrichment.
 

@@ -30,7 +30,6 @@ The field is modeled as a fixed enum:
 - `male`
 - `female`
 - `neutral`
-- `other`
 
 This field is user-editable in both setup and assistant settings.
 

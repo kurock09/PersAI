@@ -19,6 +19,7 @@ import {
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { VALID_ASSISTANT_GENDERS, type AssistantGender } from "./assistant-gender";
 
 export interface UpdateAssistantDraftRequest {
   displayName?: string | null;
@@ -172,7 +173,7 @@ export class UpdateAssistantDraftService {
     return result;
   }
 
-  private parseOptionalAssistantGender(value: unknown): string | null | undefined {
+  private parseOptionalAssistantGender(value: unknown): AssistantGender | null | undefined {
     if (value === undefined) return undefined;
     if (value === null) return null;
     if (typeof value !== "string") {
@@ -184,11 +185,9 @@ export class UpdateAssistantDraftService {
         "assistantGender must be a non-empty string, null, or omitted."
       );
     }
-    if (!["male", "female", "neutral", "other"].includes(normalized)) {
-      throw new BadRequestException(
-        "assistantGender must be one of male, female, neutral, or other."
-      );
+    if (!VALID_ASSISTANT_GENDERS.includes(normalized as AssistantGender)) {
+      throw new BadRequestException("assistantGender must be one of male, female, or neutral.");
     }
-    return normalized;
+    return normalized as AssistantGender;
   }
 }

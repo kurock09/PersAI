@@ -215,6 +215,17 @@ describe("SetupWizardPage", () => {
   });
 
   it("loads runtime preview from persisted draft and publishes with uploaded avatar", async () => {
+    clerkMocks.getToken
+      .mockResolvedValueOnce("token-prefill")
+      .mockResolvedValueOnce("token-onboarding-preview")
+      .mockResolvedValueOnce("token-create-preview")
+      .mockResolvedValueOnce("token-patch-preview")
+      .mockResolvedValueOnce("token-runtime-preview")
+      .mockResolvedValueOnce("token-create")
+      .mockResolvedValueOnce("token-avatar")
+      .mockResolvedValueOnce("token-final-patch")
+      .mockResolvedValueOnce("token-publish");
+
     const { container } = render(<SetupWizardPage />);
 
     fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
@@ -241,14 +252,22 @@ describe("SetupWizardPage", () => {
     await waitFor(() => {
       expect(assistantApiMocks.postAssistantSetupPreview).toHaveBeenCalledTimes(1);
     });
+    expect(meApiMocks.postOnboarding).toHaveBeenCalledWith(
+      "token-onboarding-preview",
+      expect.any(Object)
+    );
+    expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledWith("token-create-preview");
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
-      "token-1",
+      "token-patch-preview",
       expect.objectContaining({
         displayName: "Nova",
         assistantGender: "female",
         avatarEmoji: null,
         avatarUrl: null
       })
+    );
+    expect(assistantApiMocks.postAssistantSetupPreview).toHaveBeenCalledWith(
+      "token-runtime-preview"
     );
 
     fireEvent.click(screen.getByRole("button", { name: /create assistant/i }));
@@ -257,8 +276,12 @@ describe("SetupWizardPage", () => {
       expect(assistantApiMocks.uploadAssistantAvatar).toHaveBeenCalledTimes(1);
       expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
     });
+    expect(assistantApiMocks.uploadAssistantAvatar).toHaveBeenCalledWith(
+      "token-avatar",
+      expect.any(File)
+    );
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenLastCalledWith(
-      "token-1",
+      "token-final-patch",
       expect.objectContaining({
         displayName: "Nova",
         assistantGender: "female",
@@ -266,6 +289,7 @@ describe("SetupWizardPage", () => {
         avatarUrl: "https://example.com/avatar.png"
       })
     );
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-publish");
   });
 });
 

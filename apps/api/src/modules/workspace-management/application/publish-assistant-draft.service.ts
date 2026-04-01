@@ -21,6 +21,7 @@ import { MaterializeAssistantPublishedVersionService } from "./materialize-assis
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { normalizeAssistantGender } from "./assistant-gender";
 
 @Injectable()
 export class PublishAssistantDraftService {
@@ -54,7 +55,7 @@ export class PublishAssistantDraftService {
       snapshotTraits: assistant.draftTraits,
       snapshotAvatarEmoji: assistant.draftAvatarEmoji,
       snapshotAvatarUrl: assistant.draftAvatarUrl,
-      snapshotAssistantGender: assistant.draftAssistantGender
+      snapshotAssistantGender: normalizeAssistantGender(assistant.draftAssistantGender)
     });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,

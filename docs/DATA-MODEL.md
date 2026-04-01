@@ -44,7 +44,7 @@ Postgres with Prisma.
 - workspace_id
 - draft_display_name (nullable)
 - draft_instructions (nullable)
-- draft_assistant_gender (nullable enum-like string: `male|female|neutral|other`)
+- draft_assistant_gender (nullable enum-like string: `male|female|neutral`)
 - draft_updated_at (nullable)
 - apply_status (`not_requested|pending|in_progress|succeeded|failed|degraded`)
 - apply_target_version_id (nullable)
@@ -70,7 +70,7 @@ Postgres with Prisma.
 - version (integer, per-assistant sequential)
 - snapshot_display_name (nullable)
 - snapshot_instructions (nullable)
-- snapshot_assistant_gender (nullable enum-like string: `male|female|neutral|other`)
+- snapshot_assistant_gender (nullable enum-like string: `male|female|neutral`)
 - published_by_user_id
 - created_at
 

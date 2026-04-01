@@ -250,7 +250,7 @@ Request body fields (at least one required):
 - `traits` (object | null)
 - `avatarEmoji` (string | null)
 - `avatarUrl` (string | null)
-- `assistantGender` (`male|female|neutral|other|null`)
+- `assistantGender` (`male|female|neutral|null`)
 
 Behavior baseline:
 

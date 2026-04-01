@@ -23,6 +23,7 @@ import { MaterializeAssistantPublishedVersionService } from "./materialize-assis
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { normalizeAssistantGender } from "./assistant-gender";
 
 export interface RollbackAssistantRequest {
   targetVersion: number;
@@ -99,7 +100,7 @@ export class RollbackAssistantService {
       snapshotTraits: targetVersion.snapshotTraits,
       snapshotAvatarEmoji: targetVersion.snapshotAvatarEmoji,
       snapshotAvatarUrl: targetVersion.snapshotAvatarUrl,
-      snapshotAssistantGender: targetVersion.snapshotAssistantGender
+      snapshotAssistantGender: normalizeAssistantGender(targetVersion.snapshotAssistantGender)
     });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
@@ -121,7 +122,7 @@ export class RollbackAssistantService {
       draftTraits: targetVersion.snapshotTraits,
       draftAvatarEmoji: targetVersion.snapshotAvatarEmoji,
       draftAvatarUrl: targetVersion.snapshotAvatarUrl,
-      draftAssistantGender: targetVersion.snapshotAssistantGender
+      draftAssistantGender: normalizeAssistantGender(targetVersion.snapshotAssistantGender)
     });
     if (updatedAssistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");

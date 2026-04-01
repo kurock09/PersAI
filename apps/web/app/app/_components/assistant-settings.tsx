@@ -27,6 +27,7 @@ import {
   ASSISTANT_GENDER_OPTIONS,
   DEFAULT_TRAITS,
   TRAIT_SLIDERS,
+  normalizeAssistantGender,
   type AssistantGender
 } from "./assistant-persona";
 import {
@@ -153,7 +154,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     assistant?.draft.avatarUrl ?? null
   );
   const [draftAssistantGender, setDraftAssistantGender] = useState<AssistantGender>(
-    (assistant?.draft.assistantGender as AssistantGender | undefined) ?? null
+    normalizeAssistantGender(assistant?.draft.assistantGender)
   );
   const [avatarPreviewBlobUrl, setAvatarPreviewBlobUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -244,9 +245,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     else setDraftTraits(DEFAULT_TRAITS);
     setDraftAvatarEmoji(assistant?.draft.avatarEmoji ?? null);
     setDraftAvatarUrl(assistant?.draft.avatarUrl ?? null);
-    setDraftAssistantGender(
-      (assistant?.draft.assistantGender as AssistantGender | undefined) ?? null
-    );
+    setDraftAssistantGender(normalizeAssistantGender(assistant?.draft.assistantGender));
     setAvatarPreviewBlobUrl(null);
   }, [assistant]);
 

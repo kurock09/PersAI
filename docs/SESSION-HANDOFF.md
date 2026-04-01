@@ -7,6 +7,7 @@
 Assistant create/recreate/edit now share a fuller assistant identity model and a real runtime-backed final preview.
 
 - Added `assistantGender` across Prisma schema, domain entities, assistant draft/published snapshot state, OpenAPI contracts, generated client types, setup UI, and assistant settings UI.
+- Assistant gender choices are now constrained to `female`, `male`, and `neutral`; legacy `other` is normalized away from API/bootstrap output.
 - Added `PreviewAssistantSetupService` plus `POST /api/v1/assistant/setup/preview`; the setup last step now materializes a transient runtime workspace, asks the assistant to introduce itself, returns that response, and cleans the preview workspace immediately after.
 - Refactored `MaterializeAssistantPublishedVersionService` to expose reusable runtime artifact building so preview and publish use the same bootstrap/materialization path.
 - Fixed `/me` state propagation so recreate/setup correctly prefills `displayName`, `birthday`, `gender`, and timezone-related onboarding values instead of name only.

@@ -187,60 +187,69 @@ export default function SetupWizardPage() {
     setTraits((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const persistDraftForPreview = useCallback(
-    async (token: string) => {
-      await postOnboarding(token, {
-        displayName: userName.trim(),
-        workspaceName: `${userName.trim()}'s workspace`,
-        locale: navigator.language ?? "en",
-        timezone: timezone || "UTC",
-        birthday: birthday || null,
-        gender: gender ?? null,
-        acceptTermsOfService: true,
-        acceptPrivacyPolicy: true
-      });
-
-      await postAssistantCreate(token);
-
-      await patchAssistantDraft(token, {
-        displayName: assistantName.trim(),
-        instructions: assistantNotes.trim(),
-        traits,
-        avatarEmoji: customAvatarFile ? null : (avatarObj?.emoji ?? null),
-        avatarUrl: null,
-        assistantGender
-      });
+  const resolveSetupToken = useCallback(
+    async (fresh = false) => {
+      const tokenResolver = getToken as (options?: {
+        skipCache?: boolean;
+      }) => Promise<string | null>;
+      const token = await tokenResolver(fresh ? { skipCache: true } : undefined);
+      if (!token) {
+        throw new Error("Session expired. Sign in again and refresh the page.");
+      }
+      return token;
     },
-    [
-      assistantGender,
-      assistantName,
-      assistantNotes,
-      avatarObj,
-      birthday,
-      customAvatarFile,
-      gender,
-      traits,
-      timezone,
-      userName
-    ]
+    [getToken]
   );
 
-  const loadRuntimePreview = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
+  const persistDraftForPreview = useCallback(async () => {
+    await postOnboarding(await resolveSetupToken(true), {
+      displayName: userName.trim(),
+      workspaceName: `${userName.trim()}'s workspace`,
+      locale: navigator.language ?? "en",
+      timezone: timezone || "UTC",
+      birthday: birthday || null,
+      gender: gender ?? null,
+      acceptTermsOfService: true,
+      acceptPrivacyPolicy: true
+    });
 
+    await postAssistantCreate(await resolveSetupToken(true));
+
+    await patchAssistantDraft(await resolveSetupToken(true), {
+      displayName: assistantName.trim(),
+      instructions: assistantNotes.trim(),
+      traits,
+      avatarEmoji: customAvatarFile ? null : (avatarObj?.emoji ?? null),
+      avatarUrl: null,
+      assistantGender
+    });
+  }, [
+    assistantGender,
+    assistantName,
+    assistantNotes,
+    avatarObj,
+    birthday,
+    customAvatarFile,
+    gender,
+    resolveSetupToken,
+    traits,
+    timezone,
+    userName
+  ]);
+
+  const loadRuntimePreview = useCallback(async () => {
     setPreviewLoading(true);
     setPreviewError(null);
     try {
-      await persistDraftForPreview(token);
-      const preview = await postAssistantSetupPreview(token);
+      await persistDraftForPreview();
+      const preview = await postAssistantSetupPreview(await resolveSetupToken(true));
       setRuntimePreview(preview.message);
     } catch (e) {
       setPreviewError(e instanceof Error ? e.message : "Preview failed. Please try again.");
     } finally {
       setPreviewLoading(false);
     }
-  }, [getToken, persistDraftForPreview]);
+  }, [persistDraftForPreview, resolveSetupToken]);
 
   useEffect(() => {
     if (step !== 3) return;
@@ -248,13 +257,11 @@ export default function SetupWizardPage() {
   }, [loadRuntimePreview, step]);
 
   const handleCreate = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
-
     setCreating(true);
     setError(null);
 
     try {
+      const token = await resolveSetupToken(true);
       await postOnboarding(token, {
         displayName: userName.trim(),
         workspaceName: `${userName.trim()}'s workspace`,
@@ -270,12 +277,15 @@ export default function SetupWizardPage() {
       let avatarUrl: string | null = null;
       let avatarEmoji: string | null = avatarObj?.emoji ?? null;
       if (customAvatarFile) {
-        const uploaded = await uploadAssistantAvatar(token, customAvatarFile);
+        const uploaded = await uploadAssistantAvatar(
+          await resolveSetupToken(true),
+          customAvatarFile
+        );
         avatarUrl = uploaded.avatarUrl;
         avatarEmoji = null;
       }
 
-      await patchAssistantDraft(token, {
+      await patchAssistantDraft(await resolveSetupToken(true), {
         displayName: assistantName.trim(),
         instructions: assistantNotes.trim(),
         traits,
@@ -283,14 +293,13 @@ export default function SetupWizardPage() {
         avatarUrl,
         assistantGender
       });
-      await postAssistantPublish(token);
+      await postAssistantPublish(await resolveSetupToken(true));
       window.location.href = "/app/chat";
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
       setCreating(false);
     }
   }, [
-    getToken,
     assistantName,
     userName,
     timezone,
@@ -300,7 +309,8 @@ export default function SetupWizardPage() {
     assistantNotes,
     assistantGender,
     avatarObj,
-    customAvatarFile
+    customAvatarFile,
+    resolveSetupToken
   ]);
 
   return (

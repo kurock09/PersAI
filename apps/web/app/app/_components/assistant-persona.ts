@@ -16,7 +16,7 @@ export const DEFAULT_TRAITS: Record<TraitKey, number> = {
   warmth: 50
 };
 
-export type AssistantGender = "male" | "female" | "neutral" | "other" | null;
+export type AssistantGender = "male" | "female" | "neutral" | null;
 
 export const ASSISTANT_GENDER_OPTIONS: Array<{
   value: Exclude<AssistantGender, null>;
@@ -24,9 +24,16 @@ export const ASSISTANT_GENDER_OPTIONS: Array<{
 }> = [
   { value: "female", label: "Female" },
   { value: "male", label: "Male" },
-  { value: "neutral", label: "Neutral" },
-  { value: "other", label: "Other" }
+  { value: "neutral", label: "Neutral" }
 ];
+
+export function normalizeAssistantGender(value: string | null | undefined): AssistantGender {
+  if (value === "female" || value === "male" || value === "neutral") {
+    return value;
+  }
+
+  return null;
+}
 
 export function buildAssistantInstructions(params: {
   assistantName: string;

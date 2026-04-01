@@ -38,6 +38,7 @@ import {
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { normalizeAssistantGender } from "./assistant-gender";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -268,6 +269,7 @@ export class MaterializeAssistantPublishedVersionService {
       userContext
     });
 
+    const assistantGender = normalizeAssistantGender(publishedVersion.snapshotAssistantGender);
     const openclawWorkspace = {
       schema: OPENCLAW_WORKSPACE_SCHEMA,
       workspace: {
@@ -281,7 +283,7 @@ export class MaterializeAssistantPublishedVersionService {
         traits: publishedVersion.snapshotTraits,
         avatarEmoji: publishedVersion.snapshotAvatarEmoji,
         avatarUrl: publishedVersion.snapshotAvatarUrl,
-        assistantGender: publishedVersion.snapshotAssistantGender
+        assistantGender
       },
       effectiveCapabilities,
       toolAvailability,
@@ -506,6 +508,7 @@ export class MaterializeAssistantPublishedVersionService {
   }
 
   private generateSoulMd(pv: AssistantPublishedVersion, template: string | null): string {
+    const assistantGender = normalizeAssistantGender(pv.snapshotAssistantGender);
     const traitsBlock = this.renderTraitsBlock(pv.snapshotTraits);
     const instructionsBlock = pv.snapshotInstructions
       ? `## Instructions\n\n${pv.snapshotInstructions}\n`
@@ -514,9 +517,7 @@ export class MaterializeAssistantPublishedVersionService {
     if (template) {
       return this.interpolateTemplate(template, {
         assistant_name: pv.snapshotDisplayName ?? "an assistant",
-        assistant_gender_line: pv.snapshotAssistantGender
-          ? `- **Gender**: ${pv.snapshotAssistantGender}`
-          : null,
+        assistant_gender_line: assistantGender ? `- **Gender**: ${assistantGender}` : null,
         traits_block: traitsBlock,
         instructions_block: instructionsBlock
       });
@@ -524,8 +525,8 @@ export class MaterializeAssistantPublishedVersionService {
 
     const lines: string[] = ["# SOUL.md", ""];
     lines.push(`You are **${pv.snapshotDisplayName ?? "an assistant"}**.`);
-    if (pv.snapshotAssistantGender) {
-      lines.push(`- **Gender**: ${pv.snapshotAssistantGender}`);
+    if (assistantGender) {
+      lines.push(`- **Gender**: ${assistantGender}`);
     }
     lines.push("");
     if (traitsBlock) {
@@ -598,12 +599,11 @@ export class MaterializeAssistantPublishedVersionService {
   }
 
   private generateIdentityMd(pv: AssistantPublishedVersion, template: string | null): string {
+    const assistantGender = normalizeAssistantGender(pv.snapshotAssistantGender);
     if (template) {
       return this.interpolateTemplate(template, {
         assistant_name: pv.snapshotDisplayName ?? "Assistant",
-        assistant_gender_line: pv.snapshotAssistantGender
-          ? `- **Gender**: ${pv.snapshotAssistantGender}`
-          : null,
+        assistant_gender_line: assistantGender ? `- **Gender**: ${assistantGender}` : null,
         assistant_avatar_emoji_line: pv.snapshotAvatarEmoji
           ? `- **Avatar**: ${pv.snapshotAvatarEmoji}`
           : null,
@@ -615,7 +615,7 @@ export class MaterializeAssistantPublishedVersionService {
 
     const lines: string[] = ["# IDENTITY.md", ""];
     lines.push(`- **Name**: ${pv.snapshotDisplayName ?? "Assistant"}`);
-    if (pv.snapshotAssistantGender) lines.push(`- **Gender**: ${pv.snapshotAssistantGender}`);
+    if (assistantGender) lines.push(`- **Gender**: ${assistantGender}`);
     if (pv.snapshotAvatarEmoji) lines.push(`- **Avatar**: ${pv.snapshotAvatarEmoji}`);
     if (pv.snapshotAvatarUrl) lines.push(`- **Avatar URL**: ${pv.snapshotAvatarUrl}`);
     lines.push("");
