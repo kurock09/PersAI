@@ -49,19 +49,24 @@ export class MediaPreprocessorService {
     originalFilename: string,
     assistantId: string
   ): Promise<PreprocessedMedia> {
-    if (AUDIO_MIMES.has(mime)) {
-      return this.processAudio(buffer, mime, originalFilename, assistantId);
+    const normalizedMime = this.normalizeMime(mime);
+
+    if (AUDIO_MIMES.has(normalizedMime)) {
+      return this.processAudio(buffer, normalizedMime, originalFilename, assistantId);
     }
-    if (mime.startsWith("image/")) {
-      return this.processImage(buffer, mime);
+    if (normalizedMime.startsWith("image/")) {
+      return this.processImage(buffer, normalizedMime);
     }
-    if (VIDEO_MIMES.has(mime)) {
-      return this.processVideo(buffer, mime, assistantId);
+    if (VIDEO_MIMES.has(normalizedMime)) {
+      return this.processVideo(buffer, normalizedMime, assistantId);
     }
-    if (DOCUMENT_MIMES_WITH_EXTRACTION.has(mime) || mime.startsWith("text/")) {
-      return this.processDocument(buffer, mime, originalFilename);
+    if (
+      DOCUMENT_MIMES_WITH_EXTRACTION.has(normalizedMime) ||
+      normalizedMime.startsWith("text/")
+    ) {
+      return this.processDocument(buffer, normalizedMime, originalFilename);
     }
-    return this.passthrough(buffer, mime);
+    return this.passthrough(buffer, normalizedMime);
   }
 
   private async processAudio(
@@ -343,7 +348,12 @@ export class MediaPreprocessorService {
     }
   }
 
+  private normalizeMime(mime: string): string {
+    return (mime.split(";")[0] ?? mime).trim().toLowerCase();
+  }
+
   private extensionForMime(mime: string): string {
+    const normalizedMime = this.normalizeMime(mime);
     const map: Record<string, string> = {
       "image/png": "png",
       "image/jpeg": "jpg",
@@ -367,6 +377,6 @@ export class MediaPreprocessorService {
       "text/plain": "txt",
       "text/markdown": "md"
     };
-    return map[mime] ?? "bin";
+    return map[normalizedMime] ?? "bin";
   }
 }
