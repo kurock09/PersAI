@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
   NotFoundException,
@@ -20,6 +22,47 @@ import { ManageChatMediaService } from "../../application/manage-chat-media.serv
 @Controller("api/v1")
 export class MediaAttachmentController {
   constructor(private readonly manageChatMediaService: ManageChatMediaService) {}
+
+  @Post("assistant/chat/web/stage-attachment")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))
+  async stageAttachment(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: { surfaceThreadKey?: string },
+    @UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string } | undefined
+  ) {
+    const userId = this.resolveRequestUserId(req);
+    if (!file) {
+      throw new NotFoundException("A file is required.");
+    }
+    const surfaceThreadKey =
+      typeof body.surfaceThreadKey === "string" ? body.surfaceThreadKey.trim() : "";
+    if (!surfaceThreadKey) {
+      throw new BadRequestException("surfaceThreadKey is required.");
+    }
+
+    const result = await this.manageChatMediaService.stageForWebThread({
+      userId,
+      surfaceThreadKey,
+      file
+    });
+
+    return {
+      requestId: req.requestId ?? null,
+      chatId: result.chatId,
+      messageId: result.messageId,
+      attachment: {
+        id: result.attachment.id,
+        messageId: result.attachment.messageId,
+        chatId: result.attachment.chatId,
+        attachmentType: result.attachment.attachmentType,
+        originalFilename: result.attachment.originalFilename,
+        mimeType: result.attachment.mimeType,
+        sizeBytes: Number(result.attachment.sizeBytes),
+        processingStatus: result.attachment.processingStatus,
+        createdAt: result.attachment.createdAt.toISOString()
+      }
+    };
+  }
 
   @Post("assistant/chat/:chatId/message/:messageId/attachment")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))

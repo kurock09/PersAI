@@ -1689,6 +1689,31 @@ export type UploadedAttachment = {
   createdAt: string;
 };
 
+export type StagedAttachmentResult = {
+  chatId: string;
+  messageId: string;
+  attachment: UploadedAttachment;
+};
+
+export async function stageWebChatAttachment(
+  token: string,
+  surfaceThreadKey: string,
+  file: File
+): Promise<StagedAttachmentResult> {
+  const base = getApiBaseUrl();
+  const formData = new FormData();
+  formData.append("surfaceThreadKey", surfaceThreadKey);
+  formData.append("file", file);
+  const res = await fetch(`${base}/assistant/chat/web/stage-attachment`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  });
+  if (!res.ok) throw new Error("Failed to stage attachment.");
+  const data = (await res.json()) as StagedAttachmentResult;
+  return data;
+}
+
 export async function uploadChatAttachment(
   token: string,
   chatId: string,

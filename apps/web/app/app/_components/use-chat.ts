@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   getChatMessages,
+  stageWebChatAttachment,
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
   uploadChatAttachment,
@@ -121,6 +122,7 @@ export function useChat(threadKey: string): UseChatReturn {
 
       setIsStreaming(true);
       setIssue(null);
+
       const userMsg: ChatMessage = {
         id: userMsgId,
         role: "user",
@@ -138,6 +140,31 @@ export function useChat(threadKey: string): UseChatReturn {
         thoughtFinishedAt: null
       };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
+
+      if (pendingFiles.length > 0) {
+        try {
+          for (const file of pendingFiles) {
+            await stageWebChatAttachment(token, threadKey, file);
+          }
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === userMsgId
+                ? {
+                    ...m,
+                    attachments: (m.attachments ?? []).map((a) =>
+                      a.processingStatus === "pending" ? { ...a, processingStatus: "ready" } : a
+                    )
+                  }
+                : m
+            )
+          );
+        } catch {
+          setIssue(toWebChatUxIssue("Failed to upload attachments. Please try again."));
+          setIsStreaming(false);
+          abortRef.current = null;
+          return;
+        }
+      }
 
       const pendingDelta = { text: "", raf: 0 };
       const pendingThought = { text: "", startedAt: null as string | null, raf: 0 };
@@ -268,44 +295,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 );
               }
 
-              if (pendingFiles.length > 0 && realUserMsgId && realChatId) {
-                void (async () => {
-                  const uploadToken = (await getToken()) ?? token;
-                  for (const file of pendingFiles) {
-                    try {
-                      const uploaded = await uploadChatAttachment(
-                        uploadToken,
-                        realChatId,
-                        realUserMsgId,
-                        file
-                      );
-                      setMessages((prev) =>
-                        prev.map((m) => {
-                          if (m.id !== realUserMsgId) return m;
-                          const atts = (m.attachments ?? []).map((a) =>
-                            a.originalFilename === file.name && a.processingStatus === "pending"
-                              ? { ...a, ...uploaded, processingStatus: "ready" }
-                              : a
-                          );
-                          return { ...m, attachments: atts };
-                        })
-                      );
-                    } catch {
-                      setMessages((prev) =>
-                        prev.map((m) => {
-                          if (m.id !== realUserMsgId) return m;
-                          const atts = (m.attachments ?? []).map((a) =>
-                            a.originalFilename === file.name && a.processingStatus === "pending"
-                              ? { ...a, processingStatus: "failed" }
-                              : a
-                          );
-                          return { ...m, attachments: atts };
-                        })
-                      );
-                    }
-                  }
-                })();
-              }
+              // Files are already staged before the stream — no post-stream upload needed
             },
             onInterrupted: () => {
               const interruptedAt = new Date().toISOString();

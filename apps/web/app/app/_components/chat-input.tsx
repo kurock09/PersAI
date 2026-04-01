@@ -164,11 +164,8 @@ export function ChatInput({
         void (async () => {
           try {
             const text = await onTranscribeVoice(blob, filename);
-            if (text.trim().length > 0) {
-              onSend(text, [voiceFile]);
-            }
+            onSend(text.trim().length > 0 ? text : "(voice message)", [voiceFile]);
           } catch {
-            // STT failed — still send as voice attachment with generic text
             onSend("(voice message)", [voiceFile]);
           } finally {
             setRecordingState("idle");

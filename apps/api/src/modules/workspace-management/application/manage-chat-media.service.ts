@@ -108,6 +108,75 @@ export class ManageChatMediaService {
     return attachment;
   }
 
+  async stageForWebThread(params: {
+    userId: string;
+    surfaceThreadKey: string;
+    file: { buffer: Buffer; mimetype: string; originalname: string };
+  }): Promise<{ chatId: string; messageId: string; attachment: AssistantChatMessageAttachment }> {
+    if (!isAllowedMime(params.file.mimetype)) {
+      throw new BadRequestException("Unsupported file type.");
+    }
+    if (params.file.buffer.length > MAX_UPLOAD_BYTES) {
+      throw new BadRequestException("File exceeds maximum size of 25MB.");
+    }
+
+    const assistant = await this.assistantRepository.findByUserId(params.userId);
+    if (!assistant) {
+      throw new NotFoundException("Assistant does not exist for this user.");
+    }
+
+    let chat = await this.chatRepository.findChatBySurfaceThread(
+      assistant.id,
+      "web",
+      params.surfaceThreadKey
+    );
+    if (!chat) {
+      chat = await this.chatRepository.createChat({
+        assistantId: assistant.id,
+        userId: assistant.userId,
+        workspaceId: assistant.workspaceId,
+        surface: "web",
+        surfaceThreadKey: params.surfaceThreadKey,
+        title: null
+      });
+    }
+
+    const stagingMessage = await this.chatRepository.createMessage({
+      chatId: chat.id,
+      assistantId: assistant.id,
+      author: "user",
+      content: `(attached: ${params.file.originalname || "file"})`
+    });
+
+    const uploadResult = await this.runtimeAdapter.uploadChatMedia({
+      assistantId: assistant.id,
+      chatId: chat.id,
+      messageId: stagingMessage.id,
+      fileBuffer: params.file.buffer,
+      mimeType: params.file.mimetype
+    });
+
+    const attachment = await this.attachmentRepository.create({
+      messageId: stagingMessage.id,
+      chatId: chat.id,
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      attachmentType: inferAttachmentType(params.file.mimetype),
+      storagePath: uploadResult.storagePath,
+      originalFilename: params.file.originalname || null,
+      mimeType: uploadResult.mimeType,
+      sizeBytes: BigInt(uploadResult.sizeBytes),
+      durationMs: null,
+      width: null,
+      height: null,
+      processingStatus: "ready",
+      transcription: null,
+      metadata: { source: "web_staged_upload" }
+    });
+
+    return { chatId: chat.id, messageId: stagingMessage.id, attachment };
+  }
+
   async transcribeVoice(params: {
     userId: string;
     file: { buffer: Buffer; mimetype: string; originalname: string };
