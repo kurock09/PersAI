@@ -1,5 +1,37 @@
 # SESSION-HANDOFF
 
+## 2026-04-01 - Fix: Telegram first-photo hallucination + Yandex IAM lookup pin bump
+
+### What changed
+
+Two follow-up fixes after the initial media/TTS stabilization:
+
+**1. PersAI: force image inspection for inbound image attachments (1 file):**
+
+- `inbound-media.service.ts` — image attachments now add an explicit instruction to inspect the file with the `image` tool before answering and to avoid guessing from filename/path alone.
+- This targets the Telegram bug where the first photo reply could be nonsense, while the second retry became correct.
+
+**2. OpenClaw: exact Yandex IAM credential lookup (1 file):**
+
+- `src/tts/providers/yandex.ts` — `YANDEX_IAM_TOKEN` and `YANDEX_FOLDER_ID` now resolve via exact credential key lookup instead of provider fallback, preventing accidental reuse of `YANDEX_TTS_API_KEY`.
+
+**3. Dev GitOps pin bump:**
+
+- `infra/dev/gitops/openclaw-approved-sha.txt`
+- `infra/helm/values-dev.yaml`
+- Dev OpenClaw image pin bumped to `566bdd5aafbe001bcbe3e09e37b2eabda6da0c60`.
+
+### Known issues
+
+- This improves first-turn image reliability, but if Telegram photo replies still vary after deploy, the next place to inspect is the native multimodal prompt/attachment injection path inside OpenClaw rather than PersAI download timing.
+
+### Next steps
+
+- Deploy and retest Telegram photo analysis on the first message.
+- Retest Yandex TTS in web and Telegram after the new OpenClaw image rolls out.
+
+---
+
 ## 2026-04-01 - Fix: tool credentials config refresh + web audio transcription
 
 ### What changed
@@ -7,19 +39,24 @@
 Two critical fixes for Yandex TTS and web voice transcription:
 
 **1. PersAI: tool credential changes now bump `configGeneration` (1 file):**
+
 - `manage-admin-tool-credentials.service.ts` — injected `BumpConfigGenerationService`, called after saving credentials. Without this, saving Yandex TTS API key + provider in admin UI never triggered bootstrap rematerialization — OpenClaw kept using the old `providerId: "openai"`.
 
 **2. OpenClaw: explicit audio MIME in transcribe handler (1 file):**
+
 - `persai-runtime-media.ts` — webm files were misclassified as "video" by extension-based detection, preventing audio transcription. Now infers `audio/*` MIME from file extension before calling `transcribeAudioFile`.
 
 **3. PersAI: web file preprocessing + audio conversion (1 file, from previous session):**
+
 - `manage-chat-media.service.ts` — `stageForWebThread` now runs `MediaPreprocessorService.process()` on upload (audio transcription, PDF text extraction, image normalization). `transcribeVoice` converts webm/ogg→mp3 via ffmpeg before upload.
 
 ### Known issues
+
 - Yandex TTS requires `YANDEX_FOLDER_ID` env var if using IAM token auth (API key auth may not need it depending on service account binding).
 - After deploy, admin must re-save tool credentials (or change any credential) to trigger the config generation bump for existing assistants.
 
 ### Next steps
+
 - Deploy and verify Yandex TTS + web voice transcription end-to-end.
 - Consider adding `YANDEX_FOLDER_ID` to PersAI admin tool credentials UI as a separate field.
 
@@ -32,6 +69,7 @@ Two critical fixes for Yandex TTS and web voice transcription:
 PersAI admin provider selection was broken — `getTtsProvider()` in OpenClaw never saw the chosen provider. Fixed by propagating `toolProviderOverrides` through the PersAI runtime context.
 
 **OpenClaw changes (7 files):**
+
 - `persai-runtime-context.ts` — added `toolProviderOverrides` field + `getPersaiToolProviderOverride()` helper
 - `persai-runtime-tool-policy.ts` — added `extractToolProviderOverrides()` extractor
 - `persai-runtime-agent-turn.ts` — all 3 turn functions propagate overrides to context
@@ -43,9 +81,11 @@ PersAI admin provider selection was broken — `getTtsProvider()` in OpenClaw ne
 **PERSAI-FORK-PATCHES.md:** patch #22 added.
 
 ### Known issues
+
 - None.
 
 ### Next steps
+
 - Deploy and verify Yandex TTS works end-to-end.
 - Consider adding voice/model selection UI in PersAI admin for OpenAI TTS.
 
@@ -58,12 +98,14 @@ PersAI admin provider selection was broken — `getTtsProvider()` in OpenClaw ne
 Replaced fragmented per-channel media logic with a unified three-service architecture:
 
 **New services** (all in `apps/api/src/modules/workspace-management/application/media/`):
+
 - `MediaPreprocessorService` — normalizes all inbound media before storage: audio webm/ogg→mp3 (ffmpeg), image heic→jpg + resize (sharp), PDF text extraction, video audio track STT. Single point for all format handling.
 - `InboundMediaService` — unified `resolve()` method replaces `buildAttachmentContext` (web) and `enrichMessageWithAttachments` (telegram). Preprocesses → stores → creates attachment records → builds model context block.
 - `MediaDeliveryService` — unified `deliver()` method replaces `persistToolMediaAttachments` (duplicated in stream + sync services). Downloads tool output → re-uploads to permanent storage → creates attachment records → delegates to channel adapter.
 - `ChannelMediaAdapter` interface — `WebMediaAdapter` (no-op, proxy-based), `TelegramMediaAdapter` (bridge-delegated). Adding WhatsApp/VK = one new file.
 
 **Refactored consumers:**
+
 - `StreamWebChatTurnService` — uses `InboundMediaService.buildContextForExistingAttachments()` + `MediaDeliveryService.deliver()`. Removed `persistToolMediaAttachments`, `buildAttachmentContext`, `inferMimeType` private methods.
 - `SendWebChatTurnService` — same refactoring as stream service.
 - `HandleInternalTelegramTurnService` — uses `InboundMediaService.resolve()` instead of inline `enrichMessageWithAttachments` + `persistTelegramAttachments`.
@@ -71,11 +113,13 @@ Replaced fragmented per-channel media logic with a unified three-service archite
 **ADR:** `docs/ADR/060-unified-media-pipeline-preprocessor-delivery-inbound.md`
 
 ### Known issues
+
 - `sharp` and `pdf-parse` are optional runtime dependencies — if not installed, image/PDF processing degrades gracefully (passthrough).
 - `ffmpeg` must be available in container PATH for audio conversion (already present in current images).
 - Telegram inbound media flow now downloads files from workspace storage to get Buffer for preprocessing — adds one extra IO hop vs the old direct-persist path. This is intentional: all channels go through the same preprocessing pipeline.
 
 ### Next steps
+
 - Deploy and verify web + Telegram media flows work end-to-end through the new pipeline.
 - Install `sharp` and `pdf-parse` in API container if not already present.
 - ~~Fix Yandex TTS provider selection~~ — done (see session entry above).
@@ -86,15 +130,18 @@ Replaced fragmented per-channel media logic with a unified three-service archite
 ## 2026-03-31 - Fix: stream race condition — media NDJSON event was never emitted
 
 ### What changed
+
 - Removed lifecycle `end` event handler from `runPersaiWebRuntimeAgentTurnStream` that was prematurely closing the HTTP response before `resolveAgentResponse` could extract and write the `{ type: "media" }` NDJSON event.
 - The `finally` block already handled closing properly — the lifecycle handler was redundant and caused the `if (closed) return` guard to skip media extraction.
 - Fork SHA: `43bcb54ab7891803e7b4e2e376640febc2bcf58c`.
 - PERSAI-FORK-PATCHES.md updated (patch #18), verify-persai-patches.mjs updated (85/85 pass).
 
 ### Known issues
+
 - None.
 
 ### Next steps
+
 - Verify generated images now appear in web chat after this fix is deployed.
 
 ---
@@ -102,6 +149,7 @@ Replaced fragmented per-channel media logic with a unified three-service archite
 ## 2026-03-31 - Fix: tool-generated media routing to user workspace
 
 ### What changed
+
 - OpenClaw `saveMediaBuffer` now takes optional `baseDirOverride` — `image_generate` uses it to write directly to `workspaceDir/media/tool-image-generation/` instead of the ephemeral `.openclaw-state/media/` dir (TTL=2min).
 - `resolveMediaFilePath` in the PersAI gateway bridge now accepts any path under `PERSAI_WORKSPACE_ROOT`, so the download proxy serves tool media correctly.
 - PersAI `ClerkAuthMiddleware` now covers attachment upload/download/voice transcribe routes (was causing 401 on file uploads).
@@ -109,9 +157,11 @@ Replaced fragmented per-channel media logic with a unified three-service archite
 - PERSAI-FORK-PATCHES.md updated (patch #17), verify-persai-patches.mjs updated (84/84 pass).
 
 ### Known issues
+
 - None introduced by this fix.
 
 ### Next steps
+
 - Push OpenClaw first, then PersAI. CI will rebuild OpenClaw image and re-pin digest.
 
 ---
@@ -123,6 +173,7 @@ Replaced fragmented per-channel media logic with a unified three-service archite
 All 7 milestones of the M-series (media, attachments, voice) are implemented and TypeCheck-clean across both repos.
 
 **M1 — Media foundation:**
+
 - Prisma: `assistant_chat_message_attachments` table, `media_storage_bytes` quota dimension, `AttachmentType`/`AttachmentProcessingStatus` enums, migration
 - `AssistantChatMessageAttachmentRepository` (create, findByMessageIds, findById, deleteByMessageIds, deleteByChatId, deleteByAssistantId)
 - `ManageChatMediaService` (upload/download business logic)
@@ -134,6 +185,7 @@ All 7 milestones of the M-series (media, attachments, voice) are implemented and
 - `media_storage_bytes` quota tracking
 
 **M2 — Tool media delivery (web chat):**
+
 - OpenClaw bridge: `resolveAgentResponse` extracts `{ text, media[] }` from payloads, NDJSON `media` event after `done`
 - PersAI adapter: parses `media[]` from sync response and stream events
 - Send/stream services: download tool media, re-upload to permanent storage, create attachment rows
@@ -141,6 +193,7 @@ All 7 milestones of the M-series (media, attachments, voice) are implemented and
 - Message history load includes attachments
 
 **M3 — Web voice messages:**
+
 - Web UI: microphone button, `MediaRecorder` API (opus/webm), recording timer, transcription spinner
 - OpenClaw bridge: `POST /api/v1/runtime/workspace/media/transcribe` (calls `transcribeAudioFile`)
 - PersAI adapter: `transcribeMedia(assistantId, storagePath)`
@@ -149,11 +202,13 @@ All 7 milestones of the M-series (media, attachments, voice) are implemented and
 - Web client: `transcribeVoice()` API call
 
 **M4 — Web file/image upload:**
+
 - Web UI: activated paperclip button, file picker, preview chips, optimistic local blob URLs
 - Upload happens asynchronously after streaming turn completes
 - `AttachmentStrip` renders all media types in user messages
 
 **M5 — Telegram inbound media:**
+
 - OpenClaw bridge: `bot.on("message:voice")`, `bot.on("message:photo")`, `bot.on("message:document")` handlers
 - Downloads via Grammy `getFile`, stores in workspace, STT for voice
 - Forwards structured `attachments[]` to PersAI internal turn
@@ -161,11 +216,13 @@ All 7 milestones of the M-series (media, attachments, voice) are implemented and
 - `HandleInternalTelegramTurnService`: finds/creates Telegram chats, creates user messages, persists attachment rows
 
 **M6 — Telegram outbound media:**
+
 - `requestPersaiTelegramTurn` returns `{ text, media[] }` instead of plain string
 - `deliverTelegramMedia`: sends `sendPhoto`/`sendVoice`/`sendAudio`/`sendVideo`/`sendDocument` via Grammy `InputFile`
 - All 4 handlers (text, voice, photo, document) deliver media after text reply
 
 **M7 — Yandex SpeechKit TTS:**
+
 - New provider: `src/tts/providers/yandex.ts` (SpeechKit v1 REST API, oggopus + mp3, API-Key + IAM Token auth)
 - Registered in `provider-registry.ts`, `TTS_PROVIDERS`, `ResolvedTtsConfig.yandex`
 - Config types: `TtsConfig.yandex` in `types.tts.ts`

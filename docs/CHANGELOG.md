@@ -4,6 +4,15 @@
 
 ### Added
 
+- **Fix: Telegram photo turns inspect image attachments before answering:**
+  - Root cause: Telegram inbound media reached OpenClaw as attachment paths in the text prompt, but the model was not explicitly told to inspect attached images first. The first reply could hallucinate from filename/path-level context instead of actually viewing the image.
+  - Fix: `InboundMediaService` now adds an explicit instruction for image attachments to inspect them with the `image` tool before answering and not guess from the filename/path alone.
+
+- **Fix: Yandex SpeechKit IAM credential lookup + dev pin bump (OpenClaw):**
+  - Root cause: Yandex IAM token and folder ID resolution could fall back through provider-based env lookup and accidentally reuse the API key, breaking auth for SpeechKit IAM-based requests.
+  - Fix: OpenClaw now resolves `YANDEX_IAM_TOKEN` and `YANDEX_FOLDER_ID` by exact credential key lookup.
+  - Dev GitOps OpenClaw pin now targets fork SHA `566bdd5aafbe001bcbe3e09e37b2eabda6da0c60`.
+
 - **Fix: tool credential changes now trigger config refresh for OpenClaw runtime:**
   - Root cause: `ManageAdminToolCredentialsService.updateCredentials()` saved API keys and provider selections (e.g. Yandex TTS) but did not bump `configGeneration`. OpenClaw's `ensure-fresh-spec` never detected staleness, so the runtime kept using the old bootstrap with `providerId: "openai"`.
   - Fix: inject `BumpConfigGenerationService` and call `execute()` after saving credentials. Now any credential/provider change triggers bootstrap rematerialization on next OpenClaw request.

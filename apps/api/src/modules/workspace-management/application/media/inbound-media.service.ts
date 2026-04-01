@@ -86,7 +86,11 @@ export class InboundMediaService {
       }
     }
 
-    const enrichedMessage = this.buildEnrichedMessage(params.userMessage, contextLines);
+    const enrichedMessage = this.buildEnrichedMessage(
+      params.userMessage,
+      contextLines,
+      attachments.some((attachment) => attachment.attachmentType === "image")
+    );
 
     return { attachments, enrichedMessage };
   }
@@ -110,7 +114,11 @@ export class InboundMediaService {
         return `- media/${a.storagePath} (${a.attachmentType}${name}${extras.length > 0 ? ", " + extras.join(", ") : ""})`;
       });
 
-      return `[Files available in your workspace:\n${lines.join("\n")}\nYou can read or reference them by their path.]`;
+      return this.buildAttachmentBlock(
+        "Files available in your workspace",
+        lines,
+        ready.some((attachment) => attachment.attachmentType === "image")
+      );
     } catch {
       return null;
     }
@@ -136,15 +144,34 @@ export class InboundMediaService {
     return `- media/${attachment.storagePath} (${attachment.attachmentType}${name}${extrasStr})`;
   }
 
-  private buildEnrichedMessage(userMessage: string, contextLines: string[]): string {
+  private buildEnrichedMessage(
+    userMessage: string,
+    contextLines: string[],
+    hasImageAttachments: boolean
+  ): string {
     if (contextLines.length === 0) return userMessage;
 
-    const block = [
-      "[Files attached by user:",
-      ...contextLines,
-      "You can read or reference them by their path.]"
-    ].join("\n");
+    const block = this.buildAttachmentBlock(
+      "Files attached by user",
+      contextLines,
+      hasImageAttachments
+    );
 
     return `${block}\n${userMessage}`;
+  }
+
+  private buildAttachmentBlock(
+    title: string,
+    contextLines: string[],
+    hasImageAttachments: boolean
+  ): string {
+    const lines = [`[${title}:`, ...contextLines];
+    if (hasImageAttachments) {
+      lines.push(
+        "If any attached file is an image, inspect it with the image tool before answering. Do not guess from the filename or path alone."
+      );
+    }
+    lines.push("You can read or reference them by their path.]");
+    return lines.join("\n");
   }
 }
