@@ -4,11 +4,15 @@
 
 ### Added
 
-- **Fix: TTS provider selection — PersAI admin provider override now reaches OpenClaw runtime:**
-  - Root cause: `getTtsProvider()` in OpenClaw resolved provider from config file or filesystem prefs — neither populated by PersAI. When admin selected "yandex", the `providerId` was stored in `toolCredentialRefs` but never reached the TTS selector. The API key resolved correctly via fallback, but the wrong provider (openai) was always used because `OPENAI_API_KEY` exists globally.
-  - Fix: added `toolProviderOverrides` to PersAI runtime context. All HTTP handlers extract `providerId` from bootstrap `toolCredentialRefs` and propagate through `persaiRuntimeRequestContext`. `getTtsProvider()` now checks PersAI context first (highest priority). Also added `YANDEX_TTS_API_KEY` to primary lookup arrays in both `resolveTtsApiKey` and `resolveYandexApiKey`.
-  - Affects all TTS providers (Yandex, ElevenLabs, OpenAI) — admin selection now works for all.
-  - 2 new tests added and passing (30/30).
+- **Fix: tool credential changes now trigger config refresh for OpenClaw runtime:**
+  - Root cause: `ManageAdminToolCredentialsService.updateCredentials()` saved API keys and provider selections (e.g. Yandex TTS) but did not bump `configGeneration`. OpenClaw's `ensure-fresh-spec` never detected staleness, so the runtime kept using the old bootstrap with `providerId: "openai"`.
+  - Fix: inject `BumpConfigGenerationService` and call `execute()` after saving credentials. Now any credential/provider change triggers bootstrap rematerialization on next OpenClaw request.
+  - This was the direct cause of Yandex TTS not being used despite the admin selecting it — the new `providerId` never reached the runtime.
+
+- **Fix: web voice transcription — pass explicit audio MIME type (OpenClaw):**
+  - Root cause: `.webm` files were misclassified as "video" by OpenClaw's extension-based MIME detection, bypassing the audio transcription pipeline.
+  - Fix: `handleRuntimeWorkspaceMediaTranscribeHttpRequest` now infers `audio/*` MIME from file extension before calling `transcribeAudioFile`.
+  - Dev GitOps OpenClaw pin now targets fork SHA `66d1779fadcef077c013da5e234fbdfb6ac7ec7e`.
 
 - **Unified media pipeline — MediaPreprocessor, InboundMediaService, MediaDeliveryService (ADR-060):**
   - Replaced fragmented per-channel media logic with three unified services in `apps/api/src/modules/workspace-management/application/media/`.
@@ -49,6 +53,12 @@
   - `resolveMediaFilePath` expanded to accept paths under `PERSAI_WORKSPACE_ROOT` for download.
   - Auth middleware routes added for attachment upload/download/transcribe endpoints.
   - Dev GitOps OpenClaw pin now targets fork SHA `f6b5d02a7c6cee60ef9397a2f0005614502abaeb`.
+
+- **Fix: TTS provider selection — PersAI admin provider override now reaches OpenClaw runtime:**
+  - Root cause: `getTtsProvider()` resolved provider from config/prefs (neither populated by PersAI). Admin selection of "yandex" was stored in `toolCredentialRefs.providerId` but never reached the TTS selector. OpenAI was always used because `OPENAI_API_KEY` exists globally.
+  - Fix: added `toolProviderOverrides` to PersAI runtime context. `getTtsProvider()` now checks PersAI context first. Also added `YANDEX_TTS_API_KEY` to primary lookup arrays.
+  - Affects all TTS providers (Yandex, ElevenLabs, OpenAI). 2 new tests (30/30).
+  - Dev GitOps OpenClaw pin now targets fork SHA `054ca467629abd255abc50e16af5971c243eac9a`.
 
 - **M-series: Systemic media, attachments, and voice — full implementation (ADR-059, M1–M7):**
   - **M1 foundation:** `assistant_chat_message_attachments` Prisma table, `media_storage_bytes` quota dimension, attachment repository + media service, upload/download proxy endpoints, chat hard-delete + reset cleanup, plan-governed `mediaClasses` capability gate.

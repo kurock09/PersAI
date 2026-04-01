@@ -212,7 +212,6 @@ Foundation Phase
   - [x] H8s6 — keep startup cheap and readiness-safe: defer non-critical Telegram profile work until after gateway becomes ready
   - [x] H8s8 — add runtime session lifecycle control: clear `agent:persai:<assistantId>:*` sessions on assistant reset/recreate, enforce TTL/GC for stale channel sessions, and keep session growth bounded for 1000+ users
   - [x] H8s9 — full session purge on reset/recreate: delete all runtime sessions (`agent:main` + `agent:persai`) for the assistant's workspace and delete per-chat sessions on web chat deletion; policy decision: no archive, full purge
-- [ ] H11 — WhatsApp/MAX readiness and secret-ref parity
 - [x] H12 — Cron webhook callback + preferred notification channel + memory lifecycle
   - [x] H12a — Prisma: `preferredNotificationChannel` field on assistant model + migration
   - [x] H12b — PersAI API: `POST /api/internal/cron-fire` webhook endpoint (current scope: receives OpenClaw cron callback, updates registry rows, delivers directly to Telegram when the assistant has an active Telegram binding plus a known inbound chat target, otherwise falls back to the dedicated web reminders chat; future WhatsApp/MAX outbound remains outside H12 scope)
@@ -228,6 +227,7 @@ Foundation Phase
   - [x] H13c — human-readable error messages across web, Telegram, and reminder callback delivery now render from the same backend code family
   - [x] H13d — adapter pattern: new messenger = new adapter in PersAI API, OpenClaw stays a thin runtime executor via `/api/v1/runtime/chat/channel`
   - [x] H13e — stable backend error codes replace string-only UX heuristics for shared web/Telegram/reminder-facing failure semantics
+
 ## Step 13 Media, Attachments, and Voice (M-series, ADR-059)
 
 - [x] M1 — media foundation (DB model, storage, contracts, cleanup, quota dimension)
@@ -276,7 +276,7 @@ Foundation Phase
 - [x] M7 — Yandex SpeechKit TTS provider
   - [x] M7a — **native OpenClaw**: new `src/tts/providers/yandex.ts` (SpeechKit v1 REST API, oggopus + mp3 output, API-Key + IAM Token auth)
   - [x] M7b — **native OpenClaw**: register `buildYandexSpeechProvider` in `src/tts/provider-registry.ts` + `TTS_PROVIDERS` + `ResolvedTtsConfig.yandex` + secret collector
-  - [x] M7c — verify PersAI admin UI Yandex TTS provider selection + credential delivery (already wired via `TOOL_PROVIDER_OPTIONS` + `TOOL_PROVIDER_ENV_FALLBACKS`)
+  - [x] M7c — fix TTS provider selection: PersAI admin `providerId` now propagated to OpenClaw `getTtsProvider()` via `toolProviderOverrides` in runtime context (credential delivery was already wired, but provider selection was broken — always defaulted to OpenAI)
 
 ## Step 13.1 Unified Media Pipeline (ADR-060)
 
@@ -290,11 +290,21 @@ Foundation Phase
 - [x] Refactor HandleInternalTelegramTurnService to use InboundMediaService
 - [x] Remove duplicated media logic from turn services (~200 lines)
 - [x] Module registration with factory-based adapter injection
-- [ ] Add WhatsApp adapter (future, when WhatsApp channel is implemented)
-- [ ] Add VK adapter (future, when VK channel is implemented)
 
-## Step 14 Tech Debt and Scale
+## Step 14 Tech Debt and Scale (completed hygiene)
 
+- [x] H16-hygiene — Autonomous workspace immediate hygiene (landed)
+  - [x] H16-hygiene-a — `BOOTSTRAP.md` is now one-time/consumed: deleted from workspace after first successful bootstrap read, re-created only on full reset/recreate
+  - [x] H16-hygiene-b — heartbeat/background polling uses a dedicated background session key (`__bg_heartbeat`), separated from user assistant turn sessions
+  - [x] H16-hygiene-c — background default-model selection follows PersAI admin global settings (`defaultModelKey`) instead of hardcoded `gpt-4.1`
+
+---
+
+## Pending / Future
+
+- [ ] H11 — WhatsApp/MAX readiness and secret-ref parity
+- [ ] Channel media adapters: WhatsApp, VK, Matrix (one new file each when channels are implemented)
+- [ ] OpenAI TTS voice/model selection UI in PersAI admin (currently voice configurable only via `[[tts:voice=...]]` directives)
 - [ ] H14 — Fork-diff reduction (tech debt, trigger: next upstream sync or stable sprint)
   - [ ] H14a — secrets + tool credentials → `exec` provider + PersAI API bridge (removes 9 native OpenClaw files)
   - [ ] H14b — remove explicit store from `server-runtime-state.ts` (1 file, trivial)
@@ -302,13 +312,8 @@ Foundation Phase
   - scope note: this is a system-wide platform slice, not Telegram-specific hardening
   - [ ] H15a — review and tune Kubernetes probe budgets (`startupProbe`, `readinessProbe`, `livenessProbe`, timeout, `failureThreshold`) from measured rollout/warmup behavior
   - [ ] H15b — validate rollout safety and startup latency budgets for `api`, `web`, and `openclaw` under realistic cold-start and recovery scenarios
-- [ ] H16 — Autonomous workspace heartbeat isolation and cheap-model routing
+- [ ] H16 — Autonomous workspace heartbeat deeper isolation
   - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated
-  - immediate hygiene (landed):
-  - [x] H16-hygiene-a — `BOOTSTRAP.md` is now one-time/consumed: deleted from workspace after first successful bootstrap read, re-created only on full reset/recreate
-  - [x] H16-hygiene-b — heartbeat/background polling uses a dedicated background session key (`__bg_heartbeat`), separated from user assistant turn sessions
-  - [x] H16-hygiene-c — background default-model selection follows PersAI admin global settings (`defaultModelKey`) instead of hardcoded `gpt-4.1`
-  - remaining deeper isolation:
   - [ ] H16a — verify which runtime paths still read `HEARTBEAT.md` from the default OpenClaw workspace instead of assistant-scoped `workspaceDir`
   - [ ] H16b — bind heartbeat polling and related autonomous file checks to the correct assistant/user workspace where product behavior is expected per assistant
   - [ ] H16c — document the role of the main/default workspace vs assistant-scoped workspaces so background agent behavior is understandable and debuggable

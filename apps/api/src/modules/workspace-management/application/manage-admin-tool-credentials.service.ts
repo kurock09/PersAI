@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { AdminAuthorizationService } from "./admin-authorization.service";
+import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import type { PlatformRuntimeProviderKeyMetadata } from "./platform-runtime-provider-settings";
@@ -18,6 +19,7 @@ import {
 export class ManageAdminToolCredentialsService {
   constructor(
     private readonly adminAuthorizationService: AdminAuthorizationService,
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
@@ -74,6 +76,8 @@ export class ManageAdminToolCredentialsService {
     const providerSelections = await this.loadProviderSelections();
     const state = buildAdminToolCredentialsState({ keyMetadata, providerSelections });
 
+    const configGeneration = await this.bumpConfigGenerationService.execute();
+
     await this.appendAssistantAuditEventService.execute({
       workspaceId: null,
       assistantId: null,
@@ -84,7 +88,8 @@ export class ManageAdminToolCredentialsService {
       details: {
         updatedCredentials: Object.entries(input.keys)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
-          .map(([key]) => key)
+          .map(([key]) => key),
+        configGeneration
       }
     });
 

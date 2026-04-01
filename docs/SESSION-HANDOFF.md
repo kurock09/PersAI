@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-04-01 - Fix: tool credentials config refresh + web audio transcription
+
+### What changed
+
+Two critical fixes for Yandex TTS and web voice transcription:
+
+**1. PersAI: tool credential changes now bump `configGeneration` (1 file):**
+- `manage-admin-tool-credentials.service.ts` — injected `BumpConfigGenerationService`, called after saving credentials. Without this, saving Yandex TTS API key + provider in admin UI never triggered bootstrap rematerialization — OpenClaw kept using the old `providerId: "openai"`.
+
+**2. OpenClaw: explicit audio MIME in transcribe handler (1 file):**
+- `persai-runtime-media.ts` — webm files were misclassified as "video" by extension-based detection, preventing audio transcription. Now infers `audio/*` MIME from file extension before calling `transcribeAudioFile`.
+
+**3. PersAI: web file preprocessing + audio conversion (1 file, from previous session):**
+- `manage-chat-media.service.ts` — `stageForWebThread` now runs `MediaPreprocessorService.process()` on upload (audio transcription, PDF text extraction, image normalization). `transcribeVoice` converts webm/ogg→mp3 via ffmpeg before upload.
+
+### Known issues
+- Yandex TTS requires `YANDEX_FOLDER_ID` env var if using IAM token auth (API key auth may not need it depending on service account binding).
+- After deploy, admin must re-save tool credentials (or change any credential) to trigger the config generation bump for existing assistants.
+
+### Next steps
+- Deploy and verify Yandex TTS + web voice transcription end-to-end.
+- Consider adding `YANDEX_FOLDER_ID` to PersAI admin tool credentials UI as a separate field.
+
+---
+
 ## 2026-04-01 - Fix: TTS provider selection (Yandex/ElevenLabs/OpenAI)
 
 ### What changed
