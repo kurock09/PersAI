@@ -8,6 +8,7 @@ export interface UpdateAssistantDraftInput {
   draftTraits?: Record<string, number> | null;
   draftAvatarEmoji?: string | null;
   draftAvatarUrl?: string | null;
+  draftAssistantGender?: string | null;
 }
 
 export interface AssistantRepository {

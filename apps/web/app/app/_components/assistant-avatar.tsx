@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/app/lib/utils";
@@ -12,6 +12,7 @@ const SIZE_CLASSES = {
 } as const;
 
 type AvatarSize = keyof typeof SIZE_CLASSES;
+const AVATAR_BLOB_CACHE = new Map<string, string>();
 
 interface AssistantAvatarProps {
   avatarUrl?: string | null | undefined;
@@ -25,18 +26,20 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
   const { getToken } = useAuth();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
-  const prevUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!avatarUrl) {
+      setBlobUrl(null);
       setStatus("idle");
       return;
     }
 
-    if (avatarUrl === prevUrlRef.current && status === "loaded" && blobUrl) {
+    const cachedBlobUrl = AVATAR_BLOB_CACHE.get(avatarUrl);
+    if (cachedBlobUrl) {
+      setBlobUrl(cachedBlobUrl);
+      setStatus("loaded");
       return;
     }
-    prevUrlRef.current = avatarUrl;
 
     let cancelled = false;
     setStatus("loading");
@@ -45,9 +48,7 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
       try {
         const token = await getToken();
         if (!token || cancelled) return;
-        const sep = avatarUrl.includes("?") ? "&" : "?";
-        const url = `${avatarUrl}${sep}v=${Math.floor(Date.now() / 60_000)}`;
-        const res = await fetch(url, {
+        const res = await fetch(avatarUrl, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (!res.ok || cancelled) {
@@ -56,10 +57,9 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
         }
         const blob = await res.blob();
         if (cancelled) return;
-        setBlobUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return URL.createObjectURL(blob);
-        });
+        const nextBlobUrl = URL.createObjectURL(blob);
+        AVATAR_BLOB_CACHE.set(avatarUrl, nextBlobUrl);
+        setBlobUrl(nextBlobUrl);
         setStatus("loaded");
       } catch {
         if (!cancelled) setStatus("error");
@@ -69,13 +69,7 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
     return () => {
       cancelled = true;
     };
-  }, [avatarUrl, getToken]); // eslint-disable-line
-
-  useEffect(() => {
-    return () => {
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
-    };
-  }, []); // eslint-disable-line
+  }, [avatarUrl, getToken]);
 
   const fallbackContent = avatarEmoji ? (
     <span>{avatarEmoji}</span>

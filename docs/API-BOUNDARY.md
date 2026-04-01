@@ -22,6 +22,7 @@ Path versioning: /api/v1/...
 - POST /api/v1/assistant
 - GET /api/v1/assistant
 - PATCH /api/v1/assistant/draft
+- POST /api/v1/assistant/setup/preview
 - POST /api/v1/assistant/publish
 - POST /api/v1/assistant/rollback
 - POST /api/v1/assistant/reset
@@ -246,6 +247,10 @@ Request body fields (at least one required):
 
 - `displayName` (string | null)
 - `instructions` (string | null)
+- `traits` (object | null)
+- `avatarEmoji` (string | null)
+- `avatarUrl` (string | null)
+- `assistantGender` (`male|female|neutral|other|null`)
 
 Behavior baseline:
 
@@ -254,6 +259,20 @@ Behavior baseline:
 - does not create published versions
 - does not perform runtime apply/openclaw actions
 - returns not found when assistant does not exist
+
+### POST /api/v1/assistant/setup/preview
+
+Behavior baseline:
+
+- authenticated caller only
+- requires an assistant draft context for caller
+- intended only for setup/recreate while the assistant is not yet live
+- uses the current persisted draft plus current `/me` profile data as preview source of truth
+- returns one runtime-generated preview message for the final setup screen
+- does **not** create a published version
+- does **not** mutate `latestPublishedVersion`
+- does **not** persist normal chat history
+- may perform transient runtime materialization/apply work internally, but that work is not user-facing lifecycle truth
 
 ### Internal runtime tool-limit consume seam (H13b)
 
@@ -302,16 +321,17 @@ Behavior baseline:
 
 - authenticated caller only
 - requires existing assistant
-- creates new assistant state without deleting platform attachment layer
-- creates new latest published version with blank snapshot (`displayName=null`, `instructions=null`)
-- resets draft to blank values (`displayName=null`, `instructions=null`)
-- sets `runtimeApply` target to reset-created published version and executes runtime apply through adapter
+- hard-deletes assistant chats, chat messages, memory/task registry items, materialized specs, and published versions
+- resets draft to blank values (`displayName=null`, `instructions=null`, persona/avatar fields null)
+- resets runtime apply state to `not_requested`
+- cleans the assistant runtime workspace/session state
 - preserves:
   - ownership/user binding
   - workspace scope
   - billing scope (not modified in this slice)
   - secret bindings/integration attachment layer (not modified in this slice)
-- final apply state is explicit in response (`succeeded|failed|degraded`, or `in_progress` if runtime is still ongoing)
+- does not auto-create a blank published baseline
+- does not auto-run runtime apply as part of reset
 
 ### POST /api/v1/assistant/reapply (Step 3 A8 baseline)
 
@@ -339,7 +359,8 @@ Behavior baseline:
 ## Step 3 A5 apply-state separation rule
 
 - Publish truth and apply truth are distinct:
-  - publish/rollback/reset produce published version truth in `latestPublishedVersion`
+  - publish/rollback produce published version truth in `latestPublishedVersion`
+  - reset clears draft/runtime state and published history for the assistant
   - runtime apply progress/outcome is tracked separately in `runtimeApply`
 - In A8, runtime adapter now drives apply-state transitions:
   - `pending -> in_progress -> succeeded|failed|degraded`
@@ -1034,6 +1055,10 @@ Behavior baseline:
 ### GET /api/v1/me (slice 2 baseline response)
 
 - Returns current internal app user (`app_users`) for authenticated caller.
+- Includes persisted app-user profile fields needed for setup/recreate prefill:
+  - `displayName`
+  - `birthday`
+  - `gender`
 - Includes onboarding status:
   - `completed` when workspace membership exists **and** required MVP legal acceptance is present
   - `pending` when workspace membership is missing or legal acceptance is incomplete

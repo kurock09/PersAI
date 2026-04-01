@@ -53,7 +53,8 @@ export class PublishAssistantDraftService {
       snapshotInstructions: assistant.draftInstructions,
       snapshotTraits: assistant.draftTraits,
       snapshotAvatarEmoji: assistant.draftAvatarEmoji,
-      snapshotAvatarUrl: assistant.draftAvatarUrl
+      snapshotAvatarUrl: assistant.draftAvatarUrl,
+      snapshotAssistantGender: assistant.draftAssistantGender
     });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,

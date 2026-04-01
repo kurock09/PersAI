@@ -21,7 +21,8 @@ export function toAssistantPublishedVersionState(
       instructions: publishedVersion.snapshotInstructions,
       traits: publishedVersion.snapshotTraits,
       avatarEmoji: publishedVersion.snapshotAvatarEmoji,
-      avatarUrl: publishedVersion.snapshotAvatarUrl
+      avatarUrl: publishedVersion.snapshotAvatarUrl,
+      assistantGender: publishedVersion.snapshotAssistantGender
     }
   };
 }
@@ -54,6 +55,7 @@ export function toAssistantLifecycleState(
       traits: assistant.draftTraits,
       avatarEmoji: assistant.draftAvatarEmoji,
       avatarUrl: assistant.draftAvatarUrl,
+      assistantGender: assistant.draftAssistantGender,
       updatedAt: assistant.draftUpdatedAt?.toISOString() ?? null
     },
     latestPublishedVersion:

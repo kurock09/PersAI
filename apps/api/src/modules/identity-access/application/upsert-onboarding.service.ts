@@ -201,7 +201,11 @@ export class UpsertOnboardingService {
       id: refreshedAppUser.id,
       clerkUserId: refreshedAppUser.clerkUserId,
       email: refreshedAppUser.email,
-      displayName: refreshedAppUser.displayName
+      displayName: refreshedAppUser.displayName,
+      birthday: refreshedAppUser.birthday
+        ? refreshedAppUser.birthday.toISOString().split("T")[0]!
+        : null,
+      gender: refreshedAppUser.gender
     });
   }
 

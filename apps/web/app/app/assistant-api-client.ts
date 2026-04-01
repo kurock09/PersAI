@@ -20,6 +20,7 @@ import {
   type AssistantWebChatListItemState,
   type AssistantWebChatRenameRequest,
   type AssistantDraftUpdateRequest,
+  type AssistantSetupPreviewState,
   type AssistantRollbackRequest,
   type AssistantMemoryDoNotRememberRequest,
   type AssistantMemoryRegistryItemState,
@@ -33,6 +34,7 @@ import {
   getAssistantTaskItems as getAssistantTaskItemsContract,
   getAssistantWebChats as getAssistantWebChatsContract,
   patchAssistantDraft as patchAssistantDraftContract,
+  postAssistantSetupPreview as postAssistantSetupPreviewContract,
   patchAdminPlan as patchAdminPlanContract,
   patchAssistantWebChat as patchAssistantWebChatContract,
   postAssistantPublish as postAssistantPublishContract,
@@ -717,6 +719,29 @@ export async function patchAssistantDraft(
     }
 
     return response.data.assistant;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantSetupPreview(
+  token: string
+): Promise<AssistantSetupPreviewState> {
+  try {
+    const response = await postAssistantSetupPreviewContract({
+      headers: getAuthHeaders(token)
+    });
+
+    if (
+      response.status !== 200 ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("preview" in response.data)
+    ) {
+      throw new Error("Unexpected non-success response for POST /assistant/setup/preview.");
+    }
+
+    return response.data.preview;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

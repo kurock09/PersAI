@@ -7,6 +7,7 @@ export type AssistantPublishedVersion = {
   snapshotTraits: Record<string, number> | null;
   snapshotAvatarEmoji: string | null;
   snapshotAvatarUrl: string | null;
+  snapshotAssistantGender: string | null;
   publishedByUserId: string;
   createdAt: Date;
 };

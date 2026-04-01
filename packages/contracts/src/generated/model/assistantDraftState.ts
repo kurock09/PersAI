@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantDraftStateTraits } from "./assistantDraftStateTraits";
+import type { AssistantDraftStateAssistantGender } from "./assistantDraftStateAssistantGender";
 
 export interface AssistantDraftState {
   /** @nullable */
@@ -17,6 +18,8 @@ export interface AssistantDraftState {
   avatarEmoji?: string | null;
   /** @nullable */
   avatarUrl?: string | null;
+  /** @nullable */
+  assistantGender?: AssistantDraftStateAssistantGender;
   /** @nullable */
   updatedAt: string | null;
 }

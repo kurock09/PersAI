@@ -12,6 +12,7 @@ export interface CreateAssistantPublishedVersionInput {
   snapshotTraits?: Record<string, number> | null;
   snapshotAvatarEmoji?: string | null;
   snapshotAvatarUrl?: string | null;
+  snapshotAssistantGender?: string | null;
 }
 
 export interface AssistantPublishedVersionRepository {

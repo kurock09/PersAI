@@ -4,6 +4,20 @@
 
 ### Added
 
+- **Fix: setup/recreate flow now uses runtime preview + persistent assistant identity:**
+  - Added `assistantGender` to assistant draft/published snapshot, setup flow, settings UI, contracts, and bootstrap materialization (`SOUL.md` / `IDENTITY.md`).
+  - Added `POST /assistant/setup/preview` for a runtime-backed final setup preview without creating a published version or normal chat history.
+  - Added ADR-061 documenting setup runtime preview and assistant identity enrichment.
+
+- **Fix: setup/recreate profile prefill + avatar persistence:**
+  - Root cause: `/me` read model still returned only `displayName` in backend code, so birthday/gender did not reliably prefill setup after reset/recreate; birthday also needed `YYYY-MM-DD` normalization for browser date input.
+  - Fix: `/me` backend read model now returns `birthday` and `gender`, setup normalizes birthday for `input[type=date]`, and setup uploads custom avatar during final create/publish instead of persisting a local `blob:` URL.
+  - `AssistantAvatar` now reuses cached authorized blobs to avoid re-fetching the same avatar on every mount/open.
+
+- **Chore: remove legacy app-flow surface/tests:**
+  - Deleted unused `app-flow.client.tsx` and its stale test suite.
+  - Added focused tests for the active setup page flow instead.
+
 - **Fix: web voice turns no longer send placeholder text when STT is empty or fails:**
   - Root cause: the web client still sent `(voice message)` into the chat turn when voice transcription returned an empty string or raised an error.
   - Fix: backend transcription now rejects empty STT results, the web client surfaces the real error, and the UI no longer submits a fallback placeholder turn.

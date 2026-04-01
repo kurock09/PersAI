@@ -24,6 +24,12 @@ import type {
 import { cn } from "@/app/lib/utils";
 import type { AppData } from "./use-app-data";
 import {
+  ASSISTANT_GENDER_OPTIONS,
+  DEFAULT_TRAITS,
+  TRAIT_SLIDERS,
+  type AssistantGender
+} from "./assistant-persona";
+import {
   patchAssistantDraft,
   postAssistantPublish,
   postAssistantRollback,
@@ -43,14 +49,6 @@ import {
   type WorkspaceMemoryItem
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
-
-const TRAIT_SLIDERS = [
-  { key: "formality", labelLeft: "Casual", labelRight: "Formal" },
-  { key: "verbosity", labelLeft: "Concise", labelRight: "Detailed" },
-  { key: "playfulness", labelLeft: "Serious", labelRight: "Playful" },
-  { key: "initiative", labelLeft: "Reactive", labelRight: "Proactive" },
-  { key: "warmth", labelLeft: "Neutral", labelRight: "Warm" }
-] as const;
 
 interface AssistantSettingsProps {
   data: AppData;
@@ -146,19 +144,16 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   const [saveFb, setSaveFb] = useState<ActionFeedback>(null);
 
   const [draftTraits, setDraftTraits] = useState<Record<string, number>>(
-    (assistant?.draft.traits as Record<string, number> | null) ?? {
-      formality: 50,
-      verbosity: 50,
-      playfulness: 50,
-      initiative: 50,
-      warmth: 50
-    }
+    (assistant?.draft.traits as Record<string, number> | null) ?? DEFAULT_TRAITS
   );
   const [draftAvatarEmoji, setDraftAvatarEmoji] = useState<string | null>(
     assistant?.draft.avatarEmoji ?? null
   );
   const [draftAvatarUrl, setDraftAvatarUrl] = useState<string | null>(
     assistant?.draft.avatarUrl ?? null
+  );
+  const [draftAssistantGender, setDraftAssistantGender] = useState<AssistantGender>(
+    (assistant?.draft.assistantGender as AssistantGender | undefined) ?? null
   );
   const [avatarPreviewBlobUrl, setAvatarPreviewBlobUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -246,8 +241,12 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     setDraftInstructions(assistant?.draft.instructions ?? "");
     const t = assistant?.draft.traits as Record<string, number> | null | undefined;
     if (t) setDraftTraits(t);
+    else setDraftTraits(DEFAULT_TRAITS);
     setDraftAvatarEmoji(assistant?.draft.avatarEmoji ?? null);
     setDraftAvatarUrl(assistant?.draft.avatarUrl ?? null);
+    setDraftAssistantGender(
+      (assistant?.draft.assistantGender as AssistantGender | undefined) ?? null
+    );
     setAvatarPreviewBlobUrl(null);
   }, [assistant]);
 
@@ -346,7 +345,8 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         instructions: draftInstructions || null,
         traits: draftTraits,
         avatarEmoji: draftAvatarEmoji,
-        avatarUrl: draftAvatarUrl
+        avatarUrl: draftAvatarUrl,
+        assistantGender: draftAssistantGender
       });
       await postAssistantPublish(token);
       setSaveFb({ type: "ok", text: "Saved and applied." });
@@ -355,7 +355,16 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       setSaveFb({ type: "err", text: e instanceof Error ? e.message : "Save failed." });
     }
     setSaving(false);
-  }, [getToken, draftName, draftInstructions, draftTraits, draftAvatarEmoji, draftAvatarUrl, data]);
+  }, [
+    getToken,
+    draftName,
+    draftInstructions,
+    draftTraits,
+    draftAvatarEmoji,
+    draftAvatarUrl,
+    draftAssistantGender,
+    data
+  ]);
 
   const handleRollback = useCallback(async () => {
     const token = await getToken();
@@ -584,6 +593,23 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
 
         {editingPersonality && (
           <>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {ASSISTANT_GENDER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setDraftAssistantGender(opt.value)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                    draftAssistantGender === opt.value
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
             <div className="mt-3 space-y-3">
               {TRAIT_SLIDERS.map(({ key, labelLeft, labelRight }) => (
                 <div key={key}>

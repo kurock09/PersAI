@@ -4,6 +4,7 @@ export interface AssistantDraftState {
   traits: Record<string, number> | null;
   avatarEmoji: string | null;
   avatarUrl: string | null;
+  assistantGender: string | null;
   updatedAt: string | null;
 }
 
@@ -13,6 +14,7 @@ export interface AssistantPublishedVersionSnapshotState {
   traits: Record<string, number> | null;
   avatarEmoji: string | null;
   avatarUrl: string | null;
+  assistantGender: string | null;
 }
 
 export interface AssistantPublishedVersionState {

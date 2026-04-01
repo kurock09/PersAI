@@ -146,6 +146,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/setup/preview:
+    post:
+      operationId: postAssistantSetupPreview
+      summary: Generate a runtime-backed preview message for the current setup draft
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Setup preview response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantSetupPreviewResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Assistant preview unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/publish:
     post:
       operationId: postAssistantPublish
@@ -2195,6 +2232,10 @@ components:
         avatarUrl:
           type: string
           nullable: true
+        assistantGender:
+          allOf:
+            - $ref: "#/components/schemas/AssistantIdentityGender"
+          nullable: true
         updatedAt:
           type: string
           format: date-time
@@ -2221,6 +2262,10 @@ components:
           nullable: true
         avatarUrl:
           type: string
+          nullable: true
+        assistantGender:
+          allOf:
+            - $ref: "#/components/schemas/AssistantIdentityGender"
           nullable: true
     AssistantPublishedVersionState:
       type: object
@@ -3076,6 +3121,38 @@ components:
         avatarUrl:
           type: string
           nullable: true
+        assistantGender:
+          allOf:
+            - $ref: "#/components/schemas/AssistantIdentityGender"
+          nullable: true
+    AssistantIdentityGender:
+      type: string
+      enum:
+        - male
+        - female
+        - neutral
+        - other
+    AssistantSetupPreviewState:
+      type: object
+      required:
+        - message
+        - respondedAt
+      properties:
+        message:
+          type: string
+        respondedAt:
+          type: string
+          format: date-time
+    PostAssistantSetupPreviewResponse:
+      type: object
+      required:
+        - preview
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        preview:
+          $ref: "#/components/schemas/AssistantSetupPreviewState"
     AssistantRollbackRequest:
       type: object
       required:

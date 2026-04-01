@@ -8,7 +8,9 @@ function toResolvedAppUser(user: AppUser): ResolvedAppUser {
     id: user.id,
     clerkUserId: user.clerkUserId ?? "",
     email: user.email,
-    displayName: user.displayName
+    displayName: user.displayName,
+    birthday: user.birthday ? user.birthday.toISOString().split("T")[0]! : null,
+    gender: user.gender
   };
 }
 

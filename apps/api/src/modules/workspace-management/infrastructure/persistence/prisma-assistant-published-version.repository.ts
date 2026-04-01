@@ -61,6 +61,9 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
             ...(input.snapshotAvatarUrl != null
               ? { snapshotAvatarUrl: input.snapshotAvatarUrl }
               : {}),
+            ...(input.snapshotAssistantGender != null
+              ? { snapshotAssistantGender: input.snapshotAssistantGender }
+              : {}),
             publishedByUserId: input.publishedByUserId
           }
         });
@@ -88,6 +91,7 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
       snapshotTraits: publishedVersion.snapshotTraits as Record<string, number> | null,
       snapshotAvatarEmoji: publishedVersion.snapshotAvatarEmoji,
       snapshotAvatarUrl: publishedVersion.snapshotAvatarUrl,
+      snapshotAssistantGender: publishedVersion.snapshotAssistantGender,
       publishedByUserId: publishedVersion.publishedByUserId,
       createdAt: publishedVersion.createdAt
     };

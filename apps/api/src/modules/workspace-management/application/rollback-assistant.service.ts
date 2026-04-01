@@ -98,7 +98,8 @@ export class RollbackAssistantService {
       snapshotInstructions: targetVersion.snapshotInstructions,
       snapshotTraits: targetVersion.snapshotTraits,
       snapshotAvatarEmoji: targetVersion.snapshotAvatarEmoji,
-      snapshotAvatarUrl: targetVersion.snapshotAvatarUrl
+      snapshotAvatarUrl: targetVersion.snapshotAvatarUrl,
+      snapshotAssistantGender: targetVersion.snapshotAssistantGender
     });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
@@ -119,7 +120,8 @@ export class RollbackAssistantService {
       draftInstructions: targetVersion.snapshotInstructions,
       draftTraits: targetVersion.snapshotTraits,
       draftAvatarEmoji: targetVersion.snapshotAvatarEmoji,
-      draftAvatarUrl: targetVersion.snapshotAvatarUrl
+      draftAvatarUrl: targetVersion.snapshotAvatarUrl,
+      draftAssistantGender: targetVersion.snapshotAssistantGender
     });
     if (updatedAssistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");

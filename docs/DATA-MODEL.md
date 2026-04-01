@@ -44,6 +44,7 @@ Postgres with Prisma.
 - workspace_id
 - draft_display_name (nullable)
 - draft_instructions (nullable)
+- draft_assistant_gender (nullable enum-like string: `male|female|neutral|other`)
 - draft_updated_at (nullable)
 - apply_status (`not_requested|pending|in_progress|succeeded|failed|degraded`)
 - apply_target_version_id (nullable)
@@ -69,6 +70,7 @@ Postgres with Prisma.
 - version (integer, per-assistant sequential)
 - snapshot_display_name (nullable)
 - snapshot_instructions (nullable)
+- snapshot_assistant_gender (nullable enum-like string: `male|female|neutral|other`)
 - published_by_user_id
 - created_at
 
@@ -645,17 +647,19 @@ Postgres with Prisma.
 - `draft_traits` (JSONB, nullable) — structured trait sliders / persona metadata
 - `draft_avatar_emoji` (nullable string)
 - `draft_avatar_url` (nullable string)
+- `draft_assistant_gender` (nullable string enum-like field for assistant-owned identity)
 
 ### assistant_published_versions
 
 - `snapshot_traits` (JSONB, nullable)
 - `snapshot_avatar_emoji` (nullable string)
 - `snapshot_avatar_url` (nullable string)
+- `snapshot_assistant_gender` (nullable string enum-like field for immutable assistant identity snapshot)
 
 ### Contracts (packages/contracts)
 
-- `AssistantDraftState` / `AssistantDraftUpdateRequest`: `traits`, `avatarEmoji`, `avatarUrl`
-- `AssistantPublishedVersionSnapshotState`: `traits`, `avatarEmoji`, `avatarUrl`
+- `AssistantDraftState` / `AssistantDraftUpdateRequest`: `traits`, `avatarEmoji`, `avatarUrl`, `assistantGender`
+- `AssistantPublishedVersionSnapshotState`: `traits`, `avatarEmoji`, `avatarUrl`, `assistantGender`
 - `OnboardingRequest`: `birthday`, `gender`
 - `AppUserSummary`: `birthday`, `gender`
 

@@ -44,6 +44,17 @@ const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
 const OPENCLAW_BOOTSTRAP_SCHEMA = "openclaw.bootstrap.v1";
 const OPENCLAW_WORKSPACE_SCHEMA = "openclaw.workspace.v1";
 
+export interface AssistantRuntimeArtifacts {
+  currentConfigGeneration: number;
+  layers: Record<string, unknown>;
+  openclawBootstrap: Record<string, unknown>;
+  openclawWorkspace: Record<string, unknown>;
+  layersDocument: string;
+  openclawBootstrapDocument: string;
+  openclawWorkspaceDocument: string;
+  contentHash: string;
+}
+
 function sortKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => sortKeysDeep(item));
@@ -94,11 +105,37 @@ export class MaterializeAssistantPublishedVersionService {
     publishedVersion: AssistantPublishedVersion,
     sourceAction: AssistantMaterializationSourceAction
   ): Promise<void> {
-    const currentConfigGeneration = await this.bumpConfigGenerationService.current();
-
     const existingSpec = await this.assistantMaterializedSpecRepository.findByPublishedVersionId(
       publishedVersion.id
     );
+    const artifacts = await this.buildRuntimeArtifacts(assistant, publishedVersion);
+
+    await this.assistantMaterializedSpecRepository.create({
+      assistantId: assistant.id,
+      publishedVersionId: publishedVersion.id,
+      sourceAction: existingSpec?.sourceAction ?? sourceAction,
+      algorithmVersion: MATERIALIZATION_ALGORITHM_VERSION,
+      materializedAtConfigGeneration: artifacts.currentConfigGeneration,
+      layers: artifacts.layers,
+      openclawBootstrap: artifacts.openclawBootstrap,
+      openclawWorkspace: artifacts.openclawWorkspace,
+      layersDocument: artifacts.layersDocument,
+      openclawBootstrapDocument: artifacts.openclawBootstrapDocument,
+      openclawWorkspaceDocument: artifacts.openclawWorkspaceDocument,
+      contentHash: artifacts.contentHash
+    });
+
+    await this.prisma.assistant.update({
+      where: { id: assistant.id },
+      data: { configDirtyAt: null }
+    });
+  }
+
+  async buildRuntimeArtifacts(
+    assistant: Assistant,
+    publishedVersion: AssistantPublishedVersion
+  ): Promise<AssistantRuntimeArtifacts> {
+    const currentConfigGeneration = await this.bumpConfigGenerationService.current();
 
     const governance =
       (await this.assistantGovernanceRepository.findByAssistantId(assistant.id)) ??
@@ -243,7 +280,8 @@ export class MaterializeAssistantPublishedVersionService {
         instructions: publishedVersion.snapshotInstructions,
         traits: publishedVersion.snapshotTraits,
         avatarEmoji: publishedVersion.snapshotAvatarEmoji,
-        avatarUrl: publishedVersion.snapshotAvatarUrl
+        avatarUrl: publishedVersion.snapshotAvatarUrl,
+        assistantGender: publishedVersion.snapshotAssistantGender
       },
       effectiveCapabilities,
       toolAvailability,
@@ -261,12 +299,8 @@ export class MaterializeAssistantPublishedVersionService {
       .update(`${layersDocument}\n${openclawBootstrapDocument}\n${openclawWorkspaceDocument}`)
       .digest("hex");
 
-    await this.assistantMaterializedSpecRepository.create({
-      assistantId: assistant.id,
-      publishedVersionId: publishedVersion.id,
-      sourceAction: existingSpec?.sourceAction ?? sourceAction,
-      algorithmVersion: MATERIALIZATION_ALGORITHM_VERSION,
-      materializedAtConfigGeneration: currentConfigGeneration,
+    return {
+      currentConfigGeneration,
       layers,
       openclawBootstrap,
       openclawWorkspace,
@@ -274,12 +308,7 @@ export class MaterializeAssistantPublishedVersionService {
       openclawBootstrapDocument,
       openclawWorkspaceDocument,
       contentHash
-    });
-
-    await this.prisma.assistant.update({
-      where: { id: assistant.id },
-      data: { configDirtyAt: null }
-    });
+    };
   }
 
   private async resolveToolCredentialRefs(): Promise<
@@ -485,6 +514,9 @@ export class MaterializeAssistantPublishedVersionService {
     if (template) {
       return this.interpolateTemplate(template, {
         assistant_name: pv.snapshotDisplayName ?? "an assistant",
+        assistant_gender_line: pv.snapshotAssistantGender
+          ? `- **Gender**: ${pv.snapshotAssistantGender}`
+          : null,
         traits_block: traitsBlock,
         instructions_block: instructionsBlock
       });
@@ -492,6 +524,9 @@ export class MaterializeAssistantPublishedVersionService {
 
     const lines: string[] = ["# SOUL.md", ""];
     lines.push(`You are **${pv.snapshotDisplayName ?? "an assistant"}**.`);
+    if (pv.snapshotAssistantGender) {
+      lines.push(`- **Gender**: ${pv.snapshotAssistantGender}`);
+    }
     lines.push("");
     if (traitsBlock) {
       lines.push(traitsBlock);
@@ -566,6 +601,9 @@ export class MaterializeAssistantPublishedVersionService {
     if (template) {
       return this.interpolateTemplate(template, {
         assistant_name: pv.snapshotDisplayName ?? "Assistant",
+        assistant_gender_line: pv.snapshotAssistantGender
+          ? `- **Gender**: ${pv.snapshotAssistantGender}`
+          : null,
         assistant_avatar_emoji_line: pv.snapshotAvatarEmoji
           ? `- **Avatar**: ${pv.snapshotAvatarEmoji}`
           : null,
@@ -577,6 +615,7 @@ export class MaterializeAssistantPublishedVersionService {
 
     const lines: string[] = ["# IDENTITY.md", ""];
     lines.push(`- **Name**: ${pv.snapshotDisplayName ?? "Assistant"}`);
+    if (pv.snapshotAssistantGender) lines.push(`- **Gender**: ${pv.snapshotAssistantGender}`);
     if (pv.snapshotAvatarEmoji) lines.push(`- **Avatar**: ${pv.snapshotAvatarEmoji}`);
     if (pv.snapshotAvatarUrl) lines.push(`- **Avatar URL**: ${pv.snapshotAvatarUrl}`);
     lines.push("");

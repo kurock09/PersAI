@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantDraftUpdateRequestTraits } from "./assistantDraftUpdateRequestTraits";
+import type { AssistantDraftUpdateRequestAssistantGender } from "./assistantDraftUpdateRequestAssistantGender";
 
 export interface AssistantDraftUpdateRequest {
   /** @nullable */
@@ -17,4 +18,6 @@ export interface AssistantDraftUpdateRequest {
   avatarEmoji?: string | null;
   /** @nullable */
   avatarUrl?: string | null;
+  /** @nullable */
+  assistantGender?: AssistantDraftUpdateRequestAssistantGender;
 }

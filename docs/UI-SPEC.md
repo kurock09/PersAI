@@ -90,15 +90,15 @@ First-time flow after auth when no assistant exists. This is the "wow moment".
    - Serious ↔ Playful
    - Reactive ↔ Proactive
    - Neutral ↔ Warm
-5. **Live preview** — sample phrase from the assistant based on current trait settings
+5. **Runtime preview** — final setup step asks backend/runtime for a real preview response based on the persisted draft + current user profile; it is not a frontend-only placeholder
 6. **Create** → creates assistant + auto-publish + redirect to `/app` with first chat
 
 ### Backend notes
 
 - Traits stored as structured JSON in assistant draft (new fields or structured prefix in `draft_instructions`)
-- Avatar stored as URL reference (upload target TBD: local or object storage)
-- Guided answers converted into `instructions` text by frontend before `PATCH /assistant/draft`
-- Backend field additions for traits/avatar are expected but not blocking — frontend can store locally until backend catches up
+- Avatar preview may use a local blob during setup, but persisted draft state must store a backend-served `avatarUrl`
+- Setup/edit both expose free-form persona text in addition to trait sliders
+- Assistant identity now includes `assistantGender`
 
 ---
 
@@ -305,7 +305,6 @@ All user-facing API endpoints already exist. The UI redesign is a frontend-only 
 - Admin: all `/admin/*` endpoints (existing — plans with quota limits and model key, runtime with fallback and model editor, tools)
 
 New backend fields needed (follow-up):
-- Server-side file upload endpoint for persistent avatar URL storage (GCS or equivalent); current `avatarUrl` accepts `blob:` URLs which do not persist across sessions
 - Regenerate endpoint (retry last assistant turn)
 - Like/dislike feedback endpoint
 
@@ -313,7 +312,8 @@ New backend fields needed (follow-up):
 
 ### Setup wizard (`/app/setup`)
 
-- Sends `traits`, `avatarEmoji`, `avatarUrl`, `birthday`, `gender` with onboarding / assistant create payload (aligned with contracts).
+- Sends/persists `traits`, `instructions`, `avatarEmoji`, `avatarUrl`, `assistantGender`, `birthday`, `gender`, and workspace `timezone`.
+- Final setup preview is runtime-backed and does not create chat history or published versions.
 
 ### Assistant settings — character
 

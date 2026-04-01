@@ -66,6 +66,7 @@ import { RecordWebChatMemoryTurnService } from "./application/record-web-chat-me
 import { ReapplyAssistantService } from "./application/reapply-assistant.service";
 import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
+import { PreviewAssistantSetupService } from "./application/preview-assistant-setup.service";
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
@@ -199,6 +200,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ReapplyAssistantService,
     RollbackAssistantService,
     ResetAssistantService,
+    PreviewAssistantSetupService,
     RecordWebChatMemoryTurnService,
     ListAssistantMemoryItemsService,
     ForgetAssistantMemoryItemService,
@@ -313,6 +315,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ReapplyAssistantService,
     RollbackAssistantService,
     ResetAssistantService,
+    PreviewAssistantSetupService,
     SendWebChatTurnService,
     StreamWebChatTurnService,
     UpdateAssistantDraftService,

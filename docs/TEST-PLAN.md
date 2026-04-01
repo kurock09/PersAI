@@ -43,7 +43,7 @@ Required in CI:
     - onboarding idempotency (no duplicate user/workspace/membership records)
 - Web smoke tests:
   - `apps/web/app/app/page.test.tsx` (protected `/app` calls `auth.protect`)
-  - `apps/web/app/app/app-flow.client.test.tsx` (onboarding gate pending/completed branches)
+  - current setup flow tests should cover `apps/web/app/app/setup/page.tsx` instead of legacy `app-flow.client.tsx`
 - CI includes explicit Step 2 smoke/e2e step via `pnpm run test:step2`.
 
 ## Step 7 P1 focus
@@ -361,6 +361,13 @@ Required in CI:
   - first successful web/Telegram assistant turn consumes `BOOTSTRAP.md`
   - ordinary later applies do not recreate `BOOTSTRAP.md` while the same workspace still exists
   - full reset/recreate gets a fresh `BOOTSTRAP.md` because the assistant workspace is recreated
+- Setup/recreate regression coverage validates:
+  - `/me` prefill includes `displayName`, `birthday`, `gender`, and workspace `timezone`
+  - birthday is normalized for browser `input[type=date]`
+  - setup and settings use the same trait semantics and free-form persona text model
+  - assistant draft/published snapshot preserve `assistantGender`
+  - final setup step runtime preview returns a non-persisted preview response
+  - avatar upload persists across navigation/reload without repeated unnecessary refetch churn
 
 ### Reminders/tasks
 

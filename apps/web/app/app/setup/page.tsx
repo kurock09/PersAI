@@ -10,6 +10,7 @@ import {
   Sparkles,
   Loader2,
   ChevronRight,
+  RefreshCcw,
   Upload,
   Globe,
   ChevronDown,
@@ -21,28 +22,20 @@ import {
   getAssistant,
   patchAssistantDraft,
   postAssistantCreate,
-  postAssistantPublish
+  postAssistantPublish,
+  postAssistantSetupPreview,
+  uploadAssistantAvatar
 } from "../assistant-api-client";
 import { getMe, postOnboarding } from "../me-api-client";
-
-/* ------------------------------------------------------------------ */
-/*  Types & constants                                                  */
-/* ------------------------------------------------------------------ */
-
-interface TraitSlider {
-  key: string;
-  labelLeft: string;
-  labelRight: string;
-  value: number;
-}
-
-const DEFAULT_TRAITS: TraitSlider[] = [
-  { key: "formality", labelLeft: "Formal", labelRight: "Casual", value: 50 },
-  { key: "verbosity", labelLeft: "Concise", labelRight: "Detailed", value: 50 },
-  { key: "playfulness", labelLeft: "Serious", labelRight: "Playful", value: 50 },
-  { key: "initiative", labelLeft: "Reactive", labelRight: "Proactive", value: 50 },
-  { key: "warmth", labelLeft: "Neutral", labelRight: "Warm", value: 50 }
-];
+import {
+  ASSISTANT_GENDER_OPTIONS,
+  DEFAULT_TRAITS,
+  TRAIT_SLIDERS,
+  buildAssistantInstructions,
+  traitPreviewLabel,
+  type AssistantGender,
+  type TraitKey
+} from "../_components/assistant-persona";
 
 const AVATARS = [
   { id: "nova", emoji: "🌟", label: "Nova" },
@@ -77,81 +70,9 @@ function detectTimezone(): string {
 
 const STEP_COUNT = 4;
 
-/* ------------------------------------------------------------------ */
-/*  Trait → instructions builder                                       */
-/* ------------------------------------------------------------------ */
-
-function traitsToInstructions(
-  assistantName: string,
-  userName: string,
-  traits: TraitSlider[]
-): string {
-  const lines: string[] = [
-    `You are ${assistantName}, a personal AI assistant.`,
-    `Your user's name is ${userName}. Address them by name naturally.`
-  ];
-
-  for (const t of traits) {
-    const v = t.value;
-    if (t.key === "formality") {
-      if (v < 30) lines.push("Communicate in a formal, professional tone.");
-      else if (v > 70) lines.push("Be casual, friendly, and conversational.");
-    }
-    if (t.key === "verbosity") {
-      if (v < 30) lines.push("Keep responses brief and to the point.");
-      else if (v > 70) lines.push("Provide detailed, thorough explanations.");
-    }
-    if (t.key === "playfulness") {
-      if (v < 30) lines.push("Maintain a serious, focused demeanor.");
-      else if (v > 70) lines.push("Be playful, use humor when appropriate.");
-    }
-    if (t.key === "initiative") {
-      if (v < 30) lines.push("Wait for the user to ask before offering suggestions.");
-      else if (v > 70) lines.push("Be proactive — suggest ideas and anticipate needs.");
-    }
-    if (t.key === "warmth") {
-      if (v < 30) lines.push("Stay neutral and objective in your responses.");
-      else if (v > 70) lines.push("Be warm, empathetic, and show genuine care.");
-    }
-  }
-
-  lines.push("Remember conversations and learn user preferences over time.");
-  return lines.join("\n");
-}
-
-function generatePreview(assistantName: string, userName: string, traits: TraitSlider[]): string {
-  const tone = traits.find((t) => t.key === "playfulness")?.value ?? 50;
-  const warmth = traits.find((t) => t.key === "warmth")?.value ?? 50;
-  const verbosity = traits.find((t) => t.key === "verbosity")?.value ?? 50;
-  const formality = traits.find((t) => t.key === "formality")?.value ?? 50;
-  const initiative = traits.find((t) => t.key === "initiative")?.value ?? 50;
-
-  const n = assistantName || "your assistant";
-  const u = userName || "friend";
-
-  if (warmth > 70 && tone > 70) {
-    return verbosity > 60
-      ? `Hey ${u}! 😊 I'm ${n}! I'm so happy to finally meet you! I'll be your personal companion — I'll remember everything we talk about, learn what you like, and always be here when you need me. So, what should we start with?`
-      : `Hey ${u}! 😊 I'm ${n}, your personal assistant. Super excited to meet you! What's on your mind?`;
-  }
-  if (formality < 30 && warmth < 40) {
-    return verbosity > 60
-      ? `Good day, ${u}. My name is ${n}. I am your dedicated personal assistant, designed to provide precise and thorough support across a wide range of tasks. How may I be of service?`
-      : `Good day, ${u}. I'm ${n}, your personal assistant. How may I help you?`;
-  }
-  if (tone > 70) {
-    return initiative > 60
-      ? `Yo ${u}! I'm ${n} 🚀 Your brand new personal AI! I'm already thinking about how we can make your day better. Ready to get started?`
-      : `Hey ${u}! I'm ${n} 🚀 Your personal assistant, at your service. Throw anything at me!`;
-  }
-  if (warmth > 60) {
-    return verbosity > 60
-      ? `Hi ${u}! I'm ${n}, your personal AI assistant. I'm here to help you with anything you need — from everyday questions to big projects. I'll remember our conversations and get better at understanding you over time. What would you like to talk about?`
-      : `Hi ${u}! I'm ${n} — your personal assistant. I'm here for you. What can I help with?`;
-  }
-  return verbosity > 60
-    ? `Hello, ${u}! I'm ${n}, your personal AI assistant. I can help with a wide range of tasks — answering questions, organizing your thoughts, or just having a conversation. What would you like to work on?`
-    : `Hello, ${u}! I'm ${n}, your personal assistant. How can I help you today?`;
+function normalizeBirthdayForDateInput(value: string | null | undefined): string {
+  if (!value) return "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : value.slice(0, 10);
 }
 
 /* ------------------------------------------------------------------ */
@@ -173,15 +94,22 @@ export default function SetupWizardPage() {
   // Step 1 — assistant identity
   const [assistantName, setAssistantName] = useState("");
   const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
-  const [customAvatarUrl, setCustomAvatarUrl] = useState<string | null>(null);
+  const [customAvatarFile, setCustomAvatarFile] = useState<File | null>(null);
+  const [customAvatarPreviewUrl, setCustomAvatarPreviewUrl] = useState<string | null>(null);
+  const [assistantGender, setAssistantGender] = useState<AssistantGender>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2 — personality
-  const [traits, setTraits] = useState<TraitSlider[]>(DEFAULT_TRAITS);
+  const [traits, setTraits] = useState<Record<TraitKey, number>>(DEFAULT_TRAITS);
+  const [assistantNotes, setAssistantNotes] = useState("");
+  const [instructionsEdited, setInstructionsEdited] = useState(false);
 
   // Step 3 — create
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [runtimePreview, setRuntimePreview] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     setTimezone(detectTimezone());
@@ -198,45 +126,126 @@ export default function SetupWizardPage() {
         }
 
         const me = await getMe(token);
-        if (me.me.onboarding.status !== "pending") {
-          const u = me.me.appUser;
-          if (u.displayName) setUserName(u.displayName);
-          if (u.birthday) setBirthday(u.birthday);
-          if (u.gender) setGender(u.gender as Gender);
-          if (me.me.workspace?.timezone) setTimezone(me.me.workspace.timezone);
-        }
+        const u = me.me.appUser;
+        if (u.displayName) setUserName(u.displayName);
+        if (u.birthday) setBirthday(normalizeBirthdayForDateInput(u.birthday));
+        if (u.gender) setGender(u.gender as Gender);
+        if (me.me.workspace?.timezone) setTimezone(me.me.workspace.timezone);
       } catch {
         // Pre-fill is best-effort; ignore errors.
       }
     })();
   }, [getToken, router]);
 
+  useEffect(() => {
+    if (instructionsEdited) return;
+    setAssistantNotes(
+      buildAssistantInstructions({
+        assistantName: assistantName.trim() || "your assistant",
+        userName: userName.trim() || "your human",
+        assistantGender,
+        traits
+      })
+    );
+  }, [assistantGender, assistantName, instructionsEdited, traits, userName]);
+
+  useEffect(() => {
+    return () => {
+      if (customAvatarPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(customAvatarPreviewUrl);
+      }
+    };
+  }, [customAvatarPreviewUrl]);
+
   const canProceed = useMemo(() => {
     if (step === 0) return userName.trim().length >= 2 && gender !== null && timezone.length > 0;
     if (step === 1)
       return (
-        assistantName.trim().length >= 2 && (selectedAvatar !== null || customAvatarUrl !== null)
+        assistantName.trim().length >= 2 &&
+        (selectedAvatar !== null || customAvatarPreviewUrl !== null)
       );
     return true;
-  }, [step, userName, gender, timezone, assistantName, selectedAvatar, customAvatarUrl]);
-
-  const preview = useMemo(
-    () => generatePreview(assistantName, userName, traits),
-    [assistantName, userName, traits]
-  );
+  }, [step, userName, gender, timezone, assistantName, selectedAvatar, customAvatarPreviewUrl]);
 
   const avatarObj = useMemo(() => AVATARS.find((a) => a.id === selectedAvatar), [selectedAvatar]);
 
-  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    setCustomAvatarUrl(URL.createObjectURL(file));
-    setSelectedAvatar(null);
+  const handleFileUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !file.type.startsWith("image/")) return;
+      if (customAvatarPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(customAvatarPreviewUrl);
+      }
+      setCustomAvatarFile(file);
+      setCustomAvatarPreviewUrl(URL.createObjectURL(file));
+      setSelectedAvatar(null);
+    },
+    [customAvatarPreviewUrl]
+  );
+
+  const updateTrait = useCallback((key: TraitKey, value: number) => {
+    setTraits((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const updateTrait = useCallback((key: string, value: number) => {
-    setTraits((prev) => prev.map((t) => (t.key === key ? { ...t, value } : t)));
-  }, []);
+  const persistDraftForPreview = useCallback(
+    async (token: string) => {
+      await postOnboarding(token, {
+        displayName: userName.trim(),
+        workspaceName: `${userName.trim()}'s workspace`,
+        locale: navigator.language ?? "en",
+        timezone: timezone || "UTC",
+        birthday: birthday || null,
+        gender: gender ?? null,
+        acceptTermsOfService: true,
+        acceptPrivacyPolicy: true
+      });
+
+      await postAssistantCreate(token);
+
+      await patchAssistantDraft(token, {
+        displayName: assistantName.trim(),
+        instructions: assistantNotes.trim(),
+        traits,
+        avatarEmoji: customAvatarFile ? null : (avatarObj?.emoji ?? null),
+        avatarUrl: null,
+        assistantGender
+      });
+    },
+    [
+      assistantGender,
+      assistantName,
+      assistantNotes,
+      avatarObj,
+      birthday,
+      customAvatarFile,
+      gender,
+      traits,
+      timezone,
+      userName
+    ]
+  );
+
+  const loadRuntimePreview = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      await persistDraftForPreview(token);
+      const preview = await postAssistantSetupPreview(token);
+      setRuntimePreview(preview.message);
+    } catch (e) {
+      setPreviewError(e instanceof Error ? e.message : "Preview failed. Please try again.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [getToken, persistDraftForPreview]);
+
+  useEffect(() => {
+    if (step !== 3) return;
+    void loadRuntimePreview();
+  }, [loadRuntimePreview, step]);
 
   const handleCreate = useCallback(async () => {
     const token = await getToken();
@@ -258,20 +267,21 @@ export default function SetupWizardPage() {
       });
 
       await postAssistantCreate(token);
-
-      const instructions = traitsToInstructions(assistantName, userName, traits);
-      const structuredTraits: Record<string, number> = {};
-      for (const t of traits) {
-        structuredTraits[t.key] = t.value;
+      let avatarUrl: string | null = null;
+      let avatarEmoji: string | null = avatarObj?.emoji ?? null;
+      if (customAvatarFile) {
+        const uploaded = await uploadAssistantAvatar(token, customAvatarFile);
+        avatarUrl = uploaded.avatarUrl;
+        avatarEmoji = null;
       }
-      const avatarEmoji = avatarObj?.emoji ?? null;
 
       await patchAssistantDraft(token, {
         displayName: assistantName.trim(),
-        instructions,
-        traits: structuredTraits,
+        instructions: assistantNotes.trim(),
+        traits,
         avatarEmoji,
-        avatarUrl: customAvatarUrl
+        avatarUrl,
+        assistantGender
       });
       await postAssistantPublish(token);
       window.location.href = "/app/chat";
@@ -287,8 +297,10 @@ export default function SetupWizardPage() {
     birthday,
     gender,
     traits,
+    assistantNotes,
+    assistantGender,
     avatarObj,
-    customAvatarUrl
+    customAvatarFile
   ]);
 
   return (
@@ -419,11 +431,15 @@ export default function SetupWizardPage() {
                     type="button"
                     onClick={() => {
                       setSelectedAvatar(av.id);
-                      setCustomAvatarUrl(null);
+                      if (customAvatarPreviewUrl?.startsWith("blob:")) {
+                        URL.revokeObjectURL(customAvatarPreviewUrl);
+                      }
+                      setCustomAvatarFile(null);
+                      setCustomAvatarPreviewUrl(null);
                     }}
                     className={cn(
                       "flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 p-2.5 transition-all",
-                      selectedAvatar === av.id && customAvatarUrl === null
+                      selectedAvatar === av.id && customAvatarPreviewUrl === null
                         ? "border-accent bg-accent/10 scale-105"
                         : "border-transparent bg-surface-raised hover:bg-surface-hover hover:border-border-strong"
                     )}
@@ -439,14 +455,14 @@ export default function SetupWizardPage() {
                   onClick={() => fileInputRef.current?.click()}
                   className={cn(
                     "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed p-2.5 transition-all",
-                    customAvatarUrl
+                    customAvatarPreviewUrl
                       ? "border-accent bg-accent/10"
                       : "border-border-strong bg-surface-raised hover:bg-surface-hover hover:border-accent/50"
                   )}
                 >
-                  {customAvatarUrl ? (
+                  {customAvatarPreviewUrl ? (
                     <img
-                      src={customAvatarUrl}
+                      src={customAvatarPreviewUrl}
                       alt="Custom"
                       className="h-7 w-7 rounded-full object-cover"
                     />
@@ -454,9 +470,32 @@ export default function SetupWizardPage() {
                     <Upload className="h-5 w-5 text-text-subtle" />
                   )}
                   <span className="text-[9px] font-medium text-text-muted">
-                    {customAvatarUrl ? "Yours" : "Upload"}
+                    {customAvatarPreviewUrl ? "Yours" : "Upload"}
                   </span>
                 </button>
+              </div>
+
+              <div className="mt-6 w-full max-w-md space-y-2">
+                <label className="block text-xs font-medium text-text-muted">
+                  Assistant gender
+                </label>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {ASSISTANT_GENDER_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setAssistantGender(opt.value)}
+                      className={cn(
+                        "rounded-xl border px-3 py-2.5 text-sm font-medium transition-all",
+                        assistantGender === opt.value
+                          ? "border-accent bg-accent/10 text-accent"
+                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <input
@@ -478,7 +517,7 @@ export default function SetupWizardPage() {
                 you?
               </p>
               <div className="mt-8 w-full max-w-md space-y-6">
-                {traits.map((trait) => (
+                {TRAIT_SLIDERS.map((trait) => (
                   <div key={trait.key}>
                     <div className="mb-2 flex items-center justify-between text-xs font-medium">
                       <span className="text-text-muted">{trait.labelLeft}</span>
@@ -488,12 +527,32 @@ export default function SetupWizardPage() {
                       type="range"
                       min={0}
                       max={100}
-                      value={trait.value}
+                      value={traits[trait.key]}
                       onChange={(e) => updateTrait(trait.key, Number(e.target.value))}
                       className="w-full cursor-pointer accent-accent"
                     />
                   </div>
                 ))}
+
+                <div className="space-y-2 text-left">
+                  <label className="block text-xs font-medium text-text-muted">
+                    Describe the character in your own words
+                  </label>
+                  <textarea
+                    value={assistantNotes}
+                    onChange={(e) => {
+                      setInstructionsEdited(true);
+                      setAssistantNotes(e.target.value);
+                    }}
+                    rows={7}
+                    className="w-full rounded-2xl border border-border bg-surface-raised px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent"
+                    placeholder="Warm, observant, proactive, but not pushy..."
+                  />
+                  <p className="text-[11px] text-text-subtle">
+                    Sliders shape the baseline, and this text lets you describe the personality more
+                    precisely.
+                  </p>
+                </div>
               </div>
             </StepContainer>
           )}
@@ -512,9 +571,9 @@ export default function SetupWizardPage() {
               <div className="mt-8 w-full max-w-md rounded-2xl border border-border bg-surface p-6 text-left">
                 <div className="mb-4 flex items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xl overflow-hidden">
-                    {customAvatarUrl ? (
+                    {customAvatarPreviewUrl ? (
                       <img
-                        src={customAvatarUrl}
+                        src={customAvatarPreviewUrl}
                         alt={assistantName}
                         className="h-full w-full object-cover"
                       />
@@ -530,27 +589,43 @@ export default function SetupWizardPage() {
                   </div>
                 </div>
                 <div className="rounded-xl bg-surface-raised px-4 py-3">
-                  <p className="text-sm leading-relaxed text-text">{preview}</p>
+                  <p className="text-sm leading-relaxed text-text">
+                    {previewLoading
+                      ? "Generating a real runtime preview..."
+                      : runtimePreview || "Preview is not ready yet."}
+                  </p>
                 </div>
               </div>
 
               {/* Trait pills */}
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {traits.map((t) => {
-                  const label =
-                    t.value < 40 ? t.labelLeft : t.value > 60 ? t.labelRight : "Balanced";
-                  return (
-                    <span
-                      key={t.key}
-                      className="rounded-full bg-surface-raised px-3 py-1 text-[10px] font-medium text-text-muted"
-                    >
-                      {label}
-                    </span>
-                  );
-                })}
+                {TRAIT_SLIDERS.map((trait) => (
+                  <span
+                    key={trait.key}
+                    className="rounded-full bg-surface-raised px-3 py-1 text-[10px] font-medium text-text-muted"
+                  >
+                    {traitPreviewLabel(trait.key, traits[trait.key])}
+                  </span>
+                ))}
               </div>
 
-              {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+              {assistantGender && (
+                <p className="mt-3 text-xs text-text-subtle">Identity: {assistantGender}</p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void loadRuntimePreview()}
+                disabled={previewLoading || creating}
+                className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-50"
+              >
+                <RefreshCcw className={cn("h-4 w-4", previewLoading && "animate-spin")} />
+                Refresh preview
+              </button>
+
+              {(previewError || error) && (
+                <p className="mt-4 text-sm text-destructive">{previewError ?? error}</p>
+              )}
 
               <p className="mt-6 text-[10px] text-text-subtle/60 max-w-xs">
                 By creating your assistant you agree to the Terms&nbsp;of&nbsp;Service and

@@ -51,6 +51,7 @@ export class ResetAssistantService {
               draftTraits: Prisma.DbNull,
               draftAvatarEmoji: null,
               draftAvatarUrl: null,
+              draftAssistantGender: null,
               draftUpdatedAt: new Date()
             }
           });

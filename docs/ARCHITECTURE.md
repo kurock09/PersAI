@@ -525,6 +525,16 @@ It is not part of backend domain logic.
   - full reset/recreate deletes the whole assistant workspace, so the next fresh apply creates `BOOTSTRAP.md` again
 - OpenClaw heartbeat/background runs now use a dedicated `:heartbeat` session sibling instead of the main user session, so background polling no longer reuses the main chat transcript or re-injects assistant `BOOTSTRAP.md` as if it were user traffic.
 
+### Setup preview boundary
+
+- final setup/recreate preview is backend-owned and runtime-backed, but it is **not** part of normal publish/apply lifecycle truth
+- setup preview uses the persisted draft plus current `/me` profile data as the source of truth
+- preview may assemble/apply a transient runtime spec internally so the user sees runtime-shaped behavior before publish
+- preview does **not** create `assistant_published_versions` rows
+- preview does **not** advance `latestPublishedVersion`
+- preview does **not** create ordinary chat history
+- assistant-owned identity now includes `assistantGender` alongside name/instructions/traits/avatar and is materialized into the bootstrap document set
+
 ### Memory delegation
 
 - **Registry** (D2/D3): PersAI DB + `GET/POST /assistant/memory/items` family — global policy summaries from web chat.

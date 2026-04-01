@@ -36,6 +36,8 @@ export interface CurrentUserState {
     clerkUserId: string;
     email: string;
     displayName: string | null;
+    birthday: string | null;
+    gender: string | null;
   };
   onboarding: {
     isComplete: boolean;

@@ -5,6 +5,8 @@ export interface RequestResolvedAppUser {
   clerkUserId: string;
   email: string;
   displayName: string | null;
+  birthday: string | null;
+  gender: string | null;
 }
 
 export interface RequestWithPlatformContext extends IncomingMessage {

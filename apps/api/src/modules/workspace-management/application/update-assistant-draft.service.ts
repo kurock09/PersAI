@@ -26,6 +26,7 @@ export interface UpdateAssistantDraftRequest {
   traits?: Record<string, number> | null;
   avatarEmoji?: string | null;
   avatarUrl?: string | null;
+  assistantGender?: string | null;
 }
 
 function normalizeOptionalDraftField(value: unknown, fieldName: string): string | null | undefined {
@@ -68,6 +69,7 @@ export class UpdateAssistantDraftService {
     const instructions = normalizeOptionalDraftField(body.instructions, "instructions");
     const avatarEmoji = normalizeOptionalDraftField(body.avatarEmoji, "avatarEmoji");
     const avatarUrl = normalizeOptionalDraftField(body.avatarUrl, "avatarUrl");
+    const assistantGender = this.parseOptionalAssistantGender(body.assistantGender);
     const traits = this.parseOptionalTraits(body.traits);
 
     if (
@@ -75,7 +77,8 @@ export class UpdateAssistantDraftService {
       instructions === undefined &&
       traits === undefined &&
       avatarEmoji === undefined &&
-      avatarUrl === undefined
+      avatarUrl === undefined &&
+      assistantGender === undefined
     ) {
       throw new BadRequestException("At least one draft field must be provided.");
     }
@@ -85,7 +88,8 @@ export class UpdateAssistantDraftService {
       ...(instructions !== undefined ? { instructions } : {}),
       ...(traits !== undefined ? { traits } : {}),
       ...(avatarEmoji !== undefined ? { avatarEmoji } : {}),
-      ...(avatarUrl !== undefined ? { avatarUrl } : {})
+      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+      ...(assistantGender !== undefined ? { assistantGender } : {})
     };
   }
 
@@ -109,7 +113,10 @@ export class UpdateAssistantDraftService {
           : request.instructions,
       ...(request.traits !== undefined ? { draftTraits: request.traits } : {}),
       ...(request.avatarEmoji !== undefined ? { draftAvatarEmoji: request.avatarEmoji } : {}),
-      ...(request.avatarUrl !== undefined ? { draftAvatarUrl: request.avatarUrl } : {})
+      ...(request.avatarUrl !== undefined ? { draftAvatarUrl: request.avatarUrl } : {}),
+      ...(request.assistantGender !== undefined
+        ? { draftAssistantGender: request.assistantGender }
+        : {})
     };
 
     const updatedAssistant = await this.assistantRepository.updateDraft(userId, nextDraft);
@@ -163,5 +170,25 @@ export class UpdateAssistantDraftService {
       result[key] = val;
     }
     return result;
+  }
+
+  private parseOptionalAssistantGender(value: unknown): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (typeof value !== "string") {
+      throw new BadRequestException("assistantGender must be a string, null, or omitted.");
+    }
+    const normalized = value.trim().toLowerCase();
+    if (normalized.length === 0) {
+      throw new BadRequestException(
+        "assistantGender must be a non-empty string, null, or omitted."
+      );
+    }
+    if (!["male", "female", "neutral", "other"].includes(normalized)) {
+      throw new BadRequestException(
+        "assistantGender must be one of male, female, neutral, or other."
+      );
+    }
+    return normalized;
   }
 }

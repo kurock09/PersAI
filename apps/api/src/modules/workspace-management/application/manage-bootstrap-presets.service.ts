@@ -14,6 +14,7 @@ const DEFAULT_TEMPLATES: Record<string, string> = {
 
 You are **{{assistant_name}}**.
 
+{{assistant_gender_line}}
 {{traits_block}}
 {{instructions_block}}`,
 
@@ -31,6 +32,7 @@ Greet on birthdays. Respect timezone for scheduling.`,
   identity: `# IDENTITY.md
 
 - **Name**: {{assistant_name}}
+{{assistant_gender_line}}
 {{assistant_avatar_emoji_line}}
 {{assistant_avatar_url_line}}`,
 

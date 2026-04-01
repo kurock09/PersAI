@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantPublishedVersionSnapshotStateTraits } from "./assistantPublishedVersionSnapshotStateTraits";
+import type { AssistantPublishedVersionSnapshotStateAssistantGender } from "./assistantPublishedVersionSnapshotStateAssistantGender";
 
 export interface AssistantPublishedVersionSnapshotState {
   /** @nullable */
@@ -17,4 +18,6 @@ export interface AssistantPublishedVersionSnapshotState {
   avatarEmoji?: string | null;
   /** @nullable */
   avatarUrl?: string | null;
+  /** @nullable */
+  assistantGender?: AssistantPublishedVersionSnapshotStateAssistantGender;
 }

@@ -34,6 +34,7 @@ import { SendWebChatTurnService } from "../../application/send-web-chat-turn.ser
 import { ManageWebChatListService } from "../../application/manage-web-chat-list.service";
 import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn.service";
 import { UpdateAssistantDraftService } from "../../application/update-assistant-draft.service";
+import { PreviewAssistantSetupService } from "../../application/preview-assistant-setup.service";
 import { ResolvePlanVisibilityService } from "../../application/resolve-plan-visibility.service";
 import { ResolveTelegramIntegrationStateService } from "../../application/resolve-telegram-integration-state.service";
 import type { AssistantNotificationPreferenceState } from "../../application/assistant-notification-preference.types";
@@ -72,6 +73,7 @@ export class AssistantController {
     private readonly manageWebChatListService: ManageWebChatListService,
     private readonly streamWebChatTurnService: StreamWebChatTurnService,
     private readonly updateAssistantDraftService: UpdateAssistantDraftService,
+    private readonly previewAssistantSetupService: PreviewAssistantSetupService,
     private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly resolveAssistantNotificationPreferenceService: ResolveAssistantNotificationPreferenceService,
@@ -136,6 +138,20 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       assistant
+    };
+  }
+
+  @Post("assistant/setup/preview")
+  @HttpCode(200)
+  async previewSetup(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    preview: { message: string; respondedAt: string };
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const preview = await this.previewAssistantSetupService.execute(userId);
+    return {
+      requestId: req.requestId ?? null,
+      preview
     };
   }
 

@@ -10,5 +10,6 @@ export interface PutAdminRuntimeProviderSettingsResponse {
   /** @nullable */
   requestId?: string | null;
   settings: AdminRuntimeProviderSettingsState;
+  /** Current platform config generation after save */
   configGeneration: number;
 }

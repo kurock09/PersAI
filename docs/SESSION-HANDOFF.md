@@ -1,5 +1,39 @@
 # SESSION-HANDOFF
 
+## 2026-04-01 - Feature/Fix: setup runtime preview + assistant identity enrichment
+
+### What changed
+
+Assistant create/recreate/edit now share a fuller assistant identity model and a real runtime-backed final preview.
+
+- Added `assistantGender` across Prisma schema, domain entities, assistant draft/published snapshot state, OpenAPI contracts, generated client types, setup UI, and assistant settings UI.
+- Added `PreviewAssistantSetupService` plus `POST /api/v1/assistant/setup/preview`; the setup last step now materializes a transient runtime workspace, asks the assistant to introduce itself, returns that response, and cleans the preview workspace immediately after.
+- Refactored `MaterializeAssistantPublishedVersionService` to expose reusable runtime artifact building so preview and publish use the same bootstrap/materialization path.
+- Fixed `/me` state propagation so recreate/setup correctly prefills `displayName`, `birthday`, `gender`, and timezone-related onboarding values instead of name only.
+- Setup now exposes the same free-form personality text as edit, auto-seeded from sliders until the user customizes it.
+- Custom assistant avatar upload now keeps a local preview blob during setup, uploads the real file only on final create, and persists backend `avatarUrl` instead of any local `blob:` URL.
+- Assistant avatar rendering now caches authorized blob URLs client-side to avoid visible re-download/repaint lag on repeated mounts.
+- Removed legacy `app-flow.client.tsx` and `app-flow.client.test.tsx`; added focused `setup/page.test.tsx`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run test -- app/app/setup/page.test.tsx app/app/page.test.tsx`
+- `corepack pnpm --filter @persai/web run lint`
+- `corepack pnpm --filter @persai/api run lint`
+- Web and API typecheck were already passing before the final test rerun in this session.
+
+### Known issues
+
+- `vitest` still logs a jsdom warning (`Not implemented: navigation to another Document`) during the setup test because the page triggers navigation semantics that jsdom does not fully implement; the suite still passes.
+- `POST /assistant/reset` remains a full-wipe reset in current code and docs now reflect that source of truth; if product semantics change later, both docs and recreate UX assumptions must be updated together.
+
+### Next steps
+
+- Run a full workspace verification pass (`typecheck` / broader tests) before merging if you want whole-repo confidence beyond the focused setup/edit coverage.
+- Smoke test create, reset, recreate, and edit flows against a real runtime/backend environment to confirm preview latency and avatar caching feel acceptable outside jsdom.
+
+---
+
 ## 2026-04-01 - Fix: web voice placeholder fallback
 
 ### What changed

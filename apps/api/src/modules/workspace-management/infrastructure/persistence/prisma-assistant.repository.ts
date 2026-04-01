@@ -55,6 +55,9 @@ export class PrismaAssistantRepository implements AssistantRepository {
     if (input.draftTraits !== undefined) data.draftTraits = input.draftTraits;
     if (input.draftAvatarEmoji !== undefined) data.draftAvatarEmoji = input.draftAvatarEmoji;
     if (input.draftAvatarUrl !== undefined) data.draftAvatarUrl = input.draftAvatarUrl;
+    if (input.draftAssistantGender !== undefined) {
+      data.draftAssistantGender = input.draftAssistantGender;
+    }
 
     const assistant = await this.prisma.assistant.update({
       where: { userId },
@@ -209,6 +212,7 @@ export class PrismaAssistantRepository implements AssistantRepository {
       draftTraits: assistant.draftTraits as Record<string, number> | null,
       draftAvatarEmoji: assistant.draftAvatarEmoji,
       draftAvatarUrl: assistant.draftAvatarUrl,
+      draftAssistantGender: assistant.draftAssistantGender,
       draftUpdatedAt: assistant.draftUpdatedAt,
       applyStatus: assistant.applyStatus,
       applyTargetVersionId: assistant.applyTargetVersionId,

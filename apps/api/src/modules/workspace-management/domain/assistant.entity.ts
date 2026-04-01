@@ -15,6 +15,7 @@ export type Assistant = {
   draftTraits: Record<string, number> | null;
   draftAvatarEmoji: string | null;
   draftAvatarUrl: string | null;
+  draftAssistantGender: string | null;
   draftUpdatedAt: Date | null;
   applyStatus: AssistantApplyStatus;
   applyTargetVersionId: string | null;

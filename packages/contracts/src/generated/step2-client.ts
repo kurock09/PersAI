@@ -53,6 +53,7 @@ import type {
   PostAdminStepUpChallengeResponse,
   PostAssistantMemoryDoNotRememberResponse,
   PostAssistantMemoryItemForgetResponse,
+  PostAssistantSetupPreviewResponse,
   PostAssistantTaskItemCancelResponse,
   PostAssistantTaskItemDisableResponse,
   PostAssistantTaskItemEnableResponse,
@@ -273,6 +274,63 @@ export const patchAssistantDraft = async (
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(assistantDraftUpdateRequest)
+  });
+};
+
+/**
+ * @summary Generate a runtime-backed preview message for the current setup draft
+ */
+export type postAssistantSetupPreviewResponse200 = {
+  data: PostAssistantSetupPreviewResponse;
+  status: 200;
+};
+
+export type postAssistantSetupPreviewResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantSetupPreviewResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantSetupPreviewResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAssistantSetupPreviewResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantSetupPreviewResponseSuccess = postAssistantSetupPreviewResponse200 & {
+  headers: Headers;
+};
+export type postAssistantSetupPreviewResponseError = (
+  | postAssistantSetupPreviewResponse401
+  | postAssistantSetupPreviewResponse404
+  | postAssistantSetupPreviewResponse409
+  | postAssistantSetupPreviewResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantSetupPreviewResponse =
+  | postAssistantSetupPreviewResponseSuccess
+  | postAssistantSetupPreviewResponseError;
+
+export const getPostAssistantSetupPreviewUrl = () => {
+  return `/assistant/setup/preview`;
+};
+
+export const postAssistantSetupPreview = async (
+  options?: RequestInit
+): Promise<postAssistantSetupPreviewResponse> => {
+  return customFetch<postAssistantSetupPreviewResponse>(getPostAssistantSetupPreviewUrl(), {
+    ...options,
+    method: "POST"
   });
 };
 
