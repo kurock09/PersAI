@@ -7,7 +7,6 @@ import {
   stageWebChatAttachment,
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
-  uploadChatAttachment,
   type ChatHistoryAttachment,
   type WebChatUxIssue
 } from "../assistant-api-client";
@@ -260,8 +259,6 @@ export function useChat(threadKey: string): UseChatReturn {
               } | null;
               const realUserMsgId =
                 typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
-              const realChatId =
-                typeof t?.userMessage?.chatId === "string" ? t.userMessage.chatId : null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
               const assistantAttachments =
