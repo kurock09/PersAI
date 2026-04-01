@@ -60,10 +60,7 @@ export class MediaPreprocessorService {
     if (VIDEO_MIMES.has(normalizedMime)) {
       return this.processVideo(buffer, normalizedMime, assistantId);
     }
-    if (
-      DOCUMENT_MIMES_WITH_EXTRACTION.has(normalizedMime) ||
-      normalizedMime.startsWith("text/")
-    ) {
+    if (DOCUMENT_MIMES_WITH_EXTRACTION.has(normalizedMime) || normalizedMime.startsWith("text/")) {
       return this.processDocument(buffer, normalizedMime, originalFilename);
     }
     return this.passthrough(buffer, normalizedMime);
