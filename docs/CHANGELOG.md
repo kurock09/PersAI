@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Fix: tool-generated media silently lost — onBlockReply fallback:**
+  - Root cause: `agentCommandFromIngress` does not pass `onBlockReply` to `runEmbeddedPiAgent`. Tool media from `pendingToolMediaUrls` flows exclusively through block-reply callbacks, which were silently dropped.
+  - Added a fallback `onBlockReply` in `runEmbeddedPiAgent` (OpenClaw `run.ts`) that captures media-bearing block replies and merges them into `result.payloads`.
+  - Removed debug logging from `persai-runtime-agent-turn.ts`.
+  - Dev GitOps OpenClaw pin now targets fork SHA `46063c4f47bdfe29d728d0392077d43e295b02df`.
+
 - **Fix: stream race condition — media NDJSON event was never emitted:**
   - Removed lifecycle `end` event handler from stream function that prematurely closed the response before media extraction.
   - Generated images now flow through the full pipeline: tool result → `resolveAgentResponse` → NDJSON `media` event → PersAI persist → frontend render.
