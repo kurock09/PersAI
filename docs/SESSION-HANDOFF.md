@@ -9,6 +9,7 @@ Web voice messages no longer send a fake `(voice message)` turn when transcripti
 - `manage-chat-media.service.ts` — empty STT output now returns a validation error instead of passing an empty string through as a successful transcription.
 - `assistant-api-client.ts` — voice transcription now preserves the backend error message instead of collapsing to a generic failure.
 - `chat-input.tsx`, `chat-area.tsx`, `use-chat.ts` — the UI now shows the transcription failure in the normal issue banner and skips sending the voice turn instead of falling back to placeholder text.
+- Dev OpenClaw image pin was then advanced to `786879fddda3ee05f756a0afe670dd412a460913` to keep PersAI aligned with the latest fork commit per deploy process.
 
 ### Known issues
 

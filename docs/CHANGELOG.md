@@ -8,6 +8,9 @@
   - Root cause: the web client still sent `(voice message)` into the chat turn when voice transcription returned an empty string or raised an error.
   - Fix: backend transcription now rejects empty STT results, the web client surfaces the real error, and the UI no longer submits a fallback placeholder turn.
 
+- **Chore: bump dev OpenClaw pin to latest cleanup commit:**
+  - Dev GitOps OpenClaw pin now targets fork SHA `786879fddda3ee05f756a0afe670dd412a460913`.
+
 - **Fix: Telegram photo turns inspect image attachments before answering:**
   - Root cause: Telegram inbound media reached OpenClaw as attachment paths in the text prompt, but the model was not explicitly told to inspect attached images first. The first reply could hallucinate from filename/path-level context instead of actually viewing the image.
   - Fix: `InboundMediaService` now adds an explicit instruction for image attachments to inspect them with the `image` tool before answering and not guess from the filename/path alone.
