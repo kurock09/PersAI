@@ -4,6 +4,15 @@
 
 ### Added
 
+- **Feat: gender-based TTS voice selection (OpenClaw fork):**
+  - OpenClaw TTS providers now read `persona.assistantGender` from the PersAI workspace spec and select a matching default voice: OpenAI `onyx`/`nova`, Yandex `filipp`/`alena`.
+  - Priority: directive override > gender voice > config/default voice.
+  - Dev GitOps OpenClaw pin now targets fork SHA `943157182d38f5de4753ec10eae33bb8e976deb8`.
+
+- **Fix: add ffmpeg to API Docker image for web voice transcription:**
+  - Root cause: `ffmpeg` was not installed in the API container, so webm→mp3 conversion failed with `spawn ffmpeg ENOENT`, causing `/voice/transcribe` to return 400 and the web chat to show "Chat could not complete this turn".
+  - Fix: added `ffmpeg` to `apt-get install` in `apps/api/Dockerfile`.
+
 - **Fix: setup/recreate flow now uses runtime preview + persistent assistant identity:**
   - Added `assistantGender` to assistant draft/published snapshot, setup flow, settings UI, contracts, and bootstrap materialization (`SOUL.md` / `IDENTITY.md`).
   - Assistant gender options are now restricted to `female`, `male`, and `neutral`; legacy `other` is no longer offered or accepted.

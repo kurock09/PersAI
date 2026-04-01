@@ -1,5 +1,44 @@
 # SESSION-HANDOFF
 
+## 2026-04-01 - Feat: gender-based TTS voice + fix web voice transcription
+
+### What changed
+
+1. **Gender→voice mapping in OpenClaw fork** — TTS providers now read `persona.assistantGender` from workspace spec and pick gender-appropriate default voices (OpenAI: `onyx`/`nova`; Yandex: `filipp`/`alena`). Falls back to config/default voice when gender is `neutral` or unset.
+2. **ffmpeg added to API Dockerfile** — web voice turns failed with "Chat could not complete this turn" because `ffmpeg` was missing from the container, causing webm→mp3 conversion to fail with `spawn ffmpeg ENOENT` and `/voice/transcribe` to return 400.
+
+### Files touched
+
+**OpenClaw (fork SHA `943157182d`):**
+- `src/agents/persai-runtime-context.ts` — +`assistantGender` field, +`getPersaiAssistantGender()` getter
+- `src/gateway/persai-runtime/persai-runtime-http.ts` — +`extractAssistantGenderFromWorkspace()`, pass gender to all 3 agent turn callsites
+- `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — +`assistantGender` param in 3 turn functions + runtimeCtx
+- `src/tts/providers/openai.ts` — gender→voice lookup before config default
+- `src/tts/providers/yandex.ts` — gender→voice lookup before config default
+
+**PersAI:**
+- `apps/api/Dockerfile` — added `ffmpeg` to `apt-get install`
+- `infra/dev/gitops/openclaw-approved-sha.txt` → `943157182d…`
+- `infra/helm/values-dev.yaml` → `openclaw.image.tag` updated, digest cleared
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- OpenClaw: `npx tsc --noEmit` — pass
+- PersAI: pre-commit gate (lint, format, typecheck) — pending
+
+### Risks
+
+- Gender voice mapping is additive; neutral/unset falls back to existing defaults — no regression for existing assistants.
+- ffmpeg adds ~50 MB to API Docker image; acceptable trade-off for correct voice transcription.
+
+### Next steps
+
+- Smoke test web voice recording and TTS output for male/female/neutral assistants after deploy.
+- Verify Yandex TTS responds with `filipp` for male-gendered assistants.
+
+---
+
 ## 2026-04-01 - Feature/Fix: setup runtime preview + assistant identity enrichment
 
 ### What changed
