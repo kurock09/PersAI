@@ -143,11 +143,10 @@ export default function SetupWizardPage() {
       buildAssistantInstructions({
         assistantName: assistantName.trim() || "your assistant",
         userName: userName.trim() || "your human",
-        assistantGender,
         traits
       })
     );
-  }, [assistantGender, assistantName, instructionsEdited, traits, userName]);
+  }, [assistantName, instructionsEdited, traits, userName]);
 
   useEffect(() => {
     return () => {

@@ -24,6 +24,7 @@ const PRESET_META: Record<
     description: "Assistant personality, traits, and custom instructions",
     variables: [
       { key: "assistant_name", hint: "Name of the assistant" },
+      { key: "assistant_gender_line", hint: "Assistant gender line (e.g. - **Gender**: female)" },
       { key: "traits_block", hint: "Auto-generated personality traits list" },
       { key: "instructions_block", hint: "User custom instructions" }
     ]
@@ -44,6 +45,7 @@ const PRESET_META: Record<
     description: "Assistant name and visual identity",
     variables: [
       { key: "assistant_name", hint: "Name of the assistant" },
+      { key: "assistant_gender_line", hint: "Assistant gender line (e.g. - **Gender**: female)" },
       { key: "assistant_avatar_emoji_line", hint: "Avatar emoji line" },
       { key: "assistant_avatar_url_line", hint: "Avatar URL line" }
     ]
@@ -71,6 +73,7 @@ const SAMPLE_VARIABLES: Record<string, string> = {
   user_gender_line: "- **Gender**: male",
   user_locale: "en-US",
   user_timezone: "Europe/Moscow",
+  assistant_gender_line: "- **Gender**: female",
   assistant_avatar_emoji_line: "- **Avatar**: 🌟",
   assistant_avatar_url_line: "",
   memory_policy_block:

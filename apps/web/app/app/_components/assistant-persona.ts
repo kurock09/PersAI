@@ -38,20 +38,13 @@ export function normalizeAssistantGender(value: string | null | undefined): Assi
 export function buildAssistantInstructions(params: {
   assistantName: string;
   userName: string;
-  assistantGender: AssistantGender;
   traits: Record<TraitKey, number>;
 }): string {
-  const { assistantName, userName, assistantGender, traits } = params;
+  const { assistantName, userName, traits } = params;
   const lines: string[] = [
     `You are ${assistantName || "a personal AI assistant"}.`,
     `Your user's name is ${userName || "your human"}. Address them naturally by name when helpful.`
   ];
-
-  if (assistantGender) {
-    lines.push(
-      `Your identity is ${assistantGender}. Present yourself consistently with that identity.`
-    );
-  }
 
   if ((traits.formality ?? 50) < 30) lines.push("Communicate in a casual, conversational tone.");
   else if ((traits.formality ?? 50) > 70) {
