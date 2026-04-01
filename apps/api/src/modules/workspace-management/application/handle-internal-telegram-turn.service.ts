@@ -224,10 +224,7 @@ export class HandleInternalTelegramTurnService {
     return results;
   }
 
-  private async downloadTelegramAttachmentWithRetry(
-    assistantId: string,
-    storagePath: string
-  ) {
+  private async downloadTelegramAttachmentWithRetry(assistantId: string, storagePath: string) {
     for (
       let attempt = 1;
       attempt <= HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS;
@@ -246,9 +243,7 @@ export class HandleInternalTelegramTurnService {
         return downloaded;
       }
       if (attempt < HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS) {
-        await delay(
-          HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_DELAY_MS * attempt
-        );
+        await delay(HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_DELAY_MS * attempt);
       }
     }
 
