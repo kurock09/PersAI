@@ -261,7 +261,11 @@ export class ManageChatMediaService {
         assistant.id,
         uploadResult.storagePath
       );
-      return { text: result.text };
+      const text = result.text.trim();
+      if (text.length === 0) {
+        throw new BadRequestException("Voice transcription returned empty text. Please try again.");
+      }
+      return { text };
     } finally {
       void this.runtimeAdapter
         .deleteChatMedia(assistant.id, uploadResult.storagePath)

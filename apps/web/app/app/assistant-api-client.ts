@@ -1776,7 +1776,14 @@ export async function transcribeVoice(
     headers: { Authorization: `Bearer ${token}` },
     body: formData
   });
-  if (!res.ok) throw new Error("Voice transcription failed.");
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === "object" && "message" in body
+        ? String((body as Record<string, unknown>).message)
+        : "Voice transcription failed.";
+    throw new Error(message);
+  }
   const data = (await res.json()) as { text: string };
   return data.text;
 }

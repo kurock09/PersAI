@@ -22,23 +22,23 @@ This creates five concrete product gaps for a mass-market SaaS:
 
 ### Existing infrastructure to reuse
 
-| Component | Status | Reuse path |
-|-----------|--------|------------|
-| GCS FUSE per-assistant workspace | Working (`/mnt/workspaces/persai/<assistantId>/`) | Add `media/` subdirectory for chat attachments |
-| Avatar upload/download proxy | Working (PersAI API → OpenClaw HTTP → workspace files) | Same proxy pattern for chat media |
-| Tool credential pipeline | Working (`tool_tts` → encrypted store → bootstrap → runtime resolve) | Yandex TTS key flows through same path |
-| Quota system | Working (`WorkspaceQuotaDimension` enum + state + events + limits) | Add `media_storage_bytes` dimension |
-| Chat hard-delete cleanup | Working (runtime session delete → DB transaction) | Extend with media directory cleanup |
-| Assistant reset cleanup | Working (`rm -rf` workspace directory) | Already covers media (directory is child of workspace) |
-| OpenClaw TTS providers | Working (OpenAI, ElevenLabs, Microsoft Edge + voice-bubble opus for Telegram) | Add Yandex provider |
-| OpenClaw STT | Working (`transcribeAudioFile()` via Whisper) | Call from PersAI bridge files |
-| OpenClaw Telegram media APIs | Working (`sendVoice`, `sendPhoto`, `sendDocument` in `extensions/telegram/src/send.ts`) | Import from PersAI bridge Telegram handler |
-| OpenClaw media extraction | Working (`extractToolResultMediaArtifact`, `normalizeOutboundPayloads`) | Use in bridge `resolveAgentResponse` |
-| `mediaClasses` capability flags | Typed but hardcoded false | Activate from plan entitlements |
+| Component                        | Status                                                                                  | Reuse path                                             |
+| -------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| GCS FUSE per-assistant workspace | Working (`/mnt/workspaces/persai/<assistantId>/`)                                       | Add `media/` subdirectory for chat attachments         |
+| Avatar upload/download proxy     | Working (PersAI API → OpenClaw HTTP → workspace files)                                  | Same proxy pattern for chat media                      |
+| Tool credential pipeline         | Working (`tool_tts` → encrypted store → bootstrap → runtime resolve)                    | Yandex TTS key flows through same path                 |
+| Quota system                     | Working (`WorkspaceQuotaDimension` enum + state + events + limits)                      | Add `media_storage_bytes` dimension                    |
+| Chat hard-delete cleanup         | Working (runtime session delete → DB transaction)                                       | Extend with media directory cleanup                    |
+| Assistant reset cleanup          | Working (`rm -rf` workspace directory)                                                  | Already covers media (directory is child of workspace) |
+| OpenClaw TTS providers           | Working (OpenAI, ElevenLabs, Microsoft Edge + voice-bubble opus for Telegram)           | Add Yandex provider                                    |
+| OpenClaw STT                     | Working (`transcribeAudioFile()` via Whisper)                                           | Call from PersAI bridge files                          |
+| OpenClaw Telegram media APIs     | Working (`sendVoice`, `sendPhoto`, `sendDocument` in `extensions/telegram/src/send.ts`) | Import from PersAI bridge Telegram handler             |
+| OpenClaw media extraction        | Working (`extractToolResultMediaArtifact`, `normalizeOutboundPayloads`)                 | Use in bridge `resolveAgentResponse`                   |
+| `mediaClasses` capability flags  | Typed but hardcoded false                                                               | Activate from plan entitlements                        |
 
 ### Boundary-first analysis
 
-The PersAI bridge files in the OpenClaw fork (`src/gateway/persai-runtime/persai-runtime-*.ts`) are designed to be extended without modifying native OpenClaw code. The only native OpenClaw change required in this entire M-series is adding a Yandex TTS provider (one new file + one line in the provider registry).
+The PersAI bridge files in the OpenClaw fork (`src/gateway/persai-runtime/persai-runtime-*.ts`) are designed to absorb most of this work without deep native runtime churn. In practice, M-series landed with minimal native OpenClaw changes centered around Yandex TTS support and a few runtime seams/fixes, while the majority of the implementation stayed in PersAI or PersAI-owned bridge files in the fork.
 
 ## Decision
 
@@ -65,6 +65,7 @@ Tool media (images, audio) is resolved and delivered after the streaming turn co
 **Scope:** Backend-only foundation. No UI, no channel changes.
 
 PersAI changes:
+
 - Prisma: `assistant_chat_message_attachments` table (id, message_id, chat_id, assistant_id, workspace_id, attachment_type enum [`image`, `audio`, `voice`, `video`, `document`, `tool_output`], storage_path, original_filename, mime_type, size_bytes, duration_ms nullable, width nullable, height nullable, processing_status enum [`pending`, `ready`, `failed`], transcription nullable text, metadata JSONB nullable, created_at)
 - Repository: `AssistantChatMessageAttachmentRepository` (create, findByMessageIds, findById, deleteByMessageIds, deleteByChatId, deleteByAssistantId)
 - Extend `hardDeleteChat` to call new `deleteByChat` + runtime media cleanup
@@ -77,6 +78,7 @@ PersAI changes:
 - `mediaClasses` activation: resolve `image/audio/video/file` from plan entitlements `mediaClasses` array (new entitlement dimension) instead of hardcoded false; enforcement at upload and chat send boundaries
 
 OpenClaw bridge changes:
+
 - `persai-runtime-http.ts`: add `POST /api/v1/runtime/workspace/media/upload` and `GET /api/v1/runtime/workspace/media/download` handlers (write/read files under `<assistantId>/media/<path>`)
 - `persai-runtime-http.ts`: add `DELETE /api/v1/runtime/workspace/media/delete-chat` handler (remove `<assistantId>/media/<chatId>/` directory)
 
@@ -87,11 +89,13 @@ Native OpenClaw changes: none.
 **Scope:** Tool-generated images and audio become real attachments in web chat responses.
 
 OpenClaw bridge changes:
+
 - `persai-runtime-agent-turn.ts`: extend `resolveAgentResponseText` → `resolveAgentResponse` that returns `{ text: string, media: Array<{ url: string, type: string, audioAsVoice?: boolean }> }` by reading `payloads[].mediaUrl`, `payloads[].mediaUrls`, `payloads[].audioAsVoice` and using `extractToolResultMediaArtifact` pattern
 - `persai-runtime-http.ts`: sync and stream response shapes include `media[]` alongside `assistantMessage`
 - Stream NDJSON: add `{ type: "media", media: [...] }` event emitted after `done` but before connection close, so PersAI receives media references when the turn completes
 
 PersAI changes:
+
 - `OpenClawRuntimeAdapter`: parse `media[]` from sync response and stream `media` event
 - `SendWebChatTurnService` / `StreamWebChatTurnService`: after successful turn, copy media files from workspace to `media/<chatId>/<messageId>/` path, create `assistant_chat_message_attachments` rows
 - Web UI: `ChatMessageBubble` renders attachments — images inline (`<img>` with lightbox), audio with `<audio>` player, voice with waveform player, documents as download links
@@ -104,15 +108,18 @@ Native OpenClaw changes: none.
 **Scope:** Users can send voice messages via microphone in web chat and receive voice responses.
 
 PersAI changes:
+
 - Web UI: `ChatInput` — microphone button, `MediaRecorder` API (opus/webm), recording UX with timer and waveform preview
 - Web UI: on recording complete → `POST /api/v1/assistant/chats/web/upload` → receive `attachmentId`
 - Web UI: send message with `attachmentIds: [voiceAttachmentId]` and empty or minimal `message` text
 - API: `PrepareAssistantInboundTurnService` — when message has voice attachment with `processing_status: pending`, call OpenClaw STT before forwarding to runtime
 
 OpenClaw bridge changes:
+
 - `persai-runtime-http.ts`: add `POST /api/v1/runtime/media/transcribe` handler that calls native `transcribeAudioFile()` and returns `{ text: string }`
 
 PersAI changes (continued):
+
 - `OpenClawRuntimeAdapter`: add `transcribeMedia(assistantId, filePath)` method
 - After STT: update attachment `processing_status: ready`, `transcription: text`; use transcription as `userMessage` for the runtime turn (original voice preserved as attachment for playback)
 - Web UI: voice message bubbles show waveform + play button + transcription text below
@@ -124,6 +131,7 @@ Native OpenClaw changes: none (uses existing `transcribeAudioFile`).
 **Scope:** Users can send images and documents alongside text messages in web chat.
 
 PersAI changes:
+
 - Web UI: `ChatInput` — activate paperclip button, file picker (images: jpg/png/gif/webp, documents: pdf/txt/md), drag-and-drop support
 - Web UI: selected files show as preview chips before sending; upload on send
 - Web UI: image attachments render inline in user messages; documents render as download cards
@@ -140,12 +148,14 @@ Native OpenClaw changes: none.
 **Scope:** Telegram bot accepts voice messages, photos, and documents from users.
 
 OpenClaw bridge changes:
+
 - `persai-runtime-telegram.ts`: add handlers for `message:voice`, `message:photo`, `message:document`, `message:video`
 - `allowed_updates` webhook config: already includes `message` which covers all message subtypes
 - Voice handler: download file via Grammy `getFile` API → call `transcribeAudioFile()` for STT → send transcription as `userMessage` to PersAI internal turn with attachment metadata
 - Photo/document handler: download file → store in workspace `media/telegram/<chatId>/` → send to PersAI internal turn with attachment metadata
 
 PersAI changes:
+
 - Extend `InternalTelegramTurnRequest` with optional `attachments: Array<{ type, storagePath, mimeType, sizeBytes, originalFilename, transcription?, duration? }>`
 - `HandleInternalTelegramTurnService`: persist attachments from Telegram on the resulting message records (create PersAI chat records for Telegram turns that carry media)
 - `InternalRuntimeTurnController`: parse attachment fields from request body
@@ -157,12 +167,14 @@ Native OpenClaw changes: none.
 **Scope:** Telegram bot sends images, voice notes, and documents back to users.
 
 OpenClaw bridge changes:
+
 - `persai-runtime-telegram.ts`: extend reply handling — when PersAI internal turn response includes `media[]`, use Grammy `sendPhoto` / `sendVoice` / `sendDocument` from existing `extensions/telegram/src/send.ts` module
 - For tool-generated images: send as photo with caption
 - For TTS/voice tool output: send as voice note (opus, using existing `audioAsVoice` flag)
 - Status UX: if media generation is expected (turn takes >3s), send intermediate "⏳" typing indicator via `ctx.replyWithChatAction("upload_photo")` / `("record_voice")`
 
 PersAI changes:
+
 - Extend `HandleInternalTelegramTurnService` response shape to include `media[]` from runtime turn result
 - Surface renderer formats media references for Telegram delivery
 
@@ -173,10 +185,12 @@ Native OpenClaw changes: none (uses existing Grammy APIs from `extensions/telegr
 **Scope:** Add Yandex SpeechKit as a TTS synthesis option alongside existing providers.
 
 Native OpenClaw changes (minimal, justified — runtime TTS execution lives inside OpenClaw):
+
 - New file: `src/tts/providers/yandex.ts` — implements `SpeechProviderPlugin` interface following the exact pattern of `openai.ts` / `elevenlabs.ts`; Yandex SpeechKit v3 REST API (`POST https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize`); supports opus output for voice-bubble channels
 - `src/tts/provider-registry.ts`: add `buildYandexSpeechProvider` to `BUILTIN_SPEECH_PROVIDER_BUILDERS` array (1 line)
 
 PersAI changes:
+
 - Tool credential settings: Yandex provider selection already exists (`TOOL_PROVIDER_OPTIONS.tool_tts` includes `yandex`); `YANDEX_TTS_API_KEY` env var mapping already exists in `PROVIDER_ENV_OVERRIDES`
 - Admin UI: provider dropdown for TTS already renders Yandex option
 - No additional PersAI changes needed — credential flow is already wired
@@ -191,7 +205,7 @@ PersAI changes:
 - Yandex TTS adds Russian-language voice quality option for the target market with one new file and one registry line.
 - Media capabilities are plan-governed and quota-tracked from day one — no retroactive enforcement needed.
 - All 7 slices are independently shippable and testable; each leaves the system in a working state.
-- Only 2 lines of native OpenClaw code change (provider registry); everything else is PersAI-only or PersAI bridge files in the fork.
+- Native OpenClaw change stayed intentionally small relative to the full slice: Yandex provider support plus a small number of runtime fixes/seams, with the majority of the implementation remaining in PersAI or PersAI bridge files in the fork.
 
 ### Negative
 

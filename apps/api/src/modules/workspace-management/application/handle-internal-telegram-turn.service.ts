@@ -235,11 +235,6 @@ export class HandleInternalTelegramTurnService {
         storagePath
       );
       if (downloaded) {
-        if (attempt > 1) {
-          this.logger.log(
-            `TG attachment became available on retry ${attempt}/${HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS}: ${storagePath}`
-          );
-        }
         return downloaded;
       }
       if (attempt < HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS) {
@@ -257,7 +252,11 @@ export class HandleInternalTelegramTurnService {
     try {
       await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId);
     } catch (error) {
-      console.warn("[telegram-turn] Non-fatal: failed to consume BOOTSTRAP.md:", error);
+      this.logger.warn(
+        `[telegram-turn] Non-fatal: failed to consume BOOTSTRAP.md: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 }

@@ -105,14 +105,9 @@ export class InboundMediaService {
       const ready = attachments.filter((a) => a.processingStatus === "ready");
       if (ready.length === 0) return null;
 
-      const lines = ready.map((a) => {
-        const name = a.originalFilename ? ` "${a.originalFilename}"` : "";
-        const extras: string[] = [];
-        if (a.transcription) {
-          extras.push(`transcription: "${a.transcription.slice(0, 200)}"`);
-        }
-        return `- media/${a.storagePath} (${a.attachmentType}${name}${extras.length > 0 ? ", " + extras.join(", ") : ""})`;
-      });
+      const lines = ready.map((attachment) =>
+        this.formatContextLine(attachment, attachment.transcription, null)
+      );
 
       return this.buildAttachmentBlock(
         "Files available in your workspace",

@@ -36,6 +36,7 @@ type RecordingState = "idle" | "recording" | "transcribing";
 interface ChatInputProps {
   onSend: (text: string, files?: File[]) => void;
   onTranscribeVoice: (audioBlob: Blob, filename: string) => Promise<string>;
+  onVoiceTranscriptionError?: (error: unknown) => void;
   onStop: () => void;
   isStreaming: boolean;
   disabled?: boolean;
@@ -44,6 +45,7 @@ interface ChatInputProps {
 export function ChatInput({
   onSend,
   onTranscribeVoice,
+  onVoiceTranscriptionError,
   onStop,
   isStreaming,
   disabled
@@ -164,9 +166,13 @@ export function ChatInput({
         void (async () => {
           try {
             const text = await onTranscribeVoice(blob, filename);
-            onSend(text.trim().length > 0 ? text : "(voice message)", [voiceFile]);
-          } catch {
-            onSend("(voice message)", [voiceFile]);
+            const trimmedText = text.trim();
+            if (trimmedText.length === 0) {
+              throw new Error("Voice transcription returned empty text. Please try again.");
+            }
+            onSend(trimmedText, [voiceFile]);
+          } catch (error) {
+            onVoiceTranscriptionError?.(error);
           } finally {
             setRecordingState("idle");
             setRecordingSeconds(0);
@@ -183,7 +189,7 @@ export function ChatInput({
     } catch {
       setRecordingState("idle");
     }
-  }, [onTranscribeVoice, onSend, stopRecordingCleanup]);
+  }, [onSend, onTranscribeVoice, onVoiceTranscriptionError, stopRecordingCleanup]);
 
   const stopRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;

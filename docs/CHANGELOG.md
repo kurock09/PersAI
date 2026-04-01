@@ -4,6 +4,10 @@
 
 ### Added
 
+- **Fix: web voice turns no longer send placeholder text when STT is empty or fails:**
+  - Root cause: the web client still sent `(voice message)` into the chat turn when voice transcription returned an empty string or raised an error.
+  - Fix: backend transcription now rejects empty STT results, the web client surfaces the real error, and the UI no longer submits a fallback placeholder turn.
+
 - **Fix: Telegram photo turns inspect image attachments before answering:**
   - Root cause: Telegram inbound media reached OpenClaw as attachment paths in the text prompt, but the model was not explicitly told to inspect attached images first. The first reply could hallucinate from filename/path-level context instead of actually viewing the image.
   - Fix: `InboundMediaService` now adds an explicit instruction for image attachments to inspect them with the `image` tool before answering and not guess from the filename/path alone.
@@ -83,7 +87,7 @@
   - Admin can now choose which provider a tool credential targets (e.g., Brave vs Tavily for web search, OpenAI vs ElevenLabs vs Yandex for TTS) instead of a hardcoded default.
   - Provider selection stored encrypted alongside the API key (no DB migration).
   - OpenClaw bridge dynamically maps credential to the correct env var based on selected provider.
-  - Yandex SpeechKit added as a TTS provider option for future native integration.
+  - Yandex SpeechKit was added as a selectable TTS provider and later completed with native OpenClaw provider support plus follow-up runtime fixes.
   - Dev GitOps OpenClaw pin now targets fork SHA `552dff354331f2a6a56e4cecea16d63f81e2e7d1`.
 
 - **Systemic PersAI tool credential resolution + admin plan clarity:**

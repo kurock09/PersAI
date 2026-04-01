@@ -8,20 +8,20 @@ Accepted
 
 ADR-059 established the M-series plan for systemic media support. During implementation of M1–M6, media handling was built per-channel under time pressure, resulting in fragmented logic:
 
-| Concern | Web | Telegram | Problem |
-|---------|-----|----------|---------|
-| Inbound file upload | `stage-attachment` endpoint + `buildAttachmentContext` | `enrichMessageWithAttachments` in TG turn service | Two independent code paths, no shared normalization |
-| Outbound media delivery | `persistToolMediaAttachments` in stream service | `deliverTelegramMedia` in OpenClaw fork | Delivery split across repos, each channel wired separately |
-| Audio format handling | Browser records webm → saved as-is → model can't read | Telegram sends ogg/opus → OpenClaw transcribes directly | No normalization; web voice unusable by model |
-| Document/PDF handling | Saved as blob → model receives path only | Not implemented | No text extraction; model must read raw file |
-| Image handling | Saved as-is | Saved as-is | No resize/format normalization |
-| Transcription | PersAI Whisper → text sent as message, file also attached → model confused | OpenClaw Whisper → text only, no file saved | Inconsistent; web sends both text AND file |
+| Concern                 | Web                                                                        | Telegram                                                | Problem                                                    |
+| ----------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------- |
+| Inbound file upload     | `stage-attachment` endpoint + `buildAttachmentContext`                     | `enrichMessageWithAttachments` in TG turn service       | Two independent code paths, no shared normalization        |
+| Outbound media delivery | `persistToolMediaAttachments` in stream service                            | `deliverTelegramMedia` in OpenClaw fork                 | Delivery split across repos, each channel wired separately |
+| Audio format handling   | Browser records webm → saved as-is → model can't read                      | Telegram sends ogg/opus → OpenClaw transcribes directly | No normalization; web voice unusable by model              |
+| Document/PDF handling   | Saved as blob → model receives path only                                   | Not implemented                                         | No text extraction; model must read raw file               |
+| Image handling          | Saved as-is                                                                | Saved as-is                                             | No resize/format normalization                             |
+| Transcription           | PersAI Whisper → text sent as message, file also attached → model confused | OpenClaw Whisper → text only, no file saved             | Inconsistent; web sends both text AND file                 |
 
 Adding WhatsApp, VK, or any future channel would require duplicating all of the above.
 
 ### Boundary constraint
 
-OpenClaw generates media payloads (`{ mediaUrls, type, audioAsVoice }`). All delivery, preprocessing, and persistence must live in PersAI. The fork should not grow per-channel delivery logic.
+OpenClaw generates media payloads (`{ mediaUrls, type, audioAsVoice }`). PersAI owns preprocessing, persistence, attachment records, and delivery orchestration. Telegram Bot API send operations still execute in the OpenClaw bridge from the turn response media payloads, so the fork remains the messenger transport edge rather than the media control plane.
 
 ## Decision
 
@@ -71,10 +71,10 @@ interface PreprocessedMedia {
   normalizedBuffer: Buffer;
   normalizedMime: string;
   normalizedExtension: string;
-  transcription: string | null;     // STT for audio/video
-  textExtract: string | null;       // content extract for documents
-  durationMs: number | null;        // audio/video duration
-  width: number | null;             // image/video dimensions
+  transcription: string | null; // STT for audio/video
+  textExtract: string | null; // content extract for documents
+  durationMs: number | null; // audio/video duration
+  width: number | null; // image/video dimensions
   height: number | null;
 }
 
@@ -84,6 +84,7 @@ interface MediaPreprocessor {
 ```
 
 Implementation details:
+
 - Audio normalization: `ffmpeg` (already available in container) for webm/ogg/opus → mp3 conversion
 - STT: calls OpenClaw's existing `POST /api/v1/runtime/media/transcribe` endpoint
 - Image normalization: `sharp` for heic → jpg, resize above threshold
@@ -97,8 +98,8 @@ Replaces `stage-attachment` + `buildAttachmentContext` + `enrichMessageWithAttac
 
 ```typescript
 interface ResolvedInboundMedia {
-  attachments: AssistantChatMessageAttachment[];  // persisted DB records
-  enrichedMessage: string;                         // original message + attachment context block
+  attachments: AssistantChatMessageAttachment[]; // persisted DB records
+  enrichedMessage: string; // original message + attachment context block
 }
 
 interface InboundMediaService {
@@ -121,6 +122,7 @@ interface RawInboundAttachment {
 ```
 
 Flow:
+
 1. For each raw attachment → `MediaPreprocessor.process()`
 2. Save normalized file to workspace `media/<chatId>/<messageId>/`
 3. Create `AssistantChatMessageAttachment` record with metadata
@@ -136,18 +138,18 @@ Flow:
 
 ### 3. MediaDeliveryService + ChannelMediaAdapter
 
-Replaces `persistToolMediaAttachments` + `deliverTelegramMedia`.
+Replaces `persistToolMediaAttachments` and centralizes outbound media persistence/orchestration around bridge-returned `media[]` payloads.
 
 ```typescript
 interface MediaArtifact {
-  url: string;          // workspace-relative path
+  url: string; // workspace-relative path
   type: "image" | "audio" | "video" | "document";
   audioAsVoice?: boolean;
   caption?: string;
 }
 
 interface DeliveredMedia {
-  attachments: AssistantChatMessageAttachment[];  // persisted DB records
+  attachments: AssistantChatMessageAttachment[]; // persisted DB records
 }
 
 interface MediaDeliveryService {
@@ -162,29 +164,48 @@ interface MediaDeliveryService {
 
 interface ChannelMediaAdapter {
   readonly channel: string;
-  sendImage(target: ChannelTarget, buffer: Buffer, filename: string, caption?: string): Promise<void>;
+  sendImage(
+    target: ChannelTarget,
+    buffer: Buffer,
+    filename: string,
+    caption?: string
+  ): Promise<void>;
   sendVoice(target: ChannelTarget, buffer: Buffer, filename: string): Promise<void>;
-  sendDocument(target: ChannelTarget, buffer: Buffer, filename: string, caption?: string): Promise<void>;
-  sendVideo(target: ChannelTarget, buffer: Buffer, filename: string, caption?: string): Promise<void>;
+  sendDocument(
+    target: ChannelTarget,
+    buffer: Buffer,
+    filename: string,
+    caption?: string
+  ): Promise<void>;
+  sendVideo(
+    target: ChannelTarget,
+    buffer: Buffer,
+    filename: string,
+    caption?: string
+  ): Promise<void>;
 }
 ```
 
 Flow:
+
 1. Read media files from workspace
 2. Create `AssistantChatMessageAttachment` records
-3. Delegate to channel-specific adapter for delivery
+3. Delegate to channel-specific adapter / bridge handoff for delivery
 4. Web adapter: attachments served via proxy (existing `/api/attachment/[id]`)
-5. Telegram adapter: calls Grammy `sendPhoto`/`sendVoice`/`sendDocument`
+5. Telegram adapter: PersAI-side no-op / bridge-delegated; Grammy `sendPhoto`/`sendVoice`/`sendDocument` still execute in OpenClaw from the returned `media[]`
 6. Future adapters: implement same interface
 
 ### What changes in OpenClaw fork
 
-**Removed from fork** (moved to PersAI):
-- `deliverTelegramMedia` logic → replaced by `TelegramChannelMediaAdapter` in PersAI
-- `buildAttachmentContext` duplication → replaced by `InboundMediaService`
+**Reduced in fork / moved to PersAI ownership:**
+
+- inbound attachment context duplication → replaced by `InboundMediaService`
+- outbound media persistence/orchestration for product surfaces → centralized in PersAI `MediaDeliveryService`
 
 **Kept in fork** (runtime-only):
+
 - Media payload generation in agent response (`{ mediaUrls, type, audioAsVoice }`)
+- Telegram Bot API sends (`deliverTelegramMedia`, Grammy `sendPhoto`/`sendVoice`/etc.)
 - TTS audio file generation to workspace
 - Image generation to workspace
 - STT transcription endpoint

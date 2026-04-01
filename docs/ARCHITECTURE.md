@@ -542,7 +542,7 @@ It is not part of backend domain logic.
 - media storage is quota-tracked via `media_storage_bytes` dimension in the existing workspace quota accounting system
 - cleanup: chat hard-delete removes media files from workspace + attachment rows from DB; assistant reset deletes entire workspace directory (already covers media)
 - OpenClaw remains runtime executor; PersAI owns attachment persistence, quota enforcement, and per-surface delivery formatting
-- native OpenClaw changes in M-series: one new TTS provider file (`src/tts/providers/yandex.ts`) + one registry line; everything else is PersAI-only or PersAI bridge files in the fork
+- native OpenClaw changes in M-series stayed intentionally small, centered on Yandex TTS support and a few runtime fixes/seams; the majority of the implementation remained PersAI-side or in PersAI bridge files in the fork
 
 ### Unified media pipeline (ADR-060)
 

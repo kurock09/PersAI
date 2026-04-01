@@ -46,6 +46,7 @@ export interface UseChatReturn {
   send: (text: string, files?: File[]) => Promise<void>;
   stop: () => void;
   clearIssue: () => void;
+  reportIssue: (error: unknown) => void;
   loadHistory: (chatId: string) => Promise<void>;
   loadOlderMessages: () => Promise<void>;
 }
@@ -84,6 +85,9 @@ export function useChat(threadKey: string): UseChatReturn {
   }, []);
 
   const clearIssue = useCallback(() => setIssue(null), []);
+  const reportIssue = useCallback((error: unknown) => {
+    setIssue(toWebChatUxIssue(error));
+  }, []);
 
   const send = useCallback(
     async (text: string, files?: File[]) => {
@@ -459,6 +463,7 @@ export function useChat(threadKey: string): UseChatReturn {
     send,
     stop,
     clearIssue,
+    reportIssue,
     loadHistory,
     loadOlderMessages
   };

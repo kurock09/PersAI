@@ -254,6 +254,7 @@ export function ChatArea({
           if (!t) throw new Error("Not authenticated.");
           return transcribeVoice(t, blob, filename);
         }}
+        onVoiceTranscriptionError={chat.reportIssue}
         onStop={chat.stop}
         isStreaming={chat.isStreaming}
         disabled={!assistantReady}

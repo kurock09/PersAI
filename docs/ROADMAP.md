@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Foundation Phase
+Post-M stabilization and cleanup
 
 ## Step 1
 
@@ -285,6 +285,7 @@ Foundation Phase
 - [x] InboundMediaService: unified resolve() replacing per-channel buildAttachmentContext + enrichMessageWithAttachments
 - [x] MediaDeliveryService: unified deliver() replacing per-channel persistToolMediaAttachments
 - [x] ChannelMediaAdapter interface + WebMediaAdapter + TelegramMediaAdapter
+- [x] Delivery boundary clarified: PersAI owns media preprocessing, persistence, and orchestration; Telegram Bot API sends still execute in the OpenClaw bridge from turn response media payloads
 - [x] Refactor StreamWebChatTurnService to use InboundMediaService + MediaDeliveryService
 - [x] Refactor SendWebChatTurnService to use InboundMediaService + MediaDeliveryService
 - [x] Refactor HandleInternalTelegramTurnService to use InboundMediaService
@@ -318,6 +319,7 @@ Foundation Phase
   - [ ] H15a — review and tune Kubernetes probe budgets (`startupProbe`, `readinessProbe`, `livenessProbe`, timeout, `failureThreshold`) from measured rollout/warmup behavior
   - [ ] H15b — validate rollout safety and startup latency budgets for `api`, `web`, and `openclaw` under realistic cold-start and recovery scenarios
 - [ ] H16 — Autonomous workspace heartbeat deeper isolation
+  - note: the immediate hygiene slice above is complete; the remaining H16 work is the deeper isolation/refactor track
   - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated
   - [ ] H16a — verify which runtime paths still read `HEARTBEAT.md` from the default OpenClaw workspace instead of assistant-scoped `workspaceDir`
   - [ ] H16b — bind heartbeat polling and related autonomous file checks to the correct assistant/user workspace where product behavior is expected per assistant

@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-04-01 - Fix: web voice placeholder fallback
+
+### What changed
+
+Web voice messages no longer send a fake `(voice message)` turn when transcription is empty or fails.
+
+- `manage-chat-media.service.ts` — empty STT output now returns a validation error instead of passing an empty string through as a successful transcription.
+- `assistant-api-client.ts` — voice transcription now preserves the backend error message instead of collapsing to a generic failure.
+- `chat-input.tsx`, `chat-area.tsx`, `use-chat.ts` — the UI now shows the transcription failure in the normal issue banner and skips sending the voice turn instead of falling back to placeholder text.
+
+### Known issues
+
+- The current API image still logs `ffmpeg ENOENT` for some web voice conversion attempts; this no longer creates a fake chat turn, but conversion tooling should still be present in the container for best STT quality.
+
+### Next steps
+
+- Retest web voice with both short and longer recordings after deploy.
+
+---
+
 ## 2026-04-01 - Fix: Telegram first-photo hallucination + Yandex IAM lookup pin bump
 
 ### What changed
@@ -331,7 +351,7 @@ All 7 milestones of the M-series (media, attachments, voice) are implemented and
 - **Existing STT** (`transcribeAudioFile` / Whisper) for voice message transcription — no new STT infrastructure.
 - **Existing TTS** (OpenAI, ElevenLabs, Microsoft) + new Yandex SpeechKit provider (1 new native OpenClaw file).
 - **`mediaClasses` capabilities** activated from plan entitlements instead of hardcoded false.
-- **Only 2 lines of native OpenClaw change** in entire M-series (Yandex provider + registry); everything else is PersAI-only or PersAI bridge files.
+- Native OpenClaw change in the M-series stayed intentionally small, centered on Yandex TTS support and a few runtime fixes/seams; the majority of the work remained PersAI-side or in PersAI bridge files.
 
 ### Slice dependency graph
 
@@ -347,7 +367,7 @@ M1 (foundation) ─┬─► M2 (tool media web) ─► M4 (web file upload)
 2. Post-completion delivery means images appear only after full response; acceptable tradeoff for reliability.
 3. Seven slices require sustained focus; partial delivery (M1-M2) still provides value.
 
-### Next recommended step
+### Historical next step at that time
 
 - Begin M1: Prisma migration for `assistant_chat_message_attachments`, repository, workspace media endpoints in OpenClaw bridge, upload/download API, cleanup integration, quota dimension.
 
@@ -361,7 +381,7 @@ M1 (foundation) ─┬─► M2 (tool media web) ─► M4 (web file upload)
 - Admin can now choose which provider a tool credential targets instead of the hardcoded Tavily/OpenAI defaults.
 - Supported provider selections:
   - `web_search`: Tavily (default), Brave, Perplexity, Google (Gemini)
-  - `tts`: OpenAI (default), ElevenLabs, Yandex SpeechKit (ready for native integration)
+  - `tts`: OpenAI (default), ElevenLabs, Yandex SpeechKit
 - Provider selection is stored as a separate encrypted entry in the existing `platform_runtime_provider_secrets` table using a convention key (`tool_web_search__provider`), avoiding DB migration.
 - OpenClaw bridge (`persai-runtime-tool-policy.ts`) uses `PROVIDER_ENV_OVERRIDES` map to resolve the correct env var dynamically based on `providerId` from the bootstrap payload.
 - Admin UI shows a provider dropdown only for tools with >1 provider option.
@@ -385,7 +405,7 @@ M1 (foundation) ─┬─► M2 (tool media web) ─► M4 (web file upload)
 
 ### Risks
 
-- Yandex SpeechKit TTS is listed as a provider option but OpenClaw has no native Yandex TTS provider yet; selecting it will set `YANDEX_TTS_API_KEY` in the runtime env which won't be consumed until native support is added.
+- Yandex SpeechKit now has native OpenClaw provider support; remaining risk is operational correctness of runtime credential resolution and deployment pinning, not provider absence.
 - Existing users with a Tavily key and no explicit provider selection will continue to work (default = tavily).
 
 ---
