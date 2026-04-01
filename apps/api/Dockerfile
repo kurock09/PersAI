@@ -7,7 +7,7 @@ WORKDIR /workspace
 
 RUN corepack enable
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && apt-get install -y --no-install-recommends openssl ca-certificates ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 COPY . .
