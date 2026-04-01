@@ -4,10 +4,11 @@
 
 ### Added
 
-- **Fix: strip `[[tts:...]]` directives from display text (OpenClaw fork):**
-  - OpenClaw's `persai-runtime-agent-turn.ts` now strips all TTS directive tags (`[[tts:text]]...[[/tts:text]]`, `[[tts:inline]]`, `[[tts:key=val]]`, `[[tts]]`, `[[/tts:text]]`) from text returned to PersAI for both sync/TG and web-stream turns.
-  - Root cause: after enabling gender-based TTS, the model emitted TTS directives more frequently; these leaked into displayed messages on both web and Telegram.
-  - Dev GitOps OpenClaw pin now targets fork SHA `18aaa545c3cd3c5f8c97837fe50099b40f0159d5`.
+- **Fix: run TTS pipeline on PersAI runtime payloads (OpenClaw fork):**
+  - Root cause: `deliver: false` in the PersAI runtime bridge skipped the entire TTS delivery pipeline — `maybeApplyTtsToPayload` never ran, so `[[tts:…]]` directives were never parsed, audio was never generated, and raw directives leaked into both web and Telegram display text.
+  - Fix: `resolveAgentResponseWithTts` now calls `maybeApplyTtsToPayload` on the aggregated payloads before returning them to PersAI. This properly parses directives, generates audio via the configured TTS provider, and returns clean text + audio media artifacts.
+  - Covers all three turn paths: web sync, Telegram sync, and web stream.
+  - Dev GitOps OpenClaw pin now targets fork SHA `6aa0edf30ed5802bf9a662604a13c7e7d3808734`.
 
 - **Feat: gender-based TTS voice selection (OpenClaw fork):**
   - OpenClaw TTS providers now read `persona.assistantGender` from the PersAI workspace spec and select a matching default voice: OpenAI `onyx`/`nova`, Yandex `filipp`/`alena`.
