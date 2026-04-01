@@ -44,6 +44,12 @@ data:
           "highWaterBytes": {{ .Values.openclaw.sessionMaintenance.highWaterBytes | toJson }}
         }
       },
+      "messages": {
+        "tts": {
+          "auto": {{ .Values.openclaw.tts.auto | toJson }},
+          "mode": {{ .Values.openclaw.tts.mode | toJson }}
+        }
+      },
       "gateway": {
         "controlUi": {
           "allowedOrigins": {{ .Values.openclaw.controlUi.allowedOrigins | toJson }},
