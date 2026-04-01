@@ -862,6 +862,25 @@ Behavior baseline:
   - control availability flags (`reapplySupported`, `restartSupported`)
 - this endpoint is operational visibility baseline, not BI/analytics surface
 
+### GET /api/v1/admin/ops/users
+
+- authenticated caller only
+- requires admin read role (same as ops/cockpit)
+- query params: `q` (search by email or displayName, optional), `offset` (default 0), `limit` (default 50, max 100)
+- returns paginated list of all app users with embedded assistant summary:
+  - `userId`, `email`, `displayName`, `createdAt`
+  - `assistant` (nullable): `id`, `draftDisplayName`, `draftAssistantGender`, `applyStatus`, `latestPublishedVersion`, `lastPublishedAt`
+  - `total` count for pagination
+- this is an admin user-directory view, not a BI export
+
+### POST /api/v1/admin/ops/users/:userId/reapply
+
+- authenticated caller only
+- requires admin read role (same as ops/cockpit)
+- triggers `ReapplyAssistantService.execute(targetUserId)` for the specified user
+- returns `{ ok: true }` on success
+- 404 if user has no assistant or no published version
+
 ## Step 9 F4 business cockpit baseline
 
 ### GET /api/v1/admin/business/cockpit

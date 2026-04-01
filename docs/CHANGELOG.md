@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Feat: Admin Ops Cockpit — user directory + per-user reapply:**
+  - Added `GET /api/v1/admin/ops/users?q=&offset=&limit=` — paginated user directory with assistant summary (name, gender, applyStatus, latest published version).
+  - Added `POST /api/v1/admin/ops/users/:userId/reapply` — admin can trigger reapply for any user's assistant.
+  - `AdminOpsUserDirectoryService` performs paginated Prisma query with search by email/displayName.
+  - Ops Cockpit frontend (`admin/ops/page.tsx`) now shows compact user table at top with search (300ms debounce), pagination (20 per page), and per-row Reapply button; existing cockpit cards (assistant self, runtime, controls, incidents) remain below.
+  - Routes registered in `ClerkAuthMiddleware` and `WorkspaceManagementModule`.
+
 - **Fix: run TTS pipeline on PersAI runtime payloads (OpenClaw fork):**
   - Root cause: `deliver: false` in the PersAI runtime bridge skipped the entire TTS delivery pipeline — `maybeApplyTtsToPayload` never ran, so `[[tts:…]]` directives were never parsed, audio was never generated, and raw directives leaked into both web and Telegram display text.
   - Fix: `resolveAgentResponseWithTts` now calls `maybeApplyTtsToPayload` on the aggregated payloads before returning them to PersAI. This properly parses directives, generates audio via the configured TTS provider, and returns clean text + audio media artifacts.

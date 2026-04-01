@@ -33,6 +33,7 @@ import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibil
 import { AppendAssistantAuditEventService } from "./application/append-assistant-audit-event.service";
 import { AdminAuthorizationService } from "./application/admin-authorization.service";
 import { ResolveAdminOpsCockpitService } from "./application/resolve-admin-ops-cockpit.service";
+import { AdminOpsUserDirectoryService } from "./application/admin-ops-user-directory.service";
 import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-business-cockpit.service";
 import { ManageAdminNotificationChannelsService } from "./application/manage-admin-notification-channels.service";
 import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
@@ -158,6 +159,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AppendAssistantAuditEventService,
     AdminAuthorizationService,
     ResolveAdminOpsCockpitService,
+    AdminOpsUserDirectoryService,
     ResolveAdminBusinessCockpitService,
     ManageAdminNotificationChannelsService,
     DeliverAdminSystemNotificationService,

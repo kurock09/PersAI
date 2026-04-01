@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-04-01 - Feat: Admin Ops Cockpit — user directory + per-user reapply
+
+### What changed
+
+Extended the Admin Ops Cockpit with a user directory table and per-user reapply capability.
+
+- Backend: `AdminOpsUserDirectoryService` — paginated user list with assistant summary via `GET /api/v1/admin/ops/users`.
+- Backend: `POST /api/v1/admin/ops/users/:userId/reapply` — reuses existing `ReapplyAssistantService` to reapply any user's assistant.
+- Frontend: compact user table with search (debounce 300ms), pagination (20/page), per-row Reapply button. Integrated into existing Ops Cockpit page (no new page/route).
+- Routes registered in `ClerkAuthMiddleware` and `WorkspaceManagementModule`.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/admin-ops-user-directory.service.ts` (new)
+- `apps/api/src/modules/workspace-management/interface/http/admin-ops.controller.ts` (extended)
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` (provider added)
+- `apps/api/src/modules/identity-access/identity-access.module.ts` (routes added)
+- `apps/web/app/admin/ops/page.tsx` (rewritten with UsersDirectory section)
+- `docs/API-BOUNDARY.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Risks
+
+- No schema changes, no migrations needed — reads existing `app_users` + `assistants` + `assistant_published_versions`.
+- Reapply endpoint reuses proven `ReapplyAssistantService`; no new side effects.
+- Admin role gate inherited from existing ops/cockpit pattern.
+
+### Next steps
+
+- Smoke test on dev: search users, verify reapply triggers correctly.
+- Consider adding admin authorization check (currently relies on auth middleware pattern, same as ops/cockpit).
+
+---
+
 ## 2026-04-01 - Feat: gender-based TTS voice + fix web voice transcription
 
 ### What changed

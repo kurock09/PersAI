@@ -334,14 +334,17 @@ It is not part of backend domain logic.
 
 - backend now exposes a role-gated ops cockpit read model:
   - `GET /api/v1/admin/ops/cockpit`
+  - `GET /api/v1/admin/ops/users?q=&offset=&limit=` — paginated user directory with assistant summary
+  - `POST /api/v1/admin/ops/users/:userId/reapply` — trigger reapply for any user's assistant
 - cockpit read model is intentionally bounded and high-signal:
   - assistant/runtime status snapshot
   - publish/apply truth pointer
   - runtime preflight state
   - minimal topology awareness (`OPENCLAW_ADAPTER_ENABLED`, OpenClaw host)
   - concise incident signals derived from control-plane/runtime transition truth
+  - user directory with search and pagination (admin can view and act on any user)
 - ops controls in F3 are limited to already-supported lifecycle actions:
-  - reapply is surfaced when a latest published version exists
+  - reapply is surfaced when a latest published version exists (self or any user via user directory)
   - restart is explicitly unsupported in this slice
 - no BI expansion and no raw event/metrics wall are introduced in F3
 
