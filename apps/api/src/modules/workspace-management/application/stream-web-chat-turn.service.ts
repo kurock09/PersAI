@@ -22,6 +22,12 @@ import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { InboundMediaService } from "./media/inbound-media.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 
+const TTS_DIRECTIVE_RE = /\[\[\/?(tts(?::[^\]]*)?)\]\]/gi;
+function stripTtsDirectives(text: string): string {
+  if (!text.includes("[[tts")) return text;
+  return text.replace(TTS_DIRECTIVE_RE, "");
+}
+
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
   userMessage: AssistantWebChatMessageState;
@@ -148,7 +154,8 @@ export class StreamWebChatTurnService {
         }
       }
 
-      if (accumulated.trim().length === 0) {
+      const cleanedAccumulated = stripTtsDirectives(accumulated).trim() || accumulated.trim();
+      if (cleanedAccumulated.length === 0) {
         return {
           status: "failed",
           transport: null,
@@ -161,7 +168,7 @@ export class StreamWebChatTurnService {
         chatId: prepared.chat.id,
         assistantId: prepared.assistantId,
         author: "assistant",
-        content: accumulated
+        content: cleanedAccumulated
       });
 
       const delivered = await this.mediaDeliveryService.deliver({
@@ -186,13 +193,13 @@ export class StreamWebChatTurnService {
         userMessageId: prepared.userMessage.id,
         assistantMessageId: assistantMessage.id,
         userContent: prepared.userMessage.content,
-        assistantContent: accumulated,
+        assistantContent: cleanedAccumulated,
         memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
       });
       await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
         assistant: prepared.assistant,
         userContent: prepared.userMessage.content,
-        assistantContent: accumulated,
+        assistantContent: cleanedAccumulated,
         source: "web_chat_turn_stream_completed"
       });
       await this.consumeBootstrapBestEffort(prepared.assistantId);
@@ -259,7 +266,8 @@ export class StreamWebChatTurnService {
     partialOutput: string,
     respondedAt: string | null
   ): Promise<StreamWebChatTurnOutcomeInterrupted> {
-    if (partialOutput.trim().length === 0) {
+    const cleanedPartial = stripTtsDirectives(partialOutput).trim() || partialOutput.trim();
+    if (cleanedPartial.length === 0) {
       return {
         status: "interrupted",
         transport: null
@@ -270,7 +278,7 @@ export class StreamWebChatTurnService {
       chatId: prepared.chat.id,
       assistantId: prepared.assistantId,
       author: "assistant",
-      content: partialOutput
+      content: cleanedPartial
     });
     const systemMessage = await this.assistantChatRepository.createMessage({
       chatId: prepared.chat.id,
@@ -286,7 +294,7 @@ export class StreamWebChatTurnService {
     await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
       assistant: prepared.assistant,
       userContent: prepared.userMessage.content,
-      assistantContent: partialOutput,
+      assistantContent: cleanedPartial,
       source: "web_chat_turn_stream_partial"
     });
 

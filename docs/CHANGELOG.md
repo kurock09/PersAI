@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Fix: [[tts:…]] directive leakage in web chat + cross-channel TTS breakage (OpenClaw fork + PersAI):**
+  - Root cause 1: `resolveAgentResponseWithTts` fell back to raw `response.text` (including `[[tts:…]]` tags) when `maybeApplyTtsToPayload` returned empty cleaned text (entire model response was wrapped in a TTS directive) or threw an exception.
+  - Root cause 2: `stripTtsFromDelta` operated per-token and could not match `[[tts:…]]` directives split across LLM tokens during streaming, causing fragments to leak into the NDJSON stream and get persisted in the DB.
+  - Fix (OpenClaw): `resolveAgentResponseWithTts` now always strips `[[tts:…]]` from fallback text via `stripTtsDirectives()` in both success and catch paths. Replaced stateless per-token `stripTtsFromDelta` with stateful `createTtsDeltaStripper()` that buffers potential directive openings until enough tokens arrive to decide whether to strip or flush.
+  - Fix (PersAI): `StreamWebChatTurnService` now applies a defense-in-depth `stripTtsDirectives()` to accumulated text before DB persist, memory recording, and quota tracking.
+  - Dev GitOps OpenClaw pin now targets fork SHA `c057408f69a7273d623eaff55b89d1af7b5aa52f`.
+
 ### Added
 
 - **Feat: Admin Ops Cockpit — user directory + per-user reapply:**

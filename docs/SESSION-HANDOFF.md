@@ -1,5 +1,37 @@
 # SESSION-HANDOFF
 
+## 2026-04-02 - Fix: [[tts:…]] directive leakage in web chat + cross-channel TTS breakage
+
+### What changed
+
+Fixed two bugs causing raw `[[tts:…]]` tags to appear in web chat and Telegram responses after a voice interaction, persisting until pod reboot.
+
+- OpenClaw `resolveAgentResponseWithTts`: success and catch paths now always strip `[[tts:…]]` from fallback text instead of returning raw `response.text`.
+- OpenClaw `createTtsDeltaStripper`: replaced stateless per-token regex with a stateful buffer that correctly handles directives split across LLM stream tokens.
+- PersAI `StreamWebChatTurnService`: defense-in-depth `stripTtsDirectives()` on accumulated text before DB persist, memory recording, and quota tracking.
+
+### Files touched
+
+- `openclaw/src/gateway/persai-runtime/persai-runtime-agent-turn.ts` (3 functions changed, 1 added)
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` (safety strip added)
+- `infra/dev/gitops/openclaw-approved-sha.txt` (pinned to `c057408f69`)
+- `infra/helm/values-dev.yaml` (image tag updated, digest cleared)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Risks
+
+- Stateful delta stripper buffers text until `[[` is resolved — negligible latency impact on typical chunks.
+- PersAI-side strip is regex-only safety net; primary fix is in OpenClaw.
+- Known remaining issue: `resolveAgentResponseWithTts` runs outside `persaiRuntimeRequestContext.run()` scope, so TTS provider override and PersAI-injected credentials are not available during audio generation — TTS audio may not generate correctly. To be addressed in a follow-up.
+
+### Next steps
+
+- Deploy: push OpenClaw first, then PersAI. CI will rebuild/repin the OpenClaw image.
+- Smoke test: send voice from web chat, verify no `[[tts:…]]` leakage in text; test Telegram voice round-trip.
+- Follow-up: wrap `resolveAgentResponseWithTts` call inside `persaiRuntimeRequestContext.run()` so TTS audio actually generates with correct provider/credentials.
+
+---
+
 ## 2026-04-01 - Feat: Admin Ops Cockpit — user directory + per-user reapply
 
 ### What changed
