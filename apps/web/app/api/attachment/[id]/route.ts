@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 
-const apiProxyTarget = process.env.PERSAI_WEB_API_PROXY_TARGET ?? "http://localhost:3001";
+const rawProxyTarget = process.env.PERSAI_WEB_API_PROXY_TARGET ?? "http://localhost:3001";
+const apiBase = rawProxyTarget.replace(/\/$/, "").replace(/\/api\/v1$/, "") + "/api/v1";
 
 export async function GET(
   _request: Request,
@@ -13,7 +14,7 @@ export async function GET(
   }
 
   const { id } = await params;
-  const upstream = `${apiProxyTarget.replace(/\/$/, "")}/api/v1/assistant/attachment/${encodeURIComponent(id)}`;
+  const upstream = `${apiBase}/assistant/attachment/${encodeURIComponent(id)}`;
 
   const res = await fetch(upstream, {
     headers: { Authorization: `Bearer ${token}` }
