@@ -16,13 +16,13 @@ export async function GET(
   const upstream = `${apiProxyTarget.replace(/\/$/, "")}/api/v1/assistant/attachment/${encodeURIComponent(id)}`;
 
   const res = await fetch(upstream, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}` }
   });
 
   if (!res.ok) {
     return new Response(res.body, {
       status: res.status,
-      headers: { "Content-Type": res.headers.get("Content-Type") ?? "application/json" },
+      headers: { "Content-Type": res.headers.get("Content-Type") ?? "application/json" }
     });
   }
 
