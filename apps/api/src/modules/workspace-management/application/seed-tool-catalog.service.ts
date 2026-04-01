@@ -129,7 +129,7 @@ export class SeedToolCatalogService implements OnModuleInit {
 
       await this.prisma.planCatalogToolActivation.upsert({
         where: { planId_toolId: { planId, toolId: tool.id } },
-        update: { activationStatus, dailyCallLimit },
+        update: {},
         create: { planId, toolId: tool.id, activationStatus, dailyCallLimit }
       });
     }
@@ -161,7 +161,7 @@ export class SeedToolCatalogService implements OnModuleInit {
       if (cronToolId) {
         await this.prisma.planCatalogToolActivation.upsert({
           where: { planId_toolId: { planId: plan.id, toolId: cronToolId } },
-          update: { activationStatus: "inactive", dailyCallLimit: null },
+          update: {},
           create: {
             planId: plan.id,
             toolId: cronToolId,
@@ -174,7 +174,7 @@ export class SeedToolCatalogService implements OnModuleInit {
       if (reminderTaskToolId) {
         await this.prisma.planCatalogToolActivation.upsert({
           where: { planId_toolId: { planId: plan.id, toolId: reminderTaskToolId } },
-          update: { activationStatus: "active", dailyCallLimit: null },
+          update: {},
           create: {
             planId: plan.id,
             toolId: reminderTaskToolId,
