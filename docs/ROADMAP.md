@@ -302,6 +302,11 @@ Foundation Phase
 
 ## Pending / Future
 
+- [ ] M8 — `send_file` tool: allow assistant to send workspace files as media to user
+  - [ ] M8a — **native OpenClaw**: new `src/agents/tools/send-file-tool.ts` — reads file from workspace by path, copies to media output dir, returns URL in `mediaUrls` payload (same contract as `image_generate`/`tts`)
+  - [ ] M8b — **native OpenClaw**: register tool in agent tool registry, gate behind `mediaClasses` capability
+  - [ ] M8c — verify end-to-end: assistant calls `send_file({ path: "..." })` → file appears as inline attachment in web chat + Telegram via existing `MediaDeliveryService`
+  - scope note: no PersAI API changes needed — existing `MediaDeliveryService.deliver()` + channel adapters handle all downstream delivery
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity
 - [ ] Channel media adapters: WhatsApp, VK, Matrix (one new file each when channels are implemented)
 - [ ] OpenAI TTS voice/model selection UI in PersAI admin (currently voice configurable only via `[[tts:voice=...]]` directives)

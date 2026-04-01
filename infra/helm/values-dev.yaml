@@ -148,6 +148,7 @@ openclaw:
     - "18789"
   env:
     TZ: UTC
+    PERSAI_API_BASE_URL: "http://api:3001"
     PERSAI_RUNTIME_SPEC_STORE: "redis"
     PERSAI_RUNTIME_SPEC_STORE_KEY_PREFIX: "persai:runtime-spec"
     PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS: "0"
