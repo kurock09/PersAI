@@ -25,9 +25,7 @@ import { MediaDeliveryService } from "./media/media-delivery.service";
 const TTS_DIRECTIVE_RE = /\[\[\/?(tts(?::[^\]]*)?)\]\]/gi;
 function stripTtsDirectives(text: string): string {
   if (!text.includes("[[tts")) return text;
-  return text
-    .replace(/\[\[tts:([^\]]*)\]\]/gi, "$1")
-    .replace(TTS_DIRECTIVE_RE, "");
+  return text.replace(/\[\[tts:([^\]]*)\]\]/gi, "$1").replace(TTS_DIRECTIVE_RE, "");
 }
 
 export interface StreamWebChatTurnPrepared {
