@@ -4,10 +4,14 @@
 
 ### Added
 
+- **Fix: strip `[[tts:...]]` directives from display text (OpenClaw fork):**
+  - OpenClaw's `persai-runtime-agent-turn.ts` now strips all TTS directive tags (`[[tts:text]]...[[/tts:text]]`, `[[tts:inline]]`, `[[tts:key=val]]`, `[[tts]]`, `[[/tts:text]]`) from text returned to PersAI for both sync/TG and web-stream turns.
+  - Root cause: after enabling gender-based TTS, the model emitted TTS directives more frequently; these leaked into displayed messages on both web and Telegram.
+  - Dev GitOps OpenClaw pin now targets fork SHA `18aaa545c3cd3c5f8c97837fe50099b40f0159d5`.
+
 - **Feat: gender-based TTS voice selection (OpenClaw fork):**
   - OpenClaw TTS providers now read `persona.assistantGender` from the PersAI workspace spec and select a matching default voice: OpenAI `onyx`/`nova`, Yandex `filipp`/`alena`.
   - Priority: directive override > gender voice > config/default voice.
-  - Dev GitOps OpenClaw pin now targets fork SHA `943157182d38f5de4753ec10eae33bb8e976deb8`.
 
 - **Fix: add ffmpeg to API Docker image for web voice transcription:**
   - Root cause: `ffmpeg` was not installed in the API container, so webm→mp3 conversion failed with `spawn ffmpeg ENOENT`, causing `/voice/transcribe` to return 400 and the web chat to show "Chat could not complete this turn".

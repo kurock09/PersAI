@@ -114,8 +114,8 @@ openclaw:
     gcpServiceAccountEmail: openclaw-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: openclaw
-    tag: 943157182d38f5de4753ec10eae33bb8e976deb8
-    digest: sha256:a7ab3822aca2932f3e41b5a503ebefbec3dc892259d6e9655b7414a427bf9aa3
+    tag: 18aaa545c3cd3c5f8c97837fe50099b40f0159d5
+    digest: ""
     pullPolicy: IfNotPresent
   controlUi:
     allowedOrigins:
