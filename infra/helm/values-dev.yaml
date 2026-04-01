@@ -139,7 +139,7 @@ openclaw:
       mountPath: /mnt/workspaces/persai
       mountOptions: "uid=1000,gid=1000"
   tts:
-    auto: always
+    auto: tagged
     mode: final
   agentDefaults:
     modelPrimary: openai/gpt-5.4
