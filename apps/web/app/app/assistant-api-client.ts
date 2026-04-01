@@ -1674,7 +1674,7 @@ export type ForceReapplyAllSummary = {
 };
 
 export function getAttachmentDownloadUrl(attachmentId: string): string {
-  return `${getApiBaseUrl()}/assistant/attachment/${encodeURIComponent(attachmentId)}`;
+  return `/api/attachment/${encodeURIComponent(attachmentId)}`;
 }
 
 export type UploadedAttachment = {
