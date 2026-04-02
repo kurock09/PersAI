@@ -26,8 +26,12 @@ jobs:
         include:
           - image: api
             dockerfile: apps/api/Dockerfile
+            build-args: ""
           - image: web
             dockerfile: apps/web/Dockerfile
+            build-args: |
+              NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+              NEXT_PUBLIC_CLERK_PROXY_URL=${{ vars.NEXT_PUBLIC_CLERK_PROXY_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,6 +71,7 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
+          build-args: ${{ matrix.build-args }}
           tags: |
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.image }}:${{ github.sha }}
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.image }}:${{ env.MAIN_TAG }}
