@@ -83,7 +83,7 @@ web:
     tag: ""
     pullPolicy: IfNotPresent
   env:
-    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_a2Vlbi1yb2Jpbi04MC5jbGVyay5hY2NvdW50cy5kZXYk
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
     PERSAI_WEB_API_PROXY_TARGET: "http://api:3001"
   secretEnv:
     CLERK_SECRET_KEY:
