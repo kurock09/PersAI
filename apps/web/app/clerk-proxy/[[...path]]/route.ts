@@ -7,19 +7,37 @@ const fapi = createFrontendApiProxyHandlers({
   proxyPath: "/clerk-proxy"
 });
 
+type HeadersWithSetCookie = Headers & { getSetCookie?: () => string[] };
+
 /**
  * Server-side fetch often decompresses gzip/br but leaves Content-Encoding set.
  * Forwarding that to the browser causes ERR_CONTENT_DECODING_FAILED (200 OK).
+ *
+ * Do not clone via `new Headers(response.headers)` alone: multiple Set-Cookie
+ * values can be merged incorrectly → session/sign-up cookies break → 401 on FAPI.
  */
 function stripMisleadingEncodingHeaders(response: Response): Response {
-  const headers = new Headers(response.headers);
-  headers.delete("transfer-encoding");
-  headers.delete("content-encoding");
-  headers.delete("content-length");
+  const out = new Headers();
+  const strip = new Set(["transfer-encoding", "content-encoding", "content-length"]);
+
+  const incoming = response.headers as HeadersWithSetCookie;
+  const cookies = typeof incoming.getSetCookie === "function" ? incoming.getSetCookie() : [];
+  for (const c of cookies) {
+    out.append("Set-Cookie", c);
+  }
+
+  response.headers.forEach((value, key) => {
+    const lower = key.toLowerCase();
+    if (lower === "set-cookie" || strip.has(lower)) {
+      return;
+    }
+    out.append(key, value);
+  });
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
-    headers
+    headers: out
   });
 }
 
