@@ -2,12 +2,19 @@ import type { NextConfig } from "next";
 
 const apiProxyTarget = process.env.PERSAI_WEB_API_PROXY_TARGET;
 
-const clerkFrontendApi = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_")
-  ? (() => {
-      const raw = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!.replace("pk_test_", "");
-      return Buffer.from(raw, "base64").toString("utf-8").replace(/\$$/, "");
-    })()
-  : undefined;
+function extractClerkFrontendApi(): string | undefined {
+  const pk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  if (!pk) return undefined;
+  const prefix = pk.startsWith("pk_test_")
+    ? "pk_test_"
+    : pk.startsWith("pk_live_")
+      ? "pk_live_"
+      : null;
+  if (!prefix) return undefined;
+  return Buffer.from(pk.replace(prefix, ""), "base64").toString("utf-8").replace(/\$$/, "");
+}
+
+const clerkFrontendApi = extractClerkFrontendApi();
 
 const nextConfig: NextConfig = {
   transpilePackages: ["@persai/contracts"],
@@ -24,8 +31,8 @@ const nextConfig: NextConfig = {
 
     if (clerkFrontendApi) {
       rules.push({
-        source: "/clerk-cdn/:path*",
-        destination: `https://${clerkFrontendApi}/npm/:path*`
+        source: "/clerk-proxy/:path*",
+        destination: `https://${clerkFrontendApi}/:path*`
       });
     }
 
