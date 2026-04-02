@@ -1,7 +1,4 @@
-import {
-  clerkFrontendApiProxy,
-  createFrontendApiProxyHandlers
-} from "@clerk/nextjs/server";
+import { clerkFrontendApiProxy, createFrontendApiProxyHandlers } from "@clerk/nextjs/server";
 
 const NPM_PREFIX = "/clerk-proxy/npm/";
 const JSDELIVR_NPM = "https://cdn.jsdelivr.net/npm/";
