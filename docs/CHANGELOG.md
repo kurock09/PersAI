@@ -21,6 +21,8 @@
 
 ### Changed
 
+- **Docs + config: `OPENCLAW_ADAPTER_TIMEOUT_MS` baseline 90s everywhere:** `packages/config/src/api-config.ts` Zod default is `90000` (was `3000`); `apps/api/.env.local.example` and `.env.dev.example` use `90000`. Updated `docs/API-BOUNDARY.md`, `README.md`, `docs/LIVE-TEST-HYBRID.md`, and `docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md` so they match dev Helm (`infra/helm/values-dev.yaml` already `90000`) instead of stale `15000` / `3000` wording.
+
 - **Infra: public domain + unified GKE Ingress for persai.dev:**
   - Reserved global static IP `persai-dev-ip` (`34.8.195.135`).
   - New unified Ingress template (`infra/helm/templates/ingress.yaml`) routes three hosts through a single GCE L7 load balancer:

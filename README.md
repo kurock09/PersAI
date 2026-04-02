@@ -93,7 +93,7 @@ OpenClaw dev deploy baseline (O3):
   - `PERSAI_RUNTIME_SPEC_STORE=redis`
   - OpenClaw default model `openai/gpt-5.4`
   - `OPENAI_API_KEY` from `persai-openclaw-secrets`
-  - API adapter timeout `OPENCLAW_ADAPTER_TIMEOUT_MS=15000`
+  - API adapter timeout `OPENCLAW_ADAPTER_TIMEOUT_MS=90000` (matches Zod default in `packages/config` and local `.env*.example`)
 
 ## Dev image build/push baseline (Step 1 slice 13)
 

@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-04-02 - Docs: `OPENCLAW_ADAPTER_TIMEOUT_MS` aligned with code (90s default)
+
+### What changed
+
+1. **Config default** — `packages/config/src/api-config.ts` already uses Zod default `90000` for `OPENCLAW_ADAPTER_TIMEOUT_MS`; `apps/api/.env.local.example` and `.env.dev.example` use `90000`.
+2. **Documentation** — `docs/API-BOUNDARY.md`, `README.md`, `docs/LIVE-TEST-HYBRID.md`, `docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md` updated: dev Helm and code default are both **90s**; removed stale references to `15000` / “code default 3000, dev overrides”.
+3. **CHANGELOG** — Unreleased entry records the doc + default alignment.
+
+### Files touched
+
+- `docs/API-BOUNDARY.md`, `README.md`, `docs/LIVE-TEST-HYBRID.md`, `docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+- (prior slice) `packages/config/src/api-config.ts`, `apps/api/.env.local.example`, `apps/api/.env.dev.example`
+
+### Risks
+
+- Longer default wait on hung OpenClaw when env omits override; mitigated by explicit lower `OPENCLAW_ADAPTER_TIMEOUT_MS` for fast-fail workflows.
+
+### Next steps
+
+- If stream still cuts off in browser, investigate GCLB / BackendConfig idle timeouts separately from adapter timeout.
+
+### Ready commit message
+
+- `docs(config): align OPENCLAW_ADAPTER_TIMEOUT_MS docs with 90s default`
+
+---
+
 ## 2026-04-02 - UI/UX MVP polish + i18n localization (EN + RU)
 
 ### What changed
@@ -2353,11 +2380,11 @@ OpenClaw commit: `6bcff3d2f4b13483b03fac259462c01b9a0ccec0`
 
 ### What changed
 
-- `infra/helm/values-dev.yaml` now sets `OPENCLAW_ADAPTER_TIMEOUT_MS=15000` for the dev `api` deployment.
+- `infra/helm/values-dev.yaml` first raised `OPENCLAW_ADAPTER_TIMEOUT_MS` for the dev `api` deployment (initially `15000`, later `90000` — see operational CHANGELOG and current `values-dev.yaml`).
 
 ### Why changed
 
-- Live `POST /api/v1/assistant/chat/web/stream` requests were failing around `3116-3156 ms` even though OpenClaw was already generating valid text. The `api` container had no explicit timeout env, so it was using the config default `3000 ms` and aborting the upstream runtime call too early.
+- Live `POST /api/v1/assistant/chat/web/stream` requests were failing around `3116-3156 ms` even though OpenClaw was already generating valid text. The `api` container had no explicit timeout env, so it was using the earlier config default `3000 ms` and aborting the upstream runtime call too early.
 
 ### Next recommended step
 

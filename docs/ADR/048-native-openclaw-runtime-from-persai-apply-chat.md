@@ -8,7 +8,7 @@ Accepted.
 
 **Remaining:** **P2 depth** — map full `openclawWorkspace` / bootstrap into session store and tool policy (beyond `extraSystemPrompt`). **Ops:** before OpenClaw **>1 replica**, run the fork with a **Redis-backed** apply store (`PERSAI_RUNTIME_SPEC_STORE=redis`) instead of process memory (see P0).
 
-**Current dev profile in PersAI chart:** `infra/helm/values-dev.yaml` now runs OpenClaw with `PERSAI_RUNTIME_SPEC_STORE=redis`, default model `openai/gpt-5.4` (via `agents.defaults.model.primary` in `openclaw-config`), `OPENAI_API_KEY` from `persai-openclaw-secrets`, and PersAI API adapter timeout `OPENCLAW_ADAPTER_TIMEOUT_MS=15000` for web streaming.
+**Current dev profile in PersAI chart:** `infra/helm/values-dev.yaml` now runs OpenClaw with `PERSAI_RUNTIME_SPEC_STORE=redis`, default model `openai/gpt-5.4` (via `agents.defaults.model.primary` in `openclaw-config`), `OPENAI_API_KEY` from `persai-openclaw-secrets`, and PersAI API adapter timeout `OPENCLAW_ADAPTER_TIMEOUT_MS=90000` for web streaming (aligned with `loadApiConfig` default in `packages/config/src/api-config.ts`).
 
 ## Context
 
@@ -39,7 +39,7 @@ At scale (order of **1k–2k** concurrent interactive users, multiple gateway re
 
 4. **Scaling and latency (operational baseline, not a separate product phase)**:
    - OpenClaw: **HPA** (or fixed replica count ≥2 only after shared apply store exists and `PERSAI_RUNTIME_SPEC_STORE=redis` is configured); keep API and OpenClaw in the **same region** as the database and primary users.
-   - PersAI API: existing `OPENCLAW_ADAPTER_*` timeouts/retries; dev currently pins `OPENCLAW_ADAPTER_TIMEOUT_MS=15000` because the previous `3000` default was too low for real web streaming responses. Avoid synchronous heavy work in the apply HTTP handler beyond persist + ack.
+   - PersAI API: existing `OPENCLAW_ADAPTER_*` timeouts/retries; dev pins `OPENCLAW_ADAPTER_TIMEOUT_MS=90000`; the in-repo Zod default is also `90000` so local and cluster behave consistently (older deployments used `3000`, then `15000`, before this baseline). Avoid synchronous heavy work in the apply HTTP handler beyond persist + ack.
    - Document in fork runbook: when shared store is required (e.g. before production multi-replica).
 
 5. **Secrets**: Provider and channel credentials remain configured for OpenClaw as today (K8s secrets, config file); PersAI does not widen secret handling beyond existing governance `secretRefs` metadata.

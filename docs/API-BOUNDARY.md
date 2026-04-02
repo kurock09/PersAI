@@ -1267,7 +1267,7 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 | `OPENCLAW_ADAPTER_ENABLED`     | When false, adapter throws `runtime_unreachable` immediately for all calls.                                                                                            |
 | `OPENCLAW_BASE_URL`            | Origin for relative paths below (no trailing path in contract; adapter concatenates `baseUrl + path`).                                                                 |
 | `OPENCLAW_GATEWAY_TOKEN`       | Required when adapter is enabled; sent as Bearer.                                                                                                                      |
-| `OPENCLAW_ADAPTER_TIMEOUT_MS`  | Per-request `fetch` timeout (abort → `timeout`). Code default `3000`; `infra/helm/values-dev.yaml` currently overrides dev to `90000` for complex LLM query stability. |
+| `OPENCLAW_ADAPTER_TIMEOUT_MS`  | Per-request `fetch` timeout (abort → `timeout`). Code default `90000` ([packages/config/src/api-config.ts](../packages/config/src/api-config.ts)); dev Helm sets `90000` explicitly in `infra/helm/values-dev.yaml` (same value). Override lower for fast-fail local experiments if needed. |
 | `OPENCLAW_ADAPTER_MAX_RETRIES` | Non-negative; used only for **non-stream** `fetch` calls that use the adapter retry helper. Default `1`.                                                               |
 
 **Retry policy (adapter):** only `runtime_unreachable` and `timeout` are retried, up to `maxRetries` additional attempts after the first try. **`POST /api/v1/runtime/chat/web/stream` is not retried** (single `fetch`).

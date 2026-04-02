@@ -29,7 +29,7 @@ const baseApiConfigSchema = z.object({
   OPENCLAW_ADAPTER_ENABLED: envBoolean.default(false),
   OPENCLAW_BASE_URL: z.string().url().default("http://openclaw.persai-dev.svc.cluster.local:18789"),
   OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
-  OPENCLAW_ADAPTER_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
+  OPENCLAW_ADAPTER_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   OPENCLAW_ADAPTER_MAX_RETRIES: z.coerce.number().int().nonnegative().default(1),
   TELEGRAM_WEBHOOK_BASE_URL: z.string().url().optional(),
   TELEGRAM_WEBHOOK_HMAC_SECRET: z.string().min(16).optional(),
