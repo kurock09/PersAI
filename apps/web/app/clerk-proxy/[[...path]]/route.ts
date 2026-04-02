@@ -8,6 +8,22 @@ const fapi = createFrontendApiProxyHandlers({
 });
 
 /**
+ * Server-side fetch often decompresses gzip/br but leaves Content-Encoding set.
+ * Forwarding that to the browser causes ERR_CONTENT_DECODING_FAILED (200 OK).
+ */
+function stripMisleadingEncodingHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.delete("transfer-encoding");
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+/**
  * Clerk prefixes both FAPI calls and static bundles with `NEXT_PUBLIC_CLERK_PROXY_URL`.
  * `/npm/@clerk/...` must be served from npm CDN, not forwarded to Frontend API (502).
  */
@@ -29,18 +45,7 @@ async function proxyNpmStatic(request: Request): Promise<Response | null> {
     redirect: "follow"
   });
 
-  const headers = new Headers(res.headers);
-  headers.delete("transfer-encoding");
-  // Node/undici fetch decompresses gzip/br; body is plain bytes but upstream
-  // Content-Encoding may still say gzip → browser ERR_CONTENT_DECODING_FAILED.
-  headers.delete("content-encoding");
-  headers.delete("content-length");
-
-  return new Response(res.body, {
-    status: res.status,
-    statusText: res.statusText,
-    headers
-  });
+  return stripMisleadingEncodingHeaders(res);
 }
 
 function wrap(handler: (request: Request) => Promise<Response>) {
@@ -49,7 +54,8 @@ function wrap(handler: (request: Request) => Promise<Response>) {
     if (npm) {
       return npm;
     }
-    return handler(request);
+    const upstream = await handler(request);
+    return stripMisleadingEncodingHeaders(upstream);
   };
 }
 
@@ -64,5 +70,6 @@ export async function OPTIONS(request: Request) {
   if (npm) {
     return npm;
   }
-  return clerkFrontendApiProxy(request, { proxyPath: "/clerk-proxy" });
+  const upstream = await clerkFrontendApiProxy(request, { proxyPath: "/clerk-proxy" });
+  return stripMisleadingEncodingHeaders(upstream);
 }
