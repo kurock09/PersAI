@@ -21,6 +21,8 @@
 
 ### Changed
 
+- **Auth: signed-in users on `/sign-in` and `/sign-up`** — If Clerk already has an active session, these pages show a short redirect state and `replace` to `/app` (or safe `?redirect_url=`). On `/sign-up`, the **post-registration** path (`signUp.status === "complete"`) still goes to `/app/setup` first so first-time onboarding is unchanged.
+
 - **Auth: post-registration navigation** — After email/password or Google sign-up, navigation uses a **full document load** to `/app/setup` (not client `router.push` to `/app`) so Clerk session cookies are present before the next request; avoids a race where `/app` server `auth()` redirected to `/sign-in` while the session was already active (common on mobile). SSO callback sign-up finalization also targets `/app/setup`. Sign-in finalization uses the same full navigation and honors safe `?redirect_url=` (paths under `/app` or `/admin` only). New helper: `app/lib/clerk-navigation.ts`.
 
 - **Web chat: voice player width** — User and assistant voice bars share the same min/max width; voice-only user bubbles get a fixed cap so the strip is not shrink-wrapped narrower than the assistant’s (`chat-message.tsx`, `voice-message-player.tsx`).

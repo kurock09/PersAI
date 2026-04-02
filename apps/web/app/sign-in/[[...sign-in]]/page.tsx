@@ -1,16 +1,18 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useSignIn } from "@clerk/nextjs";
+import { useAuth, useSignIn } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 import { Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { getSafeRedirectPathFromSearch, navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
+import { RedirectSignedInUserToApp } from "@/app/app/_components/redirect-signed-in-to-app";
 
 type Stage = "form" | "verify";
 
 export default function SignInPage() {
   const t = useTranslations("auth");
+  const { isSignedIn, isLoaded: authLoaded } = useAuth();
   const { signIn, errors: clerkErrors, fetchStatus } = useSignIn();
   const [stage, setStage] = useState<Stage>("form");
   const [email, setEmail] = useState("");
@@ -97,6 +99,18 @@ export default function SignInPage() {
   const fieldErrors = clerkErrors?.fields as unknown as
     | Record<string, { message: string }>
     | undefined;
+
+  if (!authLoaded) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg px-4">
+        <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden />
+      </div>
+    );
+  }
+
+  if (isSignedIn) {
+    return <RedirectSignedInUserToApp />;
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center relative overflow-hidden px-4">

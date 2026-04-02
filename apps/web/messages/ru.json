@@ -31,6 +31,7 @@
     "signInLink": "Войти",
     "back": "← Назад",
     "signingIn": "Входим...",
+    "redirectingSignedIn": "Переходим...",
     "oauthFailed": "Не удалось войти через Google",
     "signInFailed": "Не удалось войти — проверь email и пароль",
     "signUpFailed": "Не удалось создать аккаунт",

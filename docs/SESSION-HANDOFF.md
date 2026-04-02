@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-04-02 - Auth: redirect if already signed in on `/sign-in` or `/sign-up`
+
+### What changed
+
+1. **`RedirectSignedInUserToApp`** — Full `replace` navigation to `/app` (or safe `redirect_url`) when an active Clerk session opens these routes manually.
+2. **`/sign-in`** — After `useAuth` loads, `isSignedIn` → redirect component; otherwise existing form + post-login `navigateAfterClerkAuth` unchanged.
+3. **`/sign-up`** — Order: loading spinner → if `signUp.status === "complete"` still **`SignUpCompleteSplash` → `/app/setup`** (first registration); else if `isSignedIn` → redirect to `/app` (returning users). Does not affect the verify → finalize → setup path.
+
+### Files touched
+
+- `apps/web/app/app/_components/redirect-signed-in-to-app.tsx` (new)
+- `apps/web/app/sign-in/[[...sign-in]]/page.tsx`, `sign-up/[[...sign-up]]/page.tsx`
+- `apps/web/messages/en.json`, `ru.json` (`redirectingSignedIn`)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Ready commit message
+
+- `fix(web): redirect signed-in users away from sign-in and sign-up`
+
+---
+
 ## 2026-04-02 - Fix: sign-up redirected to sign-in instead of `/app/setup`
 
 ### What changed

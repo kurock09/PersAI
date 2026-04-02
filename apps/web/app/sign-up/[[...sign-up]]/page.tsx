@@ -6,13 +6,14 @@ import { useTranslations } from "next-intl";
 import { Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
+import { RedirectSignedInUserToApp } from "@/app/app/_components/redirect-signed-in-to-app";
 
 type Stage = "form" | "verify";
 
 export default function SignUpPage() {
   const t = useTranslations("auth");
   const { signUp, errors: clerkErrors, fetchStatus } = useSignUp();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, isLoaded: authLoaded } = useAuth();
   const [stage, setStage] = useState<Stage>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -77,8 +78,20 @@ export default function SignUpPage() {
     }
   }, [code, signUp, t]);
 
-  if (signUp.status === "complete" || isSignedIn) {
+  if (!authLoaded) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg px-4">
+        <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden />
+      </div>
+    );
+  }
+
+  if (signUp.status === "complete") {
     return <SignUpCompleteSplash />;
+  }
+
+  if (isSignedIn) {
+    return <RedirectSignedInUserToApp />;
   }
 
   const fieldErrors = clerkErrors?.fields as unknown as
