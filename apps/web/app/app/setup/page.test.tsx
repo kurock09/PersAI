@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { HTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantLifecycleState } from "@persai/contracts";
+import { NextIntlClientProvider } from "next-intl";
+import enMessages from "../../../messages/en.json";
 import SetupWizardPage from "./page";
 
 const clerkMocks = vi.hoisted(() => ({
@@ -206,8 +208,16 @@ describe("SetupWizardPage", () => {
     vi.clearAllMocks();
   });
 
+  function renderWithIntl(ui: ReactNode) {
+    return render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        {ui}
+      </NextIntlClientProvider>
+    );
+  }
+
   it("prefills recreate profile fields from /me and normalizes birthday", async () => {
-    render(<SetupWizardPage />);
+    renderWithIntl(<SetupWizardPage />);
 
     expect(await screen.findByDisplayValue("Alex")).toBeInTheDocument();
     expect(screen.getByDisplayValue("1990-05-20")).toBeInTheDocument();
@@ -226,7 +236,7 @@ describe("SetupWizardPage", () => {
       .mockResolvedValueOnce("token-final-patch")
       .mockResolvedValueOnce("token-publish");
 
-    const { container } = render(<SetupWizardPage />);
+    const { container } = renderWithIntl(<SetupWizardPage />);
 
     fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
 
