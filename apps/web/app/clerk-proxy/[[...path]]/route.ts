@@ -105,78 +105,86 @@ function buildFapiProxyResponseHeaders(
  * Same behavior as @clerk/nextjs clerkFrontendApiProxy, but preserves every Set-Cookie from FAPI.
  */
 async function clerkFapiProxy(request: Request): Promise<Response> {
-  const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
-  const secretKey = process.env.CLERK_SECRET_KEY ?? "";
-  if (!publishableKey) {
-    return jsonError("Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", 500);
-  }
-  if (!secretKey) {
-    return jsonError("Missing CLERK_SECRET_KEY", 500);
-  }
-
-  const proxyPath = stripTrailingSlashes(PROXY_PATH);
-  const requestUrl = new URL(request.url);
-  if (requestUrl.pathname !== proxyPath && !requestUrl.pathname.startsWith(`${proxyPath}/`)) {
-    return jsonError(`Path does not match proxy path "${proxyPath}"`, 400);
-  }
-
-  const fapiBaseUrl = fapiUrlFromPublishableKey(publishableKey);
-  const targetPath = requestUrl.pathname.slice(proxyPath.length) || "/";
-  const targetUrl = new URL(targetPath, fapiBaseUrl);
-  targetUrl.search = requestUrl.search;
-
-  const headers = new Headers();
-  request.headers.forEach((value, key) => {
-    if (!HOP_BY_HOP.has(key.toLowerCase())) {
-      headers.set(key, value);
-    }
-  });
-
-  const publicOrigin = derivePublicOrigin(request, requestUrl);
-  const proxyUrlFull = `${publicOrigin}${proxyPath}`;
-  headers.set("Clerk-Proxy-Url", proxyUrlFull);
-  headers.set("Clerk-Secret-Key", secretKey);
-
-  const fapiHost = new URL(fapiBaseUrl).host;
-  headers.set("Host", fapiHost);
-  if (!headers.has("X-Forwarded-Host")) {
-    headers.set("X-Forwarded-Host", requestUrl.host);
-  }
-  if (!headers.has("X-Forwarded-Proto")) {
-    headers.set("X-Forwarded-Proto", requestUrl.protocol.replace(":", ""));
-  }
-  const clientIp = getClientIp(request);
-  if (clientIp) {
-    headers.set("X-Forwarded-For", clientIp);
-  }
-
-  const hasBody = ["POST", "PUT", "PATCH"].includes(request.method);
-  const fetchInit: RequestInit & { duplex?: "half" } = {
-    method: request.method,
-    headers
-  };
-  if (hasBody) {
-    fetchInit.duplex = "half";
-  }
-  if (hasBody && request.body) {
-    fetchInit.body = request.body;
-  }
-
-  let upstream: Response;
   try {
-    upstream = await fetch(targetUrl.toString(), fetchInit);
+    const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
+    const secretKey = process.env.CLERK_SECRET_KEY ?? "";
+    if (!publishableKey) {
+      return jsonError("Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", 500);
+    }
+    if (!secretKey) {
+      return jsonError("Missing CLERK_SECRET_KEY", 500);
+    }
+
+    const proxyPath = stripTrailingSlashes(PROXY_PATH);
+    const requestUrl = new URL(request.url);
+    if (requestUrl.pathname !== proxyPath && !requestUrl.pathname.startsWith(`${proxyPath}/`)) {
+      return jsonError(`Path does not match proxy path "${proxyPath}"`, 400);
+    }
+
+    const fapiBaseUrl = fapiUrlFromPublishableKey(publishableKey);
+    const targetPath = requestUrl.pathname.slice(proxyPath.length) || "/";
+    const targetUrl = new URL(targetPath, fapiBaseUrl);
+    targetUrl.search = requestUrl.search;
+
+    const headers = new Headers();
+    request.headers.forEach((value, key) => {
+      if (!HOP_BY_HOP.has(key.toLowerCase())) {
+        headers.set(key, value);
+      }
+    });
+
+    const publicOrigin = derivePublicOrigin(request, requestUrl);
+    const proxyUrlFull = `${publicOrigin}${proxyPath}`;
+    headers.set("Clerk-Proxy-Url", proxyUrlFull);
+    headers.set("Clerk-Secret-Key", secretKey);
+
+    const fapiHost = new URL(fapiBaseUrl).host;
+    headers.set("Host", fapiHost);
+    if (!headers.has("X-Forwarded-Host")) {
+      headers.set("X-Forwarded-Host", requestUrl.host);
+    }
+    if (!headers.has("X-Forwarded-Proto")) {
+      headers.set("X-Forwarded-Proto", requestUrl.protocol.replace(":", ""));
+    }
+    const clientIp = getClientIp(request);
+    if (clientIp) {
+      headers.set("X-Forwarded-For", clientIp);
+    }
+
+    const hasBody = ["POST", "PUT", "PATCH"].includes(request.method);
+    const fetchInit: RequestInit & { duplex?: "half" } = {
+      method: request.method,
+      headers,
+      /** Let the browser follow Clerk redirects; default "follow" drops intermediate Set-Cookie (handshake 500 / stuck UAT). */
+      redirect: "manual"
+    };
+    if (hasBody) {
+      fetchInit.duplex = "half";
+    }
+    if (hasBody && request.body) {
+      fetchInit.body = request.body;
+    }
+
+    let upstream: Response;
+    try {
+      upstream = await fetch(targetUrl.toString(), fetchInit);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      return jsonError(`Failed to proxy to Clerk FAPI: ${msg}`, 502);
+    }
+
+    const outHeaders = buildFapiProxyResponseHeaders(upstream, fapiBaseUrl, fapiHost, proxyUrlFull);
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: outHeaders
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
-    return jsonError(`Failed to proxy to Clerk FAPI: ${msg}`, 502);
+    console.error("[clerk-proxy]", msg);
+    return jsonError("Clerk proxy internal error", 502);
   }
-
-  const outHeaders = buildFapiProxyResponseHeaders(upstream, fapiBaseUrl, fapiHost, proxyUrlFull);
-
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers: outHeaders
-  });
 }
 
 /**
