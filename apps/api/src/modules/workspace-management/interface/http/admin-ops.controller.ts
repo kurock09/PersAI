@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -17,13 +18,15 @@ import {
   type AdminOpsUserDirectoryResult
 } from "../../application/admin-ops-user-directory.service";
 import { ReapplyAssistantService } from "../../application/reapply-assistant.service";
+import { AdminDeleteUserService } from "../../application/admin-delete-user.service";
 
 @Controller("api/v1/admin/ops")
 export class AdminOpsController {
   constructor(
     private readonly resolveAdminOpsCockpitService: ResolveAdminOpsCockpitService,
     private readonly adminOpsUserDirectoryService: AdminOpsUserDirectoryService,
-    private readonly reapplyAssistantService: ReapplyAssistantService
+    private readonly reapplyAssistantService: ReapplyAssistantService,
+    private readonly adminDeleteUserService: AdminDeleteUserService
   ) {}
 
   @Get("cockpit")
@@ -77,6 +80,23 @@ export class AdminOpsController {
       throw new BadRequestException("userId is required.");
     }
     await this.reapplyAssistantService.execute(targetUserId.trim());
+    return { requestId: req.requestId ?? null, ok: true };
+  }
+
+  @Delete("users/:userId")
+  @HttpCode(200)
+  async deleteUser(
+    @Req() req: RequestWithPlatformContext,
+    @Param("userId") targetUserId: string
+  ): Promise<{ requestId: string | null; ok: boolean }> {
+    const callerId = this.resolveRequestUserId(req);
+    if (!targetUserId || targetUserId.trim().length === 0) {
+      throw new BadRequestException("userId is required.");
+    }
+    if (targetUserId.trim() === callerId) {
+      throw new BadRequestException("Cannot delete yourself.");
+    }
+    await this.adminDeleteUserService.execute(callerId, targetUserId.trim());
     return { requestId: req.requestId ?? null, ok: true };
   }
 

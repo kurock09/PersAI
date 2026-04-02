@@ -228,7 +228,7 @@ Opens on click of assistant card in sidebar. On mobile: fullscreen.
 - Premium but functional — a working tool, not a showcase
 - Sections:
   - Plans (create/edit/manage — per-tool activations with daily call limits, quota limits with accent-bordered section, per-plan AI model via `<select>` populated from runtime `availableModelsByProvider`, tool classes and channels in vertical layout with inline hint text)
-  - Ops Cockpit (user directory with search + pagination + per-user reapply, runtime/health/apply status for self)
+  - Ops Cockpit (user directory with search + pagination + per-user reapply + per-user delete with confirmation, user-scoped cockpit view, runtime/health/apply status)
   - Business Cockpit (usage/commercial signals)
   - Rollouts (progressive rollout/rollback controls)
   - Notifications (webhook channel management)

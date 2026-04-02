@@ -882,6 +882,15 @@ Behavior baseline:
 - returns `{ ok: true }` on success
 - 404 if user has no assistant or no published version
 
+### DELETE /api/v1/admin/ops/users/:userId
+
+- authenticated caller only
+- requires admin read role (same as ops/cockpit)
+- full cascade delete: runtime workspace reset + DB transaction (all assistant-owned rows, workspace membership, workspace if orphaned, user record)
+- self-delete protected: 400 if `userId` equals the caller
+- returns `{ ok: true }` on success
+- 404 if user not found
+
 ## Step 9 F4 business cockpit baseline
 
 ### GET /api/v1/admin/business/cockpit

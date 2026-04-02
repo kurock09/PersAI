@@ -34,6 +34,7 @@ import { AppendAssistantAuditEventService } from "./application/append-assistant
 import { AdminAuthorizationService } from "./application/admin-authorization.service";
 import { ResolveAdminOpsCockpitService } from "./application/resolve-admin-ops-cockpit.service";
 import { AdminOpsUserDirectoryService } from "./application/admin-ops-user-directory.service";
+import { AdminDeleteUserService } from "./application/admin-delete-user.service";
 import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-business-cockpit.service";
 import { ManageAdminNotificationChannelsService } from "./application/manage-admin-notification-channels.service";
 import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
@@ -160,6 +161,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminAuthorizationService,
     ResolveAdminOpsCockpitService,
     AdminOpsUserDirectoryService,
+    AdminDeleteUserService,
     ResolveAdminBusinessCockpitService,
     ManageAdminNotificationChannelsService,
     DeliverAdminSystemNotificationService,

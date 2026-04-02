@@ -21,6 +21,7 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Trash2,
   Users
 } from "lucide-react";
 import {
@@ -200,6 +201,8 @@ function UsersDirectory({
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [reapplyingId, setReapplyingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(
@@ -263,6 +266,26 @@ function UsersDirectory({
         await load(search.trim(), offset);
       } finally {
         setReapplyingId(null);
+      }
+    },
+    [getToken, load, search, offset]
+  );
+
+  const onDelete = useCallback(
+    async (userId: string) => {
+      const token = await getToken();
+      if (!token) return;
+      setDeletingId(userId);
+      try {
+        const res = await fetch(`/api/v1/admin/ops/users/${userId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`${res.status}`);
+        setConfirmDeleteId(null);
+        await load(search.trim(), offset);
+      } finally {
+        setDeletingId(null);
       }
     },
     [getToken, load, search, offset]
@@ -369,6 +392,46 @@ function UsersDirectory({
                             <RotateCcw className="h-2.5 w-2.5" />
                           )}
                           Reapply
+                        </button>
+                      )}
+                      {confirmDeleteId === u.userId ? (
+                        <span className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={deletingId === u.userId}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void onDelete(u.userId);
+                            }}
+                            className="rounded bg-destructive/90 px-1.5 py-0.5 text-[9px] font-semibold text-white transition-colors hover:bg-destructive disabled:opacity-40"
+                          >
+                            {deletingId === u.userId ? (
+                              <Loader2 className="inline h-2.5 w-2.5 animate-spin" />
+                            ) : (
+                              "Yes"
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDeleteId(null);
+                            }}
+                            className="rounded border border-border px-1.5 py-0.5 text-[9px] text-text-muted hover:text-text"
+                          >
+                            No
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDeleteId(u.userId);
+                          }}
+                          className="inline-flex cursor-pointer items-center gap-1 rounded border border-destructive/30 px-1.5 py-0.5 text-[9px] font-medium text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-2.5 w-2.5" />
                         </button>
                       )}
                     </td>

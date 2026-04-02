@@ -22,12 +22,6 @@ import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { InboundMediaService } from "./media/inbound-media.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 
-const TTS_DIRECTIVE_RE = /\[\[\/?(tts(?::[^\]]*)?)\]\]/gi;
-function stripTtsDirectives(text: string): string {
-  if (!text.includes("[[tts")) return text;
-  return text.replace(/\[\[tts:([^\]]*)\]\]/gi, "$1").replace(TTS_DIRECTIVE_RE, "");
-}
-
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
   userMessage: AssistantWebChatMessageState;
@@ -154,7 +148,7 @@ export class StreamWebChatTurnService {
         }
       }
 
-      const cleanedAccumulated = stripTtsDirectives(accumulated).trim() || accumulated.trim();
+      const cleanedAccumulated = accumulated.trim();
       if (cleanedAccumulated.length === 0) {
         return {
           status: "failed",
@@ -266,7 +260,7 @@ export class StreamWebChatTurnService {
     partialOutput: string,
     respondedAt: string | null
   ): Promise<StreamWebChatTurnOutcomeInterrupted> {
-    const cleanedPartial = stripTtsDirectives(partialOutput).trim() || partialOutput.trim();
+    const cleanedPartial = partialOutput.trim();
     if (cleanedPartial.length === 0) {
       return {
         status: "interrupted",

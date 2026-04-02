@@ -1,34 +1,82 @@
 # SESSION-HANDOFF
 
-## 2026-04-02 - Fix: [[tts:…]] directive leakage in web chat + cross-channel TTS breakage
+## 2026-04-02 - Feat: Admin full user delete + cron cleanup
 
 ### What changed
 
-Fixed two bugs causing raw `[[tts:…]]` tags to appear in web chat and Telegram responses after a voice interaction, persisting until pod reboot.
+1. **Admin user delete** — full cascade delete from Ops Cockpit.
+   - `DELETE /api/v1/admin/ops/users/:userId` → `AdminDeleteUserService`: runtime workspace reset, then single DB transaction deleting all user-owned data (rollout items, abuse states, attachments, messages, chats, memory, tasks, specs, published versions, bindings, governance, assistant, audit nullify, members, admin roles, workspace if orphaned, user).
+   - Self-delete protection.
+   - Frontend: trash icon with Yes/No confirmation in user table.
 
-- OpenClaw `resolveAgentResponseWithTts`: success and catch paths now always strip `[[tts:…]]` from fallback text instead of returning raw `response.text`.
-- OpenClaw `createTtsDeltaStripper`: replaced stateless per-token regex with a stateful buffer that correctly handles directives split across LLM stream tokens.
-- PersAI `StreamWebChatTurnService`: defense-in-depth `stripTtsDirectives()` on accumulated text before DB persist, memory recording, and quota tracking.
+2. **Phantom cron cleanup** — cleared all 5 stale cron jobs from OpenClaw pod `jobs.json` (4 disabled test reminders + 1 legacy main-agent recurring task).
 
 ### Files touched
 
-- `openclaw/src/gateway/persai-runtime/persai-runtime-agent-turn.ts` (3 functions changed, 1 added)
-- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` (safety strip added)
-- `infra/dev/gitops/openclaw-approved-sha.txt` (pinned to `c057408f69`)
-- `infra/helm/values-dev.yaml` (image tag updated, digest cleared)
+- `apps/api/src/modules/workspace-management/application/admin-delete-user.service.ts` (new)
+- `apps/api/src/modules/workspace-management/interface/http/admin-ops.controller.ts` (DELETE endpoint)
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` (provider)
+- `apps/api/src/modules/identity-access/identity-access.module.ts` (route)
+- `apps/web/app/admin/ops/page.tsx` (delete button + confirmation)
+- `docs/API-BOUNDARY.md`, `docs/ARCHITECTURE.md`, `docs/UI-SPEC.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Risks
+
+- Cascade delete is irreversible; self-delete guard prevents accidental admin removal.
+- Runtime workspace reset is best-effort (continues on failure).
+- Cron cleanup is pod-local; new deployment gets fresh `jobs.json` from GCS FUSE mount.
+
+### Next steps
+
+- Smoke test delete on a test user.
+- Consider adding step-up token for destructive delete action.
+
+---
+
+## 2026-04-02 - Refactor: TTS directive path → tool-call-only path
+
+### What changed
+
+Replaced the unreliable `[[tts:…]]` directive-based TTS pipeline with the native tool-call path. Model now calls the `tts` tool directly instead of embedding directives in response text.
+
+- **Config:** `tts.auto: "off"` in Helm — disables directive parsing and removes the "Use [[tts:…]]" hint from system prompt.
+- **OpenClaw gateway cleanup:** removed `resolveAgentResponseWithTts`, `normalizeTtsDirectives`, `stripTtsDirectives`, `createTtsDeltaStripper`, `flushTtsDeltaStripper`, and related imports from `persai-runtime-agent-turn.ts`. All three turn functions (web sync, telegram, stream) now use plain `resolveAgentResponse()`.
+- **OpenClaw native cleanup:** removed `outputDir` pass-through from `maybeApplyTtsToPayload` in `tts.ts` (no longer called from gateway).
+- **PersAI cleanup:** removed `stripTtsDirectives` from `StreamWebChatTurnService`.
+- **Kept:** `outputDir` in `textToSpeech` and `tts-tool.ts` — required by the tool-call path to write mp3 to shared workspace (`/mnt/workspaces/persai/<assistantId>/media/tts/`).
+
+### Why
+
+The directive path was fundamentally fragile:
+- Model generated directives in unpredictable formats (`[[tts:text]]`, `[[tts:content]]`, `[[tts]]content[[/tts]]`).
+- Parsing/stripping code couldn't cover all variants reliably.
+- Different users got different behavior depending on session history.
+- The tool-call path is a stable API contract: model calls `tts(text)`, OpenClaw generates audio, returns result. Same behavior for all users.
+
+### Files touched
+
+- `openclaw/src/gateway/persai-runtime/persai-runtime-agent-turn.ts` (515 → 377 lines, directive code removed)
+- `openclaw/src/tts/tts.ts` (`maybeApplyTtsToPayload` `outputDir` removed)
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` (`stripTtsDirectives` removed)
+- `infra/helm/values-dev.yaml` (`tts.auto: "off"`)
 - `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
 
 ### Risks
 
-- Stateful delta stripper buffers text until `[[` is resolved — negligible latency impact on typical chunks.
-- PersAI-side strip is regex-only safety net; primary fix is in OpenClaw.
-- Known remaining issue: `resolveAgentResponseWithTts` runs outside `persaiRuntimeRequestContext.run()` scope, so TTS provider override and PersAI-injected credentials are not available during audio generation — TTS audio may not generate correctly. To be addressed in a follow-up.
+- If a model or prompt variant still generates `[[tts:…]]` directives, they will appear as raw text (no stripping). Mitigated by: `tts.auto: off` removes the system prompt hint, and fresh sessions have no directive history.
+- Requires assistant reset for users who have old directive patterns in session context.
 
 ### Next steps
 
-- Deploy: push OpenClaw first, then PersAI. CI will rebuild/repin the OpenClaw image.
-- Smoke test: send voice from web chat, verify no `[[tts:…]]` leakage in text; test Telegram voice round-trip.
-- Follow-up: wrap `resolveAgentResponseWithTts` call inside `persaiRuntimeRequestContext.run()` so TTS audio actually generates with correct provider/credentials.
+- Deploy: push OpenClaw first, then PersAI.
+- Smoke test: web chat (text only, voice via tool, stop voice) + Telegram same.
+- Web chat audio player for tool-generated mp3 (currently shows `[Голосовой ответ готов и отправлен.]` placeholder).
+
+---
+
+## 2026-04-02 (superseded) - Fix: [[tts:…]] directive leakage in web chat + cross-channel TTS breakage
+
+**Superseded by the directive→tool-call migration above.** The directive pipeline and all associated fixes have been removed.
 
 ---
 

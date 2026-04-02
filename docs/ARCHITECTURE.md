@@ -336,6 +336,7 @@ It is not part of backend domain logic.
   - `GET /api/v1/admin/ops/cockpit`
   - `GET /api/v1/admin/ops/users?q=&offset=&limit=` — paginated user directory with assistant summary
   - `POST /api/v1/admin/ops/users/:userId/reapply` — trigger reapply for any user's assistant
+  - `DELETE /api/v1/admin/ops/users/:userId` — full cascade delete of user and all owned data
 - cockpit read model is intentionally bounded and high-signal:
   - assistant/runtime status snapshot
   - publish/apply truth pointer

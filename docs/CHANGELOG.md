@@ -2,16 +2,28 @@
 
 ## Unreleased
 
-### Fixed
+### Changed
 
-- **Fix: [[tts:…]] directive leakage in web chat + cross-channel TTS breakage (OpenClaw fork + PersAI):**
-  - Root cause 1: `resolveAgentResponseWithTts` fell back to raw `response.text` (including `[[tts:…]]` tags) when `maybeApplyTtsToPayload` returned empty cleaned text (entire model response was wrapped in a TTS directive) or threw an exception.
-  - Root cause 2: `stripTtsFromDelta` operated per-token and could not match `[[tts:…]]` directives split across LLM tokens during streaming, causing fragments to leak into the NDJSON stream and get persisted in the DB.
-  - Fix (OpenClaw): `resolveAgentResponseWithTts` now always strips `[[tts:…]]` from fallback text via `stripTtsDirectives()` in both success and catch paths. Replaced stateless per-token `stripTtsFromDelta` with stateful `createTtsDeltaStripper()` that buffers potential directive openings until enough tokens arrive to decide whether to strip or flush.
-  - Fix (PersAI): `StreamWebChatTurnService` now applies a defense-in-depth `stripTtsDirectives()` to accumulated text before DB persist, memory recording, and quota tracking.
-  - Dev GitOps OpenClaw pin now targets fork SHA `c057408f69a7273d623eaff55b89d1af7b5aa52f`.
+- **Refactor: switch TTS from directive path to tool-call-only path (OpenClaw fork + PersAI):**
+  - Set `tts.auto: "off"` in Helm config — disables `[[tts:…]]` directive parsing and removes the "Use [[tts:…]]" hint from the system prompt.
+  - Model now uses the native `tts` tool call for voice output — single, stable, predictable path for all users.
+  - Removed all directive-pipeline code from OpenClaw gateway (`persai-runtime-agent-turn.ts`): `resolveAgentResponseWithTts`, `normalizeTtsDirectives`, `stripTtsDirectives`, `createTtsDeltaStripper`, `flushTtsDeltaStripper`, related imports (`path`, `loadConfig`, `maybeApplyTtsToPayload`).
+  - Removed `outputDir` pass-through from native `maybeApplyTtsToPayload` in `tts.ts` (no longer called from gateway).
+  - Removed defense-in-depth `stripTtsDirectives` from PersAI `StreamWebChatTurnService`.
+  - Kept `outputDir` in native `textToSpeech` and `tts-tool.ts` — required by the tool-call path to write audio to shared workspace.
+  - Gateway file reduced from 515 → 377 lines.
+
+### Fixed (superseded)
+
+- ~~**Fix: [[tts:…]] directive leakage in web chat + cross-channel TTS breakage:**~~ The directive-based TTS pipeline that caused this bug has been fully removed. The tool-call path does not use directives and is not affected.
 
 ### Added
+
+- **Feat: Admin full user delete (Ops Cockpit):**
+  - Added `DELETE /api/v1/admin/ops/users/:userId` — full cascade delete of a user and all associated data (assistant, chats, messages, attachments, memory, tasks, specs, published versions, governance, bindings, abuse states, rollout items, audit events, workspace membership, workspace if orphaned, user record).
+  - `AdminDeleteUserService` performs runtime workspace reset via OpenClaw adapter before DB cascade.
+  - Self-delete protection: admin cannot delete their own account.
+  - Frontend: trash icon in ops cockpit user table with two-step confirmation (Yes/No).
 
 - **Feat: Admin Ops Cockpit — user directory + per-user reapply:**
   - Added `GET /api/v1/admin/ops/users?q=&offset=&limit=` — paginated user directory with assistant summary (name, gender, applyStatus, latest published version).

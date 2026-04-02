@@ -114,8 +114,8 @@ openclaw:
     gcpServiceAccountEmail: openclaw-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: openclaw
-    tag: 639d7defe20c6282a7b81f6112c0d7ab1a286e6a
-    digest: sha256:0ffff505d4cf65ba305ea7eb6f38e52b063f949da56588de1451dcd51dbf30d6
+    tag: de1e145d65b20b9038ca908a3123d0a4b8b2797a
+    digest: ""
     pullPolicy: IfNotPresent
   controlUi:
     allowedOrigins:
@@ -139,7 +139,7 @@ openclaw:
       mountPath: /mnt/workspaces/persai
       mountOptions: "uid=1000,gid=1000"
   tts:
-    auto: tagged
+    auto: "off"
     mode: final
   agentDefaults:
     modelPrimary: openai/gpt-5.4
