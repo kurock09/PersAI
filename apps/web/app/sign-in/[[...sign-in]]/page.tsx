@@ -98,7 +98,9 @@ export default function SignInPage() {
     }
   }, [code, signIn, finalize]);
 
-  const fieldErrors = clerkErrors?.fields as unknown as Record<string, { message: string }> | undefined;
+  const fieldErrors = clerkErrors?.fields as unknown as
+    | Record<string, { message: string }>
+    | undefined;
 
   return (
     <div className="flex min-h-screen items-center justify-center relative overflow-hidden px-4">

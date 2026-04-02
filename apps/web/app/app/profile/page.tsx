@@ -52,10 +52,7 @@ export default function ProfilePage() {
       {/* Sections */}
       <div className="mt-4 space-y-3">
         {/* Email */}
-        <Section
-          icon={<Mail className="h-4 w-4" />}
-          title="Email addresses"
-        >
+        <Section icon={<Mail className="h-4 w-4" />} title="Email addresses">
           {user.emailAddresses.map((email) => (
             <div key={email.id} className="flex items-center gap-2">
               <span className="text-sm text-text">{email.emailAddress}</span>
@@ -70,10 +67,7 @@ export default function ProfilePage() {
 
         {/* Connected accounts */}
         {user.externalAccounts.length > 0 && (
-          <Section
-            icon={<Shield className="h-4 w-4" />}
-            title="Connected accounts"
-          >
+          <Section icon={<Shield className="h-4 w-4" />} title="Connected accounts">
             {user.externalAccounts.map((account) => (
               <div key={account.id} className="flex items-center gap-2">
                 <span className="text-sm text-text capitalize">{account.provider}</span>
@@ -84,10 +78,7 @@ export default function ProfilePage() {
         )}
 
         {/* Profile details */}
-        <Section
-          icon={<User className="h-4 w-4" />}
-          title="Profile details"
-        >
+        <Section icon={<User className="h-4 w-4" />} title="Profile details">
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-text-muted text-xs">First name</p>

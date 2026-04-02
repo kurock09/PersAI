@@ -76,8 +76,7 @@ export default function SSOCallbackPage() {
       }
 
       if (signIn.existingSession || signUp.existingSession) {
-        const sessionId =
-          signIn.existingSession?.sessionId || signUp.existingSession?.sessionId;
+        const sessionId = signIn.existingSession?.sessionId || signUp.existingSession?.sessionId;
         if (sessionId) {
           await clerk.setActive({
             session: sessionId,

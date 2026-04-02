@@ -133,9 +133,7 @@ export default function SignUpPage() {
                 className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
               {fieldErrors?.emailAddress && (
-                <p className="mt-1 text-xs text-destructive">
-                  {fieldErrors.emailAddress.message}
-                </p>
+                <p className="mt-1 text-xs text-destructive">{fieldErrors.emailAddress.message}</p>
               )}
 
               <label className="mt-4 mb-1.5 block text-xs font-medium text-text-muted">
