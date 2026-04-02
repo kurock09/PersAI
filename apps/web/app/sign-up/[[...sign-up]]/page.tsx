@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useSignUp, useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -84,7 +84,9 @@ export default function SignUpPage() {
     }
   }, [code, signUp, router, t]);
 
-  if (signUp.status === "complete" || isSignedIn) return null;
+  if (signUp.status === "complete" || isSignedIn) {
+    return <SignUpCompleteSplash />;
+  }
 
   const fieldErrors = clerkErrors?.fields as unknown as
     | Record<string, { message: string }>
@@ -253,6 +255,28 @@ export default function SignUpPage() {
             {t("signInLink")}
           </a>
         </p>
+      </div>
+    </div>
+  );
+}
+
+/** Avoid blank screen: Clerk may mark sign-up complete before `finalize` navigation runs. */
+function SignUpCompleteSplash() {
+  const router = useRouter();
+  const t = useTranslations("auth");
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      router.replace("/app");
+    }, 150);
+    return () => window.clearTimeout(id);
+  }, [router]);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-bg px-4">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        <p className="text-sm text-text-muted">{t("signingIn")}</p>
       </div>
     </div>
   );
