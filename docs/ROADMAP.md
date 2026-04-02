@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Post-M stabilization and cleanup
+Step 14 — Tech debt, scale, and platform hardening
 
 ## Step 1
 
@@ -292,12 +292,37 @@ Post-M stabilization and cleanup
 - [x] Remove duplicated media logic from turn services (~200 lines)
 - [x] Module registration with factory-based adapter injection
 
-## Step 14 Tech Debt and Scale (completed hygiene)
+## Step 14 Tech Debt, Scale, and Platform Hardening
 
 - [x] H16-hygiene — Autonomous workspace immediate hygiene (landed)
   - [x] H16-hygiene-a — `BOOTSTRAP.md` is now one-time/consumed: deleted from workspace after first successful bootstrap read, re-created only on full reset/recreate
   - [x] H16-hygiene-b — heartbeat/background polling uses a dedicated background session key (`__bg_heartbeat`), separated from user assistant turn sessions
   - [x] H16-hygiene-c — background default-model selection follows PersAI admin global settings (`defaultModelKey`) instead of hardcoded `gpt-4.1`
+- [x] S14a — Assistant persona identity hardening
+  - [x] S14a1 — persistent `assistantGender` field (`male` / `female` / `neutral`): schema (`draft_assistant_gender`, `snapshot_assistant_gender`), API (create/edit/publish/preview), UI (setup wizard + settings)
+  - [x] S14a2 — remove `other` from gender options; `normalizeAssistantGender` centralizes validation
+  - [x] S14a3 — bootstrap template `{{assistant_gender_line}}` placeholder in `SOUL.md` / `IDENTITY.md` presets + SQL migration + admin preset editor update
+  - [x] S14a4 — personality description free-text field in creation wizard (parity with edit flow)
+  - [x] S14a5 — avatar `blob:` URL client-side cache (`AVATAR_BLOB_CACHE`) — eliminates re-fetch on every mount
+- [x] S14b — Runtime-backed setup preview
+  - [x] S14b1 — `PreviewAssistantSetupService`: backend-owned transient materialization for wizard last-page preview (no persistent side effects)
+  - [x] S14b2 — `POST /api/v1/assistant/setup/preview` endpoint + ClerkAuthMiddleware route registration
+  - [x] S14b3 — robust token refresh in setup wizard (fresh token per API call in `persistDraftForPreview`)
+- [x] S14c — Admin Ops Cockpit v2
+  - [x] S14c1 — user directory: `GET /api/v1/admin/ops/users` (paginated, searchable), `AdminOpsUserDirectoryService`
+  - [x] S14c2 — user-scoped cockpit view: `GET /api/v1/admin/ops/cockpit?userId=` loads any user's cockpit data
+  - [x] S14c3 — per-user reapply: `POST /api/v1/admin/ops/users/:userId/reapply`
+  - [x] S14c4 — full user delete: `DELETE /api/v1/admin/ops/users/:userId`, `AdminDeleteUserService` (cascade across all tables + OpenClaw runtime workspace reset), self-delete protection
+  - [x] S14c5 — compact 3+2 column layout, truncated UUIDs, dynamic header
+- [x] S14d — OpenClaw TTS refactor: remove directive pipeline, switch to tool-call-only path
+  - [x] S14d1 — strip `resolveAgentResponseWithTts`, `normalizeTtsDirectives`, `stripTtsDirectives`, `createTtsDeltaStripper`, `flushTtsDeltaStripper` from `persai-runtime-agent-turn.ts`
+  - [x] S14d2 — remove `outputDir` pass-through from `maybeApplyTtsToPayload`
+  - [x] S14d3 — set `tts.auto: "off"` in `values-dev.yaml`
+- [x] S14e — Bug fixes
+  - [x] S14e1 — `Session expired` on preview: missing `ClerkAuthMiddleware` route for `POST /api/v1/assistant/setup/preview`
+  - [x] S14e2 — `formality` slider inconsistency (trait key mismatch in setup wizard)
+  - [x] S14e3 — MIME type normalization: strip `;charset=…` parameters in `MediaPreprocessorService`
+  - [x] S14e4 — user data prefill (birthday, gender, timezone) during assistant recreation
 
 ---
 

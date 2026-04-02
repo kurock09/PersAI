@@ -221,11 +221,7 @@ export class ManageChatMediaService {
     userId: string;
     file: { buffer: Buffer; mimetype: string; originalname: string };
   }): Promise<{ text: string }> {
-    this.logger.log(
-      `transcribeVoice: mime=${params.file.mimetype} size=${params.file.buffer.length} name=${params.file.originalname}`
-    );
     if (!params.file.mimetype.startsWith("audio/")) {
-      this.logger.warn(`transcribeVoice: rejected MIME "${params.file.mimetype}"`);
       throw new BadRequestException("Only audio files can be transcribed.");
     }
     if (params.file.buffer.length > MAX_UPLOAD_BYTES) {
@@ -261,15 +257,9 @@ export class ManageChatMediaService {
     });
 
     try {
-      this.logger.log(
-        `transcribeVoice: uploaded storagePath=${uploadResult.storagePath}, calling transcribe`
-      );
       const result = await this.runtimeAdapter.transcribeMedia(
         assistant.id,
         uploadResult.storagePath
-      );
-      this.logger.log(
-        `transcribeVoice: transcription result text length=${result.text?.length ?? 0}`
       );
       const text = result.text.trim();
       if (text.length === 0) {

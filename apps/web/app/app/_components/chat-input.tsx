@@ -60,6 +60,7 @@ export function ChatInput({
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const recordingStartTimeRef = useRef<number>(0);
 
   useEffect(() => {
     return () => {
@@ -149,12 +150,21 @@ export function ChatInput({
 
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: mimeType });
+        const elapsedSec = (Date.now() - recordingStartTimeRef.current) / 1000;
         chunksRef.current = [];
         stopRecordingCleanup();
 
         if (blob.size < 500) {
           setRecordingState("idle");
           setRecordingSeconds(0);
+          return;
+        }
+
+        const bytesPerSec = elapsedSec > 0 ? blob.size / elapsedSec : 0;
+        if (elapsedSec >= 2 && bytesPerSec < 1000) {
+          setRecordingState("idle");
+          setRecordingSeconds(0);
+          onVoiceTranscriptionError?.(new Error("NO_AUDIO_DETECTED"));
           return;
         }
 
@@ -181,6 +191,7 @@ export function ChatInput({
       };
 
       recorder.start(250);
+      recordingStartTimeRef.current = Date.now();
       setRecordingState("recording");
       setRecordingSeconds(0);
       timerRef.current = setInterval(() => {

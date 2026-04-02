@@ -302,6 +302,18 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
     };
   }
 
+  if (
+    normalized.includes("no_audio_detected") ||
+    normalized.includes("voice transcription returned empty")
+  ) {
+    return {
+      classId: "input_validation",
+      message: "No speech was detected in your recording.",
+      guidance:
+        "Check that the correct microphone is selected in your browser settings and that it is not muted."
+    };
+  }
+
   if (status === 400 || normalized.includes("must be") || normalized.includes("payload")) {
     return {
       classId: "input_validation",

@@ -1,10 +1,27 @@
 "use client";
 
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import hljs from "highlight.js/lib/core";
+import cpp from "highlight.js/lib/languages/cpp";
+import css from "highlight.js/lib/languages/css";
+import go from "highlight.js/lib/languages/go";
+import java from "highlight.js/lib/languages/java";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
+import kotlin from "highlight.js/lib/languages/kotlin";
+import markdown from "highlight.js/lib/languages/markdown";
+import python from "highlight.js/lib/languages/python";
+import rust from "highlight.js/lib/languages/rust";
+import shell from "highlight.js/lib/languages/shell";
+import sql from "highlight.js/lib/languages/sql";
+import swift from "highlight.js/lib/languages/swift";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
 import "katex/dist/katex.min.css";
 import {
   Copy,
@@ -23,6 +40,31 @@ import { cn } from "@/app/lib/utils";
 import { AssistantAvatar } from "./assistant-avatar";
 import { getAttachmentDownloadUrl } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
+
+hljs.registerLanguage("cpp", cpp);
+hljs.registerLanguage("c", cpp);
+hljs.registerLanguage("css", css);
+hljs.registerLanguage("go", go);
+hljs.registerLanguage("java", java);
+hljs.registerLanguage("javascript", javascript);
+hljs.registerLanguage("js", javascript);
+hljs.registerLanguage("json", json);
+hljs.registerLanguage("kotlin", kotlin);
+hljs.registerLanguage("markdown", markdown);
+hljs.registerLanguage("python", python);
+hljs.registerLanguage("py", python);
+hljs.registerLanguage("rust", rust);
+hljs.registerLanguage("shell", shell);
+hljs.registerLanguage("bash", shell);
+hljs.registerLanguage("sh", shell);
+hljs.registerLanguage("sql", sql);
+hljs.registerLanguage("swift", swift);
+hljs.registerLanguage("typescript", typescript);
+hljs.registerLanguage("ts", typescript);
+hljs.registerLanguage("xml", xml);
+hljs.registerLanguage("html", xml);
+hljs.registerLanguage("yaml", yaml);
+hljs.registerLanguage("yml", yaml);
 
 interface ChatMessageBubbleProps {
   message: ChatMessage;
@@ -90,9 +132,23 @@ function CodeBlock({
   const lineCount = text.split("\n").length;
   const isLong = lineCount > COLLAPSE_LINE_THRESHOLD;
   const [expanded, setExpanded] = useState(!isLong);
+  const codeRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!codeRef.current) return;
+    try {
+      const result =
+        lang && hljs.getLanguage(lang)
+          ? hljs.highlight(text, { language: lang })
+          : hljs.highlightAuto(text);
+      codeRef.current.innerHTML = result.value;
+    } catch {
+      codeRef.current.textContent = text;
+    }
+  }, [text, lang]);
 
   return (
-    <div className="group relative my-3 overflow-hidden rounded-lg border border-border bg-[#0d0d14]">
+    <div className="code-block group relative my-3 overflow-hidden rounded-lg border border-border">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <span className="text-[11px] font-medium text-text-subtle">
           {lang || "code"}
@@ -102,10 +158,10 @@ function CodeBlock({
       </div>
       <div className={cn("relative", !expanded && "max-h-[240px] overflow-hidden")}>
         <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
-          <code className={className}>{children}</code>
+          <code ref={codeRef} className={className} />
         </pre>
         {!expanded && (
-          <div className="absolute inset-x-0 bottom-0 flex items-end justify-center bg-gradient-to-t from-[#0d0d14] via-[#0d0d14]/80 to-transparent pb-2 pt-10">
+          <div className="code-block-fade absolute inset-x-0 bottom-0 flex items-end justify-center pb-2 pt-10">
             <button
               type="button"
               onClick={() => setExpanded(true)}

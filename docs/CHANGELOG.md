@@ -13,6 +13,24 @@
   - Kept `outputDir` in native `textToSpeech` and `tts-tool.ts` — required by the tool-call path to write audio to shared workspace.
   - Gateway file reduced from 515 → 377 lines.
 
+- **UI: code syntax highlighting + theme refresh:**
+  - Integrated `highlight.js` for code blocks in web chat (16 languages: JS/TS, Python, Rust, Go, Java, Kotlin, Swift, SQL, Shell, C/C++, CSS, XML/HTML, YAML, JSON, Markdown).
+  - Redesigned color theme: green accent (`#66bb6a` / `#43a047`) replacing purple/indigo, warmer neutral tones for backgrounds and text.
+  - Added dark and light highlight.js token color schemes in `globals.css`.
+  - Inlined `SignInButton` trigger on landing page (removed intermediate variable).
+
+- **Infra: Clerk SDK self-hosting proxy:**
+  - Added Clerk CDN proxy rewrite in `next.config.ts` to route `/clerk-cdn/*` → Clerk npm CDN.
+  - Added `@clerk/clerk-js` dependency and self-hosted `clerk.browser.js` bundle.
+
+### Fixed
+
+- **Fix: web chat voice recording shows helpful error when microphone captures silence:**
+  - Root cause: users with wrong microphone selected (e.g. virtual Steam Streaming Microphone) got a generic "Chat could not complete this turn" error because Whisper returned empty transcription for silent audio.
+  - Client-side detection: after recording stops, `bytes/sec` ratio is checked; if < 1000 for a recording >= 2 seconds, shows "No speech was detected" with guidance to check browser microphone settings — no server roundtrip.
+  - Server-side fallback: "Voice transcription returned empty text" from API now also maps to the same user-friendly message.
+  - Removed temporary diagnostic logging from `ManageChatMediaService.transcribeVoice`.
+
 ### Fixed (superseded)
 
 - ~~**Fix: [[tts:…]] directive leakage in web chat + cross-channel TTS breakage:**~~ The directive-based TTS pipeline that caused this bug has been fully removed. The tool-call path does not use directives and is not affected.

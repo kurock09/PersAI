@@ -1,5 +1,44 @@
 # SESSION-HANDOFF
 
+## 2026-04-02 - UI polish, voice UX, Clerk proxy, ROADMAP update
+
+### What changed
+
+1. **Code syntax highlighting** — integrated `highlight.js` into web chat code blocks with 16 registered languages and custom dark/light token color schemes.
+2. **Theme refresh** — green accent palette replacing purple/indigo, warmer neutral tones across dark and light modes.
+3. **Voice recording UX** — client-side silence detection (bytes/sec ratio < 1000 for recordings >= 2s) now shows "No speech was detected in your recording" with guidance to check microphone settings, instead of the generic "Chat could not complete this turn" error. Server-side empty-transcription errors also map to the same message.
+4. **Clerk CDN proxy** — `next.config.ts` adds a rewrite for `/clerk-cdn/*` to self-host the Clerk JS bundle; `clerk.browser.js` added to `public/`.
+5. **Diagnostic log cleanup** — removed temporary `transcribeVoice` logging from `ManageChatMediaService`.
+6. **ROADMAP update** — Step 14 expanded with S14a–S14e items (persona identity, setup preview, admin ops, TTS refactor, bug fixes).
+
+### Files touched
+
+- `apps/web/app/app/_components/chat-message.tsx` (highlight.js integration)
+- `apps/web/app/app/_components/chat-input.tsx` (silence detection)
+- `apps/web/app/app/assistant-api-client.ts` (voice error mapping)
+- `apps/web/app/globals.css` (theme + hljs tokens)
+- `apps/web/app/page.tsx` (inlined sign-in button)
+- `apps/web/next.config.ts` (Clerk CDN proxy rewrite)
+- `apps/web/package.json` (`highlight.js`, `@clerk/clerk-js`)
+- `apps/web/public/clerk.browser.js` (new — self-hosted Clerk bundle)
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts` (removed diag logs)
+- `docs/ROADMAP.md` (Step 14 items)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+- `pnpm-lock.yaml`
+
+### Risks
+
+- Silence detection threshold (1000 bytes/sec) is heuristic; very quiet but valid recordings may trigger the warning. Can be tuned.
+- Self-hosted `clerk.browser.js` will need periodic updates when upgrading `@clerk/clerk-js`.
+
+### Next steps
+
+- Smoke test voice recording with correct microphone.
+- Web chat audio player for tool-generated TTS mp3.
+- Consider workspace file delivery tool for assistant.
+
+---
+
 ## 2026-04-02 - Feat: Admin full user delete + cron cleanup
 
 ### What changed

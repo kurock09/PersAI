@@ -5,42 +5,42 @@
    ────────────────────────────────────────────────────────── */
 
 :root {
-  --bg: #07070d;
-  --surface: #0f0f17;
-  --surface-raised: #171722;
-  --surface-hover: #1e1e2d;
-  --border: rgba(255, 255, 255, 0.06);
-  --border-strong: rgba(255, 255, 255, 0.12);
-  --ring: rgba(99, 102, 241, 0.35);
-  --text: #ededf0;
-  --text-muted: #7c7c96;
-  --text-subtle: #4a4a60;
-  --accent: #6366f1;
-  --accent-hover: #818cf8;
-  --accent-glow: rgba(99, 102, 241, 0.15);
+  --bg: #0c0c0c;
+  --surface: #151515;
+  --surface-raised: #1d1d1c;
+  --surface-hover: #262625;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+  --ring: rgba(102, 187, 106, 0.35);
+  --text: #eeeeed;
+  --text-muted: #8b8b86;
+  --text-subtle: #555551;
+  --accent: #66bb6a;
+  --accent-hover: #81c784;
+  --accent-glow: rgba(102, 187, 106, 0.15);
   --destructive: #ef4444;
   --destructive-hover: #dc2626;
-  --success: #22c55e;
+  --success: #10b981;
   --warning: #eab308;
 }
 
 :root.light {
-  --bg: #f8f9fb;
+  --bg: #f7f6f1;
   --surface: #ffffff;
-  --surface-raised: #f0f1f5;
-  --surface-hover: #e8e9ee;
+  --surface-raised: #efefe8;
+  --surface-hover: #e5e5db;
   --border: rgba(0, 0, 0, 0.08);
   --border-strong: rgba(0, 0, 0, 0.15);
-  --ring: rgba(99, 102, 241, 0.25);
-  --text: #111827;
-  --text-muted: #6b7280;
-  --text-subtle: #9ca3af;
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-glow: rgba(99, 102, 241, 0.1);
+  --ring: rgba(67, 160, 71, 0.25);
+  --text: #1a1a15;
+  --text-muted: #6b6b5e;
+  --text-subtle: #9c9c8c;
+  --accent: #43a047;
+  --accent-hover: #388e3c;
+  --accent-glow: rgba(67, 160, 71, 0.1);
   --destructive: #ef4444;
   --destructive-hover: #dc2626;
-  --success: #16a34a;
+  --success: #0d9668;
   --warning: #ca8a04;
 }
 
@@ -133,4 +133,125 @@
   50% {
     opacity: 0.7;
   }
+}
+
+/* ──────────────────────────────────────────────────────────
+   Code block — highlight.js token colors (dark / light)
+   ────────────────────────────────────────────────────────── */
+
+.code-block {
+  background: #111111;
+}
+.code-block-fade {
+  background: linear-gradient(to top, #111111, #11111180, transparent);
+}
+:root.light .code-block {
+  background: #f9f9f6;
+  border-left: 3px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+:root.light .code-block-fade {
+  background: linear-gradient(to top, #f9f9f6, #f9f9f680, transparent);
+}
+
+/* Dark theme tokens */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link {
+  color: #c792ea;
+}
+.hljs-function .hljs-keyword {
+  color: #c792ea;
+}
+.hljs-string,
+.hljs-title.class_.inherited__,
+.hljs-template-variable,
+.hljs-type,
+.hljs-addition {
+  color: #c3e88d;
+}
+.hljs-comment,
+.hljs-quote,
+.hljs-deletion,
+.hljs-meta {
+  color: #616161;
+}
+.hljs-number,
+.hljs-regexp,
+.hljs-literal,
+.hljs-bullet {
+  color: #f78c6c;
+}
+.hljs-title,
+.hljs-title.function_ {
+  color: #82aaff;
+}
+.hljs-variable,
+.hljs-attr,
+.hljs-tag,
+.hljs-name {
+  color: #f07178;
+}
+.hljs-built_in,
+.hljs-symbol {
+  color: #ffcb6b;
+}
+.hljs-params {
+  color: #d8dee9;
+}
+.hljs-attribute {
+  color: #ffcb6b;
+}
+
+/* Light theme tokens */
+:root.light .hljs-keyword,
+:root.light .hljs-selector-tag,
+:root.light .hljs-literal,
+:root.light .hljs-section,
+:root.light .hljs-link {
+  color: #7c4dff;
+}
+:root.light .hljs-function .hljs-keyword {
+  color: #7c4dff;
+}
+:root.light .hljs-string,
+:root.light .hljs-title.class_.inherited__,
+:root.light .hljs-template-variable,
+:root.light .hljs-type,
+:root.light .hljs-addition {
+  color: #2e7d32;
+}
+:root.light .hljs-comment,
+:root.light .hljs-quote,
+:root.light .hljs-deletion,
+:root.light .hljs-meta {
+  color: #9e9e9e;
+}
+:root.light .hljs-number,
+:root.light .hljs-regexp,
+:root.light .hljs-literal,
+:root.light .hljs-bullet {
+  color: #e65100;
+}
+:root.light .hljs-title,
+:root.light .hljs-title.function_ {
+  color: #1565c0;
+}
+:root.light .hljs-variable,
+:root.light .hljs-attr,
+:root.light .hljs-tag,
+:root.light .hljs-name {
+  color: #c62828;
+}
+:root.light .hljs-built_in,
+:root.light .hljs-symbol {
+  color: #f57f17;
+}
+:root.light .hljs-params {
+  color: #37474f;
+}
+:root.light .hljs-attribute {
+  color: #e65100;
 }
