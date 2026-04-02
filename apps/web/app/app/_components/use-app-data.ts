@@ -81,6 +81,14 @@ export function useAppData(): AppData {
       if (assistantRes.status === "fulfilled") {
         setAssistant(assistantRes.value);
         setAssistantResolved(true);
+      } else if (assistantRes.status === "rejected") {
+        setAssistant(null);
+        setAssistantResolved(true);
+        setError(
+          assistantRes.reason instanceof Error
+            ? assistantRes.reason.message
+            : "Assistant load failed."
+        );
       }
       if (chatsRes.status === "fulfilled") setChats(chatsRes.value);
       if (telegramRes.status === "fulfilled") setTelegram(telegramRes.value);
