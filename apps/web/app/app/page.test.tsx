@@ -4,15 +4,13 @@ import ProtectedAppPage from "./page";
 
 const clerkServerMocks = vi.hoisted(() => {
   return {
-    protect: vi.fn().mockResolvedValue(undefined)
+    auth: vi.fn().mockResolvedValue({ userId: "user_1" })
   };
 });
 
 vi.mock("@clerk/nextjs/server", () => {
   return {
-    auth: {
-      protect: clerkServerMocks.protect
-    }
+    auth: clerkServerMocks.auth
   };
 });
 
@@ -23,11 +21,11 @@ vi.mock("./_components/app-home-page", () => {
 });
 
 describe("Protected /app page", () => {
-  it("calls auth.protect and renders home page", async () => {
+  it("renders home when signed in", async () => {
     const view = await ProtectedAppPage();
     render(view);
 
-    expect(clerkServerMocks.protect).toHaveBeenCalledTimes(1);
+    expect(clerkServerMocks.auth).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("app-home-page")).toBeInTheDocument();
   });
 });
