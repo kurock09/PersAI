@@ -4,7 +4,11 @@ const isProtectedRoute = createRouteMatcher(["/app(.*)", "/admin(.*)", "/api/att
 
 export default clerkMiddleware(async (auth, req) => {
   if (isProtectedRoute(req)) {
-    await auth.protect();
+    const signIn = new URL("/sign-in", req.url);
+    signIn.searchParams.set("redirect_url", `${req.nextUrl.pathname}${req.nextUrl.search}`);
+    await auth.protect({
+      unauthenticatedUrl: signIn.toString()
+    });
   }
 });
 

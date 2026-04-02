@@ -85,6 +85,8 @@ web:
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
     NEXT_PUBLIC_CLERK_PROXY_URL: "https://persai.dev/clerk-proxy"
+    NEXT_PUBLIC_CLERK_SIGN_IN_URL: "/sign-in"
+    NEXT_PUBLIC_CLERK_SIGN_UP_URL: "/sign-up"
     PERSAI_WEB_API_PROXY_TARGET: "http://api:3001"
   secretEnv:
     CLERK_SECRET_KEY:

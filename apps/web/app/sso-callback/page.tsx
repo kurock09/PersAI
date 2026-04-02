@@ -2,10 +2,12 @@
 
 import { useClerk, useSignIn, useSignUp } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 
 export default function SSOCallbackPage() {
+  const t = useTranslations("auth");
   const clerk = useClerk();
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
@@ -101,7 +103,7 @@ export default function SSOCallbackPage() {
     <div className="flex min-h-screen items-center justify-center">
       <div className="flex flex-col items-center gap-3">
         <Loader2 className="h-6 w-6 animate-spin text-accent" />
-        <p className="text-sm text-text-muted">Signing you in...</p>
+        <p className="text-sm text-text-muted">{t("signingIn")}</p>
       </div>
     </div>
   );

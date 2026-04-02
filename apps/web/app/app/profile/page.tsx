@@ -13,7 +13,12 @@ export default function ProfilePage() {
 
   if (!user) return null;
 
-  const initials = (user.firstName?.[0] ?? user.username?.[0] ?? "U").toUpperCase();
+  const displayName = user.fullName ?? user.username ?? t("unnamedUser");
+  const initials = (
+    user.firstName?.[0] ??
+    user.username?.[0] ??
+    t("unnamedUser").charAt(0)
+  ).toUpperCase();
 
   return (
     <div className="mx-auto max-w-lg px-4 py-8">
@@ -41,9 +46,7 @@ export default function ProfilePage() {
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold text-text">
-              {user.fullName ?? user.username ?? "User"}
-            </p>
+            <p className="truncate text-base font-semibold text-text">{displayName}</p>
             <p className="truncate text-sm text-text-muted">
               {user.primaryEmailAddress?.emailAddress}
             </p>

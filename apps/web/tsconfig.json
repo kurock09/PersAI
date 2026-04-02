@@ -2,6 +2,8 @@
   "extends": "@persai/tsconfig/next.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "paths": {
       "@/*": ["./*"]
     },

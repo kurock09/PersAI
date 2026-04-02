@@ -296,7 +296,8 @@
     "profileDetails": "Profile details",
     "firstName": "First name",
     "lastName": "Last name",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "unnamedUser": "User"
   },
   "persona": {
     "casual": "Casual",

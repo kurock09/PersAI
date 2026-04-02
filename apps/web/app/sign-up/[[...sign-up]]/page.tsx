@@ -3,12 +3,14 @@
 import { useState, useCallback } from "react";
 import { useSignUp, useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
 type Stage = "form" | "verify";
 
 export default function SignUpPage() {
+  const t = useTranslations("auth");
   const { signUp, errors: clerkErrors, fetchStatus } = useSignUp();
   const { isSignedIn } = useAuth();
   const router = useRouter();
@@ -30,12 +32,12 @@ export default function SignUpPage() {
         redirectCallbackUrl: "/sso-callback"
       });
       if (ssoError) {
-        setError(ssoError.longMessage ?? ssoError.message ?? "OAuth failed");
+        setError(ssoError.longMessage ?? ssoError.message ?? t("oauthFailed"));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(e instanceof Error ? e.message : t("somethingWrong"));
     }
-  }, [signUp]);
+  }, [signUp, t]);
 
   const handleSubmit = useCallback(async () => {
     if (!email.trim() || !password) return;
@@ -46,16 +48,16 @@ export default function SignUpPage() {
         password
       });
       if (pwError) {
-        setError(pwError.longMessage ?? pwError.message ?? "Sign up failed");
+        setError(pwError.longMessage ?? pwError.message ?? t("signUpFailed"));
         return;
       }
 
       await signUp.verifications.sendEmailCode();
       setStage("verify");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(e instanceof Error ? e.message : t("somethingWrong"));
     }
-  }, [email, password, signUp]);
+  }, [email, password, signUp, t]);
 
   const handleVerify = useCallback(async () => {
     if (!code.trim()) return;
@@ -75,12 +77,12 @@ export default function SignUpPage() {
           }
         });
       } else {
-        setError("Verification incomplete. Please try again.");
+        setError(t("verificationIncomplete"));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Verification failed");
+      setError(e instanceof Error ? e.message : t("verificationFailed"));
     }
-  }, [code, signUp, router]);
+  }, [code, signUp, router, t]);
 
   if (signUp.status === "complete" || isSignedIn) return null;
 
@@ -97,13 +99,13 @@ export default function SignUpPage() {
         <h1 className="mb-2 text-3xl font-bold tracking-tight sm:text-4xl">
           Pers<span className="text-accent">AI</span>
         </h1>
-        <p className="mb-8 text-sm text-text-muted">Your personal AI assistant</p>
+        <p className="mb-8 text-sm text-text-muted">{t("tagline")}</p>
 
         <div className="w-full rounded-2xl border border-border bg-surface p-6 shadow-xl">
           {stage === "form" && (
             <>
-              <h2 className="text-lg font-semibold text-text">Create an account</h2>
-              <p className="mt-1 text-xs text-text-muted">Get started with PersAI</p>
+              <h2 className="text-lg font-semibold text-text">{t("signUpTitle")}</h2>
+              <p className="mt-1 text-xs text-text-muted">{t("signUpSubtitle")}</p>
 
               <button
                 type="button"
@@ -112,23 +114,23 @@ export default function SignUpPage() {
                 className="mt-6 flex w-full cursor-pointer items-center justify-center gap-3 rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-60"
               >
                 <GoogleIcon />
-                Continue with Google
+                {t("continueGoogle")}
               </button>
 
               <div className="my-5 flex items-center gap-3">
                 <div className="h-px flex-1 bg-border" />
-                <span className="text-xs text-text-subtle">or</span>
+                <span className="text-xs text-text-subtle">{t("or")}</span>
                 <div className="h-px flex-1 bg-border" />
               </div>
 
               <label className="mb-1.5 block text-xs font-medium text-text-muted">
-                Email address
+                {t("emailLabel")}
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder={t("emailPlaceholder")}
                 autoFocus
                 className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
@@ -137,7 +139,7 @@ export default function SignUpPage() {
               )}
 
               <label className="mt-4 mb-1.5 block text-xs font-medium text-text-muted">
-                Password
+                {t("passwordLabel")}
               </label>
               <input
                 type="password"
@@ -146,7 +148,7 @@ export default function SignUpPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleSubmit();
                 }}
-                placeholder="Create a password"
+                placeholder={t("passwordCreatePlaceholder")}
                 className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
               {fieldErrors?.password && (
@@ -168,7 +170,7 @@ export default function SignUpPage() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
-                    Create account
+                    {t("signUpBtn")}
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
@@ -187,12 +189,10 @@ export default function SignUpPage() {
                 }}
                 className="mb-4 cursor-pointer text-xs text-text-muted transition-colors hover:text-text"
               >
-                &larr; Back
+                {t("back")}
               </button>
-              <h2 className="text-lg font-semibold text-text">Verify your email</h2>
-              <p className="mt-1 text-xs text-text-muted">
-                We sent a code to <span className="font-medium text-text">{email}</span>
-              </p>
+              <h2 className="text-lg font-semibold text-text">{t("verifyEmailTitle")}</h2>
+              <p className="mt-1 text-xs text-text-muted">{t("verifyDesc", { email })}</p>
 
               <input
                 type="text"
@@ -201,7 +201,7 @@ export default function SignUpPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleVerify();
                 }}
-                placeholder="Enter verification code"
+                placeholder={t("codePlaceholder")}
                 autoFocus
                 maxLength={8}
                 className="mt-5 w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-lg tracking-widest text-text placeholder:text-sm placeholder:tracking-normal placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
@@ -221,7 +221,7 @@ export default function SignUpPage() {
                     : "cursor-default bg-surface-raised text-text-subtle"
                 )}
               >
-                {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+                {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : t("verifyBtn")}
               </button>
 
               <button
@@ -230,7 +230,7 @@ export default function SignUpPage() {
                 disabled={isBusy}
                 className="mt-3 w-full cursor-pointer text-center text-xs text-text-muted transition-colors hover:text-accent"
               >
-                Resend code
+                {t("resendCode")}
               </button>
             </>
           )}
@@ -245,12 +245,12 @@ export default function SignUpPage() {
         </div>
 
         <p className="mt-6 text-xs text-text-subtle">
-          Already have an account?{" "}
+          {t("hasAccount")}{" "}
           <a
             href="/sign-in"
             className="font-medium text-accent transition-colors hover:text-accent-hover"
           >
-            Sign in
+            {t("signInLink")}
           </a>
         </p>
       </div>

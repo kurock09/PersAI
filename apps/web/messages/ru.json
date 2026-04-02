@@ -296,7 +296,8 @@
     "profileDetails": "Данные профиля",
     "firstName": "Имя",
     "lastName": "Фамилия",
-    "signOut": "Выйти"
+    "signOut": "Выйти",
+    "unnamedUser": "Пользователь"
   },
   "persona": {
     "casual": "Свободный",

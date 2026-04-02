@@ -3,12 +3,14 @@
 import { useState, useCallback } from "react";
 import { useSignIn } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
 type Stage = "form" | "verify";
 
 export default function SignInPage() {
+  const t = useTranslations("auth");
   const { signIn, errors: clerkErrors, fetchStatus } = useSignIn();
   const router = useRouter();
 
@@ -42,12 +44,12 @@ export default function SignInPage() {
         redirectCallbackUrl: "/sso-callback"
       });
       if (ssoError) {
-        setError(ssoError.longMessage ?? ssoError.message ?? "OAuth failed");
+        setError(ssoError.longMessage ?? ssoError.message ?? t("oauthFailed"));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(e instanceof Error ? e.message : t("somethingWrong"));
     }
-  }, [signIn]);
+  }, [signIn, t]);
 
   const handlePasswordSubmit = useCallback(async () => {
     if (!email.trim() || !password) return;
@@ -58,7 +60,7 @@ export default function SignInPage() {
         password
       });
       if (pwError) {
-        setError(pwError.longMessage ?? pwError.message ?? "Sign in failed");
+        setError(pwError.longMessage ?? pwError.message ?? t("signInFailed"));
         return;
       }
 
@@ -72,16 +74,16 @@ export default function SignInPage() {
           await signIn.mfa.sendEmailCode();
           setStage("verify");
         } else {
-          setError("Additional verification required");
+          setError(t("additionalVerification"));
         }
       } else if (signIn.status === "needs_second_factor") {
         await signIn.mfa.sendEmailCode();
         setStage("verify");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(e instanceof Error ? e.message : t("somethingWrong"));
     }
-  }, [email, password, signIn, finalize]);
+  }, [email, password, signIn, finalize, t]);
 
   const handleVerifyCode = useCallback(async () => {
     if (!code.trim()) return;
@@ -91,12 +93,12 @@ export default function SignInPage() {
       if (signIn.status === "complete") {
         await finalize();
       } else {
-        setError("Verification failed. Try again.");
+        setError(t("verificationFailed"));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Verification failed");
+      setError(e instanceof Error ? e.message : t("verificationFailed"));
     }
-  }, [code, signIn, finalize]);
+  }, [code, signIn, finalize, t]);
 
   const fieldErrors = clerkErrors?.fields as unknown as
     | Record<string, { message: string }>
@@ -111,13 +113,13 @@ export default function SignInPage() {
         <h1 className="mb-2 text-3xl font-bold tracking-tight sm:text-4xl">
           Pers<span className="text-accent">AI</span>
         </h1>
-        <p className="mb-8 text-sm text-text-muted">Your personal AI assistant</p>
+        <p className="mb-8 text-sm text-text-muted">{t("tagline")}</p>
 
         <div className="w-full rounded-2xl border border-border bg-surface p-6 shadow-xl">
           {stage === "form" && (
             <>
-              <h2 className="text-lg font-semibold text-text">Sign in</h2>
-              <p className="mt-1 text-xs text-text-muted">Welcome back</p>
+              <h2 className="text-lg font-semibold text-text">{t("signInTitle")}</h2>
+              <p className="mt-1 text-xs text-text-muted">{t("signInWelcome")}</p>
 
               {/* Google OAuth */}
               <button
@@ -127,24 +129,24 @@ export default function SignInPage() {
                 className="mt-6 flex w-full cursor-pointer items-center justify-center gap-3 rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-60"
               >
                 <GoogleIcon />
-                Continue with Google
+                {t("continueGoogle")}
               </button>
 
               <div className="my-5 flex items-center gap-3">
                 <div className="h-px flex-1 bg-border" />
-                <span className="text-xs text-text-subtle">or</span>
+                <span className="text-xs text-text-subtle">{t("or")}</span>
                 <div className="h-px flex-1 bg-border" />
               </div>
 
               {/* Email */}
               <label className="mb-1.5 block text-xs font-medium text-text-muted">
-                Email address
+                {t("emailLabel")}
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder={t("emailPlaceholder")}
                 autoFocus
                 className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
@@ -154,7 +156,7 @@ export default function SignInPage() {
 
               {/* Password */}
               <label className="mt-4 mb-1.5 block text-xs font-medium text-text-muted">
-                Password
+                {t("passwordLabel")}
               </label>
               <input
                 type="password"
@@ -163,7 +165,7 @@ export default function SignInPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handlePasswordSubmit();
                 }}
-                placeholder="Enter your password"
+                placeholder={t("passwordPlaceholder")}
                 className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
               {fieldErrors?.password && (
@@ -186,7 +188,7 @@ export default function SignInPage() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
-                    Sign in
+                    {t("signInBtn")}
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
@@ -206,12 +208,10 @@ export default function SignInPage() {
                 }}
                 className="mb-4 cursor-pointer text-xs text-text-muted transition-colors hover:text-text"
               >
-                &larr; Back
+                {t("back")}
               </button>
-              <h2 className="text-lg font-semibold text-text">Verify your identity</h2>
-              <p className="mt-1 text-xs text-text-muted">
-                We sent a code to <span className="font-medium text-text">{email}</span>
-              </p>
+              <h2 className="text-lg font-semibold text-text">{t("verifyTitle")}</h2>
+              <p className="mt-1 text-xs text-text-muted">{t("verifyDesc", { email })}</p>
 
               <input
                 type="text"
@@ -220,7 +220,7 @@ export default function SignInPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleVerifyCode();
                 }}
-                placeholder="Enter verification code"
+                placeholder={t("codePlaceholder")}
                 autoFocus
                 maxLength={8}
                 className="mt-5 w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-lg tracking-widest text-text placeholder:text-sm placeholder:tracking-normal placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
@@ -237,7 +237,7 @@ export default function SignInPage() {
                     : "cursor-default bg-surface-raised text-text-subtle"
                 )}
               >
-                {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+                {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : t("verifyBtn")}
               </button>
 
               <button
@@ -246,7 +246,7 @@ export default function SignInPage() {
                 disabled={isBusy}
                 className="mt-3 w-full cursor-pointer text-center text-xs text-text-muted transition-colors hover:text-accent"
               >
-                Resend code
+                {t("resendCode")}
               </button>
             </>
           )}
@@ -259,12 +259,12 @@ export default function SignInPage() {
         </div>
 
         <p className="mt-6 text-xs text-text-subtle">
-          Don&apos;t have an account?{" "}
+          {t("noAccount")}{" "}
           <a
             href="/sign-up"
             className="font-medium text-accent transition-colors hover:text-accent-hover"
           >
-            Sign up
+            {t("signUpLink")}
           </a>
         </p>
       </div>
