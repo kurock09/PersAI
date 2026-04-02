@@ -6,6 +6,10 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     app.kubernetes.io/name: web
+  {{- if and .Values.ingress.enabled .Values.web.backendConfig.enabled }}
+  annotations:
+    cloud.google.com/backend-config: '{"ports": {"http":"{{ .Values.web.backendConfig.name }}"}}'
+  {{- end }}
 spec:
   type: {{ .Values.web.service.type }}
   selector:

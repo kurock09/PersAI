@@ -103,6 +103,11 @@ web:
   service:
     type: ClusterIP
     port: 3000
+  # GKE Ingress (GCLB): default backend timeout is ~30s; SSE chat/image tools need longer.
+  backendConfig:
+    enabled: false
+    name: persai-web-backend-config
+    timeoutSec: 3600
 
 openclaw:
   enabled: false

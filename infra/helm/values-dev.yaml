@@ -110,6 +110,11 @@ web:
   service:
     type: ClusterIP
     port: 3000
+  # Long SSE streams (e.g. image generation ~30s+) exceed GCLB default ~30s idle timeout without this.
+  backendConfig:
+    enabled: true
+    name: persai-web-backend-config
+    timeoutSec: 3600
 
 openclaw:
   enabled: true

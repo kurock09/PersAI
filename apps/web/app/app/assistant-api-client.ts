@@ -432,6 +432,20 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
     };
   }
 
+  if (
+    normalized.includes("failed to fetch") ||
+    normalized.includes("networkerror") ||
+    normalized.includes("load failed") ||
+    normalized.includes("err_network")
+  ) {
+    return {
+      classId: "stream_incomplete",
+      message: "The connection dropped while the reply was still generating.",
+      guidance:
+        "Long replies (e.g. images) can hit proxy timeouts. Refresh the chat — the answer is often saved. If it repeats, contact support."
+    };
+  }
+
   return {
     classId: "unknown",
     message: "Chat could not complete this turn.",
