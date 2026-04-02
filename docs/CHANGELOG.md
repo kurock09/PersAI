@@ -21,6 +21,10 @@
 
 ### Changed
 
+- **Auth: post-registration navigation** — After email/password or Google sign-up, navigation uses a **full document load** to `/app/setup` (not client `router.push` to `/app`) so Clerk session cookies are present before the next request; avoids a race where `/app` server `auth()` redirected to `/sign-in` while the session was already active (common on mobile). SSO callback sign-up finalization also targets `/app/setup`. Sign-in finalization uses the same full navigation and honors safe `?redirect_url=` (paths under `/app` or `/admin` only). New helper: `app/lib/clerk-navigation.ts`.
+
+- **Web chat: voice player width** — User and assistant voice bars share the same min/max width; voice-only user bubbles get a fixed cap so the strip is not shrink-wrapped narrower than the assistant’s (`chat-message.tsx`, `voice-message-player.tsx`).
+
 - **Web voice messages: single history bubble + Telegram-style player:**
   - **API:** `POST .../stage-attachment` still creates a staging user row, but `content` is now empty (no `(attached: filename)` line). `PrepareAssistantInboundTurnService` runs `MergeStagedWebChatAttachmentsService` for `web_chat`: moves attachments from recent staging-only user messages onto the new transcript message and deletes the staging rows (5-minute window; matches legacy `(attached: …)` rows too). `userMessage.attachments` in prepare/transport is populated from DB after merge.
   - **Web:** `use-chat` uses `URL.createObjectURL` for audio/video while uploading; replaces each local attachment with the real id from `stage-attachment` response; `onCompleted` syncs `userMessage.attachments` from the stream payload. User bubbles with audio/voice attachments hide visible transcript text (model still receives transcript). Added `voice-message-player.tsx` (Telegram-like play/pause + progress, accent styling). i18n: `playVoice`, `pauseVoice`, `voiceSeek` (EN/RU).

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
+import { navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
 
 export default function SSOCallbackPage() {
   const t = useTranslations("auth");
@@ -26,12 +27,7 @@ export default function SSOCallbackPage() {
       const finalizeSignIn = async () => {
         await signIn.finalize({
           navigate: async ({ decorateUrl }) => {
-            const url = decorateUrl("/app");
-            if (url.startsWith("http")) {
-              window.location.href = url;
-            } else {
-              router.push(url);
-            }
+            navigateAfterClerkAuth(decorateUrl("/app"));
           }
         });
       };
@@ -39,12 +35,7 @@ export default function SSOCallbackPage() {
       const finalizeSignUp = async () => {
         await signUp.finalize({
           navigate: async ({ decorateUrl }) => {
-            const url = decorateUrl("/app");
-            if (url.startsWith("http")) {
-              window.location.href = url;
-            } else {
-              router.push(url);
-            }
+            navigateAfterClerkAuth(decorateUrl("/app/setup"));
           }
         });
       };
@@ -83,12 +74,7 @@ export default function SSOCallbackPage() {
           await clerk.setActive({
             session: sessionId,
             navigate: async ({ decorateUrl }) => {
-              const url = decorateUrl("/app");
-              if (url.startsWith("http")) {
-                window.location.href = url;
-              } else {
-                router.push(url);
-              }
+              navigateAfterClerkAuth(decorateUrl("/app"));
             }
           });
           return;

@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-04-02 - Fix: sign-up redirected to sign-in instead of `/app/setup`
+
+### What changed
+
+1. **Root cause** — After sign-up, `router.push("/app")` triggered the `/app` RSC before Clerk cookies were reliably on the request; `auth()` in `app/page.tsx` sent users to `/sign-in` while the client already had a session (“already signed in”).
+2. **Fix** — `navigateAfterClerkAuth` (`window.location.assign` / `replace`) after `signUp.finalize` and on the sign-up complete splash; targets **`/app/setup`** for new users. Google sign-up `redirectUrl` → `/app/setup`. SSO callback `finalizeSignUp` → `/app/setup`. Sign-in `finalize` uses the same full navigation and **`getSafeRedirectPathFromSearch`** for `redirect_url` (restricted to `/app` and `/admin` prefixes).
+
+### Files touched
+
+- `apps/web/app/lib/clerk-navigation.ts` (new)
+- `apps/web/app/sign-up/[[...sign-up]]/page.tsx`, `sign-in/[[...sign-in]]/page.tsx`, `sso-callback/page.tsx`
+- `apps/web/app/app/_components/chat-message.tsx`, `voice-message-player.tsx` (voice bar width alignment — same commit batch)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Ready commit message
+
+- `fix(web): post-sign-up full navigation to /app/setup (session cookie race)`
+
+---
+
 ## 2026-04-02 - Web voice UX: one bubble, no visible transcript, Telegram-style player
 
 ### What changed

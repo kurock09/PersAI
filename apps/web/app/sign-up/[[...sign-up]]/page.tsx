@@ -2,10 +2,10 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useSignUp, useAuth } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
 
 type Stage = "form" | "verify";
 
@@ -13,8 +13,6 @@ export default function SignUpPage() {
   const t = useTranslations("auth");
   const { signUp, errors: clerkErrors, fetchStatus } = useSignUp();
   const { isSignedIn } = useAuth();
-  const router = useRouter();
-
   const [stage, setStage] = useState<Stage>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,7 +26,7 @@ export default function SignUpPage() {
     try {
       const { error: ssoError } = await signUp.sso({
         strategy: "oauth_google",
-        redirectUrl: "/app",
+        redirectUrl: "/app/setup",
         redirectCallbackUrl: "/sso-callback"
       });
       if (ssoError) {
@@ -68,12 +66,7 @@ export default function SignUpPage() {
       if (signUp.status === "complete") {
         await signUp.finalize({
           navigate: async ({ decorateUrl }) => {
-            const url = decorateUrl("/app");
-            if (url.startsWith("http")) {
-              window.location.href = url;
-            } else {
-              router.push(url);
-            }
+            navigateAfterClerkAuth(decorateUrl("/app/setup"));
           }
         });
       } else {
@@ -82,7 +75,7 @@ export default function SignUpPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : t("verificationFailed"));
     }
-  }, [code, signUp, router, t]);
+  }, [code, signUp, t]);
 
   if (signUp.status === "complete" || isSignedIn) {
     return <SignUpCompleteSplash />;
@@ -262,15 +255,14 @@ export default function SignUpPage() {
 
 /** Avoid blank screen: Clerk may mark sign-up complete before `finalize` navigation runs. */
 function SignUpCompleteSplash() {
-  const router = useRouter();
   const t = useTranslations("auth");
 
   useEffect(() => {
     const id = window.setTimeout(() => {
-      router.replace("/app");
+      navigateAfterClerkAuth("/app/setup", "replace");
     }, 150);
     return () => window.clearTimeout(id);
-  }, [router]);
+  }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg px-4">

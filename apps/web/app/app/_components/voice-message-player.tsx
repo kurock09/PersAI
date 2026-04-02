@@ -16,11 +16,9 @@ function formatVoiceTime(totalSeconds: number): string {
 type VoiceMessagePlayerProps = {
   src: string;
   className?: string;
-  /** Compact (user bubble) vs slightly wider */
-  variant?: "user" | "assistant";
 };
 
-export function VoiceMessagePlayer({ src, className, variant = "user" }: VoiceMessagePlayerProps) {
+export function VoiceMessagePlayer({ src, className }: VoiceMessagePlayerProps) {
   const t = useTranslations("chat");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -97,8 +95,7 @@ export function VoiceMessagePlayer({ src, className, variant = "user" }: VoiceMe
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-full border border-border/80 bg-surface-raised/90 py-1.5 pl-1.5 pr-3 shadow-sm",
-        variant === "user" ? "max-w-[min(100%,240px)]" : "max-w-[min(100%,280px)]",
+        "flex w-full min-w-[min(100%,260px)] max-w-[min(100%,320px)] items-center gap-2 rounded-full border border-border/80 bg-surface-raised/90 py-1.5 pl-1.5 pr-3 shadow-sm",
         className
       )}
     >

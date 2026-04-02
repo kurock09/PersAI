@@ -2,18 +2,16 @@
 
 import { useState, useCallback } from "react";
 import { useSignIn } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { getSafeRedirectPathFromSearch, navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
 
 type Stage = "form" | "verify";
 
 export default function SignInPage() {
   const t = useTranslations("auth");
   const { signIn, errors: clerkErrors, fetchStatus } = useSignIn();
-  const router = useRouter();
-
   const [stage, setStage] = useState<Stage>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,15 +23,11 @@ export default function SignInPage() {
   const finalize = useCallback(async () => {
     await signIn.finalize({
       navigate: async ({ decorateUrl }) => {
-        const url = decorateUrl("/app");
-        if (url.startsWith("http")) {
-          window.location.href = url;
-        } else {
-          router.push(url);
-        }
+        const target = getSafeRedirectPathFromSearch(window.location.search) ?? "/app";
+        navigateAfterClerkAuth(decorateUrl(target));
       }
     });
-  }, [signIn, router]);
+  }, [signIn]);
 
   const handleOAuth = useCallback(async () => {
     setError(null);

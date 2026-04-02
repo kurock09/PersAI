@@ -341,18 +341,16 @@ function userMessageHasVoiceAttachment(attachments: ChatAttachment[] | undefined
 
 function AttachmentStrip({
   attachments,
-  variant,
   className
 }: {
   attachments: ChatAttachment[];
-  variant: "user" | "assistant";
   className?: string;
 }) {
   const t = useTranslations("chat");
   if (attachments.length === 0) return null;
 
   return (
-    <div className={cn("mt-2 flex flex-wrap gap-2", className)}>
+    <div className={cn("mt-2 flex w-full min-w-0 flex-wrap gap-2", className)}>
       {attachments.map((att) => {
         const isPending = att.processingStatus === "pending";
         const isFailed = att.processingStatus === "failed";
@@ -401,13 +399,13 @@ function AttachmentStrip({
           return (
             <div
               key={att.id}
-              className={cn("w-full max-w-[260px]", isPending && audioSrc && "opacity-80")}
+              className={cn(
+                "w-full max-w-[min(100%,320px)]",
+                isPending && audioSrc && "opacity-80"
+              )}
             >
               {audioSrc ? (
-                <VoiceMessagePlayer
-                  src={audioSrc}
-                  variant={variant === "user" ? "user" : "assistant"}
-                />
+                <VoiceMessagePlayer src={audioSrc} />
               ) : (
                 <div className="flex items-center gap-2 rounded-full border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
                   {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
@@ -499,7 +497,10 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         className={cn(
           "max-w-[92%] min-w-0 sm:max-w-[85%] md:max-w-[75%]",
           isUser
-            ? "rounded-2xl rounded-br-md bg-accent/15 px-3 py-2 text-text md:px-4 md:py-2.5"
+            ? cn(
+                "rounded-2xl rounded-br-md bg-accent/15 px-3 py-2 text-text md:px-4 md:py-2.5",
+                hideUserVoiceTranscript && "w-[min(100%,320px)] max-w-[min(100%,320px)]"
+              )
             : "flex-1 md:max-w-2xl"
         )}
       >
@@ -513,7 +514,6 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             {message.attachments && message.attachments.length > 0 && (
               <AttachmentStrip
                 attachments={message.attachments}
-                variant="user"
                 {...(hideUserVoiceTranscript ? { className: "mt-0" } : {})}
               />
             )}
@@ -534,7 +534,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
             )}
             {message.attachments && message.attachments.length > 0 && (
-              <AttachmentStrip attachments={message.attachments} variant="assistant" />
+              <AttachmentStrip attachments={message.attachments} />
             )}
           </div>
         )}
