@@ -21,6 +21,10 @@
 
 ### Changed
 
+- **Web voice messages: single history bubble + Telegram-style player:**
+  - **API:** `POST .../stage-attachment` still creates a staging user row, but `content` is now empty (no `(attached: filename)` line). `PrepareAssistantInboundTurnService` runs `MergeStagedWebChatAttachmentsService` for `web_chat`: moves attachments from recent staging-only user messages onto the new transcript message and deletes the staging rows (5-minute window; matches legacy `(attached: …)` rows too). `userMessage.attachments` in prepare/transport is populated from DB after merge.
+  - **Web:** `use-chat` uses `URL.createObjectURL` for audio/video while uploading; replaces each local attachment with the real id from `stage-attachment` response; `onCompleted` syncs `userMessage.attachments` from the stream payload. User bubbles with audio/voice attachments hide visible transcript text (model still receives transcript). Added `voice-message-player.tsx` (Telegram-like play/pause + progress, accent styling). i18n: `playVoice`, `pauseVoice`, `voiceSeek` (EN/RU).
+
 - **Docs + config: `OPENCLAW_ADAPTER_TIMEOUT_MS` baseline 90s everywhere:** `packages/config/src/api-config.ts` Zod default is `90000` (was `3000`); `apps/api/.env.local.example` and `.env.dev.example` use `90000`. Updated `docs/API-BOUNDARY.md`, `README.md`, `docs/LIVE-TEST-HYBRID.md`, and `docs/ADR/048-native-openclaw-runtime-from-persai-apply-chat.md` so they match dev Helm (`infra/helm/values-dev.yaml` already `90000`) instead of stale `15000` / `3000` wording.
 
 - **Infra: public domain + unified GKE Ingress for persai.dev:**

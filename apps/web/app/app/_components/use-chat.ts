@@ -115,7 +115,10 @@ export function useChat(threadKey: string): UseChatReturn {
         sizeBytes: f.size,
         processingStatus: "pending",
         createdAt: new Date().toISOString(),
-        localPreviewUrl: f.type.startsWith("image/") ? URL.createObjectURL(f) : undefined
+        localPreviewUrl:
+          f.type.startsWith("image/") || f.type.startsWith("audio/") || f.type.startsWith("video/")
+            ? URL.createObjectURL(f)
+            : undefined
       }));
 
       const userMsgId = `local-user-${Date.now()}`;
@@ -146,21 +149,32 @@ export function useChat(threadKey: string): UseChatReturn {
 
       if (pendingFiles.length > 0) {
         try {
-          for (const file of pendingFiles) {
-            await stageWebChatAttachment(token, threadKey, file);
+          for (let i = 0; i < pendingFiles.length; i++) {
+            const file = pendingFiles[i]!;
+            const staged = await stageWebChatAttachment(token, threadKey, file);
+            const u = staged.attachment;
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== userMsgId) return m;
+                const next = [...(m.attachments ?? [])];
+                const prevEntry = next[i];
+                if (prevEntry?.localPreviewUrl) {
+                  URL.revokeObjectURL(prevEntry.localPreviewUrl);
+                }
+                next[i] = {
+                  id: u.id,
+                  attachmentType: u.attachmentType,
+                  originalFilename: u.originalFilename ?? file.name,
+                  mimeType: u.mimeType,
+                  sizeBytes: u.sizeBytes,
+                  processingStatus: u.processingStatus as ChatAttachment["processingStatus"],
+                  createdAt: u.createdAt,
+                  localPreviewUrl: undefined
+                };
+                return { ...m, attachments: next };
+              })
+            );
           }
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === userMsgId
-                ? {
-                    ...m,
-                    attachments: (m.attachments ?? []).map((a) =>
-                      a.processingStatus === "pending" ? { ...a, processingStatus: "ready" } : a
-                    )
-                  }
-                : m
-            )
-          );
         } catch {
           setIssue(toWebChatUxIssue("Failed to upload attachments. Please try again."));
           setIsStreaming(false);
@@ -255,7 +269,11 @@ export function useChat(threadKey: string): UseChatReturn {
               if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
               flushDelta();
               const t = transport as {
-                userMessage?: { id?: string; chatId?: string };
+                userMessage?: {
+                  id?: string;
+                  chatId?: string;
+                  attachments?: ChatAttachment[];
+                };
                 assistantMessage?: {
                   id?: string;
                   attachments?: ChatAttachment[];
@@ -270,6 +288,9 @@ export function useChat(threadKey: string): UseChatReturn {
                 t.assistantMessage.attachments.length > 0
                   ? (t.assistantMessage.attachments as ChatAttachment[])
                   : undefined;
+              const userServerAttachments = Array.isArray(t?.userMessage?.attachments)
+                ? t.userMessage.attachments
+                : undefined;
               setMessages((prev) =>
                 prev.map((m) => {
                   if (m.id === assistantMsgId && newAssistantId) {
@@ -281,7 +302,26 @@ export function useChat(threadKey: string): UseChatReturn {
                     };
                   }
                   if (m.id === userMsgId && realUserMsgId) {
-                    return { ...m, id: realUserMsgId };
+                    for (const a of m.attachments ?? []) {
+                      if (a.localPreviewUrl) URL.revokeObjectURL(a.localPreviewUrl);
+                    }
+                    const nextUserAtts =
+                      userServerAttachments !== undefined && userServerAttachments.length > 0
+                        ? userServerAttachments.map((a) => ({
+                            id: a.id,
+                            attachmentType: a.attachmentType,
+                            originalFilename: a.originalFilename,
+                            mimeType: a.mimeType,
+                            sizeBytes: a.sizeBytes,
+                            processingStatus: a.processingStatus,
+                            createdAt: a.createdAt
+                          }))
+                        : (m.attachments ?? []).map((a) => {
+                            const next = { ...a };
+                            delete next.localPreviewUrl;
+                            return next;
+                          });
+                    return { ...m, id: realUserMsgId, attachments: nextUserAtts };
                   }
                   return m;
                 })

@@ -7,14 +7,22 @@ import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-c
 import { EnforceAbuseRateLimitService } from "./enforce-abuse-rate-limit.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { Assistant } from "../domain/assistant.entity";
-import type { AssistantWebChatMessageState, AssistantWebChatState } from "./web-chat.types";
+import type {
+  AssistantWebChatMessageAttachmentState,
+  AssistantWebChatMessageState,
+  AssistantWebChatState
+} from "./web-chat.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
   type AssistantInboundSurface,
   toAssistantInboundAbuseSurface
 } from "./assistant-inbound.types";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
-
+import { MergeStagedWebChatAttachmentsService } from "./merge-staged-web-chat-attachments.service";
+import {
+  ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
+  type AssistantChatMessageAttachmentRepository
+} from "../domain/assistant-chat-message-attachment.repository";
 export interface PrepareAssistantInboundTurnInput {
   userId: string;
   surface: AssistantInboundSurface;
@@ -43,7 +51,10 @@ export class PrepareAssistantInboundTurnService {
     private readonly enforceAbuseRateLimitService: EnforceAbuseRateLimitService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService
+    private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
+    private readonly mergeStagedWebChatAttachmentsService: MergeStagedWebChatAttachmentsService,
+    @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
+    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository
   ) {}
 
   async execute(input: PrepareAssistantInboundTurnInput): Promise<PreparedAssistantInboundTurn> {
@@ -95,6 +106,26 @@ export class PrepareAssistantInboundTurnService {
       content: input.message
     });
 
+    if (input.surface === "web_chat") {
+      await this.mergeStagedWebChatAttachmentsService.mergeIntoUserMessage({
+        chatId: chat.id,
+        assistantId: assistant.id,
+        userMessageId: userMessage.id,
+        userMessageCreatedAt: userMessage.createdAt
+      });
+    }
+
+    const userAttachments = await this.attachmentRepository.listByMessageId(userMessage.id);
+    const attachmentStates: AssistantWebChatMessageAttachmentState[] = userAttachments.map((a) => ({
+      id: a.id,
+      attachmentType: a.attachmentType,
+      originalFilename: a.originalFilename,
+      mimeType: a.mimeType,
+      sizeBytes: Number(a.sizeBytes),
+      processingStatus: a.processingStatus,
+      createdAt: a.createdAt.toISOString()
+    }));
+
     const activeWebChatsCurrent =
       await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
         assistant.id,
@@ -131,7 +162,7 @@ export class PrepareAssistantInboundTurnService {
         assistantId: userMessage.assistantId,
         author: userMessage.author,
         content: userMessage.content,
-        attachments: [],
+        attachments: attachmentStates,
         createdAt: userMessage.createdAt.toISOString()
       },
       assistant,

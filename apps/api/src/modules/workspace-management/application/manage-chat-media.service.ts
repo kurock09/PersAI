@@ -156,7 +156,7 @@ export class ManageChatMediaService {
       chatId: chat.id,
       assistantId: assistant.id,
       author: "user",
-      content: `(attached: ${params.file.originalname || "file"})`
+      content: ""
     });
 
     let processed: {

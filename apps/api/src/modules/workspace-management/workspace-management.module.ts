@@ -72,6 +72,7 @@ import { PreviewAssistantSetupService } from "./application/preview-assistant-se
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
+import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
@@ -217,6 +218,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     CancelAssistantTaskRegistryItemService,
     SyncAssistantTaskRegistryService,
     SyncTelegramChatTargetService,
+    MergeStagedWebChatAttachmentsService,
     PrepareAssistantInboundTurnService,
     SendWebChatTurnService,
     StreamWebChatTurnService,

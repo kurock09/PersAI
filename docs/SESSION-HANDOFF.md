@@ -1,5 +1,39 @@
 # SESSION-HANDOFF
 
+## 2026-04-02 - Web voice UX: one bubble, no visible transcript, Telegram-style player
+
+### What changed
+
+1. **API — merge staged attachments into the real user turn** — New `MergeStagedWebChatAttachmentsService`: after `PrepareAssistantInboundTurnService` creates the user message with transcript (web only), attachments on recent “staging-only” user rows (empty content or legacy `(attached: …)`, within 5 minutes) are reassigned to that message and staging rows are deleted. Staging `content` from `ManageChatMediaService.stageForWebThread` is now `""` instead of `(attached: filename)`. Prepare returns `userMessage.attachments` populated from the DB after merge.
+2. **Web — immediate playable audio** — `use-chat` sets `localPreviewUrl` via `createObjectURL` for audio/video; each `stageWebChatAttachment` response replaces the matching local row with server attachment id (revoke blob). Stream `onCompleted` applies `transport.userMessage.attachments` when present.
+3. **Web — UI** — User messages with `audio`/`voice` attachments no longer render the text body (transcript still sent to API). `VoiceMessagePlayer`: compact play/pause, seek bar, duration. New strings in `messages/en.json` and `messages/ru.json`.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/merge-staged-web-chat-attachments.service.ts` (new)
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/web/app/app/_components/voice-message-player.tsx` (new)
+- `apps/web/app/app/_components/chat-message.tsx`, `use-chat.ts`
+- `apps/web/messages/en.json`, `apps/web/messages/ru.json`
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Risks
+
+- Chats created **before** deploy may still show two user rows (staging + transcript) until those threads age out; new turns use the merged shape.
+- Merge window is 5 minutes; an abandoned staging row older than that is not merged into a later unrelated turn.
+
+### Next steps
+
+- Manual smoke: record voice → play immediately → refresh → one bubble, no transcript line, player works.
+
+### Ready commit message
+
+- `feat(web,api): voice message UX — merge staging, Telegram-style player`
+
+---
+
 ## 2026-04-02 - Docs: `OPENCLAW_ADAPTER_TIMEOUT_MS` aligned with code (90s default)
 
 ### What changed

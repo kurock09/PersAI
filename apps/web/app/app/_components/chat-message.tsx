@@ -39,6 +39,7 @@ import {
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
 import { AssistantAvatar } from "./assistant-avatar";
+import { VoiceMessagePlayer } from "./voice-message-player";
 import { getAttachmentDownloadUrl } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
 
@@ -332,12 +333,26 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function AttachmentStrip({ attachments }: { attachments: ChatAttachment[] }) {
+function userMessageHasVoiceAttachment(attachments: ChatAttachment[] | undefined): boolean {
+  return (
+    attachments?.some((a) => a.attachmentType === "audio" || a.attachmentType === "voice") ?? false
+  );
+}
+
+function AttachmentStrip({
+  attachments,
+  variant,
+  className
+}: {
+  attachments: ChatAttachment[];
+  variant: "user" | "assistant";
+  className?: string;
+}) {
   const t = useTranslations("chat");
   if (attachments.length === 0) return null;
 
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
+    <div className={cn("mt-2 flex flex-wrap gap-2", className)}>
       {attachments.map((att) => {
         const isPending = att.processingStatus === "pending";
         const isFailed = att.processingStatus === "failed";
@@ -382,16 +397,21 @@ function AttachmentStrip({ attachments }: { attachments: ChatAttachment[] }) {
         }
 
         if (att.attachmentType === "audio" || att.attachmentType === "voice") {
+          const audioSrc = previewUrl ?? downloadUrl;
           return (
-            <div key={att.id} className="w-full max-w-xs">
-              {downloadUrl && !isPending ? (
-                <audio controls preload="metadata" className="w-full h-9" src={downloadUrl}>
-                  <track kind="captions" />
-                </audio>
+            <div
+              key={att.id}
+              className={cn("w-full max-w-[260px]", isPending && audioSrc && "opacity-80")}
+            >
+              {audioSrc ? (
+                <VoiceMessagePlayer
+                  src={audioSrc}
+                  variant={variant === "user" ? "user" : "assistant"}
+                />
               ) : (
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
+                <div className="flex items-center gap-2 rounded-full border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
                   {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  <span>{att.originalFilename ?? "Audio"}</span>
+                  <span className="truncate">{att.originalFilename ?? "Audio"}</span>
                 </div>
               )}
             </div>
@@ -457,6 +477,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const t = useTranslations("chat");
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming" && message.role === "assistant";
+  const hideUserVoiceTranscript = isUser && userMessageHasVoiceAttachment(message.attachments);
 
   return (
     <div
@@ -484,11 +505,17 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       >
         {isUser ? (
           <>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">
-              {message.content}
-            </p>
+            {!hideUserVoiceTranscript && (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">
+                {message.content}
+              </p>
+            )}
             {message.attachments && message.attachments.length > 0 && (
-              <AttachmentStrip attachments={message.attachments} />
+              <AttachmentStrip
+                attachments={message.attachments}
+                variant="user"
+                {...(hideUserVoiceTranscript ? { className: "mt-0" } : {})}
+              />
             )}
           </>
         ) : (
@@ -507,7 +534,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
             )}
             {message.attachments && message.attachments.length > 0 && (
-              <AttachmentStrip attachments={message.attachments} />
+              <AttachmentStrip attachments={message.attachments} variant="assistant" />
             )}
           </div>
         )}
