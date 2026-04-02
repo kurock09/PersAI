@@ -231,7 +231,7 @@ export function ChatInput({
   const inputDisabled = disabled || isRecording || isTranscribing;
 
   return (
-    <div className="border-t border-border bg-bg px-4 py-3">
+    <div className="border-t border-border bg-bg px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4 md:py-3">
       <div className="mx-auto max-w-3xl">
         {pendingFiles.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
@@ -314,7 +314,7 @@ export function ChatInput({
             )}
             title="Attach file"
           >
-            <Paperclip className="h-4 w-4" />
+            <Paperclip className="h-5 w-5 md:h-4 md:w-4" />
           </button>
 
           <textarea
@@ -344,7 +344,7 @@ export function ChatInput({
               )}
               title="Voice message"
             >
-              <Mic className="h-4 w-4" />
+              <Mic className="h-5 w-5 md:h-4 md:w-4" />
             </button>
           )}
 
@@ -355,7 +355,7 @@ export function ChatInput({
               className="mb-0.5 cursor-pointer rounded-lg bg-destructive/15 p-2 text-destructive transition-colors hover:bg-destructive/25"
               title="Stop"
             >
-              <Square className="h-4 w-4" />
+              <Square className="h-5 w-5 md:h-4 md:w-4" />
             </button>
           ) : (
             <button
@@ -370,12 +370,12 @@ export function ChatInput({
               )}
               title="Send"
             >
-              <SendHorizonal className="h-4 w-4" />
+              <SendHorizonal className="h-5 w-5 md:h-4 md:w-4" />
             </button>
           )}
         </div>
 
-        <p className="mt-2 text-center text-[11px] text-text-subtle">
+        <p className="mt-1.5 hidden text-center text-[11px] text-text-subtle md:block">
           Your assistant may make mistakes. Verify important information.
         </p>
       </div>

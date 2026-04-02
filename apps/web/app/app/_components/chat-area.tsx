@@ -145,7 +145,7 @@ export function ChatArea({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <header className="flex items-center border-b border-border px-5 py-3">
+      <header className="flex items-center border-b border-border px-3 py-2 md:px-5 md:py-3">
         {editing ? (
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             <input
@@ -299,7 +299,7 @@ function EmptyState({
           Together for {daysTogether} {daysTogether === 1 ? "day" : "days"}
         </p>
       )}
-      <div className="mt-8 grid w-full max-w-md grid-cols-2 gap-2">
+      <div className="mt-6 grid w-full max-w-md grid-cols-1 gap-2 sm:mt-8 sm:grid-cols-2">
         {[
           "What can you help me with?",
           "Tell me something interesting",

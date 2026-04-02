@@ -85,7 +85,7 @@ export class PrepareAssistantInboundTurnService {
         workspaceId: assistant.workspaceId,
         surface: "web",
         surfaceThreadKey: input.surfaceThreadKey,
-        title: input.title ?? null
+        title: input.title ?? (input.message.trim().slice(0, 50).replace(/\s+/g, " ") || null)
       }));
 
     const userMessage = await this.assistantChatRepository.createMessage({

@@ -1,0 +1,13 @@
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.certificates }}
+---
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Values.global.namespace }}
+spec:
+  domains:
+    - {{ .domain }}
+{{- end }}
+{{- end }}

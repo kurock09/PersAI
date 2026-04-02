@@ -1,0 +1,51 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: persai-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/part-of: persai
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: {{ .Values.ingress.staticIpName }}
+    networking.gke.io/managed-certificates: {{ range $i, $c := .Values.ingress.certificates }}{{ if $i }},{{ end }}{{ $c.name }}{{ end }}
+spec:
+  rules:
+    {{- if .Values.web.enabled }}
+    - host: {{ .Values.ingress.hosts.web }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: {{ .Values.web.service.port }}
+    {{- end }}
+    {{- if .Values.api.enabled }}
+    - host: {{ .Values.ingress.hosts.api }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: {{ .Values.api.service.port }}
+    {{- end }}
+    {{- if and .Values.openclaw.enabled .Values.openclaw.telegramWebhook.enabled }}
+    - host: {{ .Values.ingress.hosts.bot }}
+      http:
+        paths:
+          - path: /telegram-webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: openclaw
+                port:
+                  number: {{ .Values.openclaw.service.port }}
+    {{- end }}
+{{- end }}

@@ -454,22 +454,22 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isStreaming = message.status === "streaming" && message.role === "assistant";
 
   return (
-    <div className={cn("group flex gap-3 px-4 py-3", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("group flex gap-2 px-3 py-2 md:gap-3 md:px-4 md:py-3", isUser ? "justify-end" : "justify-start")}>
       {!isUser && (
         <AssistantAvatar
           avatarUrl={assistantAvatarUrl}
           avatarEmoji={assistantAvatarEmoji}
           size="sm"
-          className="mt-1"
+          className="mt-1 hidden sm:block"
         />
       )}
 
       <div
         className={cn(
-          "max-w-[75%] min-w-0",
+          "max-w-[92%] min-w-0 sm:max-w-[85%] md:max-w-[75%]",
           isUser
-            ? "rounded-2xl rounded-br-md bg-accent/15 px-4 py-2.5 text-text"
-            : "flex-1 max-w-2xl"
+            ? "rounded-2xl rounded-br-md bg-accent/15 px-3 py-2 text-text md:px-4 md:py-2.5"
+            : "flex-1 md:max-w-2xl"
         )}
       >
         {isUser ? (

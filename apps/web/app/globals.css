@@ -255,3 +255,54 @@
 :root.light .hljs-attribute {
   color: #e65100;
 }
+
+/* ──────────────────────────────────────────────────────────
+   Clerk — safety-net overrides for both themes
+   ────────────────────────────────────────────────────────── */
+
+[data-clerk-component] {
+  --clerk-surface: var(--surface-raised);
+  --clerk-text: var(--text);
+  --clerk-muted: var(--text-muted);
+}
+
+.cl-userButtonPopoverCard,
+.cl-card {
+  border: 1px solid var(--border-strong) !important;
+}
+
+.cl-navbar {
+  background: color-mix(in srgb, var(--surface-raised) 70%, transparent) !important;
+}
+
+.cl-userPreviewSecondaryIdentifier {
+  color: var(--text-muted) !important;
+}
+
+.cl-badge {
+  border: 1px solid var(--border) !important;
+  color: var(--text-muted) !important;
+  background: var(--surface-hover) !important;
+}
+
+.cl-deviceInfo,
+.cl-activeDevice,
+.cl-accordionContent {
+  color: var(--text-muted) !important;
+}
+
+.cl-profileSectionPrimaryButton,
+.cl-navbarButton__active,
+.cl-profileSectionPrimaryButton__profile,
+.cl-profileSectionPrimaryButton__security {
+  color: var(--accent) !important;
+}
+
+.cl-modalCloseButton {
+  color: var(--text-muted) !important;
+}
+.cl-modalCloseButton:hover {
+  color: var(--text) !important;
+  background: var(--surface-hover) !important;
+}
+

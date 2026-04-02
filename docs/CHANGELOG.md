@@ -4,6 +4,17 @@
 
 ### Changed
 
+- **Infra: public domain + unified GKE Ingress for persai.dev:**
+  - Reserved global static IP `persai-dev-ip` (`34.8.195.135`).
+  - New unified Ingress template (`infra/helm/templates/ingress.yaml`) routes three hosts through a single GCE L7 load balancer:
+    - `persai.dev` → web (port 3000)
+    - `api.persai.dev` → api (port 3001)
+    - `bot.persai.dev/telegram-webhook` → openclaw (port 18789)
+  - New ManagedCertificate template (`infra/helm/templates/managed-certificates.yaml`) provisions Google-managed TLS certs for all three domains.
+  - Deprecated old single-purpose `openclaw-ingress.yaml` (telegram webhook now in unified ingress).
+  - Added `ingress` section to `values-dev.yaml` with hosts, static IP name, and certificate definitions.
+  - Uncommented `TELEGRAM_WEBHOOK_BASE_URL: "https://bot.persai.dev"` in API env — switches Telegram from polling to webhook mode after ArgoCD sync.
+
 - **Refactor: switch TTS from directive path to tool-call-only path (OpenClaw fork + PersAI):**
   - Set `tts.auto: "off"` in Helm config — disables `[[tts:…]]` directive parsing and removes the "Use [[tts:…]]" hint from the system prompt.
   - Model now uses the native `tts` tool call for voice output — single, stable, predictable path for all users.

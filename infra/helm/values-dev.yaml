@@ -32,7 +32,7 @@ api:
     OPENCLAW_ADAPTER_ENABLED: "true"
     OPENCLAW_BASE_URL: "http://openclaw:18789"
     OPENCLAW_ADAPTER_TIMEOUT_MS: "90000"
-    # TELEGRAM_WEBHOOK_BASE_URL: "https://bot.persai.dev"  # uncomment when domain is ready
+    TELEGRAM_WEBHOOK_BASE_URL: "https://bot.persai.dev"
     WEB_ACTIVE_CHATS_CAP: "20"
     QUOTA_TOKEN_BUDGET_DEFAULT: "200000"
     QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT: "1000"
@@ -170,9 +170,21 @@ openclaw:
       secretKey: OPENAI_API_KEY
   telegramWebhook:
     enabled: true
-    host: bot.persai.dev
-    managedCertificate: persai-bot-cert
-    tlsSecretName: ""
   service:
     type: ClusterIP
     port: 18789
+
+ingress:
+  enabled: true
+  staticIpName: persai-dev-ip
+  hosts:
+    web: persai.dev
+    api: api.persai.dev
+    bot: bot.persai.dev
+  certificates:
+    - name: persai-web-cert
+      domain: persai.dev
+    - name: persai-api-cert
+      domain: api.persai.dev
+    - name: persai-bot-cert
+      domain: bot.persai.dev

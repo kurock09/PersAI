@@ -1,5 +1,42 @@
 # SESSION-HANDOFF
 
+## 2026-04-02 - Infra: public domain persai.dev + unified GKE Ingress
+
+### What changed
+
+1. **Global static IP** — reserved `persai-dev-ip` (`34.8.195.135`) via `gcloud compute addresses create --global`.
+2. **Unified Ingress** — new `infra/helm/templates/ingress.yaml` replaces the single-purpose `openclaw-ingress.yaml`. Routes three hosts through one GCE L7 LB:
+   - `persai.dev` → web:3000
+   - `api.persai.dev` → api:3001
+   - `bot.persai.dev/telegram-webhook` → openclaw:18789
+3. **ManagedCertificates** — new `infra/helm/templates/managed-certificates.yaml` provisions Google-managed TLS certs for all three domains.
+4. **values-dev.yaml** — added `ingress` section (hosts, staticIpName, certificates); uncommented `TELEGRAM_WEBHOOK_BASE_URL: "https://bot.persai.dev"` to switch Telegram from polling to webhook.
+5. **DNS** — A records for `persai.dev`, `api.persai.dev`, `bot.persai.dev` configured in Reg.ru pointing to `34.8.195.135`.
+6. **Deprecated** `openclaw-ingress.yaml` — replaced by comment; telegram webhook route moved into unified ingress.
+
+### Files touched
+
+- `infra/helm/templates/ingress.yaml` (new — unified ingress for web/api/bot)
+- `infra/helm/templates/managed-certificates.yaml` (new — 3 Google-managed TLS certs)
+- `infra/helm/templates/openclaw-ingress.yaml` (deprecated — replaced by unified ingress)
+- `infra/helm/values-dev.yaml` (ingress section, TELEGRAM_WEBHOOK_BASE_URL uncommented)
+- `infra/dev/gitops/README.md` (updated Ingress documentation)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Risks
+
+- ManagedCertificate provisioning takes 10–30 minutes after DNS propagation; HTTPS unavailable until then.
+- Telegram webhook activation depends on ArgoCD syncing the updated API deployment with `TELEGRAM_WEBHOOK_BASE_URL`. Until sync, Telegram stays on polling.
+- Removing `openclaw.telegramWebhook.host` and `managedCertificate` from values breaks the old template, but old template is now a no-op comment.
+
+### Next steps
+
+- Verify HTTPS works on all three domains after certificate provisioning completes.
+- Confirm Telegram switches to webhook mode after ArgoCD sync (check OpenClaw logs for `[persai-telegram] Webhook set`).
+- Smoke test web UI at `https://persai.dev/app`.
+
+---
+
 ## 2026-04-02 - UI polish, voice UX, Clerk proxy, ROADMAP update
 
 ### What changed
@@ -87,6 +124,7 @@ Replaced the unreliable `[[tts:…]]` directive-based TTS pipeline with the nati
 ### Why
 
 The directive path was fundamentally fragile:
+
 - Model generated directives in unpredictable formats (`[[tts:text]]`, `[[tts:content]]`, `[[tts]]content[[/tts]]`).
 - Parsing/stripping code couldn't cover all variants reliably.
 - Different users got different behavior depending on session history.
@@ -164,6 +202,7 @@ Extended the Admin Ops Cockpit with a user directory table and per-user reapply 
 ### Files touched
 
 **OpenClaw (fork SHA `943157182d`):**
+
 - `src/agents/persai-runtime-context.ts` — +`assistantGender` field, +`getPersaiAssistantGender()` getter
 - `src/gateway/persai-runtime/persai-runtime-http.ts` — +`extractAssistantGenderFromWorkspace()`, pass gender to all 3 agent turn callsites
 - `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — +`assistantGender` param in 3 turn functions + runtimeCtx
@@ -171,6 +210,7 @@ Extended the Admin Ops Cockpit with a user directory table and per-user reapply 
 - `src/tts/providers/yandex.ts` — gender→voice lookup before config default
 
 **PersAI:**
+
 - `apps/api/Dockerfile` — added `ffmpeg` to `apt-get install`
 - `infra/dev/gitops/openclaw-approved-sha.txt` → `943157182d…`
 - `infra/helm/values-dev.yaml` → `openclaw.image.tag` updated, digest cleared

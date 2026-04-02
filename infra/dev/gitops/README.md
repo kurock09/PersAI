@@ -201,6 +201,28 @@ Source-of-truth mapping in dev policy:
   - `dangerouslyAllowHostHeaderOriginFallback` is explicitly set to `false`
   - any additional browser origin requires explicit update to `openclaw.controlUi.allowedOrigins` values
 
+## Public Ingress (persai.dev)
+
+A unified GCE L7 Ingress routes external traffic to all three services:
+
+| Host                                        | Backend  | Port  |
+| ------------------------------------------- | -------- | ----- |
+| `persai.dev`                                | web      | 3000  |
+| `api.persai.dev`                            | api      | 3001  |
+| `bot.persai.dev` (path `/telegram-webhook`) | openclaw | 18789 |
+
+Resources:
+
+- Global static IP: `persai-dev-ip` (`34.8.195.135`)
+- Ingress template: `infra/helm/templates/ingress.yaml`
+- ManagedCertificate template: `infra/helm/templates/managed-certificates.yaml`
+- Values: `ingress.*` section in `values-dev.yaml`
+- DNS: A records for `persai.dev`, `api.persai.dev`, `bot.persai.dev` → `34.8.195.135` (managed in Reg.ru)
+
+TLS is handled by Google-managed certificates (`persai-web-cert`, `persai-api-cert`, `persai-bot-cert`).
+
+The old single-purpose `openclaw-ingress.yaml` is deprecated — the Telegram webhook path is now part of the unified ingress.
+
 ## Manual procedures
 
 - Cleanup/reset and first deploy runbook: `infra/dev/gke/RUNBOOK.md`
