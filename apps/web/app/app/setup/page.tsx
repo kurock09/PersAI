@@ -598,11 +598,18 @@ export default function SetupWizardPage() {
                   </div>
                 </div>
                 <div className="rounded-xl bg-surface-raised px-4 py-3">
-                  <p className="text-sm leading-relaxed text-text">
-                    {previewLoading
-                      ? "Generating a real runtime preview..."
-                      : runtimePreview || "Preview is not ready yet."}
-                  </p>
+                  {previewLoading ? (
+                    <div className="flex items-center gap-3 py-2">
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
+                      <p className="text-sm text-text-muted">
+                        Creating your assistant — this takes about 10-15 seconds...
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-relaxed text-text">
+                      {runtimePreview || "Preview is not ready yet."}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -676,7 +683,7 @@ export default function SetupWizardPage() {
               Continue
               <ArrowRight className="h-4 w-4" />
             </button>
-          ) : (
+          ) : runtimePreview && !previewLoading ? (
             <button
               type="button"
               onClick={() => void handleCreate()}
@@ -696,6 +703,11 @@ export default function SetupWizardPage() {
                 </>
               )}
             </button>
+          ) : (
+            <div className="flex items-center gap-2 rounded-xl bg-surface-raised px-6 py-2.5 text-sm text-text-muted">
+              <Loader2 className="h-4 w-4 animate-spin text-accent" />
+              Preparing preview...
+            </div>
           )}
         </div>
       </footer>

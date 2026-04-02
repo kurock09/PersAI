@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { UserButton, useUser } from "@clerk/nextjs";
+import { useUser, useClerk } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
 import {
   MessageSquarePlus,
@@ -16,7 +16,9 @@ import {
   Archive,
   Trash2,
   Sun,
-  Moon
+  Moon,
+  LogOut,
+  Settings
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/app/lib/utils";
@@ -299,10 +301,10 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
 
         {/* 7. User */}
         <div
-          className="flex items-center gap-3 border-t border-border px-3 py-3"
+          className="flex items-center gap-2 border-t border-border px-3 py-3"
           suppressHydrationWarning
         >
-          {mounted && <UserButton />}
+          {mounted && <UserMenu />}
           <span className="min-w-0 flex-1 truncate text-sm text-text-muted">
             {user?.firstName ?? user?.username ?? "User"}
           </span>
@@ -310,6 +312,78 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
         </div>
       </div>
     </aside>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  User menu                                                          */
+/* ------------------------------------------------------------------ */
+
+function UserMenu() {
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const initials = (user?.firstName?.[0] ?? user?.username?.[0] ?? "U").toUpperCase();
+  const avatarUrl = user?.imageUrl;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-accent/20 text-xs font-semibold text-accent transition-colors hover:bg-accent/30 overflow-hidden"
+      >
+        {avatarUrl ? (
+          <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          initials
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-48 rounded-xl border border-border bg-surface p-1.5 shadow-xl">
+          <div className="px-2.5 py-2 border-b border-border mb-1">
+            <p className="truncate text-xs font-medium text-text">
+              {user?.fullName ?? user?.username ?? "User"}
+            </p>
+            <p className="truncate text-[10px] text-text-muted">
+              {user?.primaryEmailAddress?.emailAddress ?? ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              router.push("/app/profile");
+            }}
+            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            Account settings
+          </button>
+          <button
+            type="button"
+            onClick={() => void signOut({ redirectUrl: "/" })}
+            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-destructive transition-colors hover:bg-destructive/10"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

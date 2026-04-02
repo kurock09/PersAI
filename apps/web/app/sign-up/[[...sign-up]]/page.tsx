@@ -1,15 +1,16 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useSignIn } from "@clerk/nextjs";
+import { useSignUp, useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
 type Stage = "form" | "verify";
 
-export default function SignInPage() {
-  const { signIn, errors: clerkErrors, fetchStatus } = useSignIn();
+export default function SignUpPage() {
+  const { signUp, errors: clerkErrors, fetchStatus } = useSignUp();
+  const { isSignedIn } = useAuth();
   const router = useRouter();
 
   const [stage, setStage] = useState<Stage>("form");
@@ -20,23 +21,10 @@ export default function SignInPage() {
 
   const isBusy = fetchStatus === "fetching";
 
-  const finalize = useCallback(async () => {
-    await signIn.finalize({
-      navigate: async ({ decorateUrl }) => {
-        const url = decorateUrl("/app");
-        if (url.startsWith("http")) {
-          window.location.href = url;
-        } else {
-          router.push(url);
-        }
-      }
-    });
-  }, [signIn, router]);
-
   const handleOAuth = useCallback(async () => {
     setError(null);
     try {
-      const { error: ssoError } = await signIn.sso({
+      const { error: ssoError } = await signUp.sso({
         strategy: "oauth_google",
         redirectUrl: "/app",
         redirectCallbackUrl: "/sso-callback"
@@ -47,58 +35,58 @@ export default function SignInPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     }
-  }, [signIn]);
+  }, [signUp]);
 
-  const handlePasswordSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(async () => {
     if (!email.trim() || !password) return;
     setError(null);
     try {
-      const { error: pwError } = await signIn.password({
+      const { error: pwError } = await signUp.password({
         emailAddress: email.trim(),
         password
       });
       if (pwError) {
-        setError(pwError.longMessage ?? pwError.message ?? "Sign in failed");
+        setError(pwError.longMessage ?? pwError.message ?? "Sign up failed");
         return;
       }
 
-      if (signIn.status === "complete") {
-        await finalize();
-      } else if (signIn.status === "needs_client_trust") {
-        const emailCodeFactor = signIn.supportedSecondFactors?.find(
-          (f: { strategy: string }) => f.strategy === "email_code"
-        );
-        if (emailCodeFactor) {
-          await signIn.mfa.sendEmailCode();
-          setStage("verify");
-        } else {
-          setError("Additional verification required");
-        }
-      } else if (signIn.status === "needs_second_factor") {
-        await signIn.mfa.sendEmailCode();
-        setStage("verify");
-      }
+      await signUp.verifications.sendEmailCode();
+      setStage("verify");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     }
-  }, [email, password, signIn, finalize]);
+  }, [email, password, signUp]);
 
-  const handleVerifyCode = useCallback(async () => {
+  const handleVerify = useCallback(async () => {
     if (!code.trim()) return;
     setError(null);
     try {
-      await signIn.mfa.verifyEmailCode({ code: code.trim() });
-      if (signIn.status === "complete") {
-        await finalize();
+      await signUp.verifications.verifyEmailCode({ code: code.trim() });
+
+      if (signUp.status === "complete") {
+        await signUp.finalize({
+          navigate: async ({ decorateUrl }) => {
+            const url = decorateUrl("/app");
+            if (url.startsWith("http")) {
+              window.location.href = url;
+            } else {
+              router.push(url);
+            }
+          }
+        });
       } else {
-        setError("Verification failed. Try again.");
+        setError("Verification incomplete. Please try again.");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Verification failed");
     }
-  }, [code, signIn, finalize]);
+  }, [code, signUp, router]);
 
-  const fieldErrors = clerkErrors?.fields as unknown as Record<string, { message: string }> | undefined;
+  if (signUp.status === "complete" || isSignedIn) return null;
+
+  const fieldErrors = clerkErrors?.fields as unknown as
+    | Record<string, { message: string }>
+    | undefined;
 
   return (
     <div className="flex min-h-screen items-center justify-center relative overflow-hidden px-4">
@@ -114,10 +102,9 @@ export default function SignInPage() {
         <div className="w-full rounded-2xl border border-border bg-surface p-6 shadow-xl">
           {stage === "form" && (
             <>
-              <h2 className="text-lg font-semibold text-text">Sign in</h2>
-              <p className="mt-1 text-xs text-text-muted">Welcome back</p>
+              <h2 className="text-lg font-semibold text-text">Create an account</h2>
+              <p className="mt-1 text-xs text-text-muted">Get started with PersAI</p>
 
-              {/* Google OAuth */}
               <button
                 type="button"
                 onClick={() => void handleOAuth()}
@@ -134,7 +121,6 @@ export default function SignInPage() {
                 <div className="h-px flex-1 bg-border" />
               </div>
 
-              {/* Email */}
               <label className="mb-1.5 block text-xs font-medium text-text-muted">
                 Email address
               </label>
@@ -146,11 +132,12 @@ export default function SignInPage() {
                 autoFocus
                 className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
-              {fieldErrors?.identifier && (
-                <p className="mt-1 text-xs text-destructive">{fieldErrors.identifier.message}</p>
+              {fieldErrors?.emailAddress && (
+                <p className="mt-1 text-xs text-destructive">
+                  {fieldErrors.emailAddress.message}
+                </p>
               )}
 
-              {/* Password */}
               <label className="mt-4 mb-1.5 block text-xs font-medium text-text-muted">
                 Password
               </label>
@@ -159,19 +146,18 @@ export default function SignInPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") void handlePasswordSubmit();
+                  if (e.key === "Enter") void handleSubmit();
                 }}
-                placeholder="Enter your password"
+                placeholder="Create a password"
                 className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
               {fieldErrors?.password && (
                 <p className="mt-1 text-xs text-destructive">{fieldErrors.password.message}</p>
               )}
 
-              {/* Submit */}
               <button
                 type="button"
-                onClick={() => void handlePasswordSubmit()}
+                onClick={() => void handleSubmit()}
                 disabled={isBusy || !email.trim() || !password}
                 className={cn(
                   "mt-5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all",
@@ -184,7 +170,7 @@ export default function SignInPage() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
-                    Sign in
+                    Create account
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
@@ -200,13 +186,12 @@ export default function SignInPage() {
                   setStage("form");
                   setError(null);
                   setCode("");
-                  void signIn.reset();
                 }}
                 className="mb-4 cursor-pointer text-xs text-text-muted transition-colors hover:text-text"
               >
                 &larr; Back
               </button>
-              <h2 className="text-lg font-semibold text-text">Verify your identity</h2>
+              <h2 className="text-lg font-semibold text-text">Verify your email</h2>
               <p className="mt-1 text-xs text-text-muted">
                 We sent a code to <span className="font-medium text-text">{email}</span>
               </p>
@@ -216,17 +201,20 @@ export default function SignInPage() {
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleVerifyCode();
+                  if (e.key === "Enter") void handleVerify();
                 }}
                 placeholder="Enter verification code"
                 autoFocus
                 maxLength={8}
                 className="mt-5 w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-lg tracking-widest text-text placeholder:text-sm placeholder:tracking-normal placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
+              {fieldErrors?.code && (
+                <p className="mt-1 text-xs text-destructive">{fieldErrors.code.message}</p>
+              )}
 
               <button
                 type="button"
-                onClick={() => void handleVerifyCode()}
+                onClick={() => void handleVerify()}
                 disabled={isBusy || !code.trim()}
                 className={cn(
                   "mt-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all",
@@ -240,7 +228,7 @@ export default function SignInPage() {
 
               <button
                 type="button"
-                onClick={() => void signIn.mfa.sendEmailCode()}
+                onClick={() => void signUp.verifications.sendEmailCode()}
                 disabled={isBusy}
                 className="mt-3 w-full cursor-pointer text-center text-xs text-text-muted transition-colors hover:text-accent"
               >
@@ -254,15 +242,17 @@ export default function SignInPage() {
               {error}
             </p>
           )}
+
+          <div id="clerk-captcha" className="mt-3" />
         </div>
 
         <p className="mt-6 text-xs text-text-subtle">
-          Don&apos;t have an account?{" "}
+          Already have an account?{" "}
           <a
-            href="/sign-up"
+            href="/sign-in"
             className="font-medium text-accent transition-colors hover:text-accent-hover"
           >
-            Sign up
+            Sign in
           </a>
         </p>
       </div>
