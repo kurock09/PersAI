@@ -8,9 +8,7 @@ const CLERK_FRONTEND_API = (() => {
       ? "pk_live_"
       : null;
   if (!prefix) return "";
-  return Buffer.from(pk.replace(prefix, ""), "base64")
-    .toString("utf-8")
-    .replace(/\$$/, "");
+  return Buffer.from(pk.replace(prefix, ""), "base64").toString("utf-8").replace(/\$$/, "");
 })();
 
 async function proxy(req: NextRequest) {
