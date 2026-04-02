@@ -86,6 +86,11 @@ export class AdminDeleteUserService {
         await tx.assistantPlatformRolloutItem.deleteMany({ where: { userId: targetUserId } });
         await tx.assistantAbuseGuardState.deleteMany({ where: { userId: targetUserId } });
 
+        await tx.assistantPublishedVersion.updateMany({
+          where: { publishedByUserId: targetUserId },
+          data: { publishedByUserId: callerUserId }
+        });
+
         await tx.assistantAuditEvent.updateMany({
           where: { actorUserId: targetUserId },
           data: { actorUserId: null }
