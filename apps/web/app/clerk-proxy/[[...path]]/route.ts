@@ -31,6 +31,10 @@ async function proxyNpmStatic(request: Request): Promise<Response | null> {
 
   const headers = new Headers(res.headers);
   headers.delete("transfer-encoding");
+  // Node/undici fetch decompresses gzip/br; body is plain bytes but upstream
+  // Content-Encoding may still say gzip → browser ERR_CONTENT_DECODING_FAILED.
+  headers.delete("content-encoding");
+  headers.delete("content-length");
 
   return new Response(res.body, {
     status: res.status,
