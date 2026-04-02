@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 
 export default async function HomePage() {
   const { userId } = await auth();
   if (userId !== null) {
     redirect("/app");
   }
+
+  const t = await getTranslations("landing");
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
@@ -19,22 +22,18 @@ export default async function HomePage() {
           <span className="text-accent">AI</span>
         </h1>
 
-        <p className="mt-5 text-lg leading-relaxed text-text-muted sm:text-xl">
-          Your personal AI assistant.
-          <br />
-          One mind. Everywhere.
+        <p className="mt-5 text-lg leading-relaxed text-text-muted sm:text-xl whitespace-pre-line">
+          {t("subtitle")}
         </p>
 
         <Link
           href="/sign-in"
           className="mt-10 inline-block cursor-pointer rounded-xl bg-accent px-10 py-3.5 text-base font-semibold text-white shadow-lg shadow-accent-glow transition-colors duration-200 hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent animate-fade-in-up-delay"
         >
-          Get started
+          {t("cta")}
         </Link>
 
-        <p className="mt-16 text-xs text-text-subtle">
-          By continuing you agree to the Terms&nbsp;of&nbsp;Service
-        </p>
+        <p className="mt-16 text-xs text-text-subtle">{t("terms")}</p>
       </div>
     </div>
   );
