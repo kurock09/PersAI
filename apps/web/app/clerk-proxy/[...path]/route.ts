@@ -23,7 +23,7 @@ async function proxy(req: NextRequest) {
   const res = await fetch(target, {
     method: req.method,
     headers,
-    body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
+    body: req.method !== "GET" && req.method !== "HEAD" ? (req.body ?? null) : null,
     redirect: "manual"
   });
 

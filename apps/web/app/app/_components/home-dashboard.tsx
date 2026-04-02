@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { MessageSquarePlus, Settings, Send, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { useTranslations } from "next-intl";
 import { AssistantAvatar } from "./assistant-avatar";
 import type { AppData } from "./use-app-data";
 
@@ -14,7 +15,9 @@ interface HomeDashboardProps {
 
 export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDashboardProps) {
   const router = useRouter();
-  const assistantName = data.assistant?.draft.displayName ?? "Your assistant";
+  const t = useTranslations("home");
+  const tc = useTranslations("chat");
+  const assistantName = data.assistant?.draft.displayName ?? tc("defaultAssistant");
   const daysTogether = data.assistant?.createdAt
     ? Math.max(
         1,
@@ -33,12 +36,7 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
     })
     .slice(0, 5);
 
-  const greetings = [
-    "What's on your mind today?",
-    "Ready to pick up where we left off?",
-    "How can I help you today?",
-    "Good to see you!"
-  ];
+  const greetings = [t("greeting1"), t("greeting2"), t("greeting3"), t("greeting4")];
   const greeting = greetings[Math.floor(Date.now() / 86_400_000) % greetings.length]!;
 
   return (
@@ -56,26 +54,21 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
           <p className="mt-2 text-sm text-text-muted">{greeting}</p>
           {daysTogether !== null && daysTogether > 1 && (
             <p className="mt-3 rounded-full bg-surface-raised px-4 py-1.5 text-[11px] text-text-subtle">
-              Together for {daysTogether} {daysTogether === 1 ? "day" : "days"}
+              {t("togetherFor", { days: daysTogether })}
             </p>
           )}
         </div>
 
         {/* Quick prompts */}
         <div className="mt-8 grid grid-cols-2 gap-2">
-          {[
-            "What can you help me with?",
-            "Tell me something interesting",
-            "Help me plan my day",
-            "Summarize what we talked about"
-          ].map((prompt) => (
+          {(["prompt1", "prompt2", "prompt3", "prompt4"] as const).map((key) => (
             <button
-              key={prompt}
+              key={key}
               type="button"
-              onClick={() => router.push(`/app/chat?prompt=${encodeURIComponent(prompt)}`)}
+              onClick={() => router.push(`/app/chat?prompt=${encodeURIComponent(t(key))}`)}
               className="cursor-pointer rounded-xl border border-border bg-surface px-3 py-2.5 text-left text-xs text-text-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-text"
             >
-              {prompt}
+              {t(key)}
             </button>
           ))}
         </div>
@@ -84,18 +77,18 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
         <div className="mt-8 flex flex-wrap justify-center gap-2">
           <QuickAction
             icon={<MessageSquarePlus className="h-4 w-4" />}
-            label="New chat"
+            label={t("newChat")}
             accent
             onClick={() => router.push("/app/chat")}
           />
           <QuickAction
             icon={<Settings className="h-4 w-4" />}
-            label="Settings"
+            label={t("settings")}
             onClick={onSettingsClick}
           />
           <QuickAction
             icon={<Send className="h-4 w-4" />}
-            label={telegramConnected ? "Telegram" : "Connect Telegram"}
+            label={telegramConnected ? t("telegramConnected") : t("connectTelegram")}
             onClick={onTelegramClick}
           />
         </div>
@@ -104,7 +97,7 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
         {recentChats.length > 0 && (
           <div className="mt-10">
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-text-subtle">
-              Recent conversations
+              {t("recentConversations")}
             </h2>
             <div className="space-y-1">
               {recentChats.map((item) => (

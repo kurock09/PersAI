@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { AlertCircle, X, Pencil, Check, Loader2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { ChatMessageBubble } from "./chat-message";
 import { ChatInput } from "./chat-input";
 import { ActivityBadge } from "./activity-badge";
@@ -36,6 +37,7 @@ export function ChatArea({
   onTitleChanged
 }: ChatAreaProps) {
   const { getToken } = useAuth();
+  const t = useTranslations("chat");
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -118,7 +120,7 @@ export function ChatArea({
   }, [chat.hasOlderMessages, chat.olderMessagesLoading, chat.loadOlderMessages]);
 
   const isEmpty = chat.messages.length === 0;
-  const displayTitle = title ?? "New chat";
+  const displayTitle = title ?? t("newChat");
   const canEdit = !!chat.chatId;
 
   const startEdit = useCallback(() => {
@@ -250,9 +252,9 @@ export function ChatArea({
       <ChatInput
         onSend={(text, files) => void chat.send(text, files)}
         onTranscribeVoice={async (blob, filename) => {
-          const t = await getToken();
-          if (!t) throw new Error("Not authenticated.");
-          return transcribeVoice(t, blob, filename);
+          const token = await getToken();
+          if (!token) throw new Error("Not authenticated.");
+          return transcribeVoice(token, blob, filename);
         }}
         onVoiceTranscriptionError={chat.reportIssue}
         onStop={chat.stop}
@@ -276,17 +278,13 @@ function EmptyState({
   createdAt?: string | undefined;
   onPrompt?: (text: string) => void;
 }) {
-  const assistantName = name ?? "Your assistant";
+  const t = useTranslations("chat");
+  const assistantName = name ?? t("defaultAssistant");
   const daysTogether = createdAt
     ? Math.max(1, Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000))
     : null;
 
-  const greetings = [
-    `Hey! What's on your mind?`,
-    `I'm here whenever you need me.`,
-    `Ready when you are.`,
-    `Let's pick up where we left off.`
-  ];
+  const greetings = [t("greeting1"), t("greeting2"), t("greeting3"), t("greeting4")];
   const greeting = greetings[Math.floor(Date.now() / 86_400_000) % greetings.length]!;
 
   return (
@@ -296,23 +294,18 @@ function EmptyState({
       <p className="mt-2 text-sm text-text-muted">{greeting}</p>
       {daysTogether !== null && daysTogether > 1 && (
         <p className="mt-4 rounded-full bg-surface-raised px-4 py-1.5 text-[11px] text-text-subtle">
-          Together for {daysTogether} {daysTogether === 1 ? "day" : "days"}
+          {t("togetherFor", { days: daysTogether })}
         </p>
       )}
       <div className="mt-6 grid w-full max-w-md grid-cols-1 gap-2 sm:mt-8 sm:grid-cols-2">
-        {[
-          "What can you help me with?",
-          "Tell me something interesting",
-          "Help me plan my day",
-          "Summarize what we talked about"
-        ].map((prompt) => (
+        {(["prompt1", "prompt2", "prompt3", "prompt4"] as const).map((key) => (
           <button
-            key={prompt}
+            key={key}
             type="button"
-            onClick={() => onPrompt?.(prompt)}
+            onClick={() => onPrompt?.(t(key))}
             className="cursor-pointer rounded-xl border border-border bg-surface px-3 py-2.5 text-left text-xs text-text-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-text"
           >
-            {prompt}
+            {t(key)}
           </button>
         ))}
       </div>

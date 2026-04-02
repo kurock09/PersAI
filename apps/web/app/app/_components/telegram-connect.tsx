@@ -13,6 +13,7 @@ import {
   Unplug,
   RefreshCw
 } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import { AssistantAvatar } from "./assistant-avatar";
 import {
@@ -44,6 +45,7 @@ export function TelegramConnect({
   assistantDisplayName,
   onUpdated
 }: TelegramConnectProps) {
+  const t = useTranslations("telegram");
   const connected = integration?.connectionStatus === "connected";
   const allowed = integration?.capabilityAllowed ?? capabilityAllowed;
   const [reconnecting, setReconnecting] = useState(false);
@@ -54,11 +56,8 @@ export function TelegramConnect({
         <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-raised">
           <Send className="h-7 w-7 text-text-subtle" />
         </div>
-        <h3 className="text-sm font-semibold text-text">Telegram not available</h3>
-        <p className="mt-2 max-w-xs text-xs text-text-muted">
-          Your current plan does not include Telegram integration. Contact your administrator to
-          upgrade.
-        </p>
+        <h3 className="text-sm font-semibold text-text">{t("notAvailable")}</h3>
+        <p className="mt-2 max-w-xs text-xs text-text-muted">{t("notAvailableDesc")}</p>
       </div>
     );
   }
@@ -98,6 +97,8 @@ function ConnectForm({
   isReconnect?: boolean | undefined;
 }) {
   const { getToken } = useAuth();
+  const t = useTranslations("telegram");
+  const tc = useTranslations("common");
   const [botToken, setBotToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -110,17 +111,17 @@ function ConnectForm({
     setFeedback(null);
     try {
       await postAssistantTelegramConnect(token, { botToken: botToken.trim() });
-      setFeedback({ type: "ok", text: "Connected successfully!" });
+      setFeedback({ type: "ok", text: t("connectedSuccess") });
       onUpdated();
     } catch (e) {
       setFeedback({
         type: "err",
-        text: e instanceof Error ? e.message : "Failed to connect."
+        text: e instanceof Error ? e.message : t("connectFailed")
       });
     } finally {
       setBusy(false);
     }
-  }, [getToken, botToken, onUpdated]);
+  }, [getToken, botToken, onUpdated, t]);
 
   const ready = botToken.trim().length >= 10;
 
@@ -130,7 +131,7 @@ function ConnectForm({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <RefreshCw className="h-4 w-4 text-accent" />
-            <span className="text-sm font-semibold text-text">Reconnect bot</span>
+            <span className="text-sm font-semibold text-text">{t("reconnectBot")}</span>
           </div>
           {onCancel && (
             <button
@@ -138,7 +139,7 @@ function ConnectForm({
               onClick={onCancel}
               className="cursor-pointer text-xs text-text-muted hover:text-text transition-colors"
             >
-              Cancel
+              {tc("cancel")}
             </button>
           )}
         </div>
@@ -149,10 +150,10 @@ function ConnectForm({
         <Step
           num={1}
           done
-          title="Open BotFather"
+          title={t("step1Title")}
           desc={
             <>
-              Open{" "}
+              {t("step1Desc").split("@BotFather")[0]}
               <a
                 href="https://t.me/BotFather"
                 target="_blank"
@@ -160,34 +161,22 @@ function ConnectForm({
                 className="inline-flex items-center gap-0.5 font-medium text-accent hover:underline"
               >
                 @BotFather <ExternalLink className="h-2.5 w-2.5" />
-              </a>{" "}
-              in Telegram
+              </a>
             </>
           }
         />
-        <Step
-          num={2}
-          done
-          title="Create a bot"
-          desc="Send /newbot and follow the instructions to pick a name and username"
-        />
-        <Step
-          num={3}
-          done={false}
-          active
-          title="Paste the token"
-          desc="Copy the API token BotFather gives you and paste it below"
-        />
+        <Step num={2} done title={t("step2Title")} desc={t("step2Desc")} />
+        <Step num={3} done={false} active title={t("step3Title")} desc={t("step3Desc")} />
       </div>
 
       {/* Token input */}
       <div className="rounded-xl border border-border bg-surface-raised/50 p-4 space-y-3">
-        <label className="block text-xs font-medium text-text-muted">Bot API token</label>
+        <label className="block text-xs font-medium text-text-muted">{t("botTokenLabel")}</label>
         <input
           type="password"
           value={botToken}
           onChange={(e) => setBotToken(e.target.value)}
-          placeholder="123456789:ABCdefGHIjklmnop..."
+          placeholder={t("botTokenPlaceholder")}
           autoFocus
           className="w-full rounded-lg border border-border bg-bg px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
           onKeyDown={(e) => {
@@ -207,7 +196,7 @@ function ConnectForm({
           )}
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          {busy ? "Connecting..." : "Connect bot"}
+          {busy ? t("connecting") : t("connectBot")}
         </button>
       </div>
 
@@ -231,19 +220,19 @@ function ConnectForm({
 
       {/* What happens next */}
       <div className="rounded-xl border border-border p-4">
-        <p className="mb-2.5 text-xs font-medium text-text-muted">After connecting</p>
+        <p className="mb-2.5 text-xs font-medium text-text-muted">{t("afterConnecting")}</p>
         <ul className="space-y-2 text-xs text-text-subtle">
           <li className="flex items-start gap-2">
             <span className="mt-0.5 h-1 w-1 shrink-0 rounded-full bg-accent" />
-            Your assistant will respond to messages in the Telegram bot
+            {t("afterNote1")}
           </li>
           <li className="flex items-start gap-2">
             <span className="mt-0.5 h-1 w-1 shrink-0 rounded-full bg-accent" />
-            Conversations sync with the web chat memory
+            {t("afterNote2")}
           </li>
           <li className="flex items-start gap-2">
             <span className="mt-0.5 h-1 w-1 shrink-0 rounded-full bg-accent" />
-            You can configure parse mode and message routing
+            {t("afterNote3")}
           </li>
         </ul>
       </div>
@@ -267,6 +256,8 @@ function ConnectedView({
   onReconnect: () => void;
 }) {
   const { getToken } = useAuth();
+  const t = useTranslations("telegram");
+  const tc = useTranslations("common");
   const bot = integration.bot;
   const config = integration.configPanel.settings;
   const configAvailable = integration.configPanel.available;
@@ -317,12 +308,12 @@ function ConnectedView({
         groupReplyMode
       } as AssistantTelegramConfigUpdateRequest;
       await patchAssistantTelegramConfig(token, payload);
-      setFeedback({ type: "ok", text: "Config saved." });
+      setFeedback({ type: "ok", text: t("configSaved") });
       onUpdated();
     } catch (e) {
       setFeedback({
         type: "err",
-        text: e instanceof Error ? e.message : "Failed to save."
+        text: e instanceof Error ? e.message : t("configSaveFailed")
       });
     } finally {
       setSaving(false);
@@ -342,7 +333,7 @@ function ConnectedView({
     } catch {
       setFeedback({
         type: "err",
-        text: 'Could not disconnect. Use "Reconnect" to update the token instead.'
+        text: t("disconnectFailed")
       });
       setConfirmDisconnect(false);
     } finally {
@@ -367,18 +358,21 @@ function ConnectedView({
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-success" />
-          <span className="text-xs text-success">Connected</span>
+          <span className="text-xs text-success">{t("connectedLabel")}</span>
         </div>
       </div>
 
       {/* Status details */}
       <div className="space-y-2 rounded-xl border border-border p-4">
-        <Row label="Binding" value={integration.bindingState} />
+        <Row label={t("binding")} value={integration.bindingState} />
         {integration.connectedAt && (
-          <Row label="Connected" value={new Date(integration.connectedAt).toLocaleDateString()} />
+          <Row
+            label={t("connectedLabel")}
+            value={new Date(integration.connectedAt).toLocaleDateString()}
+          />
         )}
         <Row
-          label="Token"
+          label={t("token")}
           value={integration.tokenHint.lastFour ? `****${integration.tokenHint.lastFour}` : "****"}
         />
       </div>
@@ -391,7 +385,7 @@ function ConnectedView({
             onClick={() => setConfigOpen((o) => !o)}
             className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
           >
-            Configuration
+            {t("configuration")}
             <ChevronDown
               className={cn(
                 "h-4 w-4 text-text-subtle transition-transform",
@@ -405,7 +399,7 @@ function ConnectedView({
               {/* Parse mode */}
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-text-muted">
-                  Default parse mode
+                  {t("defaultParseMode")}
                 </label>
                 <div className="flex gap-2">
                   {(["plain_text", "markdown"] as const).map((mode) => (
@@ -420,30 +414,26 @@ function ConnectedView({
                           : "border-border bg-surface-raised text-text-muted hover:border-border-strong"
                       )}
                     >
-                      {mode === "plain_text" ? "Plain text" : "Markdown"}
+                      {mode === "plain_text" ? t("plainText") : t("markdown")}
                     </button>
                   ))}
                 </div>
               </div>
 
               {/* Toggles */}
-              <Toggle label="Inbound user messages" checked={inbound} onChange={setInbound} />
-              <Toggle
-                label="Outbound assistant messages"
-                checked={outbound}
-                onChange={setOutbound}
-              />
+              <Toggle label={t("inboundMessages")} checked={inbound} onChange={setInbound} />
+              <Toggle label={t("outboundMessages")} checked={outbound} onChange={setOutbound} />
 
               {/* Group reply mode */}
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-text-muted">
-                  Group reply mode
+                  {t("groupReplyMode")}
                 </label>
                 <div className="flex gap-2">
                   {(
                     [
-                      { value: "mention_reply", label: "Mention / Reply" },
-                      { value: "all_messages", label: "All messages" }
+                      { value: "mention_reply", labelKey: "mentionReply" },
+                      { value: "all_messages", labelKey: "allMessages" }
                     ] as const
                   ).map((option) => (
                     <button
@@ -457,26 +447,28 @@ function ConnectedView({
                           : "border-border bg-surface-raised text-text-muted hover:border-border-strong"
                       )}
                     >
-                      {option.label}
+                      {t(option.labelKey)}
                     </button>
                   ))}
                 </div>
                 <p className="mt-1 text-[10px] text-text-subtle">
                   {groupReplyMode === "mention_reply"
-                    ? "Bot responds only to @mentions and replies in groups"
-                    : "Bot responds to all messages in groups"}
+                    ? t("groupReplyMentionDesc")
+                    : t("groupReplyAllDesc")}
                 </p>
               </div>
 
               {/* Notes */}
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-text-muted">Notes</label>
+                <label className="mb-1.5 block text-xs font-medium text-text-muted">
+                  {t("notes")}
+                </label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={2}
                   className="w-full resize-none rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
-                  placeholder="Optional notes..."
+                  placeholder={t("notesPlaceholder")}
                 />
               </div>
 
@@ -488,7 +480,7 @@ function ConnectedView({
                 className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
               >
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Save configuration
+                {t("saveConfig")}
               </button>
 
               {feedback && (
@@ -517,9 +509,9 @@ function ConnectedView({
       <div className="rounded-xl border border-border">
         <div className="flex items-center gap-2 px-4 py-3">
           <Users className="h-4 w-4 text-text-subtle" />
-          <span className="text-sm font-medium text-text">Groups</span>
+          <span className="text-sm font-medium text-text">{t("groups")}</span>
           <span className="ml-auto text-xs text-text-muted">
-            {groups.filter((g) => g.status === "active").length} active
+            {t("activeCount", { count: groups.filter((g) => g.status === "active").length })}
           </span>
         </div>
         <div className="border-t border-border px-4 py-3">
@@ -528,9 +520,7 @@ function ConnectedView({
               <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
             </div>
           ) : groups.filter((g) => g.status === "active").length === 0 ? (
-            <p className="py-3 text-center text-xs text-text-subtle">
-              Add the bot to a Telegram group — it will appear here automatically.
-            </p>
+            <p className="py-3 text-center text-xs text-text-subtle">{t("addBotToGroup")}</p>
           ) : (
             <ul className="space-y-2">
               {groups
@@ -544,12 +534,14 @@ function ConnectedView({
                       <p className="truncate text-xs font-medium text-text">{g.title}</p>
                       {g.memberCount !== null && (
                         <p className="text-[10px] text-text-subtle">
-                          {g.memberCount} member{g.memberCount !== 1 ? "s" : ""}
+                          {g.memberCount !== 1
+                            ? t("members", { count: g.memberCount })
+                            : t("member", { count: g.memberCount })}
                         </p>
                       )}
                     </div>
                     <span className="shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
-                      Active
+                      {t("activeStatus")}
                     </span>
                   </li>
                 ))}
@@ -561,7 +553,7 @@ function ConnectedView({
       {/* Integration notes */}
       {integration.notes.length > 0 && (
         <div className="rounded-xl border border-border p-4">
-          <p className="mb-2 text-xs font-medium text-text-muted">System notes</p>
+          <p className="mb-2 text-xs font-medium text-text-muted">{t("systemNotes")}</p>
           <ul className="space-y-1">
             {integration.notes.map((note, i) => (
               <li key={i} className="text-xs text-text-subtle">
@@ -580,7 +572,7 @@ function ConnectedView({
           className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-xs font-medium text-text transition-colors hover:bg-surface-hover"
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          Reconnect with new token
+          {t("reconnectToken")}
         </button>
 
         {!confirmDisconnect ? (
@@ -590,7 +582,7 @@ function ConnectedView({
             className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-medium text-destructive/70 transition-colors hover:bg-destructive/5 hover:text-destructive"
           >
             <Unplug className="h-3.5 w-3.5" />
-            Disconnect bot
+            {t("disconnectBot")}
           </button>
         ) : (
           <div className="flex gap-2">
@@ -600,7 +592,7 @@ function ConnectedView({
               disabled={disconnecting}
               className="flex flex-1 cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover"
             >
-              Cancel
+              {tc("cancel")}
             </button>
             <button
               type="button"
@@ -609,7 +601,7 @@ function ConnectedView({
               className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2.5 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-60"
             >
               {disconnecting && <Loader2 className="h-3 w-3 animate-spin" />}
-              Confirm disconnect
+              {t("confirmDisconnect")}
             </button>
           </div>
         )}

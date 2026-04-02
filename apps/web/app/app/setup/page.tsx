@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslations } from "next-intl";
 import {
   ArrowRight,
   ArrowLeft,
@@ -82,6 +83,8 @@ function normalizeBirthdayForDateInput(value: string | null | undefined): string
 export default function SetupWizardPage() {
   const router = useRouter();
   const { getToken } = useAuth();
+  const t = useTranslations("setup");
+  const tp = useTranslations("persona");
 
   const [step, setStep] = useState(0);
 
@@ -193,7 +196,7 @@ export default function SetupWizardPage() {
       }) => Promise<string | null>;
       const token = await tokenResolver(fresh ? { skipCache: true } : undefined);
       if (!token) {
-        throw new Error("Session expired. Sign in again and refresh the page.");
+        throw new Error(t("sessionExpired"));
       }
       return token;
     },
@@ -244,7 +247,7 @@ export default function SetupWizardPage() {
       const preview = await postAssistantSetupPreview(await resolveSetupToken(true));
       setRuntimePreview(preview.message);
     } catch (e) {
-      setPreviewError(e instanceof Error ? e.message : "Preview failed. Please try again.");
+      setPreviewError(e instanceof Error ? e.message : t("createFailed"));
     } finally {
       setPreviewLoading(false);
     }
@@ -295,7 +298,7 @@ export default function SetupWizardPage() {
       await postAssistantPublish(await resolveSetupToken(true));
       window.location.href = "/app/chat";
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
+      setError(e instanceof Error ? e.message : t("createFailed"));
       setCreating(false);
     }
   }, [
@@ -342,23 +345,21 @@ export default function SetupWizardPage() {
           {/* ===== Step 0: About you ===== */}
           {step === 0 && (
             <StepContainer key="step-0">
-              <h1 className="text-3xl font-bold text-text sm:text-4xl">About you</h1>
-              <p className="mt-3 text-base text-text-muted">
-                Your assistant needs to know you to serve you better.
-              </p>
+              <h1 className="text-3xl font-bold text-text sm:text-4xl">{t("step0Title")}</h1>
+              <p className="mt-3 text-base text-text-muted">{t("step0Subtitle")}</p>
 
               <div className="mt-8 w-full max-w-sm space-y-4">
                 {/* User name */}
                 <div>
                   <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
                     <User className="h-3.5 w-3.5" />
-                    Your name
+                    {t("yourName")}
                   </label>
                   <input
                     type="text"
                     value={userName}
                     onChange={(e) => setUserName(e.target.value)}
-                    placeholder="How should your assistant call you?"
+                    placeholder={t("namePlaceholder")}
                     maxLength={40}
                     autoFocus
                     className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
@@ -369,7 +370,7 @@ export default function SetupWizardPage() {
                 <div>
                   <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
                     <Calendar className="h-3.5 w-3.5" />
-                    Date of birth
+                    {t("birthday")}
                   </label>
                   <input
                     type="date"
@@ -381,7 +382,9 @@ export default function SetupWizardPage() {
 
                 {/* Gender */}
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-text-muted">Gender</label>
+                  <label className="mb-1.5 block text-xs font-medium text-text-muted">
+                    {t("gender")}
+                  </label>
                   <div className="flex gap-2">
                     {GENDER_OPTIONS.map((opt) => (
                       <button
@@ -395,7 +398,13 @@ export default function SetupWizardPage() {
                             : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
                         )}
                       >
-                        {opt.label}
+                        {t(
+                          opt.value === "male"
+                            ? "genderMale"
+                            : opt.value === "female"
+                              ? "genderFemale"
+                              : "genderOther"
+                        )}
                       </button>
                     ))}
                   </div>
@@ -405,7 +414,7 @@ export default function SetupWizardPage() {
                 <div>
                   <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
                     <Globe className="h-3.5 w-3.5" />
-                    Timezone
+                    {t("timezone")}
                   </label>
                   <TimezoneSelect value={timezone} onChange={setTimezone} />
                 </div>
@@ -416,17 +425,15 @@ export default function SetupWizardPage() {
           {/* ===== Step 1: Assistant identity ===== */}
           {step === 1 && (
             <StepContainer key="step-1">
-              <h1 className="text-3xl font-bold text-text sm:text-4xl">Create your assistant</h1>
-              <p className="mt-3 text-base text-text-muted">
-                Give it a name and a face. This is who you'll be talking to every day.
-              </p>
+              <h1 className="text-3xl font-bold text-text sm:text-4xl">{t("step1Title")}</h1>
+              <p className="mt-3 text-base text-text-muted">{t("step1Subtitle")}</p>
 
               {/* Assistant name */}
               <input
                 type="text"
                 value={assistantName}
                 onChange={(e) => setAssistantName(e.target.value)}
-                placeholder="Name — e.g. Atlas, Nova, Jarvis..."
+                placeholder={t("assistantNamePlaceholder")}
                 maxLength={40}
                 autoFocus
                 className="mt-8 w-full max-w-sm rounded-xl border border-border bg-surface-raised px-5 py-3.5 text-center text-lg font-medium text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
@@ -479,14 +486,14 @@ export default function SetupWizardPage() {
                     <Upload className="h-5 w-5 text-text-subtle" />
                   )}
                   <span className="text-[9px] font-medium text-text-muted">
-                    {customAvatarPreviewUrl ? "Yours" : "Upload"}
+                    {customAvatarPreviewUrl ? t("yours") : t("upload")}
                   </span>
                 </button>
               </div>
 
               <div className="mt-6 w-full max-w-md space-y-2">
                 <label className="block text-xs font-medium text-text-muted">
-                  Assistant gender
+                  {t("assistantGender")}
                 </label>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {ASSISTANT_GENDER_OPTIONS.map((opt) => (
@@ -501,7 +508,7 @@ export default function SetupWizardPage() {
                           : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
                       )}
                     >
-                      {opt.label}
+                      {tp(opt.labelKey)}
                     </button>
                   ))}
                 </div>
@@ -520,17 +527,16 @@ export default function SetupWizardPage() {
           {/* ===== Step 2: Personality ===== */}
           {step === 2 && (
             <StepContainer key="step-2">
-              <h1 className="text-3xl font-bold text-text sm:text-4xl">Shape the personality</h1>
+              <h1 className="text-3xl font-bold text-text sm:text-4xl">{t("step2Title")}</h1>
               <p className="mt-3 text-base text-text-muted">
-                How should <span className="font-medium text-text">{assistantName}</span> talk to
-                you?
+                {t("step2Subtitle", { name: assistantName })}
               </p>
               <div className="mt-8 w-full max-w-md space-y-6">
                 {TRAIT_SLIDERS.map((trait) => (
                   <div key={trait.key}>
                     <div className="mb-2 flex items-center justify-between text-xs font-medium">
-                      <span className="text-text-muted">{trait.labelLeft}</span>
-                      <span className="text-text-muted">{trait.labelRight}</span>
+                      <span className="text-text-muted">{tp(trait.labelLeftKey)}</span>
+                      <span className="text-text-muted">{tp(trait.labelRightKey)}</span>
                     </div>
                     <input
                       type="range"
@@ -545,7 +551,7 @@ export default function SetupWizardPage() {
 
                 <div className="space-y-2 text-left">
                   <label className="block text-xs font-medium text-text-muted">
-                    Describe the character in your own words
+                    {t("describeCharacter")}
                   </label>
                   <textarea
                     value={assistantNotes}
@@ -555,12 +561,9 @@ export default function SetupWizardPage() {
                     }}
                     rows={7}
                     className="w-full rounded-2xl border border-border bg-surface-raised px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent"
-                    placeholder="Warm, observant, proactive, but not pushy..."
+                    placeholder={t("instructionPlaceholder")}
                   />
-                  <p className="text-[11px] text-text-subtle">
-                    Sliders shape the baseline, and this text lets you describe the personality more
-                    precisely.
-                  </p>
+                  <p className="text-[11px] text-text-subtle">{t("instructionHint")}</p>
                 </div>
               </div>
             </StepContainer>
@@ -570,11 +573,9 @@ export default function SetupWizardPage() {
           {step === 3 && (
             <StepContainer key="step-3">
               <h1 className="text-3xl font-bold text-text sm:text-4xl">
-                {assistantName} introduces itself
+                {t("step3Title", { name: assistantName })}
               </h1>
-              <p className="mt-3 text-base text-text-muted">
-                This is how your assistant will greet you for the first time.
-              </p>
+              <p className="mt-3 text-base text-text-muted">{t("step3Subtitle")}</p>
 
               {/* Simulated chat */}
               <div className="mt-8 w-full max-w-md rounded-2xl border border-border bg-surface p-6 text-left">
@@ -593,7 +594,7 @@ export default function SetupWizardPage() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
                     <p className="text-[10px] text-text-subtle">
-                      is introducing itself to {userName || "you"}
+                      {t("introducingTo", { user: userName || "you" })}
                     </p>
                   </div>
                 </div>
@@ -601,13 +602,11 @@ export default function SetupWizardPage() {
                   {previewLoading ? (
                     <div className="flex items-center gap-3 py-2">
                       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
-                      <p className="text-sm text-text-muted">
-                        Creating your assistant — this takes about 10-15 seconds...
-                      </p>
+                      <p className="text-sm text-text-muted">{t("previewLoading")}</p>
                     </div>
                   ) : (
                     <p className="text-sm leading-relaxed text-text">
-                      {runtimePreview || "Preview is not ready yet."}
+                      {runtimePreview || t("previewNotReady")}
                     </p>
                   )}
                 </div>
@@ -620,13 +619,15 @@ export default function SetupWizardPage() {
                     key={trait.key}
                     className="rounded-full bg-surface-raised px-3 py-1 text-[10px] font-medium text-text-muted"
                   >
-                    {traitPreviewLabel(trait.key, traits[trait.key])}
+                    {tp(traitPreviewLabel(trait.key, traits[trait.key]))}
                   </span>
                 ))}
               </div>
 
               {assistantGender && (
-                <p className="mt-3 text-xs text-text-subtle">Identity: {assistantGender}</p>
+                <p className="mt-3 text-xs text-text-subtle">
+                  {t("identity", { gender: assistantGender })}
+                </p>
               )}
 
               <button
@@ -636,17 +637,14 @@ export default function SetupWizardPage() {
                 className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-50"
               >
                 <RefreshCcw className={cn("h-4 w-4", previewLoading && "animate-spin")} />
-                Refresh preview
+                {t("refreshPreview")}
               </button>
 
               {(previewError || error) && (
                 <p className="mt-4 text-sm text-destructive">{previewError ?? error}</p>
               )}
 
-              <p className="mt-6 text-[10px] text-text-subtle/60 max-w-xs">
-                By creating your assistant you agree to the Terms&nbsp;of&nbsp;Service and
-                Privacy&nbsp;Policy.
-              </p>
+              <p className="mt-6 text-[10px] text-text-subtle/60 max-w-xs">{t("termsNotice")}</p>
             </StepContainer>
           )}
         </AnimatePresence>
@@ -663,7 +661,7 @@ export default function SetupWizardPage() {
               className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-surface-raised px-5 py-2.5 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-50"
             >
               <ArrowLeft className="h-4 w-4" />
-              Back
+              {t("back")}
             </button>
           )}
         </div>
@@ -680,7 +678,7 @@ export default function SetupWizardPage() {
                   : "cursor-default bg-surface-raised text-text-subtle"
               )}
             >
-              Continue
+              {t("continue")}
               <ArrowRight className="h-4 w-4" />
             </button>
           ) : runtimePreview && !previewLoading ? (
@@ -693,12 +691,12 @@ export default function SetupWizardPage() {
               {creating ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Creating...
+                  {t("creating")}
                 </>
               ) : (
                 <>
                   <Sparkles className="h-4 w-4" />
-                  Create assistant
+                  {t("createAssistant")}
                   <ChevronRight className="h-4 w-4" />
                 </>
               )}
@@ -706,7 +704,7 @@ export default function SetupWizardPage() {
           ) : (
             <div className="flex items-center gap-2 rounded-xl bg-surface-raised px-6 py-2.5 text-sm text-text-muted">
               <Loader2 className="h-4 w-4 animate-spin text-accent" />
-              Preparing preview...
+              {t("preparingPreview")}
             </div>
           )}
         </div>
@@ -746,6 +744,7 @@ const ALL_TIMEZONES = (() => {
 })();
 
 function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: string) => void }) {
+  const t = useTranslations("setup");
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -793,7 +792,7 @@ function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: str
     [filtered, select]
   );
 
-  const display = value ? value.replace(/_/g, " ") : "Select timezone";
+  const display = value ? value.replace(/_/g, " ") : t("selectTimezone");
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -822,13 +821,13 @@ function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: str
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Search timezone..."
+              placeholder={t("searchTimezone")}
               className="w-full bg-transparent text-sm text-text placeholder:text-text-subtle outline-none"
             />
           </div>
           <div className="custom-scrollbar max-h-44 overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-text-subtle">No matches</p>
+              <p className="px-3 py-2 text-xs text-text-subtle">{t("noMatches")}</p>
             ) : (
               filtered.slice(0, 100).map((tz) => (
                 <button

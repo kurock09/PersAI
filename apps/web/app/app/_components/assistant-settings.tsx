@@ -21,6 +21,7 @@ import type {
   AssistantMemoryRegistryItemState,
   AssistantTaskRegistryItemState
 } from "@persai/contracts";
+import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import type { AppData } from "./use-app-data";
 import {
@@ -134,8 +135,22 @@ function ActionButton({
 export function AssistantSettings({ data }: AssistantSettingsProps) {
   const router = useRouter();
   const { getToken } = useAuth();
+  const t = useTranslations("settings");
+  const tp = useTranslations("persona");
   const assistant = data.assistant;
-  const statusCfg = STATUS_LABELS[data.assistantStatus] ?? STATUS_LABELS.none!;
+  const statusLabel = t(
+    (
+      {
+        live: "live",
+        applying: "applying",
+        draft: "draft",
+        failed: "failed",
+        degraded: "degraded",
+        none: "notCreated"
+      } as Record<string, string>
+    )[data.assistantStatus] ?? "notCreated"
+  );
+  const statusDot = STATUS_LABELS[data.assistantStatus]?.dot ?? "bg-text-subtle";
 
   const version = assistant?.latestPublishedVersion ?? null;
   const [draftName, setDraftName] = useState(assistant?.draft.displayName ?? "");
@@ -201,47 +216,49 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   const getTaskScheduleKindLabel = useCallback(
     (sourceLabel: string | null): string => {
       const kind = getTaskScheduleKind(sourceLabel);
-      if (kind === "one_time") return "One-time";
-      if (kind === "recurring") return "Recurring";
-      return "Scheduled";
+      if (kind === "one_time") return t("oneTime");
+      if (kind === "recurring") return t("recurring");
+      return t("scheduled");
     },
-    [getTaskScheduleKind]
+    [getTaskScheduleKind, t]
   );
 
   const getTaskTimingLabel = useCallback(
     (item: AssistantTaskRegistryItemState): string => {
       if (item.controlStatus === "disabled") {
-        return "Paused";
+        return t("paused");
       }
       if (item.controlStatus === "cancelled") {
-        return "Stopped";
+        return t("stopped");
       }
       if (item.nextRunAt === null) {
-        return "Time not set";
+        return t("timeNotSet");
       }
-      const prefix = getTaskScheduleKind(item.sourceLabel) === "one_time" ? "Runs at" : "Next run";
-      return `${prefix}: ${new Date(item.nextRunAt).toLocaleString(undefined, {
+      const time = new Date(item.nextRunAt).toLocaleString(undefined, {
         dateStyle: "medium",
         timeStyle: "short"
-      })}`;
+      });
+      return getTaskScheduleKind(item.sourceLabel) === "one_time"
+        ? t("runsAt", { time })
+        : t("nextRun", { time });
     },
-    [getTaskScheduleKind]
+    [getTaskScheduleKind, t]
   );
 
   const getTaskStatusLabel = useCallback(
     (controlStatus: AssistantTaskRegistryItemState["controlStatus"]) => {
-      if (controlStatus === "active") return "Active";
-      if (controlStatus === "disabled") return "Paused";
-      return "Stopped";
+      if (controlStatus === "active") return t("active");
+      if (controlStatus === "disabled") return t("paused");
+      return t("stopped");
     },
-    []
+    [t]
   );
 
   useEffect(() => {
     setDraftName(assistant?.draft.displayName ?? "");
     setDraftInstructions(assistant?.draft.instructions ?? "");
-    const t = assistant?.draft.traits as Record<string, number> | null | undefined;
-    if (t) setDraftTraits(t);
+    const traits = assistant?.draft.traits as Record<string, number> | null | undefined;
+    if (traits) setDraftTraits(traits);
     else setDraftTraits(DEFAULT_TRAITS);
     setDraftAvatarEmoji(assistant?.draft.avatarEmoji ?? null);
     setDraftAvatarUrl(assistant?.draft.avatarUrl ?? null);
@@ -348,10 +365,10 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         assistantGender: draftAssistantGender
       });
       await postAssistantPublish(token);
-      setSaveFb({ type: "ok", text: "Saved and applied." });
+      setSaveFb({ type: "ok", text: t("savedAndApplied") });
       data.reload();
     } catch (e) {
-      setSaveFb({ type: "err", text: e instanceof Error ? e.message : "Save failed." });
+      setSaveFb({ type: "err", text: e instanceof Error ? e.message : t("saveFailed") });
     }
     setSaving(false);
   }, [
@@ -374,11 +391,11 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     setRollbackFb(null);
     try {
       await postAssistantRollback(token, { targetVersion });
-      setRollbackFb({ type: "ok", text: `Rolled back to v${targetVersion}.` });
+      setRollbackFb({ type: "ok", text: t("rolledBack", { v: targetVersion }) });
       setRollbackConfirm(false);
       data.reload();
     } catch (e) {
-      setRollbackFb({ type: "err", text: e instanceof Error ? e.message : "Rollback failed." });
+      setRollbackFb({ type: "err", text: e instanceof Error ? e.message : t("rollbackFailed") });
     }
     setRollingBack(false);
   }, [getToken, version, data]);
@@ -392,7 +409,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       await postAssistantReset(token);
       router.replace("/app/setup");
     } catch (e) {
-      setResetFb({ type: "err", text: e instanceof Error ? e.message : "Reset failed." });
+      setResetFb({ type: "err", text: e instanceof Error ? e.message : t("resetFailed") });
       setResetting(false);
     }
   }, [getToken, router]);
@@ -439,12 +456,12 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       try {
         const updated = await patchAssistantNotificationPreference(token, channel);
         setNotificationChannel(updated.selectedChannel);
-        setNotificationFb({ type: "ok", text: "Reminder delivery channel updated." });
+        setNotificationFb({ type: "ok", text: t("reminderUpdated") });
         data.reload();
       } catch (error) {
         setNotificationFb({
           type: "err",
-          text: error instanceof Error ? error.message : "Failed to update reminder delivery."
+          text: error instanceof Error ? error.message : t("reminderUpdateFailed")
         });
       }
       setNotificationSaving(false);
@@ -456,10 +473,8 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center gap-4">
         <Loader2 className="h-10 w-10 animate-spin text-accent" />
-        <p className="text-sm font-medium text-text-muted">Resetting assistant...</p>
-        <p className="text-xs text-text-subtle">
-          Clearing chats, memory, and settings. This may take a few seconds.
-        </p>
+        <p className="text-sm font-medium text-text-muted">{t("resettingAssistant")}</p>
+        <p className="text-xs text-text-subtle">{t("resetClearing")}</p>
       </div>
     );
   }
@@ -468,8 +483,8 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
         <Sparkles className="mb-4 h-10 w-10 text-text-subtle" />
-        <p className="text-sm text-text-muted">No assistant created yet.</p>
-        <p className="mt-1 text-xs text-text-subtle">Create one from the main screen.</p>
+        <p className="text-sm text-text-muted">{t("noAssistant")}</p>
+        <p className="mt-1 text-xs text-text-subtle">{t("createFromMain")}</p>
       </div>
     );
   }
@@ -477,13 +492,13 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   return (
     <div>
       {/* 1. Character — hero */}
-      <Section icon={<Sparkles className="h-4 w-4" />} title="Character">
+      <Section icon={<Sparkles className="h-4 w-4" />} title={t("character")}>
         <div className="flex items-center gap-4">
           <button
             type="button"
             onClick={() => setEmojiPickerOpen((o) => !o)}
             className="flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center rounded-2xl bg-accent/15 text-3xl overflow-hidden transition-colors hover:bg-accent/25"
-            title="Change avatar"
+            title={t("changeAvatar")}
           >
             {avatarUploading ? (
               <Loader2 className="h-6 w-6 animate-spin text-accent" />
@@ -500,12 +515,12 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
               type="text"
               value={draftName}
               onChange={(e) => setDraftName(e.target.value)}
-              placeholder="Assistant name"
+              placeholder={t("assistantNamePlaceholder")}
               className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
             />
             <span className="mt-1.5 flex items-center gap-1.5">
-              <span className={cn("inline-block h-2 w-2 rounded-full", statusCfg.dot)} />
-              <span className="text-xs text-text-muted">{statusCfg.label}</span>
+              <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
+              <span className="text-xs text-text-muted">{statusLabel}</span>
             </span>
           </div>
         </div>
@@ -539,7 +554,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                   ? "bg-accent/20 ring-1 ring-accent"
                   : "hover:bg-surface-hover text-text-subtle"
               )}
-              title="Upload image"
+              title={t("uploadImage")}
             >
               <Upload className="h-4 w-4" />
             </button>
@@ -565,7 +580,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 const result = await uploadAssistantAvatar(token, file);
                 setDraftAvatarUrl(result.avatarUrl);
               } catch {
-                setSaveFb({ type: "err", text: "Avatar upload failed." });
+                setSaveFb({ type: "err", text: t("avatarUploadFailed") });
                 setAvatarPreviewBlobUrl(null);
               } finally {
                 setAvatarUploading(false);
@@ -577,13 +592,13 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         <div className="mt-3 flex items-center gap-2">
           <ActionButton
             icon={<Rocket className="h-3.5 w-3.5" />}
-            label="Save and apply"
+            label={t("saveAndApply")}
             onClick={() => void handleSaveAndApply()}
             busy={saving}
           />
           <ActionButton
             icon={<Sparkles className="h-3.5 w-3.5" />}
-            label={editingPersonality ? "Hide personality" : "Edit personality"}
+            label={editingPersonality ? t("hidePersonality") : t("editPersonality")}
             onClick={() => setEditingPersonality(!editingPersonality)}
             busy={false}
           />
@@ -605,16 +620,16 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                       : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
                   )}
                 >
-                  {opt.label}
+                  {tp(opt.labelKey)}
                 </button>
               ))}
             </div>
             <div className="mt-3 space-y-3">
-              {TRAIT_SLIDERS.map(({ key, labelLeft, labelRight }) => (
+              {TRAIT_SLIDERS.map(({ key, labelLeftKey, labelRightKey }) => (
                 <div key={key}>
                   <div className="flex justify-between text-[11px] text-text-muted mb-1">
-                    <span>{labelLeft}</span>
-                    <span>{labelRight}</span>
+                    <span>{tp(labelLeftKey)}</span>
+                    <span>{tp(labelRightKey)}</span>
                   </div>
                   <input
                     type="range"
@@ -632,7 +647,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
             <textarea
               value={draftInstructions}
               onChange={(e) => setDraftInstructions(e.target.value)}
-              placeholder="Custom instructions (optional)..."
+              placeholder={t("customInstructions")}
               rows={4}
               className="mt-3 w-full resize-y rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
             />
@@ -641,17 +656,17 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       </Section>
 
       {/* 2. Quick actions */}
-      <Section icon={<Rocket className="h-4 w-4" />} title="Quick actions">
+      <Section icon={<Rocket className="h-4 w-4" />} title={t("quickActions")}>
         {version && (
           <p className="mb-3 text-xs text-text-muted">
-            Version {version.version} · Apply: {assistant.runtimeApply.status}
+            {t("version", { v: version.version, status: assistant.runtimeApply.status })}
           </p>
         )}
         <div className="flex flex-wrap gap-2">
           {!rollbackConfirm ? (
             <ActionButton
               icon={<RotateCcw className="h-3.5 w-3.5" />}
-              label="Rollback"
+              label={t("rollback")}
               onClick={() => setRollbackConfirm(true)}
               busy={false}
               disabled={!version || version.version < 2}
@@ -660,7 +675,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
             <div className="flex items-center gap-2">
               <ActionButton
                 icon={<RotateCcw className="h-3.5 w-3.5" />}
-                label={`Rollback to v${(version?.version ?? 2) - 1}`}
+                label={t("rollbackTo", { v: (version?.version ?? 2) - 1 })}
                 onClick={() => void handleRollback()}
                 busy={rollingBack}
               />
@@ -669,14 +684,14 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 onClick={() => setRollbackConfirm(false)}
                 className="cursor-pointer text-xs text-text-subtle hover:text-text-muted"
               >
-                Cancel
+                {t("cancel")}
               </button>
             </div>
           )}
           {!resetConfirm ? (
             <ActionButton
               icon={<Trash2 className="h-3.5 w-3.5" />}
-              label="Reset"
+              label={t("reset")}
               variant="danger"
               onClick={() => setResetConfirm(true)}
               busy={false}
@@ -685,7 +700,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
             <div className="flex items-center gap-2">
               <ActionButton
                 icon={<AlertTriangle className="h-3.5 w-3.5" />}
-                label="Confirm reset"
+                label={t("confirmReset")}
                 variant="danger"
                 onClick={() => void handleReset()}
                 busy={resetting}
@@ -695,7 +710,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 onClick={() => setResetConfirm(false)}
                 className="cursor-pointer text-xs text-text-subtle hover:text-text-muted"
               >
-                Cancel
+                {t("cancel")}
               </button>
             </div>
           )}
@@ -705,7 +720,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       </Section>
 
       {/* 3. Memory */}
-      <Section icon={<Brain className="h-4 w-4" />} title="Memory" defaultOpen={false}>
+      <Section icon={<Brain className="h-4 w-4" />} title={t("memory")} defaultOpen={false}>
         <div className="mb-3 flex gap-1 rounded-lg bg-surface p-0.5">
           {(["workspace", "registry"] as const).map((tab) => (
             <button
@@ -719,7 +734,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                   : "text-text-muted hover:text-text"
               )}
             >
-              {tab === "workspace" ? "Workspace" : "History"}
+              {tab === "workspace" ? t("workspace") : t("history")}
             </button>
           ))}
         </div>
@@ -734,7 +749,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void loadWsMemory(wsMemorySearch || undefined);
                 }}
-                placeholder="Search memories..."
+                placeholder={t("searchMemories")}
                 className="min-w-0 flex-1 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-xs text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
               />
               <button
@@ -742,7 +757,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 onClick={() => void loadWsMemory(wsMemorySearch || undefined)}
                 className="shrink-0 cursor-pointer rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
               >
-                Search
+                {t("search")}
               </button>
             </div>
 
@@ -754,7 +769,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleAddWsMemory();
                 }}
-                placeholder="Teach something new..."
+                placeholder={t("teachNew")}
                 className="min-w-0 flex-1 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-xs text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
               />
               <button
@@ -763,7 +778,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 onClick={() => void handleAddWsMemory()}
                 className="shrink-0 cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50 transition-colors"
               >
-                {wsMemoryAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add"}
+                {wsMemoryAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : t("add")}
               </button>
             </div>
 
@@ -772,7 +787,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
               </div>
             ) : wsMemoryItems.length === 0 ? (
-              <p className="text-xs text-text-subtle">No workspace memories yet.</p>
+              <p className="text-xs text-text-subtle">{t("noWorkspaceMemories")}</p>
             ) : (
               <ul className="space-y-2">
                 {wsMemoryItems.map((item) => (
@@ -788,7 +803,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                       disabled={wsForgettingId === item.id}
                       onClick={() => void handleForgetWsMemory(item.id)}
                       className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                      title="Forget"
+                      title={t("forget")}
                     >
                       {wsForgettingId === item.id ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -810,7 +825,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
               </div>
             ) : memoryItems.length === 0 ? (
-              <p className="text-xs text-text-subtle">No memories stored yet.</p>
+              <p className="text-xs text-text-subtle">{t("noMemoriesStored")}</p>
             ) : (
               <ul className="space-y-2">
                 {memoryItems.map((item) => (
@@ -826,7 +841,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                       disabled={forgettingId === item.id}
                       onClick={() => void handleForget(item.id)}
                       className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                      title="Forget"
+                      title={t("forget")}
                     >
                       {forgettingId === item.id ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -843,13 +858,13 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       </Section>
 
       {/* 4. Tasks */}
-      <Section icon={<ListTodo className="h-4 w-4" />} title="Tasks" defaultOpen={false}>
+      <Section icon={<ListTodo className="h-4 w-4" />} title={t("tasks")} defaultOpen={false}>
         {taskLoading ? (
           <div className="flex justify-center py-4">
             <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
           </div>
         ) : taskItems.filter((item) => item.controlStatus === "active").length === 0 ? (
-          <p className="text-xs text-text-subtle">No current tasks right now.</p>
+          <p className="text-xs text-text-subtle">{t("noCurrentTasks")}</p>
         ) : (
           <ul className="space-y-2">
             {taskItems
@@ -876,13 +891,13 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                   <div className="mt-2 flex gap-1.5">
                     <ActionButton
                       icon={<RotateCcw className="h-3 w-3" />}
-                      label="Disable"
+                      label={t("disable")}
                       onClick={() => void handleTaskAction(item.id, "disable")}
                       busy={taskActionId === item.id}
                     />
                     <ActionButton
                       icon={<Trash2 className="h-3 w-3" />}
-                      label="Cancel"
+                      label={t("cancel")}
                       variant="danger"
                       onClick={() => void handleTaskAction(item.id, "cancel")}
                       busy={taskActionId === item.id}
@@ -895,7 +910,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       </Section>
 
       {/* 5. Channels */}
-      <Section icon={<Send className="h-4 w-4" />} title="Channels" defaultOpen={false}>
+      <Section icon={<Send className="h-4 w-4" />} title={t("channels")} defaultOpen={false}>
         <div className="space-y-1.5">
           <ChannelRow name="Telegram" connected={data.telegram?.connectionStatus === "connected"} />
           <ChannelRow name="WhatsApp" comingSoon />
@@ -904,11 +919,8 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         <div className="mt-4 rounded-xl border border-border bg-surface-raised/60 p-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-medium text-text">Reminder delivery</p>
-              <p className="mt-1 text-[11px] text-text-subtle">
-                PersAI sends reminders to the preferred connected channel and falls back if it is
-                unavailable.
-              </p>
+              <p className="text-xs font-medium text-text">{t("reminderDelivery")}</p>
+              <p className="mt-1 text-[11px] text-text-subtle">{t("reminderDescription")}</p>
             </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -927,7 +939,15 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                       : "border-border bg-background text-text-muted hover:bg-surface-hover"
                   )}
                 >
-                  {formatNotificationChannelLabel(channel)}
+                  {t(
+                    (
+                      {
+                        telegram: "channelTelegram",
+                        whatsapp: "channelWhatsApp",
+                        web: "channelWeb"
+                      } as Record<string, string>
+                    )[channel] ?? "channelWeb"
+                  )}
                 </button>
               );
             })}
@@ -937,32 +957,40 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       </Section>
 
       {/* 6. Limits & Plan */}
-      <Section icon={<BarChart3 className="h-4 w-4" />} title="Limits & Plan" defaultOpen={false}>
+      <Section
+        icon={<BarChart3 className="h-4 w-4" />}
+        title={t("limitsAndPlan")}
+        defaultOpen={false}
+      >
         {data.plan ? (
           <div className="space-y-2">
             <p className="text-xs font-medium text-text">
-              {data.plan.effectivePlan.displayName ?? "Free plan"}
+              {data.plan.effectivePlan.displayName ?? t("freePlan")}
             </p>
-            <LimitBar label="Token budget" pct={data.plan.limits.tokenBudgetPercent} />
-            <LimitBar label="Active chats" pct={data.plan.limits.activeWebChatsPercent} />
-            <LimitBar label="Tools" pct={data.plan.limits.costDrivingToolsPercent} />
+            <LimitBar label={t("tokenBudget")} pct={data.plan.limits.tokenBudgetPercent} />
+            <LimitBar label={t("activeChats")} pct={data.plan.limits.activeWebChatsPercent} />
+            <LimitBar label={t("tools")} pct={data.plan.limits.costDrivingToolsPercent} />
           </div>
         ) : (
-          <p className="text-xs text-text-subtle">Plan info unavailable.</p>
+          <p className="text-xs text-text-subtle">{t("planUnavailable")}</p>
         )}
       </Section>
 
       {/* 7. Publish history */}
-      <Section icon={<History className="h-4 w-4" />} title="Publish history" defaultOpen={false}>
+      <Section
+        icon={<History className="h-4 w-4" />}
+        title={t("publishHistory")}
+        defaultOpen={false}
+      >
         {version ? (
           <div className="text-xs text-text-muted">
-            <p>Latest: v{version.version}</p>
+            <p>{t("latestVersion", { v: version.version })}</p>
             <p className="text-text-subtle">
-              Published {new Date(version.publishedAt).toLocaleString()}
+              {t("published", { date: new Date(version.publishedAt).toLocaleString() })}
             </p>
           </div>
         ) : (
-          <p className="text-xs text-text-subtle">No versions published yet.</p>
+          <p className="text-xs text-text-subtle">{t("noVersions")}</p>
         )}
       </Section>
     </div>
@@ -987,6 +1015,7 @@ function ChannelRow({
   connected?: boolean;
   comingSoon?: boolean;
 }) {
+  const t = useTranslations("settings");
   return (
     <div className={cn("flex items-center gap-2 rounded-lg px-3 py-2", comingSoon && "opacity-50")}>
       <span
@@ -996,16 +1025,10 @@ function ChannelRow({
         )}
       />
       <span className="text-xs text-text-muted">{name}</span>
-      {comingSoon && <span className="text-[10px] text-text-subtle">Coming soon</span>}
-      {connected && <span className="text-[10px] text-success">Connected</span>}
+      {comingSoon && <span className="text-[10px] text-text-subtle">{t("channelComingSoon")}</span>}
+      {connected && <span className="text-[10px] text-success">{t("channelConnected")}</span>}
     </div>
   );
-}
-
-function formatNotificationChannelLabel(channel: AssistantPreferredNotificationChannel): string {
-  if (channel === "telegram") return "Telegram";
-  if (channel === "whatsapp") return "WhatsApp";
-  return "Web";
 }
 
 function LimitBar({ label, pct }: { label: string; pct: number }) {

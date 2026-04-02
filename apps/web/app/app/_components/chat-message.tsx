@@ -37,6 +37,7 @@ import {
   Loader2
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { useTranslations } from "next-intl";
 import { AssistantAvatar } from "./assistant-avatar";
 import { getAttachmentDownloadUrl } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
@@ -75,6 +76,7 @@ interface ChatMessageBubbleProps {
 }
 
 function CopyButton({ text }: { text: string }) {
+  const t = useTranslations("chat");
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
@@ -88,7 +90,7 @@ function CopyButton({ text }: { text: string }) {
       type="button"
       onClick={() => void handleCopy()}
       className="cursor-pointer rounded-md p-1.5 text-text-subtle transition-colors hover:bg-surface-hover hover:text-text-muted"
-      title="Copy"
+      title={t("copy")}
     >
       {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
@@ -96,21 +98,6 @@ function CopyButton({ text }: { text: string }) {
 }
 
 const COLLAPSE_LINE_THRESHOLD = 15;
-
-function formatThoughtDurationLabel(message: ChatMessage): string {
-  if (!message.thoughtStartedAt || !message.thoughtFinishedAt) {
-    return "Thinking";
-  }
-
-  const startedAt = Date.parse(message.thoughtStartedAt);
-  const finishedAt = Date.parse(message.thoughtFinishedAt);
-  if (Number.isNaN(startedAt) || Number.isNaN(finishedAt)) {
-    return "Thought";
-  }
-
-  const seconds = Math.max(1, Math.round((finishedAt - startedAt) / 1000));
-  return `Thought for ${seconds}s`;
-}
 
 function buildThoughtPreview(thought: string): string {
   return thought
@@ -127,6 +114,7 @@ function CodeBlock({
   className: string | undefined;
   children?: React.ReactNode;
 }) {
+  const t = useTranslations("chat");
   const text = String(children).replace(/\n$/, "");
   const lang = className?.replace("language-", "") ?? "";
   const lineCount = text.split("\n").length;
@@ -151,8 +139,10 @@ function CodeBlock({
     <div className="code-block group relative my-3 overflow-hidden rounded-lg border border-border">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <span className="text-[11px] font-medium text-text-subtle">
-          {lang || "code"}
-          {isLong && <span className="ml-1.5 text-text-subtle/50">{lineCount} lines</span>}
+          {lang || t("code")}
+          {isLong && (
+            <span className="ml-1.5 text-text-subtle/50">{t("lines", { count: lineCount })}</span>
+          )}
         </span>
         <CopyButton text={text} />
       </div>
@@ -167,7 +157,7 @@ function CodeBlock({
               onClick={() => setExpanded(true)}
               className="cursor-pointer rounded-md bg-surface-raised px-3 py-1 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
             >
-              Show all {lineCount} lines
+              {t("showAllLines", { count: lineCount })}
             </button>
           </div>
         )}
@@ -179,7 +169,7 @@ function CodeBlock({
             onClick={() => setExpanded(false)}
             className="cursor-pointer text-[11px] text-text-subtle transition-colors hover:text-text-muted"
           >
-            Collapse
+            {t("collapse")}
           </button>
         </div>
       )}
@@ -188,6 +178,7 @@ function CodeBlock({
 }
 
 function ThoughtBlock({ message }: { message: ChatMessage }) {
+  const t = useTranslations("chat");
   const thought = message.thought?.trim() ?? "";
   const [expanded, setExpanded] = useState(message.status === "streaming");
 
@@ -197,6 +188,16 @@ function ThoughtBlock({ message }: { message: ChatMessage }) {
 
   const preview = buildThoughtPreview(thought);
 
+  const thoughtLabel =
+    !message.thoughtStartedAt || !message.thoughtFinishedAt
+      ? t("thinking")
+      : (() => {
+          const s = Date.parse(message.thoughtStartedAt);
+          const f = Date.parse(message.thoughtFinishedAt);
+          if (Number.isNaN(s) || Number.isNaN(f)) return t("thinking");
+          return t("thoughtFor", { seconds: Math.max(1, Math.round((f - s) / 1000)) });
+        })();
+
   return (
     <div className="mb-3 overflow-hidden rounded-xl border border-border/70 bg-surface-raised/50">
       <button
@@ -205,7 +206,7 @@ function ThoughtBlock({ message }: { message: ChatMessage }) {
         className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-hover/60"
       >
         <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
-          {formatThoughtDurationLabel(message)}
+          {thoughtLabel}
         </span>
         <span className="ml-auto text-text-subtle">
           {expanded ? (
@@ -332,6 +333,7 @@ function formatBytes(bytes: number): string {
 }
 
 function AttachmentStrip({ attachments }: { attachments: ChatAttachment[] }) {
+  const t = useTranslations("chat");
   if (attachments.length === 0) return null;
 
   return (
@@ -370,7 +372,9 @@ function AttachmentStrip({ attachments }: { attachments: ChatAttachment[] }) {
               )}
               {isFailed && (
                 <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-destructive/10">
-                  <span className="text-[10px] font-medium text-destructive">Upload failed</span>
+                  <span className="text-[10px] font-medium text-destructive">
+                    {t("uploadFailed")}
+                  </span>
                 </div>
               )}
             </div>
@@ -450,6 +454,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   onDoNotRemember,
   forgotten
 }: ChatMessageBubbleProps) {
+  const t = useTranslations("chat");
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming" && message.role === "assistant";
 
@@ -512,7 +517,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
           <div className="mt-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
             <CopyButton text={message.content} />
             {forgotten ? (
-              <span className="rounded-md p-1.5 text-text-subtle/40" title="Won't be remembered">
+              <span className="rounded-md p-1.5 text-text-subtle/40" title={t("wontRemember")}>
                 <EyeOff className="h-3.5 w-3.5" />
               </span>
             ) : onDoNotRemember ? (
@@ -520,7 +525,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 type="button"
                 onClick={() => onDoNotRemember(message.id)}
                 className="cursor-pointer rounded-md p-1.5 text-text-subtle transition-colors hover:bg-surface-hover hover:text-text-muted"
-                title="Don't remember this"
+                title={t("dontRemember")}
               >
                 <EyeOff className="h-3.5 w-3.5" />
               </button>
@@ -529,7 +534,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               type="button"
               disabled
               className="cursor-default rounded-md p-1.5 text-text-subtle/40"
-              title="Regenerate (coming soon)"
+              title={t("regenerate")}
             >
               <RefreshCw className="h-3.5 w-3.5" />
             </button>
@@ -537,7 +542,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               type="button"
               disabled
               className="cursor-default rounded-md p-1.5 text-text-subtle/40"
-              title="Helpful (coming soon)"
+              title={t("helpful")}
             >
               <ThumbsUp className="h-3.5 w-3.5" />
             </button>
@@ -545,7 +550,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               type="button"
               disabled
               className="cursor-default rounded-md p-1.5 text-text-subtle/40"
-              title="Not helpful (coming soon)"
+              title={t("notHelpful")}
             >
               <ThumbsDown className="h-3.5 w-3.5" />
             </button>

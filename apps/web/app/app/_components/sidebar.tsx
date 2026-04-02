@@ -18,9 +18,11 @@ import {
   Sun,
   Moon,
   LogOut,
-  Settings
+  Settings,
+  Globe
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import { AssistantAvatar } from "./assistant-avatar";
 import type { AppData, AssistantStatus } from "./use-app-data";
@@ -48,17 +50,20 @@ const STATUS_CONFIG: Record<AssistantStatus, { label: string; dot: string }> = {
   none: { label: "Not created", dot: "bg-text-subtle" }
 };
 
-function groupChatsByDate(chats: AssistantWebChatListItemState[]) {
+function groupChatsByDate(
+  chats: AssistantWebChatListItemState[],
+  labels: { today: string; yesterday: string; previous7: string; older: string }
+) {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const yesterdayStart = new Date(todayStart.getTime() - 86_400_000);
   const weekStart = new Date(todayStart.getTime() - 7 * 86_400_000);
 
   const groups: { label: string; items: AssistantWebChatListItemState[] }[] = [
-    { label: "Today", items: [] },
-    { label: "Yesterday", items: [] },
-    { label: "Previous 7 days", items: [] },
-    { label: "Older", items: [] }
+    { label: labels.today, items: [] },
+    { label: labels.yesterday, items: [] },
+    { label: labels.previous7, items: [] },
+    { label: labels.older, items: [] }
   ];
 
   const sorted = [...chats]
@@ -141,9 +146,24 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  const t = useTranslations("sidebar");
+  const ts = useTranslations("settings");
   const statusCfg = STATUS_CONFIG[data.assistantStatus];
-  const assistantName = data.assistant?.draft.displayName ?? "Your Assistant";
-  const chatGroups = groupChatsByDate(data.chats);
+  const statusLabelMap: Record<string, string> = {
+    live: ts("live"),
+    applying: ts("applying"),
+    draft: ts("draft"),
+    failed: ts("failed"),
+    degraded: ts("degraded"),
+    none: ts("notCreated")
+  };
+  const assistantName = data.assistant?.draft.displayName ?? t("defaultAssistant");
+  const chatGroups = groupChatsByDate(data.chats, {
+    today: t("today"),
+    yesterday: t("yesterday"),
+    previous7: t("previous7"),
+    older: t("older")
+  });
   const telegramConnected = data.telegram?.connectionStatus === "connected";
   const planName = data.plan?.effectivePlan.displayName ?? "Free plan";
   const chatUsage = data.plan?.limits.activeWebChatsPercent ?? 0;
@@ -179,7 +199,9 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
             <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
             <span className="flex items-center gap-1.5">
               <span className={cn("inline-block h-2 w-2 rounded-full", statusCfg.dot)} />
-              <span className="text-xs text-text-muted">{statusCfg.label}</span>
+              <span className="text-xs text-text-muted">
+                {statusLabelMap[data.assistantStatus] ?? statusCfg.label}
+              </span>
             </span>
           </div>
         </button>
@@ -196,7 +218,7 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
           className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-sm font-medium text-white shadow-sm shadow-accent-glow transition-colors hover:bg-accent-hover"
         >
           <MessageSquarePlus className="h-4 w-4" />
-          New chat
+          {t("newChat")}
         </button>
       </div>
 
@@ -207,9 +229,7 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
             <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
           </div>
         ) : chatGroups.length === 0 ? (
-          <p className="pb-4 pt-6 text-center text-xs text-text-subtle">
-            Start your first conversation
-          </p>
+          <p className="pb-4 pt-6 text-center text-xs text-text-subtle">{t("startFirst")}</p>
         ) : (
           chatGroups.map((group) => (
             <div key={group.label} className="mb-3">
@@ -238,25 +258,25 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
         {/* 5. Integrations */}
         <div className="px-3 pt-3 pb-2">
           <p className="mb-1.5 px-2.5 text-[11px] font-medium uppercase tracking-wider text-text-subtle">
-            Integrations
+            {t("integrations")}
           </p>
           <IntegrationRow
             icon={<Send className="h-3.5 w-3.5" />}
-            name="Telegram"
-            status={telegramConnected ? "Connected" : "Not connected"}
+            name={t("telegram")}
+            status={telegramConnected ? t("connected") : t("notConnected")}
             connected={telegramConnected}
             onClick={onTelegramClick}
           />
           <IntegrationRow
             icon={<Smartphone className="h-3.5 w-3.5" />}
-            name="WhatsApp"
-            status="Coming soon"
+            name={t("whatsApp")}
+            status={t("comingSoon")}
             muted
           />
           <IntegrationRow
             icon={<MessageCircle className="h-3.5 w-3.5" />}
-            name="MAX"
-            status="Coming soon"
+            name={t("max")}
+            status={t("comingSoon")}
             muted
           />
         </div>
@@ -266,7 +286,9 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
           <div className="flex items-center justify-between px-2.5">
             <span className="text-xs text-text-muted">{planName}</span>
             {chatUsage > 0 && (
-              <span className="text-[11px] text-text-subtle">{chatUsage}% chats</span>
+              <span className="text-[11px] text-text-subtle">
+                {t("chatsPercent", { pct: chatUsage })}
+              </span>
             )}
           </div>
           {chatUsage > 0 && (
@@ -294,7 +316,7 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
               className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
             >
               <Shield className="h-3.5 w-3.5" />
-              Admin panel
+              {t("adminPanel")}
             </button>
           </div>
         )}
@@ -308,6 +330,7 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
           <span className="min-w-0 flex-1 truncate text-sm text-text-muted">
             {user?.firstName ?? user?.username ?? "User"}
           </span>
+          <LocaleSwitcher />
           <ThemeToggle />
         </div>
       </div>
@@ -320,6 +343,7 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
 /* ------------------------------------------------------------------ */
 
 function UserMenu() {
+  const t = useTranslations("sidebar");
   const { user } = useUser();
   const { signOut } = useClerk();
   const router = useRouter();
@@ -371,7 +395,7 @@ function UserMenu() {
             className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <Settings className="h-3.5 w-3.5" />
-            Account settings
+            {t("accountSettings")}
           </button>
           <button
             type="button"
@@ -379,7 +403,7 @@ function UserMenu() {
             className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-destructive transition-colors hover:bg-destructive/10"
           >
             <LogOut className="h-3.5 w-3.5" />
-            Sign out
+            {t("signOut")}
           </button>
         </div>
       )}
@@ -392,16 +416,87 @@ function UserMenu() {
 /* ------------------------------------------------------------------ */
 
 function ThemeToggle() {
+  const t = useTranslations("sidebar");
   const { theme, toggleTheme } = useTheme();
   return (
     <button
       type="button"
       onClick={toggleTheme}
       className="shrink-0 cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      title={theme === "dark" ? t("switchLight") : t("switchDark")}
     >
       {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Locale switcher                                                    */
+/* ------------------------------------------------------------------ */
+
+const LOCALES = [
+  { code: "en", label: "EN" },
+  { code: "ru", label: "RU" }
+] as const;
+
+function LocaleSwitcher() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const current =
+    (typeof document !== "undefined" &&
+      document.cookie
+        .split("; ")
+        .find((c) => c.startsWith("persai-locale="))
+        ?.split("=")[1]) ||
+    (typeof document !== "undefined" ? document.documentElement.lang : "en") ||
+    "en";
+
+  const switchLocale = (code: string) => {
+    document.cookie = `persai-locale=${code};path=/;max-age=${365 * 86400};samesite=lax`;
+    setOpen(false);
+    window.location.reload();
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="shrink-0 cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+        title="Language"
+      >
+        <Globe className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute bottom-full right-0 z-50 mb-2 rounded-lg border border-border bg-surface p-1 shadow-xl">
+          {LOCALES.map((loc) => (
+            <button
+              key={loc.code}
+              type="button"
+              onClick={() => switchLocale(loc.code)}
+              className={cn(
+                "block w-full cursor-pointer rounded-md px-3 py-1.5 text-left text-xs font-medium transition-colors",
+                current === loc.code
+                  ? "bg-accent/10 text-accent"
+                  : "text-text-muted hover:bg-surface-hover hover:text-text"
+              )}
+            >
+              {loc.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -420,6 +515,7 @@ function ChatListItem({
   onNavigate: () => void;
   onChanged: () => void;
 }) {
+  const t = useTranslations("sidebar");
   const { getToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -566,7 +662,7 @@ function ChatListItem({
             className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <Pencil className="h-3 w-3" />
-            Rename
+            {t("rename")}
           </button>
           <button
             type="button"
@@ -574,7 +670,7 @@ function ChatListItem({
             className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <Archive className="h-3 w-3" />
-            Archive
+            {t("archive")}
           </button>
           <div className="my-1 border-t border-border" />
           {confirmDelete ? (
@@ -584,7 +680,7 @@ function ChatListItem({
               className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
             >
               <Trash2 className="h-3 w-3" />
-              Confirm delete
+              {t("confirmDelete")}
             </button>
           ) : (
             <button
@@ -593,7 +689,7 @@ function ChatListItem({
               className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
             >
               <Trash2 className="h-3 w-3" />
-              Delete
+              {t("delete")}
             </button>
           )}
         </div>

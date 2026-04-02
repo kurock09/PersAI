@@ -29,15 +29,18 @@ One assistant, everywhere. Not separate apps for food/home/calendar — one pers
 - **References:** ChatGPT (chat UX), SpaceX (density, dark, engineered), Apple (cleanliness, premium)
 - **Theme:** dark mode default, light mode backup (user toggle)
 - **Target:** open launch for strangers — UI must explain itself in 30 seconds
-- **Mobile:** responsive web (sidebar collapses to hamburger), not native app in MVP
+- **Mobile:** responsive web (sidebar collapses to hamburger, touch-friendly bubbles, bottom-anchored input, safe-area padding), not native app in MVP
 - **Emotional design:** assistant card shows subtle state (active/thinking/resting), greeting on open, memory continuity signals, personality visible at all times
 
 ## Tech stack
 
-- Tailwind CSS — utility-first styling, dark/light theme support
+- Tailwind CSS — utility-first styling, dark/light theme support via CSS variables
 - shadcn/ui — component library on top of Radix UI, full code ownership
 - Framer Motion — animations (typing, slide-over, transitions, streaming text)
 - react-markdown + rehype/remark plugins — markdown rendering in chat (code highlighting, tables, math)
+- highlight.js — syntax highlighting for code blocks (16 languages)
+- next-intl — i18n framework (server + client, cookie-based locale detection, EN + RU)
+- Clerk (hooks only) — authentication via `useSignIn`, `useSignUp`, `useUser`, `useClerk` (no prebuilt UI components)
 
 ---
 
@@ -65,10 +68,12 @@ Modal windows: integration settings (Telegram/WhatsApp/MAX), confirm dialogs (de
 
 ## Auth screen (`/`)
 
-- No landing page
-- Centered auth form (Clerk)
-- Short motivational text above: platform tagline + 1-2 lines about the product
-- Dark, premium, minimal elements
+- No landing page — minimal branded screen with tagline and CTA
+- Custom sign-in / sign-up pages (fully custom UI using Clerk hooks `useSignIn`, `useSignUp`, `useUser`, `useClerk` — no prebuilt Clerk components)
+- OAuth (Google, GitHub) + email/password authentication
+- Ambient orb animations, PersAI branding, dark premium aesthetic
+- SSO callback page handles OAuth provider redirects
+- `ClerkProvider` `appearance` prop wired to CSS variables for visual consistency of any remaining Clerk modal surfaces
 
 ---
 
@@ -242,15 +247,24 @@ Opens on click of assistant card in sidebar. On mobile: fullscreen.
 ## Theme
 
 ### Dark mode (default)
-- Background: deep dark (#0a0a0f / #111118 range)
-- Accent color: TBD at implementation (blue/purple/teal candidates)
-- Text: white/light gray hierarchy
-- Cards/surfaces: subtle elevation with very light borders
+- Background: deep dark (`#0d0f11` / `#151a1e` range)
+- Accent color: warm green (`#66bb6a` dark / `#43a047` light`)
+- Text: warm light gray hierarchy (`#e8e6e3` / `#b0ada8` / `#7a7672`)
+- Cards/surfaces: subtle elevation with warm-toned borders (`#2a2d30`)
 
-### Light mode (backup)
-- Toggle in user menu
-- Clean white/gray palette
+### Light mode
+- Toggle in sidebar user section
+- Clean warm white/gray palette (`#faf9f7` / `#f2f0ed`)
 - Same component structure, inverted color tokens
+- Code blocks use distinct light highlight.js theme for readability
+
+### i18n / Localization
+
+- Two supported locales: English (default) and Russian
+- Locale detection: `persai-locale` cookie → `Accept-Language` header → fallback to `en`
+- Language switcher: Globe icon in sidebar, compact dropdown
+- All user-facing strings use `next-intl` `useTranslations`/`getTranslations` with structured JSON message files
+- Russian copy uses friendly "ты" tone, product-quality copywriting (not literal translation)
 
 ---
 

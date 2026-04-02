@@ -4,6 +4,7 @@ import { type ReactNode, Suspense, createContext, useContext, useEffect, useStat
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Menu } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Sidebar } from "./sidebar";
 import { SlideOver } from "./slide-over";
 import { AssistantSettings } from "./assistant-settings";
@@ -36,6 +37,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
   const appData = useAppData();
+  const ts = useTranslations("settings");
+  const tt = useTranslations("telegram");
   const pathname = usePathname();
   const router = useRouter();
   const isSetup = pathname === "/app/setup";
@@ -138,16 +141,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         {/* Assistant settings slide-over */}
-        <SlideOver
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          title="Assistant settings"
-        >
+        <SlideOver open={settingsOpen} onClose={() => setSettingsOpen(false)} title={ts("title")}>
           <AssistantSettings data={appData} />
         </SlideOver>
 
         {/* Telegram integration slide-over */}
-        <SlideOver open={telegramOpen} onClose={() => setTelegramOpen(false)} title="Telegram">
+        <SlideOver open={telegramOpen} onClose={() => setTelegramOpen(false)} title={tt("title")}>
           <TelegramConnect
             integration={appData.telegram}
             capabilityAllowed={appData.plan?.limits.activeWebChatsPercent !== undefined}

@@ -1,5 +1,62 @@
 # SESSION-HANDOFF
 
+## 2026-04-02 - UI/UX MVP polish + i18n localization (EN + RU)
+
+### What changed
+
+1. **Mobile chat UX** — responsive sidebar with hamburger toggle, touch-friendly message bubbles, bottom-anchored input, safe-area padding for mobile web.
+2. **Auto chat naming** — new chats derive title from first ~50 characters of the user's initial message instead of showing a technical ID (backend: `PrepareAssistantInboundTurnService.createChat`).
+3. **Custom authentication UI** — replaced all prebuilt Clerk components (`<SignIn />`, `<UserButton />`, `<UserProfile />`) with fully custom pages using Clerk hooks (`useSignIn`, `useSignUp`, `useUser`, `useClerk`). New pages: `/sign-in`, `/sign-up`, `/sso-callback`, `/app/profile`.
+4. **Clerk theme integration** — `ClerkProvider` `appearance` prop wired to CSS variables (`--accent`, `--surface-raised`, etc.) + safety-net CSS overrides in `globals.css`.
+5. **Color theme refinements** — warm green accent palette, resolved dark-theme muddiness and light code-block visibility issues.
+6. **i18n localization (EN + RU)** — installed `next-intl`; created `i18n/request.ts` (cookie → Accept-Language → fallback), `messages/en.json` (~300+ strings, 12 namespaces), `messages/ru.json` (product-quality Russian, friendly "ты" tone). All user-facing components migrated to `useTranslations`/`getTranslations` with `t()` calls. `assistant-persona.ts` refactored to translation keys. `LocaleSwitcher` in sidebar.
+
+### Files touched
+
+- `apps/web/app/app/_components/app-shell.tsx` (i18n)
+- `apps/web/app/app/_components/assistant-persona.ts` (labelKey refactor)
+- `apps/web/app/app/_components/assistant-settings.tsx` (i18n)
+- `apps/web/app/app/_components/chat-area.tsx` (i18n + mobile UX)
+- `apps/web/app/app/_components/chat-input.tsx` (i18n + mobile UX)
+- `apps/web/app/app/_components/chat-message.tsx` (i18n)
+- `apps/web/app/app/_components/home-dashboard.tsx` (i18n)
+- `apps/web/app/app/_components/sidebar.tsx` (i18n + locale switcher + mobile)
+- `apps/web/app/app/_components/telegram-connect.tsx` (i18n)
+- `apps/web/app/app/profile/page.tsx` (i18n + custom profile)
+- `apps/web/app/app/setup/page.tsx` (i18n)
+- `apps/web/app/layout.tsx` (NextIntlClientProvider + ClerkProvider appearance)
+- `apps/web/app/globals.css` (Clerk overrides + theme)
+- `apps/web/app/page.tsx` (landing i18n + custom auth link)
+- `apps/web/app/sign-in/[[...sign-in]]/page.tsx` (custom sign-in + i18n)
+- `apps/web/app/sign-up/[[...sign-up]]/page.tsx` (custom sign-up + i18n)
+- `apps/web/app/sso-callback/page.tsx` (i18n)
+- `apps/web/i18n/request.ts` (new — next-intl config)
+- `apps/web/messages/en.json` (new — English strings)
+- `apps/web/messages/ru.json` (new — Russian strings)
+- `apps/web/next.config.ts` (next-intl plugin)
+- `apps/web/package.json` (next-intl dependency)
+- `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts` (auto chat naming)
+- `docs/ROADMAP.md` (S14f, S14g items)
+- `docs/UI-SPEC.md` (auth, theme, i18n, mobile, tech stack)
+- `docs/ARCHITECTURE.md` (auth boundary, i18n boundary sections)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+- `pnpm-lock.yaml`
+
+### Risks
+
+- `next-intl` adds a server-side locale resolution step on every request; negligible perf impact but introduces a cookie dependency for locale persistence.
+- Russian translations are product-written but not proofread by a native speaker — may need minor copy adjustments.
+- Custom Clerk auth UI depends on Clerk hook API stability; major Clerk upgrades may require form logic updates.
+
+### Next steps
+
+- Smoke test both locales (EN/RU) end-to-end in deployed environment.
+- Verify mobile responsiveness on real devices (iOS Safari, Android Chrome).
+- Consider adding more locales if user demand appears.
+- Push and deploy.
+
+---
+
 ## 2026-04-02 - Infra: public domain persai.dev + unified GKE Ingress
 
 ### What changed
@@ -44,7 +101,7 @@
 1. **Code syntax highlighting** — integrated `highlight.js` into web chat code blocks with 16 registered languages and custom dark/light token color schemes.
 2. **Theme refresh** — green accent palette replacing purple/indigo, warmer neutral tones across dark and light modes.
 3. **Voice recording UX** — client-side silence detection (bytes/sec ratio < 1000 for recordings >= 2s) now shows "No speech was detected in your recording" with guidance to check microphone settings, instead of the generic "Chat could not complete this turn" error. Server-side empty-transcription errors also map to the same message.
-4. **Clerk CDN proxy** — `next.config.ts` adds a rewrite for `/clerk-cdn/*` to self-host the Clerk JS bundle; `clerk.browser.js` added to `public/`.
+4. ~~**Clerk CDN proxy** — `next.config.ts` adds a rewrite for `/clerk-cdn/*` to self-host the Clerk JS bundle; `clerk.browser.js` added to `public/`.~~ Superseded by H10: migrated to Clerk production instance with custom domain + API route proxy.
 5. **Diagnostic log cleanup** — removed temporary `transcribeVoice` logging from `ManageChatMediaService`.
 6. **ROADMAP update** — Step 14 expanded with S14a–S14e items (persona identity, setup preview, admin ops, TTS refactor, bug fixes).
 
@@ -66,7 +123,7 @@
 ### Risks
 
 - Silence detection threshold (1000 bytes/sec) is heuristic; very quiet but valid recordings may trigger the warning. Can be tuned.
-- Self-hosted `clerk.browser.js` will need periodic updates when upgrading `@clerk/clerk-js`.
+- ~~Self-hosted `clerk.browser.js` will need periodic updates when upgrading `@clerk/clerk-js`.~~ Superseded by H10: self-hosted bundles removed.
 
 ### Next steps
 
@@ -5559,14 +5616,14 @@ H8 completes the Telegram delivery surface that was previously control-plane-onl
 ### Risks
 
 1. Polling mode uses long-lived connections from OpenClaw pod to Telegram — one connection per active bot. At scale, webhook mode is preferred.
-2. `TELEGRAM_WEBHOOK_BASE_URL` commented out in dev values — Telegram polling active until domain DNS is ready.
+2. ~~`TELEGRAM_WEBHOOK_BASE_URL` commented out in dev values~~ — resolved in H10: uncommented, DNS configured, webhook mode active.
 3. Auto-apply on connect/disconnect adds latency to those API calls (~500ms). Wrapped in try/catch so failures are non-fatal.
 4. Flaky web test (`putAdminRuntimeProviderSettings` spy timing) — pre-existing, unrelated to H8. Passes on CI rerun.
 
 ### Next recommended step
 
 - **H9 — thinking/reasoning UX:** stream thinking tokens from OpenClaw, collapsible "Thought for X seconds" block in web chat with fade-out preview.
-- Configure `bot.persai.dev` DNS and uncomment `TELEGRAM_WEBHOOK_BASE_URL` to switch from polling to webhook mode.
+- ~~Configure `bot.persai.dev` DNS and uncomment `TELEGRAM_WEBHOOK_BASE_URL`~~ — done in H10.
 - Monitor Telegram group tracking accuracy (join/leave events).
 
 ---
@@ -5649,3 +5706,94 @@ The O(N) inline mass-reapply was the only auto-propagation mechanism and it bloc
 - Monitor lazy invalidation latency in dev; tune TTL if needed.
 - When billing is connected (FINAL), subscription webhook sets `configDirtyAt` — no additional code needed.
 - Run `npx prisma migrate deploy` when DB is available to apply migration.
+
+---
+
+## H10 — Domain migration, Clerk production instance + proxy, UI auth pages
+
+### What changed
+
+1. **persai.dev domain live on GKE:** unified GCE L7 Ingress deployed with Google-managed TLS certs for `persai.dev`, `api.persai.dev`, `bot.persai.dev`. Global static IP `persai-dev-ip` (`34.8.195.135`). DNS A records configured in Reg.ru. HTTPS verified working (HSTS preload for `.dev` domain enforced by browsers).
+
+2. **Clerk production instance:** migrated from dev instance (`pk_test_`) to production (`pk_live_`) with custom domain `clerk.persai.dev`. Five CNAME DNS records added in Reg.ru (Frontend API, Account Portal, 3× DKIM). Updated `CLERK_SECRET_KEY` in Kubernetes secret `persai-api-secrets` to production key. Old Clerk users from dev instance do not carry over — new registration required.
+
+3. **Clerk proxy for Russian ISP bypass:** Clerk's CDN runs on Cloudflare IPs that are blocked by some Russian ISPs. Solution:
+   - `NEXT_PUBLIC_CLERK_PROXY_URL=https://persai.dev/clerk-proxy` routes all Clerk SDK traffic through the web app.
+   - New API route handler `app/clerk-proxy/[...path]/route.ts` proxies to `clerk.persai.dev` with correct `Host` header (Next.js rewrites cannot override `Host`).
+   - `/clerk-proxy` excluded from Clerk middleware matcher to avoid auth loops.
+   - Pending: Clerk Dashboard proxy verification (shows "Invalid host" — awaiting fresh deploy with correct proxy handler to verify).
+
+4. **Build-time env for Docker:** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `NEXT_PUBLIC_CLERK_PROXY_URL` added as Docker build ARGs in `apps/web/Dockerfile` and CI workflow (`.github/workflows/dev-image-publish.yml`). GitHub repo variables created. Required because Next.js bakes `NEXT_PUBLIC_*` at build time.
+
+5. **GKE web API proxy:** added `PERSAI_WEB_API_PROXY_TARGET: "http://api:3001"` to `web.env` in `values-dev.yaml` — fixes internal `/api/v1/*` routing from web container to API service.
+
+6. **Admin user deletion FK fix:** `AdminDeleteUserService` now reassigns `AssistantPublishedVersion.publishedByUserId` to the calling admin before deleting the target user, preventing FK `Restrict` constraint violations.
+
+7. **UI: dedicated auth pages:** replaced modal `SignInButton` on landing with `Link` to `/sign-in`. New styled pages: `/sign-in`, `/sign-up`, `/sso-callback`, `/app/profile`.
+
+8. **Removed self-hosted Clerk bundles:** deleted `apps/web/public/clerk/` directory and related `NEXT_PUBLIC_CLERK_JS_URL`/`NEXT_PUBLIC_CLERK_UI_URL` env vars — no longer needed with production instance.
+
+### Why changed
+
+- Domain migration from localhost/port-forward to persai.dev was required for production-ready external access.
+- Clerk dev instance keys don't work with production custom domains; production instance required.
+- Russian ISPs block Cloudflare IP ranges, making `clerk.persai.dev` inaccessible without a first-party proxy.
+- `NEXT_PUBLIC_*` env vars are compile-time constants in Next.js — passing them only at runtime has no effect, they must be present during `next build` in Docker.
+- Admin user deletion was blocked by FK constraint, preventing admin operations.
+
+### Slice boundary
+
+- PersAI infra: Helm values, Ingress, ManagedCertificates, Dockerfile build args, CI workflow.
+- PersAI backend: `admin-delete-user.service.ts` FK fix.
+- PersAI frontend: Clerk proxy route handler, middleware matcher, sign-in/sign-up/profile/sso-callback pages, landing page link.
+- DNS (Reg.ru): A records for 3 domains, 5 CNAME records for Clerk.
+- Kubernetes: updated `persai-api-secrets` secret with production Clerk key.
+- No changes to: OpenClaw fork, Prisma schema, TTS, runtime spec, Telegram integration logic.
+
+### Key files changed
+
+**PersAI infra:**
+
+- `infra/helm/values-dev.yaml` — `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_CLERK_PROXY_URL`, `PERSAI_WEB_API_PROXY_TARGET`, ingress section
+- `infra/helm/templates/ingress.yaml` — unified GCE Ingress (new)
+- `infra/helm/templates/managed-certificates.yaml` — Google-managed TLS certs (new)
+- `infra/helm/templates/openclaw-ingress.yaml` — deprecated (replaced by unified ingress)
+- `apps/web/Dockerfile` — `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `NEXT_PUBLIC_CLERK_PROXY_URL` build ARGs
+- `.github/workflows/dev-image-publish.yml` — passes `build-args` from GitHub repo variables
+
+**PersAI backend:**
+
+- `apps/api/src/modules/workspace-management/application/admin-delete-user.service.ts` — reassign `publishedByUserId` before delete
+
+**PersAI frontend:**
+
+- `apps/web/app/clerk-proxy/[...path]/route.ts` — Clerk proxy route handler (new)
+- `apps/web/middleware.ts` — exclude `/clerk-proxy` from Clerk middleware
+- `apps/web/next.config.ts` — removed Clerk rewrite (replaced by API route), kept API proxy rewrite
+- `apps/web/app/page.tsx` — landing: `Link` to `/sign-in`
+- `apps/web/app/sign-in/[[...sign-in]]/page.tsx` — styled sign-in page (new)
+- `apps/web/app/sign-up/[[...sign-up]]/page.tsx` — styled sign-up page (new)
+- `apps/web/app/sso-callback/page.tsx` — SSO callback handler (new)
+- `apps/web/app/app/profile/page.tsx` — user profile page (new)
+- `apps/web/.env.local` — updated to `pk_live_`/`sk_live_` keys
+
+### Tests run
+
+- CI typecheck (`pnpm run typecheck`) — passed after fixing TS2769 in clerk-proxy route (body `undefined` → `null`)
+- CI lint + prettier — passed after formatting fixes
+- Manual: `https://persai.dev/` loads over HTTPS, sign-in page renders (via VPN from Russia)
+
+### Risks
+
+1. Clerk proxy verification in Dashboard pending — proxy handler deployed but Dashboard may still show "Invalid host" until a request successfully round-trips through the latest deploy.
+2. Old Clerk dev users lost — production instance has empty user directory; all users must re-register.
+3. Google-managed certs may take up to 24h to transition from `Provisioning` to `Active` for new domains.
+4. `pullPolicy: IfNotPresent` in dev values can cause nodes to use cached old images after tag updates — force image pull or use immutable SHA tags.
+
+### Next recommended step
+
+- Verify Clerk proxy works end-to-end from Russia (sign-in without VPN).
+- Confirm Clerk Dashboard proxy verification passes.
+- Verify Telegram webhook works via `bot.persai.dev`.
+- Continue UI improvements (sidebar, chat UX).
+- **H4 — Telegram runtime readiness alignment** against admin-driven runtime profile.

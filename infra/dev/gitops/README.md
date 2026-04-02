@@ -37,7 +37,13 @@ Dev values image composition pattern:
   - `DATABASE_URL` secret must use `@127.0.0.1:5432`
 - web runtime env is supplied from values:
   - `web.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (Clerk frontend publishable key)
+  - `web.env.NEXT_PUBLIC_CLERK_PROXY_URL` (Clerk proxy URL for Russian ISP bypass, e.g. `https://persai.dev/clerk-proxy`)
+  - `web.env.PERSAI_WEB_API_PROXY_TARGET` (internal API proxy target, e.g. `http://api:3001`)
   - `web.secretEnv.CLERK_SECRET_KEY` (Clerk server key via `secretKeyRef`)
+- web build-time env (`NEXT_PUBLIC_*` vars baked at `next build`):
+  - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `NEXT_PUBLIC_CLERK_PROXY_URL` are passed as Docker build ARGs in `apps/web/Dockerfile`
+  - CI reads these from GitHub repo variables and passes them to `docker/build-push-action` via `build-args`
+  - Corresponding GitHub repo variables: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_CLERK_PROXY_URL`
 
 Dev image publish behavior:
 
@@ -218,10 +224,27 @@ Resources:
 - ManagedCertificate template: `infra/helm/templates/managed-certificates.yaml`
 - Values: `ingress.*` section in `values-dev.yaml`
 - DNS: A records for `persai.dev`, `api.persai.dev`, `bot.persai.dev` → `34.8.195.135` (managed in Reg.ru)
+- DNS: 5 CNAME records for Clerk custom domain (`clerk.persai.dev`, `accounts.persai.dev`, 3× DKIM) — managed in Reg.ru
 
 TLS is handled by Google-managed certificates (`persai-web-cert`, `persai-api-cert`, `persai-bot-cert`).
 
 The old single-purpose `openclaw-ingress.yaml` is deprecated — the Telegram webhook path is now part of the unified ingress.
+
+## Clerk Proxy (Russian ISP bypass)
+
+Clerk.js and its API are served from Cloudflare IPs that are blocked by some Russian ISPs. To work around this:
+
+1. Clerk production instance uses custom domain `clerk.persai.dev` (CNAME to Clerk infrastructure).
+2. `NEXT_PUBLIC_CLERK_PROXY_URL=https://persai.dev/clerk-proxy` tells Clerk SDK to route all API traffic through the web app itself.
+3. Next.js API route handler `app/clerk-proxy/[...path]/route.ts` proxies requests to `clerk.persai.dev` with the correct `Host` header.
+4. The `/clerk-proxy` path is excluded from Clerk middleware in `middleware.ts` to avoid authentication loops.
+
+Key files:
+
+- `apps/web/app/clerk-proxy/[...path]/route.ts` — proxy handler
+- `apps/web/middleware.ts` — matcher excludes `/clerk-proxy`
+- `apps/web/Dockerfile` — `NEXT_PUBLIC_CLERK_PROXY_URL` build ARG
+- `.github/workflows/dev-image-publish.yml` — passes build-args from GitHub repo variables
 
 ## Manual procedures
 

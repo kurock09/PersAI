@@ -323,6 +323,19 @@ Step 14 — Tech debt, scale, and platform hardening
   - [x] S14e2 — `formality` slider inconsistency (trait key mismatch in setup wizard)
   - [x] S14e3 — MIME type normalization: strip `;charset=…` parameters in `MediaPreprocessorService`
   - [x] S14e4 — user data prefill (birthday, gender, timezone) during assistant recreation
+- [x] S14f — UI/UX MVP polish
+  - [x] S14f1 — mobile chat UX: responsive sidebar (hamburger toggle), touch-friendly message bubbles, bottom-anchored input, safe-area padding
+  - [x] S14f2 — auto chat naming: new chats derive title from first ~50 characters of user's initial message (backend `PrepareAssistantInboundTurnService`)
+  - [x] S14f3 — custom authentication UI: fully custom sign-in, sign-up, SSO callback, and profile pages using Clerk hooks (`useSignIn`, `useSignUp`, `useUser`, `useClerk`) replacing all prebuilt Clerk components
+  - [x] S14f4 — Clerk theme integration: `ClerkProvider` `appearance` prop wired to CSS variables (`--accent`, `--surface-raised`, etc.) + safety-net CSS overrides for full visual consistency
+  - [x] S14f5 — color theme refinements: warm green accent palette, improved dark/light mode contrast, resolved "muddy" dark theme and light code-block visibility issues
+- [x] S14g — i18n localization (EN + RU)
+  - [x] S14g1 — `next-intl` infrastructure: `i18n/request.ts` (locale detection via cookie → Accept-Language → fallback), `NextIntlClientProvider` in root layout, `next.config.ts` plugin
+  - [x] S14g2 — `messages/en.json`: ~300+ strings organized by namespace (landing, auth, chat, sidebar, home, setup, settings, telegram, profile, persona, errors, common)
+  - [x] S14g3 — `messages/ru.json`: product-quality Russian copy (friendly "ты" tone, clear CTAs, soft error messages, adapted trait/gender labels)
+  - [x] S14g4 — string migration: all user-facing components migrated to `useTranslations`/`getTranslations` with `t()` calls (auth, chat, sidebar, home, setup wizard, settings, telegram, profile, app-shell)
+  - [x] S14g5 — `assistant-persona.ts` refactored to provide translation keys (`labelKey`, `labelLeftKey`/`labelRightKey`) instead of hardcoded English strings
+  - [x] S14g6 — language switcher: Globe icon in sidebar, EN/RU dropdown, `persai-locale` cookie persistence
 
 ---
 

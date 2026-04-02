@@ -13,6 +13,7 @@ import {
   Loader2
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { useTranslations } from "next-intl";
 
 const ACCEPT =
   "image/png,image/jpeg,image/gif,image/webp,audio/mpeg,audio/ogg,audio/wav,audio/webm,video/mp4,video/webm,application/pdf";
@@ -50,6 +51,7 @@ export function ChatInput({
   isStreaming,
   disabled
 }: ChatInputProps) {
+  const t = useTranslations("chat");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -266,7 +268,7 @@ export function ChatInput({
           <div className="mb-2 flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" />
             <span className="text-sm font-medium text-destructive">
-              Recording {formatDuration(recordingSeconds)}
+              {t("recording", { duration: formatDuration(recordingSeconds) })}
             </span>
             <div className="flex-1" />
             <button
@@ -274,14 +276,14 @@ export function ChatInput({
               onClick={cancelRecording}
               className="cursor-pointer rounded px-2 py-0.5 text-xs text-text-muted transition-colors hover:bg-surface-hover"
             >
-              Cancel
+              {t("cancelRecording")}
             </button>
             <button
               type="button"
               onClick={stopRecording}
               className="cursor-pointer rounded bg-accent px-3 py-0.5 text-xs text-white transition-colors hover:bg-accent-hover"
             >
-              Send
+              {t("sendRecording")}
             </button>
           </div>
         )}
@@ -289,7 +291,7 @@ export function ChatInput({
         {isTranscribing && (
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2">
             <Loader2 className="h-4 w-4 animate-spin text-accent" />
-            <span className="text-sm text-text-muted">Transcribing voice...</span>
+            <span className="text-sm text-text-muted">{t("transcribing")}</span>
           </div>
         )}
 
@@ -312,7 +314,7 @@ export function ChatInput({
                 ? "cursor-default text-text-subtle/40"
                 : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted"
             )}
-            title="Attach file"
+            title={t("attachFile")}
           >
             <Paperclip className="h-5 w-5 md:h-4 md:w-4" />
           </button>
@@ -320,7 +322,7 @@ export function ChatInput({
           <textarea
             ref={textareaRef}
             rows={1}
-            placeholder="Message your assistant..."
+            placeholder={t("placeholder")}
             disabled={inputDisabled}
             onInput={resize}
             onKeyDown={handleKeyDown}
@@ -342,7 +344,7 @@ export function ChatInput({
                   ? "cursor-default text-text-subtle/40"
                   : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted"
               )}
-              title="Voice message"
+              title={t("voiceMessage")}
             >
               <Mic className="h-5 w-5 md:h-4 md:w-4" />
             </button>
@@ -353,7 +355,7 @@ export function ChatInput({
               type="button"
               onClick={onStop}
               className="mb-0.5 cursor-pointer rounded-lg bg-destructive/15 p-2 text-destructive transition-colors hover:bg-destructive/25"
-              title="Stop"
+              title={t("stop")}
             >
               <Square className="h-5 w-5 md:h-4 md:w-4" />
             </button>
@@ -368,7 +370,7 @@ export function ChatInput({
                   ? "cursor-default text-text-subtle/40"
                   : "cursor-pointer bg-accent text-white hover:bg-accent-hover"
               )}
-              title="Send"
+              title={t("send")}
             >
               <SendHorizonal className="h-5 w-5 md:h-4 md:w-4" />
             </button>
@@ -376,7 +378,7 @@ export function ChatInput({
         </div>
 
         <p className="mt-1.5 hidden text-center text-[11px] text-text-subtle md:block">
-          Your assistant may make mistakes. Verify important information.
+          {t("disclaimer")}
         </p>
       </div>
     </div>

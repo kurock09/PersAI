@@ -89,6 +89,22 @@ It is not part of backend domain logic.
 - cap threshold is runtime-configurable via API config (`WEB_ACTIVE_CHATS_CAP`)
 - enforcement blocks only new chat creation; existing threads and records remain intact
 
+## Frontend authentication boundary
+
+- Clerk is used for identity/session management, but all user-facing auth UI is custom-built
+- sign-in, sign-up, SSO callback, and profile pages use Clerk hooks (`useSignIn`, `useSignUp`, `useUser`, `useClerk`) — no prebuilt Clerk components
+- `ClerkProvider` `appearance` prop is wired to CSS variables for visual consistency of any remaining Clerk modal surfaces
+- OAuth (Google, GitHub) + email/password supported
+
+## Frontend i18n boundary
+
+- `next-intl` provides server and client localization
+- locale detection: `persai-locale` cookie → `Accept-Language` header → fallback to `en`
+- message files: `apps/web/messages/{en,ru}.json`, organized by namespace (~12 namespaces, ~300+ strings)
+- server components use `getTranslations(namespace)`; client components use `useTranslations(namespace)`
+- non-component files (e.g. `assistant-persona.ts`) export translation keys instead of hardcoded strings; consuming components call `t(key)` or `tp(key)`
+- `NextIntlClientProvider` wraps the app in root `layout.tsx`; `next.config.ts` uses `createNextIntlPlugin`
+
 ## Frontend/backend boundary
 
 - contracts-first

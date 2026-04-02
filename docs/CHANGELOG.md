@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- **Feat: i18n localization (EN + RU) with `next-intl`:**
+  - Installed `next-intl`; configured `i18n/request.ts` (cookie → Accept-Language → fallback locale detection), `NextIntlClientProvider` in root layout, `createNextIntlPlugin` in `next.config.ts`.
+  - Created `messages/en.json` and `messages/ru.json` with ~300+ strings across 12 namespaces (landing, auth, chat, sidebar, home, setup, settings, telegram, profile, persona, errors, common).
+  - Russian copy uses product-quality friendly "ты" tone — not a literal translation.
+  - Migrated all user-facing components to `useTranslations`/`getTranslations` with `t()` calls: sign-in, sign-up, SSO callback, landing, chat-area, chat-input, chat-message, sidebar, home-dashboard, setup wizard (all 4 steps), assistant-settings, telegram-connect, profile, app-shell.
+  - Refactored `assistant-persona.ts` to export translation keys (`labelKey`, `labelLeftKey`/`labelRightKey`) instead of hardcoded English strings.
+  - Added `LocaleSwitcher` component in sidebar (Globe icon, EN/RU dropdown, `persai-locale` cookie persistence).
+
+- **Feat: UI/UX MVP polish (mobile, chat naming, custom auth, theme):**
+  - Mobile chat UX: responsive sidebar (hamburger toggle), touch-friendly message bubbles, bottom-anchored input, safe-area padding.
+  - Auto chat naming: new chats derive title from first ~50 characters of user's initial message (backend `PrepareAssistantInboundTurnService`).
+  - Custom authentication UI: fully custom sign-in, sign-up, SSO callback, and profile pages using Clerk hooks (`useSignIn`, `useSignUp`, `useUser`, `useClerk`) — all prebuilt Clerk components replaced.
+  - Clerk theme integration: `ClerkProvider` `appearance` prop wired to CSS variables + safety-net CSS overrides.
+  - Color theme refinements: warm green accent, resolved dark-theme muddiness and light-theme code-block visibility.
+
 ### Changed
 
 - **Infra: public domain + unified GKE Ingress for persai.dev:**
@@ -30,11 +47,30 @@
   - Added dark and light highlight.js token color schemes in `globals.css`.
   - Inlined `SignInButton` trigger on landing page (removed intermediate variable).
 
-- **Infra: Clerk SDK self-hosting proxy:**
-  - Added Clerk CDN proxy rewrite in `next.config.ts` to route `/clerk-cdn/*` → Clerk npm CDN.
-  - Added `@clerk/clerk-js` dependency and self-hosted `clerk.browser.js` bundle.
+- **Infra: Clerk production instance + proxy for Russian ISP bypass:**
+  - Migrated from Clerk dev instance (`pk_test_`) to production instance (`pk_live_`) with custom domain `clerk.persai.dev`.
+  - Configured 5 CNAME DNS records in Reg.ru for Clerk Frontend API, Account Portal, and DKIM email verification.
+  - Added `NEXT_PUBLIC_CLERK_PROXY_URL` to route all Clerk traffic through `persai.dev/clerk-proxy` — bypasses Russian ISP blocking of Cloudflare IPs used by `clerk.persai.dev`.
+  - Added API route handler (`app/clerk-proxy/[...path]/route.ts`) that proxies to Clerk Frontend API with correct `Host` header.
+  - Added `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `NEXT_PUBLIC_CLERK_PROXY_URL` as Docker build ARGs in `apps/web/Dockerfile` and CI workflow — required because `NEXT_PUBLIC_*` vars are baked at `next build` time.
+  - Added corresponding GitHub repo variables (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_CLERK_PROXY_URL`) consumed by CI.
+  - Updated `CLERK_SECRET_KEY` in Kubernetes secret `persai-api-secrets` to production `sk_live_` key.
+  - Removed old self-hosted Clerk JS/UI bundles from `apps/web/public/clerk/`.
+
+- **UI: dedicated sign-in page + auth flow pages:**
+  - Replaced modal `SignInButton` on landing page with `Link` to `/sign-in`.
+  - New styled sign-in page with PersAI branding, ambient orbs, and `fallbackRedirectUrl="/app"`.
+  - Added `/sign-up`, `/sso-callback`, and `/app/profile` pages.
 
 ### Fixed
+
+- **Fix: admin user deletion blocked by FK constraint on AssistantPublishedVersion:**
+  - Root cause: `AssistantPublishedVersion.publishedByUserId` has `onDelete: Restrict`, so deleting a user who had published another user's assistant version failed with a FK violation.
+  - Fix: `AdminDeleteUserService` now reassigns `publishedByUserId` to the calling admin before deleting the target user record.
+
+- **Fix: GKE web app API calls returning 404 / spinner:**
+  - Root cause: the Next.js web container on GKE was not proxying `/api/v1/*` calls to the internal API service because `PERSAI_WEB_API_PROXY_TARGET` was not set.
+  - Fix: added `PERSAI_WEB_API_PROXY_TARGET: "http://api:3001"` to `web.env` in `values-dev.yaml`.
 
 - **Fix: web chat voice recording shows helpful error when microphone captures silence:**
   - Root cause: users with wrong microphone selected (e.g. virtual Steam Streaming Microphone) got a generic "Chat could not complete this turn" error because Whisper returned empty transcription for silent audio.

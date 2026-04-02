@@ -1,9 +1,9 @@
 export const TRAIT_SLIDERS = [
-  { key: "formality", labelLeft: "Casual", labelRight: "Formal" },
-  { key: "verbosity", labelLeft: "Concise", labelRight: "Detailed" },
-  { key: "playfulness", labelLeft: "Serious", labelRight: "Playful" },
-  { key: "initiative", labelLeft: "Reactive", labelRight: "Proactive" },
-  { key: "warmth", labelLeft: "Neutral", labelRight: "Warm" }
+  { key: "formality", labelLeftKey: "casual", labelRightKey: "formal" },
+  { key: "verbosity", labelLeftKey: "concise", labelRightKey: "detailed" },
+  { key: "playfulness", labelLeftKey: "serious", labelRightKey: "playful" },
+  { key: "initiative", labelLeftKey: "reactive", labelRightKey: "proactive" },
+  { key: "warmth", labelLeftKey: "neutral", labelRightKey: "warm" }
 ] as const;
 
 export type TraitKey = (typeof TRAIT_SLIDERS)[number]["key"];
@@ -20,11 +20,11 @@ export type AssistantGender = "male" | "female" | "neutral" | null;
 
 export const ASSISTANT_GENDER_OPTIONS: Array<{
   value: Exclude<AssistantGender, null>;
-  label: string;
+  labelKey: string;
 }> = [
-  { value: "female", label: "Female" },
-  { value: "male", label: "Male" },
-  { value: "neutral", label: "Neutral" }
+  { value: "female", labelKey: "genderFemale" },
+  { value: "male", labelKey: "genderMale" },
+  { value: "neutral", labelKey: "genderNeutral" }
 ];
 
 export function normalizeAssistantGender(value: string | null | undefined): AssistantGender {
@@ -77,9 +77,9 @@ export function buildAssistantInstructions(params: {
 }
 
 export function traitPreviewLabel(key: TraitKey, value: number): string {
-  if (key === "formality") return value < 40 ? "Casual" : value > 60 ? "Formal" : "Balanced";
-  if (key === "verbosity") return value < 40 ? "Concise" : value > 60 ? "Detailed" : "Balanced";
-  if (key === "playfulness") return value < 40 ? "Serious" : value > 60 ? "Playful" : "Balanced";
-  if (key === "initiative") return value < 40 ? "Reactive" : value > 60 ? "Proactive" : "Balanced";
-  return value < 40 ? "Neutral" : value > 60 ? "Warm" : "Balanced";
+  if (key === "formality") return value < 40 ? "casual" : value > 60 ? "formal" : "balanced";
+  if (key === "verbosity") return value < 40 ? "concise" : value > 60 ? "detailed" : "balanced";
+  if (key === "playfulness") return value < 40 ? "serious" : value > 60 ? "playful" : "balanced";
+  if (key === "initiative") return value < 40 ? "reactive" : value > 60 ? "proactive" : "balanced";
+  return value < 40 ? "neutral" : value > 60 ? "warm" : "balanced";
 }
