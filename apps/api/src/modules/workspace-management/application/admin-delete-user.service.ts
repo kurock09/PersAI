@@ -73,6 +73,7 @@ export class AdminDeleteUserService {
 
           await tx.assistantChannelSurfaceBinding.deleteMany({ where: { assistantId: aid } });
           await tx.assistantGovernance.deleteMany({ where: { assistantId: aid } });
+          await tx.assistantTelegramGroup.deleteMany({ where: { assistantId: aid } });
 
           await tx.assistantAuditEvent.updateMany({
             where: { assistantId: aid },
@@ -81,6 +82,9 @@ export class AdminDeleteUserService {
 
           await tx.assistant.delete({ where: { id: aid } });
         }
+
+        await tx.assistantPlatformRolloutItem.deleteMany({ where: { userId: targetUserId } });
+        await tx.assistantAbuseGuardState.deleteMany({ where: { userId: targetUserId } });
 
         await tx.assistantAuditEvent.updateMany({
           where: { actorUserId: targetUserId },

@@ -281,7 +281,11 @@ function UsersDirectory({
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` }
         });
-        if (!res.ok) throw new Error(`${res.status}`);
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          alert(`Delete failed: ${res.status}\n${body}`);
+          return;
+        }
         setConfirmDeleteId(null);
         await load(search.trim(), offset);
       } finally {
