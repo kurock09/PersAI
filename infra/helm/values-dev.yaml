@@ -36,6 +36,8 @@ api:
     WEB_ACTIVE_CHATS_CAP: "20"
     QUOTA_TOKEN_BUDGET_DEFAULT: "200000"
     QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT: "1000"
+    # Only these PersAI AppUser emails may use /api/v1/admin/* (must still pass role checks, e.g. workspace owner).
+    PERSAI_ADMIN_ALLOWLIST_EMAILS: "kurock09@gmail.com"
   secretEnv:
     DATABASE_URL:
       secretName: persai-api-secrets

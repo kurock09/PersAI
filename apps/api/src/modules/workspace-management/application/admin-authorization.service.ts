@@ -70,12 +70,41 @@ function fromBase64Url(value: string): string {
 @Injectable()
 export class AdminAuthorizationService {
   private readonly apiConfig: ApiConfig;
+  private readonly adminEmailAllowlist: Set<string> | null;
 
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {
     this.apiConfig = loadApiConfig(process.env);
+    const raw = this.apiConfig.PERSAI_ADMIN_ALLOWLIST_EMAILS?.trim();
+    this.adminEmailAllowlist =
+      raw !== undefined && raw.length > 0
+        ? new Set(
+            raw
+              .split(",")
+              .map((e) => e.trim().toLowerCase())
+              .filter((e) => e.length > 0)
+          )
+        : null;
+  }
+
+  private async requireAdminEmailAllowlist(userId: string): Promise<void> {
+    if (this.adminEmailAllowlist === null || this.adminEmailAllowlist.size === 0) {
+      return;
+    }
+    const user = await this.prisma.appUser.findUnique({
+      where: { id: userId },
+      select: { email: true }
+    });
+    if (user === null) {
+      throw new ForbiddenException("Admin access denied.");
+    }
+    const email = user.email.toLowerCase();
+    if (!this.adminEmailAllowlist.has(email)) {
+      throw new ForbiddenException("Admin access is restricted to approved accounts.");
+    }
   }
 
   async assertCanReadAdminSurface(userId: string): Promise<AdminAccessContext> {
+    await this.requireAdminEmailAllowlist(userId);
     const context = await this.resolveAdminAccessContext(userId);
     if (
       !this.hasAnyRole(context, ["ops_admin", "business_admin", "security_admin", "super_admin"])
@@ -88,6 +117,7 @@ export class AdminAuthorizationService {
   }
 
   async assertCanManageAdminSystemNotifications(userId: string): Promise<AdminAccessContext> {
+    await this.requireAdminEmailAllowlist(userId);
     const context = await this.resolveAdminAccessContext(userId);
     if (!this.hasAnyRole(context, ["ops_admin", "security_admin", "super_admin"])) {
       throw new ForbiddenException(
@@ -98,6 +128,7 @@ export class AdminAuthorizationService {
   }
 
   async assertCanManageAbuseControls(userId: string): Promise<AdminAccessContext> {
+    await this.requireAdminEmailAllowlist(userId);
     const context = await this.resolveAdminAccessContext(userId);
     if (!this.hasAnyRole(context, ["ops_admin", "security_admin", "super_admin"])) {
       throw new ForbiddenException(
@@ -112,6 +143,7 @@ export class AdminAuthorizationService {
     action: DangerousAdminActionCode,
     stepUpToken: string | null
   ): Promise<AdminAccessContext> {
+    await this.requireAdminEmailAllowlist(userId);
     const context = await this.resolveAdminAccessContext(userId);
     const requiredRoles = requiredRolesForDangerousAction(action);
     if (!this.hasAnyRole(context, requiredRoles)) {
@@ -127,6 +159,7 @@ export class AdminAuthorizationService {
     userId: string,
     action: DangerousAdminActionCode
   ): Promise<{ context: AdminAccessContext; challenge: AdminStepUpChallenge }> {
+    await this.requireAdminEmailAllowlist(userId);
     const context = await this.resolveAdminAccessContext(userId);
     const requiredRoles = requiredRolesForDangerousAction(action);
     if (!this.hasAnyRole(context, requiredRoles)) {

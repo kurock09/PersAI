@@ -22,14 +22,19 @@ function createService(params: {
     workspaceId: string | null;
   }>;
   env?: NodeJS.ProcessEnv;
+  appUserEmail?: string;
 }): AdminAuthorizationService {
   applyBaseEnv(params.env);
+  const appUserEmail = params.appUserEmail ?? "owner@local.test";
   return new AdminAuthorizationService({
     workspaceMember: {
       findMany: async () => params.memberships
     },
     appUserAdminRole: {
       findMany: async () => params.adminRoles
+    },
+    appUser: {
+      findUnique: async () => ({ email: appUserEmail })
     }
   } as never);
 }
@@ -105,6 +110,37 @@ async function run(): Promise<void> {
         "admin.runtime_provider_settings.update",
         runtimeSettingsChallenge.token
       ),
+    ForbiddenException
+  );
+
+  const allowlistedOwner = createService({
+    memberships: [
+      {
+        workspaceId: "ws-1",
+        role: "owner",
+        createdAt: new Date("2026-03-20T10:00:00.000Z")
+      }
+    ],
+    adminRoles: [],
+    env: { PERSAI_ADMIN_ALLOWLIST_EMAILS: "allowed@test.com" },
+    appUserEmail: "allowed@test.com"
+  });
+  await allowlistedOwner.assertCanReadAdminSurface("user-1");
+
+  const blockedByAllowlist = createService({
+    memberships: [
+      {
+        workspaceId: "ws-1",
+        role: "owner",
+        createdAt: new Date("2026-03-20T10:00:00.000Z")
+      }
+    ],
+    adminRoles: [],
+    env: { PERSAI_ADMIN_ALLOWLIST_EMAILS: "allowed@test.com" },
+    appUserEmail: "intruder@test.com"
+  });
+  await assert.rejects(
+    () => blockedByAllowlist.assertCanReadAdminSurface("user-1"),
     ForbiddenException
   );
 }
