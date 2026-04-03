@@ -57,10 +57,21 @@ const PRESET_META: Record<
       { key: "memory_policy_block", hint: "Memory policy section" },
       { key: "tasks_policy_block", hint: "Tasks policy section" }
     ]
+  },
+  tools: {
+    label: "TOOLS.md",
+    description:
+      "Wrapper for the tools document; plan-driven active/disabled lists and live-usage notes are injected into the catalog block",
+    variables: [
+      {
+        key: "tools_catalog_block",
+        hint: "Required. Generated from the current plan: Active/Disabled tools, daily limits, Live usage (persai_tool_quota_status)"
+      }
+    ]
   }
 };
 
-const PRESET_ORDER = ["soul", "user", "identity", "agents"] as const;
+const PRESET_ORDER = ["soul", "user", "identity", "agents", "tools"] as const;
 
 const SAMPLE_VARIABLES: Record<string, string> = {
   assistant_name: "Nova",
@@ -79,7 +90,20 @@ const SAMPLE_VARIABLES: Record<string, string> = {
   memory_policy_block:
     "## Memory Policy\n\n- Remember important facts about your human from conversations\n- Update MEMORY.md with key information you learn\n- Daily conversation notes go in memory/ directory",
   tasks_policy_block:
-    "## Tasks Policy\n\n- You may manage reminders and recurring tasks for your human\n- Track tasks in HEARTBEAT.md"
+    "## Tasks Policy\n\n- You may manage reminders and recurring tasks for your human\n- Track tasks in HEARTBEAT.md",
+  tools_catalog_block: `## Active Tools
+
+- **web_search** (daily limit: 30)
+- **image_generate** (daily limit: 50)
+
+## Disabled Tools
+
+- ~~legacy_tool~~ — not available on current plan
+
+## Live usage
+
+- Daily caps above are plan limits only, not remaining usage for today.
+- When the user asks about remaining quota, call the \`persai_tool_quota_status\` tool first.`
 };
 
 function interpolatePreview(template: string): string {

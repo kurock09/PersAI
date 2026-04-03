@@ -537,6 +537,7 @@ It is not part of backend domain logic.
 ### Bootstrap file pipeline
 
 - PersAI `MaterializeAssistantPublishedVersionService` emits seven Markdown bootstrap docs into materialized `openclawWorkspace.bootstrapDocuments` (e.g. SOUL.md, USER.md, IDENTITY.md, TOOLS.md, AGENTS.md, HEARTBEAT.md, BOOTSTRAP.md).
+- Admin-editable bootstrap presets (`bootstrap_document_presets`) now include **`tools`** alongside soul/user/identity/agents. The `TOOLS.md` preset is a Markdown wrapper; **`{{tools_catalog_block}}`** is filled at materialize time from the effective plan (active/disabled tool codes, daily limits, live-usage guidance). Omitting the placeholder drops the generated catalog from the final doc.
 - Apply path: materialized spec → `POST /api/v1/runtime/spec/apply` → OpenClaw `persai-runtime-workspace.ts` writes files on disk with **write-once / never overwrite** rules for bootstrap artifacts.
 - PersAI assistant workspaces treat `BOOTSTRAP.md` as a one-time birth certificate:
   - it is created on first apply into a fresh assistant workspace

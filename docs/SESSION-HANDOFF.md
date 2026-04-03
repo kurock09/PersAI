@@ -1,5 +1,17 @@
 # SESSION-HANDOFF
 
+## 2026-04-03 - Admin bootstrap preset `tools` (TOOLS.md wrapper + `{{tools_catalog_block}}`)
+
+### What changed
+
+- Fifth preset id **`tools`**: default template in `prisma/bootstrap-preset-data.ts`; `VALID_PRESET_IDS` driven from that map; `MaterializeAssistantPublishedVersionService` interpolates **`{{tools_catalog_block}}`** with plan-generated active/disabled limits + Live usage. `SeedToolCatalogService.syncBootstrapPresets` backfills missing preset rows only (adds `tools` on upgrade without wiping edits). Admin UI `/admin/presets`: TOOLS.md editor + sample preview for `tools_catalog_block`. Docs: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+
+### Files touched
+
+- `apps/api/prisma/bootstrap-preset-data.ts`, `manage-bootstrap-presets.service.ts`, `materialize-assistant-published-version.service.ts`, `seed-tool-catalog.service.ts`, `apps/web/app/admin/presets/page.tsx`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+---
+
 ## 2026-04-03 - OpenClaw: live tool quota read (`persai_tool_quota_status` + API check)
 
 ### What changed

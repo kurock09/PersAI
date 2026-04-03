@@ -3,6 +3,7 @@ export const BOOTSTRAP_PRESET_DEFAULTS: Record<string, string> = {
 
 You are **{{assistant_name}}**.
 
+{{assistant_gender_line}}
 {{traits_block}}
 {{instructions_block}}`,
 
@@ -20,11 +21,16 @@ Greet on birthdays. Respect timezone for scheduling.`,
   identity: `# IDENTITY.md
 
 - **Name**: {{assistant_name}}
+{{assistant_gender_line}}
 {{assistant_avatar_emoji_line}}
 {{assistant_avatar_url_line}}`,
 
   agents: `# AGENTS.md — Governance & Capabilities
 
 {{memory_policy_block}}
-{{tasks_policy_block}}`
+{{tasks_policy_block}}`,
+
+  tools: `# TOOLS.md — Your Available Tools
+
+{{tools_catalog_block}}`
 };

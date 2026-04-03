@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BOOTSTRAP_PRESET_DEFAULTS } from "../../../../prisma/bootstrap-preset-data";
 import {
   BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY,
   type BootstrapDocumentPreset,
@@ -7,40 +8,9 @@ import {
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 
-const VALID_PRESET_IDS = new Set(["soul", "user", "identity", "agents"]);
+const VALID_PRESET_IDS = new Set(Object.keys(BOOTSTRAP_PRESET_DEFAULTS));
 
-const DEFAULT_TEMPLATES: Record<string, string> = {
-  soul: `# SOUL.md
-
-You are **{{assistant_name}}**.
-
-{{assistant_gender_line}}
-{{traits_block}}
-{{instructions_block}}`,
-
-  user: `# USER.md — About Your Human
-
-{{user_name_line}}
-{{user_birthday_line}}
-{{user_gender_line}}
-- **Locale**: {{user_locale}}
-- **Timezone**: {{user_timezone}}
-
-Use this information to personalize your communication.
-Greet on birthdays. Respect timezone for scheduling.`,
-
-  identity: `# IDENTITY.md
-
-- **Name**: {{assistant_name}}
-{{assistant_gender_line}}
-{{assistant_avatar_emoji_line}}
-{{assistant_avatar_url_line}}`,
-
-  agents: `# AGENTS.md — Governance & Capabilities
-
-{{memory_policy_block}}
-{{tasks_policy_block}}`
-};
+const DEFAULT_TEMPLATES: Record<string, string> = { ...BOOTSTRAP_PRESET_DEFAULTS };
 
 @Injectable()
 export class ManageBootstrapPresetsService {

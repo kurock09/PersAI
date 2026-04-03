@@ -205,18 +205,16 @@ export class SeedToolCatalogService implements OnModuleInit {
   }
 
   private async syncBootstrapPresets(): Promise<void> {
-    const existing = await this.prisma.bootstrapDocumentPreset.count();
-    if (existing > 0) return;
-
+    const rows = await this.prisma.bootstrapDocumentPreset.findMany({ select: { id: true } });
+    const have = new Set(rows.map((r) => r.id));
+    let created = 0;
     for (const [id, template] of Object.entries(BOOTSTRAP_PRESET_DEFAULTS)) {
-      await this.prisma.bootstrapDocumentPreset.upsert({
-        where: { id },
-        update: { template },
-        create: { id, template }
-      });
+      if (have.has(id)) continue;
+      await this.prisma.bootstrapDocumentPreset.create({ data: { id, template } });
+      created++;
     }
-    this.logger.log(
-      `Bootstrap presets seeded: ${Object.keys(BOOTSTRAP_PRESET_DEFAULTS).length} entries`
-    );
+    if (created > 0) {
+      this.logger.log(`Bootstrap presets backfilled: ${String(created)} new row(s)`);
+    }
   }
 }

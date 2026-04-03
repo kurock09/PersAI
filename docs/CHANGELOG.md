@@ -12,6 +12,8 @@
 
 - **Internal runtime tool quota check:** `POST /api/v1/internal/runtime/tools/check` (same `OPENCLAW_GATEWAY_TOKEN` as `consume`) returns live per-tool daily usage vs **current** plan caps without consuming quota. OpenClaw fork adds tool `persai_tool_quota_status` so the embedded agent can query PersAI instead of inferring limits from chat history. Materialized `TOOLS.md` includes a short “Live usage” note. Dev pin: `72db7474e2735b7c1b395ce5b01fad6409e45536` in `openclaw-approved-sha.txt` and `values-dev.yaml` `openclaw.image.tag`; `openclaw.image.digest` cleared for CI repin.
 
+- **Bootstrap preset `tools` (TOOLS.md):** fifth admin preset id `tools` with default wrapper and required `{{tools_catalog_block}}`. Materialization injects plan-driven active/disabled tools, limits, and live-usage text into that block; admins edit surrounding Markdown only. `BOOTSTRAP_PRESET_DEFAULTS` + startup backfill add the row on existing databases without overwriting edited presets. `prisma/bootstrap-preset-data.ts` aligned soul/identity defaults with `assistant_gender_line`.
+
 - **Feat: i18n localization (EN + RU) with `next-intl`:**
   - Installed `next-intl`; configured `i18n/request.ts` (cookie → Accept-Language → fallback locale detection), `NextIntlClientProvider` in root layout, `createNextIntlPlugin` in `next.config.ts`.
   - Created `messages/en.json` and `messages/ru.json` with ~300+ strings across 12 namespaces (landing, auth, chat, sidebar, home, setup, settings, telegram, profile, persona, errors, common).

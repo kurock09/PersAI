@@ -462,7 +462,7 @@ export class MaterializeAssistantPublishedVersionService {
       soulDocument: this.generateSoulMd(ctx.publishedVersion, templates.soul ?? null),
       userDocument: this.generateUserMd(ctx.userContext, templates.user ?? null),
       identityDocument: this.generateIdentityMd(ctx.publishedVersion, templates.identity ?? null),
-      toolsDocument: this.generateToolsMd(ctx.toolQuotaPolicy),
+      toolsDocument: this.generateToolsMd(ctx.toolQuotaPolicy, templates.tools ?? null),
       agentsDocument: this.generateAgentsMd(ctx, templates.agents ?? null),
       heartbeatDocument: this.generateHeartbeatMd(ctx.tasksControl),
       bootstrapDocument: this.generateBootstrapMd(ctx.publishedVersion, ctx.userContext)
@@ -476,7 +476,8 @@ export class MaterializeAssistantPublishedVersionService {
         soul: null,
         user: null,
         identity: null,
-        agents: null
+        agents: null,
+        tools: null
       };
       for (const p of presets) {
         map[p.id] = p.template;
@@ -484,7 +485,7 @@ export class MaterializeAssistantPublishedVersionService {
       return map;
     } catch (err) {
       this.logger.warn("Failed to load bootstrap presets from DB, using hardcoded fallbacks", err);
-      return { soul: null, user: null, identity: null, agents: null };
+      return { soul: null, user: null, identity: null, agents: null, tools: null };
     }
   }
 
@@ -622,15 +623,14 @@ export class MaterializeAssistantPublishedVersionService {
     return lines.join("\n");
   }
 
-  private generateToolsMd(
+  private buildToolsCatalogBlockMd(
     toolQuotaPolicy: Array<{
       toolCode: string;
       dailyCallLimit: number | null;
       activationStatus: string;
     }>
   ): string {
-    const lines: string[] = ["# TOOLS.md — Your Available Tools"];
-    lines.push("");
+    const lines: string[] = [];
 
     const active = toolQuotaPolicy.filter((t) => t.activationStatus === "active");
     const inactive = toolQuotaPolicy.filter((t) => t.activationStatus !== "active");
@@ -668,6 +668,28 @@ export class MaterializeAssistantPublishedVersionService {
     );
     lines.push("");
 
+    return lines.join("\n").trimEnd();
+  }
+
+  private generateToolsMd(
+    toolQuotaPolicy: Array<{
+      toolCode: string;
+      dailyCallLimit: number | null;
+      activationStatus: string;
+    }>,
+    template: string | null
+  ): string {
+    const catalog = this.buildToolsCatalogBlockMd(toolQuotaPolicy);
+
+    if (template && template.trim().length > 0) {
+      return this.interpolateTemplate(template, {
+        tools_catalog_block: catalog.length > 0 ? catalog : "No tools configured yet.\n"
+      });
+    }
+
+    const lines: string[] = ["# TOOLS.md — Your Available Tools", ""];
+    lines.push(catalog);
+    lines.push("");
     return lines.join("\n");
   }
 
