@@ -263,6 +263,7 @@
     "defaultParseMode": "Формат по умолчанию",
     "plainText": "Простой текст",
     "markdown": "Markdown",
+    "parseModeMarkdownFootnote": "Отправка в Telegram как HTML: жирный (**текст**), код в строке и в блоке, ссылки https — безопасно для Bot API.",
     "inboundMessages": "Входящие сообщения пользователей",
     "outboundMessages": "Исходящие сообщения ассистента",
     "groupReplyMode": "Режим ответа в группах",

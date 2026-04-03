@@ -669,6 +669,7 @@ Behavior baseline:
 
 - added to `openclawBootstrap` during spec materialization when Telegram binding is active
 - shape: `{ enabled, botToken, webhookUrl, webhookSecret, dmPolicy, groupReplyMode, parseMode, inbound, outbound }`
+- `parseMode`: `plain_text` — outbound assistant text is sent without `parse_mode`. `markdown` — OpenClaw converts assistant output to **Telegram Bot API HTML** (`parse_mode: HTML`): escaped literals, subset of common markdown (`**bold**`, `` `inline code` ``, fenced ``` blocks, `[label](https://…)` only), paragraph-aware packing so each `sendMessage` stays within the 4096-character limit.
 - `webhookUrl` = `{TELEGRAM_WEBHOOK_BASE_URL}/telegram-webhook/{assistantId}`
 - `webhookSecret` = HMAC-SHA256(assistantId, TELEGRAM_WEBHOOK_HMAC_SECRET), truncated to 64 chars
 

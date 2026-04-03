@@ -418,6 +418,9 @@ function ConnectedView({
                     </button>
                   ))}
                 </div>
+                {parseMode === "markdown" && (
+                  <p className="mt-1.5 text-xs text-text-muted">{t("parseModeMarkdownFootnote")}</p>
+                )}
               </div>
 
               {/* Toggles */}

@@ -4,7 +4,7 @@
 
 ### Changed
 
-- **OpenClaw fork (Telegram long replies):** `sendTelegramReplyWithConfiguredParseMode` splits assistant text into chunks ≤4096 Unicode code points so Telegram `sendMessage` no longer fails with `message is too long` (multi-part sends use plain text). Dev pin: `openclaw-approved-sha.txt` + `values-dev.yaml` tag `66136ec5edc9bfc2d372c132d95123e650162510`; `openclaw.image.digest` cleared.
+- **OpenClaw fork (Telegram formatted + long replies):** when bootstrap `parseMode` is `markdown`, outbound text is converted to **Telegram Bot API HTML** (escaped literals, `**bold**`, inline/fenced code, http(s) links only) and sent with `parse_mode: HTML`, with paragraph-aware packing so each `sendMessage` stays ≤4096 characters (Unicode code points). Replaces fragile MarkdownV2 passthrough and avoids `message is too long`. **Web:** Telegram settings footnote (`parseModeMarkdownFootnote`, EN/RU). **Docs:** `docs/API-BOUNDARY.md`. Dev pin: `b6239197d384dc4bf99a9e76cd6bc5cb61d31919`; `openclaw.image.digest` cleared.
 
 ### Added
 

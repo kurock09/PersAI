@@ -263,6 +263,7 @@
     "defaultParseMode": "Default parse mode",
     "plainText": "Plain text",
     "markdown": "Markdown",
+    "parseModeMarkdownFootnote": "Sent as Telegram HTML: bold (**text**), inline and fenced code, and https links — safe for the Bot API.",
     "inboundMessages": "Inbound user messages",
     "outboundMessages": "Outbound assistant messages",
     "groupReplyMode": "Group reply mode",

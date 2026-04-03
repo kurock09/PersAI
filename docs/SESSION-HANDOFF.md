@@ -1,5 +1,28 @@
 # SESSION-HANDOFF
 
+## 2026-04-03 - OpenClaw: Telegram outbound HTML (parseMode markdown)
+
+### What changed
+
+1. **Fork** — `telegram-outbound-chunks.ts` (shared limit + `splitTelegramOutboundText`); `telegram-assistant-markdown-html.ts` converts assistant markdown-ish text to safe Telegram HTML and packs messages; `sendTelegramReplyWithConfiguredParseMode` uses `parse_mode: HTML` for `markdown` bootstrap mode (no raw MarkdownV2); entity parse errors fall back to `lossyPlainFromTelegramHtml`. Tests + `verify-persai-patches.mjs` + `PERSAI-FORK-PATCHES.md` §17.
+2. **PersAI** — `docs/API-BOUNDARY.md` materialization semantics; Telegram connect UI footnote (i18n EN/RU); dev pin `b6239197d384dc4bf99a9e76cd6bc5cb61d31919`.
+
+### Files touched
+
+- `openclaw`: `telegram-outbound-chunks.ts`, `telegram-assistant-markdown-html.ts`, `.test.ts` files, `persai-runtime-telegram.ts`, `docs/PERSAI-FORK-PATCHES.md`, `scripts/verify-persai-patches.mjs`
+- `PersAI`: `docs/API-BOUNDARY.md`, `apps/web/messages/en.json`, `ru.json`, `telegram-connect.tsx`, `infra/dev/gitops/openclaw-approved-sha.txt`, `infra/helm/values-dev.yaml`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+1. **openclaw** `main` first (includes prior unpushed chunking commit + this commit).
+2. **PersAI** `main` second.
+
+### Pinned OpenClaw SHA
+
+- `b6239197d384dc4bf99a9e76cd6bc5cb61d31919`
+
+---
+
 ## 2026-04-03 - OpenClaw: Telegram outbound text split (4096 limit)
 
 ### What changed
