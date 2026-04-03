@@ -102,4 +102,78 @@ async function run(): Promise<void> {
   assert.equal(threw, true);
 }
 
+async function runQuotaPressurePersistedClearedWhenHealthy(): Promise<void> {
+  ensureApiConfigEnv();
+  const future = new Date(Date.now() + 3_600_000);
+  let userState: AssistantAbuseGuardState | null = {
+    id: "user-state-quota",
+    assistantId: assistant.id,
+    userId: assistant.userId,
+    workspaceId: assistant.workspaceId,
+    surface: "web_chat",
+    windowStartedAt: new Date(Date.now() - 120_000),
+    requestCount: 1,
+    slowedUntil: null,
+    blockedUntil: future,
+    blockReason: "quota_pressure_temporary_block",
+    adminOverrideUntil: null,
+    lastSeenAt: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+  let assistantState: AssistantAbuseAssistantState | null = null;
+  const service = new EnforceAbuseRateLimitService(
+    {
+      findUserState: async () => userState,
+      findAssistantState: async () => assistantState,
+      upsertUserState: async (input) => {
+        userState = {
+          id: "user-state-quota",
+          ...input,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        return userState;
+      },
+      upsertAssistantState: async (input) => {
+        assistantState = {
+          id: "assistant-state-quota",
+          ...input,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        return assistantState;
+      },
+      applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 })
+    } as never,
+    {
+      findByWorkspaceId: async () => ({
+        id: "quota-healthy",
+        workspaceId: assistant.workspaceId,
+        tokenBudgetUsed: BigInt(1),
+        tokenBudgetLimit: BigInt(1_000_000),
+        costOrTokenDrivingToolClassUnitsUsed: 0,
+        costOrTokenDrivingToolClassUnitsLimit: 1000,
+        activeWebChatsCurrent: 0,
+        activeWebChatsLimit: 20,
+        mediaStorageBytesUsed: BigInt(0),
+        mediaStorageBytesLimit: BigInt(1_000_000),
+        lastComputedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+    } as never
+  );
+
+  await service.enforceAndRegisterAttempt({
+    assistant,
+    surface: "web_chat"
+  });
+
+  assert.equal(userState?.blockedUntil, null);
+  assert.equal(userState?.slowedUntil, null);
+  assert.equal(userState?.blockReason, null);
+}
+
 void run();
+void runQuotaPressurePersistedClearedWhenHealthy();

@@ -1,4 +1,12 @@
-import { Body, Controller, Post, Req, UnauthorizedException } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  UnauthorizedException
+} from "@nestjs/common";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import { ManageAdminAbuseControlsService } from "../../application/manage-admin-abuse-controls.service";
 
@@ -7,6 +15,7 @@ export class AdminAbuseControlsController {
   constructor(private readonly manageAdminAbuseControlsService: ManageAdminAbuseControlsService) {}
 
   @Post("unblock")
+  @HttpCode(HttpStatus.OK)
   async unblock(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown

@@ -30,6 +30,45 @@ function maxDate(a: Date | null, b: Date | null): Date | null {
   return a.getTime() >= b.getTime() ? a : b;
 }
 
+/** True while quota pressure logic is actively applying a block or slowdown for this turn. */
+function isQuotaPressureApplying(quotaDecision: AbuseDecision): boolean {
+  return quotaDecision.blockedUntil !== null || quotaDecision.slowedUntil !== null;
+}
+
+/**
+ * When workspace quota is back below abuse thresholds, drop persisted block/slowdown rows that
+ * were only written due to quota pressure — otherwise fixing the plan leaves users blocked until
+ * `ABUSE_TEMP_BLOCK_SECONDS` elapses with no DB update.
+ */
+function abuseDecisionAfterQuotaReconciled(
+  persisted: {
+    blockedUntil: Date | null;
+    slowedUntil: Date | null;
+    blockReason: string | null;
+  } | null,
+  quotaDecision: AbuseDecision
+): AbuseDecision {
+  if (persisted === null) {
+    return { blockedUntil: null, slowedUntil: null, reason: null };
+  }
+  if (isQuotaPressureApplying(quotaDecision)) {
+    return {
+      blockedUntil: persisted.blockedUntil,
+      slowedUntil: persisted.slowedUntil,
+      reason: persisted.blockReason
+    };
+  }
+  const reason = persisted.blockReason ?? "";
+  if (reason === "quota_pressure_temporary_block" || reason === "quota_pressure_slowdown") {
+    return { blockedUntil: null, slowedUntil: null, reason: null };
+  }
+  return {
+    blockedUntil: persisted.blockedUntil,
+    slowedUntil: persisted.slowedUntil,
+    reason: persisted.blockReason
+  };
+}
+
 function throwTooManyRequests(message: string): never {
   throw createAssistantInboundRateLimitError(message);
 }
@@ -59,6 +98,10 @@ export class EnforceAbuseRateLimitService {
       params.surface
     );
 
+    const quotaDecision = await this.evaluateQuotaPressureDecision(params.assistant, now);
+    const userAfterQuota = abuseDecisionAfterQuotaReconciled(userState, quotaDecision);
+    const assistantAfterQuota = abuseDecisionAfterQuotaReconciled(assistantState, quotaDecision);
+
     const userBypass =
       userState !== null &&
       userState.adminOverrideUntil !== null &&
@@ -70,9 +113,8 @@ export class EnforceAbuseRateLimitService {
 
     if (
       !userBypass &&
-      userState !== null &&
-      userState.blockedUntil !== null &&
-      userState.blockedUntil.getTime() > now.getTime()
+      userAfterQuota.blockedUntil !== null &&
+      userAfterQuota.blockedUntil.getTime() > now.getTime()
     ) {
       throwTooManyRequests(
         "Requests temporarily blocked for this user-assistant channel due to abuse protection."
@@ -80,9 +122,8 @@ export class EnforceAbuseRateLimitService {
     }
     if (
       !assistantBypass &&
-      assistantState !== null &&
-      assistantState.blockedUntil !== null &&
-      assistantState.blockedUntil.getTime() > now.getTime()
+      assistantAfterQuota.blockedUntil !== null &&
+      assistantAfterQuota.blockedUntil.getTime() > now.getTime()
     ) {
       throwTooManyRequests(
         "Requests temporarily blocked for this assistant channel due to abuse protection."
@@ -109,9 +150,9 @@ export class EnforceAbuseRateLimitService {
         : assistantState.requestCount + 1;
 
     let userDecision: AbuseDecision = {
-      blockedUntil: userState?.blockedUntil ?? null,
-      slowedUntil: userState?.slowedUntil ?? null,
-      reason: userState?.blockReason ?? null
+      blockedUntil: userAfterQuota.blockedUntil,
+      slowedUntil: userAfterQuota.slowedUntil,
+      reason: userAfterQuota.reason
     };
     if (!userBypass) {
       if (userCount >= config.ABUSE_USER_BLOCK_REQUESTS_PER_MINUTE) {
@@ -130,9 +171,9 @@ export class EnforceAbuseRateLimitService {
     }
 
     let assistantDecision: AbuseDecision = {
-      blockedUntil: assistantState?.blockedUntil ?? null,
-      slowedUntil: assistantState?.slowedUntil ?? null,
-      reason: assistantState?.blockReason ?? null
+      blockedUntil: assistantAfterQuota.blockedUntil,
+      slowedUntil: assistantAfterQuota.slowedUntil,
+      reason: assistantAfterQuota.reason
     };
     if (!assistantBypass) {
       if (assistantCount >= config.ABUSE_ASSISTANT_BLOCK_REQUESTS_PER_MINUTE) {
@@ -149,8 +190,6 @@ export class EnforceAbuseRateLimitService {
         };
       }
     }
-
-    const quotaDecision = await this.evaluateQuotaPressureDecision(params.assistant, now);
 
     const finalBlockedUntil = maxDate(
       maxDate(userDecision.blockedUntil, assistantDecision.blockedUntil),

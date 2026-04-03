@@ -1,5 +1,31 @@
 # SESSION-HANDOFF
 
+## 2026-04-03 - PersAI: abuse unblock + quota reconciliation + ops logs; OpenClaw: Telegram fenced markdown HTML
+
+### What changed
+
+1. **PersAI API** — `EnforceAbuseRateLimitService`: when quota pressure is **not** active, persisted `quota_pressure_temporary_block` / `quota_pressure_slowdown` rows no longer stick until `ABUSE_TEMP_BLOCK_SECONDS` (plan/limit fixes take effect on next request). `AdminAccessContext.hasGlobalPlatformAdminScope`: global `ops_admin|security_admin|super_admin` (`app_user_admin_roles.workspace_id` null) may `POST /api/v1/admin/abuse-controls/unblock` for assistants in **any** workspace; workspace-scoped admins unchanged. `AdminAbuseControlsController` `@HttpCode(200)` (Nest default 201 broke admin UI). `ApiExceptionFilter`: `unhandled_http_exception` pino logs for non-`HttpException` with `requestId`, path, stack. `ManageAdminAbuseControlsService` audit uses **assistant** `workspaceId`. Tests: `enforce-abuse-rate-limit`, `admin-authorization`, `manage-admin-abuse-controls`.
+2. **PersAI Web** — `postAdminAbuseUnblock`: `isSuccessStatus` (200|201) + typed success body.
+3. **OpenClaw fork** — `telegram-assistant-markdown-html.ts` / tests: fence language classes, fence-aware segmentation, oversized fence split for packing; `docs/PERSAI-FORK-PATCHES.md` §15.
+4. **Ops** — `apps/api/scripts/k8s-snapshot-abuse.cjs` (optional DB snapshot helper for abuse/quota rows).
+5. **Docs** — `docs/CHANGELOG.md`, `docs/API-BOUNDARY.md`, `docs/ADR/044-abuse-and-rate-limit-enforcement-g2.md` (post-acceptance section), `docs/TEST-PLAN.md`.
+
+### Files touched
+
+- `openclaw`: `telegram-assistant-markdown-html.ts`, `.test.ts`, `docs/PERSAI-FORK-PATCHES.md`
+- `PersAI`: abuse/admin/api-exception/web client/services/controllers, `apps/api/test/*.ts`, `apps/api/scripts/k8s-snapshot-abuse.cjs`, `infra/dev/gitops/openclaw-approved-sha.txt`, `infra/helm/values-dev.yaml`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`, `docs/API-BOUNDARY.md`, `docs/ADR/044-abuse-and-rate-limit-enforcement-g2.md`, `docs/TEST-PLAN.md`
+
+### Push order
+
+1. **openclaw** `main` first.
+2. **PersAI** `main` second — pin must match pushed OpenClaw SHA; CI can repin OpenClaw image digest.
+
+### Pinned OpenClaw SHA
+
+- `533e008032bdf4d33def776d85b00ad25bcdd217`
+
+---
+
 ## 2026-04-03 - OpenClaw: Telegram outbound HTML (parseMode markdown)
 
 ### What changed

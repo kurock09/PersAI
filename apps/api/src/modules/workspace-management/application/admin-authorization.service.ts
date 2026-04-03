@@ -1,7 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { ApiConfig, loadApiConfig } from "@persai/config";
-import { WorkspaceRole } from "@prisma/client";
+import { AppUserAdminRoleCode, WorkspaceRole } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 export type SupportedAdminRole = "ops_admin" | "business_admin" | "security_admin" | "super_admin";
@@ -21,6 +21,11 @@ export interface AdminAccessContext {
   workspaceId: string;
   roles: SupportedAdminRole[];
   hasLegacyOwnerFallback: boolean;
+  /**
+   * At least one ops/security/super row in `app_user_admin_roles` with `workspace_id` null
+   * (platform-wide scope), not tied to a single tenant workspace.
+   */
+  hasGlobalPlatformAdminScope: boolean;
 }
 
 export interface AdminStepUpChallenge {
@@ -236,11 +241,20 @@ export class AdminAuthorizationService {
     if (hasLegacyOwnerFallback) {
       roleSet.add("business_admin");
     }
+    const globalAbuseAdminRoles = new Set<AppUserAdminRoleCode>([
+      AppUserAdminRoleCode.ops_admin,
+      AppUserAdminRoleCode.security_admin,
+      AppUserAdminRoleCode.super_admin
+    ]);
+    const hasGlobalPlatformAdminScope = adminRoles.some(
+      (row) => row.workspaceId === null && globalAbuseAdminRoles.has(row.roleCode)
+    );
     return {
       userId,
       workspaceId: membership.workspaceId,
       roles: Array.from(roleSet),
-      hasLegacyOwnerFallback
+      hasLegacyOwnerFallback,
+      hasGlobalPlatformAdminScope
     };
   }
 

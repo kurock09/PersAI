@@ -4,7 +4,19 @@
 
 ### Changed
 
-- **OpenClaw fork (Telegram formatted + long replies):** when bootstrap `parseMode` is `markdown`, outbound text is converted to **Telegram Bot API HTML** (escaped literals, `**bold**`, inline/fenced code, http(s) links only) and sent with `parse_mode: HTML`, with paragraph-aware packing so each `sendMessage` stays ≤4096 characters (Unicode code points). Replaces fragile MarkdownV2 passthrough and avoids `message is too long`. **Web:** Telegram settings footnote (`parseModeMarkdownFootnote`, EN/RU). **Docs:** `docs/API-BOUNDARY.md`. Dev pin: `b6239197d384dc4bf99a9e76cd6bc5cb61d31919`; `openclaw.image.digest` cleared.
+- **OpenClaw fork (Telegram markdown → HTML, fenced code):** `telegram-assistant-markdown-html.ts` now normalizes fence language labels, emits `<pre><code class="language-…">` for fenced blocks, segments markdown so blank lines **inside** fences do not break outer paragraphs, and splits oversized fenced segments for the 4096 code-point packing path (same HTML `parse_mode` + chunking stack as the prior slice). Tests extended in `telegram-assistant-markdown-html.test.ts`. Fork doc: `openclaw` `docs/PERSAI-FORK-PATCHES.md` §15. Dev pin: `533e008032bdf4d33def776d85b00ad25bcdd217`; `openclaw.image.digest` cleared in `values-dev.yaml`.
+
+- **Abuse / quota pressure (G2):** when live workspace quota is **below** abuse slowdown/block thresholds, persisted guard rows whose `block_reason` is `quota_pressure_temporary_block` or `quota_pressure_slowdown` are **not** carried forward—fixing plan limits clears quota-driven blocks on the next request instead of waiting out `ABUSE_TEMP_BLOCK_SECONDS`. Early channel checks use the same reconciled state.
+
+- **Admin abuse unblock:** `POST /api/v1/admin/abuse-controls/unblock` explicitly returns **HTTP 200** (`@HttpCode`) so Nest’s default **201** does not confuse the admin web client. Callers with **global** platform admin scope (`app_user_admin_roles.workspace_id` null for `ops_admin|security_admin|super_admin`) may unblock an assistant in **any** tenant workspace; scoped admins still require `assistant.workspaceId ===` admin context workspace. Audit event `admin.abuse_unblock_applied` uses the **assistant’s** `workspaceId`. `AdminAccessContext` adds `hasGlobalPlatformAdminScope`.
+
+- **API observability:** `ApiExceptionFilter` logs non-`HttpException` failures at error level as `unhandled_http_exception` (pino) with `requestId`, `path`, `method`, `err`, `stack`.
+
+- **Web admin Abuse Controls:** `postAdminAbuseUnblock` treats **200|201** as success and maps response body with an explicit success type (avoids false “Unexpected non-success” when the API used Nest’s default 201).
+
+### Added
+
+- **Ops helper:** `apps/api/scripts/k8s-snapshot-abuse.cjs` — optional script to snapshot `assistant_abuse_*` / related quota rows via Prisma when run inside an API pod (kubectl/cp workflow); not part of production boot.
 
 ### Added
 

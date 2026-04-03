@@ -70,3 +70,15 @@ G2 requires explicit layered protection that:
 - content moderation, semantic abuse classification, policy engines
 - provider-specific anti-abuse heuristics in runtime behavior plane
 - broad trust/safety product workflows beyond rate-limit/abuse throttling
+
+## Post-acceptance semantics (operations + admin UX)
+
+These behaviors refine G2 without changing the core decision above:
+
+1. **Quota-pressure sticky state:** Persisted slowdown/block rows attributed to `quota_pressure_slowdown` / `quota_pressure_temporary_block` must **not** outlive incorrect quota configuration. When live workspace quota falls **below** abuse slowdown/block thresholds, the enforcement pass **drops** those persisted windows so the next inbound request is evaluated fresh (operators recover by fixing plan limits without waiting `ABUSE_TEMP_BLOCK_SECONDS`).
+
+2. **Admin unblock HTTP status:** `POST /api/v1/admin/abuse-controls/unblock` returns **200 OK** explicitly so Nest’s default **201 Created** for `POST` does not break admin clients that only treated 200 as success.
+
+3. **Global platform admin:** Callers with `ops_admin|security_admin|super_admin` on a **null** `workspace_id` row in `app_user_admin_roles` may unblock assistants in **any** tenant workspace; scoped admins remain limited to assistants in their resolved admin workspace. Audit events use the **assistant’s** `workspaceId`.
+
+See `docs/API-BOUNDARY.md` (G2 sections) and `docs/CHANGELOG.md` Unreleased for the implementation slice.

@@ -5,7 +5,10 @@ import {
   type ExceptionFilter,
   HttpStatus
 } from "@nestjs/common";
+import { createAppLogger } from "@persai/logger";
 import { ApiErrorHttpException, type ApiErrorCategory, type ApiErrorObject } from "./api-error";
+
+const unhandledExceptionLogger = createAppLogger(process.env.LOG_LEVEL ?? "info");
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -113,19 +116,37 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<{
       status: (code: number) => { json: (body: unknown) => void };
     }>();
-    const request = ctx.getRequest<{ requestId?: string | null }>();
+    const request = ctx.getRequest<{
+      requestId?: string | null;
+      path?: string;
+      url?: string;
+      method?: string;
+    }>();
 
     const normalized =
       exception instanceof HttpException
         ? normalizeHttpException(exception)
-        : {
-            status: HttpStatus.INTERNAL_SERVER_ERROR,
-            error: {
-              code: "internal_error",
-              category: "infra" as const,
-              message: exception instanceof Error ? exception.message : "Unexpected server error."
-            }
-          };
+        : (() => {
+            const err = exception instanceof Error ? exception : new Error(String(exception));
+            unhandledExceptionLogger.error(
+              {
+                requestId: request?.requestId ?? null,
+                path: request?.path ?? request?.url ?? null,
+                method: request?.method ?? null,
+                err: err.message,
+                stack: err.stack
+              },
+              "unhandled_http_exception"
+            );
+            return {
+              status: HttpStatus.INTERNAL_SERVER_ERROR,
+              error: {
+                code: "internal_error",
+                category: "infra" as const,
+                message: err.message || "Unexpected server error."
+              }
+            };
+          })();
 
     response.status(normalized.status).json({
       requestId: request?.requestId ?? null,

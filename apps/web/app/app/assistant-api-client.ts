@@ -14,6 +14,7 @@ import {
   type AdminPlanUpdateRequest,
   type PutAdminRuntimeProviderSettingsResponse,
   type AdminAbuseUnblockRequest,
+  type PostAdminAbuseUnblockResponse,
   type AssistantTelegramConfigUpdateRequest,
   type TelegramIntegrationState,
   type AssistantWebChatDeleteRequest,
@@ -1705,11 +1706,11 @@ export async function postAdminAbuseUnblock(
       headers: getAuthHeaders(token)
     });
 
-    if (response.status !== 200) {
+    if (!isSuccessStatus(response.status)) {
       throw new Error("Unexpected non-success response for POST /admin/abuse-controls/unblock.");
     }
 
-    return response.data.unblock;
+    return (response.data as PostAdminAbuseUnblockResponse).unblock;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

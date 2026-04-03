@@ -242,10 +242,13 @@ Required in CI:
   - multi-layer abuse enforcement service wiring on web chat send + stream prepare paths
   - per-user and per-assistant-per-surface throttle behavior
   - quota-aware slowdown/temporary block hook behavior
+  - quota-pressure reconciliation: persisted `quota_pressure_*` rows clear when live quota is below thresholds
   - admin unblock override endpoint wiring and RBAC gate
+  - global platform admin scope (`hasGlobalPlatformAdminScope`) for null `workspace_id` admin roles vs workspace-scoped unblock
 - Targeted tests validate G2 behavior:
-  - `test/enforce-abuse-rate-limit.test.ts`
+  - `test/enforce-abuse-rate-limit.test.ts` (includes quota-pressure persisted-state clear scenario)
   - `test/manage-admin-abuse-controls.test.ts`
+  - `test/admin-authorization.test.ts` (asserts `hasGlobalPlatformAdminScope`)
 - Existing enforcement baseline remains valid:
   - `test/enforcement-points.test.ts`
 

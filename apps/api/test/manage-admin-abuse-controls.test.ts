@@ -18,7 +18,8 @@ async function run(): Promise<void> {
         userId: "admin-1",
         workspaceId: "ws-1",
         roles: ["ops_admin"],
-        hasLegacyOwnerFallback: false
+        hasLegacyOwnerFallback: false,
+        hasGlobalPlatformAdminScope: false
       })
     } as never,
     {

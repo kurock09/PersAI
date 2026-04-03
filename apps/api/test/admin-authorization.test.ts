@@ -59,6 +59,7 @@ async function run(): Promise<void> {
   const scopedContext = await scopedRoleService.assertCanManageAdminSystemNotifications("user-1");
   assert.equal(scopedContext.workspaceId, "ws-owner");
   assert.equal(scopedContext.hasLegacyOwnerFallback, true);
+  assert.equal(scopedContext.hasGlobalPlatformAdminScope, false);
   assert.equal(scopedContext.roles.includes("security_admin"), true);
 
   const issuer = createService({
@@ -74,6 +75,8 @@ async function run(): Promise<void> {
       ADMIN_STEP_UP_HMAC_SECRET: "step-up-secret-a"
     }
   });
+  const globalSuperContext = await issuer.assertCanManageAbuseControls("user-1");
+  assert.equal(globalSuperContext.hasGlobalPlatformAdminScope, true);
   const verifier = createService({
     memberships: [
       {

@@ -90,7 +90,10 @@ export class ManageAdminAbuseControlsService {
         workspaceId: true
       }
     });
-    if (assistant === null || assistant.workspaceId !== context.workspaceId) {
+    if (assistant === null) {
+      throw new NotFoundException("Assistant not found.");
+    }
+    if (!context.hasGlobalPlatformAdminScope && assistant.workspaceId !== context.workspaceId) {
       throw new NotFoundException("Assistant not found in admin workspace.");
     }
     if (input.userId !== null && input.userId !== assistant.userId) {
@@ -106,7 +109,7 @@ export class ManageAdminAbuseControlsService {
       adminOverrideUntil
     });
     await this.appendAssistantAuditEventService.execute({
-      workspaceId: context.workspaceId,
+      workspaceId: assistant.workspaceId,
       assistantId: input.assistantId,
       actorUserId: adminUserId,
       eventCategory: "admin_action",

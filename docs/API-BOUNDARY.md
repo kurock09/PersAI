@@ -5,6 +5,8 @@
 REST only.
 Path versioning: /api/v1/...
 
+**Error surface:** `ApiExceptionFilter` returns JSON `{ requestId, error: { code, category, message, details? } }`. Throwables that are not `HttpException` become **500** `internal_error`. Those failures are also logged at error level as **`unhandled_http_exception`** (pino: `requestId`, `path`, `method`, `err`, `stack`) so operators can correlate `request_completed` lines with root causes.
+
 ## Step 1 endpoints
 
 - GET /health
@@ -732,6 +734,7 @@ Behavior baseline:
   - per-user-per-assistant-per-surface request window
   - per-assistant-per-surface aggregate request window
   - quota-pressure-aware slowdown/temporary block hook
+- **Quota-pressure reconciliation:** when live workspace quota is **below** abuse slowdown/block thresholds, persisted guard state with `block_reason` `quota_pressure_slowdown` / `quota_pressure_temporary_block` is **not** carried forward—operators can recover by fixing limits without waiting for `ABUSE_TEMP_BLOCK_SECONDS` to elapse.
 - when abuse slowdown/block is active, endpoint returns **429**.
 
 ### POST /api/v1/assistant/chat/web/stream
@@ -745,6 +748,8 @@ Behavior baseline:
 - requires abuse-control admin role:
   - `ops_admin|security_admin|super_admin`
   - or narrow legacy owner fallback.
+- **Workspace scope:** if the caller has **only** workspace-scoped admin rows, the target assistant must satisfy `assistant.workspaceId ===` the caller’s resolved admin `workspaceId`. If the caller has a **global** platform admin row (`app_user_admin_roles.workspace_id` null) for `ops_admin|security_admin|super_admin`, they may unblock an assistant in **any** workspace (`hasGlobalPlatformAdminScope` in `AdminAccessContext`).
+- **HTTP status:** success responses use **200 OK** (explicit `@HttpCode`; avoids Nest’s default **201** for `POST` confusing admin clients).
 - request body:
   - `assistantId` (required)
   - `userId` (optional; when set must match assistant owner)
@@ -753,7 +758,7 @@ Behavior baseline:
 - behavior:
   - clears active abuse slowdown/block for matching scope
   - applies temporary admin override window
-  - writes audit event `admin.abuse_unblock_applied`
+  - writes audit event `admin.abuse_unblock_applied` with `workspaceId` = **assistant’s** workspace (tenant of the affected assistant)
 
 ## Step 10 G3 recovery and ownership transfer flows
 
