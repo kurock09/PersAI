@@ -37,7 +37,7 @@ PersAI only (no OpenClaw fork changes in this session).
 
 ### Pinned OpenClaw SHA
 
-Unchanged — `533e008032bdf4d33def776d85b00ad25bcdd217`
+Unchanged — `bf913e276fd52ec4ac3d1259cf8ba50afef4e0b2`
 
 ---
 
@@ -63,7 +63,7 @@ Unchanged — `533e008032bdf4d33def776d85b00ad25bcdd217`
 
 ### Pinned OpenClaw SHA
 
-- `533e008032bdf4d33def776d85b00ad25bcdd217`
+- `bf913e276fd52ec4ac3d1259cf8ba50afef4e0b2`
 
 ---
 
