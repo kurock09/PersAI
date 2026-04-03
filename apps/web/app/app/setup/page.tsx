@@ -594,52 +594,8 @@ export default function SetupWizardPage() {
                 {t("step2Subtitle", { name: assistantName })}
               </p>
 
-              {/* Preset selector */}
-              <div className="mt-7 w-full max-w-md">
-                <p className="mb-2.5 text-left text-xs font-medium text-text-muted">
-                  {t("presetSectionLabel")}
-                </p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {currentPresets.map((preset) => (
-                    <button
-                      key={preset.key}
-                      type="button"
-                      onClick={() => applyPreset(preset)}
-                      className={cn(
-                        "rounded-xl border py-2.5 text-sm font-semibold transition-all",
-                        selectedPresetKey === preset.key
-                          ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
-                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
-                      )}
-                    >
-                      {tp(preset.labelKey)}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={handleCustomPreset}
-                    className={cn(
-                      "rounded-xl border py-2.5 text-sm font-semibold transition-all",
-                      selectedPresetKey === "custom"
-                        ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
-                        : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
-                    )}
-                  >
-                    {t("presetCustom")}
-                  </button>
-                </div>
-                {/* Preset description */}
-                <p className="mt-2 min-h-[1.25rem] text-left text-[11px] text-text-subtle">
-                  {selectedPresetKey === "custom"
-                    ? t("presetCustomDesc")
-                    : currentPresets.find((p) => p.key === selectedPresetKey)?.descKey
-                      ? tp(currentPresets.find((p) => p.key === selectedPresetKey)!.descKey)
-                      : ""}
-                </p>
-              </div>
-
               {/* Sliders */}
-              <div className="mt-5 w-full max-w-md space-y-4">
+              <div className="mt-7 w-full max-w-md space-y-4">
                 <p className="text-left text-xs font-medium text-text-muted">{t("fineTune")}</p>
                 {TRAIT_SLIDERS.map((trait) => (
                   <div key={trait.key}>
@@ -657,6 +613,50 @@ export default function SetupWizardPage() {
                     />
                   </div>
                 ))}
+              </div>
+
+              {/* Preset selector — below sliders */}
+              <div className="mt-6 w-full max-w-md">
+                <p className="mb-2.5 text-left text-xs font-medium text-text-muted">
+                  {t("presetSectionLabel")}
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {currentPresets.map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => applyPreset(preset)}
+                      className={cn(
+                        "truncate rounded-xl border px-3 py-2.5 text-sm font-semibold transition-all",
+                        selectedPresetKey === preset.key
+                          ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
+                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
+                      )}
+                    >
+                      {tp(preset.labelKey)}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={handleCustomPreset}
+                    className={cn(
+                      "truncate rounded-xl border px-3 py-2.5 text-sm font-semibold transition-all",
+                      selectedPresetKey === "custom"
+                        ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
+                        : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
+                    )}
+                  >
+                    {t("presetCustom")}
+                  </button>
+                </div>
+                {/* Preset description */}
+                <p className="mt-2 min-h-[1.25rem] text-left text-[11px] text-text-subtle">
+                  {selectedPresetKey === "custom"
+                    ? t("presetCustomDesc")
+                    : currentPresets.find((p) => p.key === selectedPresetKey)?.descKey
+                      ? tp(currentPresets.find((p) => p.key === selectedPresetKey)!.descKey)
+                      : ""}
+                </p>
               </div>
 
               {/* Instructions textarea */}

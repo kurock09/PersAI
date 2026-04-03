@@ -72,7 +72,7 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
   }, [avatarUrl, getToken]);
 
   const fallbackContent = avatarEmoji ? (
-    <span>{avatarEmoji}</span>
+    <span className="leading-none select-none">{avatarEmoji}</span>
   ) : (
     <Sparkles className={s.icon} />
   );
@@ -90,7 +90,7 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-center text-accent",
+        "flex shrink-0 items-center justify-center overflow-hidden text-accent",
         avatarEmoji ? "bg-accent/20" : "bg-accent/15",
         s.container,
         s.text,

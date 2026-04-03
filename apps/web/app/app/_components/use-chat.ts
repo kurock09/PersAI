@@ -447,6 +447,7 @@ export function useChat(threadKey: string): UseChatReturn {
           {
             surfaceThreadKey: WELCOME_THREAD_KEY,
             message: "",
+            title: locale === "ru" ? "Добро пожаловать" : "Welcome",
             welcomeTurn: true,
             welcomeLocale: locale
           },
