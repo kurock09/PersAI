@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { motion, AnimatePresence } from "framer-motion";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   ArrowRight,
   ArrowLeft,
@@ -19,6 +19,7 @@ import {
   User
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { LandingLocaleSwitcher } from "@/app/_components/landing-locale-switcher";
 import {
   getAssistant,
   patchAssistantDraft,
@@ -31,10 +32,11 @@ import { getMe, postOnboarding } from "../me-api-client";
 import {
   ASSISTANT_GENDER_OPTIONS,
   DEFAULT_TRAITS,
+  PERSONA_PRESETS,
   TRAIT_SLIDERS,
-  buildAssistantInstructions,
   traitPreviewLabel,
   type AssistantGender,
+  type PersonaPreset,
   type TraitKey
 } from "../_components/assistant-persona";
 
@@ -85,6 +87,7 @@ export default function SetupWizardPage() {
   const { getToken } = useAuth();
   const t = useTranslations("setup");
   const tp = useTranslations("persona");
+  const locale = useLocale();
 
   const [step, setStep] = useState(0);
 
@@ -99,13 +102,14 @@ export default function SetupWizardPage() {
   const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
   const [customAvatarFile, setCustomAvatarFile] = useState<File | null>(null);
   const [customAvatarPreviewUrl, setCustomAvatarPreviewUrl] = useState<string | null>(null);
-  const [assistantGender, setAssistantGender] = useState<AssistantGender>(null);
+  const [assistantGender, setAssistantGender] = useState<AssistantGender>("neutral");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2 — personality
   const [traits, setTraits] = useState<Record<TraitKey, number>>(DEFAULT_TRAITS);
   const [assistantNotes, setAssistantNotes] = useState("");
-  const [instructionsEdited, setInstructionsEdited] = useState(false);
+  const [selectedPresetKey, setSelectedPresetKey] = useState<string | null>(null);
+  const presetInitGenderRef = useRef<string | null>(null);
 
   // Step 3 — create
   const [creating, setCreating] = useState(false);
@@ -140,16 +144,25 @@ export default function SetupWizardPage() {
     })();
   }, [getToken, router]);
 
+  // Auto-apply first preset when entering step 2, reset when gender changes
   useEffect(() => {
-    if (instructionsEdited) return;
+    if (step !== 2) return;
+    const genderKey = assistantGender ?? "neutral";
+    if (presetInitGenderRef.current === genderKey && selectedPresetKey !== null) return;
+    presetInitGenderRef.current = genderKey;
+    const presets = PERSONA_PRESETS[genderKey];
+    const first = presets[0];
+    if (!first) return;
+    setSelectedPresetKey(first.key);
+    setTraits({ ...first.traits });
     setAssistantNotes(
-      buildAssistantInstructions({
-        assistantName: assistantName.trim() || "your assistant",
-        userName: userName.trim() || "your human",
-        traits
-      })
+      first.buildInstructions(
+        assistantName.trim() || "your assistant",
+        userName.trim() || "you",
+        locale
+      )
     );
-  }, [assistantName, instructionsEdited, traits, userName]);
+  }, [step, assistantGender]); // intentionally omits preset deps — runs only on step/gender change
 
   useEffect(() => {
     return () => {
@@ -187,6 +200,31 @@ export default function SetupWizardPage() {
 
   const updateTrait = useCallback((key: TraitKey, value: number) => {
     setTraits((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const currentPresets = useMemo(
+    () => PERSONA_PRESETS[assistantGender ?? "neutral"],
+    [assistantGender]
+  );
+
+  const applyPreset = useCallback(
+    (preset: PersonaPreset) => {
+      setSelectedPresetKey(preset.key);
+      setTraits({ ...preset.traits });
+      setAssistantNotes(
+        preset.buildInstructions(
+          assistantName.trim() || "your assistant",
+          userName.trim() || "you",
+          locale
+        )
+      );
+    },
+    [assistantName, userName, locale]
+  );
+
+  const handleCustomPreset = useCallback(() => {
+    setSelectedPresetKey("custom");
+    setAssistantNotes("");
   }, []);
 
   const resolveSetupToken = useCallback(
@@ -322,20 +360,23 @@ export default function SetupWizardPage() {
         <span className="text-lg font-bold tracking-tight text-text">
           Pers<span className="text-accent">AI</span>
         </span>
-        <div className="flex items-center gap-1.5">
-          {Array.from({ length: STEP_COUNT }).map((_, i) => (
-            <div
-              key={i}
-              className={cn(
-                "h-1.5 rounded-full transition-all duration-300",
-                i === step
-                  ? "w-6 bg-accent"
-                  : i < step
-                    ? "w-3 bg-accent/50"
-                    : "w-3 bg-surface-raised"
-              )}
-            />
-          ))}
+        <div className="flex items-center gap-4">
+          <LandingLocaleSwitcher />
+          <div className="flex items-center gap-1.5">
+            {Array.from({ length: STEP_COUNT }).map((_, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "h-1.5 rounded-full transition-all duration-300",
+                  i === step
+                    ? "w-6 bg-accent"
+                    : i < step
+                      ? "w-3 bg-accent/50"
+                      : "w-3 bg-surface-raised"
+                )}
+              />
+            ))}
+          </div>
         </div>
       </header>
 
@@ -495,7 +536,7 @@ export default function SetupWizardPage() {
                 <label className="block text-xs font-medium text-text-muted">
                   {t("assistantGender")}
                 </label>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-3 gap-2">
                   {ASSISTANT_GENDER_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
@@ -527,14 +568,82 @@ export default function SetupWizardPage() {
           {/* ===== Step 2: Personality ===== */}
           {step === 2 && (
             <StepContainer key="step-2">
-              <h1 className="text-3xl font-bold text-text sm:text-4xl">{t("step2Title")}</h1>
-              <p className="mt-3 text-base text-text-muted">
+              {/* Avatar portrait */}
+              <div className="relative mb-1 inline-flex flex-col items-center">
+                <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_0_48px_rgba(102,187,106,0.18)] text-4xl flex items-center justify-center">
+                  {customAvatarPreviewUrl ? (
+                    <img
+                      src={customAvatarPreviewUrl}
+                      alt={assistantName}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span>{avatarObj?.emoji ?? "🤖"}</span>
+                  )}
+                </div>
+                <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-bg bg-accent">
+                  <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                </span>
+              </div>
+              {assistantName && (
+                <p className="mt-2.5 text-sm font-medium text-text-muted">{assistantName}</p>
+              )}
+
+              <h1 className="mt-5 text-3xl font-bold text-text sm:text-4xl">{t("step2Title")}</h1>
+              <p className="mt-2 text-base text-text-muted">
                 {t("step2Subtitle", { name: assistantName })}
               </p>
-              <div className="mt-8 w-full max-w-md space-y-6">
+
+              {/* Preset selector */}
+              <div className="mt-7 w-full max-w-md">
+                <p className="mb-2.5 text-left text-xs font-medium text-text-muted">
+                  {t("presetSectionLabel")}
+                </p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {currentPresets.map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => applyPreset(preset)}
+                      className={cn(
+                        "rounded-xl border py-2.5 text-sm font-semibold transition-all",
+                        selectedPresetKey === preset.key
+                          ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
+                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
+                      )}
+                    >
+                      {tp(preset.labelKey)}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={handleCustomPreset}
+                    className={cn(
+                      "rounded-xl border py-2.5 text-sm font-semibold transition-all",
+                      selectedPresetKey === "custom"
+                        ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
+                        : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
+                    )}
+                  >
+                    {t("presetCustom")}
+                  </button>
+                </div>
+                {/* Preset description */}
+                <p className="mt-2 min-h-[1.25rem] text-left text-[11px] text-text-subtle">
+                  {selectedPresetKey === "custom"
+                    ? t("presetCustomDesc")
+                    : currentPresets.find((p) => p.key === selectedPresetKey)?.descKey
+                      ? tp(currentPresets.find((p) => p.key === selectedPresetKey)!.descKey)
+                      : ""}
+                </p>
+              </div>
+
+              {/* Sliders */}
+              <div className="mt-5 w-full max-w-md space-y-4">
+                <p className="text-left text-xs font-medium text-text-muted">{t("fineTune")}</p>
                 {TRAIT_SLIDERS.map((trait) => (
                   <div key={trait.key}>
-                    <div className="mb-2 flex items-center justify-between text-xs font-medium">
+                    <div className="mb-1.5 flex items-center justify-between text-xs font-medium">
                       <span className="text-text-muted">{tp(trait.labelLeftKey)}</span>
                       <span className="text-text-muted">{tp(trait.labelRightKey)}</span>
                     </div>
@@ -548,23 +657,21 @@ export default function SetupWizardPage() {
                     />
                   </div>
                 ))}
+              </div>
 
-                <div className="space-y-2 text-left">
-                  <label className="block text-xs font-medium text-text-muted">
-                    {t("describeCharacter")}
-                  </label>
-                  <textarea
-                    value={assistantNotes}
-                    onChange={(e) => {
-                      setInstructionsEdited(true);
-                      setAssistantNotes(e.target.value);
-                    }}
-                    rows={7}
-                    className="w-full rounded-2xl border border-border bg-surface-raised px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent"
-                    placeholder={t("instructionPlaceholder")}
-                  />
-                  <p className="text-[11px] text-text-subtle">{t("instructionHint")}</p>
-                </div>
+              {/* Instructions textarea */}
+              <div className="mt-5 w-full max-w-md space-y-2 text-left">
+                <label className="block text-xs font-medium text-text-muted">
+                  {t("describeCharacter")}
+                </label>
+                <textarea
+                  value={assistantNotes}
+                  onChange={(e) => setAssistantNotes(e.target.value)}
+                  rows={6}
+                  className="w-full rounded-2xl border border-border bg-surface-raised px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent"
+                  placeholder={t("instructionPlaceholder")}
+                />
+                <p className="text-[11px] text-text-subtle">{t("instructionHint")}</p>
               </div>
             </StepContainer>
           )}

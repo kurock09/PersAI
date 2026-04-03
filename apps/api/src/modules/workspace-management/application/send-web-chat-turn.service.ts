@@ -16,10 +16,24 @@ import { toAssistantInboundHttpException } from "./assistant-inbound-error";
 import { InboundMediaService } from "./media/inbound-media.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 
+export const WELCOME_TURN_SENTINEL = "__welcome_init__";
+
+const WELCOME_INSTRUCTION_RU =
+  "Это твой первый разговор с пользователем. Поприветствуй тепло, представься по имени, и расскажи что умеешь: помнишь контекст между сессиями, доступен в Telegram, умеешь ставить задачи и напоминания, генерировать картинки и говорить голосом и многое другое.";
+
+const WELCOME_INSTRUCTION_EN =
+  "This is your first conversation with the user. Greet them warmly, introduce yourself by name, and tell them what you can do: you remember context across sessions, you're available in Telegram, you can set tasks and reminders, generate images, speak with voice, and much more.";
+
+export function resolveWelcomeTurnInstruction(locale?: string): string {
+  return locale === "ru" ? WELCOME_INSTRUCTION_RU : WELCOME_INSTRUCTION_EN;
+}
+
 export interface SendWebChatTurnRequest {
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  welcomeTurn?: boolean;
+  welcomeLocale?: string;
 }
 
 function normalizeOptionalTitle(value: unknown): string | null | undefined {
@@ -63,18 +77,24 @@ export class SendWebChatTurnService {
     const surfaceThreadKey = body.surfaceThreadKey;
     const message = body.message;
     const title = normalizeOptionalTitle(body.title);
+    const welcomeTurn = body.welcomeTurn === true;
 
     if (typeof surfaceThreadKey !== "string" || surfaceThreadKey.trim().length === 0) {
       throw new BadRequestException("surfaceThreadKey must be a non-empty string.");
     }
-    if (typeof message !== "string" || message.trim().length === 0) {
+    if (!welcomeTurn && (typeof message !== "string" || message.trim().length === 0)) {
       throw new BadRequestException("message must be a non-empty string.");
     }
 
+    const welcomeLocale =
+      welcomeTurn && typeof body.welcomeLocale === "string" ? body.welcomeLocale : undefined;
+
     return {
       surfaceThreadKey: surfaceThreadKey.trim(),
-      message: message.trim(),
-      ...(title !== undefined ? { title } : {})
+      message: welcomeTurn ? WELCOME_TURN_SENTINEL : (message as string).trim(),
+      ...(title !== undefined ? { title } : {}),
+      ...(welcomeTurn ? { welcomeTurn: true } : {}),
+      ...(welcomeLocale !== undefined ? { welcomeLocale } : {})
     };
   }
 

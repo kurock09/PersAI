@@ -186,6 +186,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
   const [memoryItems, setMemoryItems] = useState<AssistantMemoryRegistryItemState[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [forgettingId, setForgettingId] = useState<string | null>(null);
+  const [memoryVisibleCount, setMemoryVisibleCount] = useState(10);
 
   const [wsMemoryItems, setWsMemoryItems] = useState<WorkspaceMemoryItem[]>([]);
   const [wsMemoryLoading, setWsMemoryLoading] = useState(false);
@@ -274,6 +275,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
     const token = await getToken();
     if (!token) return;
     setMemoryLoading(true);
+    setMemoryVisibleCount(10);
     try {
       setMemoryItems(await getAssistantMemoryItems(token));
     } catch {
@@ -827,31 +829,42 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
             ) : memoryItems.length === 0 ? (
               <p className="text-xs text-text-subtle">{t("noMemoriesStored")}</p>
             ) : (
-              <ul className="space-y-2">
-                {memoryItems.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
-                  >
-                    <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-muted">
-                      {item.summary}
-                    </p>
-                    <button
-                      type="button"
-                      disabled={forgettingId === item.id}
-                      onClick={() => void handleForget(item.id)}
-                      className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                      title={t("forget")}
+              <>
+                <ul className="space-y-2">
+                  {memoryItems.slice(0, memoryVisibleCount).map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
                     >
-                      {forgettingId === item.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3 w-3" />
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                      <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-muted">
+                        {item.summary}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={forgettingId === item.id}
+                        onClick={() => void handleForget(item.id)}
+                        className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                        title={t("forget")}
+                      >
+                        {forgettingId === item.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {memoryVisibleCount < memoryItems.length && (
+                  <button
+                    type="button"
+                    onClick={() => setMemoryVisibleCount((c) => c + 10)}
+                    className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
+                  >
+                    {t("loadMore")} ({memoryItems.length - memoryVisibleCount})
+                  </button>
+                )}
+              </>
             )}
           </>
         )}

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- **Landing page (premium redesign):** full-viewport aurora canvas background, typographic manifesto headline (two-line, weight contrast), EN/RU `LandingLocaleSwitcher`, platform badge strip (Telegram active + pulse dot, VK/WhatsApp/MAX with brand colours dimmed + "soon" label). No scroll on first screen; responsive.
+
+- **Setup wizard — personality presets:** 9 locale-aware presets (3 per gender × 3 genders) in `assistant-persona.ts` (`PersonaPreset` interface, `PERSONA_PRESETS`). Each preset carries trait deltas and `buildInstructions(name, user, locale)` returning EN or RU instructions. Sliders only fine-tune; "Custom" button clears. Avatar portrait shown on step 2. EN/RU switcher added to setup header.
+
+- **Welcome chat (first-visit auto-greeting):** on first visit after assistant create/recreate (`chats.length === 0`, no `welcome` surface thread), `use-chat.ts#sendWelcome(locale)` fires a `welcomeTurn: true` streaming turn. Backend stores `__welcome_init__` sentinel to DB, injects locale-resolved instruction (`resolveWelcomeTurnInstruction`) to OpenClaw. Sentinel filtered from history display. `welcomeTriggeredRef` prevents duplicate fires.
+
+- **Memory history pagination:** History tab shows 10 most-recent items; "Load more (N)" button appends 10 per click. Counter resets on reload.
+
+### Changed
+
+- **Setup wizard — gender default:** initial gender pre-selected to `"neutral"` (was `null`). Grid layout fixed to `grid-cols-3`.
+
 ### Changed
 
 - **OpenClaw fork (Telegram markdown → HTML, fenced code):** `telegram-assistant-markdown-html.ts` now normalizes fence language labels, emits `<pre><code class="language-…">` for fenced blocks, segments markdown so blank lines **inside** fences do not break outer paragraphs, and splits oversized fenced segments for the 4096 code-point packing path (same HTML `parse_mode` + chunking stack as the prior slice). Tests extended in `telegram-assistant-markdown-html.test.ts`. Fork doc: `openclaw` `docs/PERSAI-FORK-PATCHES.md` §15. Dev pin: `533e008032bdf4d33def776d85b00ad25bcdd217`; `openclaw.image.digest` cleared in `values-dev.yaml`.

@@ -7,6 +7,8 @@ import {
   stageWebChatAttachment,
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
+  WELCOME_THREAD_KEY,
+  WELCOME_TURN_SENTINEL,
   type ChatHistoryAttachment,
   type WebChatUxIssue
 } from "../assistant-api-client";
@@ -44,6 +46,7 @@ export interface UseChatReturn {
   olderMessagesLoading: boolean;
   issue: WebChatUxIssue | null;
   send: (text: string, files?: File[]) => Promise<void>;
+  sendWelcome: (locale: string) => Promise<void>;
   stop: () => void;
   clearIssue: () => void;
   reportIssue: (error: unknown) => void;
@@ -401,6 +404,141 @@ export function useChat(threadKey: string): UseChatReturn {
     [getToken, isStreaming, threadKey]
   );
 
+  const sendWelcome = useCallback(
+    async (locale: string) => {
+      if (isStreaming) return;
+      const token = await getToken();
+      if (token === null) {
+        setIssue(toWebChatUxIssue("Your session has expired. Please sign in again."));
+        return;
+      }
+
+      const assistantMsgId = `local-assistant-welcome-${Date.now()}`;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setIsStreaming(true);
+      setIssue(null);
+
+      const assistantMsg: ChatMessage = {
+        id: assistantMsgId,
+        role: "assistant",
+        content: "",
+        status: "streaming",
+        thought: "",
+        thoughtStartedAt: null,
+        thoughtFinishedAt: null
+      };
+      setMessages([assistantMsg]);
+
+      const pendingDelta = { text: "", raf: 0 };
+      const flushDelta = () => {
+        const chunk = pendingDelta.text;
+        pendingDelta.text = "";
+        pendingDelta.raf = 0;
+        if (!chunk) return;
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m))
+        );
+      };
+
+      try {
+        await streamAssistantWebChatTurn(
+          token,
+          {
+            surfaceThreadKey: WELCOME_THREAD_KEY,
+            message: "",
+            welcomeTurn: true,
+            welcomeLocale: locale
+          },
+          {
+            onStarted: ({ chat }) => {
+              const c = chat as { id?: string } | null;
+              if (typeof c?.id === "string") setChatId(c.id);
+            },
+            onDelta: ({ delta }) => {
+              pendingDelta.text += delta;
+              if (!pendingDelta.raf) {
+                pendingDelta.raf = requestAnimationFrame(flushDelta);
+              }
+            },
+            onRuntimeDone: ({ respondedAt }) => {
+              if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
+              flushDelta();
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId && m.thought && !m.thoughtFinishedAt
+                    ? { ...m, thoughtFinishedAt: respondedAt }
+                    : m
+                )
+              );
+            },
+            onCompleted: ({ transport }) => {
+              if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
+              flushDelta();
+              const t = transport as {
+                assistantMessage?: { id?: string; attachments?: ChatAttachment[] };
+              } | null;
+              const newAssistantId =
+                typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+              const assistantAttachments =
+                Array.isArray(t?.assistantMessage?.attachments) &&
+                t.assistantMessage.attachments.length > 0
+                  ? (t.assistantMessage.attachments as ChatAttachment[])
+                  : undefined;
+              if (newAssistantId) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? {
+                          ...m,
+                          id: newAssistantId,
+                          status: "committed" as const,
+                          attachments: assistantAttachments
+                        }
+                      : m
+                  )
+                );
+              }
+            },
+            onInterrupted: () => {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...m, status: m.content.trim().length > 0 ? "partial" : "streaming" }
+                    : m
+                )
+              );
+            },
+            onFailed: (payload) => {
+              setIssue(toWebChatUxIssue(payload));
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId ? { ...m, status: "partial" as const } : m
+                )
+              );
+            }
+          },
+          controller.signal
+        );
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setIssue(toWebChatUxIssue(error));
+        }
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId && m.status === "streaming"
+              ? { ...m, status: m.content.trim().length > 0 ? "partial" : "committed" }
+              : m
+          )
+        );
+      } finally {
+        setIsStreaming(false);
+        abortRef.current = null;
+      }
+    },
+    [getToken, isStreaming]
+  );
+
   const loadHistory = useCallback(
     async (targetChatId: string) => {
       if (historyLoadedRef.current.has(targetChatId)) return;
@@ -410,13 +548,15 @@ export function useChat(threadKey: string): UseChatReturn {
       setHistoryLoading(true);
       try {
         const page = await getChatMessages(token, targetChatId, undefined, 20);
-        const loaded: ChatMessage[] = page.messages.map((m) => ({
-          id: m.id,
-          role: m.author === "system" ? "assistant" : m.author,
-          content: m.content,
-          status: "committed" as const,
-          attachments: m.attachments.length > 0 ? (m.attachments as ChatAttachment[]) : undefined
-        }));
+        const loaded: ChatMessage[] = page.messages
+          .filter((m) => m.content !== WELCOME_TURN_SENTINEL)
+          .map((m) => ({
+            id: m.id,
+            role: m.author === "system" ? "assistant" : m.author,
+            content: m.content,
+            status: "committed" as const,
+            attachments: m.attachments.length > 0 ? (m.attachments as ChatAttachment[]) : undefined
+          }));
 
         if (loaded.length > 0) {
           setMessages((prev) => {
@@ -501,6 +641,7 @@ export function useChat(threadKey: string): UseChatReturn {
     olderMessagesLoading,
     issue,
     send,
+    sendWelcome,
     stop,
     clearIssue,
     reportIssue,

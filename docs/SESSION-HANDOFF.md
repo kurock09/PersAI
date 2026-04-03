@@ -1,5 +1,46 @@
 # SESSION-HANDOFF
 
+## 2026-04-03 - PersAI Web: landing redesign, setup personality presets, welcome chat, memory pagination
+
+### What changed
+
+1. **Landing page (`apps/web/app/page.tsx`)** — Premium minimalist first-screen: full-viewport aurora background (`<canvas>` animated), typographic manifesto headline (two-line, weight contrast), EN/RU locale switcher (`LandingLocaleSwitcher`), platform badge strip (Telegram active with pulse dot, VK/WhatsApp/MAX dimmed with brand colours and "soon" label). No scroll on first screen; responsive desktop and mobile.
+
+2. **Setup wizard — gender step (`apps/web/app/app/setup/page.tsx`)** — Default gender pre-selected to `"neutral"` (was `null`). Grid layout fixed to `grid-cols-3` (was `grid-cols-2 sm:grid-cols-4`, caused button pileup).
+
+3. **Setup wizard — personality step** — 9 locale-aware personality presets (3 per gender: neutral/male/female) defined in `apps/web/app/app/_components/assistant-persona.ts` (`PersonaPreset` interface, `PERSONA_PRESETS` map). Presets carry `labelKey`, `descKey`, `traits`, and `buildInstructions(name, user, locale)` that returns EN or RU instruction text based on the `persai-locale` cookie. Sliders fine-tune traits only; preset selection updates the instructions textarea (not the other way around). "Custom" (4th button) clears preset selection. Avatar portrait shown on step 2. EN/RU switcher added to setup header.
+
+4. **Welcome chat** — On first visit after assistant create/recreate (detected via `chats.length === 0` + no existing `surfaceThreadKey="welcome"` chat), `use-chat.ts` fires `sendWelcome(locale)` which streams an assistant-only turn with `welcomeTurn: true` and `welcomeLocale`. Backend (`send-web-chat-turn.service.ts`) stores sentinel `__welcome_init__` to DB; `stream-web-chat-turn.service.ts` injects locale-resolved instruction (`resolveWelcomeTurnInstruction`) to OpenClaw instead of the sentinel. Frontend `loadHistory` filters out the sentinel so it is never visible. `welcomeTriggeredRef` prevents double-fire within a session.
+
+5. **Memory history pagination (`apps/web/app/app/_components/assistant-settings.tsx`)** — History tab shows 10 most-recent items initially; "Load more (N)" button appends 10 more per click. Counter resets on memory reload. Backend unchanged (fetches up to 80 desc by `createdAt`).
+
+6. **Pre-commit gates** — All 4 gates pass: lint (removed stale `eslint-disable react-hooks/exhaustive-deps` comment, removed unused `WELCOME_TURN_SENTINEL` import from stream service), format (prettier applied to 4 files), api typecheck, web typecheck. All 17 web tests + all API test suites pass.
+
+### Files touched
+
+- `apps/web/app/page.tsx`
+- `apps/web/app/_components/landing-locale-switcher.tsx`
+- `apps/web/app/app/setup/page.tsx`
+- `apps/web/app/app/_components/assistant-persona.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/chat/page.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+
+### Push order
+
+PersAI only (no OpenClaw fork changes in this session).
+
+### Pinned OpenClaw SHA
+
+Unchanged — `533e008032bdf4d33def776d85b00ad25bcdd217`
+
+---
+
 ## 2026-04-03 - PersAI: abuse unblock + quota reconciliation + ops logs; OpenClaw: Telegram fenced markdown HTML
 
 ### What changed

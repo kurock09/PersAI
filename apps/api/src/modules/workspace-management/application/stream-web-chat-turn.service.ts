@@ -21,6 +21,7 @@ import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { InboundMediaService } from "./media/inbound-media.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
+import { resolveWelcomeTurnInstruction } from "./send-web-chat-turn.service";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -31,12 +32,16 @@ export interface StreamWebChatTurnPrepared {
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
+  welcomeTurn?: boolean;
+  welcomeLocale?: string;
 }
 
 export interface StreamWebChatTurnRequest {
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  welcomeTurn?: boolean;
+  welcomeLocale?: string;
 }
 
 export interface StreamWebChatTurnOutcomeCompleted {
@@ -81,13 +86,18 @@ export class StreamWebChatTurnService {
     userId: string,
     request: StreamWebChatTurnRequest
   ): Promise<StreamWebChatTurnPrepared> {
-    return this.prepareAssistantInboundTurnService.execute({
+    const prepared = await this.prepareAssistantInboundTurnService.execute({
       userId,
       surface: "web_chat",
       surfaceThreadKey: request.surfaceThreadKey,
       message: request.message,
       ...(request.title !== undefined ? { title: request.title } : {})
     });
+    return {
+      ...prepared,
+      ...(request.welcomeTurn ? { welcomeTurn: true } : {}),
+      ...(request.welcomeLocale !== undefined ? { welcomeLocale: request.welcomeLocale } : {})
+    };
   }
 
   async streamToCompletion(
@@ -106,9 +116,12 @@ export class StreamWebChatTurnService {
     const attachmentContext = await this.inboundMediaService.buildContextForExistingAttachments(
       prepared.chat.id
     );
-    const enrichedUserMessage = attachmentContext
-      ? `${attachmentContext}\n${prepared.userMessage.content}`
+    const baseMessage = prepared.welcomeTurn
+      ? resolveWelcomeTurnInstruction(prepared.welcomeLocale)
       : prepared.userMessage.content;
+    const enrichedUserMessage = attachmentContext
+      ? `${attachmentContext}\n${baseMessage}`
+      : baseMessage;
 
     try {
       for await (const chunk of this.assistantRuntimeAdapter.streamWebChatTurn({
@@ -186,7 +199,9 @@ export class StreamWebChatTurnService {
         chatId: prepared.chat.id,
         userMessageId: prepared.userMessage.id,
         assistantMessageId: assistantMessage.id,
-        userContent: prepared.userMessage.content,
+        userContent: prepared.welcomeTurn
+          ? resolveWelcomeTurnInstruction(prepared.welcomeLocale)
+          : prepared.userMessage.content,
         assistantContent: cleanedAccumulated,
         memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
       });

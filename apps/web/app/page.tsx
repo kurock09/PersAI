@@ -2,6 +2,15 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
+import { LandingLocaleSwitcher } from "./_components/landing-locale-switcher";
+
+function TelegramIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.17 13.926l-2.96-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.978.633z" />
+    </svg>
+  );
+}
 
 export default async function HomePage() {
   const { userId } = await auth();
@@ -12,28 +21,91 @@ export default async function HomePage() {
   const t = await getTranslations("landing");
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
-      <div className="pointer-events-none absolute top-1/3 -left-40 h-[480px] w-[480px] rounded-full bg-accent/8 blur-[120px] animate-pulse-slow" />
-      <div className="pointer-events-none absolute bottom-1/4 -right-40 h-[400px] w-[400px] rounded-full bg-accent/5 blur-[100px] animate-pulse-slow [animation-delay:2s]" />
+    <div className="relative h-screen overflow-hidden">
+      {/* Aurora */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-[5%] top-[10%] h-[600px] w-[600px] rounded-full bg-accent/[0.13] blur-[160px] animate-pulse-slow" />
+        <div className="absolute right-[5%] top-[30%] h-[400px] w-[400px] rounded-full bg-emerald-300/[0.07] blur-[130px] animate-pulse-slow [animation-delay:2s]" />
+        <div className="absolute bottom-[5%] left-[35%] h-[350px] w-[350px] rounded-full bg-accent/[0.09] blur-[120px] animate-pulse-slow [animation-delay:4s]" />
+      </div>
 
-      <div className="relative z-10 flex flex-col items-center px-6 text-center max-w-md animate-fade-in-up">
-        <h1 className="text-6xl font-bold tracking-tight sm:text-7xl">
-          Pers
-          <span className="text-accent">AI</span>
-        </h1>
+      {/* Top hairline */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
 
-        <p className="mt-5 text-lg leading-relaxed text-text-muted sm:text-xl whitespace-pre-line">
-          {t("subtitle")}
-        </p>
+      <div className="relative z-10 flex h-full flex-col px-6 sm:px-10">
+        {/* Header */}
+        <header className="flex items-center justify-between pt-6 sm:pt-8">
+          <span className="select-none text-xs font-semibold uppercase tracking-[0.22em] text-text-muted">
+            Pers<span className="text-text">AI</span>
+          </span>
+          <LandingLocaleSwitcher />
+        </header>
 
-        <Link
-          href="/sign-in"
-          className="mt-10 inline-block cursor-pointer rounded-xl bg-accent px-10 py-3.5 text-base font-semibold text-white shadow-lg shadow-accent-glow transition-colors duration-200 hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent animate-fade-in-up-delay"
-        >
-          {t("cta")}
-        </Link>
+        {/* Hero */}
+        <main className="flex flex-1 flex-col items-center justify-center text-center">
+          <p className="animate-fade-in text-[10px] font-semibold uppercase tracking-[0.25em] text-text-subtle sm:text-[11px]">
+            {t("eyebrow")}
+          </p>
 
-        <p className="mt-16 text-xs text-text-subtle">{t("terms")}</p>
+          <h1 className="animate-fade-in-up mt-6 leading-[1.08] tracking-[-0.035em]">
+            <span className="block text-[clamp(2rem,5.5vw,4rem)] font-semibold text-text">
+              {t("headlineLine1")}
+            </span>
+            <span className="block text-[clamp(2rem,5.5vw,4rem)] font-light text-text-muted">
+              {t("headlineLine2")}
+            </span>
+          </h1>
+
+          <p className="animate-fade-in-up-delay mx-auto mt-6 max-w-xs text-sm leading-relaxed text-text-muted sm:max-w-md sm:text-base">
+            {t("subtitle")}
+          </p>
+
+          {/* Platforms */}
+          <div className="animate-fade-in-up-delay mt-6 flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+            {/* Telegram — active */}
+            <span className="flex items-center gap-2 rounded-full border border-[#2AABEE]/30 bg-[#2AABEE]/[0.08] px-4 py-1.5 text-[12px] font-medium text-[#2AABEE]">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#2AABEE] opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#2AABEE]" />
+              </span>
+              <TelegramIcon className="h-3.5 w-3.5" />
+              Telegram
+            </span>
+            {/* Coming soon group — stays together on wrap */}
+            <span className="flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-3.5 py-1.5">
+              <span className="flex items-center gap-2 text-[12px] font-medium">
+                <span className="text-[#0077FF]/45">VK</span>
+                <span className="text-white/15">·</span>
+                <span className="text-[#25D366]/45">WhatsApp</span>
+                <span className="text-white/15">·</span>
+                <span className="text-[#7B5CF6]/45">MAX</span>
+              </span>
+              <span className="ml-1 text-[10px] font-medium uppercase tracking-wider text-text-subtle/30">
+                {t("soon")}
+              </span>
+            </span>
+          </div>
+
+          <div className="animate-fade-in-up-delay mt-7 flex flex-col items-center gap-3 sm:flex-row">
+            <Link
+              href="/sign-up"
+              className="cursor-pointer rounded-2xl bg-accent px-8 py-3.5 text-sm font-semibold text-white shadow-[0_0_48px_rgba(102,187,106,0.2)] transition-all duration-300 hover:bg-accent-hover hover:shadow-[0_0_70px_rgba(102,187,106,0.32)]"
+            >
+              {t("cta")}
+            </Link>
+            <Link
+              href="/sign-in"
+              className="cursor-pointer text-sm font-medium text-text-muted transition-colors hover:text-text"
+            >
+              {t("ctaSecondary")} →
+            </Link>
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer className="pb-6 pt-4 text-center">
+          <p className="text-[11px] text-text-subtle">{t("terms")}</p>
+        </footer>
       </div>
     </div>
   );

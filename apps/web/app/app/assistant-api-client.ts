@@ -142,10 +142,15 @@ type WebChatStreamEvent =
   | { event: "interrupted"; data: { transport: unknown } }
   | { event: "failed"; data: { code?: string; message: string; transport: unknown } };
 
+export const WELCOME_THREAD_KEY = "welcome";
+export const WELCOME_TURN_SENTINEL = "__welcome_init__";
+
 export interface AssistantWebChatStreamPayload {
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  welcomeTurn?: boolean;
+  welcomeLocale?: string;
 }
 
 export interface AssistantWebChatStreamHandlers {

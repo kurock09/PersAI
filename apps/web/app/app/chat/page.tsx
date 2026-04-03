@@ -2,9 +2,11 @@
 
 import { Suspense, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import { useLocale } from "next-intl";
 import { ChatArea } from "../_components/chat-area";
 import { useChat } from "../_components/use-chat";
 import { useAppDataContext } from "../_components/app-shell";
+import { WELCOME_THREAD_KEY } from "../assistant-api-client";
 
 export default function ChatPage() {
   return (
@@ -22,6 +24,7 @@ function ChatPageInner() {
 
   const chat = useChat(threadKey);
   const appData = useAppDataContext();
+  const locale = useLocale();
 
   const existingChat = threadFromUrl
     ? appData.chats.find((c) => c.chat.surfaceThreadKey === threadFromUrl)
@@ -41,6 +44,26 @@ function ChatPageInner() {
       appData.reloadChats();
     }
   }, [chat.chatId, threadFromUrl]); // eslint-disable-line
+
+  // Welcome chat: trigger once on first visit when no chats exist.
+  const welcomeTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (welcomeTriggeredRef.current) return;
+    if (appData.isLoading) return;
+    if (appData.assistantStatus !== "live") return;
+    if (threadFromUrl) return;
+    if (chat.isStreaming) return;
+
+    const existingWelcome = appData.chats.find(
+      (c) => c.chat.surfaceThreadKey === WELCOME_THREAD_KEY
+    );
+    if (existingWelcome) return; // already done
+
+    if (appData.chats.length === 0) {
+      welcomeTriggeredRef.current = true;
+      void chat.sendWelcome(locale).then(() => appData.reloadChats());
+    }
+  }, [appData.isLoading, appData.assistantStatus, appData.chats, threadFromUrl]); // eslint-disable-line
 
   return (
     <ChatArea
