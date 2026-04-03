@@ -110,6 +110,47 @@ async function run(): Promise<void> {
 
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);
+    if (url.endsWith("/healthz")) {
+      return new Response(JSON.stringify({ ok: true, status: "live" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (url.endsWith("/readyz")) {
+      return new Response(JSON.stringify({ ready: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (url.endsWith("/api/v1/runtime/chat/web/preview")) {
+      return new Response(
+        JSON.stringify({
+          assistantMessage: "Preview reply",
+          respondedAt: "2026-04-03T12:00:00.000Z"
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      );
+    }
+    throw new Error(`Unexpected fetch url: ${url}`);
+  }) as typeof fetch;
+
+  const previewResult = await adapter.previewSetupTurn({
+    assistantId: "assistant-1",
+    userMessage: "Introduce yourself",
+    openclawBootstrap: { bootstrap: true },
+    openclawWorkspace: { workspace: true }
+  });
+  assert.deepEqual(previewResult, {
+    assistantMessage: "Preview reply",
+    respondedAt: "2026-04-03T12:00:00.000Z",
+    media: []
+  });
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
     if (url.endsWith("/api/v1/runtime/workspace/bootstrap/consume")) {
       return new Response(JSON.stringify({ ok: true, deleted: true }), {
         status: 200,

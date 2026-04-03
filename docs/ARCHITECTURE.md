@@ -550,7 +550,8 @@ It is not part of backend domain logic.
 
 - final setup/recreate preview is backend-owned and runtime-backed, but it is **not** part of normal publish/apply lifecycle truth
 - setup preview uses the persisted draft plus current `/me` profile data as the source of truth
-- preview may assemble/apply a transient runtime spec internally so the user sees runtime-shaped behavior before publish
+- preview materializes transient OpenClaw artifacts, then executes through a dedicated preview-only runtime seam
+- preview does **not** persist to the OpenClaw applied-spec store and does **not** touch the live assistant workspace root
 - preview does **not** create `assistant_published_versions` rows
 - preview does **not** advance `latestPublishedVersion`
 - preview does **not** create ordinary chat history

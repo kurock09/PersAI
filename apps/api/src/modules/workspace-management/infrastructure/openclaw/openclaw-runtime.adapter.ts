@@ -13,6 +13,8 @@ import type {
   AssistantRuntimeMediaUploadInput,
   AssistantRuntimeMediaUploadResult,
   AssistantRuntimePreflightResult,
+  AssistantRuntimeSetupPreviewTurnInput,
+  AssistantRuntimeSetupPreviewTurnResult,
   AssistantRuntimeTranscribeResult,
   AssistantRuntimeWebChatSessionDeleteInput,
   AssistantRuntimeWebChatTurnStreamChunk,
@@ -300,6 +302,70 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       throw new AssistantRuntimeAdapterError(
         "invalid_response",
         "OpenClaw web chat response is missing respondedAt."
+      );
+    }
+
+    return {
+      assistantMessage: assistantMessage.trim(),
+      respondedAt: respondedAt.trim(),
+      media: parseMediaArray(payload.media)
+    };
+  }
+
+  async previewSetupTurn(
+    input: AssistantRuntimeSetupPreviewTurnInput
+  ): Promise<AssistantRuntimeSetupPreviewTurnResult> {
+    const config = toOpenClawAdapterConfig();
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError(
+        "runtime_unreachable",
+        "OpenClaw adapter is disabled by configuration."
+      );
+    }
+
+    const preflight = await this.preflight();
+    if (!preflight.live || !preflight.ready) {
+      throw new AssistantRuntimeAdapterError(
+        "runtime_degraded",
+        `OpenClaw runtime degraded: live=${preflight.live}, ready=${preflight.ready}.`
+      );
+    }
+
+    const payload = await this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/chat/web/preview",
+      {
+        assistantId: input.assistantId,
+        userMessage: input.userMessage,
+        spec: {
+          bootstrap: input.openclawBootstrap,
+          workspace: input.openclawWorkspace
+        },
+        ...(input.userTimezone ? { userTimezone: input.userTimezone } : {}),
+        ...(input.currentTimeIso ? { currentTimeIso: input.currentTimeIso } : {})
+      },
+      config
+    );
+
+    if (!isObject(payload)) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw setup preview response is not a JSON object."
+      );
+    }
+
+    const assistantMessage = payload.assistantMessage;
+    const respondedAt = payload.respondedAt;
+    if (typeof assistantMessage !== "string" || assistantMessage.trim().length === 0) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw setup preview response is missing assistantMessage."
+      );
+    }
+    if (typeof respondedAt !== "string" || respondedAt.trim().length === 0) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw setup preview response is missing respondedAt."
       );
     }
 

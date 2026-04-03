@@ -370,6 +370,7 @@ Required in CI:
   - setup and settings use the same trait semantics and free-form persona text model
   - assistant draft/published snapshot preserve `assistantGender`
   - final setup step runtime preview returns a non-persisted preview response
+  - setup preview does not call the normal runtime apply/live-workspace cleanup path
   - avatar upload persists across navigation/reload without repeated unnecessary refetch churn
 
 ### Reminders/tasks

@@ -18,6 +18,8 @@
 
 ### Changed
 
+- **Setup preview path:** `POST /api/v1/assistant/setup/preview` no longer drives the normal OpenClaw live-workspace cycle (`cleanup -> spec apply -> web chat -> cleanup`). PersAI now sends transient materialized artifacts to a dedicated OpenClaw preview seam, which executes in an ephemeral temp workspace and removes the preview session/workspace afterward. This keeps preview runtime-backed while avoiding live assistant workspace mutations and cuts preview overhead.
+
 - **OpenClaw fork (Telegram markdown → HTML, fenced code):** `telegram-assistant-markdown-html.ts` now normalizes fence language labels, emits `<pre><code class="language-…">` for fenced blocks, segments markdown so blank lines **inside** fences do not break outer paragraphs, and splits oversized fenced segments for the 4096 code-point packing path (same HTML `parse_mode` + chunking stack as the prior slice). Tests extended in `telegram-assistant-markdown-html.test.ts`. Fork doc: `openclaw` `docs/PERSAI-FORK-PATCHES.md` §15. Dev pin: `bf913e276fd52ec4ac3d1259cf8ba50afef4e0b2`; `openclaw.image.digest` cleared in `values-dev.yaml`. Also fixes runtime workspace cleanup so recreate/reset no longer deletes the assistant workspace root and breaks live runs with `uv_cwd`.
 
 - **Abuse / quota pressure (G2):** when live workspace quota is **below** abuse slowdown/block thresholds, persisted guard rows whose `block_reason` is `quota_pressure_temporary_block` or `quota_pressure_slowdown` are **not** carried forward—fixing plan limits clears quota-driven blocks on the next request instead of waiting out `ABUSE_TEMP_BLOCK_SECONDS`. Early channel checks use the same reconciled state.

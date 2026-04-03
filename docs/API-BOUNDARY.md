@@ -274,7 +274,9 @@ Behavior baseline:
 - does **not** create a published version
 - does **not** mutate `latestPublishedVersion`
 - does **not** persist normal chat history
-- may perform transient runtime materialization/apply work internally, but that work is not user-facing lifecycle truth
+- PersAI may materialize transient OpenClaw artifacts internally, but preview does **not** use the normal runtime spec-apply/store lifecycle
+- OpenClaw executes preview in an ephemeral preview-only workspace and deletes it after the turn
+- preview does **not** clean or mutate the live assistant workspace used by ordinary runtime execution
 
 ### Internal runtime tool-limit consume seam (H13b)
 

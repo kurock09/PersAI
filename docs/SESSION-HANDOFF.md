@@ -41,6 +41,37 @@ Unchanged — `bf913e276fd52ec4ac3d1259cf8ba50afef4e0b2`
 
 ---
 
+## 2026-04-03 - PersAI/OpenClaw: setup preview moved to ephemeral runtime seam
+
+### What changed
+
+1. **PersAI API** — `PreviewAssistantSetupService` no longer calls the normal runtime lifecycle (`cleanupWorkspace` + `applyMaterializedSpec` + `sendWebChatTurn` + cleanup again) for setup preview. It now materializes transient artifacts and sends them to a dedicated adapter method `previewSetupTurn`.
+2. **OpenClaw fork** — added `POST /api/v1/runtime/chat/web/preview`, backed by a preview-only executor that:
+   - validates transient bootstrap/tool-policy payloads
+   - writes bootstrap docs into a temp preview workspace root
+   - runs one embedded PersAI web turn
+   - cleans the isolated preview session key
+   - deletes the temp preview workspace root
+   This path does **not** write to the applied spec store and does **not** touch the live assistant workspace.
+3. **Docs** — added ADR-062 and updated architecture/API/test docs so setup preview is explicitly modeled as an ephemeral runtime seam rather than "almost normal apply".
+4. **Tests** — added PersAI regression coverage that preview does not use live apply/cleanup/web-turn methods; added OpenClaw preview executor coverage and adapter coverage for the new endpoint.
+
+### Files touched
+
+- `PersAI`: `docs/ADR/062-ephemeral-setup-preview-runtime-seam.md`, `docs/API-BOUNDARY.md`, `docs/ARCHITECTURE.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`, `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`, `apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.ts`, `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`, `apps/api/test/openclaw-runtime-adapter.test.ts`, `apps/api/test/preview-assistant-setup.service.test.ts`
+- `openclaw`: `src/gateway/persai-runtime/persai-runtime-preview.ts`, `persai-runtime-preview.test.ts`, `persai-runtime-turn-context.ts`, `persai-runtime-http.ts`, `persai-runtime-workspace.ts`, `persai-runtime-session-cleanup.ts`, `src/gateway/server-http.ts`, `docs/PERSAI-FORK-PATCHES.md`
+
+### Push order
+
+1. **openclaw** `main` first.
+2. **PersAI** `main` second — pin must match the pushed OpenClaw SHA; CI can rebuild/re-pin the OpenClaw image digest.
+
+### Pinned OpenClaw SHA
+
+- `ca815889fb4a0944b98a1355e04afc58636e42f3`
+
+---
+
 ## 2026-04-03 - PersAI: abuse unblock + quota reconciliation + ops logs; OpenClaw: Telegram fenced markdown HTML
 
 ### What changed

@@ -63,6 +63,21 @@ export interface AssistantRuntimeWebChatTurnResult {
   media: RuntimeMediaArtifact[];
 }
 
+export interface AssistantRuntimeSetupPreviewTurnInput {
+  assistantId: string;
+  userMessage: string;
+  openclawBootstrap: unknown;
+  openclawWorkspace: unknown;
+  userTimezone?: string;
+  currentTimeIso?: string;
+}
+
+export interface AssistantRuntimeSetupPreviewTurnResult {
+  assistantMessage: string;
+  respondedAt: string;
+  media: RuntimeMediaArtifact[];
+}
+
 export interface AssistantRuntimeWebChatTurnStreamChunk {
   type: "delta" | "thinking" | "done" | "failed" | "media";
   delta?: string;
@@ -120,6 +135,9 @@ export interface AssistantRuntimeAdapter {
   sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;
+  previewSetupTurn(
+    input: AssistantRuntimeSetupPreviewTurnInput
+  ): Promise<AssistantRuntimeSetupPreviewTurnResult>;
   sendChannelTurn(
     input: AssistantRuntimeChannelTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;

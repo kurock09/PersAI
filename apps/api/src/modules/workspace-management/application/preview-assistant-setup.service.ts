@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
@@ -22,8 +22,6 @@ export interface AssistantSetupPreviewState {
 
 @Injectable()
 export class PreviewAssistantSetupService {
-  private readonly logger = new Logger(PreviewAssistantSetupService.name);
-
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
@@ -75,46 +73,22 @@ export class PreviewAssistantSetupService {
       `Introduce yourself to ${userDisplayName} in 2-4 natural sentences as if this were your first conversation. ` +
       "Sound like your configured persona. Do not mention previews, setup, drafts, or internal configuration.";
 
-    await this.cleanupPreviewWorkspace(assistant.id);
-    try {
-      await this.assistantRuntimeAdapter.applyMaterializedSpec({
+    const result = await this.assistantRuntimeAdapter
+      .previewSetupTurn({
         assistantId: assistant.id,
-        publishedVersionId: previewVersion.id,
-        contentHash: artifacts.contentHash,
+        userMessage: previewPrompt,
         openclawBootstrap: artifacts.openclawBootstrap,
         openclawWorkspace: artifacts.openclawWorkspace,
-        reapply: false
+        userTimezone: workspace?.timezone ?? "UTC",
+        currentTimeIso: new Date().toISOString()
+      })
+      .catch((error: unknown) => {
+        throw toAssistantInboundHttpException(error);
       });
 
-      const result = await this.assistantRuntimeAdapter
-        .sendWebChatTurn({
-          assistantId: assistant.id,
-          publishedVersionId: previewVersion.id,
-          chatId: randomUUID(),
-          surfaceThreadKey: `setup-preview-${randomUUID()}`,
-          userMessageId: randomUUID(),
-          userMessage: previewPrompt,
-          userTimezone: workspace?.timezone ?? "UTC",
-          currentTimeIso: new Date().toISOString()
-        })
-        .catch((error: unknown) => {
-          throw toAssistantInboundHttpException(error);
-        });
-
-      return {
-        message: result.assistantMessage,
-        respondedAt: result.respondedAt
-      };
-    } finally {
-      await this.cleanupPreviewWorkspace(assistant.id);
-    }
-  }
-
-  private async cleanupPreviewWorkspace(assistantId: string): Promise<void> {
-    try {
-      await this.assistantRuntimeAdapter.cleanupWorkspace(assistantId);
-    } catch (error) {
-      this.logger.warn("Non-fatal setup preview workspace cleanup failure.", error);
-    }
+    return {
+      message: result.assistantMessage,
+      respondedAt: result.respondedAt
+    };
   }
 }
