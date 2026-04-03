@@ -75,6 +75,7 @@ import { PrepareAssistantInboundTurnService } from "./application/prepare-assist
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
+import { CheckInternalRuntimeToolDailyLimitService } from "./application/check-internal-runtime-tool-daily-limit.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./application/resolve-assistant-inbound-runtime-context.service";
 import { RenderAssistantInboundSurfaceMessageService } from "./application/render-assistant-inbound-surface-message.service";
@@ -177,6 +178,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     HandleInternalCronFireService,
     HandleInternalTelegramTurnService,
     ConsumeInternalRuntimeToolDailyLimitService,
+    CheckInternalRuntimeToolDailyLimitService,
     ResolveAssistantInboundRuntimeContextService,
     RenderAssistantInboundSurfaceMessageService,
     GetAssistantByUserIdService,

@@ -286,6 +286,15 @@ Behavior baseline:
   - it invokes this endpoint through the already existing `before_tool_call` seam
   - it does not own plan/quota policy or counter state
 
+### Internal runtime tool quota check (read-only)
+
+- `POST /api/v1/internal/runtime/tools/check`
+- caller: OpenClaw PersAI runtime tool `persai_tool_quota_status` (optional future callers)
+- auth: same internal bearer token (`OPENCLAW_GATEWAY_TOKEN`) as `consume`
+- body: `{ "assistantId": "<uuid>", "toolCode"?: "<catalog code>" }` — omit `toolCode` to return all tools on the **effective plan** (subscription / governance fallback)
+- purpose: return **live** `currentCount` for today (workspace-scoped) vs **current** plan `dailyCallLimit` and `activationStatus` from the control plane — does **not** increment counters; use when the user asks about remaining quota or after admins change plan limits (chat history is not authoritative)
+- success: `{ ok: true, planCode, tools: [{ toolCode, activationStatus, dailyCallLimit, currentCount, allowed }] }`
+
 ### POST /api/v1/assistant/publish (Step 3 A3 baseline)
 
 Behavior baseline:
@@ -1262,13 +1271,13 @@ This subsection is the **design-freeze** contract between PersAI `apps/api` and 
 
 Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/config/src/api-config.ts):
 
-| Variable                       | Role                                                                                                                                                                   |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENCLAW_ADAPTER_ENABLED`     | When false, adapter throws `runtime_unreachable` immediately for all calls.                                                                                            |
-| `OPENCLAW_BASE_URL`            | Origin for relative paths below (no trailing path in contract; adapter concatenates `baseUrl + path`).                                                                 |
-| `OPENCLAW_GATEWAY_TOKEN`       | Required when adapter is enabled; sent as Bearer.                                                                                                                      |
+| Variable                       | Role                                                                                                                                                                                                                                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENCLAW_ADAPTER_ENABLED`     | When false, adapter throws `runtime_unreachable` immediately for all calls.                                                                                                                                                                                                                 |
+| `OPENCLAW_BASE_URL`            | Origin for relative paths below (no trailing path in contract; adapter concatenates `baseUrl + path`).                                                                                                                                                                                      |
+| `OPENCLAW_GATEWAY_TOKEN`       | Required when adapter is enabled; sent as Bearer.                                                                                                                                                                                                                                           |
 | `OPENCLAW_ADAPTER_TIMEOUT_MS`  | Per-request `fetch` timeout (abort → `timeout`). Code default `90000` ([packages/config/src/api-config.ts](../packages/config/src/api-config.ts)); dev Helm sets `90000` explicitly in `infra/helm/values-dev.yaml` (same value). Override lower for fast-fail local experiments if needed. |
-| `OPENCLAW_ADAPTER_MAX_RETRIES` | Non-negative; used only for **non-stream** `fetch` calls that use the adapter retry helper. Default `1`.                                                               |
+| `OPENCLAW_ADAPTER_MAX_RETRIES` | Non-negative; used only for **non-stream** `fetch` calls that use the adapter retry helper. Default `1`.                                                                                                                                                                                    |
 
 **Retry policy (adapter):** only `runtime_unreachable` and `timeout` are retried, up to `maxRetries` additional attempts after the first try. **`POST /api/v1/runtime/chat/web/stream` is not retried** (single `fetch`).
 

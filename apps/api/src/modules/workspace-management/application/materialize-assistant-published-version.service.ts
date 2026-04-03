@@ -660,6 +660,14 @@ export class MaterializeAssistantPublishedVersionService {
       lines.push("");
     }
 
+    lines.push("## Live usage");
+    lines.push("");
+    lines.push("- Daily caps above are plan limits only, not remaining usage for today.");
+    lines.push(
+      "- Do not infer exhaustion from earlier messages; plans and counters change. When the user asks about remaining quota, call the `persai_tool_quota_status` tool first."
+    );
+    lines.push("");
+
     return lines.join("\n");
   }
 

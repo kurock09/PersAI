@@ -1,5 +1,36 @@
 # SESSION-HANDOFF
 
+## 2026-04-03 - OpenClaw: live tool quota read (`persai_tool_quota_status` + API check)
+
+### What changed
+
+1. **Fork** — New runtime tool `persai_tool_quota_status` (`src/agents/tools/persai-tool-quota-status-tool.ts`): `POST` to PersAI `/api/v1/internal/runtime/tools/check` with `assistantId` (+ optional `toolCode`), same bearer as `consume`. Registered from `createOpenClawTools` only when PersAI `assistantId` is present in request context. Docs: `docs/PERSAI-FORK-PATCHES.md` §2 + PersAI-only file list; `scripts/verify-persai-patches.mjs` checks.
+2. **PersAI API** — `CheckInternalRuntimeToolDailyLimitService`, `POST .../tools/check` on `InternalRuntimeToolQuotaController`; `generateToolsMd` adds “Live usage” / call `persai_tool_quota_status` note. `docs/API-BOUNDARY.md` describes the check seam.
+
+### Files touched
+
+- `openclaw`: `src/agents/tools/persai-tool-quota-status-tool.ts`, `src/agents/openclaw-tools.ts`, `docs/PERSAI-FORK-PATCHES.md`, `scripts/verify-persai-patches.mjs`
+- `PersAI`: `apps/api/.../check-internal-runtime-tool-daily-limit.service.ts`, `internal-runtime-tool-quota.controller.ts`, `workspace-management.module.ts`, `materialize-assistant-published-version.service.ts`, `test/internal-runtime-tool-quota.controller.test.ts`, `docs/API-BOUNDARY.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`, `infra/dev/gitops/openclaw-approved-sha.txt`, `infra/helm/values-dev.yaml`
+
+### Push order
+
+1. **openclaw** `main` first — note the new commit SHA.
+2. **PersAI** `main` second — pin files must match that SHA; CI rebuilds OpenClaw image.
+
+### Ready commit message (openclaw)
+
+- `feat(persai): persai_tool_quota_status + fork docs for quota check`
+
+### Ready commit message (PersAI)
+
+- `feat(api): internal runtime tools/check + TOOLS.md quota hint; docs; pin OpenClaw 72db7474e2`
+
+### Pinned OpenClaw SHA
+
+- `72db7474e2735b7c1b395ce5b01fad6409e45536`
+
+---
+
 ## 2026-04-03 - OpenClaw: Telegram voice — no duplicate text before sendVoice
 
 ### What changed
@@ -13,8 +44,8 @@
 
 ### Push order
 
-1. **openclaw** `main` first  
-2. **PersAI** `main` second  
+1. **openclaw** `main` first
+2. **PersAI** `main` second
 
 ### Ready commit message (PersAI)
 

@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, Post, Req, UnauthorizedException } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
+import { CheckInternalRuntimeToolDailyLimitService } from "../../application/check-internal-runtime-tool-daily-limit.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "../../application/consume-internal-runtime-tool-daily-limit.service";
 
 type InternalRequestLike = {
@@ -9,7 +10,8 @@ type InternalRequestLike = {
 @Controller("api/v1/internal/runtime/tools")
 export class InternalRuntimeToolQuotaController {
   constructor(
-    private readonly consumeInternalRuntimeToolDailyLimitService: ConsumeInternalRuntimeToolDailyLimitService
+    private readonly consumeInternalRuntimeToolDailyLimitService: ConsumeInternalRuntimeToolDailyLimitService,
+    private readonly checkInternalRuntimeToolDailyLimitService: CheckInternalRuntimeToolDailyLimitService
   ) {}
 
   @HttpCode(200)
@@ -21,6 +23,27 @@ export class InternalRuntimeToolQuotaController {
     this.assertAuthorized(req);
     const input = this.consumeInternalRuntimeToolDailyLimitService.parseInput(body);
     return this.consumeInternalRuntimeToolDailyLimitService.execute(input);
+  }
+
+  @HttpCode(200)
+  @Post("check")
+  async checkToolDailyQuota(
+    @Req() req: InternalRequestLike,
+    @Body() body: unknown
+  ): Promise<{
+    ok: true;
+    planCode: string | null;
+    tools: Array<{
+      toolCode: string;
+      activationStatus: string;
+      dailyCallLimit: number | null;
+      currentCount: number;
+      allowed: boolean;
+    }>;
+  }> {
+    this.assertAuthorized(req);
+    const input = this.checkInternalRuntimeToolDailyLimitService.parseInput(body);
+    return this.checkInternalRuntimeToolDailyLimitService.execute(input);
   }
 
   private assertAuthorized(req: InternalRequestLike): void {
