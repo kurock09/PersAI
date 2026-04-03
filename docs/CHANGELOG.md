@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **OpenClaw fork (Telegram webhook):** `persai-runtime-telegram` grammY `webhookCallback` now uses a **~55s** handler budget (env `PERSAI_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS`, clamped 10s–58s) and **`onTimeout: "return"`** like `extensions/telegram`, so slow photo/LLM turns no longer hit the default 10s throw → 500 → Telegram duplicate retries. Dev image pin: `openclaw-approved-sha.txt` + `values-dev.yaml` `openclaw.image.tag` updated; `openclaw.image.digest` cleared for CI repin.
+
 ### Added
 
 - **Feat: i18n localization (EN + RU) with `next-intl`:**

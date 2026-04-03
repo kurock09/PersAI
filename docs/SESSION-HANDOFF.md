@@ -1,5 +1,28 @@
 # SESSION-HANDOFF
 
+## 2026-04-03 - OpenClaw: Telegram webhook timeout (duplicate photo turns)
+
+### What changed
+
+1. **Fork** (`openclaw`) — `webhookCallback(bot, "http", …)` now sets `timeoutMilliseconds` from `getTelegramWebhookHandlerTimeoutMs()` (default 55s, env `PERSAI_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS`, max 58s) and `onTimeout: "return"` so Telegram does not see 500 after 10s while a vision/LLM turn is still running.
+2. **PersAI** — `infra/dev/gitops/openclaw-approved-sha.txt` and `infra/helm/values-dev.yaml` (`openclaw.image.tag`, `digest` cleared) point at the new fork SHA for rebuild/repin.
+
+### Files touched
+
+- `openclaw`: `src/gateway/persai-runtime/persai-runtime-telegram.ts`
+- `PersAI`: `infra/dev/gitops/openclaw-approved-sha.txt`, `infra/helm/values-dev.yaml`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+1. Push **openclaw** `main` first.
+2. Push **PersAI** `main` second (CI rebuilds OpenClaw image for the new SHA).
+
+### Ready commit message (PersAI)
+
+- `chore(infra): pin OpenClaw c231d42d59 — Telegram webhook timeout fix`
+
+---
+
 ## 2026-04-02 - Auth: redirect if already signed in on `/sign-in` or `/sign-up`
 
 ### What changed
