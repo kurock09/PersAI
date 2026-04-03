@@ -4,6 +4,8 @@
 
 ### Changed
 
+- **OpenClaw fork (Telegram voice replies):** when a turn returns **voice** (`audio` + `audioAsVoice`), the bridge **no longer sends a text message** before `sendVoice` — avoids duplicate copy and the `No response from OpenClaw.` placeholder when the model only emits TTS media. **Images, sendAudio, video, documents** still go through `deliverTelegramMedia` unchanged. Dev pin: `openclaw-approved-sha.txt` + `values-dev.yaml` tag `32f3ffb618aa094651d9096d65fe22a9939412e0`, digest cleared.
+
 - **OpenClaw fork (Telegram webhook):** `persai-runtime-telegram` grammY `webhookCallback` now uses a **~55s** handler budget (env `PERSAI_TELEGRAM_WEBHOOK_HANDLER_TIMEOUT_MS`, clamped 10s–58s) and **`onTimeout: "return"`** like `extensions/telegram`, so slow photo/LLM turns no longer hit the default 10s throw → 500 → Telegram duplicate retries. Dev image pin: `openclaw-approved-sha.txt` + `values-dev.yaml` `openclaw.image.tag` updated; `openclaw.image.digest` cleared for CI repin.
 
 ### Added

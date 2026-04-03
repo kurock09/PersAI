@@ -1,5 +1,27 @@
 # SESSION-HANDOFF
 
+## 2026-04-03 - OpenClaw: Telegram voice — no duplicate text before sendVoice
+
+### What changed
+
+1. **Fork** — `sendTelegramAssistantTurnReply`: if `turnResult.media` includes voice note (`audio` + `audioAsVoice`), skip `ctx.reply` text; still run `deliverTelegramMedia` for **all** items (image, audio file, video, document unchanged).
+
+### Files touched
+
+- `openclaw`: `src/gateway/persai-runtime/persai-runtime-telegram.ts`
+- `PersAI`: `infra/dev/gitops/openclaw-approved-sha.txt`, `infra/helm/values-dev.yaml`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+1. **openclaw** `main` first  
+2. **PersAI** `main` second  
+
+### Ready commit message (PersAI)
+
+- `chore(infra): pin OpenClaw 32f3ffb618 — Telegram voice without duplicate text`
+
+---
+
 ## 2026-04-03 - OpenClaw: Telegram webhook timeout (duplicate photo turns)
 
 ### What changed
