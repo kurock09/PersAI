@@ -251,6 +251,18 @@ export class TrackWorkspaceQuotaUsageService {
     return governance;
   }
 
+  /**
+   * Live plan-derived limits (subscription + catalog), same source as increment/refresh paths.
+   * Abuse quota-pressure and UI should use this instead of snapshot columns on
+   * `workspace_quota_accounting_state`, which can lag until a turn passes enforcement.
+   */
+  async resolveEffectiveLimitsForAssistant(
+    assistant: Assistant
+  ): Promise<WorkspaceQuotaLimitsInput> {
+    const governance = await this.resolveGovernance(assistant.id);
+    return this.resolveLimits(assistant, governance);
+  }
+
   private async resolveLimits(
     assistant: Assistant,
     governance: AssistantGovernance

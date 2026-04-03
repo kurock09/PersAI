@@ -735,6 +735,7 @@ Behavior baseline:
   - per-assistant-per-surface aggregate request window
   - quota-pressure-aware slowdown/temporary block hook
 - **Quota-pressure reconciliation:** when live workspace quota is **below** abuse slowdown/block thresholds, persisted guard state with `block_reason` `quota_pressure_slowdown` / `quota_pressure_temporary_block` is **not** carried forward—operators can recover by fixing limits without waiting for `ABUSE_TEMP_BLOCK_SECONDS` to elapse.
+- **Quota-pressure percentages:** slowdown/block thresholds compare **usage** from `workspace_quota_accounting_state` to **current effective plan limits** (subscription + catalog), not to snapshot limit columns on that row—so raising limits in the plan applies immediately, even before a turn reaches `refreshActiveWebChatsUsage`.
 - when abuse slowdown/block is active, endpoint returns **429**.
 
 ### POST /api/v1/assistant/chat/web/stream

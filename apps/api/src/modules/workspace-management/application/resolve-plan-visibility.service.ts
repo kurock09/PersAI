@@ -93,13 +93,11 @@ export class ResolvePlanVisibilityService {
       assistant.workspaceId
     );
     const limits = this.resolveLimits(plan);
-    const tokenLimit = Number(quotaState?.tokenBudgetLimit ?? BigInt(limits.tokenBudgetLimit));
+    const tokenLimit = limits.tokenBudgetLimit;
     const tokenUsed = Number(quotaState?.tokenBudgetUsed ?? BigInt(0));
-    const costLimit =
-      quotaState?.costOrTokenDrivingToolClassUnitsLimit ??
-      limits.costOrTokenDrivingToolClassUnitsLimit;
+    const costLimit = limits.costOrTokenDrivingToolClassUnitsLimit;
     const costUsed = quotaState?.costOrTokenDrivingToolClassUnitsUsed ?? 0;
-    const chatsLimit = quotaState?.activeWebChatsLimit ?? limits.activeWebChatsLimit;
+    const chatsLimit = limits.activeWebChatsLimit;
     const chatsUsed = quotaState?.activeWebChatsCurrent ?? 0;
     return {
       effectivePlan: {
@@ -158,13 +156,11 @@ export class ResolvePlanVisibilityService {
     );
     const limits = this.resolveLimits(effectivePlan);
 
-    const tokenLimit = Number(quotaState?.tokenBudgetLimit ?? BigInt(limits.tokenBudgetLimit));
+    const tokenLimit = limits.tokenBudgetLimit;
     const tokenUsed = Number(quotaState?.tokenBudgetUsed ?? BigInt(0));
-    const costLimit =
-      quotaState?.costOrTokenDrivingToolClassUnitsLimit ??
-      limits.costOrTokenDrivingToolClassUnitsLimit;
+    const costLimit = limits.costOrTokenDrivingToolClassUnitsLimit;
     const costUsed = quotaState?.costOrTokenDrivingToolClassUnitsUsed ?? 0;
-    const chatsLimit = quotaState?.activeWebChatsLimit ?? limits.activeWebChatsLimit;
+    const chatsLimit = limits.activeWebChatsLimit;
     const chatsUsed = quotaState?.activeWebChatsCurrent ?? 0;
 
     const tokenPercent = toPercent(tokenUsed, tokenLimit);

@@ -40,6 +40,29 @@ function ensureApiConfigEnv(): void {
   process.env.ABUSE_QUOTA_BLOCK_PERCENT = "100";
 }
 
+function trackLimitsMatchingQuotaRepo(
+  tokenLimit: bigint,
+  toolLimit: number
+): TrackWorkspaceQuotaUsageStub {
+  return {
+    resolveEffectiveLimitsForAssistant: async () => ({
+      tokenBudgetLimit: tokenLimit,
+      costOrTokenDrivingToolClassUnitsLimit: toolLimit,
+      activeWebChatsLimit: 20,
+      mediaStorageBytesLimit: BigInt(104_857_600)
+    })
+  };
+}
+
+type TrackWorkspaceQuotaUsageStub = {
+  resolveEffectiveLimitsForAssistant: (assistant: Assistant) => Promise<{
+    tokenBudgetLimit: bigint | null;
+    costOrTokenDrivingToolClassUnitsLimit: number | null;
+    activeWebChatsLimit: number | null;
+    mediaStorageBytesLimit: bigint | null;
+  }>;
+};
+
 async function run(): Promise<void> {
   ensureApiConfigEnv();
   let userState: AssistantAbuseGuardState | null = null;
@@ -78,11 +101,14 @@ async function run(): Promise<void> {
         costOrTokenDrivingToolClassUnitsLimit: 1000,
         activeWebChatsCurrent: 0,
         activeWebChatsLimit: 20,
+        mediaStorageBytesUsed: BigInt(0),
+        mediaStorageBytesLimit: BigInt(104_857_600),
         lastComputedAt: new Date(),
         createdAt: new Date(),
         updatedAt: new Date()
       })
-    } as never
+    } as never,
+    trackLimitsMatchingQuotaRepo(BigInt(1000), 1000) as never
   );
 
   await service.enforceAndRegisterAttempt({
@@ -162,7 +188,8 @@ async function runQuotaPressurePersistedClearedWhenHealthy(): Promise<void> {
         createdAt: new Date(),
         updatedAt: new Date()
       })
-    } as never
+    } as never,
+    trackLimitsMatchingQuotaRepo(BigInt(1_000_000), 1_000_000) as never
   );
 
   await service.enforceAndRegisterAttempt({
@@ -175,5 +202,67 @@ async function runQuotaPressurePersistedClearedWhenHealthy(): Promise<void> {
   assert.equal(userState?.blockReason, null);
 }
 
+async function runQuotaPressureUsesEffectivePlanLimitsNotStaleSnapshot(): Promise<void> {
+  ensureApiConfigEnv();
+  let userState: AssistantAbuseGuardState | null = null;
+  let assistantState: AssistantAbuseAssistantState | null = null;
+  const service = new EnforceAbuseRateLimitService(
+    {
+      findUserState: async () => userState,
+      findAssistantState: async () => assistantState,
+      upsertUserState: async (input) => {
+        userState = {
+          id: "user-state-stale",
+          ...input,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        return userState;
+      },
+      upsertAssistantState: async (input) => {
+        assistantState = {
+          id: "assistant-state-stale",
+          ...input,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        return assistantState;
+      },
+      applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 })
+    } as never,
+    {
+      findByWorkspaceId: async () => ({
+        id: "quota-stale-snapshot",
+        workspaceId: assistant.workspaceId,
+        tokenBudgetUsed: BigInt(500),
+        tokenBudgetLimit: BigInt(1000),
+        costOrTokenDrivingToolClassUnitsUsed: 90,
+        costOrTokenDrivingToolClassUnitsLimit: 100,
+        activeWebChatsCurrent: 0,
+        activeWebChatsLimit: 20,
+        mediaStorageBytesUsed: BigInt(0),
+        mediaStorageBytesLimit: BigInt(104_857_600),
+        lastComputedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+    } as never,
+    {
+      resolveEffectiveLimitsForAssistant: async () => ({
+        tokenBudgetLimit: BigInt(10_000),
+        costOrTokenDrivingToolClassUnitsLimit: 1000,
+        activeWebChatsLimit: 20,
+        mediaStorageBytesLimit: BigInt(104_857_600)
+      })
+    } as never
+  );
+
+  await service.enforceAndRegisterAttempt({
+    assistant,
+    surface: "web_chat"
+  });
+}
+
 void run();
 void runQuotaPressurePersistedClearedWhenHealthy();
+void runQuotaPressureUsesEffectivePlanLimitsNotStaleSnapshot();

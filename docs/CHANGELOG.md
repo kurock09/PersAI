@@ -8,6 +8,8 @@
 
 - **Abuse / quota pressure (G2):** when live workspace quota is **below** abuse slowdown/block thresholds, persisted guard rows whose `block_reason` is `quota_pressure_temporary_block` or `quota_pressure_slowdown` are **not** carried forward—fixing plan limits clears quota-driven blocks on the next request instead of waiting out `ABUSE_TEMP_BLOCK_SECONDS`. Early channel checks use the same reconciled state.
 
+- **Abuse quota-pressure vs plan limits:** `evaluateQuotaPressureDecision` now uses **live plan limits** from `TrackWorkspaceQuotaUsageService.resolveEffectiveLimitsForAssistant` (subscription + catalog), not snapshot `token_budget_limit` / `cost_or_token_driving_tool_class_units_limit` columns on `workspace_quota_accounting_state`, which could stay stale until after abuse ran—admin unblock + plan edits now affect pressure immediately. **Plan visibility** percentages use the same plan-derived denominators; **used** values still come from `workspace_quota_accounting_state`.
+
 - **Admin abuse unblock:** `POST /api/v1/admin/abuse-controls/unblock` explicitly returns **HTTP 200** (`@HttpCode`) so Nest’s default **201** does not confuse the admin web client. Callers with **global** platform admin scope (`app_user_admin_roles.workspace_id` null for `ops_admin|security_admin|super_admin`) may unblock an assistant in **any** tenant workspace; scoped admins still require `assistant.workspaceId ===` admin context workspace. Audit event `admin.abuse_unblock_applied` uses the **assistant’s** `workspaceId`. `AdminAccessContext` adds `hasGlobalPlatformAdminScope`.
 
 - **API observability:** `ApiExceptionFilter` logs non-`HttpException` failures at error level as `unhandled_http_exception` (pino) with `requestId`, `path`, `method`, `err`, `stack`.

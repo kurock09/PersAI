@@ -11,6 +11,7 @@ import {
   type WorkspaceQuotaAccountingRepository
 } from "../domain/workspace-quota-accounting.repository";
 import { createAssistantInboundRateLimitError } from "./assistant-inbound-error";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
 const WINDOW_MS = 60_000;
 
@@ -79,7 +80,8 @@ export class EnforceAbuseRateLimitService {
     @Inject(ASSISTANT_ABUSE_GUARD_REPOSITORY)
     private readonly assistantAbuseGuardRepository: AssistantAbuseGuardRepository,
     @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
-    private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository
+    private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   async enforceAndRegisterAttempt(params: {
@@ -254,8 +256,10 @@ export class EnforceAbuseRateLimitService {
       };
     }
 
-    const tokenLimit = quotaState.tokenBudgetLimit;
-    const toolLimit = quotaState.costOrTokenDrivingToolClassUnitsLimit;
+    const limits =
+      await this.trackWorkspaceQuotaUsageService.resolveEffectiveLimitsForAssistant(assistant);
+    const tokenLimit = limits.tokenBudgetLimit;
+    const toolLimit = limits.costOrTokenDrivingToolClassUnitsLimit;
     const tokenPercent =
       tokenLimit === null || tokenLimit <= BigInt(0)
         ? 0
