@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **OpenClaw fork (Telegram long replies):** `sendTelegramReplyWithConfiguredParseMode` splits assistant text into chunks ≤4096 Unicode code points so Telegram `sendMessage` no longer fails with `message is too long` (multi-part sends use plain text). Dev pin: `openclaw-approved-sha.txt` + `values-dev.yaml` tag `66136ec5edc9bfc2d372c132d95123e650162510`; `openclaw.image.digest` cleared.
+
 ### Added
 
 - **OpenClaw fork (`persai_workspace_attach`):** runtime tool to attach an existing workspace file to the assistant reply via the same outbound `media[]` path as `image_generate` (path string only; no file bytes in the prompt). Telegram `deliverTelegramMedia` now resolves files with `resolvePersaiWorkspaceMediaStoragePath` so paths under `media/` or `../…` inside the assistant workspace work. Materialized `TOOLS.md` catalog adds a short hint next to the live-quota note. Dev pin: `openclaw-approved-sha.txt` + `values-dev.yaml` tag `2a5f9b939d4a0031b01b5868ed730e67fd13e3e9`; `openclaw.image.digest` cleared for CI repin.

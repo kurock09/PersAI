@@ -1,5 +1,28 @@
 # SESSION-HANDOFF
 
+## 2026-04-03 - OpenClaw: Telegram outbound text split (4096 limit)
+
+### What changed
+
+1. **Fork** — `persai-runtime-telegram.ts`: `splitTelegramOutboundText` + `TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH`; `sendTelegramReplyWithConfiguredParseMode` sends multiple `ctx.reply` chunks when needed; multi-chunk path is plain text (MarkdownV2 only for single-chunk replies). Tests + `verify-persai-patches.mjs` + `PERSAI-FORK-PATCHES.md` §15.
+2. **PersAI** — Dev pin `66136ec5edc9bfc2d372c132d95123e650162510`.
+
+### Files touched
+
+- `openclaw`: `persai-runtime-telegram.ts`, `persai-runtime-telegram.test.ts`, `docs/PERSAI-FORK-PATCHES.md`, `scripts/verify-persai-patches.mjs`
+- `PersAI`: `infra/dev/gitops/openclaw-approved-sha.txt`, `infra/helm/values-dev.yaml`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+1. **openclaw** `main` first.
+2. **PersAI** `main` second.
+
+### Pinned OpenClaw SHA
+
+- `66136ec5edc9bfc2d372c132d95123e650162510`
+
+---
+
 ## 2026-04-02 - OpenClaw: `persai_workspace_attach` + Telegram media path resolution
 
 ### What changed
