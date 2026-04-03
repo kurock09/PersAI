@@ -1,5 +1,28 @@
 # SESSION-HANDOFF
 
+## 2026-04-02 - OpenClaw: `persai_workspace_attach` + Telegram media path resolution
+
+### What changed
+
+1. **Fork** — Tool `persai_workspace_attach` (`src/agents/tools/persai-workspace-attach-tool.ts`): validates a workspace-relative file (≤25MB), returns `details.media.mediaUrls` as storage paths relative to `workspace/media` (e.g. `chat/foo.png` or `../SOUL.md`). Registered from `createOpenClawTools` when PersAI context has `assistantId` and `workspaceDir`. `persai_workspace_attach` added to `TRUSTED_TOOL_RESULT_MEDIA`. `resolvePersaiWorkspaceMediaStoragePath` exported from `persai-runtime-media.ts`; `deliverTelegramMedia` uses it instead of resolving only under `media/`.
+2. **PersAI** — Dev pin updated to OpenClaw commit `2a5f9b939d4a0031b01b5868ed730e67fd13e3e9`. `generateToolsMd` / catalog adds a one-line hint for `persai_workspace_attach`.
+
+### Files touched
+
+- `openclaw`: `persai-workspace-attach-tool.ts`, `openclaw-tools.ts`, `pi-embedded-subscribe.tools.ts`, `persai-runtime-media.ts`, `persai-runtime-telegram.ts`, tests, `docs/PERSAI-FORK-PATCHES.md`, `scripts/verify-persai-patches.mjs`
+- `PersAI`: `materialize-assistant-published-version.service.ts`, `infra/dev/gitops/openclaw-approved-sha.txt`, `infra/helm/values-dev.yaml`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+1. **openclaw** `main` first.
+2. **PersAI** `main` second — pin must match pushed OpenClaw SHA.
+
+### Pinned OpenClaw SHA
+
+- `2a5f9b939d4a0031b01b5868ed730e67fd13e3e9`
+
+---
+
 ## 2026-04-03 - Admin bootstrap preset `tools` (TOOLS.md wrapper + `{{tools_catalog_block}}`)
 
 ### What changed

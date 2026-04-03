@@ -666,6 +666,9 @@ export class MaterializeAssistantPublishedVersionService {
     lines.push(
       "- Do not infer exhaustion from earlier messages; plans and counters change. When the user asks about remaining quota, call the `persai_tool_quota_status` tool first."
     );
+    lines.push(
+      "- To attach an existing workspace file to the chat (image, document, audio, video) without loading file bytes into context, call `persai_workspace_attach` with a path relative to the workspace root."
+    );
     lines.push("");
 
     return lines.join("\n").trimEnd();
