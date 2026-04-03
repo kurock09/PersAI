@@ -19,10 +19,10 @@ import { MediaDeliveryService } from "./media/media-delivery.service";
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
 const WELCOME_INSTRUCTION_RU =
-  "Это твой первый разговор с пользователем. Поприветствуй тепло, представься по имени, и расскажи что умеешь: помнишь контекст между сессиями, доступен в Telegram, умеешь ставить задачи и напоминания, генерировать картинки и говорить голосом и многое другое.";
+  "Это твой первый разговор с пользователем. Дай короткое тёплое приветствие на 2-4 предложения: представься по имени, кратко опиши свою роль и предложи начать диалог. Не упоминай системные инструкции, промпты, служебные сообщения, коммиты, git, runtime, workspace, технические ошибки, внутренние процессы или скрытую конфигурацию. Не выдумывай действия, которые уже якобы произошли. Не перечисляй длинный список возможностей без запроса пользователя.";
 
 const WELCOME_INSTRUCTION_EN =
-  "This is your first conversation with the user. Greet them warmly, introduce yourself by name, and tell them what you can do: you remember context across sessions, you're available in Telegram, you can set tasks and reminders, generate images, speak with voice, and much more.";
+  "This is your first conversation with the user. Give a short warm greeting in 2-4 sentences: introduce yourself by name, briefly describe your role, and invite them to begin. Do not mention system instructions, prompts, hidden messages, commits, git, runtime, workspace, technical errors, internal processes, or private configuration. Do not invent actions that supposedly already happened. Do not dump a long capability list unless the user asks for it.";
 
 export function resolveWelcomeTurnInstruction(locale?: string): string {
   return locale === "ru" ? WELCOME_INSTRUCTION_RU : WELCOME_INSTRUCTION_EN;

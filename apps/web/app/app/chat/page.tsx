@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
 import { ChatArea } from "../_components/chat-area";
 import { useChat } from "../_components/use-chat";
@@ -17,6 +17,7 @@ export default function ChatPage() {
 }
 
 function ChatPageInner() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const threadFromUrl = searchParams.get("thread");
 
@@ -61,7 +62,10 @@ function ChatPageInner() {
 
     if (appData.chats.length === 0) {
       welcomeTriggeredRef.current = true;
-      void chat.sendWelcome(locale).then(() => appData.reloadChats());
+      void chat.sendWelcome(locale).then(() => {
+        void appData.reloadChats();
+        router.replace(`/app/chat?thread=${WELCOME_THREAD_KEY}`);
+      });
     }
   }, [appData.isLoading, appData.assistantStatus, appData.chats, threadFromUrl]); // eslint-disable-line
 
