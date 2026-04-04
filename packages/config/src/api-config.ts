@@ -21,6 +21,7 @@ const envBoolean = z.preprocess((value) => {
 const baseApiConfigSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
   PORT: z.coerce.number().int().positive().default(3001),
+  API_INTERNAL_PORT: z.coerce.number().int().positive().default(3002),
   LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
   DATABASE_URL: z.string().min(1),
   CLERK_SECRET_KEY: z.string().min(1),
@@ -29,6 +30,7 @@ const baseApiConfigSchema = z.object({
   OPENCLAW_ADAPTER_ENABLED: envBoolean.default(false),
   OPENCLAW_BASE_URL: z.string().url().default("http://openclaw.persai-dev.svc.cluster.local:18789"),
   OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
+  PERSAI_INTERNAL_API_TOKEN: z.string().optional(),
   OPENCLAW_ADAPTER_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   OPENCLAW_ADAPTER_MAX_RETRIES: z.coerce.number().int().nonnegative().default(1),
   TELEGRAM_WEBHOOK_BASE_URL: z.string().url().optional(),
@@ -85,6 +87,12 @@ export function loadApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
   if (parsed.data.OPENCLAW_ADAPTER_ENABLED && !parsed.data.OPENCLAW_GATEWAY_TOKEN) {
     throw new Error(
       "Invalid API environment configuration: OPENCLAW_GATEWAY_TOKEN is required when OPENCLAW_ADAPTER_ENABLED=true."
+    );
+  }
+
+  if (!parsed.data.PERSAI_INTERNAL_API_TOKEN?.trim()) {
+    throw new Error(
+      "Invalid API environment configuration: PERSAI_INTERNAL_API_TOKEN is required for internal runtime endpoints."
     );
   }
 

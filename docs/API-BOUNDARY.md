@@ -282,7 +282,7 @@ Behavior baseline:
 
 - `POST /api/v1/internal/runtime/tools/consume`
 - caller: OpenClaw `persai-runtime` only
-- auth: same internal bearer token (`OPENCLAW_GATEWAY_TOKEN`)
+- auth: internal PersAI bearer token (`PERSAI_INTERNAL_API_TOKEN`)
 - purpose: atomically consume/check per-tool `dailyCallLimit` at actual runtime tool-call time
 - backend response on exhaustion uses stable error code family:
   - `tool_daily_limit_reached`
@@ -294,7 +294,7 @@ Behavior baseline:
 
 - `POST /api/v1/internal/runtime/tools/check`
 - caller: OpenClaw PersAI runtime tool `persai_tool_quota_status` (optional future callers)
-- auth: same internal bearer token (`OPENCLAW_GATEWAY_TOKEN`) as `consume`
+- auth: same internal PersAI bearer token (`PERSAI_INTERNAL_API_TOKEN`) as `consume`
 - body: `{ "assistantId": "<uuid>", "toolCode"?: "<catalog code>" }` — omit `toolCode` to return all tools on the **effective plan** (subscription / governance fallback)
 - purpose: return **live** `currentCount` for today (workspace-scoped) vs **current** plan `dailyCallLimit` and `activationStatus` from the control plane — does **not** increment counters; use when the user asks about remaining quota or after admins change plan limits (chat history is not authoritative)
 - success: `{ ok: true, planCode, tools: [{ toolCode, activationStatus, dailyCallLimit, currentCount, allowed }] }`
@@ -1469,12 +1469,12 @@ Implementation reference: [openclaw-runtime.adapter.ts](../apps/api/src/modules/
 
 ### OpenClaw → PersAI internal contract (v1.1)
 
-Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness detection. Authenticated with `OPENCLAW_GATEWAY_TOKEN` Bearer (same token as existing runtime contract).
+Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness detection. Authenticated with `PERSAI_INTERNAL_API_TOKEN` Bearer.
 
 ### `GET /internal/v1/runtime/config-generation`
 
 - **Method:** `GET`, no body.
-- **Auth:** `Authorization: Bearer <OPENCLAW_GATEWAY_TOKEN>`
+- **Auth:** `Authorization: Bearer <PERSAI_INTERNAL_API_TOKEN>`
 - **Success:** `200` with `{ "generation": <number> }` — current global `PlatformConfigGeneration.generation` value.
 - **OpenClaw caching:** response cached in-memory with configurable TTL (`PERSAI_CONFIG_GENERATION_CACHE_TTL_MS`, default `3600000` = 1 hour).
 - **Failure mapping:** `401`/`403` → skip freshness check (fail-open). `5xx` / network error → skip freshness check (fail-open).
@@ -1482,7 +1482,7 @@ Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness dete
 ### `POST /internal/v1/runtime/ensure-fresh-spec`
 
 - **Method:** `POST`
-- **Auth:** `Authorization: Bearer <OPENCLAW_GATEWAY_TOKEN>`
+- **Auth:** `Authorization: Bearer <PERSAI_INTERNAL_API_TOKEN>`
 - **Request body:**
 
 | Field                     | Type   | Required |
@@ -1524,7 +1524,7 @@ Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness dete
 ### `GET /api/v1/internal/runtime/provider-settings/default`
 
 - **Method:** `GET`
-- **Auth:** internal `OPENCLAW_GATEWAY_TOKEN`
+- **Auth:** internal `PERSAI_INTERNAL_API_TOKEN`
 - **Success:** `200` JSON `{ generation, mode, primary }`
 - **Behavior:**
   - exposes the current PersAI global runtime-provider default (`primary.provider` + `primary.model`) for background runtime flows

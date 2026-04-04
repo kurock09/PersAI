@@ -127,6 +127,20 @@ If the fork is running with `PERSAI_RUNTIME_SPEC_STORE=memory`, an OpenClaw proc
 
 After port-forward to `svc/openclaw` and with Bearer from `persai-openclaw-secrets` / `OPENCLAW_GATEWAY_TOKEN`, you can POST `/api/v1/runtime/spec/apply` then `/api/v1/runtime/chat/web` and expect `200`, header `X-Persai-Runtime-Session-Key`, and `assistantMessage` from the **embedded agent** when apply is present (requires provider credentials in OpenClaw runtime secrets for non-trivial replies; current dev chart expects `OPENAI_API_KEY`). Without apply, the runtime now returns **503** instead of a compat echo body. Shapes: [API-BOUNDARY.md](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1).
 
+### Fork update smoke pack
+
+Use this pack after `corepack pnpm run openclaw:fork:update-gate` passes and before calling a fork update deploy-ready:
+
+1. PersAI API preflight returns `live=true` and `ready=true`.
+2. `/app` streaming turn completes without transport errors.
+3. Direct `GET /healthz` and `GET /readyz` on `svc/openclaw` are healthy.
+4. Direct `POST /api/v1/runtime/spec/apply` then `POST /api/v1/runtime/chat/web` succeeds with the expected runtime contract.
+5. If the upstream merge touched bridge/security-sensitive fork areas, also run one focused path:
+   - Telegram inbound/outbound turn when `persai-runtime-telegram.ts` changed
+   - reminder/task flow when `cron-tool.ts` or task sync paths changed
+   - provider secret resolution path when `src/secrets/*` or secret-provider config changed
+   - freshness/materialization-sensitive web turn when `src/gateway/persai-runtime/*` changed
+
 ## Shutdown
 
 - stop web dev process (`Ctrl+C`)

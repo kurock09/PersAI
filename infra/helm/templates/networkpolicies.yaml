@@ -1,0 +1,71 @@
+{{- $apiPublicCidrs := .Values.networkPolicy.apiIngress.publicIpBlocks | default (list) }}
+{{- $apiExtraCidrs := .Values.networkPolicy.apiIngress.extraFromIpBlocks | default (list) }}
+{{- $apiIngressSafe := or (not .Values.ingress.enabled) (gt (len $apiPublicCidrs) 0) }}
+{{- if and .Values.networkPolicy.enabled .Values.api.enabled $apiIngressSafe }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-ingress-baseline
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: web
+        {{- range $apiPublicCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+        {{- range $apiExtraCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.api.service.port }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openclaw
+      ports:
+        - protocol: TCP
+          port: {{ .Values.api.internalService.port }}
+{{- end }}
+---
+{{- $openclawTrustedIngressCidrs := .Values.networkPolicy.openclawIngress.trustedIngressIpBlocks | default (list) }}
+{{- $telegramWebhookCidrs := .Values.networkPolicy.openclawIngress.telegramWebhookIpBlocks | default (list) }}
+{{- $openclawIngressCidrs := concat $openclawTrustedIngressCidrs $telegramWebhookCidrs }}
+{{- $openclawIngressSafe := or (not .Values.openclaw.telegramWebhook.enabled) (gt (len $openclawIngressCidrs) 0) }}
+{{- if and .Values.networkPolicy.enabled .Values.openclaw.enabled $openclawIngressSafe }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openclaw-ingress-baseline
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openclaw
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api
+        {{- if .Values.openclaw.telegramWebhook.enabled }}
+        {{- range $openclawIngressCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.openclaw.service.port }}
+{{- end }}

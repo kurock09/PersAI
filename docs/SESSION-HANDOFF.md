@@ -1,5 +1,96 @@
 # SESSION-HANDOFF
 
+## 2026-04-03 - PersAI docs: tiered OpenClaw runtime strategy, hardening baseline, fork audit automation
+
+### What changed
+
+1. **New ADR (`docs/ADR/063-tiered-openclaw-runtime-and-clean-cutover.md`)** — Accepted one combined platform program for paid production: shared-runtime hardening + tiered runtime routing + GKE preparation. PersAI stays the control plane; OpenClaw stays the execution plane. Target runtime classes are `free_shared_restricted`, `paid_shared_restricted`, and `paid_isolated`. UI must choose runtime policy, not pod/service topology.
+
+2. **New execution plan (`docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`)** — Detailed working plan with principles, runtime tiers, clean-cutover rules, GKE preparation baseline, and slice breakdown `R15a` through `R15g`. Explicitly keeps assistant “humanity” intact while moving risk controls into runtime/infra boundaries.
+
+3. **Shared runtime hardening baseline** — Added `docs/OPENCLAW-SHARED-RUNTIME-HARDENING.md` to capture the current code-informed blockers before paid shared-runtime production: broader effective tool surface than the PersAI catalog alone, missing explicit sandbox/tool/workspace hardening in the current Helm-rendered OpenClaw config, and over-wide trust in shared internal bearer/network boundaries.
+
+4. **Fork audit automation baseline** — Added `scripts/openclaw-fork-audit.cjs` plus root commands `openclaw:fork:audit` and `openclaw:fork:audit:strict`, and documented them in `docs/OPENCLAW-FORK-AUDIT-AUTOMATION.md`. First baseline run against the pinned OpenClaw fork SHA (`ca815889fb4a0944b98a1355e04afc58636e42f3`) reported 91 changed files, 68 implementation files, 23 high-risk implementation files, and flagged two undocumented high-risk files missing from `openclaw/docs/PERSAI-FORK-PATCHES.md`: `src/config/zod-schema.core.ts` and `src/secrets/configure.ts`.
+
+5. **Roadmap / architecture / test-plan alignment** — `docs/ROADMAP.md` now includes **Step 15 — Tiered OpenClaw Runtime and Production Hardening**; `docs/ARCHITECTURE.md` adds the planned runtime segmentation boundary; `docs/TEST-PLAN.md` adds Step 15 verification focus (fork audit automation, shared-runtime hardening, runtime assignment, GKE reachability).
+
+6. **Fork-diff reduction map** — Added `docs/OPENCLAW-NATIVE-REDUCTION-MAP.md` to classify what can be safely moved out of native OpenClaw over time versus what should remain native for now. Immediate candidates: migrate PersAI-managed secrets/tool credentials toward generic `exec` provider + PersAI API bridge, remove the small explicit store patch in `server-runtime-state.ts`, and stop deepening PersAI-specific native secret-configuration UX when PersAI-owned admin/config generation is enough.
+
+7. **Shared runtime hardening baseline in Helm** — `infra/helm/templates/openclaw-configmap.yaml` now renders explicit OpenClaw `tools.deny` config from Helm values, and both `infra/helm/values.yaml` / `infra/helm/values-dev.yaml` now carry a restricted baseline that denies dangerous built-ins in shared runtime (`gateway`, `nodes`, `canvas`, `sessions_list`, `sessions_history`, `sessions_send`, `sessions_spawn`, `sessions_yield`, `subagents`). The same values also define a prepared restricted `agents.defaults.sandbox` shape (`network: none`, `readOnlyRoot: true`, `capDrop: ["ALL"]`, PID/memory/CPU limits), but sandbox intentionally remains `mode: "off"` for now because the current GKE deployment does not yet expose a real in-cluster sandbox backend/container strategy.
+
+8. **Sandbox activation gate** — `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`, `docs/OPENCLAW-SHARED-RUNTIME-HARDENING.md`, `docs/ROADMAP.md`, and `docs/TEST-PLAN.md` now explicitly require sandbox activation to happen through a separate canary-ready runtime path with rollback and removal steps. The prepared sandbox config must not be enabled by mutating the current only shared runtime in place.
+
+9. **API internal listener/service split** — PersAI API now listens on a dedicated internal port (`API_INTERNAL_PORT=3002`) in addition to the public API port (`3001`). The public listener rejects `/api/v1/internal/*`, the internal listener rejects non-internal routes, Helm now renders a dedicated `api-internal` ClusterIP service, and OpenClaw runtime-facing calls (`PERSAI_API_BASE_URL`, `persaiSecretResolver.baseUrl`) now target `http://api-internal:3002`.
+
+10. **Network-policy scaffold + safer boundary model** — `infra/helm/templates/networkpolicies.yaml` and Helm `networkPolicy` values now align with the new split topology. `openclaw` ingress can be narrowed to API pods plus explicitly allowlisted pod-visible trusted ingress CIDRs, and API ingress policy is intentionally gated on explicit public ingress CIDR configuration so `api.persai.dev` is not broken by accident.
+
+11. **Token blast-radius split** — The runtime auth boundary is now separated into two secrets: `OPENCLAW_GATEWAY_TOKEN` is kept for `PersAI -> OpenClaw` ingress auth, while `PERSAI_INTERNAL_API_TOKEN` now authorizes `OpenClaw -> PersAI internal API` calls (`tools/check|consume`, task sync/control, cron fire, provider secret resolution, lazy freshness, Telegram bridge/status flows). Helm values/config, API auth checks, OpenClaw outbound callers, examples, and runbooks now reflect the split.
+
+12. **Auto-sync rollout rule documented** — The central runtime plan, GitOps notes, and GKE runbook now explicitly require new secret keys to be added to source-of-truth and observed in Kubernetes **before** merge/push on an auto-synced branch. This avoids Argo CD rolling out code that already requires a missing key such as `PERSAI_INTERNAL_API_TOKEN`.
+
+13. **CIDR / NetworkPolicy rollout gate** — Added `scripts/networkpolicy-readiness.cjs` plus root commands `networkpolicy:readiness` and `networkpolicy:readiness:strict`. The script reads Helm values, reports whether API/OpenClaw ingress policies are actually renderable with the configured CIDRs, and fails in strict mode while required CIDR inputs are still missing. Strategy docs, GitOps notes, and the GKE runbook now use it as the pre-merge/pre-rollout gate for CIDR-dependent policy changes on auto-synced branches.
+
+14. **CIDR source-of-truth clarified** — The rollout guidance now explicitly distinguishes pod-visible trusted ingress CIDRs from raw Telegram sender CIDRs. For the current GKE Ingress-backed path, official Google Cloud Load Balancing firewall-rules guidance is treated as the primary source for pod-level ingress allowlists, while Telegram webhook ranges are supplemental only when they are actually visible at pod level behind the deployed ingress path.
+
+15. **Canonical CIDR starter block added** — `infra/helm/values-dev.yaml` now contains a commented recommended starter block for `networkPolicy.apiIngress.publicIpBlocks`, `networkPolicy.openclawIngress.trustedIngressIpBlocks`, and optional `telegramWebhookIpBlocks`, with GKE-oriented examples and verification notes. `infra/dev/gke/RUNBOOK.md` mirrors the same block so agents can follow one canonical source instead of inventing ad hoc CIDR placeholders.
+
+16. **Canonical pre-prod merge gate added** — `infra/dev/gke/RUNBOOK.md` now includes one explicit pre-prod checklist for agents/operators before CIDR-dependent auto-sync rollout: required secrets must already exist in source-of-truth and Kubernetes, real CIDR values must be filled in `values-dev.yaml`, `networkpolicy:readiness:strict` must pass, Helm render must succeed, and the ingress path must be checked against the documented source-of-truth. This turns the remaining deploy prep into one concrete gate instead of scattered rules.
+
+17. **OpenClaw fork update gate added** — PersAI now includes `scripts/openclaw-fork-update-gate.cjs` plus root command `corepack pnpm run openclaw:fork:update-gate`. This wrapper runs the canonical upstream-update checks against the sibling OpenClaw repo in one place: strict fork diff audit, `scripts/verify-persai-patches.mjs`, OpenClaw `tsc --noEmit`, and plugin-sdk export validation. `docs/OPENCLAW-FORK-AUDIT-AUTOMATION.md`, `docs/OPENCLAW-PRESESSION.md`, and `docs/LIVE-TEST-HYBRID.md` now connect that gate to the targeted post-gate runtime/security smoke pack.
+
+18. **Fork gate completed and made cross-platform-safe** — `openclaw/docs/PERSAI-FORK-PATCHES.md` now explicitly covers the previously undocumented high-risk files `src/config/zod-schema.core.ts` and `src/secrets/configure.ts`, closing the last strict-audit blockers. `scripts/openclaw-fork-update-gate.cjs` was also made Windows-safe so the canonical gate now passes end-to-end on the current maintainer environment instead of only in Unix-like PATH setups.
+
+19. **Release notes / handoff sync** — `docs/CHANGELOG.md`, `docs/ROADMAP.md`, `docs/TEST-PLAN.md`, and this handoff now reflect the truthful state: `R15c` is complete, the canonical fork-update gate is green, and the next required step after it is the targeted smoke pack rather than more fork-doc debt cleanup.
+
+20. **R15b shared-runtime tool baseline tightened** — the Helm-rendered shared OpenClaw baseline now also denies `agents_list` and `session_status`, not only `gateway`, `nodes`, `canvas`, `sessions_*`, and `subagents`. This closes the obvious remaining gap where non-product user-facing turns could still introspect agent/session metadata that PersAI does not expose as part of the governed runtime catalog.
+
+21. **R15b shared-runtime readiness gate added** — PersAI now includes `scripts/shared-runtime-hardening-readiness.cjs` plus root commands `corepack pnpm run shared-runtime:readiness` and `corepack pnpm run shared-runtime:readiness:strict`. This gate verifies the prepared shared-runtime baseline itself (deny-list coverage, token split wiring, internal API base URLs, and prepared sandbox/resource limits) separately from CIDR-dependent `networkpolicy:readiness`, so operators can distinguish “baseline regressed” from “CIDRs are still intentionally unset”.
+
+22. **Secret source-of-truth aligned for Step 15** — `secretmanager.googleapis.com` was enabled on the current GCP project, the `persai-openclaw-secrets` source-of-truth object was created in Google Secret Manager, and `PERSAI_INTERNAL_API_TOKEN` was synced into `persai-dev/persai-openclaw-secrets`. This closes the earlier operational blocker where the runtime hardening code depended on a required secret key that was still absent from Kubernetes.
+
+### Files touched
+
+- `docs/ADR/063-tiered-openclaw-runtime-and-clean-cutover.md`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/OPENCLAW-SHARED-RUNTIME-HARDENING.md`
+- `docs/OPENCLAW-FORK-AUDIT-AUTOMATION.md`
+- `docs/OPENCLAW-NATIVE-REDUCTION-MAP.md`
+- `docs/ROADMAP.md`
+- `docs/ARCHITECTURE.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `infra/helm/templates/openclaw-configmap.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `package.json`
+- `scripts/openclaw-fork-audit.cjs`
+- `openclaw/docs/PERSAI-FORK-PATCHES.md`
+- `openclaw/src/agents/persai-runtime-tool-limits.ts`
+- `openclaw/src/agents/tools/cron-tool.ts`
+- `openclaw/src/agents/tools/persai-tool-quota-status-tool.ts`
+- `openclaw/src/agents/tools/reminder-task-tool.ts`
+- `openclaw/src/config/config.secrets-schema.test.ts`
+- `openclaw/src/gateway/persai-runtime/persai-runtime-freshness.ts`
+- `openclaw/src/gateway/persai-runtime/persai-runtime-freshness.test.ts`
+- `openclaw/src/gateway/persai-runtime/persai-runtime-heartbeat-model.ts`
+- `openclaw/src/gateway/persai-runtime/persai-runtime-provider-profile.test.ts`
+- `openclaw/src/gateway/persai-runtime/persai-runtime-telegram.ts`
+- `openclaw/src/secrets/resolve.ts`
+- `openclaw/src/secrets/resolve.test.ts`
+- `infra/dev/gitops/openclaw-approved-sha.txt`
+
+### Push order
+
+1. `openclaw` `main` first.
+2. `PersAI` `main` second — pin must match the pushed OpenClaw SHA; CI can rebuild/re-pin the OpenClaw image digest.
+
+### Pinned OpenClaw SHA
+
+- `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
 ## 2026-04-03 - PersAI Web: landing redesign, setup personality presets, welcome chat, memory pagination
 
 ### What changed

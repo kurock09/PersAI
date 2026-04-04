@@ -576,3 +576,36 @@ Required in CI:
 - OpenClaw Yandex provider validates: API call to `tts.api.cloud.yandex.net`, opus output for voice-bubble channels, mp3 for web.
 - Provider registry includes Yandex in built-in list.
 - PersAI admin UI validates: Yandex selectable as TTS provider, credential stored and delivered to runtime.
+
+## Step 15 R15 focus
+
+- Docs-first alignment is required: `ADR-063`, `ROADMAP.md`, `ARCHITECTURE.md`, and `OPENCLAW-SAAS-RUNTIME-PLAN.md` must describe the same runtime direction.
+- Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
+  - `persai-fork-base..HEAD` file inventory
+  - high-risk native file drift
+  - invariant checks for critical PersAI patches
+  - `corepack pnpm run openclaw:fork:update-gate` is the canonical agent/operator gate
+  - after the gate passes, `docs/LIVE-TEST-HYBRID.md#fork-update-smoke-pack` is the required targeted runtime/security smoke reference
+  - current baseline: the canonical gate is expected to pass before the smoke pack is treated as meaningful
+- Shared-runtime hardening tests validate:
+  - explicit deny-by-default tool exposure for user-facing runtime turns
+  - explicit sandbox/workspace-access/runtime config generation
+  - no accidental dependence on permissive OpenClaw defaults
+  - current Helm-rendered baseline explicitly denies dangerous built-ins (`gateway`, `nodes`, `canvas`, `agents_list`, `session_status`, `sessions_*`, `subagents`)
+  - prepared sandbox limits render into config, but GKE rollout keeps `agents.defaults.sandbox.mode: "off"` until sandbox backend/container support is actually present
+  - `corepack pnpm run shared-runtime:readiness:strict` is the canonical prepared-baseline gate before rollout
+- Runtime assignment tests validate plan default + admin override resolution and ensure the adapter boundary no longer hardcodes one permanent runtime target.
+- GKE readiness checks validate per-tier runtime service wiring, health visibility, and narrowed internal reachability before tenant cutover.
+- Sandbox activation gate checks validate:
+  - sandbox is never enabled by mutating the only current working runtime in place
+  - canary routing can target a separate sandbox-ready pool
+  - rollback to the current pool is still possible during migration
+  - temporary compatibility routing has an explicit removal step
+- Network/token hardening checks validate:
+  - OpenClaw ingress can be reduced to API pods plus explicitly allowlisted pod-visible trusted ingress CIDRs
+  - public API listener rejects `/api/v1/internal/*`
+  - internal API listener/service accepts only internal runtime routes
+  - OpenClaw runtime traffic uses the internal API service path
+  - API ingress `NetworkPolicy` is enabled only after trusted public ingress CIDRs are explicitly configured
+  - `corepack pnpm run networkpolicy:readiness:strict` fails while required CIDR inputs are still missing
+  - rollout docs identify Google LB/GFE guidance as the primary source-of-truth for GKE pod-visible ingress CIDRs and treat Telegram webhook ranges as supplemental only

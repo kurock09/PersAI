@@ -6,6 +6,24 @@ global:
     repository: persai
     tag: dev-main
 
+networkPolicy:
+  enabled: false
+  apiIngress:
+    # Public API ingress CIDRs (for GCLB or other trusted ingress hops). When empty
+    # and ingress is enabled, the API NetworkPolicy will not be rendered.
+    publicIpBlocks: []
+    # Additional internal callers allowed to the public API port.
+    extraFromIpBlocks: []
+  openclawIngress:
+    # Pod-visible trusted ingress/proxy CIDRs (for example GCLB/GFE/backend health-check
+    # hops that actually reach the OpenClaw pod). Prefer this field for GKE Ingress-backed
+    # webhook traffic.
+    # Verify current ranges at rollout time against official Google/Telegram docs.
+    trustedIngressIpBlocks: []
+    # Optional extra sender CIDRs only if they really reach the pod directly in your path.
+    # Do not assume Telegram client IPs are pod-visible when GKE Ingress fronts the service.
+    telegramWebhookIpBlocks: []
+
 api:
   enabled: true
   replicaCount: 1
@@ -29,6 +47,7 @@ api:
   env:
     APP_ENV: dev
     PORT: "3001"
+    API_INTERNAL_PORT: "3002"
     LOG_LEVEL: info
     GCP_PROJECT_ID: ""
     GCP_REGION: ""
@@ -55,6 +74,9 @@ api:
     OPENCLAW_GATEWAY_TOKEN:
       secretName: persai-openclaw-secrets
       secretKey: OPENCLAW_GATEWAY_TOKEN
+    PERSAI_INTERNAL_API_TOKEN:
+      secretName: persai-openclaw-secrets
+      secretKey: PERSAI_INTERNAL_API_TOKEN
   probes:
     readiness:
       path: /ready
@@ -71,6 +93,9 @@ api:
   service:
     type: ClusterIP
     port: 3001
+  internalService:
+    enabled: true
+    port: 3002
 
 web:
   enabled: true
@@ -128,7 +153,7 @@ openclaw:
       - http://127.0.0.1:18789
     dangerouslyAllowHostHeaderOriginFallback: false
   persaiSecretResolver:
-    baseUrl: http://api:3001
+    baseUrl: http://api-internal:3002
   sessionMaintenance:
     mode: enforce
     pruneAfter: 14d
@@ -137,6 +162,19 @@ openclaw:
     resetArchiveRetention: 14d
     maxDiskBytes: 2gb
     highWaterBytes: 1600mb
+  tools:
+    deny:
+      - gateway
+      - nodes
+      - canvas
+      - agents_list
+      - session_status
+      - sessions_list
+      - sessions_history
+      - sessions_send
+      - sessions_spawn
+      - sessions_yield
+      - subagents
   workspace:
     gcsFuse:
       enabled: false
@@ -154,10 +192,32 @@ openclaw:
     - "18789"
   env:
     TZ: UTC
+    PERSAI_API_BASE_URL: "http://api-internal:3002"
+  agentDefaults:
+    modelPrimary: openai/gpt-5.4
+    sandbox:
+      # Prepared restricted sandbox baseline; keep mode off until the GKE runtime
+      # provides a real sandbox backend/container strategy for OpenClaw.
+      mode: "off"
+      scope: agent
+      workspaceAccess: rw
+      sessionToolsVisibility: spawned
+      docker:
+        network: none
+        readOnlyRoot: true
+        capDrop:
+          - ALL
+        pidsLimit: 256
+        memory: 1g
+        memorySwap: 1g
+        cpus: 1
   secretEnv:
     OPENCLAW_GATEWAY_TOKEN:
       secretName: persai-openclaw-secrets
       secretKey: OPENCLAW_GATEWAY_TOKEN
+    PERSAI_INTERNAL_API_TOKEN:
+      secretName: persai-openclaw-secrets
+      secretKey: PERSAI_INTERNAL_API_TOKEN
   telegramWebhook:
     enabled: false
     host: ""

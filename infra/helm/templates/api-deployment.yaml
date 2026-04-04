@@ -41,6 +41,7 @@ spec:
 {{- end }}
           ports:
             - containerPort: {{ .Values.api.service.port }}
+            - containerPort: {{ .Values.api.internalService.port }}
 {{- with .Values.api.probes.readiness }}
           readinessProbe:
             httpGet:

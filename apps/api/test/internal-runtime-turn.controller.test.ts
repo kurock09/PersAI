@@ -8,7 +8,7 @@ async function run(): Promise<void> {
   process.env.DATABASE_URL =
     "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public";
   process.env.CLERK_SECRET_KEY = "sk_test_stub";
-  process.env.OPENCLAW_GATEWAY_TOKEN = "gateway-token";
+  process.env.PERSAI_INTERNAL_API_TOKEN = "gateway-token";
 
   const successController = new InternalRuntimeTurnController(
     {

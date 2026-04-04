@@ -154,8 +154,16 @@ rg "web.secretEnv|CLERK_SECRET_KEY" infra/helm/values-dev.yaml -n
 ```bash
 kubectl -n persai-dev create secret generic persai-openclaw-secrets \
   --from-literal=OPENCLAW_GATEWAY_TOKEN='replace-with-long-random-token' \
+  --from-literal=PERSAI_INTERNAL_API_TOKEN='replace-with-separate-long-random-token' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
+
+Important for auto-sync environments:
+
+- if Argo CD tracks this branch automatically, create/update the required secret values first
+- verify the key exists in Kubernetes before merging/pushing the Git change that consumes it
+- do not let auto-sync roll out code that requires a new secret key before that key is present in cluster
+- current Step 15 status note: `PERSAI_INTERNAL_API_TOKEN` has now been created in the dev secret source-of-truth and synced into `persai-dev/persai-openclaw-secrets`; treat that as the baseline to preserve, not a future TODO
 
 15. Verify dev image tag is pinned to commit SHA in GitOps values:
 
@@ -218,6 +226,90 @@ curl -fsS http://127.0.0.1:18789/readyz
 ```bash
 kubectl -n persai-dev get configmap openclaw-config -o yaml | rg "allowedOrigins|dangerouslyAllowHostHeaderOriginFallback|localhost:18789|127.0.0.1:18789" -n
 ```
+
+19.1 Verify API internal listener/service split:
+
+```bash
+kubectl -n persai-dev get svc api api-internal
+kubectl -n persai-dev get deploy/api -o yaml | rg "API_INTERNAL_PORT|containerPort: 3002|containerPort: 3001" -n
+kubectl -n persai-dev get configmap openclaw-config -o yaml | rg "api-internal:3002|provider-secrets/resolve" -n
+```
+
+Expected:
+
+- `svc/api` exposes `3001`
+- `svc/api-internal` exposes `3002`
+- API deployment exposes both ports
+- OpenClaw config references `http://api-internal:3002` for PersAI internal runtime calls
+
+  19.2 Verify CIDR / NetworkPolicy rollout readiness before merge or auto-sync deploy:
+
+```bash
+corepack pnpm run shared-runtime:readiness
+corepack pnpm run shared-runtime:readiness:strict
+corepack pnpm run networkpolicy:readiness
+corepack pnpm run networkpolicy:readiness:strict
+helm template persai-dev infra/helm -f infra/helm/values-dev.yaml
+```
+
+Expected:
+
+- `shared-runtime:readiness` confirms the prepared shared-runtime hardening baseline is still intact (tool deny set, token split wiring, internal API base URLs, prepared sandbox limits)
+- `shared-runtime:readiness:strict` exits non-zero if that prepared baseline regresses
+- `networkpolicy:readiness` clearly shows whether API/OpenClaw policies are renderable with the current CIDR inputs
+- `networkpolicy:readiness:strict` exits non-zero while required CIDR inputs are still missing
+- only merge/push CIDR-dependent policy changes on an auto-synced branch after the strict check passes
+
+CIDR source-of-truth rules:
+
+- for `networkPolicy.apiIngress.publicIpBlocks`, use the trusted pod-visible/public ingress proxy ranges that actually represent `api.persai.dev` traffic in the current GKE path
+- for `networkPolicy.openclawIngress.trustedIngressIpBlocks`, use the trusted pod-visible ingress/proxy ranges that actually reach the OpenClaw pod
+- for GKE Ingress-backed paths, start from official Google Cloud Load Balancing firewall-rules documentation; current commonly used IPv4 GFE/health-check ranges include `35.191.0.0/16` and `130.211.0.0/22`, but verify them again at rollout time
+- use Telegram webhook ranges from `core.telegram.org/bots/webhooks` only as supplemental sender CIDRs when they are actually pod-visible in your ingress path; do not assume they are the only pod-level allowlist behind GKE Ingress
+
+Canonical starter block for `infra/helm/values-dev.yaml`:
+
+```yaml
+networkPolicy:
+  apiIngress:
+    # Replace with the real pod-visible/public ingress proxy CIDRs for api.persai.dev.
+    # Example GKE/GCLB starter values to verify before use:
+    # publicIpBlocks:
+    #   - 35.191.0.0/16
+    #   - 130.211.0.0/22
+    publicIpBlocks: []
+    extraFromIpBlocks: []
+  openclawIngress:
+    # Replace with the real pod-visible ingress/proxy CIDRs that reach the OpenClaw pod.
+    # Example GKE/GCLB starter values to verify before use:
+    # trustedIngressIpBlocks:
+    #   - 35.191.0.0/16
+    #   - 130.211.0.0/22
+    trustedIngressIpBlocks: []
+    # Optional supplemental Telegram sender CIDRs only if they are truly pod-visible:
+    # telegramWebhookIpBlocks:
+    #   - 149.154.160.0/20
+    #   - 91.108.4.0/22
+    telegramWebhookIpBlocks: []
+```
+
+19.3 Pre-prod merge gate for agents and operators:
+
+Do **not** merge/push CIDR-dependent runtime hardening changes on an auto-synced branch until all of the following are true:
+
+1. `persai-openclaw-secrets` already contains both `OPENCLAW_GATEWAY_TOKEN` and `PERSAI_INTERNAL_API_TOKEN` in the secret source-of-truth **and** in Kubernetes.
+2. `corepack pnpm run shared-runtime:readiness:strict` passes.
+3. `infra/helm/values-dev.yaml` has real verified values for:
+   - `networkPolicy.apiIngress.publicIpBlocks`
+   - `networkPolicy.openclawIngress.trustedIngressIpBlocks`
+   - optional `networkPolicy.openclawIngress.telegramWebhookIpBlocks` only if truly pod-visible
+4. `corepack pnpm run networkpolicy:readiness:strict` passes.
+5. `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml` renders successfully.
+6. The current GKE ingress path has been checked against the documented source-of-truth:
+   - Google Cloud Load Balancing firewall-rules guidance for pod-visible ingress/proxy ranges
+   - Telegram webhook docs only as supplemental sender input when relevant
+
+If any item above is still false, stop and do not let auto-sync deploy the change yet.
 
 20. Step 2 foundation deploy-path verification (manual):
 

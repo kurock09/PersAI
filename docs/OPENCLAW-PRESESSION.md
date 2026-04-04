@@ -98,3 +98,13 @@ When this pack changes:
 - add a note in `docs/CHANGELOG.md`,
 - add a note in `docs/SESSION-HANDOFF.md`,
 - and keep `AGENTS.md` mandatory reading order aligned.
+
+## Upstream merge gate
+
+When the slice involves an OpenClaw upstream merge/update review, the minimum PersAI-side gate is:
+
+```bash
+corepack pnpm run openclaw:fork:update-gate
+```
+
+After that gate passes, use `docs/LIVE-TEST-HYBRID.md#fork-update-smoke-pack` for the targeted runtime/security smoke checklist before calling the fork update ready for deploy or release prep.

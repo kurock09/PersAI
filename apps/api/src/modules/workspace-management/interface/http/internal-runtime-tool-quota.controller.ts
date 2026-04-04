@@ -1,7 +1,7 @@
-import { Body, Controller, HttpCode, Post, Req, UnauthorizedException } from "@nestjs/common";
-import { loadApiConfig } from "@persai/config";
+import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
 import { CheckInternalRuntimeToolDailyLimitService } from "../../application/check-internal-runtime-tool-daily-limit.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "../../application/consume-internal-runtime-tool-daily-limit.service";
+import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
 type InternalRequestLike = {
   headers: Record<string, string | string[] | undefined>;
@@ -47,20 +47,10 @@ export class InternalRuntimeToolQuotaController {
   }
 
   private assertAuthorized(req: InternalRequestLike): void {
-    const rawAuthHeader = req.headers.authorization;
-    const authHeader = Array.isArray(rawAuthHeader) ? rawAuthHeader[0] : rawAuthHeader;
-    const token =
-      typeof authHeader === "string" && authHeader.startsWith("Bearer ")
-        ? authHeader.slice("Bearer ".length).trim()
-        : "";
-    const configured = loadApiConfig(process.env).OPENCLAW_GATEWAY_TOKEN?.trim() ?? "";
-    if (configured.length === 0) {
-      throw new UnauthorizedException(
-        "OPENCLAW_GATEWAY_TOKEN must be configured for internal tool quota endpoints."
-      );
-    }
-    if (token.length === 0 || token !== configured) {
-      throw new UnauthorizedException("Internal tool quota authorization failed.");
-    }
+    assertPersaiInternalApiAuthorized(
+      req,
+      "PERSAI_INTERNAL_API_TOKEN must be configured for internal tool quota endpoints.",
+      "Internal tool quota authorization failed."
+    );
   }
 }

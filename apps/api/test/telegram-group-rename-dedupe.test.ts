@@ -6,11 +6,11 @@ async function run(): Promise<void> {
     where: Record<string, unknown>;
     data: Record<string, unknown>;
   }> = [];
-  const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+  const previousInternalApiToken = process.env.PERSAI_INTERNAL_API_TOKEN;
   const previousAppEnv = process.env.APP_ENV;
   const previousDatabaseUrl = process.env.DATABASE_URL;
   const previousClerkSecretKey = process.env.CLERK_SECRET_KEY;
-  process.env.OPENCLAW_GATEWAY_TOKEN = "test-token";
+  process.env.PERSAI_INTERNAL_API_TOKEN = "test-token";
   process.env.APP_ENV = "local";
   process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
   process.env.CLERK_SECRET_KEY = "test-clerk-secret";
@@ -61,10 +61,10 @@ async function run(): Promise<void> {
     assert.equal(updateManyCalls.length, 1);
     assert.deepEqual(updateManyCalls[0]?.where.title, { in: ["Bots", "Alex, Jarvis и MASHA"] });
   } finally {
-    if (previousGatewayToken === undefined) {
-      delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    if (previousInternalApiToken === undefined) {
+      delete process.env.PERSAI_INTERNAL_API_TOKEN;
     } else {
-      process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayToken;
+      process.env.PERSAI_INTERNAL_API_TOKEN = previousInternalApiToken;
     }
     if (previousAppEnv === undefined) {
       delete process.env.APP_ENV;

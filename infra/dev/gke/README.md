@@ -30,6 +30,7 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
   - `web.secretEnv.CLERK_SECRET_KEY` mapped from `persai-api-secrets`
 - OpenClaw baseline secret in dev namespace:
   - `persai-openclaw-secrets` with key `OPENCLAW_GATEWAY_TOKEN`
+  - `persai-openclaw-secrets` with key `PERSAI_INTERNAL_API_TOKEN`
   - source-of-truth follows ADR-008 policy: Google Secret Manager -> Kubernetes Secret sync
 - OpenClaw baseline config targets for dev (wired in O3):
   - `OPENCLAW_GATEWAY_BIND=lan`

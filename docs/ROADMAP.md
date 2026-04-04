@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Step 14 — Tech debt, scale, and platform hardening
+Step 15 — Tiered OpenClaw runtime and production hardening
 
 ## Step 1
 
@@ -337,6 +337,48 @@ Step 14 — Tech debt, scale, and platform hardening
   - [x] S14g5 — `assistant-persona.ts` refactored to provide translation keys (`labelKey`, `labelLeftKey`/`labelRightKey`) instead of hardcoded English strings
   - [x] S14g6 — language switcher: Globe icon in sidebar, EN/RU dropdown, `persai-locale` cookie persistence
 
+## Step 15 Tiered OpenClaw Runtime and Production Hardening (ADR-063)
+
+- [x] R15a — docs-first runtime program alignment
+  - [x] ADR-063: one combined program for shared-runtime hardening + tiered routing
+  - [x] detailed execution plan: `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+  - [x] architecture / roadmap / test-plan alignment without deepening one-runtime legacy assumptions
+- [ ] R15b — shared runtime production hardening baseline
+  - [x] explicit deny-by-default user-facing tool surface for PersAI runtime turns
+  - [x] explicit OpenClaw sandbox/workspace-access/resource limits in Helm/config
+  - [ ] internal runtime/network boundary hardening in GKE before paid rollout
+  - [x] split public API traffic from internal runtime endpoints so `api/v1/internal/*` no longer shares the same externally reachable service/port
+  - [ ] enforce API ingress `NetworkPolicy` after trusted public ingress CIDRs are explicitly configured
+  - [x] add repeatable `shared-runtime:readiness` gate so prepared hardening baseline is validated before rollout
+  - [x] split runtime auth into distinct inbound `OPENCLAW_GATEWAY_TOKEN` vs outbound `PERSAI_INTERNAL_API_TOKEN`
+  - [x] add repeatable `networkpolicy:readiness` gate so CIDR-dependent rollout is checked before auto-sync deploy
+  - [x] document one canonical pre-prod merge gate for agents/operators before CIDR-dependent auto-sync rollout
+  - [x] add required `PERSAI_INTERNAL_API_TOKEN` to secret source-of-truth and verify it reached Kubernetes before delivery
+- [x] R15c — OpenClaw fork audit automation
+  - [x] code-first fork inventory from `persai-fork-base..HEAD`
+  - [x] invariant checks for high-risk native patches beyond `docs/PERSAI-FORK-PATCHES.md`
+  - [x] CI/agent gate for undocumented or unverified high-risk drift
+  - [x] canonical upstream merge gate command for agents/operators
+  - [x] targeted runtime/security smoke pack linked after the gate
+  - [x] clear current strict-gate blockers by documenting or removing undocumented high-risk fork files (`src/config/zod-schema.core.ts`, `src/secrets/configure.ts`)
+- [ ] R15d — runtime assignment control plane
+  - [ ] runtime tier model with plan defaults and admin overrides
+  - [ ] UI selects runtime policy/isolation level, not pod/service topology
+  - [ ] no new admin/runtime flow may assume one permanent global runtime endpoint
+- [ ] R15e — GKE tiered runtime pools
+  - [ ] `free_shared_restricted`
+  - [ ] `paid_shared_restricted`
+  - [ ] `paid_isolated`
+  - [ ] per-tier deployment/service/config/network readiness while keeping one PersAI control plane
+  - [ ] sandbox activation gate: sandbox-enabled shared pools must launch as separate canary-ready runtime paths, not as an in-place flip of the current only runtime
+  - [ ] bounded rollback + explicit removal slice for temporary compatibility routing
+- [ ] R15f — adapter/runtime router
+  - [ ] remove the single-runtime assumption from the OpenClaw adapter boundary
+  - [ ] route apply/chat/stream/channel turns to the correct runtime tier without breaking existing users
+- [ ] R15g — clean migration and cutover
+  - [ ] test users migrate directly to the tiered model
+  - [ ] do not preserve new legacy around “single shared runtime forever”
+
 ---
 
 ## Pending / Future
@@ -349,13 +391,14 @@ Step 14 — Tech debt, scale, and platform hardening
 - [ ] H11 — WhatsApp/MAX readiness and secret-ref parity
 - [ ] Channel media adapters: WhatsApp, VK, Matrix (one new file each when channels are implemented)
 - [ ] OpenAI TTS voice/model selection UI in PersAI admin (currently voice configurable only via `[[tts:voice=...]]` directives)
-- [ ] H14 — Fork-diff reduction (tech debt, trigger: next upstream sync or stable sprint)
+- [ ] H14 — Fork-diff reduction (tech debt follow-up inside Step 15 runtime program)
   - [ ] H14a — secrets + tool credentials → `exec` provider + PersAI API bridge (removes 9 native OpenClaw files)
   - [ ] H14b — remove explicit store from `server-runtime-state.ts` (1 file, trivial)
-- [ ] H15 — GKE runtime tuning for 5 000+ users
-  - scope note: this is a system-wide platform slice, not Telegram-specific hardening
+  - [ ] H14c — stop deepening PersAI-specific native secret configuration UX; prefer PersAI-owned admin/config generation paths
+  - [ ] H14d — prefer plugin-sdk/helper seams and PersAI-owned bridge tools before adding new native runtime patches
+- [ ] H15 — GKE runtime tuning for 5 000+ users (execution follow-up inside Step 15 runtime program)
   - [ ] H15a — review and tune Kubernetes probe budgets (`startupProbe`, `readinessProbe`, `livenessProbe`, timeout, `failureThreshold`) from measured rollout/warmup behavior
-  - [ ] H15b — validate rollout safety and startup latency budgets for `api`, `web`, and `openclaw` under realistic cold-start and recovery scenarios
+  - [ ] H15b — validate rollout safety and startup latency budgets for `api`, `web`, and tiered `openclaw` pools under realistic cold-start and recovery scenarios
 - [ ] H16 — Autonomous workspace heartbeat deeper isolation
   - note: the immediate hygiene slice above is complete; the remaining H16 work is the deeper isolation/refactor track
   - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated

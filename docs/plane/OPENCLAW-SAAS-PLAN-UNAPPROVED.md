@@ -3,6 +3,12 @@
 > Статус: **Draft / Не утверждено**
 >  
 > Документ фиксирует согласованное рабочее видение по PersAI x OpenClaw и не является финальным архитектурным решением до отдельного утверждения.
+>
+> Superseded by:
+> - `docs/ADR/063-tiered-openclaw-runtime-and-clean-cutover.md`
+> - `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+>
+> Keep this file only as archived brainstorming context.
 
 ## 1) Цель
 

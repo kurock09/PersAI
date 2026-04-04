@@ -4,6 +4,30 @@
 
 ### Added
 
+- **Tiered OpenClaw runtime strategy docs:** new `ADR-063` and `OPENCLAW-SAAS-RUNTIME-PLAN.md` define one clean runtime program for paid production: shared-runtime hardening, fork audit automation, runtime-tier control plane, GKE pool preparation, and clean cutover toward `free_shared_restricted` / `paid_shared_restricted` / `paid_isolated` without deepening one-runtime legacy assumptions.
+
+- **Fork audit baseline automation:** added `scripts/openclaw-fork-audit.cjs` plus root commands `openclaw:fork:audit` and `openclaw:fork:audit:strict`, and documented them in `docs/OPENCLAW-FORK-AUDIT-AUTOMATION.md`. The first baseline run already proved `docs/PERSAI-FORK-PATCHES.md` is incomplete as a sole control surface (`src/config/zod-schema.core.ts`, `src/secrets/configure.ts` were flagged as undocumented high-risk files).
+
+- **Shared runtime hardening baseline doc:** added `docs/OPENCLAW-SHARED-RUNTIME-HARDENING.md` to capture the current code-informed production blockers for paid shared runtime (tool exposure broader than the PersAI catalog, missing explicit sandbox/tool config in Helm, and over-wide shared-token/internal-network trust assumptions).
+
+- **Native patch reduction map:** added `docs/OPENCLAW-NATIVE-REDUCTION-MAP.md` to identify where PersAI can safely reduce fork risk by moving behavior out of native OpenClaw core. Immediate reduction targets are the secret-provider path (toward generic `exec` provider + PersAI API bridge), the small `server-runtime-state.ts` spec-store patch, and a rule to stop deepening PersAI-specific native secret configuration UX when PersAI-owned admin/config generation can do the job instead.
+
+- **Shared runtime hardening baseline in Helm:** `infra/helm/templates/openclaw-configmap.yaml`, `infra/helm/values.yaml`, and `infra/helm/values-dev.yaml` now render an explicit top-level OpenClaw `tools.deny` baseline for dangerous built-ins in shared runtime (`gateway`, `nodes`, `canvas`, `sessions_*`, `subagents`) and carry a prepared restricted `agents.defaults.sandbox` shape. Sandbox stays `mode: "off"` for now because the current GKE deployment does not yet provide a real in-cluster sandbox backend/container strategy, so enabling it immediately would be unsafe.
+
+- **Sandbox activation gate:** runtime strategy docs now explicitly require sandbox rollout through a separate canary-ready runtime path with rollback and removal steps, not by flipping the current only shared runtime in place. This keeps the prepared sandbox config useful without turning it into accidental legacy or outage risk.
+
+- **API internal listener/service split:** PersAI API now exposes a dedicated internal path on `api-internal:3002`, while the public API listener rejects `/api/v1/internal/*` and the internal listener rejects non-internal routes. OpenClaw runtime-facing calls now target the internal API service instead of the public API service.
+
+- **Network-policy scaffold and safer boundary model:** `infra/helm/templates/networkpolicies.yaml` plus `networkPolicy` values in Helm now support the new split topology. `openclaw` ingress can be narrowed to API pods plus explicitly allowlisted pod-visible trusted ingress CIDRs (with optional Telegram sender CIDRs as supplemental input when relevant), and API ingress policy is intentionally gated on explicit public ingress CIDR configuration so `api.persai.dev` is not broken by accident.
+- **NetworkPolicy rollout readiness gate:** added `scripts/networkpolicy-readiness.cjs` plus root commands `networkpolicy:readiness` and `networkpolicy:readiness:strict` so CIDR-dependent GKE policy rollout can be checked before merge/push on auto-synced branches. Runbooks and runtime hardening docs now treat this as the pre-rollout gate for API/OpenClaw ingress policy changes.
+- **CIDR source-of-truth rule:** rollout docs now explicitly treat official Google Cloud Load Balancing firewall-rules guidance as the primary source for pod-visible GKE ingress CIDRs, while Telegram webhook ranges remain supplemental only when they are actually visible at pod level behind the current ingress path.
+- **Canonical pre-prod merge gate:** the GKE runbook now includes one explicit pre-prod merge checklist for agents/operators covering required secrets, verified CIDR inputs, strict readiness pass, successful Helm render, and source-of-truth verification before any CIDR-dependent auto-sync rollout.
+- **OpenClaw fork update gate:** added `scripts/openclaw-fork-update-gate.cjs` plus root command `openclaw:fork:update-gate` to run the canonical fork-update checks in one place: strict fork audit, `verify-persai-patches`, OpenClaw typecheck, and plugin-sdk export validation. `OPENCLAW-FORK-AUDIT-AUTOMATION.md`, `OPENCLAW-PRESESSION.md`, `OPENCLAW-SAAS-RUNTIME-PLAN.md`, `TEST-PLAN.md`, and `LIVE-TEST-HYBRID.md` now link this gate to a targeted runtime/security smoke pack.
+- **OpenClaw fork gate completed:** the previously undocumented high-risk fork files `src/config/zod-schema.core.ts` and `src/secrets/configure.ts` are now explicitly documented in `openclaw/docs/PERSAI-FORK-PATCHES.md`, and the canonical `openclaw:fork:update-gate` now passes on the current Windows maintainer environment after making the wrapper cross-platform-safe.
+- **Shared-runtime tool baseline tightened:** the shared OpenClaw Helm baseline now also denies `agents_list` and `session_status` in addition to the previously blocked `gateway`, `nodes`, `canvas`, `sessions_*`, and `subagents`, so restricted shared runtime no longer exposes non-product agent/session introspection tools by default.
+- **Shared-runtime readiness gate:** added `scripts/shared-runtime-hardening-readiness.cjs` plus root commands `shared-runtime:readiness` and `shared-runtime:readiness:strict` so the prepared `R15b` baseline is checked explicitly before rollout. The gate validates deny-list coverage, token split wiring, internal API base URLs, and prepared sandbox/resource limits, while `networkpolicy:readiness` remains the CIDR-specific rollout gate.
+- **Secret source-of-truth and cluster baseline aligned:** enabled `secretmanager.googleapis.com` for the current GCP project, created the `persai-openclaw-secrets` source-of-truth secret in Google Secret Manager, and synced `PERSAI_INTERNAL_API_TOKEN` into `persai-dev/persai-openclaw-secrets`. The Step 15 runtime-hardening path no longer has an active blocker from a missing internal API token secret.
+
 - **Landing page (premium redesign):** full-viewport aurora canvas background, typographic manifesto headline (two-line, weight contrast), EN/RU `LandingLocaleSwitcher`, platform badge strip (Telegram active + pulse dot, VK/WhatsApp/MAX with brand colours dimmed + "soon" label). No scroll on first screen; responsive.
 
 - **Setup wizard — personality presets:** 9 locale-aware presets (3 per gender × 3 genders) in `assistant-persona.ts` (`PersonaPreset` interface, `PERSONA_PRESETS`). Each preset carries trait deltas and `buildInstructions(name, user, locale)` returning EN or RU instructions. Sliders only fine-tune; "Custom" button clears. Avatar portrait shown on step 2. EN/RU switcher added to setup header.
@@ -13,6 +37,8 @@
 - **Memory history pagination:** History tab shows 10 most-recent items; "Load more (N)" button appends 10 per click. Counter resets on reload.
 
 ### Changed
+
+- **Runtime platform direction:** roadmap, architecture, and test plan now treat shared-runtime production hardening and future tiered runtime routing as one combined platform track instead of two disconnected stages. GKE preparation is explicitly part of that same runtime program.
 
 - **Setup wizard — gender default:** initial gender pre-selected to `"neutral"` (was `null`). Grid layout fixed to `grid-cols-3`.
 
@@ -41,6 +67,8 @@
 - **OpenClaw fork (`persai_workspace_attach`):** runtime tool to attach an existing workspace file to the assistant reply via the same outbound `media[]` path as `image_generate` (path string only; no file bytes in the prompt). Telegram `deliverTelegramMedia` now resolves files with `resolvePersaiWorkspaceMediaStoragePath` so paths under `media/` or `../…` inside the assistant workspace work. Materialized `TOOLS.md` catalog adds a short hint next to the live-quota note. Dev pin: `openclaw-approved-sha.txt` + `values-dev.yaml` tag `2a5f9b939d4a0031b01b5868ed730e67fd13e3e9`; `openclaw.image.digest` cleared for CI repin.
 
 ### Changed
+
+- **Runtime auth boundary split:** `OPENCLAW_GATEWAY_TOKEN` now remains only on the `PersAI -> OpenClaw` ingress side, while `PERSAI_INTERNAL_API_TOKEN` is now required for `OpenClaw -> PersAI internal API` calls. PersAI internal runtime endpoints, Helm secret wiring, OpenClaw secret-provider config, lazy freshness, Telegram bridge/status callbacks, tool quota checks, reminder/task control, and runbooks were updated to match the split and reduce shared-token blast radius. Dev pin now advances to `31ec4f70d76eebfef933754934ee922c9d094c11` in `openclaw-approved-sha.txt`, and `openclaw.image.digest` is cleared in `values-dev.yaml` for CI repin.
 
 - **OpenClaw fork (Telegram voice replies):** when a turn returns **voice** (`audio` + `audioAsVoice`), the bridge **no longer sends a text message** before `sendVoice` — avoids duplicate copy and the `No response from OpenClaw.` placeholder when the model only emits TTS media. **Images, sendAudio, video, documents** still go through `deliverTelegramMedia` unchanged. Dev pin: `openclaw-approved-sha.txt` + `values-dev.yaml` tag `32f3ffb618aa094651d9096d65fe22a9939412e0`, digest cleared.
 

@@ -152,6 +152,8 @@ Required dev runtime baseline values:
 - Secret values:
   - `OPENCLAW_GATEWAY_TOKEN`
     - why: required baseline auth token for non-loopback / future exposure-safe runtime
+  - `PERSAI_INTERNAL_API_TOKEN`
+    - why: required for `OpenClaw -> PersAI internal API` auth after token split
 
 Optional dev values (not required for pod boot):
 
@@ -182,10 +184,20 @@ Source-of-truth mapping in dev policy:
 - secret source-of-truth: Google Secret Manager -> synced Kubernetes Secret in `persai-dev` namespace
 - recommended OpenClaw secret object: `persai-openclaw-secrets` with key:
   - `OPENCLAW_GATEWAY_TOKEN`
+  - `PERSAI_INTERNAL_API_TOKEN`
+- rollout rule for auto-sync branches:
+  - add new required secret keys in the secret source-of-truth first
+  - wait until they are present in the Kubernetes Secret
+  - only then merge/push the tracked Git change that depends on them
+  - for CIDR-dependent `NetworkPolicy` rollout, require `corepack pnpm run networkpolicy:readiness:strict` to pass before merge/push
+  - source-of-truth for CIDR values is external:
+    - Google Cloud Load Balancing firewall-rules documentation for pod-visible GFE/health-check ranges in the current GKE ingress path
+    - Telegram webhook documentation only as a supplemental source for sender CIDRs, not as the only pod-level allowlist assumption behind GKE Ingress
+  - canonical starter block lives in `infra/helm/values-dev.yaml` comments and is mirrored in `infra/dev/gke/RUNBOOK.md`; agents should start from that block instead of inventing CIDR placeholders ad hoc
 
 ## OpenClaw O3 runtime assumptions (dev)
 
-- Prerequisite for a running pod: Kubernetes Secret `persai-openclaw-secrets` in `persai-dev` with key `OPENCLAW_GATEWAY_TOKEN` (must match API’s reference to the same secret). If the pod crashes on auth or API preflight fails with `auth_failure`, verify this secret first.
+- Prerequisite for a running pod: Kubernetes Secret `persai-openclaw-secrets` in `persai-dev` with keys `OPENCLAW_GATEWAY_TOKEN` and `PERSAI_INTERNAL_API_TOKEN`. If the pod crashes on auth or API preflight/internal runtime calls fail, verify these secrets first.
 
 - Deploy enablement:
   - `openclaw.enabled=true` in `infra/helm/values-dev.yaml`
@@ -197,6 +209,7 @@ Source-of-truth mapping in dev policy:
   - container/service port: `18789`
 - Runtime auth:
   - `OPENCLAW_GATEWAY_TOKEN` from `persai-openclaw-secrets` -> `secretKeyRef`
+  - `PERSAI_INTERNAL_API_TOKEN` from `persai-openclaw-secrets` -> `secretKeyRef`
 - Runtime Control UI origin policy:
   - non-loopback bind is used (`lan`)
   - explicitly wired via OpenClaw config file mounted from ConfigMap (`infra/helm/templates/openclaw-configmap.yaml`)

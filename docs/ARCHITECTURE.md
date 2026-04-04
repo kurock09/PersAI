@@ -44,6 +44,21 @@ It is not part of backend domain logic.
 - normative PersAI→OpenClaw HTTP request/response contract (design freeze v1): [API-BOUNDARY.md — PersAI to OpenClaw HTTP runtime contract (v1)](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1)
 - planned control-plane evolution for admin-driven runtime profiles (models, fallback refs, credential refs) is tracked in [ADR-049](ADR/049-platform-admin-runtime-control-plane-phasing.md); PersAI owns policy + references, while OpenClaw remains the runtime executor and secret resolver
 
+## Planned runtime segmentation boundary (Step 15)
+
+- target direction is **one PersAI control plane** plus **multiple OpenClaw runtime pools**, not one permanent shared runtime forever
+- runtime assignment is a control-plane decision (plan default + admin override), not a low-level infrastructure choice exposed in the product UI
+- initial target runtime classes:
+  - `free_shared_restricted`
+  - `paid_shared_restricted`
+  - `paid_isolated`
+- shared pools are valid only in **restricted** mode:
+  - explicit deny-by-default tool exposure
+  - explicit sandbox/workspace limits
+  - explicit network/resource hardening
+- GKE topology evolution (tier-specific deployments/services/config/network policy) is part of the same boundary and must not leak into end-user product semantics
+- current implementation remains a single-runtime deployment until Step 15 slices land; new docs and future slices must not deepen that assumption as the long-term architecture
+
 ## Chat boundary (Step 5 C1)
 
 - backend stores canonical user-facing chat records:
