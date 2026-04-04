@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import {
   ApiErrorHttpException,
@@ -34,6 +34,9 @@ type JsonObject = Record<string, unknown>;
 interface OpenClawAdapterConfig {
   enabled: boolean;
   baseUrl: string;
+  baseUrlHost: string | null;
+  resolvedTier: RuntimeTier;
+  routeSource: "tier_specific" | "platform_default";
   token: string;
   timeoutMs: number;
   maxRetries: number;
@@ -92,6 +95,31 @@ function parseApiErrorResponse(payload: unknown): ApiErrorObject | null {
   } as ApiErrorObject;
 }
 
+function readRuntimeBaseUrlHost(baseUrl: string): string | null {
+  try {
+    return new URL(baseUrl).host || null;
+  } catch {
+    return null;
+  }
+}
+
+function readAssistantIdFromPath(path: string): string | null {
+  try {
+    return new URL(path, "http://persai-runtime.local").searchParams.get("assistantId");
+  } catch {
+    return null;
+  }
+}
+
+function readAssistantIdFromBody(body: unknown): string | null {
+  if (!isObject(body)) {
+    return null;
+  }
+  return typeof body.assistantId === "string" && body.assistantId.trim().length > 0
+    ? body.assistantId.trim()
+    : null;
+}
+
 function toOpenClawAdapterConfig(runtimeTier?: RuntimeTier): OpenClawAdapterConfig {
   const config = loadApiConfig(process.env);
   const freeSharedRestrictedUrl = normalizeRuntimeBaseUrl(
@@ -117,6 +145,9 @@ function toOpenClawAdapterConfig(runtimeTier?: RuntimeTier): OpenClawAdapterConf
   return {
     enabled: config.OPENCLAW_ADAPTER_ENABLED,
     baseUrl: resolvedEndpoint.baseUrl,
+    baseUrlHost: readRuntimeBaseUrlHost(resolvedEndpoint.baseUrl),
+    resolvedTier: resolvedEndpoint.resolvedTier,
+    routeSource: resolvedEndpoint.source,
     token: config.OPENCLAW_GATEWAY_TOKEN ?? "",
     timeoutMs: config.OPENCLAW_ADAPTER_TIMEOUT_MS,
     maxRetries: config.OPENCLAW_ADAPTER_MAX_RETRIES
@@ -125,6 +156,8 @@ function toOpenClawAdapterConfig(runtimeTier?: RuntimeTier): OpenClawAdapterConf
 
 @Injectable()
 export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
+  private readonly logger = new Logger(OpenClawRuntimeAdapter.name);
+
   async preflight(runtimeTier?: RuntimeTier): Promise<AssistantRuntimePreflightResult> {
     const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) {
@@ -779,6 +812,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
 
     try {
+      this.logRuntimeRoute("GET", "/api/v1/runtime/workspace/media/download", config, assistantId);
       const qs = new URLSearchParams({ assistantId, storagePath });
       const response = await fetch(
         `${config.baseUrl}/api/v1/runtime/workspace/media/download?${qs.toString()}`,
@@ -887,6 +921,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
 
     try {
+      this.logRuntimeRoute("PATCH", path, config, readAssistantIdFromBody(body));
       const response = await fetch(`${config.baseUrl}${path}`, {
         method: "PATCH",
         headers: {
@@ -980,6 +1015,12 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         requestInit.body = JSON.stringify(body);
       }
 
+      this.logRuntimeRoute(
+        method,
+        path,
+        config,
+        readAssistantIdFromBody(body) ?? readAssistantIdFromPath(path)
+      );
       const response = await fetch(`${config.baseUrl}${path}`, requestInit);
 
       if (response.status === 401 || response.status === 403) {
@@ -1091,6 +1132,12 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
 
     try {
+      this.logRuntimeRoute(
+        "POST",
+        path,
+        config,
+        readAssistantIdFromBody(body) ?? readAssistantIdFromPath(path)
+      );
       const response = await fetch(`${config.baseUrl}${path}`, {
         method: "POST",
         headers: {
@@ -1288,5 +1335,20 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         );
       }
     }
+  }
+
+  private logRuntimeRoute(
+    method: "GET" | "POST" | "PATCH",
+    path: string,
+    config: OpenClawAdapterConfig,
+    assistantId: string | null
+  ): void {
+    if (path === "/healthz" || path === "/readyz") {
+      return;
+    }
+
+    this.logger.log(
+      `runtime_route method=${method} path=${path} tier=${config.resolvedTier} source=${config.routeSource} host=${config.baseUrlHost ?? "unknown"} assistantId=${assistantId ?? "n/a"}`
+    );
   }
 }

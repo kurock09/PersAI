@@ -96,7 +96,7 @@ With the API port-forward and local web running as above, sign in with Clerk. Us
 Second port-forward to the gateway Service:
 
 ```powershell
-kubectl port-forward -n persai-dev svc/openclaw-free-shared-restricted 18789:18789
+kubectl port-forward -n persai-dev svc/openclaw-free-shared-restricted-sandbox 18789:18789
 ```
 
 Probes (no auth required for typical `healthz`/`readyz` usage in this chart):
@@ -111,6 +111,7 @@ curl.exe -s http://127.0.0.1:18789/readyz
 ### Deploy / image note
 
 OpenClaw image tag and digest are pinned in `infra/helm/values-dev.yaml`. CI updates those pins after pushes to `main` per [infra/dev/gitops/README.md](infra/dev/gitops/README.md). If preflight stays unhealthy, inspect the tier-specific OpenClaw Deployments (`openclaw-free-shared-restricted`, `openclaw-paid-shared-restricted`, `openclaw-paid-isolated`) and Argo CD sync for `persai-dev`.
+For the sandbox-ready shared path, also verify the corresponding `*_sandbox` Deployments/Services and confirm the pod actually has a working Docker-backed sandbox backend before treating the pool as isolated.
 
 **Changing the fork pin:** push the new commit to **`kurock09/openclaw` on GitHub before** (or immediately re-run CI after) updating `openclaw-approved-sha.txt` on PersAI `main`; otherwise workflows fail with `not our ref` (see gitops README).
 
@@ -140,6 +141,36 @@ Use this pack after `corepack pnpm run openclaw:fork:update-gate` passes and bef
    - reminder/task flow when `cron-tool.ts` or task sync paths changed
    - provider secret resolution path when `src/secrets/*` or secret-provider config changed
    - freshness/materialization-sensitive web turn when `src/gateway/persai-runtime/*` changed
+
+### Tiered cutover proof
+
+When validating `R15g`, do not stop at "the plan default changed" or "the pool pod is healthy".
+
+Prove the actual bridge path:
+
+1. Confirm the target assistant's latest materialized `runtimeAssignment` shows the expected:
+   - `planDefaultTier`
+   - `runtimeTierOverride`
+   - `effectiveTier`
+   - `source`
+2. Trigger a real runtime path for that assistant (streaming web turn, Telegram inbound turn, reminder/task control, memory/media path, etc.).
+3. Inspect API logs for the adapter's `runtime_route` line and verify:
+   - `assistantId=<target assistant>`
+   - `tier=<expected effective tier>`
+   - `host=<expected pool service>`
+4. Treat old startup-only signals (for example Telegram webhook reinit lines during pod boot) as insufficient proof of cutover by themselves.
+
+Current adapter log shape:
+
+```text
+runtime_route method=POST path=/api/v1/runtime/chat/web/stream tier=paid_shared_restricted source=tier_specific host=openclaw-paid-shared-restricted:18789 assistantId=<uuid>
+```
+
+For sandbox-capable shared pools, add one more check before calling the cutover honest:
+
+1. `kubectl exec` into the target OpenClaw pod and confirm `docker` is available in `PATH`.
+2. Confirm the configured sandbox image is present in rendered config (`agents.defaults.sandbox.docker.image`).
+3. Confirm the pool has an active Docker backend path (`DOCKER_HOST` / socket mount) before relying on `runtime_route` as sandbox proof.
 
 ## Shutdown
 

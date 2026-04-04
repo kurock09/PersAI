@@ -243,14 +243,16 @@ Current slice delivered:
 
 - Helm chart is now pool-aware instead of hardcoding one physical OpenClaw deployment/config/service forever
 - each enabled runtime pool renders its own deployment, service, and configmap with pool labels
-- dev values now enable the three canonical runtime pools (`free_shared_restricted`, `paid_shared_restricted`, `paid_isolated`) with explicit per-tier service URLs
+- API/runtime routing still exposes the three canonical product tiers, but shared-tier URLs may now point at separate sandbox-capable physical pools (`free_shared_restricted_sandbox`, `paid_shared_restricted_sandbox`) without changing admin/product contracts
+- dev values now model the clean-final topology: sandbox-capable shared pools are separate deployments/services, while `paid_isolated` stays a distinct direct pool
 - the legacy compatibility alias service `openclaw` is removed from the active chart; ingress and runtime config now point directly to explicit pool services
-- `runtime-pools:readiness` now verifies explicit per-tier topology instead of compatibility-mode alias behavior
+- OpenClaw image build now has an explicit path to include Docker CLI support for sandbox-capable pools, instead of relying on a manual runtime mutation
+- `runtime-pools:readiness` now verifies explicit per-tier topology plus sandbox backend prerequisites instead of compatibility-mode alias behavior only
 
 Still intentionally deferred:
 
-- Telegram/webhook ingress still targets `free_shared_restricted` only
-- sandbox activation gate remains separate; pool enablement alone does not mean sandbox isolation is active
+- Telegram/webhook ingress remains tied to the free shared lane and must follow the active free shared physical pool during cutover
+- sandbox activation gate remains evidence-based; pool enablement or rendered sandbox JSON alone does not mean sandbox isolation is active
 - live cutover validation of the new pool-only topology is still owned by `R15g`
 
 ### R15f — adapter/runtime router
@@ -270,6 +272,8 @@ Outcome:
 - free vs paid separation is real in runtime topology
 - no new legacy admin/runtime assumptions remain
 - temporary compatibility routes have explicit removal
+- cutover verification is observable from live runtime/API logs without manual guesswork
+- shared-tier sandbox activation is only considered real when the target pool has a working Docker-backed backend and can launch the configured sandbox image
 
 ## Test and automation expectations
 
@@ -277,6 +281,8 @@ Outcome:
 - fork audit automation must validate current code plus git diff/history, not only `PERSAI-FORK-PATCHES.md`
 - runtime-tier routing must have deterministic resolution tests
 - GKE rollout work must include reachability and health checks per runtime tier
+- live cutover checks must prove the resolved `effectiveTier` and the actual runtime host used for real bridge calls
+- sandbox-capable shared pools must also prove backend readiness (`docker` available in runtime image, reachable socket/daemon, sandbox image configured) before they count toward `R15e`/`R15g`
 
 ## Relation to other docs
 

@@ -140,8 +140,6 @@ openclaw:
   enabled: false
   replicaCount: 1
   runtimePools:
-    # Compatibility rule for R15e: the default pool continues to back the current
-    # `openclaw` service name until the adapter/router cutover in R15f.
     defaultPoolKey: free_shared_restricted
     pools:
       free_shared_restricted:
@@ -153,6 +151,11 @@ openclaw:
       paid_isolated:
         enabled: false
         config: {}
+  sandboxImages:
+    common:
+      name: openclaw-sandbox-common
+      tag: ""
+      digest: ""
   serviceAccount:
     create: false
     name: openclaw-sa
@@ -212,13 +215,15 @@ openclaw:
   agentDefaults:
     modelPrimary: openai/gpt-5.4
     sandbox:
-      # Prepared restricted sandbox baseline; keep mode off until the GKE runtime
-      # provides a real sandbox backend/container strategy for OpenClaw.
+      # Shared non-sandbox pools keep sandbox disabled by default.
+      # Separate sandbox-capable pools override this with a real Docker-backed path.
       mode: "off"
+      backend: docker
       scope: agent
       workspaceAccess: rw
       sessionToolsVisibility: spawned
       docker:
+        image: ""
         network: none
         readOnlyRoot: true
         capDrop:
@@ -227,6 +232,15 @@ openclaw:
         memory: 1g
         memorySwap: 1g
         cpus: 1
+  sandboxRuntime:
+    enabled: false
+    dockerSocketPath: /var/run/docker.sock
+    dockerHost: unix:///var/run/docker.sock
+    dind:
+      image: docker:29.3.1-dind-rootless
+      pullPolicy: IfNotPresent
+      env: {}
+      resources: {}
   secretEnv:
     OPENCLAW_GATEWAY_TOKEN:
       secretName: persai-openclaw-secrets

@@ -75,8 +75,8 @@ api:
     GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
     GCP_REGION: europe-west1
     OPENCLAW_ADAPTER_ENABLED: "true"
-    OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: "http://openclaw-free-shared-restricted:18789"
-    OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: "http://openclaw-paid-shared-restricted:18789"
+    OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: "http://openclaw-free-shared-restricted-sandbox:18789"
+    OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: "http://openclaw-paid-shared-restricted-sandbox:18789"
     OPENCLAW_BASE_URL_PAID_ISOLATED: "http://openclaw-paid-isolated:18789"
     OPENCLAW_ADAPTER_TIMEOUT_MS: "90000"
     TELEGRAM_WEBHOOK_BASE_URL: "https://bot.persai.dev"
@@ -176,14 +176,41 @@ openclaw:
     defaultPoolKey: free_shared_restricted
     pools:
       free_shared_restricted:
-        enabled: true
+        enabled: false
         config: {}
+      free_shared_restricted_sandbox:
+        enabled: true
+        config:
+          sandboxRuntime:
+            enabled: true
+          agentDefaults:
+            sandbox:
+              mode: "all"
+              backend: docker
+              docker:
+                image: ""
       paid_shared_restricted:
-        enabled: true
+        enabled: false
         config: {}
+      paid_shared_restricted_sandbox:
+        enabled: true
+        config:
+          sandboxRuntime:
+            enabled: true
+          agentDefaults:
+            sandbox:
+              mode: "all"
+              backend: docker
+              docker:
+                image: ""
       paid_isolated:
         enabled: true
         config: {}
+  sandboxImages:
+    common:
+      name: openclaw-sandbox-common
+      tag: 31ec4f70d76eebfef933754934ee922c9d094c11
+      digest: ""
   serviceAccount:
     create: true
     name: openclaw-sa
@@ -238,14 +265,15 @@ openclaw:
   agentDefaults:
     modelPrimary: openai/gpt-5.4
     sandbox:
-      # Keep sandbox disabled in the current GKE shape until OpenClaw has a real
-      # sandbox backend/container strategy in-cluster. These limits are the
-      # prepared restricted baseline for the later tiered pools.
+      # Shared non-sandbox baseline. The *_sandbox pools override this with a
+      # Docker-backed sandbox path and separate rollout surface.
       mode: "off"
+      backend: docker
       scope: agent
       workspaceAccess: rw
       sessionToolsVisibility: spawned
       docker:
+        image: ""
         network: none
         readOnlyRoot: true
         capDrop:
@@ -254,6 +282,15 @@ openclaw:
         memory: 1g
         memorySwap: 1g
         cpus: 1
+  sandboxRuntime:
+    enabled: false
+    dockerSocketPath: /var/run/docker.sock
+    dockerHost: unix:///var/run/docker.sock
+    dind:
+      image: docker:29.3.1-dind-rootless
+      pullPolicy: IfNotPresent
+      env: {}
+      resources: {}
   args:
     - --allow-unconfigured
     - --bind

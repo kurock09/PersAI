@@ -89,6 +89,8 @@ jobs:
           context: ${{ env.OPENCLAW_SERVICE_PATH }}
           file: ${{ env.OPENCLAW_SERVICE_PATH }}/Dockerfile
           push: true
+          build-args: |
+            OPENCLAW_INSTALL_DOCKER_CLI=1
           tags: |
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/openclaw:${{ env.OPENCLAW_APPROVED_SHA }}
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/openclaw:${{ env.OPENCLAW_MAIN_TAG }}

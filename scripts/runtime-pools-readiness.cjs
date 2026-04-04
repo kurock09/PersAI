@@ -114,12 +114,27 @@ function main() {
   );
   const defaultPoolEnabled =
     parsed.scalar(`openclaw.runtimePools.pools.${defaultPoolKey}.enabled`, false) === true;
+  const defaultPoolSandboxEnabled =
+    parsed.scalar(`openclaw.runtimePools.pools.${defaultPoolKey}_sandbox.enabled`, false) === true;
   const freeEnabled =
     parsed.scalar("openclaw.runtimePools.pools.free_shared_restricted.enabled", false) === true;
+  const freeSandboxEnabled =
+    parsed.scalar("openclaw.runtimePools.pools.free_shared_restricted_sandbox.enabled", false) === true;
   const paidSharedEnabled =
     parsed.scalar("openclaw.runtimePools.pools.paid_shared_restricted.enabled", false) === true;
+  const paidSharedSandboxEnabled =
+    parsed.scalar("openclaw.runtimePools.pools.paid_shared_restricted_sandbox.enabled", false) === true;
   const paidIsolatedEnabled =
     parsed.scalar("openclaw.runtimePools.pools.paid_isolated.enabled", false) === true;
+  const freeSandboxRuntimeEnabled =
+    parsed.scalar("openclaw.runtimePools.pools.free_shared_restricted_sandbox.config.sandboxRuntime.enabled", false) === true;
+  const paidSharedSandboxRuntimeEnabled =
+    parsed.scalar(
+      "openclaw.runtimePools.pools.paid_shared_restricted_sandbox.config.sandboxRuntime.enabled",
+      false
+    ) === true;
+  const sandboxDockerHost = String(parsed.scalar("openclaw.sandboxRuntime.dockerHost", ""));
+  const sandboxDindImage = String(parsed.scalar("openclaw.sandboxRuntime.dind.image", ""));
 
   const blockers = [];
   if (!openclawEnabled) {
@@ -128,26 +143,34 @@ function main() {
   if (!defaultPoolKey) {
     blockers.push("openclaw.runtimePools.defaultPoolKey is required.");
   }
-  if (!defaultPoolEnabled) {
-    blockers.push("The configured default runtime pool must be enabled.");
+  if (!defaultPoolEnabled && !defaultPoolSandboxEnabled) {
+    blockers.push("The configured default runtime pool or its dedicated _sandbox variant must be enabled.");
   }
-  if (!freeEnabled) {
-    blockers.push("free_shared_restricted must be enabled.");
+  if (!freeEnabled && !freeSandboxEnabled) {
+    blockers.push("Either free_shared_restricted or free_shared_restricted_sandbox must be enabled.");
   }
-  if (!paidSharedEnabled) {
-    blockers.push("paid_shared_restricted must be enabled for full tiered runtime readiness.");
+  if (!paidSharedEnabled && !paidSharedSandboxEnabled) {
+    blockers.push(
+      "Either paid_shared_restricted or paid_shared_restricted_sandbox must be enabled for full tiered runtime readiness."
+    );
   }
   if (!paidIsolatedEnabled) {
     blockers.push("paid_isolated must be enabled for full tiered runtime readiness.");
   }
-  if (freeRuntimeUrl !== "http://openclaw-free-shared-restricted:18789") {
+  if (
+    freeRuntimeUrl !== "http://openclaw-free-shared-restricted:18789" &&
+    freeRuntimeUrl !== "http://openclaw-free-shared-restricted-sandbox:18789"
+  ) {
     blockers.push(
-      "api.env.OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED must point to http://openclaw-free-shared-restricted:18789."
+      "api.env.OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED must point to http://openclaw-free-shared-restricted:18789 or http://openclaw-free-shared-restricted-sandbox:18789."
     );
   }
-  if (paidSharedRuntimeUrl !== "http://openclaw-paid-shared-restricted:18789") {
+  if (
+    paidSharedRuntimeUrl !== "http://openclaw-paid-shared-restricted:18789" &&
+    paidSharedRuntimeUrl !== "http://openclaw-paid-shared-restricted-sandbox:18789"
+  ) {
     blockers.push(
-      "api.env.OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED must point to http://openclaw-paid-shared-restricted:18789."
+      "api.env.OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED must point to http://openclaw-paid-shared-restricted:18789 or http://openclaw-paid-shared-restricted-sandbox:18789."
     );
   }
   if (paidIsolatedRuntimeUrl !== "http://openclaw-paid-isolated:18789") {
@@ -155,22 +178,38 @@ function main() {
       "api.env.OPENCLAW_BASE_URL_PAID_ISOLATED must point to http://openclaw-paid-isolated:18789."
     );
   }
+  if ((freeSandboxEnabled || paidSharedSandboxEnabled) && !sandboxDockerHost) {
+    blockers.push("openclaw.sandboxRuntime.dockerHost must be configured for sandbox-capable shared pools.");
+  }
+  if ((freeSandboxEnabled || paidSharedSandboxEnabled) && !sandboxDindImage) {
+    blockers.push("openclaw.sandboxRuntime.dind.image must be configured for sandbox-capable shared pools.");
+  }
+  if (freeSandboxEnabled && !freeSandboxRuntimeEnabled) {
+    blockers.push("free_shared_restricted_sandbox must enable config.sandboxRuntime.enabled=true.");
+  }
+  if (paidSharedSandboxEnabled && !paidSharedSandboxRuntimeEnabled) {
+    blockers.push("paid_shared_restricted_sandbox must enable config.sandboxRuntime.enabled=true.");
+  }
 
   console.log("Runtime pool readiness");
   console.log(`- values file: ${valuesPath}`);
   console.log(`- openclaw.enabled: ${String(openclawEnabled)}`);
   console.log(`- default pool key: ${defaultPoolKey}`);
   console.log(`- free_shared_restricted enabled: ${String(freeEnabled)}`);
+  console.log(`- free_shared_restricted_sandbox enabled: ${String(freeSandboxEnabled)}`);
   console.log(`- paid_shared_restricted enabled: ${String(paidSharedEnabled)}`);
+  console.log(`- paid_shared_restricted_sandbox enabled: ${String(paidSharedSandboxEnabled)}`);
   console.log(`- paid_isolated enabled: ${String(paidIsolatedEnabled)}`);
   console.log(`- free runtime URL: ${freeRuntimeUrl}`);
   console.log(`- paid shared runtime URL: ${paidSharedRuntimeUrl}`);
   console.log(`- paid isolated runtime URL: ${paidIsolatedRuntimeUrl}`);
+  console.log(`- sandbox docker host: ${sandboxDockerHost}`);
+  console.log(`- sandbox dind image: ${sandboxDindImage}`);
   console.log("");
   console.log("Current R15e rules:");
   console.log("- All canonical runtime tiers must render as explicit pool services.");
   console.log("- Adapter routing must use explicit per-tier service URLs only.");
-  console.log("- The legacy `openclaw` compatibility alias must not be required.");
+  console.log("- Shared sandbox pools require a real Docker-backed backend, not only sandbox config flags.");
 
   if (blockers.length > 0) {
     console.log("");

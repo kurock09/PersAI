@@ -372,14 +372,14 @@ Step 15 — Tiered OpenClaw runtime and production hardening
   - [x] `paid_shared_restricted`
   - [x] `paid_isolated`
   - [x] per-tier deployment/service/config/network readiness while keeping one PersAI control plane
-  - [ ] sandbox activation gate: sandbox-enabled shared pools must launch as separate canary-ready runtime paths, not as an in-place flip of the current only runtime
+  - [ ] sandbox activation gate: sandbox-enabled shared pools must launch as separate canary-ready runtime paths, not as an in-place flip of the current only runtime, and they must have a real Docker-backed sandbox backend plus sandbox image path
   - [x] bounded rollback + explicit removal slice for temporary compatibility routing
 - [x] R15f — adapter/runtime router
   - [x] remove the single-runtime assumption from the OpenClaw adapter boundary
   - [x] route apply/chat/stream/channel turns to the correct runtime tier without breaking existing users
 - [ ] R15g — clean migration and cutover
-  - [ ] test users migrate directly to the tiered model
-  - [ ] do not preserve new legacy around “single shared runtime forever”
+  - [ ] test users migrate directly to the tiered model with repeatable live proof from materialized `effectiveTier` plus adapter `runtime_route` logs
+  - [ ] do not preserve new legacy around “single shared runtime forever”; live cutover checks must identify the actual pool host used for runtime bridge calls
 
 ---
 

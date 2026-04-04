@@ -3,6 +3,7 @@
 {{- if $pool.enabled }}
 {{- $poolCtx := dict "Values" $.Values "poolKey" $poolKey "pool" $pool }}
 {{- $openclaw := (include "persai.openclaw.poolMergedValues" (dict "Values" $.Values "pool" $pool) | fromYaml) }}
+{{- $sandboxImage := include "persai.openclaw.sandboxCommonImageRef" (dict "Values" $.Values "openclaw" $openclaw) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -20,7 +21,7 @@ data:
           "model": {
             "primary": {{ $openclaw.agentDefaults.modelPrimary | toJson }}
           }{{- if $openclaw.agentDefaults.sandbox }},
-          "sandbox": {{ $openclaw.agentDefaults.sandbox | toJson }}
+          "sandbox": {{ mergeOverwrite (deepCopy $openclaw.agentDefaults.sandbox) (dict "docker" (mergeOverwrite (deepCopy ($openclaw.agentDefaults.sandbox.docker | default dict)) (dict "image" (default $sandboxImage $openclaw.agentDefaults.sandbox.docker.image)))) | toJson }}
           {{- end }}
         }
       },

@@ -1,5 +1,67 @@
 # SESSION-HANDOFF
 
+## 2026-04-04 - R15 sandbox-ready shared pool baseline
+
+### What changed
+
+1. **Shared sandbox rollout now has a real physical path** — the chart/runtime model now distinguishes product-facing shared tiers from separate sandbox-capable physical pools, so sandbox activation no longer implies flipping the current only shared runtime in place.
+2. **Sandbox backend prerequisites are now explicit in infra** — the OpenClaw dev image build path now includes Docker CLI support, sandbox-capable pool values carry a Docker-backed backend surface, and deployment wiring can mount a dedicated in-cluster Docker runtime path for those pools.
+3. **Readiness/docs now enforce honest activation criteria** — `runtime-pools:readiness`, the runtime plan, roadmap, and live-test docs now treat backend/image readiness plus live route evidence as part of the sandbox activation gate, not just rendered sandbox JSON.
+
+### Files touched
+
+- `.github/workflows/openclaw-dev-image-publish.yml`
+- `infra/helm/templates/_helpers.tpl`
+- `infra/helm/templates/openclaw-configmap.yaml`
+- `infra/helm/templates/openclaw-deployment.yaml`
+- `infra/helm/templates/ingress.yaml`
+- `infra/helm/templates/networkpolicies.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `scripts/runtime-pools-readiness.cjs`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+1. PersAI
+2. Deploy/sync only after the rebuilt OpenClaw image with Docker CLI support is available and the sandbox-capable pool backend wiring is validated
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
+## 2026-04-04 - R15g runtime-route observability
+
+### What changed
+
+1. **Live cutover proof is now explicit** — the OpenClaw adapter emits `runtime_route` log lines on real bridge calls so operators can verify which runtime host and tier were actually used for a specific assistant instead of relying only on plan defaults or healthy pods.
+2. **Proof shape is stable across runtime paths** — the log includes `assistantId`, HTTP method/path, resolved runtime tier, route source, and target host, so web chat, Telegram turns, reminder/task control, memory, and media paths can all be checked with the same operational workflow.
+3. **R15 docs now require evidence, not inference** — the runtime plan, roadmap, and live-test guide now treat materialized `effectiveTier` plus adapter `runtime_route` lines as the repeatable cutover proof for `R15g`.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
 ## 2026-04-04 - R15d runtime assignment follow-through
 
 ### What changed

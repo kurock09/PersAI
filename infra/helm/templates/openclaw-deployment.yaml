@@ -3,14 +3,9 @@
 {{- if $pool.enabled }}
 {{- $poolCtx := dict "Values" $.Values "poolKey" $poolKey "pool" $pool }}
 {{- $openclaw := (include "persai.openclaw.poolMergedValues" (dict "Values" $.Values "pool" $pool) | fromYaml) }}
-{{- $openclawTag := default $.Values.global.images.tag $openclaw.image.tag }}
-{{- $openclawDigest := default "" $openclaw.image.digest }}
-{{- $openclawRepository := printf "%s/%s/%s/%s" $.Values.global.images.registryHost $.Values.global.images.projectId $.Values.global.images.repository $openclaw.image.name }}
-{{- $openclawImage := printf "%s:%s" $openclawRepository $openclawTag }}
-{{- if ne $openclawDigest "" }}
-{{- $openclawImage = printf "%s@%s" $openclawRepository $openclawDigest }}
-{{- end }}
+{{- $openclawImage := include "persai.openclaw.imageRef" (dict "Values" $.Values "image" $openclaw.image) }}
 {{- $gcsFuseEnabled := and (hasKey $openclaw "workspace") (hasKey $openclaw.workspace "gcsFuse") $openclaw.workspace.gcsFuse.enabled }}
+{{- $sandboxRuntimeEnabled := and (hasKey $openclaw "sandboxRuntime") $openclaw.sandboxRuntime.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -44,6 +39,10 @@ spec:
         - name: openclaw-config
           configMap:
             name: {{ include "persai.openclaw.poolConfigMapName" $poolCtx }}
+{{- if $sandboxRuntimeEnabled }}
+        - name: docker-run
+          emptyDir: {}
+{{- end }}
 {{- if $gcsFuseEnabled }}
         - name: workspace-gcs
           csi:
@@ -56,6 +55,25 @@ spec:
 {{- end }}
 {{- end }}
       containers:
+{{- if $sandboxRuntimeEnabled }}
+        - name: docker-dind
+          image: {{ $openclaw.sandboxRuntime.dind.image | quote }}
+          imagePullPolicy: {{ $openclaw.sandboxRuntime.dind.pullPolicy }}
+          env:
+{{- range $name, $value := $openclaw.sandboxRuntime.dind.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+{{- end }}
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: docker-run
+              mountPath: /var/run
+{{- with $openclaw.sandboxRuntime.dind.resources }}
+          resources:
+{{ toYaml . | indent 12 }}
+{{- end }}
+{{- end }}
         - name: openclaw
           image: "{{ $openclawImage }}"
           imagePullPolicy: {{ $openclaw.image.pullPolicy }}
@@ -77,6 +95,12 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
 {{- end }}
+{{- if $sandboxRuntimeEnabled }}
+            - name: DOCKER_HOST
+              value: {{ $openclaw.sandboxRuntime.dockerHost | quote }}
+            - name: OPENCLAW_DOCKER_SOCKET
+              value: {{ $openclaw.sandboxRuntime.dockerSocketPath | quote }}
+{{- end }}
             - name: OPENCLAW_CONFIG_PATH
               value: {{ $openclaw.configPath | quote }}
             - name: PERSAI_RUNTIME_POOL_KEY
@@ -93,6 +117,10 @@ spec:
             - name: openclaw-config
               mountPath: {{ $openclaw.configPath | quote }}
               subPath: openclaw.json
+{{- if $sandboxRuntimeEnabled }}
+            - name: docker-run
+              mountPath: /var/run
+{{- end }}
 {{- if $gcsFuseEnabled }}
             - name: workspace-gcs
               mountPath: {{ $openclaw.workspace.gcsFuse.mountPath | quote }}

@@ -209,17 +209,31 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 17. Verify OpenClaw deployment and service:
 
 ```bash
-kubectl -n persai-dev get deploy/openclaw svc/openclaw pods -l app.kubernetes.io/name=openclaw
-kubectl -n persai-dev logs deployment/openclaw --tail=120
+kubectl -n persai-dev get deploy,svc -l app.kubernetes.io/name=openclaw
+kubectl -n persai-dev logs deployment/openclaw-free-shared-restricted-sandbox --tail=120
 ```
 
 18. Verify OpenClaw health endpoints through port-forward:
 
 ```bash
-kubectl -n persai-dev port-forward svc/openclaw 18789:18789
+kubectl -n persai-dev port-forward svc/openclaw-free-shared-restricted-sandbox 18789:18789
 curl -fsS http://127.0.0.1:18789/healthz
 curl -fsS http://127.0.0.1:18789/readyz
 ```
+
+18.1 Verify sandbox-capable backend prerequisites on the target shared pool before treating sandbox activation as real:
+
+```bash
+kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- which docker
+kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- printenv DOCKER_HOST
+kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- sh -lc 'test -S /var/run/docker.sock && echo socket-ok'
+```
+
+Expected:
+
+- `docker` is available in the runtime image.
+- `DOCKER_HOST` is present for the sandbox-capable pool.
+- the Docker socket/backend path is mounted and reachable inside the OpenClaw container.
 
 19. Verify OpenClaw explicit Control UI origin policy wiring:
 
