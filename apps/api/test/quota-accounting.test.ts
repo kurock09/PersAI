@@ -25,6 +25,7 @@ async function run(): Promise<void> {
   process.env.DATABASE_URL =
     "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public";
   process.env.CLERK_SECRET_KEY = "sk_test_stub";
+  process.env.PERSAI_INTERNAL_API_TOKEN = "internal-api-token";
   process.env.QUOTA_TOKEN_BUDGET_DEFAULT = "200000";
   process.env.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT = "1000";
   process.env.WEB_ACTIVE_CHATS_CAP = "20";

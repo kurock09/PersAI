@@ -15,6 +15,7 @@ function applyBaseEnv(overrides: NodeJS.ProcessEnv = {}): void {
     OPENCLAW_ADAPTER_ENABLED: "true",
     OPENCLAW_BASE_URL: "http://openclaw.test",
     OPENCLAW_GATEWAY_TOKEN: "gateway-token",
+    PERSAI_INTERNAL_API_TOKEN: "internal-api-token",
     OPENCLAW_ADAPTER_TIMEOUT_MS: "1000",
     OPENCLAW_ADAPTER_MAX_RETRIES: "0",
     ...overrides
