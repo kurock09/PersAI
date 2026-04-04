@@ -126,6 +126,8 @@ function main() {
     parsed.scalar("openclaw.runtimePools.pools.paid_shared_restricted_sandbox.enabled", false) === true;
   const paidIsolatedEnabled =
     parsed.scalar("openclaw.runtimePools.pools.paid_isolated.enabled", false) === true;
+  const paidIsolatedSandboxRuntimeEnabled =
+    parsed.scalar("openclaw.runtimePools.pools.paid_isolated.config.sandboxRuntime.enabled", false) === true;
   const freeSandboxRuntimeEnabled =
     parsed.scalar("openclaw.runtimePools.pools.free_shared_restricted_sandbox.config.sandboxRuntime.enabled", false) === true;
   const paidSharedSandboxRuntimeEnabled =
@@ -178,10 +180,10 @@ function main() {
       "api.env.OPENCLAW_BASE_URL_PAID_ISOLATED must point to http://openclaw-paid-isolated:18789."
     );
   }
-  if ((freeSandboxEnabled || paidSharedSandboxEnabled) && !sandboxDockerHost) {
+  if ((freeSandboxEnabled || paidSharedSandboxEnabled || paidIsolatedEnabled) && !sandboxDockerHost) {
     blockers.push("openclaw.sandboxRuntime.dockerHost must be configured for sandbox-capable shared pools.");
   }
-  if ((freeSandboxEnabled || paidSharedSandboxEnabled) && !sandboxDindImage) {
+  if ((freeSandboxEnabled || paidSharedSandboxEnabled || paidIsolatedEnabled) && !sandboxDindImage) {
     blockers.push("openclaw.sandboxRuntime.dind.image must be configured for sandbox-capable shared pools.");
   }
   if (freeSandboxEnabled && !freeSandboxRuntimeEnabled) {
@@ -189,6 +191,9 @@ function main() {
   }
   if (paidSharedSandboxEnabled && !paidSharedSandboxRuntimeEnabled) {
     blockers.push("paid_shared_restricted_sandbox must enable config.sandboxRuntime.enabled=true.");
+  }
+  if (paidIsolatedEnabled && !paidIsolatedSandboxRuntimeEnabled) {
+    blockers.push("paid_isolated must enable config.sandboxRuntime.enabled=true.");
   }
 
   console.log("Runtime pool readiness");
@@ -209,7 +214,7 @@ function main() {
   console.log("Current R15e rules:");
   console.log("- All canonical runtime tiers must render as explicit pool services.");
   console.log("- Adapter routing must use explicit per-tier service URLs only.");
-  console.log("- Shared sandbox pools require a real Docker-backed backend, not only sandbox config flags.");
+  console.log("- Sandbox-capable pools require a real Docker-backed backend, not only sandbox config flags.");
 
   if (blockers.length > 0) {
     console.log("");

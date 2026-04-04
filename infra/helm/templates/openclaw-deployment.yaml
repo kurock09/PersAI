@@ -9,7 +9,7 @@
 {{- $gcsFuseEnabled := and (hasKey $openclaw "workspace") (hasKey $openclaw.workspace "gcsFuse") $openclaw.workspace.gcsFuse.enabled }}
 {{- $sandboxRuntimeEnabled := and (hasKey $openclaw "sandboxRuntime") $openclaw.sandboxRuntime.enabled }}
 {{- $sandboxPreloadEnabled := and $sandboxRuntimeEnabled $openclaw.sandboxRuntime.preloadSandboxImage }}
-{{- $registryHost := printf "%s-docker.pkg.dev" $.Values.global.images.registryHost }}
+{{- $registryHost := $.Values.global.images.registryHost }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

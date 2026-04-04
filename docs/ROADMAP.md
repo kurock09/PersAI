@@ -372,7 +372,7 @@ Step 15 — Tiered OpenClaw runtime and production hardening
   - [x] `paid_shared_restricted`
   - [x] `paid_isolated`
   - [x] per-tier deployment/service/config/network readiness while keeping one PersAI control plane
-  - [x] sandbox activation gate: sandbox-enabled shared pools launch as separate runtime paths, preload published `openclaw-sandbox*` images via Workload Identity/GAR reader, mirror bind-source workspace paths into `docker-dind`, and are live-verified on web + Telegram after fresh pod rollout
+  - [x] sandbox activation gate: sandbox-enabled pools launch with real Docker-backed runtime paths, preload published `openclaw-sandbox*` images via Workload Identity/GAR reader, mirror bind-source workspace paths into `docker-dind`, and are live-verified on web + Telegram after fresh pod rollout
   - [x] bounded rollback + explicit removal slice for temporary compatibility routing
 - [x] R15f — adapter/runtime router
   - [x] remove the single-runtime assumption from the OpenClaw adapter boundary

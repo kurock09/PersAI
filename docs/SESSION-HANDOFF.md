@@ -85,6 +85,36 @@ Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
 
 ---
 
+## 2026-04-04 - R15 paid-isolated sandbox parity
+
+### What changed
+
+1. **`paid_isolated` no longer stays outside the sandbox baseline** — after closing the shared-tier sandbox path, the isolated paid tier was still configured as a direct runtime without the same Docker-backed sandbox runtime surface.
+2. **Dev truth now requires sandbox parity for the isolated tier** — `values-dev`, runtime-pool readiness, and live-test guidance now treat `paid_isolated` as another sandbox-capable pool that must enable `sandboxRuntime`, use the published sandbox images, and satisfy the same backend checks.
+3. **This removes the last silent exception inside `R15e/R15g`** — the tiered runtime plan now closes with one consistent sandbox activation story across free shared, paid shared, and paid isolated lanes.
+
+### Files touched
+
+- `infra/helm/values-dev.yaml`
+- `scripts/runtime-pools-readiness.cjs`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/ROADMAP.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+1. PersAI
+2. Roll out/sync PersAI so `openclaw-paid-isolated` gets the same sandbox runtime surface as the sandbox-capable shared lanes
+3. Verify a fresh `paid_isolated` pod exposes `docker-dind`, sandbox image preload, and healthy `readyz`
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
 ## 2026-04-04 - R15 sandbox-ready shared pool baseline
 
 ### What changed

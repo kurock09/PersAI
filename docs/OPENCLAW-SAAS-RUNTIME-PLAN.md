@@ -237,14 +237,14 @@ Outcome:
 - separate OpenClaw pool topology for `free_shared_restricted`, `paid_shared_restricted`, and `paid_isolated`
 - tier-specific config and network boundaries
 - health/rollout visibility per pool
-- sandbox-enabled shared tiers activate only after the sandbox activation gate passes
+- sandbox-enabled tiers activate only after the sandbox activation gate passes
 
 Current slice delivered:
 
 - Helm chart is now pool-aware instead of hardcoding one physical OpenClaw deployment/config/service forever
 - each enabled runtime pool renders its own deployment, service, and configmap with pool labels
 - API/runtime routing still exposes the three canonical product tiers, but shared-tier URLs may now point at separate sandbox-capable physical pools (`free_shared_restricted_sandbox`, `paid_shared_restricted_sandbox`) without changing admin/product contracts
-- dev values now model the clean-final topology: sandbox-capable shared pools are separate deployments/services, while `paid_isolated` stays a distinct direct pool
+- dev values now model the clean-final topology: sandbox-capable shared pools are separate deployments/services, and `paid_isolated` keeps its direct tier identity while using the same Docker-backed sandbox baseline
 - the legacy compatibility alias service `openclaw` is removed from the active chart; ingress and runtime config now point directly to explicit pool services
 - OpenClaw image build now has an explicit path to include Docker CLI support for sandbox-capable pools, instead of relying on a manual runtime mutation
 - sandbox-capable pools now also have a declared image supply path: CI publishes `openclaw-sandbox` / `openclaw-sandbox-common`, and the pool pod preloads the sandbox images into its local Docker backend before the OpenClaw gateway starts
@@ -284,8 +284,8 @@ Outcome:
 - runtime-tier routing must have deterministic resolution tests
 - GKE rollout work must include reachability and health checks per runtime tier
 - live cutover checks must prove the resolved `effectiveTier` and the actual runtime host used for real bridge calls
-- sandbox-capable shared pools must also prove backend readiness (`docker` available in runtime image, reachable socket/daemon, sandbox image configured) before they count toward `R15e`/`R15g`
-- for Docker-backed shared sandbox pools, "image configured" means the exact `openclaw-sandbox-common` image exists in GAR and the pool can preload/pull it via Workload Identity before serving traffic
+- sandbox-capable pools must also prove backend readiness (`docker` available in runtime image, reachable socket/daemon, sandbox image configured) before they count toward `R15e`/`R15g`
+- for Docker-backed sandbox pools, "image configured" means the exact `openclaw-sandbox-common` image exists in GAR and the pool can preload/pull it via Workload Identity before serving traffic
 - for auto-healing sandbox pods, the runtime GSA (`openclaw-runtime`) must also have `Artifact Registry reader` on the GAR repository used by `openclaw-sandbox*`; otherwise a fresh pod can boot but fail the preload gate on image pull
 
 ## Relation to other docs

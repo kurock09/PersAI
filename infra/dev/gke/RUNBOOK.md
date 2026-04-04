@@ -237,7 +237,7 @@ Expected:
 - the rootless Docker socket/backend path (`/run/user/1000/docker.sock`) is mounted and reachable inside the OpenClaw container.
 - the `docker-dind` sidecar sees the same bind-source paths the runtime will hand to Docker (`/mnt/workspaces/persai` and `/home/node/.openclaw/workspace`).
 
-18.2 Verify sandbox image pull identity before relying on auto-recovery of fresh pods:
+  18.2 Verify sandbox image pull identity before relying on auto-recovery of fresh pods:
 
 ```bash
 gcloud artifacts repositories get-iam-policy persai --location=europe-west1

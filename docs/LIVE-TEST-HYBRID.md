@@ -111,7 +111,7 @@ curl.exe -s http://127.0.0.1:18789/readyz
 ### Deploy / image note
 
 OpenClaw image tag and digest are pinned in `infra/helm/values-dev.yaml`. CI updates those pins after pushes to `main` per [infra/dev/gitops/README.md](infra/dev/gitops/README.md). If preflight stays unhealthy, inspect the tier-specific OpenClaw Deployments (`openclaw-free-shared-restricted`, `openclaw-paid-shared-restricted`, `openclaw-paid-isolated`) and Argo CD sync for `persai-dev`.
-For the sandbox-ready shared path, also verify the corresponding `*_sandbox` Deployments/Services and confirm the pod actually has a working Docker-backed sandbox backend before treating the pool as isolated.
+For sandbox-capable tiers, also verify the corresponding runtime Deployment/Service (`*_sandbox` shared lanes and `openclaw-paid-isolated`) and confirm the pod actually has a working Docker-backed sandbox backend before treating the pool as isolated.
 
 **Changing the fork pin:** push the new commit to **`kurock09/openclaw` on GitHub before** (or immediately re-run CI after) updating `openclaw-approved-sha.txt` on PersAI `main`; otherwise workflows fail with `not our ref` (see gitops README).
 
@@ -166,7 +166,7 @@ Current adapter log shape:
 runtime_route method=POST path=/api/v1/runtime/chat/web/stream tier=paid_shared_restricted source=tier_specific host=openclaw-paid-shared-restricted:18789 assistantId=<uuid>
 ```
 
-For sandbox-capable shared pools, add one more check before calling the cutover honest:
+For sandbox-capable pools, add one more check before calling the cutover honest:
 
 1. `kubectl exec` into the target OpenClaw pod and confirm `docker` is available in `PATH`.
 2. Confirm the configured sandbox image is present in rendered config (`agents.defaults.sandbox.docker.image`).

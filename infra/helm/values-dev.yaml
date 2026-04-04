@@ -205,7 +205,15 @@ openclaw:
                 image: ""
       paid_isolated:
         enabled: true
-        config: {}
+        config:
+          sandboxRuntime:
+            enabled: true
+          agentDefaults:
+            sandbox:
+              mode: "all"
+              backend: docker
+              docker:
+                image: ""
   sandboxImages:
     base:
       name: openclaw-sandbox
