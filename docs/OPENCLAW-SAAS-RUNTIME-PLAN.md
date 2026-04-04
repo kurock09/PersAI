@@ -191,7 +191,7 @@ Outcome:
 - explicit workspace/resource/network limits for the shared pool
 - no silent dependence on permissive OpenClaw defaults
 - supporting detail: `docs/OPENCLAW-SHARED-RUNTIME-HARDENING.md`
-- note: the API internal listener/service split is now in place; the remaining network step is explicit public ingress CIDR allowlisting so API `NetworkPolicy` can be enforced without breaking `api.persai.dev`
+- note: the API internal listener/service split is now live together with explicit public ingress CIDR allowlisting and deployed `NetworkPolicy`, so the current `persai-dev` cluster already enforces the R15b network boundary
 - rollout gate: run `corepack pnpm run networkpolicy:readiness:strict` before merging/pushing CIDR-dependent NetworkPolicy changes on an auto-synced branch
 - source-of-truth rule: CIDRs must come from the real current ingress path, with official Google LB/GFE guidance as the primary source for GKE-backed pod ingress and Telegram webhook ranges used only as supplemental sender input when truly pod-visible
 - operator/agent starting point: use the canonical starter block embedded in `infra/helm/values-dev.yaml` comments and mirrored in `infra/dev/gke/RUNBOOK.md`

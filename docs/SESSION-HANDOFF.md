@@ -1,5 +1,34 @@
 # SESSION-HANDOFF
 
+## 2026-04-04 - R15b live verification and docs truth sync
+
+### What changed
+
+1. **Live rollout verified** — `persai-dev` now has fresh `api`, `web`, and `openclaw` pods on the latest rollout, with `api-internal` deployed as a dedicated ClusterIP service and both `api-ingress-baseline` and `openclaw-ingress-baseline` `NetworkPolicy` objects active in-cluster.
+2. **New runtime boundary proven live** — external smoke confirms `https://api.persai.dev/health`, `https://persai.dev/`, and `https://bot.persai.dev/healthz` all return `200`, while `https://api.persai.dev/api/v1/internal/...` now returns `404` from the public ingress path.
+3. **Internal listener/service split proven in-cluster** — from the live OpenClaw pod, `http://api:3001/api/v1/internal/...` returns `404`, `http://api-internal:3002/health` returns `404`, and authenticated calls to `http://api-internal:3002/api/v1/internal/...` reach the internal listener instead of the public one.
+4. **OpenClaw runtime wiring confirmed** — the live OpenClaw pod resolves `PERSAI_API_BASE_URL=http://api-internal:3002`, has `PERSAI_INTERNAL_API_TOKEN` present, and mounts an `openclaw-config` that points the PersAI secret resolver to `api-internal:3002` while keeping the shared-runtime deny-list and prepared sandbox baseline active.
+5. **R15b truth sync** — `docs/ROADMAP.md`, `docs/OPENCLAW-SHARED-RUNTIME-HARDENING.md`, `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`, `docs/TEST-PLAN.md`, and `docs/CHANGELOG.md` now reflect the live state instead of the previous “prepared but not enforced” wording. `R15b` is now treated as complete; the remaining hardening work moves to later tiered-runtime slices rather than lingering as stale baseline blockers.
+
+### Files touched
+
+- `docs/ROADMAP.md`
+- `docs/OPENCLAW-SHARED-RUNTIME-HARDENING.md`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
 ## 2026-04-03 - PersAI docs: tiered OpenClaw runtime strategy, hardening baseline, fork audit automation
 
 ### What changed

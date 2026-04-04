@@ -609,3 +609,8 @@ Required in CI:
   - API ingress `NetworkPolicy` is enabled only after trusted public ingress CIDRs are explicitly configured
   - `corepack pnpm run networkpolicy:readiness:strict` fails while required CIDR inputs are still missing
   - rollout docs identify Google LB/GFE guidance as the primary source-of-truth for GKE pod-visible ingress CIDRs and treat Telegram webhook ranges as supplemental only
+  - live smoke after rollout confirms:
+    - `https://api.persai.dev/health` returns `200`
+    - `https://bot.persai.dev/healthz` returns `200`
+    - `https://api.persai.dev/api/v1/internal/...` returns `404`
+    - from the OpenClaw pod, `http://api-internal:3002/api/v1/internal/...` reaches the internal listener while `http://api:3001/api/v1/internal/...` and `http://api-internal:3002/health` both return `404`

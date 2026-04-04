@@ -343,12 +343,12 @@ Step 15 — Tiered OpenClaw runtime and production hardening
   - [x] ADR-063: one combined program for shared-runtime hardening + tiered routing
   - [x] detailed execution plan: `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
   - [x] architecture / roadmap / test-plan alignment without deepening one-runtime legacy assumptions
-- [ ] R15b — shared runtime production hardening baseline
+- [x] R15b — shared runtime production hardening baseline
   - [x] explicit deny-by-default user-facing tool surface for PersAI runtime turns
   - [x] explicit OpenClaw sandbox/workspace-access/resource limits in Helm/config
-  - [ ] internal runtime/network boundary hardening in GKE before paid rollout
+  - [x] internal runtime/network boundary hardening in GKE before paid rollout
   - [x] split public API traffic from internal runtime endpoints so `api/v1/internal/*` no longer shares the same externally reachable service/port
-  - [ ] enforce API ingress `NetworkPolicy` after trusted public ingress CIDRs are explicitly configured
+  - [x] enforce API ingress `NetworkPolicy` after trusted public ingress CIDRs are explicitly configured
   - [x] add repeatable `shared-runtime:readiness` gate so prepared hardening baseline is validated before rollout
   - [x] split runtime auth into distinct inbound `OPENCLAW_GATEWAY_TOKEN` vs outbound `PERSAI_INTERNAL_API_TOKEN`
   - [x] add repeatable `networkpolicy:readiness` gate so CIDR-dependent rollout is checked before auto-sync deploy

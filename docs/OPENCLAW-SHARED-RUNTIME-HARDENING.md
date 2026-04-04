@@ -39,7 +39,6 @@ That gap is now partially addressed:
 However, the following still remain open:
 
 - sandbox is intentionally still `mode: "off"` in the current GKE shape until the runtime has a real in-cluster sandbox backend/container strategy
-- network isolation is still not enforced through GKE `NetworkPolicy`
 - the current restricted tool deny list is a safe baseline, not the final per-tier policy model
 
 ### 3. Split bearer auth is now the required baseline
@@ -69,9 +68,15 @@ Remaining production risk:
 - both token families are still long-lived shared secrets within their respective directions
 - network policy and secret handling still matter because the system is not yet on short-lived workload identity for this runtime boundary
 
-### 4. Infra-level isolation is not yet codified in the docs baseline
+### 4. Infra-level isolation is now live and must stay codified in the docs baseline
 
-The shared-runtime production story is incomplete until GKE/network policy and runtime reachability rules are explicitly defined as part of Step 15.
+The shared-runtime production story now includes a live GKE baseline for runtime reachability:
+
+- `api-internal` is deployed as a dedicated ClusterIP service on port `3002`
+- the public API listener returns `404` for `/api/v1/internal/*`
+- the internal API listener/service returns `404` for non-internal routes
+- `api-ingress-baseline` and `openclaw-ingress-baseline` `NetworkPolicy` objects are live in `persai-dev`
+- external smoke confirms `https://api.persai.dev/api/v1/internal/...` is no longer reachable from the public ingress path
 
 ## Shared-runtime production baseline
 
@@ -170,15 +175,13 @@ Current implementation status:
 
 - Helm now includes `infra/helm/templates/networkpolicies.yaml`
 - `openclaw` ingress can now be narrowed to API pods plus explicitly configured pod-visible trusted ingress CIDRs
-- `values-dev.yaml` enables the network-policy scaffold, but the `openclaw` ingress restriction is intentionally gated until trusted pod-visible ingress CIDRs are provided; Telegram sender ranges are only supplementary when they truly reach the pod directly
+- `values-dev.yaml` now carries the verified GKE pod-visible CIDR baseline (`35.191.0.0/16`, `130.211.0.0/22`) so both API and OpenClaw ingress policies render and deploy
 - `corepack pnpm run networkpolicy:readiness:strict` now provides a repeatable gate for CIDR-dependent rollout readiness
-
-Important current limitation:
 
 - PersAI `api` now exposes a dedicated internal listener/service path (`api-internal:3002`) for OpenClaw runtime traffic
 - the public API listener rejects `/api/v1/internal/*` routes, while the internal listener rejects non-internal routes
 - OpenClaw runtime-facing calls now target the internal API service instead of the public API service
-- full GKE-level API ingress restriction still requires explicit public ingress CIDR allowlisting before the API `NetworkPolicy` can be safely enforced
+- the live `persai-dev` cluster now enforces GKE-level ingress restriction with `api-ingress-baseline` and `openclaw-ingress-baseline`
 
 ### Operations
 

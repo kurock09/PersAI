@@ -63,6 +63,8 @@ type PlanDraft = {
   toolActivations: ToolActivationDraft[];
 };
 
+const PLAN_LOCKED_INTERNAL_TOOL_CODES = new Set(["cron"]);
+
 /* ─── Helpers ─── */
 
 function toNullable(value: string): string | null {
@@ -270,12 +272,15 @@ function Input({
 /* ─── Tool activations (read-only inline) ─── */
 
 function ToolActivationsInline({ activations }: { activations: AdminPlanToolActivation[] }) {
-  if (activations.length === 0) {
+  const visibleActivations = activations.filter(
+    (ta) => !PLAN_LOCKED_INTERNAL_TOOL_CODES.has(ta.toolCode)
+  );
+  if (visibleActivations.length === 0) {
     return <span className="text-[10px] text-text-subtle italic">none configured</span>;
   }
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-      {activations.map((ta) => (
+      {visibleActivations.map((ta) => (
         <span key={ta.toolCode} className="text-[10px]">
           <span className={ta.active ? "text-emerald-400" : "text-text-muted line-through"}>
             {ta.displayName}
@@ -332,6 +337,9 @@ function ToolActivationsEdit({
         <div key={ta.toolCode} className="grid grid-cols-[1fr_70px_40px_88px] gap-px bg-border">
           <span className="bg-surface-raised px-2 py-1 text-[11px] text-text truncate">
             {ta.displayName}
+            {PLAN_LOCKED_INTERNAL_TOOL_CODES.has(ta.toolCode) ? (
+              <span className="ml-1 text-[10px] text-text-subtle">(internal)</span>
+            ) : null}
           </span>
           <span className="bg-surface-raised px-2 py-1">
             <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
@@ -343,6 +351,7 @@ function ToolActivationsEdit({
               type="checkbox"
               checked={ta.active}
               onChange={() => toggle(idx)}
+              disabled={PLAN_LOCKED_INTERNAL_TOOL_CODES.has(ta.toolCode)}
               className="h-3 w-3 rounded border-border bg-surface text-accent focus:ring-accent/50 focus:ring-1"
             />
           </span>
@@ -353,6 +362,7 @@ function ToolActivationsEdit({
               value={ta.dailyCallLimit ?? ""}
               onChange={(e) => setLimit(idx, e.target.value)}
               placeholder="∞"
+              disabled={PLAN_LOCKED_INTERNAL_TOOL_CODES.has(ta.toolCode)}
               className="w-16 appearance-none rounded border border-border bg-surface px-2 py-0.5 text-right text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
             />
           </span>

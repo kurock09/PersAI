@@ -631,9 +631,10 @@ export class MaterializeAssistantPublishedVersionService {
     }>
   ): string {
     const lines: string[] = [];
+    const userVisiblePolicy = toolQuotaPolicy.filter((tool) => tool.toolCode !== "cron");
 
-    const active = toolQuotaPolicy.filter((t) => t.activationStatus === "active");
-    const inactive = toolQuotaPolicy.filter((t) => t.activationStatus !== "active");
+    const active = userVisiblePolicy.filter((t) => t.activationStatus === "active");
+    const inactive = userVisiblePolicy.filter((t) => t.activationStatus !== "active");
 
     if (active.length > 0) {
       lines.push("## Active Tools");
@@ -655,7 +656,7 @@ export class MaterializeAssistantPublishedVersionService {
       lines.push("");
     }
 
-    if (toolQuotaPolicy.length === 0) {
+    if (userVisiblePolicy.length === 0) {
       lines.push("No tools configured yet.");
       lines.push("");
     }
