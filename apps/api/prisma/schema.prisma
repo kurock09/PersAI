@@ -366,6 +366,7 @@ model AssistantGovernance {
   policyEnvelope     Json?     @map("policy_envelope")
   memoryControl      Json?     @map("memory_control")
   tasksControl       Json?     @map("tasks_control")
+  assistantPlanOverrideCode String? @map("assistant_plan_override_code")
   quotaPlanCode      String?   @map("quota_plan_code")
   quotaHook          Json?     @map("quota_hook")
   auditHook          Json?     @map("audit_hook")

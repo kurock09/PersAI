@@ -18,13 +18,14 @@ import {
   ResponseWithPlatformContext
 } from "../../../platform-core/interface/http/request-http.types";
 import { ManageChatMediaService } from "../../application/manage-chat-media.service";
+import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 
 @Controller("api/v1")
 export class MediaAttachmentController {
   constructor(private readonly manageChatMediaService: ManageChatMediaService) {}
 
   @Post("assistant/chat/web/stage-attachment")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_MEDIA_FILE_BYTES } }))
   async stageAttachment(
     @Req() req: RequestWithPlatformContext,
     @Body() body: { surfaceThreadKey?: string },
@@ -65,7 +66,7 @@ export class MediaAttachmentController {
   }
 
   @Post("assistant/chat/:chatId/message/:messageId/attachment")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_MEDIA_FILE_BYTES } }))
   async uploadAttachment(
     @Req() req: RequestWithPlatformContext,
     @Param("chatId") chatId: string,
@@ -101,7 +102,7 @@ export class MediaAttachmentController {
   }
 
   @Post("assistant/voice/transcribe")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_MEDIA_FILE_BYTES } }))
   async transcribeVoice(
     @Req() req: RequestWithPlatformContext,
     @UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string } | undefined

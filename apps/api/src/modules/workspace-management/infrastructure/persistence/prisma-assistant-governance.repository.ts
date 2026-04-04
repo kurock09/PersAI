@@ -26,6 +26,7 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
         assistantId,
         memoryControl: createDefaultMemoryControlEnvelope() as Prisma.InputJsonValue,
         tasksControl: createDefaultTasksControlEnvelope() as Prisma.InputJsonValue,
+        assistantPlanOverrideCode: null,
         quotaPlanCode: defaultPlanCode
       }
     });
@@ -46,6 +47,7 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
           assistantId,
           memoryControl: createDefaultMemoryControlEnvelope() as Prisma.InputJsonValue,
           tasksControl: createDefaultTasksControlEnvelope() as Prisma.InputJsonValue,
+          assistantPlanOverrideCode: null,
           quotaPlanCode: await this.resolveDefaultFirstRegistrationPlanCode()
         }
       });
@@ -54,6 +56,34 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
       where: { assistantId: row.assistantId },
       data: {
         secretRefs: secretRefs === null ? Prisma.DbNull : (secretRefs as Prisma.InputJsonValue)
+      }
+    });
+    return this.mapToDomain(updated);
+  }
+
+  async setAssistantPlanOverride(
+    assistantId: string,
+    planCode: string | null
+  ): Promise<AssistantGovernance> {
+    let row = await this.prisma.assistantGovernance.findUnique({
+      where: { assistantId }
+    });
+    if (row === null) {
+      row = await this.prisma.assistantGovernance.create({
+        data: {
+          assistantId,
+          memoryControl: createDefaultMemoryControlEnvelope() as Prisma.InputJsonValue,
+          tasksControl: createDefaultTasksControlEnvelope() as Prisma.InputJsonValue,
+          assistantPlanOverrideCode: planCode,
+          quotaPlanCode: await this.resolveDefaultFirstRegistrationPlanCode()
+        }
+      });
+      return this.mapToDomain(row);
+    }
+    const updated = await this.prisma.assistantGovernance.update({
+      where: { assistantId: row.assistantId },
+      data: {
+        assistantPlanOverrideCode: planCode
       }
     });
     return this.mapToDomain(updated);
@@ -113,6 +143,7 @@ export class PrismaAssistantGovernanceRepository implements AssistantGovernanceR
       policyEnvelope: governance.policyEnvelope,
       memoryControl: governance.memoryControl,
       tasksControl: governance.tasksControl,
+      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
       quotaPlanCode: governance.quotaPlanCode,
       quotaHook: governance.quotaHook,
       auditHook: governance.auditHook,

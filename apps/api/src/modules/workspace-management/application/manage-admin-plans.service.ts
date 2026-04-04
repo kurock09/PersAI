@@ -24,6 +24,7 @@ import {
   AdminAuthorizationService,
   type DangerousAdminActionCode
 } from "./admin-authorization.service";
+import { isPlanManagedTool } from "../../../../prisma/tool-catalog-data";
 
 function toBoolean(value: unknown): boolean {
   return value === true;
@@ -291,8 +292,7 @@ export class ManageAdminPlansService {
         }
       },
       quotaLimits: {
-        tokenBudgetLimit: toNullablePositiveInt(quotaLimitsRaw.tokenBudgetLimit),
-        costToolUnitsLimit: toNullablePositiveInt(quotaLimitsRaw.costToolUnitsLimit)
+        tokenBudgetLimit: toNullablePositiveInt(quotaLimitsRaw.tokenBudgetLimit)
       },
       primaryModelKey: toNullableString(parsed.primaryModelKey),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault)
@@ -319,6 +319,11 @@ export class ManageAdminPlansService {
         typed.toolCode,
         `toolActivations[${String(idx)}].toolCode`
       );
+      if (!isPlanManagedTool(toolCode)) {
+        throw new BadRequestException(
+          `toolActivations[${String(idx)}].toolCode "${toolCode}" is not plan-managed and cannot be edited here.`
+        );
+      }
       const active = toBoolean(typed.active);
       let dailyCallLimit: number | null = null;
       if (typed.dailyCallLimit !== undefined && typed.dailyCallLimit !== null) {
@@ -342,10 +347,6 @@ export class ManageAdminPlansService {
     if (input.quotaLimits.tokenBudgetLimit !== null) {
       quotaAccounting.tokenBudgetLimit = input.quotaLimits.tokenBudgetLimit;
     }
-    if (input.quotaLimits.costToolUnitsLimit !== null) {
-      quotaAccounting.costOrTokenDrivingToolClassUnitsLimit = input.quotaLimits.costToolUnitsLimit;
-    }
-
     return {
       displayName: input.displayName,
       description: input.description,
@@ -452,10 +453,7 @@ export class ManageAdminPlansService {
         }
       },
       quotaLimits: {
-        tokenBudgetLimit: toNullablePositiveInt(quotaAccountingRaw.tokenBudgetLimit),
-        costToolUnitsLimit: toNullablePositiveInt(
-          quotaAccountingRaw.costOrTokenDrivingToolClassUnitsLimit
-        )
+        tokenBudgetLimit: toNullablePositiveInt(quotaAccountingRaw.tokenBudgetLimit)
       },
       primaryModelKey: toNullableString(billingHints.primaryModelKey),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
@@ -463,8 +461,10 @@ export class ManageAdminPlansService {
         toolCode: ta.toolCode,
         displayName: ta.displayName,
         toolClass: ta.toolClass,
+        policyClass: ta.policyClass,
         active: ta.activationStatus === "active",
-        dailyCallLimit: ta.dailyCallLimit
+        dailyCallLimit: ta.dailyCallLimit,
+        visibleInPlanEditor: ta.policyClass === "plan_managed"
       })),
       createdAt: plan.createdAt.toISOString(),
       updatedAt: plan.updatedAt.toISOString()

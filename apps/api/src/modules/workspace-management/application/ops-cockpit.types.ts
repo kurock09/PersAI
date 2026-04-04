@@ -5,6 +5,17 @@ export type AdminOpsCockpitState = {
     exists: boolean;
     assistantId: string | null;
     workspaceId: string | null;
+    effectivePlan: {
+      code: string | null;
+      source:
+        | "workspace_subscription"
+        | "assistant_plan_override"
+        | "assistant_plan_fallback"
+        | "catalog_default_fallback"
+        | "none";
+      assistantPlanOverrideCode: string | null;
+      quotaPlanCode: string | null;
+    };
     latestPublishedVersion: {
       id: string | null;
       version: number | null;
@@ -36,6 +47,8 @@ export type AdminOpsCockpitState = {
   controls: {
     reapplySupported: boolean;
     restartSupported: boolean;
+    assistantPlanOverrideSupported: boolean;
+    assistantPlanResetSupported: boolean;
   };
   incidentSignals: Array<{
     code: string;

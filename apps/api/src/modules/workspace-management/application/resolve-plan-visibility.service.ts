@@ -83,6 +83,7 @@ export class ResolvePlanVisibilityService {
       userId: assistant.userId,
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,
+      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
       assistantQuotaPlanCode: governance.quotaPlanCode
     });
     const plan =
@@ -92,11 +93,13 @@ export class ResolvePlanVisibilityService {
     const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(
       assistant.workspaceId
     );
+    const effectiveCapabilities = await this.resolveEffectiveCapabilityStateService.execute({
+      assistant,
+      governance
+    });
     const limits = this.resolveLimits(plan);
     const tokenLimit = limits.tokenBudgetLimit;
     const tokenUsed = Number(quotaState?.tokenBudgetUsed ?? BigInt(0));
-    const costLimit = limits.costOrTokenDrivingToolClassUnitsLimit;
-    const costUsed = quotaState?.costOrTokenDrivingToolClassUnitsUsed ?? 0;
     const chatsLimit = limits.activeWebChatsLimit;
     const chatsUsed = quotaState?.activeWebChatsCurrent ?? 0;
     return {
@@ -110,10 +113,31 @@ export class ResolvePlanVisibilityService {
         currentPeriodEndsAt: subscription.currentPeriodEndsAt,
         isTrialPlan: plan?.isTrialPlan ?? false
       },
+      entitlements: {
+        channelsAndSurfaces: {
+          webChat: effectiveCapabilities.channelsAndSurfaces.webChat,
+          telegram: effectiveCapabilities.channelsAndSurfaces.telegram,
+          whatsapp: effectiveCapabilities.channelsAndSurfaces.whatsapp,
+          max: effectiveCapabilities.channelsAndSurfaces.max
+        }
+      },
       limits: {
+        tokenBudgetUsed: tokenUsed,
+        tokenBudgetLimit: tokenLimit,
         tokenBudgetPercent: toPercent(tokenUsed, tokenLimit),
-        costDrivingToolsPercent: toPercent(costUsed, costLimit),
-        activeWebChatsPercent: toPercent(chatsUsed, chatsLimit)
+        activeWebChatsUsed: chatsUsed,
+        activeWebChatsLimit: chatsLimit,
+        activeWebChatsPercent: toPercent(chatsUsed, chatsLimit),
+        toolDailyLimits: (plan?.toolActivations ?? [])
+          .filter(
+            (tool) => tool.policyClass === "plan_managed" && tool.activationStatus === "active"
+          )
+          .map((tool) => ({
+            toolCode: tool.toolCode,
+            displayName: tool.displayName,
+            dailyCallLimit: tool.dailyCallLimit,
+            active: tool.activationStatus === "active"
+          }))
       },
       updatedAt: new Date().toISOString()
     };
@@ -141,6 +165,7 @@ export class ResolvePlanVisibilityService {
       userId: assistant.userId,
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,
+      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
       assistantQuotaPlanCode: governance.quotaPlanCode
     });
     const effectivePlan =

@@ -14,7 +14,7 @@ export type RuntimeProviderRoutingState = {
   };
   fallbackMatrix: Array<{
     trigger: "provider_failure_or_timeout" | "runtime_degraded" | "cost_driving_restricted";
-    strategy: "fallback_model" | "degrade_to_safe_mode" | "constrain_tools";
+    strategy: "fallback_model" | "degrade_to_safe_mode";
     target: {
       providerKey: string;
       modelKey: string;

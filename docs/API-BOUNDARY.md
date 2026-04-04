@@ -476,7 +476,7 @@ Behavior baseline:
   - naming and high-level metadata
   - default-on-registration and trial controls
   - entitlement controls (tool classes, channels/surfaces)
-  - quota limits (`tokenBudgetLimit`, `costToolUnitsLimit`)
+  - quota limits (`tokenBudgetLimit`)
   - per-plan AI model key (`primaryModelKey`, nullable)
   - per-plan runtime tier default (`runtimeTierDefault`, nullable in contract for older rows; new writes set it explicitly)
   - per-tool activations (`toolActivations[]` with `active`, `dailyCallLimit`)
@@ -492,7 +492,7 @@ Behavior baseline:
   - default-on-registration flag
   - trial flag and trial duration
   - entitlement controls (tool classes, channels/surfaces)
-  - quota limits (`tokenBudgetLimit`, `costToolUnitsLimit`)
+  - quota limits (`tokenBudgetLimit`)
   - per-plan AI model key (`primaryModelKey`)
   - per-plan runtime tier default (`runtimeTierDefault`)
   - per-tool activation overrides (`toolActivations[]`)
@@ -817,6 +817,7 @@ Behavior baseline:
   - primary provider/model path
   - fallback matrix by runtime trigger (`provider_failure_or_timeout`, `runtime_degraded`, `cost_driving_restricted`)
   - explicit governance-alignment fields from effective capabilities and entitlement-derived quota governance
+- On the runtime execution path, PersAI may pass an explicit per-turn provider/model override for the materialized `cost_driving_restricted` target so chat degrades to the safe fallback model instead of hard-stopping the turn.
 - Optional policy override is control-plane only:
   - `policyEnvelope.runtimeProviderRouting` can override model keys and disable fallback path.
 - E6 does not introduce a user-facing provider picker, provider marketplace logic, or backend runtime routing execution.

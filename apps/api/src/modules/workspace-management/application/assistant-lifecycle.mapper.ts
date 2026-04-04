@@ -47,6 +47,7 @@ export function toAssistantLifecycleState(
     ),
     memoryControl: governance?.memoryControl ?? null,
     tasksControl: governance?.tasksControl ?? null,
+    assistantPlanOverrideCode: governance?.assistantPlanOverrideCode ?? null,
     quotaPlanCode: governance?.quotaPlanCode ?? null,
     quotaHook: governance?.quotaHook ?? null,
     auditHook: governance?.auditHook ?? null,

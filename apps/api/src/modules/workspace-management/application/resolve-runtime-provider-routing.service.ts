@@ -143,10 +143,10 @@ export class ResolveRuntimeProviderRoutingService {
         },
         {
           trigger: "cost_driving_restricted",
-          strategy: "constrain_tools",
+          strategy: "degrade_to_safe_mode",
           target: {
-            providerKey: primaryProviderKey,
-            modelKey: primaryModelKey
+            providerKey: degradeProviderKey,
+            modelKey: degradeModelKey
           },
           eligible:
             !effectiveCapabilities.toolClasses.costDriving.allowed ||

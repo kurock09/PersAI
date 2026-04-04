@@ -20,6 +20,7 @@ async function run(): Promise<void> {
           description: "Provider-backed external web lookup tool.",
           toolClass: "cost_driving",
           capabilityGroup: "knowledge",
+          policyClass: "plan_managed",
           catalogStatus: "active",
           planActivationStatus: "active"
         },
@@ -29,6 +30,17 @@ async function run(): Promise<void> {
           description: "Safe snippet read from memory files with optional offset/lines.",
           toolClass: "utility",
           capabilityGroup: "workspace_ops",
+          policyClass: "plan_managed",
+          catalogStatus: "active",
+          planActivationStatus: "active"
+        },
+        {
+          toolCode: "cron",
+          displayName: "Cron",
+          description: "Manage gateway cron jobs and send wake events.",
+          toolClass: "utility",
+          capabilityGroup: "workspace_ops",
+          policyClass: "hidden_internal",
           catalogStatus: "active",
           planActivationStatus: "active"
         }
@@ -86,6 +98,11 @@ async function run(): Promise<void> {
     resolved.tools.find((tool) => tool.code === "memory_get")?.effectiveActivation,
     "active"
   );
+  assert.equal(
+    resolved.tools.find((tool) => tool.code === "cron")?.effectiveActivation,
+    "inactive"
+  );
+  assert.equal(resolved.tools.find((tool) => tool.code === "cron")?.visibleInPlanEditor, false);
   assert.equal(
     resolved.tools.find((tool) => tool.code === "web_search")?.effectiveActivation,
     "inactive"

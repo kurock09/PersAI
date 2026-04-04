@@ -19,6 +19,7 @@ import {
 } from "./assistant-inbound.types";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { MergeStagedWebChatAttachmentsService } from "./merge-staged-web-chat-attachments.service";
+import type { AssistantInboundQuotaDegradeReason } from "./enforce-assistant-capability-and-quota.service";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -39,6 +40,8 @@ export interface PreparedAssistantInboundTurn {
   assistantId: string;
   publishedVersionId: string;
   runtimeTier: RuntimeTier;
+  quotaDegradeModelOverride: { provider: "openai" | "anthropic"; model: string } | null;
+  quotaDegradeReason: AssistantInboundQuotaDegradeReason | null;
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
@@ -76,7 +79,7 @@ export class PrepareAssistantInboundTurnService {
         "web"
       );
 
-    await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
+    const quotaDecision = await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
       assistant,
       surface: input.surface,
       isNewThread: existingChat === null,
@@ -171,6 +174,9 @@ export class PrepareAssistantInboundTurnService {
       assistantId: assistant.id,
       publishedVersionId: resolved.publishedVersionId,
       runtimeTier: resolved.runtimeTier,
+      quotaDegradeModelOverride:
+        quotaDecision.mode === "degrade_allowed" ? resolved.quotaDegradeModelOverride : null,
+      quotaDegradeReason: quotaDecision.mode === "degrade_allowed" ? quotaDecision.reason : null,
       userId: assistant.userId,
       workspaceId: assistant.workspaceId,
       workspaceTimezone: workspace.timezone

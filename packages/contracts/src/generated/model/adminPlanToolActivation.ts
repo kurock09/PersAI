@@ -5,12 +5,15 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AdminPlanToolActivationToolClass } from "./adminPlanToolActivationToolClass";
+import type { AdminPlanToolActivationPolicyClass } from "./adminPlanToolActivationPolicyClass";
 
 export interface AdminPlanToolActivation {
   toolCode: string;
   displayName: string;
   toolClass: AdminPlanToolActivationToolClass;
+  policyClass: AdminPlanToolActivationPolicyClass;
   active: boolean;
   /** @nullable */
   dailyCallLimit: number | null;
+  visibleInPlanEditor: boolean;
 }

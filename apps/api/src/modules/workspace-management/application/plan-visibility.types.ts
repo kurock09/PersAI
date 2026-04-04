@@ -5,6 +5,7 @@ export type UserPlanVisibilityState = {
     status: "active" | "inactive" | null;
     source:
       | "workspace_subscription"
+      | "assistant_plan_override"
       | "assistant_plan_fallback"
       | "catalog_default_fallback"
       | "none";
@@ -21,10 +22,27 @@ export type UserPlanVisibilityState = {
     currentPeriodEndsAt: string | null;
     isTrialPlan: boolean;
   };
+  entitlements: {
+    channelsAndSurfaces: {
+      webChat: boolean;
+      telegram: boolean;
+      whatsapp: boolean;
+      max: boolean;
+    };
+  };
   limits: {
+    tokenBudgetUsed: number;
+    tokenBudgetLimit: number | null;
     tokenBudgetPercent: number;
-    costDrivingToolsPercent: number;
+    activeWebChatsUsed: number;
+    activeWebChatsLimit: number | null;
     activeWebChatsPercent: number;
+    toolDailyLimits: Array<{
+      toolCode: string;
+      displayName: string;
+      dailyCallLimit: number | null;
+      active: boolean;
+    }>;
   };
   updatedAt: string;
 };

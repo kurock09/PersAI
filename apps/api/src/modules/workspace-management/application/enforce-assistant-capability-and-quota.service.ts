@@ -25,6 +25,17 @@ type ResolvedQuotaLimits = {
   activeWebChatsLimit: number;
 };
 
+export type AssistantInboundQuotaDecision =
+  | { mode: "allow" }
+  | {
+      mode: "degrade_allowed";
+      reason: AssistantInboundQuotaDegradeReason;
+    };
+
+export type AssistantInboundQuotaDegradeReason =
+  | "token_budget_limit_reached"
+  | "cost_driving_quota_limit_reached";
+
 function asObject(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -69,7 +80,7 @@ export class EnforceAssistantCapabilityAndQuotaService {
     surface: AssistantInboundSurface;
     isNewThread: boolean;
     activeSurfaceChatsCount: number;
-  }): Promise<void> {
+  }): Promise<AssistantInboundQuotaDecision> {
     const governance = await this.resolveGovernance(params.assistant.id);
     const effectiveCapabilities = await this.resolveEffectiveCapabilityStateService.execute({
       assistant: params.assistant,
@@ -131,10 +142,10 @@ export class EnforceAssistantCapabilityAndQuotaService {
       quotaState !== null &&
       quotaState.tokenBudgetUsed >= limits.tokenBudgetLimit
     ) {
-      throw createAssistantInboundConflict(
-        "quota_limit_reached",
-        "Token budget limit reached for current workspace plan. Upgrade or wait for quota refresh."
-      );
+      return {
+        mode: "degrade_allowed",
+        reason: "token_budget_limit_reached"
+      };
     }
 
     if (
@@ -144,19 +155,21 @@ export class EnforceAssistantCapabilityAndQuotaService {
       quotaState.costOrTokenDrivingToolClassUnitsUsed >=
         limits.costOrTokenDrivingToolClassUnitsLimit
     ) {
-      throw createAssistantInboundConflict(
-        "quota_limit_reached",
-        "Cost-driving tool class quota limit reached for current workspace plan."
-      );
+      return {
+        mode: "degrade_allowed",
+        reason: "cost_driving_quota_limit_reached"
+      };
     }
+
+    return { mode: "allow" };
   }
 
   async enforceWebChatTurn(params: {
     assistant: Assistant;
     isNewThread: boolean;
     activeWebChatsCount: number;
-  }): Promise<void> {
-    await this.enforceInboundTurn({
+  }): Promise<AssistantInboundQuotaDecision> {
+    return this.enforceInboundTurn({
       assistant: params.assistant,
       surface: "web_chat",
       isNewThread: params.isNewThread,
@@ -181,6 +194,7 @@ export class EnforceAssistantCapabilityAndQuotaService {
       userId: assistant.userId,
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,
+      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
       assistantQuotaPlanCode: governance.quotaPlanCode
     });
     const plan =

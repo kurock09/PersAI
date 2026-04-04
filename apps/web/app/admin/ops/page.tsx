@@ -26,12 +26,18 @@ import {
 } from "lucide-react";
 import {
   type AdminOpsCockpitState,
+  type AdminPlanState,
   type AdminOpsIncidentSignal,
   AdminOpsIncidentSignalSeverity,
   AssistantRuntimeApplyStatus,
   type AssistantRuntimeApplyStatus as ApplyStatus
 } from "@persai/contracts";
-import { postAssistantReapply } from "@/app/app/assistant-api-client";
+import {
+  deleteAdminOpsUserPlanOverride,
+  getAdminPlans,
+  postAdminOpsUserPlanOverride,
+  postAssistantReapply
+} from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -494,6 +500,7 @@ async function fetchCockpit(token: string, userId?: string): Promise<AdminOpsCoc
 export default function AdminOpsPage() {
   const { getToken } = useAuth();
   const [cockpit, setCockpit] = useState<AdminOpsCockpitState | null>(null);
+  const [plans, setPlans] = useState<AdminPlanState[]>([]);
   const cockpitRef = useRef<AdminOpsCockpitState | null>(null);
   cockpitRef.current = cockpit;
   const [loading, setLoading] = useState(true);
@@ -501,6 +508,8 @@ export default function AdminOpsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [reapplyBusy, setReapplyBusy] = useState(false);
+  const [planOverrideBusy, setPlanOverrideBusy] = useState(false);
+  const [selectedPlanCode, setSelectedPlanCode] = useState("");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUserLabel, setSelectedUserLabel] = useState<string | null>(null);
   const selectedUserIdRef = useRef<string | null>(null);
@@ -521,11 +530,16 @@ export default function AdminOpsPage() {
       if (incremental) setRefreshing(true);
       else setLoading(true);
       try {
-        setCockpit(
-          await fetchCockpit(token, targetUserId ?? selectedUserIdRef.current ?? undefined)
-        );
+        const activeTarget = targetUserId ?? selectedUserIdRef.current ?? undefined;
+        const [nextCockpit, nextPlans] = await Promise.all([
+          fetchCockpit(token, activeTarget),
+          getAdminPlans(token)
+        ]);
+        setCockpit(nextCockpit);
+        setPlans(nextPlans.filter((plan) => plan.status === "active"));
       } catch (e) {
         setCockpit(null);
+        setPlans([]);
         setLoadError(e instanceof Error ? e.message : "Unable to load ops data.");
       } finally {
         setLoading(false);
@@ -538,6 +552,11 @@ export default function AdminOpsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const overrideCode = cockpit?.assistant.effectivePlan.assistantPlanOverrideCode ?? "";
+    setSelectedPlanCode(overrideCode);
+  }, [cockpit?.assistant.effectivePlan.assistantPlanOverrideCode]);
 
   const onSelectUser = useCallback(
     (userId: string, email: string) => {
@@ -580,6 +599,62 @@ export default function AdminOpsPage() {
     setActionMessage("Runtime restart is not wired in this admin UI yet.");
   }, []);
 
+  const onApplyPlanOverride = useCallback(async () => {
+    if (!selectedUserId || !cockpit?.controls.assistantPlanOverrideSupported) {
+      setActionMessage("Select a user assistant first.");
+      return;
+    }
+    if (!selectedPlanCode) {
+      setActionMessage("Choose a target plan first.");
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      setActionMessage("Not signed in.");
+      return;
+    }
+    setPlanOverrideBusy(true);
+    setActionMessage(null);
+    try {
+      await postAdminOpsUserPlanOverride(token, selectedUserId, { planCode: selectedPlanCode });
+      setActionMessage("Assistant test override applied.");
+      await load(selectedUserId);
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : "Failed to apply assistant plan override.");
+    } finally {
+      setPlanOverrideBusy(false);
+    }
+  }, [
+    cockpit?.controls.assistantPlanOverrideSupported,
+    getToken,
+    load,
+    selectedPlanCode,
+    selectedUserId
+  ]);
+
+  const onResetPlanOverride = useCallback(async () => {
+    if (!selectedUserId || !cockpit?.controls.assistantPlanResetSupported) {
+      setActionMessage("No assistant plan override is active.");
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      setActionMessage("Not signed in.");
+      return;
+    }
+    setPlanOverrideBusy(true);
+    setActionMessage(null);
+    try {
+      await deleteAdminOpsUserPlanOverride(token, selectedUserId);
+      setActionMessage("Assistant returned to normal billing plan resolution.");
+      await load(selectedUserId);
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : "Failed to reset assistant plan override.");
+    } finally {
+      setPlanOverrideBusy(false);
+    }
+  }, [cockpit?.controls.assistantPlanResetSupported, getToken, load, selectedUserId]);
+
   if (loading && cockpit === null) {
     return (
       <div className="flex justify-center py-12">
@@ -589,7 +664,7 @@ export default function AdminOpsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4">
+    <div className="space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-accent" />
@@ -646,7 +721,7 @@ export default function AdminOpsPage() {
       {cockpit && (
         <>
           {/* --- Row 1: three balanced columns --- */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
             {/* Col 1: Assistant identity */}
             <CardShell title="Assistant" icon={Bot}>
               <div className="flex items-center justify-between gap-2">
@@ -664,6 +739,27 @@ export default function AdminOpsPage() {
               </div>
               <DetailRow label="ID" value={truncateId(cockpit.assistant.assistantId)} />
               <DetailRow label="Workspace" value={truncateId(cockpit.assistant.workspaceId)} />
+              <div className="border-t border-border pt-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Effective plan
+                </p>
+                <DetailRow
+                  label="Plan"
+                  value={formatNullable(cockpit.assistant.effectivePlan.code)}
+                />
+                <DetailRow
+                  label="Source"
+                  value={cockpit.assistant.effectivePlan.source.replaceAll("_", " ")}
+                />
+                <DetailRow
+                  label="Override"
+                  value={formatNullable(cockpit.assistant.effectivePlan.assistantPlanOverrideCode)}
+                />
+                <DetailRow
+                  label="Fallback"
+                  value={formatNullable(cockpit.assistant.effectivePlan.quotaPlanCode)}
+                />
+              </div>
               <div className="border-t border-border pt-2">
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
                   Published
@@ -757,10 +853,72 @@ export default function AdminOpsPage() {
                 <DetailRow label="Checked" value={formatTs(cockpit.runtime.preflight.checkedAt)} />
               </div>
             </CardShell>
+
+            <CardShell title="Plan Control" icon={Users}>
+              <p className="text-[11px] leading-relaxed text-text-muted">
+                Use assistant-level override only for tester/manual routing. `Reset to normal`
+                returns resolution to the regular subscription chain.
+              </p>
+              <label className="flex flex-col gap-1 text-[11px] text-text-muted">
+                <span>Tester override plan</span>
+                <select
+                  value={selectedPlanCode}
+                  onChange={(e) => setSelectedPlanCode(e.target.value)}
+                  disabled={!selectedUserId || planOverrideBusy}
+                  className="h-9 rounded border border-border bg-bg px-2 text-sm text-text focus:border-accent/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">Choose plan…</option>
+                  {plans.map((plan) => (
+                    <option key={plan.code} value={plan.code}>
+                      {plan.code} - {plan.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={
+                    !selectedUserId ||
+                    !selectedPlanCode ||
+                    !cockpit.controls.assistantPlanOverrideSupported ||
+                    planOverrideBusy
+                  }
+                  onClick={() => void onApplyPlanOverride()}
+                  className={cn(
+                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                  )}
+                >
+                  {planOverrideBusy ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Users className="h-3 w-3" />
+                  )}
+                  Apply test plan
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    !selectedUserId ||
+                    !cockpit.controls.assistantPlanResetSupported ||
+                    planOverrideBusy
+                  }
+                  onClick={() => void onResetPlanOverride()}
+                  className={cn(
+                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                  )}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Reset to normal
+                </button>
+              </div>
+            </CardShell>
           </div>
 
           {/* --- Row 2: Controls + Incidents side by side --- */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
             <section className="rounded-lg border border-border bg-surface-raised p-3">
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text">
                 Controls

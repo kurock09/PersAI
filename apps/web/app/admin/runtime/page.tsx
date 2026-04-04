@@ -7,7 +7,8 @@ import type {
   AdminRuntimeProviderSettingsState,
   AdminRuntimeProviderSettingsRequest,
   ManagedRuntimeProvider,
-  RuntimeProviderAvailableModelsByProviderState
+  RuntimeProviderAvailableModelsByProviderState,
+  RuntimeTierSecurityPolicyState
 } from "@persai/contracts";
 import {
   getAdminRuntimeProviderSettings,
@@ -146,6 +147,10 @@ export default function AdminRuntimePage() {
               ))}
             </ul>
           )}
+          <p className="text-xs text-text-subtle">
+            These settings define the primary model path and the safe fallback path used when the
+            normal runtime/model route is degraded or policy forces a cheaper turn.
+          </p>
         </div>
       )}
 
@@ -173,7 +178,9 @@ export default function AdminRuntimePage() {
 
         <div className="rounded border border-border bg-surface p-3 space-y-3">
           <div className="flex items-center gap-2">
-            <h2 className="text-xs font-bold text-text uppercase tracking-wider">Fallback</h2>
+            <h2 className="text-xs font-bold text-text uppercase tracking-wider">
+              Graceful fallback
+            </h2>
             <label className="flex items-center gap-1 text-[10px] text-text-subtle">
               <input
                 type="checkbox"
@@ -184,6 +191,10 @@ export default function AdminRuntimePage() {
               Enabled
             </label>
           </div>
+          <p className="text-xs text-text-subtle">
+            Used when the main model path is degraded or PersAI intentionally degrades a turn to a
+            safer/lower-cost route under current plan limits.
+          </p>
           {fallbackEnabled && (
             <>
               <div>
@@ -251,6 +262,23 @@ export default function AdminRuntimePage() {
           />
         </div>
 
+        {settings?.tierSecurityPolicies?.length ? (
+          <div className="rounded border border-border bg-surface p-3 space-y-3">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-text">
+              Runtime tier security matrix
+            </h2>
+            <p className="text-xs text-text-subtle">
+              Read-only control-plane baseline for sandbox, `exec`/`write`, service tools, and
+              always-denied built-ins by product tier.
+            </p>
+            <div className="space-y-3">
+              {settings.tierSecurityPolicies.map((policy) => (
+                <TierSecurityCard key={policy.tier} policy={policy} />
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <button
           type="button"
           disabled={saving}
@@ -268,6 +296,60 @@ export default function AdminRuntimePage() {
         {feedback && <p className="text-xs text-text-muted mt-2">{feedback}</p>}
       </div>
     </div>
+  );
+}
+
+function TierSecurityCard({ policy }: { policy: RuntimeTierSecurityPolicyState }) {
+  return (
+    <div className="rounded border border-border bg-surface-raised p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-text">{policy.tier}</span>
+        <Badge>{policy.poolClass}</Badge>
+        <Badge>{policy.execPolicy}</Badge>
+        <Badge>{policy.writePolicy}</Badge>
+      </div>
+      <div className="mt-2 grid gap-3 md:grid-cols-2">
+        <div className="space-y-1 text-xs text-text-subtle">
+          <div>
+            Sandbox: {policy.sandbox.mode} / {policy.sandbox.backend} / scope {policy.sandbox.scope}
+          </div>
+          <div>
+            Workspace: {policy.sandbox.workspaceAccess}, network {policy.sandbox.network}, read-only
+            root {policy.sandbox.readOnlyRoot ? " on" : " off"}
+          </div>
+          <div>User tools: {policy.userPlanTools}</div>
+        </div>
+        <div className="space-y-1 text-xs text-text-subtle">
+          <ListLine label="Platform-managed" items={policy.platformManagedTools} />
+          <ListLine label="Plan-managed service" items={policy.planManagedServiceTools} />
+          <ListLine label="Hidden internal" items={policy.hiddenInternalTools} />
+          <ListLine label="Always denied built-ins" items={policy.alwaysDeniedBuiltIns} />
+        </div>
+      </div>
+      {policy.notes.length > 0 ? (
+        <ul className="mt-2 list-disc pl-4 text-xs text-text-subtle">
+          {policy.notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function ListLine({ label, items }: { label: string; items: string[] }) {
+  return (
+    <div>
+      <span className="text-text">{label}:</span> {items.join(", ")}
+    </div>
+  );
+}
+
+function Badge({ children }: { children: string }) {
+  return (
+    <span className="rounded border border-border bg-surface px-2 py-0.5 text-[10px] uppercase tracking-wide text-text-subtle">
+      {children}
+    </span>
   );
 }
 

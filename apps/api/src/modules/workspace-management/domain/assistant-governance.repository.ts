@@ -5,6 +5,10 @@ export const ASSISTANT_GOVERNANCE_REPOSITORY = Symbol("ASSISTANT_GOVERNANCE_REPO
 export interface AssistantGovernanceRepository {
   findByAssistantId(assistantId: string): Promise<AssistantGovernance | null>;
   createBaseline(assistantId: string): Promise<AssistantGovernance>;
+  setAssistantPlanOverride(
+    assistantId: string,
+    planCode: string | null
+  ): Promise<AssistantGovernance>;
   updateSecretRefs(
     assistantId: string,
     secretRefs: Record<string, unknown> | null

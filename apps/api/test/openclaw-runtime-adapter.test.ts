@@ -110,6 +110,10 @@ async function run(): Promise<void> {
       });
     }
     if (url.endsWith("/api/v1/runtime/chat/web")) {
+      const request = input instanceof Request ? input : new Request(input);
+      const payload = JSON.parse(await request.text()) as Record<string, unknown>;
+      assert.equal(payload.providerOverride, "openai");
+      assert.equal(payload.modelOverride, "gpt-5.4-mini");
       return new Response(JSON.stringify({ ok: false, error: "runtime missing applied spec" }), {
         status: 503,
         headers: { "content-type": "application/json" }
@@ -135,13 +139,15 @@ async function run(): Promise<void> {
       adapter.sendWebChatTurn({
         assistantId: "assistant-1",
         publishedVersionId: "pub-1",
+        providerOverride: "openai",
+        modelOverride: "gpt-5.4-mini",
         chatId: "chat-1",
         surfaceThreadKey: "thread-1",
         userMessageId: "msg-1",
         userMessage: "hello"
       }),
     (error: unknown) =>
-      error instanceof AssistantRuntimeAdapterError && error.code === "runtime_degraded"
+      error instanceof AssistantRuntimeAdapterError && error.code === "runtime_unreachable"
   );
 
   const channelResult = await adapter.sendChannelTurn({

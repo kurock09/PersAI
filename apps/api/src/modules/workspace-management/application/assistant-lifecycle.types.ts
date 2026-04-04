@@ -75,6 +75,7 @@ export interface AssistantGovernanceState {
   memoryControl: unknown | null;
   /** Step 6 D4: tasks/reminders/triggers control-plane envelope (not execution or scheduling). */
   tasksControl: unknown | null;
+  assistantPlanOverrideCode: string | null;
   quotaPlanCode: string | null;
   quotaHook: unknown | null;
   auditHook: unknown | null;

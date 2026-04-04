@@ -14,12 +14,52 @@ import {
   readRuntimeAssignmentStateFromMaterializedLayers,
   type RuntimeTier
 } from "./runtime-assignment";
+import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
+
+type RuntimeModelOverride = {
+  provider: "openai" | "anthropic";
+  model: string;
+};
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function parseRuntimeModelOverride(
+  bootstrap: unknown,
+  trigger: "cost_driving_restricted"
+): RuntimeModelOverride | null {
+  const root = asObject(bootstrap);
+  const governance = asObject(root?.governance);
+  const capabilityEnvelope = asObject(governance?.openclawCapabilityEnvelope);
+  const routing = capabilityEnvelope?.runtimeProviderRouting as
+    | RuntimeProviderRoutingState
+    | undefined;
+  const target = routing?.fallbackMatrix.find((item) => item.trigger === trigger);
+  if (!target?.eligible) {
+    return null;
+  }
+  if (target.target.providerKey !== "openai" && target.target.providerKey !== "anthropic") {
+    return null;
+  }
+  if (typeof target.target.modelKey !== "string" || target.target.modelKey.trim().length === 0) {
+    return null;
+  }
+  return {
+    provider: target.target.providerKey,
+    model: target.target.modelKey.trim()
+  };
+}
 
 export interface ResolvedAssistantInboundRuntimeContext {
   assistant: Assistant;
   assistantId: string;
   publishedVersionId: string;
   runtimeTier: RuntimeTier;
+  quotaDegradeModelOverride: RuntimeModelOverride | null;
   userId: string;
   workspaceId: string;
 }
@@ -85,6 +125,10 @@ export class ResolveAssistantInboundRuntimeContextService {
       assistantId: assistant.id,
       publishedVersionId: latestPublishedVersion.id,
       runtimeTier: runtimeAssignment?.effectiveTier ?? "free_shared_restricted",
+      quotaDegradeModelOverride: parseRuntimeModelOverride(
+        materializedSpec?.openclawBootstrap ?? null,
+        "cost_driving_restricted"
+      ),
       userId: assistant.userId,
       workspaceId: assistant.workspaceId
     };

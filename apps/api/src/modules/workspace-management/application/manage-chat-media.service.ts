@@ -16,15 +16,7 @@ import {
 } from "./assistant-runtime-adapter.types";
 import { MediaPreprocessorService } from "./media/media-preprocessor.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
-
-const ALLOWED_UPLOAD_MIME_PREFIXES = [
-  "image/",
-  "audio/",
-  "video/",
-  "application/pdf",
-  "application/octet-stream"
-];
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+import { validatePersaiMediaFile } from "./media/media-security-policy";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -32,10 +24,6 @@ const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/opus",
   "audio/x-opus+ogg"
 ]);
-
-function isAllowedMime(mime: string): boolean {
-  return ALLOWED_UPLOAD_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix));
-}
 
 function inferAttachmentType(mimeType: string): CreateAttachmentInput["attachmentType"] {
   if (mimeType.startsWith("image/")) return "image";
@@ -67,12 +55,12 @@ export class ManageChatMediaService {
     messageId: string;
     file: { buffer: Buffer; mimetype: string; originalname: string };
   }): Promise<AssistantChatMessageAttachment> {
-    if (!isAllowedMime(params.file.mimetype)) {
-      throw new BadRequestException("Unsupported file type.");
-    }
-    if (params.file.buffer.length > MAX_UPLOAD_BYTES) {
-      throw new BadRequestException("File exceeds maximum size of 25MB.");
-    }
+    const validated = await validatePersaiMediaFile({
+      buffer: params.file.buffer,
+      mimeType: params.file.mimetype,
+      originalFilename: params.file.originalname,
+      surface: "chat_upload"
+    });
 
     const assistant = await this.assistantRepository.findByUserId(params.userId);
     if (!assistant) {
@@ -101,7 +89,7 @@ export class ManageChatMediaService {
       chatId: chat.id,
       messageId: message.id,
       fileBuffer: params.file.buffer,
-      mimeType: params.file.mimetype
+      mimeType: validated.effectiveMimeType
     });
 
     const attachment = await this.attachmentRepository.create({
@@ -109,9 +97,9 @@ export class ManageChatMediaService {
       chatId: chat.id,
       assistantId: assistant.id,
       workspaceId: assistant.workspaceId,
-      attachmentType: inferAttachmentType(params.file.mimetype),
+      attachmentType: inferAttachmentType(validated.effectiveMimeType),
       storagePath: uploadResult.storagePath,
-      originalFilename: params.file.originalname || null,
+      originalFilename: validated.originalFilename,
       mimeType: uploadResult.mimeType,
       sizeBytes: BigInt(uploadResult.sizeBytes),
       durationMs: null,
@@ -130,12 +118,12 @@ export class ManageChatMediaService {
     surfaceThreadKey: string;
     file: { buffer: Buffer; mimetype: string; originalname: string };
   }): Promise<{ chatId: string; messageId: string; attachment: AssistantChatMessageAttachment }> {
-    if (!isAllowedMime(params.file.mimetype)) {
-      throw new BadRequestException("Unsupported file type.");
-    }
-    if (params.file.buffer.length > MAX_UPLOAD_BYTES) {
-      throw new BadRequestException("File exceeds maximum size of 25MB.");
-    }
+    const validated = await validatePersaiMediaFile({
+      buffer: params.file.buffer,
+      mimeType: params.file.mimetype,
+      originalFilename: params.file.originalname,
+      surface: "chat_upload"
+    });
 
     const assistant = await this.assistantRepository.findByUserId(params.userId);
     if (!assistant) {
@@ -178,7 +166,7 @@ export class ManageChatMediaService {
     try {
       processed = await this.preprocessor.process(
         params.file.buffer,
-        params.file.mimetype,
+        validated.effectiveMimeType,
         params.file.originalname,
         assistant.id
       );
@@ -189,7 +177,7 @@ export class ManageChatMediaService {
     }
 
     const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
-    const mimeType = processed?.normalizedMime ?? params.file.mimetype;
+    const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
@@ -210,7 +198,7 @@ export class ManageChatMediaService {
       workspaceId: assistant.workspaceId,
       attachmentType: inferAttachmentType(mimeType),
       storagePath: uploadResult.storagePath,
-      originalFilename: params.file.originalname || null,
+      originalFilename: validated.originalFilename,
       mimeType: uploadResult.mimeType,
       sizeBytes: BigInt(uploadResult.sizeBytes),
       durationMs: processed?.durationMs ?? null,
@@ -231,12 +219,12 @@ export class ManageChatMediaService {
     userId: string;
     file: { buffer: Buffer; mimetype: string; originalname: string };
   }): Promise<{ text: string }> {
-    if (!params.file.mimetype.startsWith("audio/")) {
-      throw new BadRequestException("Only audio files can be transcribed.");
-    }
-    if (params.file.buffer.length > MAX_UPLOAD_BYTES) {
-      throw new BadRequestException("File exceeds maximum size of 25MB.");
-    }
+    const validated = await validatePersaiMediaFile({
+      buffer: params.file.buffer,
+      mimeType: params.file.mimetype,
+      originalFilename: params.file.originalname,
+      surface: "voice_transcription"
+    });
 
     const assistant = await this.assistantRepository.findByUserId(params.userId);
     if (!assistant) {
@@ -247,7 +235,7 @@ export class ManageChatMediaService {
     );
 
     let fileBuffer = params.file.buffer;
-    let mimeType = params.file.mimetype;
+    let mimeType = validated.effectiveMimeType;
     const baseMime = (mimeType.split(";")[0] ?? mimeType).trim();
 
     if (AUDIO_MIMES_NEEDING_CONVERSION.has(baseMime)) {
@@ -256,7 +244,7 @@ export class ManageChatMediaService {
         mimeType = "audio/mpeg";
       } catch (err) {
         this.logger.warn(
-          `Audio conversion failed for "${params.file.originalname}", keeping original: ${String(err)}`
+          `Audio conversion failed for "${validated.originalFilename ?? "voice-input"}", keeping original: ${String(err)}`
         );
       }
     }

@@ -36,6 +36,7 @@ type ToolActivationDraft = {
   toolCode: string;
   displayName: string;
   toolClass: "cost_driving" | "utility";
+  policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
   active: boolean;
   dailyCallLimit: number | null;
 };
@@ -58,13 +59,11 @@ type PlanDraft = {
   channelWhatsapp: boolean;
   channelMax: boolean;
   tokenBudgetLimit: string;
-  costToolUnitsLimit: string;
   primaryModelKey: string;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
 };
 
-const PLAN_LOCKED_INTERNAL_TOOL_CODES = new Set(["cron"]);
 const RUNTIME_TIER_OPTIONS: Array<{
   value: PlanDraft["runtimeTierDefault"];
   label: string;
@@ -100,7 +99,6 @@ function emptyDraft(): PlanDraft {
     channelWhatsapp: false,
     channelMax: false,
     tokenBudgetLimit: "",
-    costToolUnitsLimit: "",
     primaryModelKey: "",
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: []
@@ -126,22 +124,23 @@ function planToDraft(plan: AdminPlanState): PlanDraft {
     channelWhatsapp: plan.entitlements.channelsAndSurfaces.whatsapp,
     channelMax: plan.entitlements.channelsAndSurfaces.max,
     tokenBudgetLimit: plan.quotaLimits?.tokenBudgetLimit?.toString() ?? "",
-    costToolUnitsLimit: plan.quotaLimits?.costToolUnitsLimit?.toString() ?? "",
     primaryModelKey: plan.primaryModelKey ?? "",
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
-    toolActivations: (plan.toolActivations ?? []).map((ta) => ({
-      toolCode: ta.toolCode,
-      displayName: ta.displayName,
-      toolClass: ta.toolClass,
-      active: ta.active,
-      dailyCallLimit: ta.dailyCallLimit
-    }))
+    toolActivations: (plan.toolActivations ?? [])
+      .filter((ta) => ta.visibleInPlanEditor)
+      .map((ta) => ({
+        toolCode: ta.toolCode,
+        displayName: ta.displayName,
+        toolClass: ta.toolClass,
+        policyClass: ta.policyClass,
+        active: ta.active,
+        dailyCallLimit: ta.dailyCallLimit
+      }))
   };
 }
 
 function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
   const tokenBudget = draft.tokenBudgetLimit.trim();
-  const costTool = draft.costToolUnitsLimit.trim();
   return {
     displayName: draft.displayName.trim(),
     description: toNullable(draft.description),
@@ -168,8 +167,7 @@ function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       }
     },
     quotaLimits: {
-      tokenBudgetLimit: tokenBudget.length > 0 ? parseInt(tokenBudget, 10) || null : null,
-      costToolUnitsLimit: costTool.length > 0 ? parseInt(costTool, 10) || null : null
+      tokenBudgetLimit: tokenBudget.length > 0 ? parseInt(tokenBudget, 10) || null : null
     },
     primaryModelKey: toNullable(draft.primaryModelKey),
     runtimeTierDefault: draft.runtimeTierDefault,
@@ -178,6 +176,35 @@ function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       active: ta.active,
       dailyCallLimit: ta.dailyCallLimit
     }))
+  };
+}
+
+function getPolicyClassLabel(
+  policyClass: AdminPlanToolActivation["policyClass"] | ToolActivationDraft["policyClass"]
+): string {
+  switch (policyClass) {
+    case "platform_managed":
+      return "system";
+    case "hidden_internal":
+      return "internal";
+    default:
+      return "plan";
+  }
+}
+
+function splitToolActivationsByPolicy<
+  T extends { policyClass: AdminPlanToolActivation["policyClass"] }
+>(
+  activations: T[]
+): {
+  planManaged: T[];
+  platformManaged: T[];
+  hiddenInternal: T[];
+} {
+  return {
+    planManaged: activations.filter((ta) => ta.policyClass === "plan_managed"),
+    platformManaged: activations.filter((ta) => ta.policyClass === "platform_managed"),
+    hiddenInternal: activations.filter((ta) => ta.policyClass === "hidden_internal")
   };
 }
 
@@ -284,9 +311,7 @@ function Input({
 /* ─── Tool activations (read-only inline) ─── */
 
 function ToolActivationsInline({ activations }: { activations: AdminPlanToolActivation[] }) {
-  const visibleActivations = activations.filter(
-    (ta) => !PLAN_LOCKED_INTERNAL_TOOL_CODES.has(ta.toolCode)
-  );
+  const visibleActivations = activations.filter((ta) => ta.policyClass !== "hidden_internal");
   if (visibleActivations.length === 0) {
     return <span className="text-[10px] text-text-subtle italic">none configured</span>;
   }
@@ -349,9 +374,9 @@ function ToolActivationsEdit({
         <div key={ta.toolCode} className="grid grid-cols-[1fr_70px_40px_88px] gap-px bg-border">
           <span className="bg-surface-raised px-2 py-1 text-[11px] text-text truncate">
             {ta.displayName}
-            {PLAN_LOCKED_INTERNAL_TOOL_CODES.has(ta.toolCode) ? (
-              <span className="ml-1 text-[10px] text-text-subtle">(internal)</span>
-            ) : null}
+            <span className="ml-1 text-[10px] text-text-subtle">
+              ({getPolicyClassLabel(ta.policyClass)})
+            </span>
           </span>
           <span className="bg-surface-raised px-2 py-1">
             <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
@@ -363,7 +388,6 @@ function ToolActivationsEdit({
               type="checkbox"
               checked={ta.active}
               onChange={() => toggle(idx)}
-              disabled={PLAN_LOCKED_INTERNAL_TOOL_CODES.has(ta.toolCode)}
               className="h-3 w-3 rounded border-border bg-surface text-accent focus:ring-accent/50 focus:ring-1"
             />
           </span>
@@ -374,12 +398,49 @@ function ToolActivationsEdit({
               value={ta.dailyCallLimit ?? ""}
               onChange={(e) => setLimit(idx, e.target.value)}
               placeholder="∞"
-              disabled={PLAN_LOCKED_INTERNAL_TOOL_CODES.has(ta.toolCode)}
               className="w-16 appearance-none rounded border border-border bg-surface px-2 py-0.5 text-right text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
             />
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ToolActivationReadOnlyGroup({
+  title,
+  emptyLabel,
+  activations,
+  showLimits = true
+}: {
+  title: string;
+  emptyLabel: string;
+  activations: AdminPlanToolActivation[];
+  showLimits?: boolean;
+}) {
+  return (
+    <div className="space-y-1">
+      <Sec label={title}>
+        {activations.length === 0 ? (
+          <span className="text-[10px] text-text-subtle italic">{emptyLabel}</span>
+        ) : (
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {activations.map((ta) => (
+              <span key={ta.toolCode} className="text-[10px]">
+                <span className={ta.active ? "text-emerald-400" : "text-text-muted line-through"}>
+                  {ta.displayName}
+                </span>
+                <span className="ml-1 text-text-subtle">
+                  ({getPolicyClassLabel(ta.policyClass)})
+                </span>
+                {showLimits && ta.dailyCallLimit !== null ? (
+                  <span className="ml-0.5 text-text-subtle">({ta.dailyCallLimit}/d)</span>
+                ) : null}
+              </span>
+            ))}
+          </div>
+        )}
+      </Sec>
     </div>
   );
 }
@@ -401,6 +462,9 @@ function PlanForm({
   onCodeChange: (v: string) => void;
   availableModelKeys?: { provider: string; model: string }[];
 }) {
+  const editableActivations = draft.toolActivations.filter(
+    (ta) => ta.policyClass === "plan_managed"
+  );
   return (
     <div className="space-y-2.5">
       {/* row 1: code + name + description */}
@@ -589,17 +653,6 @@ function PlanForm({
                   className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                 />
               </label>
-              <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                Cost tool units
-                <input
-                  type="number"
-                  min={0}
-                  value={draft.costToolUnitsLimit}
-                  onChange={(e) => onPatch({ costToolUnitsLimit: e.target.value })}
-                  placeholder="default"
-                  className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                />
-              </label>
             </div>
           </Sec>
           <Sec label="AI model">
@@ -636,9 +689,12 @@ function PlanForm({
       {/* row 5: tool activations */}
       <Sec label="Tool activations">
         <ToolActivationsEdit
-          activations={draft.toolActivations}
+          activations={editableActivations}
           onUpdate={(updated) => onPatch({ toolActivations: updated })}
         />
+        <p className="mt-1 text-[10px] text-text-subtle">
+          System tools are managed by the platform and are shown in plan summaries as read-only.
+        </p>
       </Sec>
     </div>
   );
@@ -657,6 +713,9 @@ function PlanCardReadOnly({
 }) {
   const e = plan.entitlements;
   const [expanded, setExpanded] = useState(false);
+  const { planManaged, platformManaged, hiddenInternal } = splitToolActivationsByPolicy(
+    plan.toolActivations ?? []
+  );
 
   const channels = [
     e.channelsAndSurfaces.webChat && "Web",
@@ -712,7 +771,7 @@ function PlanCardReadOnly({
           <KV label="Channels">{channels.join(", ")}</KV>
           <KV label="Tools">{toolClasses.join(", ")}</KV>
           <span className="text-text-subtle">|</span>
-          <ToolActivationsInline activations={plan.toolActivations ?? []} />
+          <ToolActivationsInline activations={[...planManaged, ...platformManaged]} />
         </div>
       )}
 
@@ -765,7 +824,6 @@ function PlanCardReadOnly({
               <Sec label="Quota limits">
                 <div className="space-y-0.5 text-[10px] text-text-subtle">
                   <div>Token budget: {plan.quotaLimits?.tokenBudgetLimit ?? "default"}</div>
-                  <div>Cost tool units: {plan.quotaLimits?.costToolUnitsLimit ?? "default"}</div>
                 </div>
               </Sec>
               <Sec label="AI model">
@@ -775,9 +833,23 @@ function PlanCardReadOnly({
               </Sec>
             </div>
           </div>
-          <Sec label="Tool activations">
-            <ToolActivationsInline activations={plan.toolActivations ?? []} />
-          </Sec>
+          <ToolActivationReadOnlyGroup
+            title="Plan-managed tools"
+            emptyLabel="No editable tools configured."
+            activations={planManaged}
+          />
+          <ToolActivationReadOnlyGroup
+            title="Platform-managed tools"
+            emptyLabel="No platform-managed tools."
+            activations={platformManaged}
+            showLimits={false}
+          />
+          <ToolActivationReadOnlyGroup
+            title="Hidden internal tools"
+            emptyLabel="No hidden internal tools."
+            activations={hiddenInternal}
+            showLimits={false}
+          />
         </div>
       )}
     </div>
@@ -889,15 +961,20 @@ export default function AdminPlansPage() {
     setEditingCode(null);
     setEditDraft(null);
     const draft = emptyDraft();
-    const templatePlan = plans.find((p) => (p.toolActivations ?? []).length > 0);
+    const templatePlan = plans.find(
+      (p) => (p.toolActivations ?? []).filter((ta) => ta.visibleInPlanEditor).length > 0
+    );
     if (templatePlan) {
-      draft.toolActivations = (templatePlan.toolActivations ?? []).map((ta) => ({
-        toolCode: ta.toolCode,
-        displayName: ta.displayName,
-        toolClass: ta.toolClass,
-        active: false,
-        dailyCallLimit: null
-      }));
+      draft.toolActivations = (templatePlan.toolActivations ?? [])
+        .filter((ta) => ta.visibleInPlanEditor)
+        .map((ta) => ({
+          toolCode: ta.toolCode,
+          displayName: ta.displayName,
+          toolClass: ta.toolClass,
+          policyClass: ta.policyClass,
+          active: false,
+          dailyCallLimit: null
+        }));
     }
     setCreateDraft(draft);
     setCreateCode("");

@@ -113,7 +113,7 @@ export class HandleInternalTelegramTurnService {
       input.assistantId
     );
 
-    await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
+    const quotaDecision = await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
       assistant: resolved.assistant,
       surface: "telegram",
       isNewThread: false,
@@ -181,6 +181,12 @@ export class HandleInternalTelegramTurnService {
       assistantId: resolved.assistantId,
       publishedVersionId: resolved.publishedVersionId,
       runtimeTier: resolved.runtimeTier,
+      ...(quotaDecision.mode === "degrade_allowed" && resolved.quotaDegradeModelOverride
+        ? {
+            providerOverride: resolved.quotaDegradeModelOverride.provider,
+            modelOverride: resolved.quotaDegradeModelOverride.model
+          }
+        : {}),
       surface: "telegram",
       threadId: input.threadId,
       userMessage: enrichedMessage,

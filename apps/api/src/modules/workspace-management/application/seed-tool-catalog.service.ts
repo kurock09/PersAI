@@ -1,6 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "../../../../prisma/tool-catalog-data";
+import {
+  isPlatformManagedTool,
+  isPlanManagedTool,
+  TOOL_CATALOG,
+  STARTER_TRIAL_TOOL_POLICY
+} from "../../../../prisma/tool-catalog-data";
 import { BOOTSTRAP_PRESET_DEFAULTS } from "../../../../prisma/bootstrap-preset-data";
 
 const DEFAULT_PLAN_CODE = "starter_trial";
@@ -15,7 +20,7 @@ export class SeedToolCatalogService implements OnModuleInit {
     try {
       await this.syncToolCatalog();
       await this.ensureDefaultPlan();
-      await this.syncReminderTaskPolicyAcrossPlans();
+      await this.syncNonPlanManagedToolPolicyAcrossPlans();
       await this.backfillNullPlanGovernances();
       await this.syncBootstrapPresets();
     } catch (err) {
@@ -162,9 +167,14 @@ export class SeedToolCatalogService implements OnModuleInit {
 
     for (const tool of activeTools) {
       const policy = STARTER_TRIAL_TOOL_POLICY[tool.code];
-      const activationStatus =
-        (policy?.active ?? tool.toolClass === "utility") ? "active" : "inactive";
-      const dailyCallLimit = policy?.dailyCallLimit ?? null;
+      const activationStatus = isPlanManagedTool(tool.code)
+        ? (policy?.active ?? tool.toolClass === "utility")
+          ? "active"
+          : "inactive"
+        : isPlatformManagedTool(tool.code)
+          ? "active"
+          : "inactive";
+      const dailyCallLimit = isPlanManagedTool(tool.code) ? (policy?.dailyCallLimit ?? null) : null;
 
       await this.prisma.planCatalogToolActivation.upsert({
         where: { planId_toolId: { planId, toolId: tool.id } },
@@ -174,16 +184,13 @@ export class SeedToolCatalogService implements OnModuleInit {
     }
   }
 
-  private async syncReminderTaskPolicyAcrossPlans(): Promise<void> {
+  private async syncNonPlanManagedToolPolicyAcrossPlans(): Promise<void> {
     const [plans, tools] = await Promise.all([
       this.prisma.planCatalogPlan.findMany({
         select: { id: true }
       }),
       this.prisma.toolCatalogTool.findMany({
-        where: {
-          code: { in: ["cron", "reminder_task"] },
-          status: "active"
-        },
+        where: { status: "active" },
         select: { id: true, code: true }
       })
     ]);
@@ -192,32 +199,19 @@ export class SeedToolCatalogService implements OnModuleInit {
       return;
     }
 
-    const toolByCode = new Map(tools.map((tool) => [tool.code, tool.id]));
-    const cronToolId = toolByCode.get("cron");
-    const reminderTaskToolId = toolByCode.get("reminder_task");
-
     for (const plan of plans) {
-      if (cronToolId) {
-        await this.prisma.planCatalogToolActivation.upsert({
-          where: { planId_toolId: { planId: plan.id, toolId: cronToolId } },
-          update: {},
-          create: {
-            planId: plan.id,
-            toolId: cronToolId,
-            activationStatus: "inactive",
-            dailyCallLimit: null
-          }
-        });
-      }
+      for (const tool of tools) {
+        if (isPlanManagedTool(tool.code)) {
+          continue;
+        }
 
-      if (reminderTaskToolId) {
         await this.prisma.planCatalogToolActivation.upsert({
-          where: { planId_toolId: { planId: plan.id, toolId: reminderTaskToolId } },
+          where: { planId_toolId: { planId: plan.id, toolId: tool.id } },
           update: {},
           create: {
             planId: plan.id,
-            toolId: reminderTaskToolId,
-            activationStatus: "active",
+            toolId: tool.id,
+            activationStatus: isPlatformManagedTool(tool.code) ? "active" : "inactive",
             dailyCallLimit: null
           }
         });

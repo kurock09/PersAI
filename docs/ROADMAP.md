@@ -385,26 +385,46 @@ Step 15 — Tiered OpenClaw runtime and production hardening
 
 ## Pending / Future
 
-- [ ] M8 — `send_file` tool: allow assistant to send workspace files as media to user
-  - [ ] M8a — **native OpenClaw**: new `src/agents/tools/send-file-tool.ts` — reads file from workspace by path, copies to media output dir, returns URL in `mediaUrls` payload (same contract as `image_generate`/`tts`)
-  - [ ] M8b — **native OpenClaw**: register tool in agent tool registry, gate behind `mediaClasses` capability
-  - [ ] M8c — verify end-to-end: assistant calls `send_file({ path: "..." })` → file appears as inline attachment in web chat + Telegram via existing `MediaDeliveryService`
-  - scope note: no PersAI API changes needed — existing `MediaDeliveryService.deliver()` + channel adapters handle all downstream delivery
-- [ ] H11 — WhatsApp/MAX readiness and secret-ref parity
-- [ ] Channel media adapters: WhatsApp, VK, Matrix (one new file each when channels are implemented)
-- [ ] OpenAI TTS voice/model selection UI in PersAI admin (currently voice configurable only via `[[tts:voice=...]]` directives)
+- [ ] K16 — Post-R15 security governance and admin control-plane hardening
+  - [x] K16a — separate plan-managed vs hidden-internal tool policy truth so runtime materialization, admin plan API, and user-visible tool docs no longer rely on the old raw activation rows alone
+    - Admin plans now expose the same three-way tool policy split the control plane uses internally: editable `plan_managed`, read-only always-on `platform_managed`, and read-only `hidden_internal`.
+    - `persai_workspace_attach` and `persai_tool_quota_status` are now cataloged as `platform_managed` system tools, existing plans are backfilled with non-plan-managed activation rows, and ordinary plan mutations still reject attempts to edit them.
+  - [x] K16b — add graceful model fallback on limit exhaustion instead of hard chat shutdown
+    - [x] web/telegram inbound turns now resolve `cost_driving_restricted` through materialized runtime routing truth and can degrade to the safe fallback model path instead of hard-failing the chat turn
+    - [x] admin plans no longer expose `Cost tool units` as a product-facing edit field; only `tokenBudgetLimit` remains in the ordinary plan UI/API surface
+    - [x] runtime transport/UI now surfaces fallback-mode metadata so chat can show a neutral degraded marker instead of pretending the turn used the normal path
+  - [x] K16c — expand Ops Cockpit for full-width operator workflow plus assistant-level test plan override/reset
+    - `Ops Cockpit` now uses a wider operator layout and shows the assistant effective-plan block directly in the cockpit state.
+    - Added assistant-level test plan override/reset flow (`assistant_plan_override`) as a control-plane seam on `assistant_governance`, without mutating workspace billing rows.
+    - Effective subscription/materialization precedence is now `workspace subscription -> assistant override -> assistant fallback -> catalog default -> none`, so tester overrides reach runtime truth and not only the admin UI.
+  - [x] K16d — file hardening baseline: dangerous extension denylist, stricter binary upload path, and aligned write/upload size rules
+    - `PersAI` upload/stage/transcribe/channel-ingress now pass through one shared media security policy instead of separate MIME-only checks.
+    - dangerous executable/script extensions are blocked, and raw `application/octet-stream` no longer passes the ordinary allow path unless a safe type can be verified.
+    - `persai_workspace_attach` and OpenClaw runtime media upload now enforce the same class of file hardening on the runtime side, reducing bypass paths through workspace files/tool output.
+    - tool-output persistence now validates downloaded artifacts before re-uploading them into runtime storage, and the API upload endpoints now share the same max-size constant as the media policy layer instead of carrying separate hardcoded limits.
+  - [x] K16e — explicit per-tier security matrix for `free_shared_restricted`, `paid_shared_restricted`, and `paid_isolated`
+    - PersAI now has a code-backed runtime tier security matrix (`admin/runtime` read-only surface + contract state) instead of relying on scattered Helm/doc assumptions.
+    - All three product tiers now declare the same restricted built-in deny baseline, `sandbox.mode=all` / `scope=session` / `network=none` / `readOnlyRoot=true`, `exec` only inside sandbox, and `write` only inside the sandbox workspace boundary.
+    - `reminder_task` remains the only plan-managed service tool in the matrix, `cron` stays hidden-internal, and `persai_workspace_attach` plus `persai_tool_quota_status` are called out as always-on platform-managed tools across tiers.
+  - [x] K16f — user-facing tariff and usage UX aligned with the new plan model
+    - sidebar now shows current tariff plus token usage instead of the old chat-only progress bar
+    - assistant settings keep only token/chat usage bars and list active per-tool daily limits from the effective plan
+    - user-facing UI no longer reinforces the old `Cost tool units` product model
+- [ ] H11 — WhatsApp/MAX follow-through: extend the current readiness model with Telegram-parity managed `secret_refs`, rotation/revoke flow, and runtime materialization when those channels ship
+- [ ] Channel media adapters: WhatsApp, VK, Matrix — add one `*MediaAdapter` plus module registration when each channel ships, and align channel enum/contracts with Matrix if it remains in scope
+- [ ] TTS admin advanced settings UI: expose provider-specific voice/model controls in PersAI admin (OpenAI first); current runtime behavior uses provider defaults and gender-based mapping, not the old `[[tts:voice=...]]` directive path
 - [ ] H14 — Fork-diff reduction (tech debt follow-up inside Step 15 runtime program)
-  - [ ] H14a — secrets + tool credentials → `exec` provider + PersAI API bridge (removes 9 native OpenClaw files)
-  - [ ] H14b — remove explicit store from `server-runtime-state.ts` (1 file, trivial)
+  - [ ] H14a — migrate secret refs and tool credential injection away from native `source: "persai"` plumbing toward a generated `exec` provider + PersAI API bridge, reducing dedicated PersAI secret-provider fork surface in OpenClaw core
+  - [ ] H14b — remove duplicate explicit spec-store wiring from `server-runtime-state.ts` and update the fork verification scripts that currently assert that patch
   - [ ] H14c — stop deepening PersAI-specific native secret configuration UX; prefer PersAI-owned admin/config generation paths
   - [ ] H14d — prefer plugin-sdk/helper seams and PersAI-owned bridge tools before adding new native runtime patches
 - [ ] H15 — GKE runtime tuning for 5 000+ users (execution follow-up inside Step 15 runtime program)
-  - [ ] H15a — review and tune Kubernetes probe budgets (`startupProbe`, `readinessProbe`, `livenessProbe`, timeout, `failureThreshold`) from measured rollout/warmup behavior
-  - [ ] H15b — validate rollout safety and startup latency budgets for `api`, `web`, and tiered `openclaw` pools under realistic cold-start and recovery scenarios
+  - [x] H15a — tune sandbox-capable pool startup budget from measured preload/warmup behavior; API/web probes already live in Helm values, while broader OpenClaw readiness/liveness parity remains follow-up work
+  - [ ] H15b — validate rollout safety and cold-start/recovery latency for `api`, `web`, and tiered `openclaw` pools with repeatable operational checks
 - [ ] H16 — Autonomous workspace heartbeat deeper isolation
   - note: the immediate hygiene slice above is complete; the remaining H16 work is the deeper isolation/refactor track
   - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated
-  - [ ] H16a — verify which runtime paths still read `HEARTBEAT.md` from the default OpenClaw workspace instead of assistant-scoped `workspaceDir`
+  - [ ] H16a — verify which heartbeat/autonomous paths still read `HEARTBEAT.md` via the default agent workspace (`resolveAgentWorkspaceDir`) instead of the PersAI assistant-scoped `workspaceDir`
   - [ ] H16b — bind heartbeat polling and related autonomous file checks to the correct assistant/user workspace where product behavior is expected per assistant
   - [ ] H16c — document the role of the main/default workspace vs assistant-scoped workspaces so background agent behavior is understandable and debuggable
   - [ ] H16d — route low-value background polling / heartbeat reads to a dedicated cheaper model tier, separate from user-facing turn models

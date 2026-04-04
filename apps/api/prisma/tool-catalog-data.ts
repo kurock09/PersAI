@@ -1,5 +1,7 @@
 import type { ToolCatalogCapabilityGroup, ToolCatalogToolClass } from "@prisma/client";
 
+export type ToolPolicyClass = "plan_managed" | "platform_managed" | "hidden_internal";
+
 export type ToolCatalogEntry = {
   id: string;
   code: string;
@@ -8,6 +10,7 @@ export type ToolCatalogEntry = {
   capabilityGroup: ToolCatalogCapabilityGroup;
   toolClass: ToolCatalogToolClass;
   requiredCredentialId?: string;
+  policyClass?: ToolPolicyClass;
 };
 
 export const TOOL_CATALOG: ToolCatalogEntry[] = [
@@ -18,7 +21,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Provider-backed external web lookup tool.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
-    requiredCredentialId: "tool_web_search"
+    requiredCredentialId: "tool_web_search",
+    policyClass: "plan_managed"
   },
   {
     id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -27,7 +31,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Structured webpage content extraction via Firecrawl or fallback fetch.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
-    requiredCredentialId: "tool_web_fetch"
+    requiredCredentialId: "tool_web_fetch",
+    policyClass: "plan_managed"
   },
   {
     id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
@@ -36,7 +41,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "AI image generation via DALL-E or other supported providers.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
-    requiredCredentialId: "tool_image_generate"
+    requiredCredentialId: "tool_image_generate",
+    policyClass: "plan_managed"
   },
   {
     id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
@@ -45,7 +51,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Text-to-speech synthesis via OpenAI TTS, ElevenLabs, or other providers.",
     capabilityGroup: "communication" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
-    requiredCredentialId: "tool_tts"
+    requiredCredentialId: "tool_tts",
+    policyClass: "plan_managed"
   },
   {
     id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
@@ -53,7 +60,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Browser",
     description: "Automated web browser for interactive page navigation and content extraction.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
-    toolClass: "cost_driving" as ToolCatalogToolClass
+    toolClass: "cost_driving" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
   },
   {
     id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
@@ -62,7 +70,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Semantic search across assistant memory using remote embeddings.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
-    requiredCredentialId: "tool_memory_search"
+    requiredCredentialId: "tool_memory_search",
+    policyClass: "plan_managed"
   },
   {
     id: "88888888-8888-8888-8888-888888888888",
@@ -70,7 +79,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Memory Get",
     description: "Safe snippet read from memory files with optional offset/lines.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
-    toolClass: "utility" as ToolCatalogToolClass
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
   },
   {
     id: "99999999-9999-9999-9999-999999999999",
@@ -78,7 +88,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Cron",
     description: "Manage gateway cron jobs and send wake events.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
-    toolClass: "utility" as ToolCatalogToolClass
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "hidden_internal"
   },
   {
     id: "12121212-1212-1212-1212-121212121212",
@@ -86,7 +97,28 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Reminder Task",
     description: "Create, list, pause, resume, and cancel reminders or recurring tasks.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
-    toolClass: "utility" as ToolCatalogToolClass
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
+  },
+  {
+    id: "13131313-1313-1313-1313-131313131313",
+    code: "persai_workspace_attach",
+    displayName: "Workspace Attach",
+    description:
+      "Attach an existing assistant-workspace file to the chat via the platform media pipeline.",
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "platform_managed"
+  },
+  {
+    id: "14141414-1414-1414-1414-141414141414",
+    code: "persai_tool_quota_status",
+    displayName: "Tool Quota Status",
+    description:
+      "Read live tool quota usage/caps from PersAI control plane for the current assistant.",
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "platform_managed"
   }
 ];
 
@@ -104,3 +136,21 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   cron: { active: false, dailyCallLimit: null },
   reminder_task: { active: true, dailyCallLimit: null }
 };
+
+const TOOL_ENTRY_BY_CODE = new Map(TOOL_CATALOG.map((tool) => [tool.code, tool]));
+
+export function resolveToolPolicyClass(toolCode: string): ToolPolicyClass {
+  return TOOL_ENTRY_BY_CODE.get(toolCode)?.policyClass ?? "plan_managed";
+}
+
+export function isPlanManagedTool(toolCode: string): boolean {
+  return resolveToolPolicyClass(toolCode) === "plan_managed";
+}
+
+export function isPlatformManagedTool(toolCode: string): boolean {
+  return resolveToolPolicyClass(toolCode) === "platform_managed";
+}
+
+export function isHiddenInternalTool(toolCode: string): boolean {
+  return resolveToolPolicyClass(toolCode) === "hidden_internal";
+}

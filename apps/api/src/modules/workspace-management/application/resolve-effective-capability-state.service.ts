@@ -116,6 +116,7 @@ export class ResolveEffectiveCapabilityStateService {
       userId: params.assistant.userId,
       workspaceId: params.assistant.workspaceId,
       assistantId: params.assistant.id,
+      assistantPlanOverrideCode: params.governance.assistantPlanOverrideCode,
       assistantQuotaPlanCode: params.governance.quotaPlanCode
     });
 

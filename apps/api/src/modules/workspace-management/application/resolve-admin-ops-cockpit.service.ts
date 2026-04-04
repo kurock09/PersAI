@@ -10,6 +10,11 @@ import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.
 import type { AdminOpsCockpitState } from "./ops-cockpit.types";
 import { resolveRuntimeBaseUrl } from "./runtime-endpoint-routing";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
+import {
+  ASSISTANT_GOVERNANCE_REPOSITORY,
+  type AssistantGovernanceRepository
+} from "../domain/assistant-governance.repository";
+import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 
 function asIso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
@@ -22,9 +27,12 @@ export class ResolveAdminOpsCockpitService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
+    @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
+    private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
   ) {}
 
   async execute(callerUserId: string, targetUserId?: string): Promise<AdminOpsCockpitState> {
@@ -32,9 +40,23 @@ export class ResolveAdminOpsCockpitService {
     const lookupUserId = targetUserId ?? callerUserId;
     const config = loadApiConfig(process.env);
     const assistant = await this.assistantRepository.findByUserId(lookupUserId);
+    const governance =
+      assistant === null
+        ? null
+        : await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
     const runtimeTier = assistant
       ? await this.resolveAssistantRuntimeTierService.resolveByAssistantId(assistant.id)
       : null;
+    const effectiveSubscription =
+      assistant === null
+        ? null
+        : await this.resolveEffectiveSubscriptionStateService.execute({
+            userId: assistant.userId,
+            workspaceId: assistant.workspaceId,
+            assistantId: assistant.id,
+            assistantPlanOverrideCode: governance?.assistantPlanOverrideCode ?? null,
+            assistantQuotaPlanCode: governance?.quotaPlanCode ?? null
+          });
     const runtimeEndpointHost =
       config.OPENCLAW_ADAPTER_ENABLED && runtimeTier
         ? new URL(
@@ -72,6 +94,12 @@ export class ResolveAdminOpsCockpitService {
           exists: false,
           assistantId: null,
           workspaceId: null,
+          effectivePlan: {
+            code: null,
+            source: "none",
+            assistantPlanOverrideCode: null,
+            quotaPlanCode: null
+          },
           latestPublishedVersion: {
             id: null,
             version: null,
@@ -87,7 +115,9 @@ export class ResolveAdminOpsCockpitService {
         },
         controls: {
           reapplySupported: false,
-          restartSupported: false
+          restartSupported: false,
+          assistantPlanOverrideSupported: false,
+          assistantPlanResetSupported: false
         },
         incidentSignals,
         updatedAt: new Date().toISOString()
@@ -139,6 +169,12 @@ export class ResolveAdminOpsCockpitService {
         exists: true,
         assistantId: assistant.id,
         workspaceId: assistant.workspaceId,
+        effectivePlan: {
+          code: effectiveSubscription?.planCode ?? null,
+          source: effectiveSubscription?.source ?? "none",
+          assistantPlanOverrideCode: governance?.assistantPlanOverrideCode ?? null,
+          quotaPlanCode: governance?.quotaPlanCode ?? null
+        },
         latestPublishedVersion: {
           id: latestPublishedVersion?.id ?? null,
           version: latestPublishedVersion?.version ?? null,
@@ -168,7 +204,9 @@ export class ResolveAdminOpsCockpitService {
       },
       controls: {
         reapplySupported: latestPublishedVersion !== null,
-        restartSupported: false
+        restartSupported: false,
+        assistantPlanOverrideSupported: true,
+        assistantPlanResetSupported: governance?.assistantPlanOverrideCode !== null
       },
       incidentSignals,
       updatedAt: new Date().toISOString()

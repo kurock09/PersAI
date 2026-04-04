@@ -40,6 +40,7 @@ import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { normalizeAssistantGender } from "./assistant-gender";
 import { resolveRuntimeAssignmentState } from "./runtime-assignment";
+import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -97,6 +98,7 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly resolveRuntimeProviderRoutingService: ResolveRuntimeProviderRoutingService,
     private readonly resolveOpenClawCapabilityEnvelopeService: ResolveOpenClawCapabilityEnvelopeService,
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     private readonly prisma: WorkspaceManagementPrismaService
@@ -201,6 +203,14 @@ export class MaterializeAssistantPublishedVersionService {
       channelSurfaceBindings,
       runtimeProviderRouting
     });
+    const effectiveSubscription = await this.resolveEffectiveSubscriptionStateService.execute({
+      userId: assistant.userId,
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
+      assistantQuotaPlanCode: governance.quotaPlanCode
+    });
+    const effectivePlanCode = effectiveSubscription.planCode;
 
     const layers = {
       schema: MATERIALIZATION_SCHEMA,
@@ -225,7 +235,8 @@ export class MaterializeAssistantPublishedVersionService {
           toolAvailability,
           openclawCapabilityEnvelope,
           runtimeProviderProfile,
-          runtimeAssignment
+          runtimeAssignment,
+          effectivePlanCode
         ),
         applyState: {
           status: assistant.applyStatus,
@@ -236,7 +247,11 @@ export class MaterializeAssistantPublishedVersionService {
     };
 
     const toolCredentialRefs = await this.resolveToolCredentialRefs();
-    const toolQuotaPolicy = await this.resolveToolQuotaPolicy(governance.quotaPlanCode);
+    const planToolQuotaPolicy = await this.resolveToolQuotaPolicy(effectivePlanCode);
+    const toolQuotaPolicy = this.resolveToolRuntimePolicy(
+      toolAvailability.tools,
+      planToolQuotaPolicy
+    );
     const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
 
     const openclawBootstrap = {
@@ -250,7 +265,7 @@ export class MaterializeAssistantPublishedVersionService {
         capabilityEnvelope: governance.capabilityEnvelope,
         policyEnvelope: governance.policyEnvelope,
         quota: {
-          planCode: governance.quotaPlanCode,
+          planCode: effectivePlanCode,
           hook: governance.quotaHook
         },
         effectiveCapabilities,
@@ -274,6 +289,7 @@ export class MaterializeAssistantPublishedVersionService {
       governance,
       toolAvailability,
       toolQuotaPolicy,
+      effectivePlanCode,
       memoryControl,
       tasksControl,
       effectiveCapabilities,
@@ -446,6 +462,37 @@ export class MaterializeAssistantPublishedVersionService {
     }));
   }
 
+  private resolveToolRuntimePolicy(
+    tools: Array<{
+      code: string;
+      policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
+      effectiveActivation: "active" | "inactive";
+      visibleInPlanEditor: boolean;
+    }>,
+    planToolQuotaPolicy: Array<{
+      toolCode: string;
+      dailyCallLimit: number | null;
+      activationStatus: string;
+    }>
+  ): Array<{
+    toolCode: string;
+    dailyCallLimit: number | null;
+    activationStatus: string;
+    policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
+    visibleInPlanEditor: boolean;
+  }> {
+    const planQuotaByCode = new Map(
+      planToolQuotaPolicy.map((tool) => [tool.toolCode, tool.dailyCallLimit] as const)
+    );
+    return tools.map((tool) => ({
+      toolCode: tool.code,
+      dailyCallLimit: planQuotaByCode.get(tool.code) ?? null,
+      activationStatus: tool.effectiveActivation,
+      policyClass: tool.policyClass,
+      visibleInPlanEditor: tool.visibleInPlanEditor
+    }));
+  }
+
   private async resolveUserContext(
     userId: string,
     workspaceId: string
@@ -482,6 +529,7 @@ export class MaterializeAssistantPublishedVersionService {
       dailyCallLimit: number | null;
       activationStatus: string;
     }>;
+    effectivePlanCode: string | null;
     memoryControl: unknown;
     tasksControl: unknown;
     effectiveCapabilities: Record<string, unknown>;
@@ -665,18 +713,24 @@ export class MaterializeAssistantPublishedVersionService {
       toolCode: string;
       dailyCallLimit: number | null;
       activationStatus: string;
+      policyClass?: string;
+      visibleInPlanEditor?: boolean;
     }>
   ): string {
     const lines: string[] = [];
-    const userVisiblePolicy = toolQuotaPolicy.filter((tool) => tool.toolCode !== "cron");
+    const userVisiblePolicy = toolQuotaPolicy.filter(
+      (tool) => tool.policyClass !== "hidden_internal"
+    );
 
     const active = userVisiblePolicy.filter((t) => t.activationStatus === "active");
     const inactive = userVisiblePolicy.filter((t) => t.activationStatus !== "active");
+    const platformManaged = active.filter((tool) => tool.policyClass === "platform_managed");
+    const planManagedActive = active.filter((tool) => tool.policyClass !== "platform_managed");
 
-    if (active.length > 0) {
+    if (planManagedActive.length > 0) {
       lines.push("## Active Tools");
       lines.push("");
-      for (const tool of active) {
+      for (const tool of planManagedActive) {
         const limit =
           tool.dailyCallLimit !== null ? ` (daily limit: ${String(tool.dailyCallLimit)})` : "";
         lines.push(`- **${tool.toolCode}**${limit}`);
@@ -689,6 +743,15 @@ export class MaterializeAssistantPublishedVersionService {
       lines.push("");
       for (const tool of inactive) {
         lines.push(`- ~~${tool.toolCode}~~ — not available on current plan`);
+      }
+      lines.push("");
+    }
+
+    if (platformManaged.length > 0) {
+      lines.push("## Platform-managed Tools");
+      lines.push("");
+      for (const tool of platformManaged) {
+        lines.push(`- **${tool.toolCode}** — available as part of platform policy`);
       }
       lines.push("");
     }
@@ -899,7 +962,8 @@ export class MaterializeAssistantPublishedVersionService {
     toolAvailability: Record<string, unknown>,
     openclawCapabilityEnvelope: Record<string, unknown>,
     runtimeProviderProfile: unknown,
-    runtimeAssignment: unknown
+    runtimeAssignment: unknown,
+    effectivePlanCode: string | null
   ): Record<string, unknown> {
     return {
       capabilityEnvelope: governance.capabilityEnvelope,
@@ -912,8 +976,9 @@ export class MaterializeAssistantPublishedVersionService {
       openclawCapabilityEnvelope,
       memoryControl: governance.memoryControl,
       tasksControl: governance.tasksControl,
+      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
       quota: {
-        planCode: governance.quotaPlanCode,
+        planCode: effectivePlanCode,
         hook: governance.quotaHook
       },
       auditHook: governance.auditHook

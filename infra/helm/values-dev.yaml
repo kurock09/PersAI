@@ -217,11 +217,11 @@ openclaw:
   sandboxImages:
     base:
       name: openclaw-sandbox
-      tag: 31ec4f70d76eebfef933754934ee922c9d094c11
+      tag: 62adb8631535262d9270bf5e4b1ab09bb16b5dd6
       digest: ""
     common:
       name: openclaw-sandbox-common
-      tag: 31ec4f70d76eebfef933754934ee922c9d094c11
+      tag: 62adb8631535262d9270bf5e4b1ab09bb16b5dd6
       digest: ""
   serviceAccount:
     create: true
@@ -233,8 +233,8 @@ openclaw:
 
 
 
-    tag: 31ec4f70d76eebfef933754934ee922c9d094c11
-    digest: sha256:0a4b6e63ea8921a49dd70a9fcadcc204a5a95c34521452a06be144a5c2ea46ce
+    tag: 62adb8631535262d9270bf5e4b1ab09bb16b5dd6
+    digest: ""
 
     pullPolicy: IfNotPresent
   controlUi:

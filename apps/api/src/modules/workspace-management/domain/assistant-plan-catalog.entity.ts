@@ -2,6 +2,7 @@ export type AssistantPlanCatalogToolActivation = {
   toolCode: string;
   displayName: string;
   toolClass: "cost_driving" | "utility";
+  policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
   activationStatus: "active" | "inactive";
   dailyCallLimit: number | null;
 };

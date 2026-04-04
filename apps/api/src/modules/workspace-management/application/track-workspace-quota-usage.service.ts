@@ -272,6 +272,7 @@ export class TrackWorkspaceQuotaUsageService {
       userId: assistant.userId,
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,
+      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
       assistantQuotaPlanCode: governance.quotaPlanCode
     });
 

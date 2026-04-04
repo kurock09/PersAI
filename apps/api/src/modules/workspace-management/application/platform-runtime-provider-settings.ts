@@ -6,6 +6,10 @@ import {
   type RuntimeProviderCredentialRefState,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
+import {
+  listRuntimeTierSecurityPolicies,
+  type RuntimeTierSecurityPolicyState
+} from "./runtime-tier-security-policy";
 
 export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID = "global";
 export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA = "persai.adminRuntimeProviderSettings.v1";
@@ -39,6 +43,7 @@ export type PlatformRuntimeProviderSettingsState = {
   fallback: PlatformRuntimeProviderSelection | null;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
   providerKeys: Record<ManagedRuntimeProvider, PlatformRuntimeProviderKeyMetadata>;
+  tierSecurityPolicies: RuntimeTierSecurityPolicyState[];
   notes: string[];
 };
 
@@ -272,6 +277,7 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
       fallback: null,
       availableModelsByProvider: createEmptyAvailableModelsByProvider(),
       providerKeys: params.providerKeys,
+      tierSecurityPolicies: listRuntimeTierSecurityPolicies(),
       notes: [
         "Global runtime provider settings are not configured yet.",
         "OpenClaw keeps its legacy configured default model path until global settings are saved."
@@ -305,6 +311,7 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
     fallback,
     availableModelsByProvider,
     providerKeys: params.providerKeys,
+    tierSecurityPolicies: listRuntimeTierSecurityPolicies(),
     notes: [
       "Provider keys are managed as one global platform setting for all assistants.",
       "Raw provider keys are write-only in the admin UI and stay in encrypted PersAI storage."

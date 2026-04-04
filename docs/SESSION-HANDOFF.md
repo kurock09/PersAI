@@ -1,5 +1,182 @@
 # SESSION-HANDOFF
 
+## 2026-04-04 - OpenClaw runtime hardening pin advance
+
+1. **The OpenClaw fork is now cleanly pinned to the runtime hardening follow-up** — the approved fork SHA advanced to `62adb8631535262d9270bf5e4b1ab09bb16b5dd6`, and PersAI now points to that exact revision in both `openclaw-approved-sha.txt` and `infra/helm/values-dev.yaml`.
+2. **Runtime-side file policy now matches the K16 hardening intent more closely** — the fork gained a dedicated runtime file-security validator used by workspace attach and outbound artifact fetches, reducing the chance that unsafe runtime media bypasses the normal PersAI media policy posture.
+3. **Quota fallback keeps its runtime override seam** — request-level `providerOverride` / `modelOverride` remain available in the runtime bridge so PersAI can route a token-limit fallback turn to the materialized safe model without rewriting stored bootstrap documents.
+4. **Verification checkpoint** — OpenClaw `npx tsc --noEmit` passed, focused `vitest` runtime file-security/workspace-attach tests passed, PersAI full lint passed, `format:check` passed, and both `@persai/api` and `@persai/web` typecheck passed after the new fork SHA was pinned.
+
+## 2026-04-04 - K16 user-facing plan and usage UX cleanup
+
+1. **User-facing plan visibility now reflects the real effective plan** — the assistant plan visibility payload was expanded so the web app can show current tariff identity, token usage, active chat usage, and active per-tool daily limits instead of relying on three coarse percentages.
+2. **Sidebar no longer reinforces the old chat-progress mental model** — the left rail now shows the current tariff plus token budget consumption, which better matches the K16 fallback/quota behavior than the previous chat-only progress bar.
+3. **Assistant settings now expose only the useful limit surfaces** — the settings panel keeps token and active-chat usage bars, removes the stale third usage bar, and lists the actual plan-managed tool limits available to the current user under the effective plan.
+4. **Verification checkpoint** — contracts were regenerated, `@persai/api` typecheck passed, `@persai/web` typecheck passed, and focused regression coverage was added for `ResolvePlanVisibilityService`.
+
+## 2026-04-04 - K16 per-tier security matrix completion
+
+1. **Tier policy is now code-backed instead of implied** — PersAI gained a runtime tier security policy module that defines the operator-facing baseline for `free_shared_restricted`, `paid_shared_restricted`, and `paid_isolated` in one place instead of leaving the meaning of tiers scattered across Helm values and docs.
+2. **All product tiers now declare the same restricted execution boundary** — the matrix fixes `sandbox.mode=all`, Docker backend, `scope=session`, `workspaceAccess=rw`, `network=none`, `readOnlyRoot=true`, sandbox-only `exec`, and sandbox-workspace-only `write` as the current security baseline for all three product tiers.
+3. **Service/platform tools are explicitly separated per tier** — `reminder_task` stays the only plan-managed service tool in the matrix, `cron` remains hidden-internal, and `persai_workspace_attach` plus `persai_tool_quota_status` are exposed as read-only platform-managed tools across tiers.
+4. **Operators can now inspect the matrix directly in admin runtime settings** — `AdminRuntimeProviderSettingsState` and the `admin/runtime` page now include a read-only per-tier security matrix block, so runtime policy visibility no longer depends on reading Helm files or roadmap prose.
+5. **Verification checkpoint** — contracts were regenerated, `@persai/api` typecheck passed, `@persai/web` typecheck passed, and the existing runtime settings admin test fixture was updated to the richer contract shape.
+
+## 2026-04-04 - K16 admin/tool UX cleanup completion
+
+1. **Tool policy classes now survive all the way into plan/admin truth** — PersAI catalog metadata now marks `persai_workspace_attach` and `persai_tool_quota_status` as `platform_managed`, and plan activation sync/backfill creates consistent non-plan-managed rows instead of pretending those tools do not exist in plan state.
+2. **Server-side plan guards stayed strict** — ordinary admin plan mutations still only accept `plan_managed` tool codes, so system/internal tools cannot be toggled through raw API payloads even if a client tries to bypass the UI.
+3. **Admin Plans UI now reflects the real control-plane model** — the page separates editable `plan_managed` tools from read-only `platform_managed` and `hidden_internal` groups, removing the old single-tool `cron` special case and making always-on product plumbing visible to operators without turning it into tariff clutter.
+4. **Verification checkpoint** — contracts were regenerated, focused `manage-admin-plans.service.test.ts` passed, and both `@persai/api` and `@persai/web` typecheck passed after the richer tool activation contract was synced.
+
+## 2026-04-04 - K16 file hardening baseline completion
+
+1. **Media/file validation is no longer scattered across upload paths** — PersAI now has a shared media security policy that is used by ordinary chat upload, staged web upload, voice transcription, inbound channel attachments, and tool-output persistence.
+2. **Raw generic binaries are no longer part of the normal allow path** — `application/octet-stream` now requires a verified safe type through sniffing/extension resolution instead of silently passing as an ordinary upload.
+3. **Dangerous executable/script extensions are blocked explicitly** — uploads such as `.exe`, `.js`, `.sh`, `.ps1`, `.bat`, `.jar`, `.svg`, and similar risky formats are now denied by file policy before they reach normal runtime storage flow.
+4. **Tool-output persistence now respects the same gate before storage** — downloaded artifacts are validated before they are re-uploaded into runtime workspace storage, so generated/downloaded tool output is no longer a late-checked bypass around the normal media policy.
+5. **Runtime-side bypass paths were also narrowed** — OpenClaw runtime media upload and `persai_workspace_attach` now validate the same class of unsafe files, and the runtime-side allowed MIME list was brought back in sync with PersAI for safe audio variants such as `audio/x-opus+ogg`.
+6. **Verification checkpoint** — `@persai/api` typecheck passed, `@persai/web` typecheck passed, focused `media-security-policy.test.ts` passed, focused `media-delivery.service.test.ts` passed, and focused OpenClaw `persai-runtime-file-security.test.ts` plus `persai-workspace-attach-tool.test.ts` passed. Full OpenClaw build was not used as the primary verifier on this machine because the repo build script currently fails earlier on its existing `bash`/`node` environment path setup.
+
+## 2026-04-04 - K16 Ops Cockpit tester override completion
+
+1. **Assistant-level tester override is now a first-class control-plane seam** — `assistant_governance` gained `assistantPlanOverrideCode`, and effective subscription precedence is now `workspace subscription -> assistant override -> assistant fallback -> catalog default -> none`.
+2. **The override is honest and runtime-facing, not UI-only** — materialization now resolves the effective plan before building runtime `toolQuotaPolicy`, so a tester override changes the generated runtime plan truth instead of only changing admin visibility.
+3. **Ops Cockpit now supports the actual operator workflow** — the page uses a wider layout, shows effective plan code/source/override/fallback details, and adds explicit `Apply test plan` plus `Reset to normal` actions for selected users.
+4. **Billing separation is preserved** — the tester override does not mutate `workspace_subscriptions`; resetting simply clears the assistant override and returns the assistant to normal billing-driven resolution.
+5. **Verification** — `@persai/api` typecheck passed, `@persai/web` typecheck passed, and focused tests passed for subscription precedence, assistant lifecycle/runtime assignment, the new admin override service, and the web assistant API client.
+
+## 2026-04-04 - K16 graceful limit fallback completion
+
+### What changed
+
+1. **Quota fallback now reaches the user-facing transport cleanly** — web chat transport/runtime state now carries explicit metadata when a turn was intentionally degraded to the safe fallback model because of plan/quota pressure.
+2. **The chat UI no longer hides that degraded path** — the client adds a neutral fallback-mode activity marker instead of pretending the answer came from the normal route.
+3. **Fallback controls and hard-stop wording are now aligned** — admin runtime copy describes fallback as the safe lower-cost/degraded path, while `quota_limit_reached` UX is reserved for cases where no safe fallback route exists.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/enforce-assistant-capability-and-quota.service.ts`
+- `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-chat.types.ts`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/assistant-api-client.test.ts`
+- `apps/web/app/admin/runtime/page.tsx`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/model/assistantWebChatRuntimeState.ts`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
+## 2026-04-04 - K16 policy truth baseline
+
+### What changed
+
+1. **The old raw activation rows were no longer enough as the policy source of truth** — PersAI already computed effective tool availability, but runtime-facing deny materialization and admin plan editing still depended too directly on raw `toolActivations`, which left room for drift and hidden/internal tools leaking back into ordinary plan flows.
+2. **Control-plane tool policy is now explicitly classified** — catalog metadata now distinguishes `plan_managed` tools from `hidden_internal` tools, the plan repository no longer upserts non-plan-managed rows during normal plan sync, and admin plan input now rejects attempts to edit hidden/internal tools such as `cron` through the ordinary tariff editor.
+3. **Runtime deny now follows the same effective truth without losing per-tool limits** — materialized runtime tool policy is built from effective availability plus preserved daily limits, so OpenClaw still gets the correct per-tool cap data while deny activation follows the same control-plane resolution used by capability envelope reasoning and user-visible tool docs.
+
+### Files touched
+
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/domain/tool-catalog.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-plan-catalog.entity.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-tool-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-plan-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/application/effective-tool-availability.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-effective-tool-availability.service.ts`
+- `apps/api/src/modules/workspace-management/application/openclaw-capability-envelope.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-capability-envelope.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/test/tool-catalog-activation.test.ts`
+- `apps/api/test/openclaw-capability-envelope.test.ts`
+- `apps/api/test/manage-admin-plans.service.test.ts`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/OPENCLAW-SHARED-RUNTIME-HARDENING.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
+## 2026-04-04 - R15 sandbox workspace/session boundary correction
+
+### What changed
+
+1. **Live sandbox behavior showed the boundary was still too coarse** — sandbox-capable pools were up, but `sandbox.scope: agent` still let multiple PersAI assistants collapse into one shared `agent:main` sandbox/workspace path, which broke the intended per-assistant writable zone.
+2. **The runtime baseline now matches PersAI workspace isolation semantics** — Helm values now set sandbox scope to `session`, so each assistant/session gets its own sandbox container and workspace mount instead of silently reusing one shared agent-level sandbox.
+3. **This closes a real post-rollout tail, not just a doc nuance** — the change was driven by live failure evidence (`PermissionError` / wrong workspace mount target), and it is now part of the honest sandbox baseline rather than a deferred cleanup.
+
+### Files touched
+
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+1. PersAI
+2. Roll out/sync PersAI so fresh sandbox-capable pods pick up `sandbox.scope: session`
+3. Verify an assistant can create/write inside its own workspace zone without widening access outside that zone
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
+## 2026-04-04 - H15a sandbox startup budget tuning
+
+### What changed
+
+1. **Cold-start reality was slower than the original startup window** — fresh sandbox-capable pods can spend substantial time preloading `openclaw-sandbox*` images and bringing the gateway up before `readyz` becomes available.
+2. **Probe budget is now an explicit tuned runtime parameter** — Helm values now carry `openclaw.sandboxRuntime.startupProbe` so rollout budgets live in values/config instead of as a smaller hardcoded threshold in the deployment template.
+3. **This is baseline hardening for all sandbox-capable pools** — the higher startup budget is not a `paid_isolated` special case; it is a general protection against false restarts during honest cold boot and recovery.
+
+### Files touched
+
+- `infra/helm/templates/openclaw-deployment.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `docs/ROADMAP.md`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
 ## 2026-04-04 - R15 sandbox rootless socket correction
 
 ### What changed
@@ -2900,13 +3077,46 @@ OpenClaw commit: `6bcff3d2f4b13483b03fac259462c01b9a0ccec0`
 
 ---
 
+## 2026-04-04 - K16 limit fallback baseline
+
+### What changed
+
+- Web chat and Telegram inbound turns now return a structured quota decision instead of always hard-failing on quota exhaustion.
+- Materialized `runtimeProviderRouting.fallbackMatrix.cost_driving_restricted` is now treated as a real safe-model degrade target, not just a policy hint.
+- PersAI inbound transport paths pass explicit per-turn `providerOverride` / `modelOverride` into the OpenClaw bridge when quota degrade is allowed.
+- OpenClaw runtime HTTP handlers accept those explicit turn overrides and apply them ahead of the materialized default runtime model selection.
+- Admin plans no longer expose `Cost tool units` in the ordinary UI/API surface; `tokenBudgetLimit` remains the product-facing quota field.
+
+### Why changed
+
+- Hard chat shutdown on quota exhaustion was not user-friendly and did not match the intended K16 behavior.
+- `Cost tool units` was an internal accounting lever leaking into the normal admin tariff UX.
+
+### Slice boundary
+
+- PersAI: inbound quota decision, runtime adapter payload, admin plans contract/UI cleanup, tests
+- OpenClaw: minimal runtime HTTP bridge change so explicit per-turn provider/model overrides reach execution
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec tsx "apps/api/test/runtime-provider-routing.test.ts"`
+- `corepack pnpm exec tsx "apps/api/test/openclaw-runtime-adapter.test.ts"`
+
+### Next recommended step
+
+- Finish the remaining K16 admin-facing UX around explaining degrade behavior and fallback-state visibility in operator surfaces.
+
+---
+
 ## 2026-03-26 - H2 cleanup: tool/plan/limits consolidation and dead-code removal
 
 ### What changed
 
 - **Tool catalog consolidation:** extracted all 8 tool definitions + `STARTER_TRIAL_TOOL_POLICY` into `apps/api/prisma/tool-catalog-data.ts`; both `seed.ts` and `seed-catalog.ts` now import from this single source of truth.
 - **Dead capability flags removed:** `assistantLifecycle`, `memoryCenter`, `tasksCenter`, `viewLimitPercentages`, `tasksExcludedFromCommercialQuotas` — removed from `EffectiveCapabilityState`, `resolve-effective-capability-state.service.ts`, `resolve-plan-visibility.service.ts`, `resolve-openclaw-capability-envelope.service.ts`, `resolve-openclaw-channel-surface-bindings.service.ts`, `track-workspace-quota-usage.service.ts`, `admin-plan-management.types.ts`, OpenAPI contracts, admin plans UI, and all affected test files.
-- **Per-plan quota limits:** `tokenBudgetLimit` and `costToolUnitsLimit` now stored in `billingProviderHints.quotaAccounting`; admin plans UI has dedicated input fields; `billingProviderHints` overwrite bug fixed (merge instead of replace).
+- **Per-plan quota limits:** plan quota accounting remains stored in `billingProviderHints.quotaAccounting`; `tokenBudgetLimit` is the product-facing admin control, while the internal cost-driving counter is no longer exposed in ordinary admin plans UI; `billingProviderHints` overwrite bug fixed (merge instead of replace).
 - **Per-plan model selection:** `primaryModelKey` stored in `billingProviderHints`; resolved during materialization and passed to `ResolveRuntimeProviderRoutingService`.
 - **Daily call limit enforcement:** `WorkspaceToolDailyUsageRepository` interface + Prisma implementation; `checkToolDailyLimit` / `incrementToolDailyUsage` on `TrackWorkspaceQuotaUsageService`; wired into module DI.
 - **Admin Runtime UI completed:** fallback provider/model toggle, available models per provider editor, reapply summary display after save.

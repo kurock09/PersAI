@@ -34,6 +34,7 @@ describe("runtime-provider-settings-admin", () => {
           updatedAt: null
         }
       },
+      tierSecurityPolicies: [],
       notes: []
     });
 

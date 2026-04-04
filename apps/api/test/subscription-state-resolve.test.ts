@@ -49,11 +49,34 @@ async function run(): Promise<void> {
     userId: "user-1",
     workspaceId: "ws-1",
     assistantId: "assistant-1",
+    assistantPlanOverrideCode: "starter_trial",
     assistantQuotaPlanCode: "starter_trial"
   });
   assert.equal(fromWorkspace.source, "workspace_subscription");
   assert.equal(fromWorkspace.status, "active");
   assert.equal(fromWorkspace.planCode, "pro");
+
+  const overrideFromAssistant = await createService({
+    workspaceSubscriptionRepo: {
+      async findByWorkspaceId() {
+        return null;
+      }
+    },
+    planRepo: {
+      async findDefaultRegistrationPlan() {
+        return null;
+      }
+    }
+  }).execute({
+    userId: "user-1",
+    workspaceId: "ws-1",
+    assistantId: "assistant-1",
+    assistantPlanOverrideCode: "pro_tester",
+    assistantQuotaPlanCode: "starter_trial"
+  });
+  assert.equal(overrideFromAssistant.source, "assistant_plan_override");
+  assert.equal(overrideFromAssistant.status, "unconfigured");
+  assert.equal(overrideFromAssistant.planCode, "pro_tester");
 
   const fallbackFromAssistant = await createService({
     workspaceSubscriptionRepo: {
@@ -70,6 +93,7 @@ async function run(): Promise<void> {
     userId: "user-1",
     workspaceId: "ws-1",
     assistantId: "assistant-1",
+    assistantPlanOverrideCode: null,
     assistantQuotaPlanCode: "starter_trial"
   });
   assert.equal(fallbackFromAssistant.source, "assistant_plan_fallback");
@@ -104,6 +128,7 @@ async function run(): Promise<void> {
     userId: "user-1",
     workspaceId: "ws-1",
     assistantId: "assistant-1",
+    assistantPlanOverrideCode: null,
     assistantQuotaPlanCode: null
   });
   assert.equal(fallbackFromCatalog.source, "catalog_default_fallback");
@@ -124,6 +149,7 @@ async function run(): Promise<void> {
     userId: "user-1",
     workspaceId: "ws-1",
     assistantId: "assistant-1",
+    assistantPlanOverrideCode: null,
     assistantQuotaPlanCode: null
   });
   assert.equal(none.source, "none");

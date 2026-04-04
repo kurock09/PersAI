@@ -9,6 +9,7 @@ import {
   type AdminPlanCreateRequest,
   type AdminDangerousActionCode,
   type AdminOpsCockpitState,
+  type PostAdminOpsUserPlanOverrideParams,
   type AdminPlanVisibilityState,
   type AdminPlanState,
   type AdminPlanUpdateRequest,
@@ -56,6 +57,8 @@ import {
   getAdminNotificationChannels as getAdminNotificationChannelsContract,
   getAdminPlatformRollouts as getAdminPlatformRolloutsContract,
   getAdminOpsCockpit as getAdminOpsCockpitContract,
+  postAdminOpsUserPlanOverride as postAdminOpsUserPlanOverrideContract,
+  deleteAdminOpsUserPlanOverride as deleteAdminOpsUserPlanOverrideContract,
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
   getAdminRuntimeProviderSettings as getAdminRuntimeProviderSettingsContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
@@ -238,9 +241,9 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   if (code === "quota_limit_reached") {
     return {
       classId: "quota_limit_reached",
-      message: "You've reached your plan's usage limit.",
+      message: "This turn cannot continue on the current plan limits.",
       guidance:
-        "Your message quota or tool usage limit has been exceeded. Wait for the next billing cycle or upgrade your plan."
+        "No safe fallback route is available for this request right now. Wait for quota refresh, simplify the request, or upgrade the plan."
     };
   }
 
@@ -1528,6 +1531,40 @@ export async function getAdminOpsCockpit(token: string): Promise<AdminOpsCockpit
       throw new Error("Unexpected non-success response for GET /admin/ops/cockpit.");
     }
     return response.data.cockpit;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminOpsUserPlanOverride(
+  token: string,
+  userId: string,
+  params: PostAdminOpsUserPlanOverrideParams
+): Promise<void> {
+  try {
+    const response = await postAdminOpsUserPlanOverrideContract(userId, params, {
+      headers: getAuthHeaders(token)
+    });
+    if (!isSuccessStatus(response.status)) {
+      throw new Error(
+        "Unexpected non-success response for POST /admin/ops/users/{userId}/plan-override."
+      );
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function deleteAdminOpsUserPlanOverride(token: string, userId: string): Promise<void> {
+  try {
+    const response = await deleteAdminOpsUserPlanOverrideContract(userId, {
+      headers: getAuthHeaders(token)
+    });
+    if (!isSuccessStatus(response.status)) {
+      throw new Error(
+        "Unexpected non-success response for DELETE /admin/ops/users/{userId}/plan-override."
+      );
+    }
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

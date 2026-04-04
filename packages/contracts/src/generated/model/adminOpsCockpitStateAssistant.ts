@@ -4,6 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminOpsCockpitStateAssistantEffectivePlan } from "./adminOpsCockpitStateAssistantEffectivePlan";
 import type { AdminOpsCockpitStateAssistantLatestPublishedVersion } from "./adminOpsCockpitStateAssistantLatestPublishedVersion";
 import type { AdminOpsCockpitStateAssistantRuntimeApply } from "./adminOpsCockpitStateAssistantRuntimeApply";
 
@@ -13,6 +14,7 @@ export type AdminOpsCockpitStateAssistant = {
   assistantId: string | null;
   /** @nullable */
   workspaceId: string | null;
+  effectivePlan: AdminOpsCockpitStateAssistantEffectivePlan;
   latestPublishedVersion: AdminOpsCockpitStateAssistantLatestPublishedVersion;
   /** @nullable */
   runtimeApply: AdminOpsCockpitStateAssistantRuntimeApply;

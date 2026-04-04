@@ -37,6 +37,8 @@ export interface AssistantRuntimeWebChatTurnInput {
   assistantId: string;
   publishedVersionId: string;
   runtimeTier?: RuntimeTier;
+  providerOverride?: "openai" | "anthropic";
+  modelOverride?: string;
   chatId: string;
   surfaceThreadKey: string;
   userMessageId: string;
@@ -49,6 +51,8 @@ export interface AssistantRuntimeChannelTurnInput {
   assistantId: string;
   publishedVersionId: string;
   runtimeTier?: RuntimeTier;
+  providerOverride?: "openai" | "anthropic";
+  modelOverride?: string;
   surface: "telegram";
   threadId: string;
   userMessage: string;

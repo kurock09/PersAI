@@ -54,6 +54,38 @@ export interface UseChatReturn {
   loadOlderMessages: () => Promise<void>;
 }
 
+type RuntimeTransportMeta = {
+  respondedAt?: string;
+  degradedByQuotaFallback?: boolean;
+  quotaFallbackReason?: "token_budget_limit_reached" | "cost_driving_quota_limit_reached" | null;
+  quotaFallbackModel?: string | null;
+};
+
+function appendQuotaFallbackActivity(params: {
+  setActivities: React.Dispatch<React.SetStateAction<ActivityEvent[]>>;
+  runtime: RuntimeTransportMeta | null | undefined;
+  assistantMessageId: string | null;
+}): void {
+  const runtime = params.runtime;
+  if (runtime?.degradedByQuotaFallback !== true) {
+    return;
+  }
+  const detail = runtime.quotaFallbackModel
+    ? `using ${runtime.quotaFallbackModel}`
+    : "using the safe fallback model";
+  params.setActivities((prev) => [
+    ...prev,
+    {
+      id: `activity-quota-fallback-${Date.now()}`,
+      type: "info",
+      label: "Fallback mode active",
+      detail,
+      ...(runtime.respondedAt ? { timestamp: runtime.respondedAt } : {}),
+      ...(params.assistantMessageId ? { afterMessageId: params.assistantMessageId } : {})
+    }
+  ]);
+}
+
 export function useChat(threadKey: string): UseChatReturn {
   const { getToken } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -281,6 +313,7 @@ export function useChat(threadKey: string): UseChatReturn {
                   id?: string;
                   attachments?: ChatAttachment[];
                 };
+                runtime?: RuntimeTransportMeta;
               } | null;
               const realUserMsgId =
                 typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
@@ -338,6 +371,11 @@ export function useChat(threadKey: string): UseChatReturn {
                   )
                 );
               }
+              appendQuotaFallbackActivity({
+                setActivities,
+                runtime: t?.runtime,
+                assistantMessageId: newAssistantId ?? assistantMsgId
+              });
 
               // Files are already staged before the stream — no post-stream upload needed
             },
@@ -478,6 +516,7 @@ export function useChat(threadKey: string): UseChatReturn {
               flushDelta();
               const t = transport as {
                 assistantMessage?: { id?: string; attachments?: ChatAttachment[] };
+                runtime?: RuntimeTransportMeta;
               } | null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
@@ -500,6 +539,11 @@ export function useChat(threadKey: string): UseChatReturn {
                   )
                 );
               }
+              appendQuotaFallbackActivity({
+                setActivities,
+                runtime: t?.runtime,
+                assistantMessageId: newAssistantId ?? assistantMsgId
+              });
             },
             onInterrupted: () => {
               setMessages((prev) =>

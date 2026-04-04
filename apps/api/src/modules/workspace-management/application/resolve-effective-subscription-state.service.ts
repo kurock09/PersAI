@@ -13,6 +13,7 @@ export type ResolveEffectiveSubscriptionInput = {
   userId: string;
   workspaceId: string;
   assistantId: string;
+  assistantPlanOverrideCode: string | null;
   assistantQuotaPlanCode: string | null;
 };
 
@@ -28,9 +29,10 @@ export class ResolveEffectiveSubscriptionStateService {
   /**
    * P3 precedence order:
    * 1) workspace subscription row
-   * 2) assistant governance quota plan fallback
-   * 3) catalog default first-registration fallback
-   * 4) none
+   * 2) assistant governance explicit plan override
+   * 3) assistant governance quota plan fallback
+   * 4) catalog default first-registration fallback
+   * 5) none
    */
   async execute(input: ResolveEffectiveSubscriptionInput): Promise<EffectiveSubscriptionState> {
     const workspaceSubscription = await this.workspaceSubscriptionRepository.findByWorkspaceId(
@@ -44,6 +46,17 @@ export class ResolveEffectiveSubscriptionStateService {
         trialEndsAt: workspaceSubscription.trialEndsAt?.toISOString() ?? null,
         currentPeriodEndsAt: workspaceSubscription.currentPeriodEndsAt?.toISOString() ?? null,
         cancelAtPeriodEnd: workspaceSubscription.cancelAtPeriodEnd
+      };
+    }
+
+    if (input.assistantPlanOverrideCode !== null) {
+      return {
+        source: "assistant_plan_override",
+        status: "unconfigured",
+        planCode: input.assistantPlanOverrideCode,
+        trialEndsAt: null,
+        currentPeriodEndsAt: null,
+        cancelAtPeriodEnd: false
       };
     }
 

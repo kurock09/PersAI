@@ -976,13 +976,71 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         defaultOpen={false}
       >
         {data.plan ? (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-text">
-              {data.plan.effectivePlan.displayName ?? t("freePlan")}
-            </p>
-            <LimitBar label={t("tokenBudget")} pct={data.plan.limits.tokenBudgetPercent} />
-            <LimitBar label={t("activeChats")} pct={data.plan.limits.activeWebChatsPercent} />
-            <LimitBar label={t("tools")} pct={data.plan.limits.costDrivingToolsPercent} />
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-medium text-text">
+                {data.plan.effectivePlan.displayName ?? t("freePlan")}
+              </p>
+              <p className="mt-1 text-[11px] text-text-subtle">
+                {data.plan.effectivePlan.code
+                  ? t("currentPlanCode", { code: data.plan.effectivePlan.code })
+                  : t("currentPlan")}
+              </p>
+            </div>
+            <LimitBar
+              label={t("tokenBudget")}
+              pct={data.plan.limits.tokenBudgetPercent}
+              valueLabel={
+                data.plan.limits.tokenBudgetLimit === null
+                  ? t("tokensUsedOnly", { used: data.plan.limits.tokenBudgetUsed })
+                  : t("tokensUsageValue", {
+                      used: data.plan.limits.tokenBudgetUsed,
+                      limit: data.plan.limits.tokenBudgetLimit
+                    })
+              }
+            />
+            <LimitBar
+              label={t("activeChats")}
+              pct={data.plan.limits.activeWebChatsPercent}
+              valueLabel={
+                data.plan.limits.activeWebChatsLimit === null
+                  ? t("activeChatsUsedOnly", { used: data.plan.limits.activeWebChatsUsed })
+                  : t("activeChatsUsageValue", {
+                      used: data.plan.limits.activeWebChatsUsed,
+                      limit: data.plan.limits.activeWebChatsLimit
+                    })
+              }
+            />
+            <div className="rounded-xl border border-border bg-surface-raised/60 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-text">{t("toolLimits")}</p>
+                <span className="text-[11px] text-text-subtle">
+                  {t("toolLimitsCount", { count: data.plan.limits.toolDailyLimits.length })}
+                </span>
+              </div>
+              {data.plan.limits.toolDailyLimits.length > 0 ? (
+                <ul className="mt-3 space-y-2">
+                  {data.plan.limits.toolDailyLimits.map((tool) => (
+                    <li
+                      key={tool.toolCode}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/70 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-text">{tool.displayName}</p>
+                        <p className="truncate text-[11px] text-text-subtle">{tool.toolCode}</p>
+                      </div>
+                      <span className="shrink-0 text-[11px] text-text-muted">
+                        {tool.dailyCallLimit === null
+                          ? t("toolLimitUnlimited")
+                          : t("toolLimitPerDay", { count: tool.dailyCallLimit })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-[11px] text-text-subtle">{t("noToolLimits")}</p>
+              )}
+            </div>
           </div>
         ) : (
           <p className="text-xs text-text-subtle">{t("planUnavailable")}</p>
@@ -1044,12 +1102,12 @@ function ChannelRow({
   );
 }
 
-function LimitBar({ label, pct }: { label: string; pct: number }) {
+function LimitBar({ label, pct, valueLabel }: { label: string; pct: number; valueLabel?: string }) {
   return (
     <div>
       <div className="flex justify-between text-[11px]">
         <span className="text-text-muted">{label}</span>
-        <span className="text-text-subtle">{pct}%</span>
+        <span className="text-text-subtle">{valueLabel ?? `${pct}%`}</span>
       </div>
       <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-raised">
         <div

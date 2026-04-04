@@ -6,6 +6,11 @@ import type {
 } from "../../domain/assistant-plan-catalog.repository";
 import type { AssistantPlanCatalog } from "../../domain/assistant-plan-catalog.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
+import {
+  isPlanManagedTool,
+  isPlatformManagedTool,
+  resolveToolPolicyClass
+} from "../../../../../prisma/tool-catalog-data";
 
 const PLAN_INCLUDE = {
   entitlement: true,
@@ -194,6 +199,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
         toolCode: activation.tool.code,
         displayName: activation.tool.displayName,
         toolClass: activation.tool.toolClass as "cost_driving" | "utility",
+        policyClass: resolveToolPolicyClass(activation.tool.code),
         activationStatus:
           activation.activationStatus === "active" ? ("active" as const) : ("inactive" as const),
         dailyCallLimit: activation.dailyCallLimit
@@ -315,12 +321,18 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
 
     for (const tool of tools) {
       const override = overridesByCode.get(tool.code);
-      const activationStatus = override
-        ? override.active
+      const activationStatus = isPlanManagedTool(tool.code)
+        ? override
+          ? override.active
+            ? "active"
+            : "inactive"
+          : classFallback[tool.toolClass]
+        : isPlatformManagedTool(tool.code)
           ? "active"
-          : "inactive"
-        : classFallback[tool.toolClass];
-      const dailyCallLimit = override?.dailyCallLimit ?? null;
+          : "inactive";
+      const dailyCallLimit = isPlanManagedTool(tool.code)
+        ? (override?.dailyCallLimit ?? null)
+        : null;
 
       await tx.planCatalogToolActivation.upsert({
         where: {

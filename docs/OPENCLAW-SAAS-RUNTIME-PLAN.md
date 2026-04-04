@@ -249,6 +249,7 @@ Current slice delivered:
 - OpenClaw image build now has an explicit path to include Docker CLI support for sandbox-capable pools, instead of relying on a manual runtime mutation
 - sandbox-capable pools now also have a declared image supply path: CI publishes `openclaw-sandbox` / `openclaw-sandbox-common`, and the pool pod preloads the sandbox images into its local Docker backend before the OpenClaw gateway starts
 - sandbox-capable pools now mirror both `PERSAI_WORKSPACE_ROOT` and the per-agent workspace path into `docker-dind`, so Docker bind mounts resolve against the same visible filesystem as the OpenClaw runtime container
+- sandbox-capable pools now run the preload wrapper through a fixed Helm shell-quoting path and use `sandbox.scope: session`, so PersAI assistants do not collapse into one shared `agent:main` sandbox/workspace
 - `runtime-pools:readiness` now verifies explicit per-tier topology plus sandbox backend prerequisites instead of compatibility-mode alias behavior only
 
 Still intentionally deferred:
@@ -287,6 +288,7 @@ Outcome:
 - sandbox-capable pools must also prove backend readiness (`docker` available in runtime image, reachable socket/daemon, sandbox image configured) before they count toward `R15e`/`R15g`
 - for Docker-backed sandbox pools, "image configured" means the exact `openclaw-sandbox-common` image exists in GAR and the pool can preload/pull it via Workload Identity before serving traffic
 - for auto-healing sandbox pods, the runtime GSA (`openclaw-runtime`) must also have `Artifact Registry reader` on the GAR repository used by `openclaw-sandbox*`; otherwise a fresh pod can boot but fail the preload gate on image pull
+- cold-start rollout budgets for sandbox-capable pools must be tuned from measured preload/warmup behavior; the startup probe now has an explicit higher budget in Helm values instead of a one-off hardcoded threshold in the deployment template
 
 ## Relation to other docs
 

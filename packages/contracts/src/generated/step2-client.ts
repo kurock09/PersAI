@@ -46,6 +46,7 @@ import type {
   PatchAdminNotificationWebhookChannelResponse,
   PostAdminAbuseUnblockResponse,
   PostAdminAssistantOwnershipResponse,
+  PostAdminOpsUserPlanOverrideParams,
   PostAdminPlanResponse,
   PostAdminPlatformRolloutRequest,
   PostAdminPlatformRolloutResponse,
@@ -57,7 +58,8 @@ import type {
   PostAssistantTaskItemCancelResponse,
   PostAssistantTaskItemDisableResponse,
   PostAssistantTaskItemEnableResponse,
-  PutAdminRuntimeProviderSettingsResponse
+  PutAdminRuntimeProviderSettingsResponse,
+  SuccessResponse
 } from "./model";
 
 import { customFetch } from "../mutator/custom-fetch";
@@ -2216,6 +2218,158 @@ export const getAdminOpsCockpit = async (
     ...options,
     method: "GET"
   });
+};
+
+/**
+ * @summary Set assistant-level effective plan override for a target user
+ */
+export type postAdminOpsUserPlanOverrideResponse200 = {
+  data: SuccessResponse;
+  status: 200;
+};
+
+export type postAdminOpsUserPlanOverrideResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminOpsUserPlanOverrideResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminOpsUserPlanOverrideResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminOpsUserPlanOverrideResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminOpsUserPlanOverrideResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminOpsUserPlanOverrideResponseSuccess =
+  postAdminOpsUserPlanOverrideResponse200 & {
+    headers: Headers;
+  };
+export type postAdminOpsUserPlanOverrideResponseError = (
+  | postAdminOpsUserPlanOverrideResponse400
+  | postAdminOpsUserPlanOverrideResponse401
+  | postAdminOpsUserPlanOverrideResponse403
+  | postAdminOpsUserPlanOverrideResponse404
+  | postAdminOpsUserPlanOverrideResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminOpsUserPlanOverrideResponse =
+  | postAdminOpsUserPlanOverrideResponseSuccess
+  | postAdminOpsUserPlanOverrideResponseError;
+
+export const getPostAdminOpsUserPlanOverrideUrl = (
+  userId: string,
+  params: PostAdminOpsUserPlanOverrideParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/ops/users/${userId}/plan-override?${stringifiedParams}`
+    : `/admin/ops/users/${userId}/plan-override`;
+};
+
+export const postAdminOpsUserPlanOverride = async (
+  userId: string,
+  params: PostAdminOpsUserPlanOverrideParams,
+  options?: RequestInit
+): Promise<postAdminOpsUserPlanOverrideResponse> => {
+  return customFetch<postAdminOpsUserPlanOverrideResponse>(
+    getPostAdminOpsUserPlanOverrideUrl(userId, params),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary Reset assistant-level effective plan override for a target user
+ */
+export type deleteAdminOpsUserPlanOverrideResponse200 = {
+  data: SuccessResponse;
+  status: 200;
+};
+
+export type deleteAdminOpsUserPlanOverrideResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type deleteAdminOpsUserPlanOverrideResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type deleteAdminOpsUserPlanOverrideResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type deleteAdminOpsUserPlanOverrideResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type deleteAdminOpsUserPlanOverrideResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type deleteAdminOpsUserPlanOverrideResponseSuccess =
+  deleteAdminOpsUserPlanOverrideResponse200 & {
+    headers: Headers;
+  };
+export type deleteAdminOpsUserPlanOverrideResponseError = (
+  | deleteAdminOpsUserPlanOverrideResponse400
+  | deleteAdminOpsUserPlanOverrideResponse401
+  | deleteAdminOpsUserPlanOverrideResponse403
+  | deleteAdminOpsUserPlanOverrideResponse404
+  | deleteAdminOpsUserPlanOverrideResponse500
+) & {
+  headers: Headers;
+};
+
+export type deleteAdminOpsUserPlanOverrideResponse =
+  | deleteAdminOpsUserPlanOverrideResponseSuccess
+  | deleteAdminOpsUserPlanOverrideResponseError;
+
+export const getDeleteAdminOpsUserPlanOverrideUrl = (userId: string) => {
+  return `/admin/ops/users/${userId}/plan-override`;
+};
+
+export const deleteAdminOpsUserPlanOverride = async (
+  userId: string,
+  options?: RequestInit
+): Promise<deleteAdminOpsUserPlanOverrideResponse> => {
+  return customFetch<deleteAdminOpsUserPlanOverrideResponse>(
+    getDeleteAdminOpsUserPlanOverrideUrl(userId),
+    {
+      ...options,
+      method: "DELETE"
+    }
+  );
 };
 
 /**

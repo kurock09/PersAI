@@ -8,6 +8,4 @@
 export interface AdminPlanQuotaLimits {
   /** @nullable */
   tokenBudgetLimit?: number | null;
-  /** @nullable */
-  costToolUnitsLimit?: number | null;
 }

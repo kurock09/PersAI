@@ -72,6 +72,15 @@ async function run(): Promise<void> {
     resolved.fallbackMatrix.find((item) => item.trigger === "cost_driving_restricted")?.eligible,
     true
   );
+  assert.equal(
+    resolved.fallbackMatrix.find((item) => item.trigger === "cost_driving_restricted")?.strategy,
+    "degrade_to_safe_mode"
+  );
+  assert.equal(
+    resolved.fallbackMatrix.find((item) => item.trigger === "cost_driving_restricted")?.target
+      .modelKey,
+    "text_safe_low_cost"
+  );
 
   const adminManaged = service.execute({
     effectiveCapabilities: {

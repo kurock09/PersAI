@@ -2,6 +2,7 @@ import type { WorkspaceSubscriptionStatus } from "../domain/workspace-subscripti
 
 export type EffectiveSubscriptionSource =
   | "workspace_subscription"
+  | "assistant_plan_override"
   | "assistant_plan_fallback"
   | "catalog_default_fallback"
   | "none";

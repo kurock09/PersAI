@@ -165,8 +165,11 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
     older: t("older")
   });
   const telegramConnected = data.telegram?.connectionStatus === "connected";
-  const planName = data.plan?.effectivePlan.displayName ?? "Free plan";
-  const chatUsage = data.plan?.limits.activeWebChatsPercent ?? 0;
+  const planName = data.plan?.effectivePlan.displayName ?? t("freePlan");
+  const planCode = data.plan?.effectivePlan.code ?? null;
+  const tokenUsage = data.plan?.limits.tokenBudgetPercent ?? 0;
+  const tokenUsed = data.plan?.limits.tokenBudgetUsed ?? 0;
+  const tokenLimit = data.plan?.limits.tokenBudgetLimit ?? null;
 
   return (
     <aside className="flex h-dvh w-[280px] shrink-0 flex-col border-r border-border bg-surface">
@@ -281,27 +284,41 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
           />
         </div>
 
-        {/* 6. Limits */}
+        {/* 6. Plan */}
         <div className="border-t border-border px-3 py-2.5">
-          <div className="flex items-center justify-between px-2.5">
-            <span className="text-xs text-text-muted">{planName}</span>
-            {chatUsage > 0 && (
-              <span className="text-[11px] text-text-subtle">
-                {t("chatsPercent", { pct: chatUsage })}
+          <div className="mx-2.5 rounded-xl border border-border bg-surface-raised/60 px-3 py-2.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-text">{planName}</p>
+                <p className="mt-0.5 text-[11px] text-text-subtle">
+                  {planCode ? t("planCode", { code: planCode }) : t("planCurrent")}
+                </p>
+              </div>
+              <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
+                {t("planBadge")}
               </span>
-            )}
-          </div>
-          {chatUsage > 0 && (
-            <div className="mx-2.5 mt-1.5 h-1 overflow-hidden rounded-full bg-surface-raised">
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3 text-[11px]">
+              <span className="text-text-muted">{t("tokenUsage")}</span>
+              <span className="text-text-subtle">
+                {tokenLimit === null
+                  ? t("tokensUsedOnly", { used: tokenUsed })
+                  : t("tokensUsageValue", { used: tokenUsed, limit: tokenLimit })}
+              </span>
+            </div>
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-background/80">
               <div
                 className={cn(
                   "h-full rounded-full transition-all",
-                  chatUsage >= 90 ? "bg-destructive" : "bg-accent"
+                  tokenUsage >= 90 ? "bg-destructive" : "bg-accent"
                 )}
-                style={{ width: `${Math.min(chatUsage, 100)}%` }}
+                style={{ width: `${Math.min(tokenUsage, 100)}%` }}
               />
             </div>
-          )}
+            <p className="mt-2 text-[11px] text-text-subtle">
+              {t("tokenPercent", { pct: tokenUsage })}
+            </p>
+          </div>
         </div>
 
         {/* Admin button (visible only for admins) */}

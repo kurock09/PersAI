@@ -122,6 +122,12 @@ export class SendWebChatTurnService {
         assistantId: prepared.assistantId,
         publishedVersionId: prepared.publishedVersionId,
         runtimeTier: prepared.runtimeTier,
+        ...(prepared.quotaDegradeModelOverride
+          ? {
+              providerOverride: prepared.quotaDegradeModelOverride.provider,
+              modelOverride: prepared.quotaDegradeModelOverride.model
+            }
+          : {}),
         chatId: prepared.chat.id,
         surfaceThreadKey: prepared.chat.surfaceThreadKey,
         userMessageId: prepared.userMessage.id,
@@ -185,7 +191,10 @@ export class SendWebChatTurnService {
         createdAt: assistantMessage.createdAt.toISOString()
       },
       runtime: {
-        respondedAt: runtimeResponse.respondedAt
+        respondedAt: runtimeResponse.respondedAt,
+        degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
+        quotaFallbackReason: prepared.quotaDegradeReason,
+        quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null
       }
     };
   }

@@ -19,6 +19,7 @@ import {
   type OutboundMediaDeliverParams
 } from "./media.types";
 import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
+import { validatePersaiMediaFile } from "./media-security-policy";
 
 @Injectable()
 export class MediaDeliveryService {
@@ -86,22 +87,27 @@ export class MediaDeliveryService {
       throw new Error(`Media file not found on storage: ${artifact.url}`);
     }
 
+    const candidateMimeType =
+      downloadResult.contentType !== "application/octet-stream"
+        ? downloadResult.contentType
+        : inferMimeFromUrlAndType(artifact.url, artifact.type);
+    const validated = await validatePersaiMediaFile({
+      buffer: downloadResult.buffer,
+      mimeType: candidateMimeType,
+      originalFilename: artifact.url.split("/").pop() ?? "media",
+      surface: "tool_output_persist"
+    });
     const uploadResult = await this.runtimeAdapter.uploadChatMedia({
       assistantId: params.assistantId,
       runtimeTier,
       chatId: params.chatId,
       messageId: params.messageId,
       fileBuffer: downloadResult.buffer,
-      mimeType: downloadResult.contentType
+      mimeType: validated.effectiveMimeType
     });
 
-    const mimeType =
-      downloadResult.contentType !== "application/octet-stream"
-        ? downloadResult.contentType
-        : inferMimeFromUrlAndType(artifact.url, artifact.type);
-
     const attachmentType = artifact.audioAsVoice ? "voice" : artifact.type;
-    const filename = artifact.url.split("/").pop() ?? "media";
+    const filename = validated.originalFilename ?? artifact.url.split("/").pop() ?? "media";
 
     const attachment = await this.attachmentRepository.create({
       messageId: params.messageId,
@@ -111,7 +117,7 @@ export class MediaDeliveryService {
       attachmentType,
       storagePath: uploadResult.storagePath,
       originalFilename: filename,
-      mimeType,
+      mimeType: validated.effectiveMimeType,
       sizeBytes: BigInt(uploadResult.sizeBytes),
       durationMs: null,
       width: null,

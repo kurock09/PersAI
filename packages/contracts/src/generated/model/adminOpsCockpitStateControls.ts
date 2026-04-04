@@ -8,4 +8,6 @@
 export type AdminOpsCockpitStateControls = {
   reapplySupported: boolean;
   restartSupported: boolean;
+  assistantPlanOverrideSupported: boolean;
+  assistantPlanResetSupported: boolean;
 };

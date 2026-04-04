@@ -9,6 +9,7 @@ import type { AdminRuntimeProviderSettingsStatePrimary } from "./adminRuntimePro
 import type { AdminRuntimeProviderSettingsStateFallback } from "./adminRuntimeProviderSettingsStateFallback";
 import type { RuntimeProviderAvailableModelsByProviderState } from "./runtimeProviderAvailableModelsByProviderState";
 import type { AdminRuntimeProviderSettingsStateProviderKeys } from "./adminRuntimeProviderSettingsStateProviderKeys";
+import type { RuntimeTierSecurityPolicyState } from "./runtimeTierSecurityPolicyState";
 
 export interface AdminRuntimeProviderSettingsState {
   schema: string;
@@ -19,5 +20,6 @@ export interface AdminRuntimeProviderSettingsState {
   fallback: AdminRuntimeProviderSettingsStateFallback;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProviderState;
   providerKeys: AdminRuntimeProviderSettingsStateProviderKeys;
+  tierSecurityPolicies: RuntimeTierSecurityPolicyState[];
   notes: string[];
 }

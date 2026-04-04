@@ -116,6 +116,7 @@ Intentional note:
 - `browser` is **not** globally denied because it is part of the PersAI governed product catalog
 - `cron` is **not** globally denied in this first Helm baseline because PersAI currently also uses native cron paths for internal runtime control and reminder plumbing; that tool still needs a narrower follow-up hardening slice instead of a blind global deny
 - `agents_list` and `session_status` are now globally denied in the shared baseline because they are not part of the PersAI product catalog for normal user-facing runtime turns and expose internal runtime/session metadata with no product need
+- hidden/internal tools now need to stay outside the ordinary plan-editor path; admin tariff editing should only govern plan-managed user-visible tools, not platform plumbing
 
 ### Sandbox
 
@@ -129,7 +130,7 @@ Intentional note:
 Current implemented baseline in Helm values:
 
 - prepared `agents.defaults.sandbox` shape
-- `scope: "agent"`
+- `scope: "session"`
 - `workspaceAccess: "rw"`
 - `sessionToolsVisibility: "spawned"`
 - `docker.network: "none"`

@@ -15,6 +15,7 @@ import {
   type ResolvedInboundMedia
 } from "./media.types";
 import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
+import { validatePersaiMediaFile } from "./media-security-policy";
 
 @Injectable()
 export class InboundMediaService {
@@ -42,9 +43,15 @@ export class InboundMediaService {
 
     for (const raw of params.rawAttachments) {
       try {
+        const validated = await validatePersaiMediaFile({
+          buffer: raw.buffer,
+          mimeType: raw.mime,
+          originalFilename: raw.originalFilename,
+          surface: "channel_inbound"
+        });
         const processed = await this.preprocessor.process(
           raw.buffer,
-          raw.mime,
+          validated.effectiveMimeType,
           raw.originalFilename,
           params.assistantId
         );

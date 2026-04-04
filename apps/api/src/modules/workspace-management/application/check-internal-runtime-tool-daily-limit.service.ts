@@ -72,6 +72,7 @@ export class CheckInternalRuntimeToolDailyLimitService {
       userId: resolved.userId,
       workspaceId: resolved.workspaceId,
       assistantId: resolved.assistantId,
+      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
       assistantQuotaPlanCode: governance.quotaPlanCode
     });
 

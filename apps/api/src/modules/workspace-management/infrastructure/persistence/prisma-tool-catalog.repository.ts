@@ -2,6 +2,11 @@ import { Injectable } from "@nestjs/common";
 import type { ToolCatalogRepository } from "../../domain/tool-catalog.repository";
 import type { ToolCatalogActivationView } from "../../domain/tool-catalog.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
+import { TOOL_CATALOG } from "../../../../../prisma/tool-catalog-data";
+
+const POLICY_CLASS_BY_TOOL_CODE = new Map(
+  TOOL_CATALOG.map((tool) => [tool.code, tool.policyClass ?? "plan_managed"])
+);
 
 @Injectable()
 export class PrismaToolCatalogRepository implements ToolCatalogRepository {
@@ -41,6 +46,7 @@ export class PrismaToolCatalogRepository implements ToolCatalogRepository {
         description: tool.description,
         toolClass: tool.toolClass,
         capabilityGroup: tool.capabilityGroup,
+        policyClass: POLICY_CLASS_BY_TOOL_CODE.get(tool.code) ?? "plan_managed",
         catalogStatus: tool.status,
         planActivationStatus: activation?.activationStatus ?? "inactive"
       };

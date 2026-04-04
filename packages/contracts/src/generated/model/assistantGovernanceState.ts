@@ -35,6 +35,8 @@ export interface AssistantGovernanceState {
    */
   tasksControl: AssistantGovernanceStateTasksControl;
   /** @nullable */
+  assistantPlanOverrideCode?: string | null;
+  /** @nullable */
   quotaPlanCode: string | null;
   /** @nullable */
   quotaHook: AssistantGovernanceStateQuotaHook;

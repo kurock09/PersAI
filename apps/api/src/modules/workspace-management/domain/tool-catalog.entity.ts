@@ -7,6 +7,7 @@ export type ToolCatalogCapabilityGroup =
   | "workspace_ops";
 
 export type ToolActivationStatus = "active" | "inactive";
+export type ToolPolicyClass = "plan_managed" | "platform_managed" | "hidden_internal";
 
 export type ToolCatalogActivationView = {
   toolCode: string;
@@ -14,6 +15,7 @@ export type ToolCatalogActivationView = {
   description: string | null;
   toolClass: ToolCatalogToolClass;
   capabilityGroup: ToolCatalogCapabilityGroup;
+  policyClass: ToolPolicyClass;
   catalogStatus: "active" | "inactive";
   planActivationStatus: ToolActivationStatus;
 };

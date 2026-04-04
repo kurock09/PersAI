@@ -55,7 +55,7 @@ Required in CI:
 ## Step 7 P2 focus
 
 - Owner-gated admin endpoints validate create/update/list flows for plan management.
-- Admin plan create/edit includes `toolActivations[]`, `quotaLimits` (`tokenBudgetLimit`, `costToolUnitsLimit`), and `primaryModelKey`.
+- Admin plan create/edit includes `toolActivations[]`, `quotaLimits` (`tokenBudgetLimit`), and `primaryModelKey`.
 - Legacy `entitlements.capabilities` and `entitlements.limitsPermissions` are no longer part of the API contract or admin UI.
 - Web `/app` renders a dedicated admin plan management section and supports create/edit controls for authorized admins.
 - Baseline regression suite (`test:step2`) remains green after admin plan UI/API additions.
@@ -292,7 +292,7 @@ Required in CI:
 - `dailyCallLimit` enforcement infrastructure: `WorkspaceToolDailyUsageRepository` and `TrackWorkspaceQuotaUsageService.checkToolDailyLimit` / `incrementToolDailyUsage` wired and tested via `test/quota-accounting.test.ts`.
 - Per-plan `primaryModelKey` resolved through `billingProviderHints` and integrated into runtime provider routing via `MaterializeAssistantPublishedVersionService`.
 - Admin Runtime UI: fallback provider/model, available models per provider editor, reapply summary display.
-- Admin Plans UI: removed dead checkboxes, added quota limit inputs (`tokenBudgetLimit`, `costToolUnitsLimit`) and `primaryModelKey` field.
+- Admin Plans UI: removed dead checkboxes, keeps product-facing quota input (`tokenBudgetLimit`) and `primaryModelKey` field.
 - Tool catalog canonical definitions maintained in single file: `apps/api/prisma/tool-catalog-data.ts`.
 
 ## Step 12 H3.1 focus — configGeneration lazy invalidation
@@ -631,3 +631,30 @@ Required in CI:
     - `https://bot.persai.dev/healthz` returns `200`
     - `https://api.persai.dev/api/v1/internal/...` returns `404`
     - from the OpenClaw pod, `http://api-internal:3002/api/v1/internal/...` reaches the internal listener while `http://api:3001/api/v1/internal/...` and `http://api-internal:3002/health` both return `404`
+
+## Step 16 K16 verification focus
+
+- Canonical control-plane truth validates:
+  - admin plan catalog exposes only `plan_managed` tools as editable
+  - `platform_managed` tools remain visible/read-only
+  - hidden internal tools do not leak back into ordinary tariff editing
+- Declared vs effective capability checks validate:
+  - effective subscription precedence is `workspace subscription -> assistant override -> assistant fallback -> catalog default -> none`
+  - materialized runtime tool policy is derived from effective tool availability rather than raw activation rows
+  - `persai_workspace_attach` and `persai_tool_quota_status` stay always-on platform-managed tools
+- Graceful limit fallback validates:
+  - token-budget exhaustion degrades to the configured safe fallback path instead of killing chat entirely
+  - user-facing transport/runtime metadata shows when fallback was used
+  - no-fallback cases still return honest `quota_limit_reached` guidance
+- User-facing plan visibility validates:
+  - sidebar shows current tariff plus token usage instead of the old chat-only progress
+  - assistant settings show only token/chat bars plus active per-tool daily limits from the effective plan
+  - user UI no longer exposes the old `Cost tool units` product mental model
+- Runtime/security matrix validates:
+  - admin runtime surface shows the code-backed tier matrix for `free_shared_restricted`, `paid_shared_restricted`, and `paid_isolated`
+  - all tiers declare sandbox-only `exec`, sandbox-workspace-only `write`, and the same restricted built-in deny baseline
+- Pre-deploy commands:
+  - `corepack pnpm contracts:generate`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+  - focused tests for touched K16 slices, including `apps/api/test/plan-visibility.service.test.ts`

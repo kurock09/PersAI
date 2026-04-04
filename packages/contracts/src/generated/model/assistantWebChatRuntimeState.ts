@@ -4,7 +4,13 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AssistantWebChatRuntimeStateQuotaFallbackReason } from "./assistantWebChatRuntimeStateQuotaFallbackReason";
 
 export interface AssistantWebChatRuntimeState {
   respondedAt: string;
+  degradedByQuotaFallback: boolean;
+  /** @nullable */
+  quotaFallbackReason: AssistantWebChatRuntimeStateQuotaFallbackReason;
+  /** @nullable */
+  quotaFallbackModel: string | null;
 }

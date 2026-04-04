@@ -24,11 +24,17 @@ export class ResolveOpenClawCapabilityEnvelopeService {
 
     const tools = effectiveToolAvailability.tools.map((tool) => {
       const allowed = tool.effectiveActivation === "active";
-      let denyReason: "catalog_inactive" | "plan_activation_inactive" | "class_not_allowed" | null =
-        null;
+      let denyReason:
+        | "catalog_inactive"
+        | "plan_activation_inactive"
+        | "class_not_allowed"
+        | "hidden_internal"
+        | null = null;
       if (!allowed) {
         if (tool.catalogStatus !== "active") {
           denyReason = "catalog_inactive";
+        } else if (tool.policyClass === "hidden_internal") {
+          denyReason = "hidden_internal";
         } else if (tool.planActivationStatus !== "active") {
           denyReason = "plan_activation_inactive";
         } else {
@@ -40,6 +46,7 @@ export class ResolveOpenClawCapabilityEnvelopeService {
         displayName: tool.displayName,
         capabilityGroup: tool.capabilityGroup,
         toolClass: tool.toolClass,
+        policyClass: tool.policyClass,
         allowed,
         denyReason
       };

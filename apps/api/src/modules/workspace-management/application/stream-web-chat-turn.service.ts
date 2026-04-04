@@ -31,6 +31,8 @@ export interface StreamWebChatTurnPrepared {
   assistantId: string;
   publishedVersionId: string;
   runtimeTier: RuntimeTier;
+  quotaDegradeModelOverride: { provider: "openai" | "anthropic"; model: string } | null;
+  quotaDegradeReason: "token_budget_limit_reached" | "cost_driving_quota_limit_reached" | null;
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
@@ -130,6 +132,12 @@ export class StreamWebChatTurnService {
         assistantId: prepared.assistantId,
         publishedVersionId: prepared.publishedVersionId,
         runtimeTier: prepared.runtimeTier,
+        ...(prepared.quotaDegradeModelOverride
+          ? {
+              providerOverride: prepared.quotaDegradeModelOverride.provider,
+              modelOverride: prepared.quotaDegradeModelOverride.model
+            }
+          : {}),
         chatId: prepared.chat.id,
         surfaceThreadKey: prepared.chat.surfaceThreadKey,
         userMessageId: prepared.userMessage.id,
@@ -245,7 +253,10 @@ export class StreamWebChatTurnService {
             createdAt: assistantMessage.createdAt.toISOString()
           },
           runtime: {
-            respondedAt: respondedAt ?? new Date().toISOString()
+            respondedAt: respondedAt ?? new Date().toISOString(),
+            degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
+            quotaFallbackReason: prepared.quotaDegradeReason,
+            quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null
           }
         }
       };
@@ -335,7 +346,10 @@ export class StreamWebChatTurnService {
           createdAt: partialAssistantMessage.createdAt.toISOString()
         },
         runtime: {
-          respondedAt: respondedAt ?? systemMessage.createdAt.toISOString()
+          respondedAt: respondedAt ?? systemMessage.createdAt.toISOString(),
+          degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
+          quotaFallbackReason: prepared.quotaDegradeReason,
+          quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null
         }
       }
     };

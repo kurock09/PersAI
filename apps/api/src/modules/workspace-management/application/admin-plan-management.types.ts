@@ -29,8 +29,10 @@ export type AdminPlanToolActivation = {
   toolCode: string;
   displayName: string;
   toolClass: "cost_driving" | "utility";
+  policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
   active: boolean;
   dailyCallLimit: number | null;
+  visibleInPlanEditor: boolean;
 };
 
 export type AdminPlanToolActivationInput = {
@@ -53,7 +55,6 @@ export type AdminPlanInput = {
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: {
     tokenBudgetLimit: number | null;
-    costToolUnitsLimit: number | null;
   };
   primaryModelKey: string | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
@@ -79,7 +80,6 @@ export type AdminPlanState = {
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: {
     tokenBudgetLimit: number | null;
-    costToolUnitsLimit: number | null;
   };
   primaryModelKey: string | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;

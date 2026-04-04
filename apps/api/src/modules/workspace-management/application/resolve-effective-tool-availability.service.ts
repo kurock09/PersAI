@@ -45,22 +45,33 @@ export class ResolveEffectiveToolAvailabilityService {
         }
       },
       tools: tools.map((tool) => {
+        const policyClass = tool.policyClass;
         const classAllowed = tool.toolClass === "utility" ? utilityAllowed : costDrivingAllowed;
+        const planManaged = policyClass === "plan_managed";
+        const hiddenInternal = policyClass === "hidden_internal";
+        const effectivePlanActivation = planManaged
+          ? tool.planActivationStatus
+          : hiddenInternal
+            ? "inactive"
+            : "active";
         const isActive =
-          tool.catalogStatus === "active" && tool.planActivationStatus === "active" && classAllowed;
+          tool.catalogStatus === "active" && effectivePlanActivation === "active" && classAllowed;
         return {
           code: tool.toolCode,
           displayName: tool.displayName,
           description: tool.description,
           capabilityGroup: tool.capabilityGroup,
           toolClass: tool.toolClass,
+          policyClass,
           catalogStatus: tool.catalogStatus,
-          planActivationStatus: tool.planActivationStatus,
-          effectiveActivation: isActive ? "active" : "inactive"
+          planActivationStatus: effectivePlanActivation,
+          effectiveActivation: isActive ? "active" : "inactive",
+          visibleInPlanEditor: planManaged
         };
       }),
       notes: [
         "E1 adds governed tool catalog and plan activation projection.",
+        "Plan-managed, platform-managed, and hidden-internal tools are resolved explicitly in control-plane policy.",
         "OpenClaw remains runtime behavior owner; backend provides explicit availability truth only."
       ]
     };

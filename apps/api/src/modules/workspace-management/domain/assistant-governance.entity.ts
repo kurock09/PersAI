@@ -8,6 +8,7 @@ export type AssistantGovernance = {
   memoryControl: unknown | null;
   /** Control-plane tasks/reminders/triggers governance (ownership, surfaces, lifecycle labels, enable/cancel, quota exclusion, audit). */
   tasksControl: unknown | null;
+  assistantPlanOverrideCode: string | null;
   quotaPlanCode: string | null;
   quotaHook: unknown | null;
   auditHook: unknown | null;

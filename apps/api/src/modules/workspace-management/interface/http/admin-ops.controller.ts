@@ -19,6 +19,7 @@ import {
 } from "../../application/admin-ops-user-directory.service";
 import { ReapplyAssistantService } from "../../application/reapply-assistant.service";
 import { AdminDeleteUserService } from "../../application/admin-delete-user.service";
+import { ManageAdminAssistantPlanOverrideService } from "../../application/manage-admin-assistant-plan-override.service";
 
 @Controller("api/v1/admin/ops")
 export class AdminOpsController {
@@ -26,7 +27,8 @@ export class AdminOpsController {
     private readonly resolveAdminOpsCockpitService: ResolveAdminOpsCockpitService,
     private readonly adminOpsUserDirectoryService: AdminOpsUserDirectoryService,
     private readonly reapplyAssistantService: ReapplyAssistantService,
-    private readonly adminDeleteUserService: AdminDeleteUserService
+    private readonly adminDeleteUserService: AdminDeleteUserService,
+    private readonly manageAdminAssistantPlanOverrideService: ManageAdminAssistantPlanOverrideService
   ) {}
 
   @Get("cockpit")
@@ -80,6 +82,43 @@ export class AdminOpsController {
       throw new BadRequestException("userId is required.");
     }
     await this.reapplyAssistantService.execute(targetUserId.trim());
+    return { requestId: req.requestId ?? null, ok: true };
+  }
+
+  @Post("users/:userId/plan-override")
+  @HttpCode(200)
+  async setPlanOverride(
+    @Req() req: RequestWithPlatformContext,
+    @Param("userId") targetUserId: string,
+    @Query("planCode") planCode?: string
+  ): Promise<{ requestId: string | null; ok: boolean }> {
+    const callerId = this.resolveRequestUserId(req);
+    if (!targetUserId || targetUserId.trim().length === 0) {
+      throw new BadRequestException("userId is required.");
+    }
+    const trimmedPlanCode = planCode?.trim() ?? "";
+    if (trimmedPlanCode.length === 0) {
+      throw new BadRequestException("planCode is required.");
+    }
+    await this.manageAdminAssistantPlanOverrideService.setOverride(
+      callerId,
+      targetUserId.trim(),
+      trimmedPlanCode
+    );
+    return { requestId: req.requestId ?? null, ok: true };
+  }
+
+  @Delete("users/:userId/plan-override")
+  @HttpCode(200)
+  async resetPlanOverride(
+    @Req() req: RequestWithPlatformContext,
+    @Param("userId") targetUserId: string
+  ): Promise<{ requestId: string | null; ok: boolean }> {
+    const callerId = this.resolveRequestUserId(req);
+    if (!targetUserId || targetUserId.trim().length === 0) {
+      throw new BadRequestException("userId is required.");
+    }
+    await this.manageAdminAssistantPlanOverrideService.resetOverride(callerId, targetUserId.trim());
     return { requestId: req.requestId ?? null, ok: true };
   }
 

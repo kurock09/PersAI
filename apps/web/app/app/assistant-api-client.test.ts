@@ -292,4 +292,18 @@ describe("toWebChatUxIssue", () => {
       guidance: "Try again later or use a request that does not need the exhausted tool."
     });
   });
+
+  it("maps quota hard-stop to fallback-aware guidance", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "quota_limit_reached",
+        message: "Quota exhausted."
+      })
+    ).toEqual({
+      classId: "quota_limit_reached",
+      message: "This turn cannot continue on the current plan limits.",
+      guidance:
+        "No safe fallback route is available for this request right now. Wait for quota refresh, simplify the request, or upgrade the plan."
+    });
+  });
 });

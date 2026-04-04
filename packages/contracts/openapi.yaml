@@ -1512,6 +1512,108 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ops/users/{userId}/plan-override:
+    post:
+      operationId: postAdminOpsUserPlanOverride
+      summary: Set assistant-level effective plan override for a target user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: planCode
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Override applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAdminOpsUserPlanOverride
+      summary: Reset assistant-level effective plan override for a target user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Override reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/business/cockpit:
     get:
       operationId: getAdminBusinessCockpit
@@ -2393,6 +2495,9 @@ components:
           type: object
           additionalProperties: true
           nullable: true
+        assistantPlanOverrideCode:
+          type: string
+          nullable: true
         quotaPlanCode:
           type: string
           nullable: true
@@ -3002,34 +3107,89 @@ components:
     UserPlanVisibilityLimits:
       type: object
       required:
+        - tokenBudgetUsed
+        - tokenBudgetLimit
         - tokenBudgetPercent
-        - costDrivingToolsPercent
+        - activeWebChatsUsed
+        - activeWebChatsLimit
         - activeWebChatsPercent
-        - tasksExcludedFromCommercialQuotas
+        - toolDailyLimits
       properties:
+        tokenBudgetUsed:
+          type: integer
+          minimum: 0
+        tokenBudgetLimit:
+          type: integer
+          minimum: 0
+          nullable: true
         tokenBudgetPercent:
           type: integer
           minimum: 0
           maximum: 100
-        costDrivingToolsPercent:
+        activeWebChatsUsed:
           type: integer
           minimum: 0
-          maximum: 100
+        activeWebChatsLimit:
+          type: integer
+          minimum: 0
+          nullable: true
         activeWebChatsPercent:
           type: integer
           minimum: 0
           maximum: 100
-        tasksExcludedFromCommercialQuotas:
-          type: boolean
+        toolDailyLimits:
+          type: array
+          items:
+            type: object
+            required:
+              - toolCode
+              - displayName
+              - dailyCallLimit
+              - active
+            properties:
+              toolCode:
+                type: string
+              displayName:
+                type: string
+              dailyCallLimit:
+                type: integer
+                minimum: 0
+                nullable: true
+              active:
+                type: boolean
+    UserPlanVisibilityEntitlements:
+      type: object
+      required:
+        - channelsAndSurfaces
+      properties:
+        channelsAndSurfaces:
+          type: object
+          required:
+            - webChat
+            - telegram
+            - whatsapp
+            - max
+          properties:
+            webChat:
+              type: boolean
+            telegram:
+              type: boolean
+            whatsapp:
+              type: boolean
+            max:
+              type: boolean
     UserPlanVisibilityState:
       type: object
       required:
         - effectivePlan
+        - entitlements
         - limits
         - updatedAt
       properties:
         effectivePlan:
           $ref: "#/components/schemas/UserPlanVisibilityEffectivePlan"
+        entitlements:
+          $ref: "#/components/schemas/UserPlanVisibilityEntitlements"
         limits:
           $ref: "#/components/schemas/UserPlanVisibilityLimits"
         updatedAt:
@@ -3300,10 +3460,24 @@ components:
       type: object
       required:
         - respondedAt
+        - degradedByQuotaFallback
+        - quotaFallbackReason
+        - quotaFallbackModel
       properties:
         respondedAt:
           type: string
           format: date-time
+        degradedByQuotaFallback:
+          type: boolean
+        quotaFallbackReason:
+          type: string
+          nullable: true
+          enum:
+            - token_budget_limit_reached
+            - cost_driving_quota_limit_reached
+        quotaFallbackModel:
+          type: string
+          nullable: true
     AssistantWebChatTurnState:
       type: object
       required:
@@ -3440,9 +3614,6 @@ components:
         tokenBudgetLimit:
           type: integer
           nullable: true
-        costToolUnitsLimit:
-          type: integer
-          nullable: true
     AdminPlanEntitlementToolClasses:
       type: object
       required:
@@ -3560,8 +3731,10 @@ components:
         - toolCode
         - displayName
         - toolClass
+        - policyClass
         - active
         - dailyCallLimit
+        - visibleInPlanEditor
       properties:
         toolCode:
           type: string
@@ -3572,11 +3745,19 @@ components:
           enum:
             - cost_driving
             - utility
+        policyClass:
+          type: string
+          enum:
+            - plan_managed
+            - platform_managed
+            - hidden_internal
         active:
           type: boolean
         dailyCallLimit:
           type: integer
           nullable: true
+        visibleInPlanEditor:
+          type: boolean
     AdminPlanToolActivationInput:
       type: object
       required:
@@ -3703,6 +3884,7 @@ components:
             - exists
             - assistantId
             - workspaceId
+            - effectivePlan
             - latestPublishedVersion
             - runtimeApply
           properties:
@@ -3714,6 +3896,31 @@ components:
             workspaceId:
               type: string
               nullable: true
+            effectivePlan:
+              type: object
+              required:
+                - code
+                - source
+                - assistantPlanOverrideCode
+                - quotaPlanCode
+              properties:
+                code:
+                  type: string
+                  nullable: true
+                source:
+                  type: string
+                  enum:
+                    - workspace_subscription
+                    - assistant_plan_override
+                    - assistant_plan_fallback
+                    - catalog_default_fallback
+                    - none
+                assistantPlanOverrideCode:
+                  type: string
+                  nullable: true
+                quotaPlanCode:
+                  type: string
+                  nullable: true
             latestPublishedVersion:
               type: object
               required:
@@ -3758,10 +3965,16 @@ components:
           required:
             - reapplySupported
             - restartSupported
+            - assistantPlanOverrideSupported
+            - assistantPlanResetSupported
           properties:
             reapplySupported:
               type: boolean
             restartSupported:
+              type: boolean
+            assistantPlanOverrideSupported:
+              type: boolean
+            assistantPlanResetSupported:
               type: boolean
         incidentSignals:
           type: array
@@ -3780,6 +3993,16 @@ components:
           nullable: true
         cockpit:
           $ref: "#/components/schemas/AdminOpsCockpitState"
+    SuccessResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        ok:
+          type: boolean
     BusinessCockpitChannel:
       type: string
       enum:
@@ -4079,6 +4302,113 @@ components:
           type: string
           format: date-time
           nullable: true
+    RuntimeTierSecurityPoolClass:
+      type: string
+      enum:
+        - shared_restricted
+        - isolated
+    RuntimeTierSecurityExecPolicy:
+      type: string
+      enum:
+        - sandbox_only
+    RuntimeTierSecurityWritePolicy:
+      type: string
+      enum:
+        - sandbox_workspace_only
+    RuntimeTierSecurityUserPlanToolsPolicy:
+      type: string
+      enum:
+        - plan_managed_only
+    RuntimeTierSandboxPolicyState:
+      type: object
+      required:
+        - required
+        - mode
+        - backend
+        - scope
+        - workspaceAccess
+        - network
+        - readOnlyRoot
+        - sessionToolsVisibility
+      properties:
+        required:
+          type: boolean
+        mode:
+          type: string
+          enum:
+            - all
+        backend:
+          type: string
+          enum:
+            - docker
+        scope:
+          type: string
+          enum:
+            - session
+        workspaceAccess:
+          type: string
+          enum:
+            - rw
+        network:
+          type: string
+          enum:
+            - none
+        readOnlyRoot:
+          type: boolean
+        sessionToolsVisibility:
+          type: string
+          enum:
+            - spawned
+    RuntimeTierSecurityPolicyState:
+      type: object
+      required:
+        - schema
+        - tier
+        - poolClass
+        - sandbox
+        - execPolicy
+        - writePolicy
+        - userPlanTools
+        - platformManagedTools
+        - planManagedServiceTools
+        - hiddenInternalTools
+        - alwaysDeniedBuiltIns
+        - notes
+      properties:
+        schema:
+          type: string
+        tier:
+          $ref: "#/components/schemas/RuntimeTier"
+        poolClass:
+          $ref: "#/components/schemas/RuntimeTierSecurityPoolClass"
+        sandbox:
+          $ref: "#/components/schemas/RuntimeTierSandboxPolicyState"
+        execPolicy:
+          $ref: "#/components/schemas/RuntimeTierSecurityExecPolicy"
+        writePolicy:
+          $ref: "#/components/schemas/RuntimeTierSecurityWritePolicy"
+        userPlanTools:
+          $ref: "#/components/schemas/RuntimeTierSecurityUserPlanToolsPolicy"
+        platformManagedTools:
+          type: array
+          items:
+            type: string
+        planManagedServiceTools:
+          type: array
+          items:
+            type: string
+        hiddenInternalTools:
+          type: array
+          items:
+            type: string
+        alwaysDeniedBuiltIns:
+          type: array
+          items:
+            type: string
+        notes:
+          type: array
+          items:
+            type: string
     AdminRuntimeProviderSettingsState:
       type: object
       required:
@@ -4088,6 +4418,7 @@ components:
         - fallback
         - availableModelsByProvider
         - providerKeys
+        - tierSecurityPolicies
         - notes
       properties:
         schema:
@@ -4114,6 +4445,10 @@ components:
               $ref: "#/components/schemas/AdminRuntimeProviderKeyState"
             anthropic:
               $ref: "#/components/schemas/AdminRuntimeProviderKeyState"
+        tierSecurityPolicies:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeTierSecurityPolicyState"
         notes:
           type: array
           items:

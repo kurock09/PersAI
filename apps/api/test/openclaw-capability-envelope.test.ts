@@ -68,9 +68,11 @@ async function run(): Promise<void> {
           description: null,
           capabilityGroup: "workspace_ops",
           toolClass: "utility",
+          policyClass: "plan_managed",
           catalogStatus: "active",
           planActivationStatus: "active",
-          effectiveActivation: "active"
+          effectiveActivation: "active",
+          visibleInPlanEditor: true
         },
         {
           code: "web_search",
@@ -78,9 +80,23 @@ async function run(): Promise<void> {
           description: null,
           capabilityGroup: "knowledge",
           toolClass: "cost_driving",
+          policyClass: "plan_managed",
           catalogStatus: "active",
           planActivationStatus: "active",
-          effectiveActivation: "inactive"
+          effectiveActivation: "inactive",
+          visibleInPlanEditor: true
+        },
+        {
+          code: "cron",
+          displayName: "Cron",
+          description: null,
+          capabilityGroup: "workspace_ops",
+          toolClass: "utility",
+          policyClass: "hidden_internal",
+          catalogStatus: "active",
+          planActivationStatus: "inactive",
+          effectiveActivation: "inactive",
+          visibleInPlanEditor: false
         }
       ],
       notes: []
@@ -159,11 +175,14 @@ async function run(): Promise<void> {
   assert.equal(resolved.channelSurfaceBindings.providers[0]?.surfaces[0]?.surfaceType, "web_chat");
   assert.equal(resolved.channelsAndSurfaces.whatsapp.allowed, false);
   assert.equal(resolved.tools.find((tool) => tool.code === "web_search")?.allowed, false);
+  assert.equal(resolved.tools.find((tool) => tool.code === "cron")?.allowed, false);
   assert.equal(
     resolved.tools.find((tool) => tool.code === "web_search")?.denyReason,
     "class_not_allowed"
   );
+  assert.equal(resolved.tools.find((tool) => tool.code === "cron")?.denyReason, "hidden_internal");
   assert.equal(resolved.suppression.deniedToolCodes.includes("web_search"), true);
+  assert.equal(resolved.suppression.deniedToolCodes.includes("cron"), true);
   assert.equal(resolved.quotaRestrictions.costDriving.restrictedByQuota, false);
   assert.equal(resolved.quotaRestrictions.utility.restrictedByQuota, true);
 }

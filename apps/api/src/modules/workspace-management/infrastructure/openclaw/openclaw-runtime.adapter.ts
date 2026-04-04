@@ -331,6 +331,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       {
         assistantId: input.assistantId,
         publishedVersionId: input.publishedVersionId,
+        ...(input.providerOverride ? { providerOverride: input.providerOverride } : {}),
+        ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
         chatId: input.chatId,
         surfaceThreadKey: input.surfaceThreadKey,
         userMessageId: input.userMessageId,
@@ -459,6 +461,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       {
         assistantId: input.assistantId,
         publishedVersionId: input.publishedVersionId,
+        ...(input.providerOverride ? { providerOverride: input.providerOverride } : {}),
+        ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
         surface: input.surface,
         threadId: input.threadId,
         userMessage: input.userMessage,
@@ -521,6 +525,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       {
         assistantId: input.assistantId,
         publishedVersionId: input.publishedVersionId,
+        ...(input.providerOverride ? { providerOverride: input.providerOverride } : {}),
+        ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
         chatId: input.chatId,
         surfaceThreadKey: input.surfaceThreadKey,
         userMessageId: input.userMessageId,
