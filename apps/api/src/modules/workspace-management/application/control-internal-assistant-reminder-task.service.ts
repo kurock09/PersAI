@@ -14,6 +14,7 @@ import {
   type AssistantTaskRegistryRepository
 } from "../domain/assistant-task-registry.repository";
 import { SyncAssistantTaskRegistryService } from "./sync-assistant-task-registry.service";
+import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 
 type ReminderTaskControlAction = "create" | "pause" | "resume" | "cancel";
 
@@ -316,7 +317,8 @@ export class ControlInternalAssistantReminderTaskService {
     private readonly assistantTaskRegistryRepository: AssistantTaskRegistryRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
-    private readonly syncAssistantTaskRegistryService: SyncAssistantTaskRegistryService
+    private readonly syncAssistantTaskRegistryService: SyncAssistantTaskRegistryService,
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
   ) {}
 
   parseInput(body: unknown): InternalReminderTaskControlRequest {
@@ -421,10 +423,14 @@ export class ControlInternalAssistantReminderTaskService {
     if (!task.externalRef) {
       throw new BadRequestException("Task is missing runtime externalRef.");
     }
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
 
     if (input.action === "cancel") {
       try {
         await this.runtimeAdapter.controlCronJob({
+          runtimeTier,
           action: "remove",
           args: { id: task.externalRef }
         });
@@ -445,6 +451,7 @@ export class ControlInternalAssistantReminderTaskService {
     }
 
     const updatedJob = await this.runtimeAdapter.controlCronJob({
+      runtimeTier,
       action: "update",
       args: {
         id: task.externalRef,
@@ -471,9 +478,13 @@ export class ControlInternalAssistantReminderTaskService {
   }
 
   private async createReminderTask(input: CreateReminderTaskControlRequest): Promise<unknown> {
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      input.assistantId
+    );
     let createdJob: unknown;
     try {
       createdJob = await this.runtimeAdapter.controlCronJob({
+        runtimeTier,
         action: "add",
         ...(input.contextSessionKey ? { contextSessionKey: input.contextSessionKey } : {}),
         args: {

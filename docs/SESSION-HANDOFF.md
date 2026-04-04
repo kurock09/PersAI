@@ -1,5 +1,215 @@
 # SESSION-HANDOFF
 
+## 2026-04-04 - R15d runtime assignment follow-through
+
+### What changed
+
+1. **Hidden single-runtime assumptions removed from support paths** — the tier-aware runtime model now reaches memory workspace actions, media upload/download/transcription paths, and reminder/cron control instead of only apply/chat/stream/channel entry points.
+2. **Assistant runtime tier is now resolvable as a shared service** — a dedicated runtime-tier resolver reads the latest materialized runtime assignment so non-chat paths can reuse one canonical `effectiveTier` source.
+3. **Admin ops runtime diagnostics are now tier-aware** — the ops cockpit no longer reports only one global OpenClaw host. It now surfaces the resolved runtime tier plus the effective endpoint host used for preflight/support diagnostics.
+4. **Control-plane truth is now consistent with runtime helpers** — this closes the remaining `R15d` roadmap item that no admin/runtime flow may assume one permanent global runtime endpoint.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-preflight.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/inbound-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-preprocessor.service.ts`
+- `apps/api/src/modules/workspace-management/application/ops-cockpit.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-runtime-tier.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/web/app/admin/ops/page.tsx`
+- `packages/contracts/openapi.yaml`
+- `docs/ROADMAP.md`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
+## 2026-04-04 - R15e/R15f legacy runtime removal
+
+### What changed
+
+1. **Legacy single-runtime config removed** — the active API config no longer uses one global `OPENCLAW_BASE_URL`; all runtime routing now requires explicit per-tier URLs for `free_shared_restricted`, `paid_shared_restricted`, and `paid_isolated`.
+2. **Compatibility alias removed from Helm topology** — the chart no longer renders the legacy `svc/openclaw` compatibility alias. Ingress and runtime wiring now point directly to canonical pool services.
+3. **Dev values now represent the full tiered runtime model** — all three canonical pools are enabled in dev values with explicit in-cluster service URLs so the next deploy/live test exercises the actual target topology instead of a compatibility layer.
+4. **Readiness/runbook/live-test docs now match the new truth** — runtime pool readiness, hybrid live test instructions, and operational runbooks now reference explicit pool services instead of the removed alias/fallback path.
+
+### Files touched
+
+- `apps/api/.env.dev.example`
+- `apps/api/.env.local.example`
+- `apps/api/src/modules/workspace-management/application/runtime-endpoint-routing.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/test/openclaw-runtime-adapter.test.ts`
+- `apps/api/test/runtime-endpoint-routing.test.ts`
+- `packages/config/src/api-config.ts`
+- `infra/helm/templates/openclaw-service.yaml`
+- `infra/helm/templates/ingress.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `scripts/runtime-pools-readiness.cjs`
+- `docs/API-BOUNDARY.md`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/ROADMAP.md`
+- `docs/TEST-PLAN.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `infra/dev/gke/RUNBOOK.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
+## 2026-04-04 - R15f adapter runtime router
+
+### What changed
+
+1. **Adapter routing is now tier-aware** — the OpenClaw adapter no longer assumes one permanent runtime origin. It now resolves the target base URL from the assistant's resolved runtime tier, using tier-specific env vars when configured and falling back to the compatibility alias otherwise.
+2. **Resolved runtime tier now flows through runtime call sites** — apply, setup preview, web chat, web stream, and Telegram channel turns now pass the resolved runtime tier into the adapter instead of relying on one hardcoded `OPENCLAW_BASE_URL`.
+3. **Inbound runtime context now exposes tier truth** — the inbound runtime context/prepare path reads the latest materialized runtime assignment and carries `effectiveTier` through the shared web and Telegram turn entry points.
+4. **Config surface prepared for per-tier services** — API config and Helm values now expose `OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED`, `OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED`, and `OPENCLAW_BASE_URL_PAID_ISOLATED`. Current dev values wire `free_shared_restricted` to `openclaw-free-shared-restricted` while keeping paid tiers empty so they continue to use the compatibility alias.
+5. **Focused router verification added** — new routing tests validate deterministic tier URL selection and safe fallback behavior, and API typecheck passed after the router cutover slice.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/apply-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-inbound-runtime-context.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-assignment.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-endpoint-routing.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/test/openclaw-runtime-adapter.test.ts`
+- `apps/api/test/runtime-endpoint-routing.test.ts`
+- `apps/api/.env.dev.example`
+- `apps/api/.env.local.example`
+- `packages/config/src/api-config.ts`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `docs/ROADMAP.md`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
+## 2026-04-04 - R15e runtime pool Helm scaffolding
+
+### What changed
+
+1. **Helm runtime pools introduced** — `infra/helm/values*.yaml` now define `openclaw.runtimePools` with a `defaultPoolKey` plus canonical pool keys for `free_shared_restricted`, `paid_shared_restricted`, and `paid_isolated`.
+2. **Pool-aware OpenClaw resources** — the chart now renders per-pool OpenClaw deployments, services, and configmaps with explicit runtime-pool labels instead of assuming one permanent physical `openclaw` deployment/config forever.
+3. **Compatibility alias preserved** — the legacy service name `openclaw` still points to the configured default pool, so the current adapter/config path remains stable while `R15f` router work is still pending.
+4. **Network/ingress compatibility held intentionally** — the external Telegram/webhook ingress path and the current OpenClaw ingress NetworkPolicy remain tied to the default pool only. This avoids accidental traffic split before a real routing layer exists.
+5. **Readiness gate added** — `runtime-pools:readiness` and `runtime-pools:readiness:strict` now verify the compatibility-phase rules: a valid default pool must exist and be enabled, and `api.env.OPENCLAW_BASE_URL` must remain on `http://openclaw:18789` until the later router cutover.
+
+### Files touched
+
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `infra/helm/templates/_helpers.tpl`
+- `infra/helm/templates/openclaw-configmap.yaml`
+- `infra/helm/templates/openclaw-deployment.yaml`
+- `infra/helm/templates/openclaw-service.yaml`
+- `infra/helm/templates/ingress.yaml`
+- `infra/helm/templates/networkpolicies.yaml`
+- `scripts/runtime-pools-readiness.cjs`
+- `package.json`
+- `docs/ROADMAP.md`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
+## 2026-04-04 - R15d runtime assignment control-plane slice
+
+### What changed
+
+1. **Plan default runtime tier added** — admin plan contracts and the Plans UI now carry `runtimeTierDefault` with the three canonical Step 15 values: `free_shared_restricted`, `paid_shared_restricted`, and `paid_isolated`. This makes runtime policy an explicit product control-plane field instead of an implied future infra decision.
+2. **Starter plan backfill added** — the startup seed path now ensures the default `starter_trial` plan carries `runtimeTierDefault: free_shared_restricted`, so existing environments do not stay in a null/implicit state after the new control-plane field ships.
+3. **Assistant override seam formalized** — assistant governance now exposes a typed parsed `runtimeTierOverride`, sourced from `policyEnvelope.runtimeAssignment.runtimeTierOverride`, so admin/rollout patches have one canonical override seam before any tier router is introduced.
+4. **Materialization now emits resolved runtime assignment** — materialized governance/bootstrap state now includes the resolved runtime assignment object with `planDefaultTier`, `runtimeTierOverride`, `effectiveTier`, and `source`. This gives `R15e/R15f` a stable control-plane truth without changing the current live runtime pool yet.
+5. **Docs and contracts synced** — `ROADMAP`, `OPENCLAW-SAAS-RUNTIME-PLAN`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `CHANGELOG`, and the OpenAPI/generated contracts now describe the new `R15d` slice truthfully instead of treating runtime assignment as docs-only.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-lifecycle.types.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-lifecycle.mapper.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-assignment.ts`
+- `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts`
+- `apps/api/test/runtime-assignment.test.ts`
+- `apps/api/test/assistant-lifecycle-runtime-assignment.test.ts`
+- `apps/web/app/admin/plans/page.tsx`
+- `packages/contracts/openapi.yaml`
+- `docs/ROADMAP.md`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
 ## 2026-04-04 - R15b live verification and docs truth sync
 
 ### What changed

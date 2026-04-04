@@ -3,6 +3,7 @@ import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
 } from "../assistant-runtime-adapter.types";
+import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
 import type { PreprocessedMedia } from "./media.types";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
@@ -40,7 +41,8 @@ export class MediaPreprocessorService {
 
   constructor(
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly runtimeAdapter: AssistantRuntimeAdapter
+    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
   ) {}
 
   async process(
@@ -264,8 +266,11 @@ export class MediaPreprocessorService {
     mime: string,
     assistantId: string
   ): Promise<string | null> {
+    const runtimeTier =
+      await this.resolveAssistantRuntimeTierService.resolveByAssistantId(assistantId);
     const uploadResult = await this.runtimeAdapter.uploadChatMedia({
       assistantId,
+      runtimeTier,
       chatId: "_stt_tmp",
       messageId: "transcribe",
       fileBuffer: buffer,
@@ -275,12 +280,13 @@ export class MediaPreprocessorService {
     try {
       const result = await this.runtimeAdapter.transcribeMedia(
         assistantId,
-        uploadResult.storagePath
+        uploadResult.storagePath,
+        runtimeTier
       );
       return result.text && result.text.trim().length > 0 ? result.text.trim() : null;
     } finally {
       void this.runtimeAdapter
-        .deleteChatMedia(assistantId, uploadResult.storagePath)
+        .deleteChatMedia(assistantId, uploadResult.storagePath, runtimeTier)
         .catch(() => {});
     }
   }

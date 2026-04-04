@@ -104,6 +104,7 @@ function makeAssistantState(): AssistantLifecycleState {
       capabilityEnvelope: null,
       secretRefs: null,
       policyEnvelope: null,
+      runtimeTierOverride: null,
       memoryControl: null,
       tasksControl: null,
       quotaPlanCode: null,
@@ -118,6 +119,7 @@ function makeAssistantState(): AssistantLifecycleState {
       algorithmVersion: null,
       contentHash: null,
       generatedAt: null,
+      runtimeAssignment: null,
       openclawBootstrapDocument: null,
       openclawWorkspaceDocument: null
     },

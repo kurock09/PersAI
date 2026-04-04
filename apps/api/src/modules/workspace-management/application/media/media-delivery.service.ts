@@ -18,6 +18,7 @@ import {
   type MediaArtifact,
   type OutboundMediaDeliverParams
 } from "./media.types";
+import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
 
 @Injectable()
 export class MediaDeliveryService {
@@ -30,7 +31,8 @@ export class MediaDeliveryService {
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(CHANNEL_MEDIA_ADAPTERS)
-    adapters: ChannelMediaAdapter[]
+    adapters: ChannelMediaAdapter[],
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
   ) {
     this.adapterMap = new Map(adapters.map((a) => [a.channel, a]));
   }
@@ -72,9 +74,13 @@ export class MediaDeliveryService {
     buffer: Buffer;
     filename: string;
   }> {
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      params.assistantId
+    );
     const downloadResult = await this.runtimeAdapter.downloadChatMedia(
       params.assistantId,
-      artifact.url
+      artifact.url,
+      runtimeTier
     );
     if (!downloadResult) {
       throw new Error(`Media file not found on storage: ${artifact.url}`);
@@ -82,6 +88,7 @@ export class MediaDeliveryService {
 
     const uploadResult = await this.runtimeAdapter.uploadChatMedia({
       assistantId: params.assistantId,
+      runtimeTier,
       chatId: params.chatId,
       messageId: params.messageId,
       fileBuffer: downloadResult.buffer,

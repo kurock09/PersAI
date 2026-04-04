@@ -8,6 +8,7 @@ import type { AdminPlanInputBaseStatus } from "./adminPlanInputBaseStatus";
 import type { AdminPlanMetadata } from "./adminPlanMetadata";
 import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
 import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
+import type { AdminPlanInputBaseRuntimeTierDefault } from "./adminPlanInputBaseRuntimeTierDefault";
 import type { AdminPlanToolActivationInput } from "./adminPlanToolActivationInput";
 
 export interface AdminPlanInputBase {
@@ -24,5 +25,7 @@ export interface AdminPlanInputBase {
   quotaLimits?: AdminPlanQuotaLimits;
   /** @nullable */
   primaryModelKey?: string | null;
+  /** @nullable */
+  runtimeTierDefault?: AdminPlanInputBaseRuntimeTierDefault;
   toolActivations?: AdminPlanToolActivationInput[];
 }

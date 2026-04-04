@@ -14,6 +14,7 @@ import {
   type InboundMediaResolveParams,
   type ResolvedInboundMedia
 } from "./media.types";
+import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
 
 @Injectable()
 export class InboundMediaService {
@@ -24,7 +25,8 @@ export class InboundMediaService {
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
-    private readonly preprocessor: MediaPreprocessorService
+    private readonly preprocessor: MediaPreprocessorService,
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
   ) {}
 
   async resolve(params: InboundMediaResolveParams): Promise<ResolvedInboundMedia> {
@@ -34,6 +36,9 @@ export class InboundMediaService {
 
     const attachments: AssistantChatMessageAttachment[] = [];
     const contextLines: string[] = [];
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      params.assistantId
+    );
 
     for (const raw of params.rawAttachments) {
       try {
@@ -46,6 +51,7 @@ export class InboundMediaService {
 
         const uploadResult = await this.runtimeAdapter.uploadChatMedia({
           assistantId: params.assistantId,
+          runtimeTier,
           chatId: params.chatId,
           messageId: params.messageId,
           fileBuffer: processed.normalizedBuffer,

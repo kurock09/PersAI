@@ -11,6 +11,8 @@
     "openclaw:fork:update-gate": "node scripts/openclaw-fork-update-gate.cjs",
     "shared-runtime:readiness": "node scripts/shared-runtime-hardening-readiness.cjs",
     "shared-runtime:readiness:strict": "node scripts/shared-runtime-hardening-readiness.cjs --strict",
+    "runtime-pools:readiness": "node scripts/runtime-pools-readiness.cjs",
+    "runtime-pools:readiness:strict": "node scripts/runtime-pools-readiness.cjs --strict",
     "networkpolicy:readiness": "node scripts/networkpolicy-readiness.cjs",
     "networkpolicy:readiness:strict": "node scripts/networkpolicy-readiness.cjs --strict",
     "format:check": "corepack pnpm exec prettier --check \"apps/**/*.{ts,tsx,js,cjs,json,css}\" \"packages/**/*.{ts,js,cjs,json}\" \".github/**/*.{yml,yaml}\" \"infra/dev/**/*.{yml,yaml,md}\" \"infra/local/**/*.{yml,yaml}\" \"*.{json,md,yml,yaml}\"",

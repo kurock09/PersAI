@@ -14,6 +14,7 @@ import { MaterializeAssistantPublishedVersionService } from "./materialize-assis
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { toAssistantInboundHttpException } from "./assistant-inbound-error";
 import { normalizeAssistantGender } from "./assistant-gender";
+import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
 
 export interface AssistantSetupPreviewState {
   message: string;
@@ -73,9 +74,13 @@ export class PreviewAssistantSetupService {
       `Introduce yourself to ${userDisplayName} in 2-4 natural sentences as if this were your first conversation. ` +
       "Sound like your configured persona. Do not mention previews, setup, drafts, or internal configuration.";
 
+    const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(artifacts.layers);
     const result = await this.assistantRuntimeAdapter
       .previewSetupTurn({
         assistantId: assistant.id,
+        ...(runtimeAssignment?.effectiveTier
+          ? { runtimeTier: runtimeAssignment.effectiveTier }
+          : {}),
         userMessage: previewPrompt,
         openclawBootstrap: artifacts.openclawBootstrap,
         openclawWorkspace: artifacts.openclawWorkspace,

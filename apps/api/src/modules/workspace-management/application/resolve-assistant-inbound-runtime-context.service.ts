@@ -1,16 +1,25 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
+  type AssistantMaterializedSpecRepository
+} from "../domain/assistant-materialized-spec.repository";
+import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import type { Assistant } from "../domain/assistant.entity";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
+import {
+  readRuntimeAssignmentStateFromMaterializedLayers,
+  type RuntimeTier
+} from "./runtime-assignment";
 
 export interface ResolvedAssistantInboundRuntimeContext {
   assistant: Assistant;
   assistantId: string;
   publishedVersionId: string;
+  runtimeTier: RuntimeTier;
   userId: string;
   workspaceId: string;
 }
@@ -20,6 +29,8 @@ export class ResolveAssistantInboundRuntimeContextService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
+    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
+    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository
   ) {}
@@ -62,10 +73,18 @@ export class ResolveAssistantInboundRuntimeContextService {
       );
     }
 
+    const materializedSpec = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
+      assistant.id
+    );
+    const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(
+      materializedSpec?.layers ?? null
+    );
+
     return {
       assistant,
       assistantId: assistant.id,
       publishedVersionId: latestPublishedVersion.id,
+      runtimeTier: runtimeAssignment?.effectiveTier ?? "free_shared_restricted",
       userId: assistant.userId,
       workspaceId: assistant.workspaceId
     };

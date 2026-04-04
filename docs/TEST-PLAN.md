@@ -594,8 +594,25 @@ Required in CI:
   - current Helm-rendered baseline explicitly denies dangerous built-ins (`gateway`, `nodes`, `canvas`, `agents_list`, `session_status`, `sessions_*`, `subagents`)
   - prepared sandbox limits render into config, but GKE rollout keeps `agents.defaults.sandbox.mode: "off"` until sandbox backend/container support is actually present
   - `corepack pnpm run shared-runtime:readiness:strict` is the canonical prepared-baseline gate before rollout
-- Runtime assignment tests validate plan default + admin override resolution and ensure the adapter boundary no longer hardcodes one permanent runtime target.
-- GKE readiness checks validate per-tier runtime service wiring, health visibility, and narrowed internal reachability before tenant cutover.
+- Runtime assignment tests validate:
+  - plan default + admin override resolution (`platform_fallback -> plan_default -> assistant_override`)
+  - admin plan API/UI carry `runtimeTierDefault` as product control-plane state
+  - assistant lifecycle exposes parsed `governance.runtimeTierOverride`
+  - materialization exposes resolved runtime assignment state before `R15e/R15f` router rollout
+  - user/support runtime paths do not silently bypass tier resolution:
+    - memory workspace actions
+    - media upload/download/transcription flows
+    - reminder/cron control
+    - admin ops runtime diagnostics
+- GKE readiness checks validate:
+  - pool-aware OpenClaw deployment/service/config scaffolding exists before router cutover
+  - canonical pool services exist explicitly for `free_shared_restricted`, `paid_shared_restricted`, and `paid_isolated`
+  - `corepack pnpm run runtime-pools:readiness:strict` passes before enabling tier-specific traffic paths
+  - per-tier runtime service wiring, health visibility, and narrowed internal reachability before tenant cutover
+  - adapter routing tests validate:
+    - runtime tier resolves from materialized/inbound context
+    - `OPENCLAW_BASE_URL_<TIER>` routes directly to the explicit tier service
+    - no global runtime fallback URL remains in the active adapter path
 - Sandbox activation gate checks validate:
   - sandbox is never enabled by mutating the only current working runtime in place
   - canary routing can target a separate sandbox-ready pool

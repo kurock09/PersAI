@@ -1,31 +1,37 @@
 {{- if .Values.openclaw.enabled }}
+{{- range $poolKey, $pool := .Values.openclaw.runtimePools.pools }}
+{{- if $pool.enabled }}
+{{- $poolCtx := dict "Values" $.Values "poolKey" $poolKey "pool" $pool }}
+{{- $openclaw := (include "persai.openclaw.poolMergedValues" (dict "Values" $.Values "pool" $pool) | fromYaml) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: openclaw-config
-  namespace: {{ .Values.global.namespace }}
+  name: {{ include "persai.openclaw.poolConfigMapName" $poolCtx }}
+  namespace: {{ $.Values.global.namespace }}
   labels:
     app.kubernetes.io/name: openclaw
+    app.kubernetes.io/component: runtime-pool
+    persai.dev/runtime-pool: {{ $poolKey | quote }}
 data:
   openclaw.json: |
     {
       "agents": {
         "defaults": {
           "model": {
-            "primary": {{ .Values.openclaw.agentDefaults.modelPrimary | toJson }}
-          }{{- if .Values.openclaw.agentDefaults.sandbox }},
-          "sandbox": {{ .Values.openclaw.agentDefaults.sandbox | toJson }}
+            "primary": {{ $openclaw.agentDefaults.modelPrimary | toJson }}
+          }{{- if $openclaw.agentDefaults.sandbox }},
+          "sandbox": {{ $openclaw.agentDefaults.sandbox | toJson }}
           {{- end }}
         }
       },
-      {{- if .Values.openclaw.tools }}
-      "tools": {{ .Values.openclaw.tools | toJson }},
+      {{- if $openclaw.tools }}
+      "tools": {{ $openclaw.tools | toJson }},
       {{- end }}
       "secrets": {
         "providers": {
           "persai-runtime": {
             "source": "persai",
-            "baseUrl": {{ .Values.openclaw.persaiSecretResolver.baseUrl | toJson }},
+            "baseUrl": {{ $openclaw.persaiSecretResolver.baseUrl | toJson }},
             "path": "/api/v1/internal/runtime/provider-secrets/resolve",
             "tokenEnvVar": "PERSAI_INTERNAL_API_TOKEN"
           }
@@ -40,26 +46,29 @@ data:
       },
       "session": {
         "maintenance": {
-          "mode": {{ .Values.openclaw.sessionMaintenance.mode | toJson }},
-          "pruneAfter": {{ .Values.openclaw.sessionMaintenance.pruneAfter | toJson }},
-          "maxEntries": {{ .Values.openclaw.sessionMaintenance.maxEntries }},
-          "rotateBytes": {{ .Values.openclaw.sessionMaintenance.rotateBytes | toJson }},
-          "resetArchiveRetention": {{ .Values.openclaw.sessionMaintenance.resetArchiveRetention | toJson }},
-          "maxDiskBytes": {{ .Values.openclaw.sessionMaintenance.maxDiskBytes | toJson }},
-          "highWaterBytes": {{ .Values.openclaw.sessionMaintenance.highWaterBytes | toJson }}
+          "mode": {{ $openclaw.sessionMaintenance.mode | toJson }},
+          "pruneAfter": {{ $openclaw.sessionMaintenance.pruneAfter | toJson }},
+          "maxEntries": {{ $openclaw.sessionMaintenance.maxEntries }},
+          "rotateBytes": {{ $openclaw.sessionMaintenance.rotateBytes | toJson }},
+          "resetArchiveRetention": {{ $openclaw.sessionMaintenance.resetArchiveRetention | toJson }},
+          "maxDiskBytes": {{ $openclaw.sessionMaintenance.maxDiskBytes | toJson }},
+          "highWaterBytes": {{ $openclaw.sessionMaintenance.highWaterBytes | toJson }}
         }
       },
       "messages": {
         "tts": {
-          "auto": {{ .Values.openclaw.tts.auto | toJson }},
-          "mode": {{ .Values.openclaw.tts.mode | toJson }}
+          "auto": {{ $openclaw.tts.auto | toJson }},
+          "mode": {{ $openclaw.tts.mode | toJson }}
         }
       },
       "gateway": {
         "controlUi": {
-          "allowedOrigins": {{ .Values.openclaw.controlUi.allowedOrigins | toJson }},
-          "dangerouslyAllowHostHeaderOriginFallback": {{ .Values.openclaw.controlUi.dangerouslyAllowHostHeaderOriginFallback | toJson }}
+          "allowedOrigins": {{ $openclaw.controlUi.allowedOrigins | toJson }},
+          "dangerouslyAllowHostHeaderOriginFallback": {{ $openclaw.controlUi.dangerouslyAllowHostHeaderOriginFallback | toJson }}
         }
       }
     }
+---
+{{- end }}
+{{- end }}
 {{- end }}

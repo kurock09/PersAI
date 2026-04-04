@@ -67,6 +67,28 @@ export class SeedToolCatalogService implements OnModuleInit {
       where: { code: DEFAULT_PLAN_CODE }
     });
     if (existing) {
+      const billingHints =
+        existing.billingProviderHints &&
+        typeof existing.billingProviderHints === "object" &&
+        !Array.isArray(existing.billingProviderHints)
+          ? (existing.billingProviderHints as Record<string, unknown>)
+          : {};
+      if (billingHints.runtimeTierDefault !== "free_shared_restricted") {
+        await this.prisma.planCatalogPlan.update({
+          where: { id: existing.id },
+          data: {
+            billingProviderHints: {
+              ...billingHints,
+              schema:
+                typeof billingHints.schema === "string"
+                  ? billingHints.schema
+                  : "persai.billingHints.v1",
+              providerAgnostic: billingHints.providerAgnostic === true,
+              runtimeTierDefault: "free_shared_restricted"
+            }
+          }
+        });
+      }
       await this.syncToolActivations(existing.id);
       return;
     }
@@ -83,7 +105,8 @@ export class SeedToolCatalogService implements OnModuleInit {
         trialDurationDays: 14,
         billingProviderHints: {
           schema: "persai.billingHints.v1",
-          providerAgnostic: true
+          providerAgnostic: true,
+          runtimeTierDefault: "free_shared_restricted"
         }
       }
     });

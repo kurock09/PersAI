@@ -121,6 +121,7 @@ export class SendWebChatTurnService {
       .sendWebChatTurn({
         assistantId: prepared.assistantId,
         publishedVersionId: prepared.publishedVersionId,
+        runtimeTier: prepared.runtimeTier,
         chatId: prepared.chat.id,
         surfaceThreadKey: prepared.chat.surfaceThreadKey,
         userMessageId: prepared.userMessage.id,

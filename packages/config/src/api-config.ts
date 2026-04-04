@@ -18,6 +18,13 @@ const envBoolean = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+const optionalUrl = z.preprocess((value) => {
+  if (typeof value === "string" && value.trim().length === 0) {
+    return undefined;
+  }
+  return value;
+}, z.string().url().optional());
+
 const baseApiConfigSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
   PORT: z.coerce.number().int().positive().default(3001),
@@ -28,7 +35,9 @@ const baseApiConfigSchema = z.object({
   ADMIN_STEP_UP_HMAC_SECRET: z.string().optional(),
   RUNTIME_PROVIDER_SECRETS_MASTER_KEY: z.string().min(16).optional(),
   OPENCLAW_ADAPTER_ENABLED: envBoolean.default(false),
-  OPENCLAW_BASE_URL: z.string().url().default("http://openclaw.persai-dev.svc.cluster.local:18789"),
+  OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: optionalUrl,
+  OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: optionalUrl,
+  OPENCLAW_BASE_URL_PAID_ISOLATED: optionalUrl,
   OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
   PERSAI_INTERNAL_API_TOKEN: z.string().optional(),
   OPENCLAW_ADAPTER_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
@@ -93,6 +102,17 @@ export function loadApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
   if (!parsed.data.PERSAI_INTERNAL_API_TOKEN?.trim()) {
     throw new Error(
       "Invalid API environment configuration: PERSAI_INTERNAL_API_TOKEN is required for internal runtime endpoints."
+    );
+  }
+
+  if (
+    parsed.data.OPENCLAW_ADAPTER_ENABLED &&
+    (!parsed.data.OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED?.trim() ||
+      !parsed.data.OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED?.trim() ||
+      !parsed.data.OPENCLAW_BASE_URL_PAID_ISOLATED?.trim())
+  ) {
+    throw new Error(
+      "Invalid API environment configuration: OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED, OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED, and OPENCLAW_BASE_URL_PAID_ISOLATED are required when OPENCLAW_ADAPTER_ENABLED=true."
     );
   }
 

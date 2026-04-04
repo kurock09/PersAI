@@ -75,7 +75,9 @@ api:
     GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
     GCP_REGION: europe-west1
     OPENCLAW_ADAPTER_ENABLED: "true"
-    OPENCLAW_BASE_URL: "http://openclaw:18789"
+    OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: "http://openclaw-free-shared-restricted:18789"
+    OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: "http://openclaw-paid-shared-restricted:18789"
+    OPENCLAW_BASE_URL_PAID_ISOLATED: "http://openclaw-paid-isolated:18789"
     OPENCLAW_ADAPTER_TIMEOUT_MS: "90000"
     TELEGRAM_WEBHOOK_BASE_URL: "https://bot.persai.dev"
     WEB_ACTIVE_CHATS_CAP: "20"
@@ -170,6 +172,18 @@ web:
 openclaw:
   enabled: true
   replicaCount: 1
+  runtimePools:
+    defaultPoolKey: free_shared_restricted
+    pools:
+      free_shared_restricted:
+        enabled: true
+        config: {}
+      paid_shared_restricted:
+        enabled: true
+        config: {}
+      paid_isolated:
+        enabled: true
+        config: {}
   serviceAccount:
     create: true
     name: openclaw-sa

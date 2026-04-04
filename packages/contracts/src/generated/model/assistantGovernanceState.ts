@@ -7,6 +7,7 @@
 import type { AssistantGovernanceStateCapabilityEnvelope } from "./assistantGovernanceStateCapabilityEnvelope";
 import type { AssistantGovernanceStateSecretRefs } from "./assistantGovernanceStateSecretRefs";
 import type { AssistantGovernanceStatePolicyEnvelope } from "./assistantGovernanceStatePolicyEnvelope";
+import type { AssistantGovernanceStateRuntimeTierOverride } from "./assistantGovernanceStateRuntimeTierOverride";
 import type { AssistantGovernanceStateMemoryControl } from "./assistantGovernanceStateMemoryControl";
 import type { AssistantGovernanceStateTasksControl } from "./assistantGovernanceStateTasksControl";
 import type { AssistantGovernanceStateQuotaHook } from "./assistantGovernanceStateQuotaHook";
@@ -19,6 +20,8 @@ export interface AssistantGovernanceState {
   secretRefs: AssistantGovernanceStateSecretRefs;
   /** @nullable */
   policyEnvelope: AssistantGovernanceStatePolicyEnvelope;
+  /** @nullable */
+  runtimeTierOverride: AssistantGovernanceStateRuntimeTierOverride;
   /**
    * Step 6 D1 control-plane memory governance envelope (policy, provenance hooks, visibility hooks, forget-request markers, audit routing). Not raw OpenClaw/runtime memory.
 

@@ -38,6 +38,24 @@ export interface AssistantRuntimeApplyErrorState {
   message: string | null;
 }
 
+export type AssistantRuntimeTier =
+  | "free_shared_restricted"
+  | "paid_shared_restricted"
+  | "paid_isolated";
+
+export type AssistantRuntimeAssignmentSource =
+  | "platform_fallback"
+  | "plan_default"
+  | "assistant_override";
+
+export interface AssistantRuntimeAssignmentState {
+  schema: "persai.runtimeAssignment.v1";
+  planDefaultTier: AssistantRuntimeTier | null;
+  runtimeTierOverride: AssistantRuntimeTier | null;
+  effectiveTier: AssistantRuntimeTier;
+  source: AssistantRuntimeAssignmentSource;
+}
+
 export interface AssistantRuntimeApplyState {
   status: AssistantRuntimeApplyStatus;
   targetPublishedVersionId: string | null;
@@ -52,6 +70,7 @@ export interface AssistantGovernanceState {
   capabilityEnvelope: unknown | null;
   secretRefs: unknown | null;
   policyEnvelope: unknown | null;
+  runtimeTierOverride: AssistantRuntimeTier | null;
   /** Step 6 D1: memory control-plane envelope (not runtime memory contents). */
   memoryControl: unknown | null;
   /** Step 6 D4: tasks/reminders/triggers control-plane envelope (not execution or scheduling). */
@@ -69,6 +88,7 @@ export interface AssistantMaterializationState {
   algorithmVersion: number | null;
   contentHash: string | null;
   generatedAt: string | null;
+  runtimeAssignment: AssistantRuntimeAssignmentState | null;
   openclawBootstrapDocument: string | null;
   openclawWorkspaceDocument: string | null;
 }

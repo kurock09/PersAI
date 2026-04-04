@@ -22,6 +22,7 @@ import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { InboundMediaService } from "./media/inbound-media.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { resolveWelcomeTurnInstruction } from "./send-web-chat-turn.service";
+import type { RuntimeTier } from "./runtime-assignment";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -29,6 +30,7 @@ export interface StreamWebChatTurnPrepared {
   assistant: Assistant;
   assistantId: string;
   publishedVersionId: string;
+  runtimeTier: RuntimeTier;
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
@@ -127,6 +129,7 @@ export class StreamWebChatTurnService {
       for await (const chunk of this.assistantRuntimeAdapter.streamWebChatTurn({
         assistantId: prepared.assistantId,
         publishedVersionId: prepared.publishedVersionId,
+        runtimeTier: prepared.runtimeTier,
         chatId: prepared.chat.id,
         surfaceThreadKey: prepared.chat.surfaceThreadKey,
         userMessageId: prepared.userMessage.id,

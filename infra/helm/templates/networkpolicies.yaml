@@ -1,6 +1,7 @@
 {{- $apiPublicCidrs := .Values.networkPolicy.apiIngress.publicIpBlocks | default (list) }}
 {{- $apiExtraCidrs := .Values.networkPolicy.apiIngress.extraFromIpBlocks | default (list) }}
 {{- $apiIngressSafe := or (not .Values.ingress.enabled) (gt (len $apiPublicCidrs) 0) }}
+{{- $defaultPoolKey := .Values.openclaw.runtimePools.defaultPoolKey | default "free_shared_restricted" }}
 {{- if and .Values.networkPolicy.enabled .Values.api.enabled $apiIngressSafe }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -52,6 +53,7 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: openclaw
+      persai.dev/runtime-pool: {{ $defaultPoolKey | quote }}
   policyTypes:
     - Ingress
   ingress:

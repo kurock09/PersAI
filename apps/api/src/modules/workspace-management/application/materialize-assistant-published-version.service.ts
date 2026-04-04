@@ -39,6 +39,7 @@ import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-pr
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { normalizeAssistantGender } from "./assistant-gender";
+import { resolveRuntimeAssignmentState } from "./runtime-assignment";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -164,6 +165,14 @@ export class MaterializeAssistantPublishedVersionService {
             policyEnvelope: governance.policyEnvelope,
             secretRefs: governance.secretRefs
           });
+    const planRuntimeTierDefault = await this.resolvePlanRuntimeTierDefault(
+      effectiveCapabilities.derivedFrom.planCode
+    );
+    const runtimeAssignment = resolveRuntimeAssignmentState({
+      billingProviderHints:
+        planRuntimeTierDefault === null ? null : { runtimeTierDefault: planRuntimeTierDefault },
+      policyEnvelope: governance.policyEnvelope
+    });
     const planPrimaryModelKey = await this.resolvePlanPrimaryModelKey(
       effectiveCapabilities.derivedFrom.planCode
     );
@@ -215,7 +224,8 @@ export class MaterializeAssistantPublishedVersionService {
           effectiveCapabilities,
           toolAvailability,
           openclawCapabilityEnvelope,
-          runtimeProviderProfile
+          runtimeProviderProfile,
+          runtimeAssignment
         ),
         applyState: {
           status: assistant.applyStatus,
@@ -246,6 +256,7 @@ export class MaterializeAssistantPublishedVersionService {
         effectiveCapabilities,
         toolAvailability,
         openclawCapabilityEnvelope,
+        runtimeAssignment,
         runtimeProviderProfile,
         toolCredentialRefs,
         toolQuotaPolicy,
@@ -288,6 +299,7 @@ export class MaterializeAssistantPublishedVersionService {
       effectiveCapabilities,
       toolAvailability,
       openclawCapabilityEnvelope,
+      runtimeAssignment,
       memoryControl,
       tasksControl,
       userContext,
@@ -376,6 +388,31 @@ export class MaterializeAssistantPublishedVersionService {
     const record = hints as Record<string, unknown>;
     return typeof record.primaryModelKey === "string" && record.primaryModelKey.trim().length > 0
       ? record.primaryModelKey.trim()
+      : null;
+  }
+
+  private async resolvePlanRuntimeTierDefault(
+    planCode: string | null
+  ): Promise<"free_shared_restricted" | "paid_shared_restricted" | "paid_isolated" | null> {
+    if (planCode === null) {
+      return null;
+    }
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) {
+      return null;
+    }
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) {
+      return null;
+    }
+    const record = hints as Record<string, unknown>;
+    return record.runtimeTierDefault === "free_shared_restricted" ||
+      record.runtimeTierDefault === "paid_shared_restricted" ||
+      record.runtimeTierDefault === "paid_isolated"
+      ? record.runtimeTierDefault
       : null;
   }
 
@@ -861,12 +898,14 @@ export class MaterializeAssistantPublishedVersionService {
     effectiveCapabilities: Record<string, unknown>,
     toolAvailability: Record<string, unknown>,
     openclawCapabilityEnvelope: Record<string, unknown>,
-    runtimeProviderProfile: unknown
+    runtimeProviderProfile: unknown,
+    runtimeAssignment: unknown
   ): Record<string, unknown> {
     return {
       capabilityEnvelope: governance.capabilityEnvelope,
       secretRefs: governance.secretRefs,
       policyEnvelope: governance.policyEnvelope,
+      runtimeAssignment,
       runtimeProviderProfile,
       effectiveCapabilities,
       toolAvailability,

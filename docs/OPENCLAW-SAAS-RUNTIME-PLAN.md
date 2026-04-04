@@ -216,6 +216,20 @@ Outcome:
 - UI chooses runtime policy, not infrastructure details
 - control-plane model is ready before multi-pool rollout
 
+Current slice delivered:
+
+- `plan_catalog_plans.billingProviderHints.runtimeTierDefault` is now the canonical per-plan default
+- admin Plans UI selects runtime tier as product policy (`free_shared_restricted`, `paid_shared_restricted`, `paid_isolated`) instead of pod/service names
+- assistant-level override seam is formalized through `governance.policyEnvelope.runtimeAssignment.runtimeTierOverride`
+- materialization now emits resolved runtime assignment state (`planDefaultTier`, `runtimeTierOverride`, `effectiveTier`, `source`) into the governance layer/bootstrap documents before any multi-pool router cutover
+- runtime-aware routing truth now flows through user/support paths beyond chat apply alone: memory workspace actions, media upload/download/transcription paths, reminder/cron control, and admin ops runtime diagnostics no longer assume one permanent global runtime endpoint
+
+Still intentionally deferred:
+
+- no runtime service/pool selection happens yet from this field alone
+- `R15e` owns real GKE tier pools
+- `R15f` owns adapter/router cutover for live runtime endpoint selection
+
 ### R15e — GKE tiered runtime pools
 
 Outcome:
@@ -225,6 +239,20 @@ Outcome:
 - health/rollout visibility per pool
 - sandbox-enabled shared tiers activate only after the sandbox activation gate passes
 
+Current slice delivered:
+
+- Helm chart is now pool-aware instead of hardcoding one physical OpenClaw deployment/config/service forever
+- each enabled runtime pool renders its own deployment, service, and configmap with pool labels
+- dev values now enable the three canonical runtime pools (`free_shared_restricted`, `paid_shared_restricted`, `paid_isolated`) with explicit per-tier service URLs
+- the legacy compatibility alias service `openclaw` is removed from the active chart; ingress and runtime config now point directly to explicit pool services
+- `runtime-pools:readiness` now verifies explicit per-tier topology instead of compatibility-mode alias behavior
+
+Still intentionally deferred:
+
+- Telegram/webhook ingress still targets `free_shared_restricted` only
+- sandbox activation gate remains separate; pool enablement alone does not mean sandbox isolation is active
+- live cutover validation of the new pool-only topology is still owned by `R15g`
+
 ### R15f — adapter/runtime router
 
 Outcome:
@@ -232,6 +260,7 @@ Outcome:
 - PersAI adapter boundary no longer assumes one runtime endpoint forever
 - apply/chat/stream/channel turns route to the correct runtime pool
 - current users continue working through the migration
+- tier-specific routing is config-driven (`OPENCLAW_BASE_URL_<TIER>`) with no global fallback runtime URL in the active adapter path
 
 ### R15g — clean migration and cutover
 

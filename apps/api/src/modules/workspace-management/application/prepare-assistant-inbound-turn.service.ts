@@ -23,6 +23,7 @@ import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
 } from "../domain/assistant-chat-message-attachment.repository";
+import type { RuntimeTier } from "./runtime-assignment";
 export interface PrepareAssistantInboundTurnInput {
   userId: string;
   surface: AssistantInboundSurface;
@@ -37,6 +38,7 @@ export interface PreparedAssistantInboundTurn {
   assistant: Assistant;
   assistantId: string;
   publishedVersionId: string;
+  runtimeTier: RuntimeTier;
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
@@ -168,6 +170,7 @@ export class PrepareAssistantInboundTurnService {
       assistant,
       assistantId: assistant.id,
       publishedVersionId: resolved.publishedVersionId,
+      runtimeTier: resolved.runtimeTier,
       userId: assistant.userId,
       workspaceId: assistant.workspaceId,
       workspaceTimezone: workspace.timezone

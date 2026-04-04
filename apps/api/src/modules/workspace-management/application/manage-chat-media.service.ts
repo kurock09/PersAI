@@ -15,6 +15,7 @@ import {
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
 import { MediaPreprocessorService } from "./media/media-preprocessor.service";
+import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 
 const ALLOWED_UPLOAD_MIME_PREFIXES = [
   "image/",
@@ -56,7 +57,8 @@ export class ManageChatMediaService {
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
-    private readonly preprocessor: MediaPreprocessorService
+    private readonly preprocessor: MediaPreprocessorService,
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
   ) {}
 
   async uploadAttachment(params: {
@@ -89,9 +91,13 @@ export class ManageChatMediaService {
     if (!message || message.chatId !== chat.id) {
       throw new NotFoundException("Message does not exist in this chat.");
     }
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
 
     const uploadResult = await this.runtimeAdapter.uploadChatMedia({
       assistantId: assistant.id,
+      runtimeTier,
       chatId: chat.id,
       messageId: message.id,
       fileBuffer: params.file.buffer,
@@ -184,9 +190,13 @@ export class ManageChatMediaService {
 
     const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
     const mimeType = processed?.normalizedMime ?? params.file.mimetype;
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
 
     const uploadResult = await this.runtimeAdapter.uploadChatMedia({
       assistantId: assistant.id,
+      runtimeTier,
       chatId: chat.id,
       messageId: stagingMessage.id,
       fileBuffer,
@@ -232,6 +242,9 @@ export class ManageChatMediaService {
     if (!assistant) {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
 
     let fileBuffer = params.file.buffer;
     let mimeType = params.file.mimetype;
@@ -250,6 +263,7 @@ export class ManageChatMediaService {
 
     const uploadResult = await this.runtimeAdapter.uploadChatMedia({
       assistantId: assistant.id,
+      runtimeTier,
       chatId: "_voice_tmp",
       messageId: "transcribe",
       fileBuffer,
@@ -259,7 +273,8 @@ export class ManageChatMediaService {
     try {
       const result = await this.runtimeAdapter.transcribeMedia(
         assistant.id,
-        uploadResult.storagePath
+        uploadResult.storagePath,
+        runtimeTier
       );
       const text = result.text.trim();
       if (text.length === 0) {
@@ -268,7 +283,7 @@ export class ManageChatMediaService {
       return { text };
     } finally {
       void this.runtimeAdapter
-        .deleteChatMedia(assistant.id, uploadResult.storagePath)
+        .deleteChatMedia(assistant.id, uploadResult.storagePath, runtimeTier)
         .catch(() => {});
     }
   }
@@ -315,10 +330,14 @@ export class ManageChatMediaService {
     if (!attachment || attachment.assistantId !== assistant.id) {
       throw new NotFoundException("Attachment not found.");
     }
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
 
     const result = await this.runtimeAdapter.downloadChatMedia(
       assistant.id,
-      attachment.storagePath
+      attachment.storagePath,
+      runtimeTier
     );
     if (!result) {
       throw new NotFoundException("Media file not found on storage.");

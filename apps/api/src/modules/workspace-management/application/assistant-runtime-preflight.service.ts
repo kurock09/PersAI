@@ -5,6 +5,7 @@ import {
   AssistantRuntimeAdapterError,
   type AssistantRuntimePreflightResult
 } from "./assistant-runtime-adapter.types";
+import type { RuntimeTier } from "./runtime-assignment";
 
 @Injectable()
 export class AssistantRuntimePreflightService {
@@ -13,9 +14,9 @@ export class AssistantRuntimePreflightService {
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter
   ) {}
 
-  async execute(): Promise<AssistantRuntimePreflightResult> {
+  async execute(runtimeTier?: RuntimeTier): Promise<AssistantRuntimePreflightResult> {
     try {
-      return await this.assistantRuntimeAdapter.preflight();
+      return await this.assistantRuntimeAdapter.preflight(runtimeTier);
     } catch (error) {
       if (error instanceof AssistantRuntimeAdapterError) {
         return {

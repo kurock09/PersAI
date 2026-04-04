@@ -78,6 +78,7 @@ import { HandleInternalTelegramTurnService } from "./application/handle-internal
 import { CheckInternalRuntimeToolDailyLimitService } from "./application/check-internal-runtime-tool-daily-limit.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./application/resolve-assistant-inbound-runtime-context.service";
+import { ResolveAssistantRuntimeTierService } from "./application/resolve-assistant-runtime-tier.service";
 import { RenderAssistantInboundSurfaceMessageService } from "./application/render-assistant-inbound-surface-message.service";
 import { SyncAssistantTaskRegistryService } from "./application/sync-assistant-task-registry.service";
 import { SyncTelegramChatTargetService } from "./application/sync-telegram-chat-target.service";
@@ -180,6 +181,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ConsumeInternalRuntimeToolDailyLimitService,
     CheckInternalRuntimeToolDailyLimitService,
     ResolveAssistantInboundRuntimeContextService,
+    ResolveAssistantRuntimeTierService,
     RenderAssistantInboundSurfaceMessageService,
     GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,

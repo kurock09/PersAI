@@ -25,6 +25,7 @@ import type { AssistantLifecycleState } from "../../application/assistant-lifecy
 import type { UserPlanVisibilityState } from "../../application/plan-visibility.types";
 import { CreateAssistantService } from "../../application/create-assistant.service";
 import { GetAssistantByUserIdService } from "../../application/get-assistant-by-user-id.service";
+import { ResolveAssistantRuntimeTierService } from "../../application/resolve-assistant-runtime-tier.service";
 import { PublishAssistantDraftService } from "../../application/publish-assistant-draft.service";
 import { ReapplyAssistantService } from "../../application/reapply-assistant.service";
 import { ResetAssistantService } from "../../application/reset-assistant.service";
@@ -64,6 +65,7 @@ export class AssistantController {
   constructor(
     private readonly createAssistantService: CreateAssistantService,
     private readonly getAssistantByUserIdService: GetAssistantByUserIdService,
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly publishAssistantDraftService: PublishAssistantDraftService,
     private readonly reapplyAssistantService: ReapplyAssistantService,
     private readonly rollbackAssistantService: RollbackAssistantService,
@@ -642,7 +644,10 @@ export class AssistantController {
     const userId = this.resolveRequestUserId(req);
     const assistant = await this.getAssistantByUserIdService.execute(userId);
     if (!assistant) throw new NotFoundException("Assistant not found.");
-    return this.openClawRuntimeAdapter.listMemoryItems(assistant.id);
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
+    return this.openClawRuntimeAdapter.listMemoryItems(assistant.id, runtimeTier);
   }
 
   @Post("assistant/memory/workspace/add")
@@ -653,7 +658,10 @@ export class AssistantController {
     const userId = this.resolveRequestUserId(req);
     const assistant = await this.getAssistantByUserIdService.execute(userId);
     if (!assistant) throw new NotFoundException("Assistant not found.");
-    return this.openClawRuntimeAdapter.addMemoryItem(assistant.id, body.content);
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
+    return this.openClawRuntimeAdapter.addMemoryItem(assistant.id, body.content, runtimeTier);
   }
 
   @Patch("assistant/memory/workspace/edit")
@@ -664,7 +672,15 @@ export class AssistantController {
     const userId = this.resolveRequestUserId(req);
     const assistant = await this.getAssistantByUserIdService.execute(userId);
     if (!assistant) throw new NotFoundException("Assistant not found.");
-    return this.openClawRuntimeAdapter.editMemoryItem(assistant.id, body.itemId, body.content);
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
+    return this.openClawRuntimeAdapter.editMemoryItem(
+      assistant.id,
+      body.itemId,
+      body.content,
+      runtimeTier
+    );
   }
 
   @Post("assistant/memory/workspace/forget")
@@ -675,7 +691,10 @@ export class AssistantController {
     const userId = this.resolveRequestUserId(req);
     const assistant = await this.getAssistantByUserIdService.execute(userId);
     if (!assistant) throw new NotFoundException("Assistant not found.");
-    return this.openClawRuntimeAdapter.forgetMemoryItem(assistant.id, body.itemId);
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
+    return this.openClawRuntimeAdapter.forgetMemoryItem(assistant.id, body.itemId, runtimeTier);
   }
 
   @Get("assistant/memory/workspace/search")
@@ -686,7 +705,10 @@ export class AssistantController {
     const userId = this.resolveRequestUserId(req);
     const assistant = await this.getAssistantByUserIdService.execute(userId);
     if (!assistant) throw new NotFoundException("Assistant not found.");
-    return this.openClawRuntimeAdapter.searchMemory(assistant.id, query);
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
+    return this.openClawRuntimeAdapter.searchMemory(assistant.id, query, runtimeTier);
   }
 
   @Get("assistant/chats/web")

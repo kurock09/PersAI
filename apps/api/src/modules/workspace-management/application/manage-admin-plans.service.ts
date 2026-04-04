@@ -15,6 +15,7 @@ import type {
   AdminCreatePlanInput,
   AdminPlanInput,
   AdminPlanState,
+  AdminPlanRuntimeTier,
   AdminPlanToolActivationInput
 } from "./admin-plan-management.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
@@ -48,6 +49,22 @@ function parseRequiredString(value: unknown, fieldName: string): string {
     throw new BadRequestException(`${fieldName} must be a non-empty string.`);
   }
   return value.trim();
+}
+
+function parseRuntimeTier(value: unknown): AdminPlanRuntimeTier | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  if (
+    value === "free_shared_restricted" ||
+    value === "paid_shared_restricted" ||
+    value === "paid_isolated"
+  ) {
+    return value;
+  }
+  throw new BadRequestException(
+    "runtimeTierDefault must be one of free_shared_restricted, paid_shared_restricted, paid_isolated, or null."
+  );
 }
 
 function parseTrialDuration(value: unknown, trialEnabled: boolean): number | null {
@@ -277,7 +294,8 @@ export class ManageAdminPlansService {
         tokenBudgetLimit: toNullablePositiveInt(quotaLimitsRaw.tokenBudgetLimit),
         costToolUnitsLimit: toNullablePositiveInt(quotaLimitsRaw.costToolUnitsLimit)
       },
-      primaryModelKey: toNullableString(parsed.primaryModelKey)
+      primaryModelKey: toNullableString(parsed.primaryModelKey),
+      runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault)
     };
     if (toolActivations) {
       result.toolActivations = toolActivations;
@@ -341,7 +359,10 @@ export class ManageAdminPlansService {
         commercialTag: input.metadata.commercialTag,
         notes: input.metadata.notes,
         ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
-        ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {})
+        ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {}),
+        ...(input.runtimeTierDefault !== null
+          ? { runtimeTierDefault: input.runtimeTierDefault }
+          : {})
       },
       entitlementModel: {
         schemaVersion: 1,
@@ -437,6 +458,7 @@ export class ManageAdminPlansService {
         )
       },
       primaryModelKey: toNullableString(billingHints.primaryModelKey),
+      runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({
         toolCode: ta.toolCode,
         displayName: ta.displayName,

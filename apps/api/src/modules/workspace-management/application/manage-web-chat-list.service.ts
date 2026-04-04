@@ -12,6 +12,7 @@ import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
+import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type {
   AssistantWebChatListItemState,
@@ -62,6 +63,7 @@ export class ManageWebChatListService {
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
@@ -274,7 +276,10 @@ export class ManageWebChatListService {
       surfaceThreadKey: chat.surfaceThreadKey
     });
 
-    await this.runtimeAdapter.deleteChatMediaBatch(assistant.id, chat.id);
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
+    await this.runtimeAdapter.deleteChatMediaBatch(assistant.id, chat.id, runtimeTier);
     await this.attachmentRepository.deleteByChatId(chat.id);
 
     const deleted = await this.assistantChatRepository.hardDeleteChat(chatId, assistant.id);

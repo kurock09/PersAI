@@ -1,17 +1,27 @@
 {{- if .Values.openclaw.enabled }}
+{{- range $poolKey, $pool := .Values.openclaw.runtimePools.pools }}
+{{- if $pool.enabled }}
+{{- $poolCtx := dict "Values" $.Values "poolKey" $poolKey "pool" $pool }}
+{{- $openclaw := (include "persai.openclaw.poolMergedValues" (dict "Values" $.Values "pool" $pool) | fromYaml) }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: openclaw
-  namespace: {{ .Values.global.namespace }}
+  name: {{ include "persai.openclaw.poolFullName" $poolCtx }}
+  namespace: {{ $.Values.global.namespace }}
   labels:
     app.kubernetes.io/name: openclaw
+    app.kubernetes.io/component: runtime-pool
+    persai.dev/runtime-pool: {{ $poolKey | quote }}
 spec:
-  type: {{ .Values.openclaw.service.type }}
+  type: {{ $openclaw.service.type }}
   selector:
     app.kubernetes.io/name: openclaw
+    persai.dev/runtime-pool: {{ $poolKey | quote }}
   ports:
     - name: http
-      port: {{ .Values.openclaw.service.port }}
-      targetPort: {{ .Values.openclaw.service.port }}
+      port: {{ $openclaw.service.port }}
+      targetPort: {{ $openclaw.service.port }}
+---
+{{- end }}
+{{- end }}
 {{- end }}

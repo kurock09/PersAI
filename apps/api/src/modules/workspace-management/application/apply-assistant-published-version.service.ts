@@ -12,6 +12,7 @@ import {
 } from "./assistant-runtime-adapter.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
+import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
 
 @Injectable()
 export class ApplyAssistantPublishedVersionService {
@@ -115,9 +116,15 @@ export class ApplyAssistantPublishedVersionService {
     }
 
     try {
+      const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(
+        materializedSpec.layers
+      );
       await this.assistantRuntimeAdapter.applyMaterializedSpec({
         assistantId: assistantInProgress.id,
         publishedVersionId: publishedVersion.id,
+        ...(runtimeAssignment?.effectiveTier
+          ? { runtimeTier: runtimeAssignment.effectiveTier }
+          : {}),
         contentHash: materializedSpec.contentHash,
         openclawBootstrap: materializedSpec.openclawBootstrap,
         openclawWorkspace: materializedSpec.openclawWorkspace,

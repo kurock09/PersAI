@@ -1,3 +1,5 @@
+import type { RuntimeTier } from "./runtime-assignment";
+
 export type AssistantRuntimeErrorCode =
   | "runtime_unreachable"
   | "auth_failure"
@@ -24,6 +26,7 @@ export interface AssistantRuntimePreflightResult {
 export interface AssistantRuntimeApplyInput {
   assistantId: string;
   publishedVersionId: string;
+  runtimeTier?: RuntimeTier;
   contentHash: string;
   openclawBootstrap: unknown;
   openclawWorkspace: unknown;
@@ -33,6 +36,7 @@ export interface AssistantRuntimeApplyInput {
 export interface AssistantRuntimeWebChatTurnInput {
   assistantId: string;
   publishedVersionId: string;
+  runtimeTier?: RuntimeTier;
   chatId: string;
   surfaceThreadKey: string;
   userMessageId: string;
@@ -44,6 +48,7 @@ export interface AssistantRuntimeWebChatTurnInput {
 export interface AssistantRuntimeChannelTurnInput {
   assistantId: string;
   publishedVersionId: string;
+  runtimeTier?: RuntimeTier;
   surface: "telegram";
   threadId: string;
   userMessage: string;
@@ -65,6 +70,7 @@ export interface AssistantRuntimeWebChatTurnResult {
 
 export interface AssistantRuntimeSetupPreviewTurnInput {
   assistantId: string;
+  runtimeTier?: RuntimeTier;
   userMessage: string;
   openclawBootstrap: unknown;
   openclawWorkspace: unknown;
@@ -89,6 +95,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
 }
 
 export interface AssistantRuntimeCronControlInput {
+  runtimeTier?: RuntimeTier;
   action?: string;
   args?: Record<string, unknown>;
   sessionKey?: string;
@@ -103,6 +110,7 @@ export interface AssistantRuntimeWebChatSessionDeleteInput {
 
 export interface AssistantRuntimeMediaUploadInput {
   assistantId: string;
+  runtimeTier?: RuntimeTier;
   chatId: string;
   messageId: string;
   fileBuffer: Buffer;
@@ -125,7 +133,7 @@ export interface AssistantRuntimeTranscribeResult {
 }
 
 export interface AssistantRuntimeAdapter {
-  preflight(): Promise<AssistantRuntimePreflightResult>;
+  preflight(runtimeTier?: RuntimeTier): Promise<AssistantRuntimePreflightResult>;
   applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void>;
   cleanupWorkspace(assistantId: string): Promise<void>;
   consumeBootstrapWorkspace(assistantId: string): Promise<void>;
@@ -150,14 +158,38 @@ export interface AssistantRuntimeAdapter {
   ): Promise<AssistantRuntimeMediaUploadResult>;
   downloadChatMedia(
     assistantId: string,
-    storagePath: string
+    storagePath: string,
+    runtimeTier?: RuntimeTier
   ): Promise<AssistantRuntimeMediaDownloadResult | null>;
-  deleteChatMedia(assistantId: string, storagePath: string): Promise<void>;
-  deleteChatMediaBatch(assistantId: string, chatId: string): Promise<void>;
+  deleteChatMedia(
+    assistantId: string,
+    storagePath: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<void>;
+  deleteChatMediaBatch(
+    assistantId: string,
+    chatId: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<void>;
   transcribeMedia(
     assistantId: string,
-    storagePath: string
+    storagePath: string,
+    runtimeTier?: RuntimeTier
   ): Promise<AssistantRuntimeTranscribeResult>;
+  listMemoryItems(assistantId: string, runtimeTier?: RuntimeTier): Promise<unknown>;
+  addMemoryItem(assistantId: string, content: string, runtimeTier?: RuntimeTier): Promise<unknown>;
+  editMemoryItem(
+    assistantId: string,
+    itemId: string,
+    content: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<unknown>;
+  forgetMemoryItem(
+    assistantId: string,
+    itemId: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<unknown>;
+  searchMemory(assistantId: string, query: string, runtimeTier?: RuntimeTier): Promise<unknown>;
 }
 
 export const ASSISTANT_RUNTIME_ADAPTER = Symbol("ASSISTANT_RUNTIME_ADAPTER");

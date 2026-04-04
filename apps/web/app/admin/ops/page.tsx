@@ -743,9 +743,10 @@ export default function AdminOpsPage() {
                   {cockpit.runtime.adapterEnabled ? "Enabled" : "Disabled"}
                 </span>
               </div>
+              <DetailRow label="Runtime tier" value={formatNullable(cockpit.runtime.runtimeTier)} />
               <DetailRow
-                label="OpenClaw"
-                value={formatNullable(cockpit.runtime.openclawBaseUrlHost)}
+                label="Runtime endpoint"
+                value={formatNullable(cockpit.runtime.runtimeEndpointHost)}
               />
               <div className="border-t border-border pt-2">
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">

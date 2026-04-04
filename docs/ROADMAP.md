@@ -361,20 +361,22 @@ Step 15 — Tiered OpenClaw runtime and production hardening
   - [x] canonical upstream merge gate command for agents/operators
   - [x] targeted runtime/security smoke pack linked after the gate
   - [x] clear current strict-gate blockers by documenting or removing undocumented high-risk fork files (`src/config/zod-schema.core.ts`, `src/secrets/configure.ts`)
-- [ ] R15d — runtime assignment control plane
-  - [ ] runtime tier model with plan defaults and admin overrides
-  - [ ] UI selects runtime policy/isolation level, not pod/service topology
-  - [ ] no new admin/runtime flow may assume one permanent global runtime endpoint
+- [x] R15d — runtime assignment control plane
+  - [x] runtime tier model with plan defaults and admin overrides
+  - [x] UI selects runtime policy/isolation level, not pod/service topology
+  - [x] materialization emits resolved runtime assignment state (`plan default -> override -> effective tier`)
+  - [x] no new admin/runtime flow may assume one permanent global runtime endpoint
 - [ ] R15e — GKE tiered runtime pools
-  - [ ] `free_shared_restricted`
-  - [ ] `paid_shared_restricted`
-  - [ ] `paid_isolated`
-  - [ ] per-tier deployment/service/config/network readiness while keeping one PersAI control plane
+  - [x] per-tier deployment/service/config scaffolding with explicit pool services and direct tier URLs
+  - [x] `free_shared_restricted`
+  - [x] `paid_shared_restricted`
+  - [x] `paid_isolated`
+  - [x] per-tier deployment/service/config/network readiness while keeping one PersAI control plane
   - [ ] sandbox activation gate: sandbox-enabled shared pools must launch as separate canary-ready runtime paths, not as an in-place flip of the current only runtime
-  - [ ] bounded rollback + explicit removal slice for temporary compatibility routing
-- [ ] R15f — adapter/runtime router
-  - [ ] remove the single-runtime assumption from the OpenClaw adapter boundary
-  - [ ] route apply/chat/stream/channel turns to the correct runtime tier without breaking existing users
+  - [x] bounded rollback + explicit removal slice for temporary compatibility routing
+- [x] R15f — adapter/runtime router
+  - [x] remove the single-runtime assumption from the OpenClaw adapter boundary
+  - [x] route apply/chat/stream/channel turns to the correct runtime tier without breaking existing users
 - [ ] R15g — clean migration and cutover
   - [ ] test users migrate directly to the tiered model
   - [ ] do not preserve new legacy around “single shared runtime forever”

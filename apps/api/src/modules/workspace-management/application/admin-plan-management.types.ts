@@ -1,4 +1,8 @@
 export type AdminPlanStatus = "active" | "inactive";
+export type AdminPlanRuntimeTier =
+  | "free_shared_restricted"
+  | "paid_shared_restricted"
+  | "paid_isolated";
 
 export type AdminPlanEntitlementControls = {
   toolClasses: {
@@ -52,6 +56,7 @@ export type AdminPlanInput = {
     costToolUnitsLimit: number | null;
   };
   primaryModelKey: string | null;
+  runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations?: AdminPlanToolActivationInput[];
 };
 
@@ -77,6 +82,7 @@ export type AdminPlanState = {
     costToolUnitsLimit: number | null;
   };
   primaryModelKey: string | null;
+  runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations: AdminPlanToolActivation[];
   createdAt: string;
   updatedAt: string;

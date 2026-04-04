@@ -225,6 +225,7 @@ Behavior baseline:
     - `capabilityEnvelope`
     - `secretRefs`
     - `policyEnvelope`
+    - `runtimeTierOverride` (nullable parsed seam from `policyEnvelope.runtimeAssignment.runtimeTierOverride`)
     - `memoryControl` (Step 6 D1: control-plane memory governance envelope; not raw runtime memory)
     - `tasksControl` (Step 6 D4: control-plane tasks/reminders/triggers envelope; not execution/scheduling)
     - `quotaPlanCode`
@@ -458,6 +459,13 @@ Behavior baseline:
 - `governance.quotaPlanCode` remains the assistant-facing pointer and is now resolved from the active catalog plan flagged as default first registration during governance baseline creation.
 - Trial semantics are modeled in catalog metadata (`isTrialPlan`, `trialDurationDays`) and are not yet coupled to billing-provider workflow.
 
+  - `materialization.runtimeAssignment` (nullable):
+    - `schema`: `persai.runtimeAssignment.v1`
+    - `planDefaultTier`
+    - `runtimeTierOverride`
+    - `effectiveTier`
+    - `source`: `platform_fallback | plan_default | assistant_override`
+
 ## Step 7 P2 admin plan management API baseline
 
 ### GET /api/v1/admin/plans
@@ -470,6 +478,7 @@ Behavior baseline:
   - entitlement controls (tool classes, channels/surfaces)
   - quota limits (`tokenBudgetLimit`, `costToolUnitsLimit`)
   - per-plan AI model key (`primaryModelKey`, nullable)
+  - per-plan runtime tier default (`runtimeTierDefault`, nullable in contract for older rows; new writes set it explicitly)
   - per-tool activations (`toolActivations[]` with `active`, `dailyCallLimit`)
 
 ### POST /api/v1/admin/plans
@@ -485,6 +494,7 @@ Behavior baseline:
   - entitlement controls (tool classes, channels/surfaces)
   - quota limits (`tokenBudgetLimit`, `costToolUnitsLimit`)
   - per-plan AI model key (`primaryModelKey`)
+  - per-plan runtime tier default (`runtimeTierDefault`)
   - per-tool activation overrides (`toolActivations[]`)
 
 ### PATCH /api/v1/admin/plans/{code}
@@ -1283,7 +1293,7 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 | Variable                       | Role                                                                                                                                                                                                                                                                                        |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENCLAW_ADAPTER_ENABLED`     | When false, adapter throws `runtime_unreachable` immediately for all calls.                                                                                                                                                                                                                 |
-| `OPENCLAW_BASE_URL`            | Origin for relative paths below (no trailing path in contract; adapter concatenates `baseUrl + path`).                                                                                                                                                                                      |
+| `OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED` / `OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED` / `OPENCLAW_BASE_URL_PAID_ISOLATED` | Required tier-specific adapter origins. PersAI routes by resolved `runtimeAssignment.effectiveTier`; no global fallback runtime origin remains in the active adapter contract. |
 | `OPENCLAW_GATEWAY_TOKEN`       | Required when adapter is enabled; sent as Bearer.                                                                                                                                                                                                                                           |
 | `OPENCLAW_ADAPTER_TIMEOUT_MS`  | Per-request `fetch` timeout (abort → `timeout`). Code default `90000` ([packages/config/src/api-config.ts](../packages/config/src/api-config.ts)); dev Helm sets `90000` explicitly in `infra/helm/values-dev.yaml` (same value). Override lower for fast-fail local experiments if needed. |
 | `OPENCLAW_ADAPTER_MAX_RETRIES` | Non-negative; used only for **non-stream** `fetch` calls that use the adapter retry helper. Default `1`.                                                                                                                                                                                    |

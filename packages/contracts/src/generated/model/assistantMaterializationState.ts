@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantMaterializationStateSourceAction } from "./assistantMaterializationStateSourceAction";
+import type { AssistantMaterializationStateRuntimeAssignment } from "./assistantMaterializationStateRuntimeAssignment";
 
 export interface AssistantMaterializationState {
   /** @nullable */
@@ -19,6 +20,8 @@ export interface AssistantMaterializationState {
   contentHash: string | null;
   /** @nullable */
   generatedAt: string | null;
+  /** @nullable */
+  runtimeAssignment: AssistantMaterializationStateRuntimeAssignment;
   /** @nullable */
   openclawBootstrapDocument: string | null;
   /** @nullable */

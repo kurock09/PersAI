@@ -13,7 +13,9 @@ function applyBaseEnv(overrides: NodeJS.ProcessEnv = {}): void {
     DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public",
     CLERK_SECRET_KEY: "clerk-secret",
     OPENCLAW_ADAPTER_ENABLED: "true",
-    OPENCLAW_BASE_URL: "http://openclaw.test",
+    OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: "http://openclaw-free.test",
+    OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: "http://openclaw-paid-shared.test",
+    OPENCLAW_BASE_URL_PAID_ISOLATED: "http://openclaw-paid-isolated.test",
     OPENCLAW_GATEWAY_TOKEN: "gateway-token",
     PERSAI_INTERNAL_API_TOKEN: "internal-api-token",
     OPENCLAW_ADAPTER_TIMEOUT_MS: "1000",
@@ -46,6 +48,52 @@ async function run(): Promise<void> {
   const preflight = await adapter.preflight();
   assert.deepEqual(preflight.live, true);
   assert.deepEqual(preflight.ready, false);
+
+  applyBaseEnv({
+    OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: "http://openclaw-free.test"
+  });
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    assert.ok(url.startsWith("http://openclaw-free.test/"));
+    if (url.endsWith("/healthz")) {
+      return new Response(JSON.stringify({ ok: true, status: "live" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (url.endsWith("/readyz")) {
+      return new Response(JSON.stringify({ ready: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    throw new Error(`Unexpected fetch url: ${url}`);
+  }) as typeof fetch;
+  const freeTierPreflight = await adapter.preflight("free_shared_restricted");
+  assert.equal(freeTierPreflight.ready, true);
+
+  applyBaseEnv({
+    OPENCLAW_BASE_URL_PAID_ISOLATED: "http://openclaw-paid-isolated.test"
+  });
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    assert.ok(url.startsWith("http://openclaw-paid-isolated.test/"));
+    if (url.endsWith("/healthz")) {
+      return new Response(JSON.stringify({ ok: true, status: "live" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (url.endsWith("/readyz")) {
+      return new Response(JSON.stringify({ ready: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    throw new Error(`Unexpected fetch url: ${url}`);
+  }) as typeof fetch;
+  const paidFallbackPreflight = await adapter.preflight("paid_isolated");
+  assert.equal(paidFallbackPreflight.ready, true);
 
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);

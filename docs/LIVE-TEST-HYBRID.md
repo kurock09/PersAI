@@ -96,7 +96,7 @@ With the API port-forward and local web running as above, sign in with Clerk. Us
 Second port-forward to the gateway Service:
 
 ```powershell
-kubectl port-forward -n persai-dev svc/openclaw 18789:18789
+kubectl port-forward -n persai-dev svc/openclaw-free-shared-restricted 18789:18789
 ```
 
 Probes (no auth required for typical `healthz`/`readyz` usage in this chart):
@@ -110,7 +110,7 @@ curl.exe -s http://127.0.0.1:18789/readyz
 
 ### Deploy / image note
 
-OpenClaw image tag and digest are pinned in `infra/helm/values-dev.yaml`. CI updates those pins after pushes to `main` per [infra/dev/gitops/README.md](infra/dev/gitops/README.md). If preflight stays unhealthy, inspect the `openclaw` Deployment pods and Argo CD sync for `persai-dev`.
+OpenClaw image tag and digest are pinned in `infra/helm/values-dev.yaml`. CI updates those pins after pushes to `main` per [infra/dev/gitops/README.md](infra/dev/gitops/README.md). If preflight stays unhealthy, inspect the tier-specific OpenClaw Deployments (`openclaw-free-shared-restricted`, `openclaw-paid-shared-restricted`, `openclaw-paid-isolated`) and Argo CD sync for `persai-dev`.
 
 **Changing the fork pin:** push the new commit to **`kurock09/openclaw` on GitHub before** (or immediately re-run CI after) updating `openclaw-approved-sha.txt` on PersAI `main`; otherwise workflows fail with `not our ref` (see gitops README).
 
@@ -125,7 +125,7 @@ If the fork is running with `PERSAI_RUNTIME_SPEC_STORE=memory`, an OpenClaw proc
 
 ### ADR-048 direct contract check (optional)
 
-After port-forward to `svc/openclaw` and with Bearer from `persai-openclaw-secrets` / `OPENCLAW_GATEWAY_TOKEN`, you can POST `/api/v1/runtime/spec/apply` then `/api/v1/runtime/chat/web` and expect `200`, header `X-Persai-Runtime-Session-Key`, and `assistantMessage` from the **embedded agent** when apply is present (requires provider credentials in OpenClaw runtime secrets for non-trivial replies; current dev chart expects `OPENAI_API_KEY`). Without apply, the runtime now returns **503** instead of a compat echo body. Shapes: [API-BOUNDARY.md](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1).
+After port-forward to `svc/openclaw-free-shared-restricted` and with Bearer from `persai-openclaw-secrets` / `OPENCLAW_GATEWAY_TOKEN`, you can POST `/api/v1/runtime/spec/apply` then `/api/v1/runtime/chat/web` and expect `200`, header `X-Persai-Runtime-Session-Key`, and `assistantMessage` from the **embedded agent** when apply is present (requires provider credentials in OpenClaw runtime secrets for non-trivial replies; current dev chart expects `OPENAI_API_KEY`). Without apply, the runtime now returns **503** instead of a compat echo body. Shapes: [API-BOUNDARY.md](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1).
 
 ### Fork update smoke pack
 
@@ -133,7 +133,7 @@ Use this pack after `corepack pnpm run openclaw:fork:update-gate` passes and bef
 
 1. PersAI API preflight returns `live=true` and `ready=true`.
 2. `/app` streaming turn completes without transport errors.
-3. Direct `GET /healthz` and `GET /readyz` on `svc/openclaw` are healthy.
+3. Direct `GET /healthz` and `GET /readyz` on the target tier service (start with `svc/openclaw-free-shared-restricted`) are healthy.
 4. Direct `POST /api/v1/runtime/spec/apply` then `POST /api/v1/runtime/chat/web` succeeds with the expected runtime contract.
 5. If the upstream merge touched bridge/security-sensitive fork areas, also run one focused path:
    - Telegram inbound/outbound turn when `persai-runtime-telegram.ts` changed

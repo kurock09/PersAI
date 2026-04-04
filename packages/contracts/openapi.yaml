@@ -2354,6 +2354,7 @@ components:
         - capabilityEnvelope
         - secretRefs
         - policyEnvelope
+        - runtimeTierOverride
         - memoryControl
         - tasksControl
         - quotaPlanCode
@@ -2372,6 +2373,10 @@ components:
         policyEnvelope:
           type: object
           additionalProperties: true
+          nullable: true
+        runtimeTierOverride:
+          allOf:
+            - $ref: "#/components/schemas/RuntimeTier"
           nullable: true
         memoryControl:
           description: >
@@ -2412,6 +2417,7 @@ components:
         - algorithmVersion
         - contentHash
         - generatedAt
+        - runtimeAssignment
         - openclawBootstrapDocument
         - openclawWorkspaceDocument
       properties:
@@ -2440,12 +2446,53 @@ components:
           type: string
           format: date-time
           nullable: true
+        runtimeAssignment:
+          allOf:
+            - $ref: "#/components/schemas/AssistantRuntimeAssignmentState"
+          nullable: true
         openclawBootstrapDocument:
           type: string
           nullable: true
         openclawWorkspaceDocument:
           type: string
           nullable: true
+    RuntimeTier:
+      type: string
+      enum:
+        - free_shared_restricted
+        - paid_shared_restricted
+        - paid_isolated
+    AssistantRuntimeAssignmentSource:
+      type: string
+      enum:
+        - platform_fallback
+        - plan_default
+        - assistant_override
+    AssistantRuntimeAssignmentState:
+      type: object
+      required:
+        - schema
+        - planDefaultTier
+        - runtimeTierOverride
+        - effectiveTier
+        - source
+      properties:
+        schema:
+          type: string
+          enum:
+            - persai.runtimeAssignment.v1
+        planDefaultTier:
+          allOf:
+            - $ref: "#/components/schemas/RuntimeTier"
+          nullable: true
+        runtimeTierOverride:
+          allOf:
+            - $ref: "#/components/schemas/RuntimeTier"
+          nullable: true
+        effectiveTier:
+          $ref: "#/components/schemas/RuntimeTier"
+        source:
+          $ref: "#/components/schemas/AssistantRuntimeAssignmentSource"
     AssistantMemoryRegistrySourceType:
       type: string
       enum:
@@ -3493,6 +3540,10 @@ components:
         primaryModelKey:
           type: string
           nullable: true
+        runtimeTierDefault:
+          allOf:
+            - $ref: "#/components/schemas/RuntimeTier"
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -3577,6 +3628,10 @@ components:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
         primaryModelKey:
           type: string
+          nullable: true
+        runtimeTierDefault:
+          allOf:
+            - $ref: "#/components/schemas/RuntimeTier"
           nullable: true
         toolActivations:
           type: array
@@ -3684,12 +3739,16 @@ components:
           type: object
           required:
             - adapterEnabled
-            - openclawBaseUrlHost
+            - runtimeTier
+            - runtimeEndpointHost
             - preflight
           properties:
             adapterEnabled:
               type: boolean
-            openclawBaseUrlHost:
+            runtimeTier:
+              type: string
+              nullable: true
+            runtimeEndpointHost:
               type: string
               nullable: true
             preflight:

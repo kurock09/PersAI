@@ -8,6 +8,8 @@ import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assist
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
 import type { AdminOpsCockpitState } from "./ops-cockpit.types";
+import { resolveRuntimeBaseUrl } from "./runtime-endpoint-routing";
+import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 
 function asIso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
@@ -21,18 +23,34 @@ export class ResolveAdminOpsCockpitService {
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService
+    private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
   ) {}
 
   async execute(callerUserId: string, targetUserId?: string): Promise<AdminOpsCockpitState> {
     await this.adminAuthorizationService.assertCanReadAdminSurface(callerUserId);
     const lookupUserId = targetUserId ?? callerUserId;
     const config = loadApiConfig(process.env);
-    const openclawBaseUrlHost = config.OPENCLAW_ADAPTER_ENABLED
-      ? new URL(config.OPENCLAW_BASE_URL).host
-      : null;
-    const preflight = await this.assistantRuntimePreflightService.execute();
     const assistant = await this.assistantRepository.findByUserId(lookupUserId);
+    const runtimeTier = assistant
+      ? await this.resolveAssistantRuntimeTierService.resolveByAssistantId(assistant.id)
+      : null;
+    const runtimeEndpointHost =
+      config.OPENCLAW_ADAPTER_ENABLED && runtimeTier
+        ? new URL(
+            resolveRuntimeBaseUrl({
+              config: {
+                tierBaseUrls: {
+                  free_shared_restricted: config.OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED!,
+                  paid_shared_restricted: config.OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED!,
+                  paid_isolated: config.OPENCLAW_BASE_URL_PAID_ISOLATED!
+                }
+              },
+              runtimeTier
+            }).baseUrl
+          ).host
+        : null;
+    const preflight = await this.assistantRuntimePreflightService.execute(runtimeTier ?? undefined);
 
     if (assistant === null) {
       const incidentSignals: AdminOpsCockpitState["incidentSignals"] = [
@@ -63,7 +81,8 @@ export class ResolveAdminOpsCockpitService {
         },
         runtime: {
           adapterEnabled: config.OPENCLAW_ADAPTER_ENABLED,
-          openclawBaseUrlHost,
+          runtimeTier,
+          runtimeEndpointHost,
           preflight
         },
         controls: {
@@ -143,7 +162,8 @@ export class ResolveAdminOpsCockpitService {
       },
       runtime: {
         adapterEnabled: config.OPENCLAW_ADAPTER_ENABLED,
-        openclawBaseUrlHost,
+        runtimeTier,
+        runtimeEndpointHost,
         preflight
       },
       controls: {

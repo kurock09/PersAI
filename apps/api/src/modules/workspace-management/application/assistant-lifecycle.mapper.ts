@@ -8,6 +8,10 @@ import type {
   AssistantPublishedVersionState
 } from "./assistant-lifecycle.types";
 import { normalizeAssistantGender } from "./assistant-gender";
+import {
+  readRuntimeAssignmentStateFromMaterializedLayers,
+  resolveRuntimeTierOverrideFromPolicyEnvelope
+} from "./runtime-assignment";
 
 export function toAssistantPublishedVersionState(
   publishedVersion: AssistantPublishedVersion
@@ -38,6 +42,9 @@ export function toAssistantLifecycleState(
     capabilityEnvelope: governance?.capabilityEnvelope ?? null,
     secretRefs: governance?.secretRefs ?? null,
     policyEnvelope: governance?.policyEnvelope ?? null,
+    runtimeTierOverride: resolveRuntimeTierOverrideFromPolicyEnvelope(
+      governance?.policyEnvelope ?? null
+    ),
     memoryControl: governance?.memoryControl ?? null,
     tasksControl: governance?.tasksControl ?? null,
     quotaPlanCode: governance?.quotaPlanCode ?? null,
@@ -86,6 +93,9 @@ export function toAssistantLifecycleState(
       algorithmVersion: materialization?.algorithmVersion ?? null,
       contentHash: materialization?.contentHash ?? null,
       generatedAt: materialization?.createdAt?.toISOString() ?? null,
+      runtimeAssignment: readRuntimeAssignmentStateFromMaterializedLayers(
+        materialization?.layers ?? null
+      ),
       openclawBootstrapDocument: materialization?.openclawBootstrapDocument ?? null,
       openclawWorkspaceDocument: materialization?.openclawWorkspaceDocument ?? null
     },

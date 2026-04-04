@@ -4,6 +4,10 @@ import {
   ApiErrorHttpException,
   type ApiErrorObject
 } from "../../../platform-core/interface/http/api-error";
+import {
+  normalizeRuntimeBaseUrl,
+  resolveRuntimeBaseUrl
+} from "../../application/runtime-endpoint-routing";
 import type {
   AssistantRuntimeAdapter,
   AssistantRuntimeApplyInput,
@@ -23,6 +27,7 @@ import type {
   RuntimeMediaArtifact
 } from "../../application/assistant-runtime-adapter.types";
 import { AssistantRuntimeAdapterError } from "../../application/assistant-runtime-adapter.types";
+import type { RuntimeTier } from "../../application/runtime-assignment";
 
 type JsonObject = Record<string, unknown>;
 
@@ -87,11 +92,31 @@ function parseApiErrorResponse(payload: unknown): ApiErrorObject | null {
   } as ApiErrorObject;
 }
 
-function toOpenClawAdapterConfig(): OpenClawAdapterConfig {
+function toOpenClawAdapterConfig(runtimeTier?: RuntimeTier): OpenClawAdapterConfig {
   const config = loadApiConfig(process.env);
+  const freeSharedRestrictedUrl = normalizeRuntimeBaseUrl(
+    config.OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED
+  );
+  const paidSharedRestrictedUrl = normalizeRuntimeBaseUrl(
+    config.OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED
+  );
+  const paidIsolatedUrl = normalizeRuntimeBaseUrl(config.OPENCLAW_BASE_URL_PAID_ISOLATED);
+  if (!freeSharedRestrictedUrl || !paidSharedRestrictedUrl || !paidIsolatedUrl) {
+    throw new Error("OpenClaw tier base URLs must be configured explicitly.");
+  }
+  const resolvedEndpoint = resolveRuntimeBaseUrl({
+    config: {
+      tierBaseUrls: {
+        free_shared_restricted: freeSharedRestrictedUrl,
+        paid_shared_restricted: paidSharedRestrictedUrl,
+        paid_isolated: paidIsolatedUrl
+      }
+    },
+    runtimeTier
+  });
   return {
     enabled: config.OPENCLAW_ADAPTER_ENABLED,
-    baseUrl: config.OPENCLAW_BASE_URL,
+    baseUrl: resolvedEndpoint.baseUrl,
     token: config.OPENCLAW_GATEWAY_TOKEN ?? "",
     timeoutMs: config.OPENCLAW_ADAPTER_TIMEOUT_MS,
     maxRetries: config.OPENCLAW_ADAPTER_MAX_RETRIES
@@ -100,8 +125,8 @@ function toOpenClawAdapterConfig(): OpenClawAdapterConfig {
 
 @Injectable()
 export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
-  async preflight(): Promise<AssistantRuntimePreflightResult> {
-    const config = toOpenClawAdapterConfig();
+  async preflight(runtimeTier?: RuntimeTier): Promise<AssistantRuntimePreflightResult> {
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError(
         "runtime_unreachable",
@@ -141,7 +166,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   }
 
   async applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void> {
-    const config = toOpenClawAdapterConfig();
+    const config = toOpenClawAdapterConfig(input.runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError(
         "runtime_unreachable",
@@ -149,7 +174,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     }
 
-    const preflight = await this.preflight();
+    const preflight = await this.preflight(input.runtimeTier);
     if (!preflight.live || !preflight.ready) {
       throw new AssistantRuntimeAdapterError(
         "runtime_degraded",
@@ -251,7 +276,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   async sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult> {
-    const config = toOpenClawAdapterConfig();
+    const config = toOpenClawAdapterConfig(input.runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError(
         "runtime_unreachable",
@@ -259,7 +284,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     }
 
-    const preflight = await this.preflight();
+    const preflight = await this.preflight(input.runtimeTier);
     if (!preflight.live || !preflight.ready) {
       throw new AssistantRuntimeAdapterError(
         "runtime_degraded",
@@ -315,7 +340,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   async previewSetupTurn(
     input: AssistantRuntimeSetupPreviewTurnInput
   ): Promise<AssistantRuntimeSetupPreviewTurnResult> {
-    const config = toOpenClawAdapterConfig();
+    const config = toOpenClawAdapterConfig(input.runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError(
         "runtime_unreachable",
@@ -323,7 +348,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     }
 
-    const preflight = await this.preflight();
+    const preflight = await this.preflight(input.runtimeTier);
     if (!preflight.live || !preflight.ready) {
       throw new AssistantRuntimeAdapterError(
         "runtime_degraded",
@@ -379,7 +404,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   async sendChannelTurn(
     input: AssistantRuntimeChannelTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult> {
-    const config = toOpenClawAdapterConfig();
+    const config = toOpenClawAdapterConfig(input.runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError(
         "runtime_unreachable",
@@ -387,7 +412,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     }
 
-    const preflight = await this.preflight();
+    const preflight = await this.preflight(input.runtimeTier);
     if (!preflight.live || !preflight.ready) {
       throw new AssistantRuntimeAdapterError(
         "runtime_degraded",
@@ -442,7 +467,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   async *streamWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk> {
-    const config = toOpenClawAdapterConfig();
+    const config = toOpenClawAdapterConfig(input.runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError(
         "runtime_unreachable",
@@ -450,7 +475,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     }
 
-    const preflight = await this.preflight();
+    const preflight = await this.preflight(input.runtimeTier);
     if (!preflight.live || !preflight.ready) {
       throw new AssistantRuntimeAdapterError(
         "runtime_degraded",
@@ -560,7 +585,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   }
 
   async controlCronJob(input: AssistantRuntimeCronControlInput): Promise<unknown> {
-    const config = toOpenClawAdapterConfig();
+    const config = toOpenClawAdapterConfig(input.runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
     }
@@ -598,8 +623,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     return payload.result;
   }
 
-  async listMemoryItems(assistantId: string): Promise<unknown> {
-    const config = toOpenClawAdapterConfig();
+  async listMemoryItems(assistantId: string, runtimeTier?: RuntimeTier): Promise<unknown> {
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
     }
@@ -611,8 +636,12 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     );
   }
 
-  async addMemoryItem(assistantId: string, content: string): Promise<unknown> {
-    const config = toOpenClawAdapterConfig();
+  async addMemoryItem(
+    assistantId: string,
+    content: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<unknown> {
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
     }
@@ -624,8 +653,13 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     );
   }
 
-  async editMemoryItem(assistantId: string, itemId: string, content: string): Promise<unknown> {
-    const config = toOpenClawAdapterConfig();
+  async editMemoryItem(
+    assistantId: string,
+    itemId: string,
+    content: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<unknown> {
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
     }
@@ -636,8 +670,12 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     );
   }
 
-  async forgetMemoryItem(assistantId: string, itemId: string): Promise<unknown> {
-    const config = toOpenClawAdapterConfig();
+  async forgetMemoryItem(
+    assistantId: string,
+    itemId: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<unknown> {
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
     }
@@ -649,8 +687,12 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     );
   }
 
-  async searchMemory(assistantId: string, query: string): Promise<unknown> {
-    const config = toOpenClawAdapterConfig();
+  async searchMemory(
+    assistantId: string,
+    query: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<unknown> {
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
     }
@@ -665,7 +707,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   async uploadChatMedia(
     input: AssistantRuntimeMediaUploadInput
   ): Promise<AssistantRuntimeMediaUploadResult> {
-    const config = toOpenClawAdapterConfig();
+    const config = toOpenClawAdapterConfig(input.runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError(
         "runtime_unreachable",
@@ -725,9 +767,10 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
 
   async downloadChatMedia(
     assistantId: string,
-    storagePath: string
+    storagePath: string,
+    runtimeTier?: RuntimeTier
   ): Promise<AssistantRuntimeMediaDownloadResult | null> {
-    const config = toOpenClawAdapterConfig();
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) {
       return null;
     }
@@ -761,8 +804,12 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     }
   }
 
-  async deleteChatMedia(assistantId: string, storagePath: string): Promise<void> {
-    const config = toOpenClawAdapterConfig();
+  async deleteChatMedia(
+    assistantId: string,
+    storagePath: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<void> {
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) return;
 
     try {
@@ -778,8 +825,12 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     }
   }
 
-  async deleteChatMediaBatch(assistantId: string, chatId: string): Promise<void> {
-    const config = toOpenClawAdapterConfig();
+  async deleteChatMediaBatch(
+    assistantId: string,
+    chatId: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<void> {
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) return;
 
     try {
@@ -797,9 +848,10 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
 
   async transcribeMedia(
     assistantId: string,
-    storagePath: string
+    storagePath: string,
+    runtimeTier?: RuntimeTier
   ): Promise<AssistantRuntimeTranscribeResult> {
-    const config = toOpenClawAdapterConfig();
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError(
         "runtime_unreachable",

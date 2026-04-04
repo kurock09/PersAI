@@ -180,6 +180,7 @@ export class HandleInternalTelegramTurnService {
     const runtimeResponse = await this.assistantRuntimeAdapter.sendChannelTurn({
       assistantId: resolved.assistantId,
       publishedVersionId: resolved.publishedVersionId,
+      runtimeTier: resolved.runtimeTier,
       surface: "telegram",
       threadId: input.threadId,
       userMessage: enrichedMessage,
@@ -232,7 +233,10 @@ export class HandleInternalTelegramTurnService {
     ) {
       const downloaded = await this.assistantRuntimeAdapter.downloadChatMedia(
         assistantId,
-        storagePath
+        storagePath,
+        await this.resolveAssistantInboundRuntimeContextService
+          .resolveByAssistantId(assistantId)
+          .then((resolved) => resolved.runtimeTier)
       );
       if (downloaded) {
         return downloaded;

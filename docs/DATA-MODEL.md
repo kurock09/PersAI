@@ -99,6 +99,7 @@ Postgres with Prisma.
 - layers (jsonb)
 - openclaw_bootstrap (jsonb)
 - openclaw_workspace (jsonb)
+- `layers.governance.runtimeAssignment` (Step 15 R15d): resolved runtime assignment state with `planDefaultTier`, `runtimeTierOverride`, `effectiveTier`, and `source`
 - layers_document (text)
 - openclaw_bootstrap_document (text)
 - openclaw_workspace_document (text)
@@ -167,7 +168,7 @@ Postgres with Prisma.
 - is_default_first_registration_plan (bool)
 - is_trial_plan (bool)
 - trial_duration_days (nullable int; required and >0 when `is_trial_plan=true`)
-- billing_provider_hints (nullable jsonb) — stores `quotaAccounting` (`tokenBudgetLimit`, `costOrTokenDrivingToolClassUnitsLimit`) and `primaryModelKey` (per-plan default AI model)
+- billing_provider_hints (nullable jsonb) — stores `quotaAccounting` (`tokenBudgetLimit`, `costOrTokenDrivingToolClassUnitsLimit`), `primaryModelKey` (per-plan default AI model), and `runtimeTierDefault` (Step 15 R15d control-plane runtime policy default)
 - created_at
 - updated_at
 

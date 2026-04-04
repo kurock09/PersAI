@@ -60,10 +60,19 @@ type PlanDraft = {
   tokenBudgetLimit: string;
   costToolUnitsLimit: string;
   primaryModelKey: string;
+  runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
 };
 
 const PLAN_LOCKED_INTERNAL_TOOL_CODES = new Set(["cron"]);
+const RUNTIME_TIER_OPTIONS: Array<{
+  value: PlanDraft["runtimeTierDefault"];
+  label: string;
+}> = [
+  { value: "free_shared_restricted", label: "Free shared restricted" },
+  { value: "paid_shared_restricted", label: "Paid shared restricted" },
+  { value: "paid_isolated", label: "Paid isolated" }
+];
 
 /* ─── Helpers ─── */
 
@@ -93,6 +102,7 @@ function emptyDraft(): PlanDraft {
     tokenBudgetLimit: "",
     costToolUnitsLimit: "",
     primaryModelKey: "",
+    runtimeTierDefault: "free_shared_restricted",
     toolActivations: []
   };
 }
@@ -118,6 +128,7 @@ function planToDraft(plan: AdminPlanState): PlanDraft {
     tokenBudgetLimit: plan.quotaLimits?.tokenBudgetLimit?.toString() ?? "",
     costToolUnitsLimit: plan.quotaLimits?.costToolUnitsLimit?.toString() ?? "",
     primaryModelKey: plan.primaryModelKey ?? "",
+    runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
     toolActivations: (plan.toolActivations ?? []).map((ta) => ({
       toolCode: ta.toolCode,
       displayName: ta.displayName,
@@ -161,6 +172,7 @@ function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       costToolUnitsLimit: costTool.length > 0 ? parseInt(costTool, 10) || null : null
     },
     primaryModelKey: toNullable(draft.primaryModelKey),
+    runtimeTierDefault: draft.runtimeTierDefault,
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
       active: ta.active,
@@ -544,6 +556,26 @@ function PlanForm({
           </p>
         </div>
         <div className="space-y-2 rounded-md border border-accent/30 bg-surface-raised p-2.5">
+          <Sec label="Runtime tier default">
+            <select
+              value={draft.runtimeTierDefault}
+              onChange={(e) =>
+                onPatch({
+                  runtimeTierDefault: e.target.value as PlanDraft["runtimeTierDefault"]
+                })
+              }
+              className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+            >
+              {RUNTIME_TIER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[10px] leading-snug text-text-subtle/80">
+              Product policy default only. Pool/service routing stays behind the control plane.
+            </p>
+          </Sec>
           <Sec label="Quota limits">
             <div className="space-y-1.5">
               <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
@@ -722,6 +754,14 @@ function PlanCardReadOnly({
               </div>
             </Sec>
             <div className="space-y-1">
+              <Sec label="Runtime tier">
+                <span className="text-[10px] text-text-subtle">
+                  {RUNTIME_TIER_OPTIONS.find(
+                    (option) =>
+                      option.value === (plan.runtimeTierDefault ?? "free_shared_restricted")
+                  )?.label ?? "Free shared restricted"}
+                </span>
+              </Sec>
               <Sec label="Quota limits">
                 <div className="space-y-0.5 text-[10px] text-text-subtle">
                   <div>Token budget: {plan.quotaLimits?.tokenBudgetLimit ?? "default"}</div>

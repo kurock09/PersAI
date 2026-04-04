@@ -9,6 +9,8 @@ import type { AssistantRuntimePreflightState } from "./assistantRuntimePreflight
 export type AdminOpsCockpitStateRuntime = {
   adapterEnabled: boolean;
   /** @nullable */
-  openclawBaseUrlHost: string | null;
+  runtimeTier: string | null;
+  /** @nullable */
+  runtimeEndpointHost: string | null;
   preflight: AssistantRuntimePreflightState;
 };

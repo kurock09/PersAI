@@ -25,7 +25,8 @@ export type AdminOpsCockpitState = {
   };
   runtime: {
     adapterEnabled: boolean;
-    openclawBaseUrlHost: string | null;
+    runtimeTier: string | null;
+    runtimeEndpointHost: string | null;
     preflight: {
       live: boolean;
       ready: boolean;

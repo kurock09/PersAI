@@ -247,6 +247,8 @@ Expected:
 ```bash
 corepack pnpm run shared-runtime:readiness
 corepack pnpm run shared-runtime:readiness:strict
+corepack pnpm run runtime-pools:readiness
+corepack pnpm run runtime-pools:readiness:strict
 corepack pnpm run networkpolicy:readiness
 corepack pnpm run networkpolicy:readiness:strict
 helm template persai-dev infra/helm -f infra/helm/values-dev.yaml
@@ -256,6 +258,9 @@ Expected:
 
 - `shared-runtime:readiness` confirms the prepared shared-runtime hardening baseline is still intact (tool deny set, token split wiring, internal API base URLs, prepared sandbox limits)
 - `shared-runtime:readiness:strict` exits non-zero if that prepared baseline regresses
+- `runtime-pools:readiness` confirms the chart renders explicit pool services for `free_shared_restricted`, `paid_shared_restricted`, and `paid_isolated`
+- `runtime-pools:readiness:strict` exits non-zero if any canonical pool is disabled or if any required tier URL is missing/mismatched
+- active adapter routing uses only `OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED`, `OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED`, and `OPENCLAW_BASE_URL_PAID_ISOLATED`
 - `networkpolicy:readiness` clearly shows whether API/OpenClaw policies are renderable with the current CIDR inputs
 - `networkpolicy:readiness:strict` exits non-zero while required CIDR inputs are still missing
 - only merge/push CIDR-dependent policy changes on an auto-synced branch after the strict check passes
@@ -299,13 +304,14 @@ Do **not** merge/push CIDR-dependent runtime hardening changes on an auto-synced
 
 1. `persai-openclaw-secrets` already contains both `OPENCLAW_GATEWAY_TOKEN` and `PERSAI_INTERNAL_API_TOKEN` in the secret source-of-truth **and** in Kubernetes.
 2. `corepack pnpm run shared-runtime:readiness:strict` passes.
-3. `infra/helm/values-dev.yaml` has real verified values for:
+3. `corepack pnpm run runtime-pools:readiness:strict` passes.
+4. `infra/helm/values-dev.yaml` has real verified values for:
    - `networkPolicy.apiIngress.publicIpBlocks`
    - `networkPolicy.openclawIngress.trustedIngressIpBlocks`
    - optional `networkPolicy.openclawIngress.telegramWebhookIpBlocks` only if truly pod-visible
-4. `corepack pnpm run networkpolicy:readiness:strict` passes.
-5. `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml` renders successfully.
-6. The current GKE ingress path has been checked against the documented source-of-truth:
+5. `corepack pnpm run networkpolicy:readiness:strict` passes.
+6. `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml` renders successfully.
+7. The current GKE ingress path has been checked against the documented source-of-truth:
    - Google Cloud Load Balancing firewall-rules guidance for pod-visible ingress/proxy ranges
    - Telegram webhook docs only as supplemental sender input when relevant
 

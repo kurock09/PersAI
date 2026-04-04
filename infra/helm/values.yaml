@@ -52,7 +52,9 @@ api:
     GCP_PROJECT_ID: ""
     GCP_REGION: ""
     OPENCLAW_ADAPTER_ENABLED: "false"
-    OPENCLAW_BASE_URL: "http://openclaw:18789"
+    OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: ""
+    OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: ""
+    OPENCLAW_BASE_URL_PAID_ISOLATED: ""
     WEB_ACTIVE_CHATS_CAP: "20"
     QUOTA_TOKEN_BUDGET_DEFAULT: "200000"
     QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT: "1000"
@@ -137,6 +139,20 @@ web:
 openclaw:
   enabled: false
   replicaCount: 1
+  runtimePools:
+    # Compatibility rule for R15e: the default pool continues to back the current
+    # `openclaw` service name until the adapter/router cutover in R15f.
+    defaultPoolKey: free_shared_restricted
+    pools:
+      free_shared_restricted:
+        enabled: true
+        config: {}
+      paid_shared_restricted:
+        enabled: false
+        config: {}
+      paid_isolated:
+        enabled: false
+        config: {}
   serviceAccount:
     create: false
     name: openclaw-sa

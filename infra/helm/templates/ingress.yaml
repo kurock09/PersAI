@@ -1,4 +1,7 @@
 {{- if .Values.ingress.enabled }}
+{{- $freePoolKey := "free_shared_restricted" }}
+{{- $freePoolEnabled := and .Values.openclaw.enabled (index .Values.openclaw.runtimePools.pools $freePoolKey).enabled }}
+{{- $freePoolCtx := dict "Values" .Values "poolKey" $freePoolKey "pool" (index .Values.openclaw.runtimePools.pools $freePoolKey) }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -36,7 +39,7 @@ spec:
                 port:
                   number: {{ .Values.api.service.port }}
     {{- end }}
-    {{- if and .Values.openclaw.enabled .Values.openclaw.telegramWebhook.enabled }}
+    {{- if and $freePoolEnabled .Values.openclaw.telegramWebhook.enabled }}
     - host: {{ .Values.ingress.hosts.bot }}
       http:
         paths:
@@ -44,7 +47,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: openclaw
+                name: {{ include "persai.openclaw.poolFullName" $freePoolCtx }}
                 port:
                   number: {{ .Values.openclaw.service.port }}
     {{- end }}
