@@ -129,7 +129,7 @@ spec:
             - {{ . | quote }}
 {{- end }}
 {{- end }}
-{{- if $openclaw.args }}
+{{- if and (not $sandboxPreloadEnabled) $openclaw.args }}
           args:
 {{- range $openclaw.args }}
             - {{ . | quote }}
