@@ -10,6 +10,7 @@
 {{- $sandboxRuntimeEnabled := and (hasKey $openclaw "sandboxRuntime") $openclaw.sandboxRuntime.enabled }}
 {{- $sandboxPreloadEnabled := and $sandboxRuntimeEnabled $openclaw.sandboxRuntime.preloadSandboxImage }}
 {{- $registryHost := $.Values.global.images.registryHost }}
+{{- $runtimeCommand := concat (default (list) $openclaw.command) (default (list) $openclaw.args) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -60,47 +61,6 @@ spec:
               mountOptions: {{ $openclaw.workspace.gcsFuse.mountOptions | quote }}
 {{- end }}
 {{- end }}
-{{- if $sandboxRuntimeEnabled }}
-      initContainers:
-        - name: sandbox-image-preload
-          image: "{{ $openclawImage }}"
-          imagePullPolicy: {{ $openclaw.image.pullPolicy }}
-          env:
-            - name: DOCKER_HOST
-              value: {{ $openclaw.sandboxRuntime.dockerHost | quote }}
-            - name: OPENCLAW_DOCKER_SOCKET
-              value: {{ $openclaw.sandboxRuntime.dockerSocketPath | quote }}
-            - name: SANDBOX_BASE_IMAGE
-              value: {{ $sandboxBaseImage | quote }}
-            - name: SANDBOX_COMMON_IMAGE
-              value: {{ $sandboxCommonImage | quote }}
-            - name: GAR_REGISTRY_HOST
-              value: {{ $registryHost | quote }}
-          command:
-            - /bin/sh
-            - -lc
-            - |
-              set -eu
-              if [ "${DOCKER_HOST:-}" = "" ]; then
-                echo "DOCKER_HOST is required for sandbox image preload." >&2
-                exit 1
-              fi
-              if [ "{{ if $sandboxPreloadEnabled }}1{{ else }}0{{ end }}" != "1" ]; then
-                echo "Sandbox image preload disabled for this pool."
-                exit 0
-              fi
-              token="$(node -e "fetch('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',{headers:{'Metadata-Flavor':'Google'}}).then(async (res)=>{if(!res.ok){throw new Error('metadata token fetch failed: '+res.status)} const payload=await res.json(); process.stdout.write(payload.access_token || '');}).catch((error)=>{console.error(error); process.exit(1);});")"
-              if [ -z "$token" ]; then
-                echo "Metadata access token is empty." >&2
-                exit 1
-              fi
-              printf '%s' "$token" | docker login -u oauth2accesstoken --password-stdin "https://${GAR_REGISTRY_HOST}"
-              docker pull "${SANDBOX_BASE_IMAGE}"
-              docker pull "${SANDBOX_COMMON_IMAGE}"
-          volumeMounts:
-            - name: docker-run
-              mountPath: /var/run
-{{- end }}
       containers:
 {{- if $sandboxRuntimeEnabled }}
         - name: docker-dind
@@ -130,7 +90,40 @@ spec:
         - name: openclaw
           image: "{{ $openclawImage }}"
           imagePullPolicy: {{ $openclaw.image.pullPolicy }}
-{{- if $openclaw.command }}
+{{- if and $sandboxPreloadEnabled (gt (len $runtimeCommand) 0) }}
+          command:
+            - /bin/sh
+            - -lc
+          args:
+            - |
+              set -eu
+              if [ "${DOCKER_HOST:-}" = "" ]; then
+                echo "DOCKER_HOST is required for sandbox image preload." >&2
+                exit 1
+              fi
+              if [ "${OPENCLAW_DOCKER_SOCKET:-}" = "" ]; then
+                echo "OPENCLAW_DOCKER_SOCKET is required for sandbox image preload." >&2
+                exit 1
+              fi
+              attempts=0
+              until [ -S "${OPENCLAW_DOCKER_SOCKET}" ]; do
+                attempts=$((attempts + 1))
+                if [ "${attempts}" -ge 180 ]; then
+                  echo "Timed out waiting for Docker socket at ${OPENCLAW_DOCKER_SOCKET}." >&2
+                  exit 1
+                fi
+                sleep 1
+              done
+              token="$(node -e "fetch('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',{headers:{'Metadata-Flavor':'Google'}}).then(async (res)=>{if(!res.ok){throw new Error('metadata token fetch failed: '+res.status)} const payload=await res.json(); process.stdout.write(payload.access_token || '');}).catch((error)=>{console.error(error); process.exit(1);});")"
+              if [ -z "$token" ]; then
+                echo "Metadata access token is empty." >&2
+                exit 1
+              fi
+              printf '%s' "$token" | docker login -u oauth2accesstoken --password-stdin "https://${GAR_REGISTRY_HOST}"
+              docker pull "${SANDBOX_BASE_IMAGE}"
+              docker pull "${SANDBOX_COMMON_IMAGE}"
+              exec {{ include "persai.openclaw.shellJoin" $runtimeCommand }}
+{{- else if $openclaw.command }}
           command:
 {{- range $openclaw.command }}
             - {{ . | quote }}
@@ -153,6 +146,14 @@ spec:
               value: {{ $openclaw.sandboxRuntime.dockerHost | quote }}
             - name: OPENCLAW_DOCKER_SOCKET
               value: {{ $openclaw.sandboxRuntime.dockerSocketPath | quote }}
+{{- if $sandboxPreloadEnabled }}
+            - name: SANDBOX_BASE_IMAGE
+              value: {{ $sandboxBaseImage | quote }}
+            - name: SANDBOX_COMMON_IMAGE
+              value: {{ $sandboxCommonImage | quote }}
+            - name: GAR_REGISTRY_HOST
+              value: {{ $registryHost | quote }}
+{{- end }}
 {{- end }}
             - name: OPENCLAW_CONFIG_PATH
               value: {{ $openclaw.configPath | quote }}
@@ -182,6 +183,14 @@ spec:
 {{- end }}
           ports:
             - containerPort: {{ $openclaw.service.port }}
+{{- if $sandboxPreloadEnabled }}
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: {{ $openclaw.service.port }}
+            failureThreshold: 60
+            periodSeconds: 5
+{{- end }}
           readinessProbe:
             httpGet:
               path: /readyz

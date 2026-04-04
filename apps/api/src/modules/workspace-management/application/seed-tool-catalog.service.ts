@@ -63,19 +63,27 @@ export class SeedToolCatalogService implements OnModuleInit {
   }
 
   private async ensureDefaultPlan(): Promise<void> {
-    const existing = await this.prisma.planCatalogPlan.findUnique({
-      where: { code: DEFAULT_PLAN_CODE }
+    const existingDefaultPlan = await this.prisma.planCatalogPlan.findFirst({
+      where: { isDefaultFirstRegistrationPlan: true },
+      select: {
+        id: true,
+        code: true,
+        billingProviderHints: true
+      }
     });
-    if (existing) {
+    if (existingDefaultPlan) {
+      if (existingDefaultPlan.code !== DEFAULT_PLAN_CODE) {
+        return;
+      }
       const billingHints =
-        existing.billingProviderHints &&
-        typeof existing.billingProviderHints === "object" &&
-        !Array.isArray(existing.billingProviderHints)
-          ? (existing.billingProviderHints as Record<string, unknown>)
+        existingDefaultPlan.billingProviderHints &&
+        typeof existingDefaultPlan.billingProviderHints === "object" &&
+        !Array.isArray(existingDefaultPlan.billingProviderHints)
+          ? (existingDefaultPlan.billingProviderHints as Record<string, unknown>)
           : {};
-      if (billingHints.runtimeTierDefault !== "free_shared_restricted") {
+      if (!Object.prototype.hasOwnProperty.call(billingHints, "runtimeTierDefault")) {
         await this.prisma.planCatalogPlan.update({
-          where: { id: existing.id },
+          where: { id: existingDefaultPlan.id },
           data: {
             billingProviderHints: {
               ...billingHints,
@@ -89,7 +97,15 @@ export class SeedToolCatalogService implements OnModuleInit {
           }
         });
       }
-      await this.syncToolActivations(existing.id);
+      await this.syncToolActivations(existingDefaultPlan.id);
+      return;
+    }
+
+    const existingPlanCount = await this.prisma.planCatalogPlan.count();
+    if (existingPlanCount > 0) {
+      this.logger.warn(
+        `No default registration plan found; leaving existing plan catalog unchanged instead of recreating "${DEFAULT_PLAN_CODE}".`
+      );
       return;
     }
 
