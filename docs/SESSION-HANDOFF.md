@@ -1,5 +1,31 @@
 # SESSION-HANDOFF
 
+## 2026-04-04 - R15 sandbox rootless socket correction
+
+### What changed
+
+1. **Live verification caught the real backend path** — the `docker:dind-rootless` sidecar was healthy, but the daemon socket lived at `/run/user/1000/docker.sock` instead of `/var/run/docker.sock`, so the initial sandbox-capable pool wiring still looked healthy while the runtime container could not talk to Docker.
+2. **Helm values now match the real rootless daemon path** — `openclaw.sandboxRuntime.dockerSocketPath` and `dockerHost` now target the rootless socket path, which preserves the same architecture while making the backend actually reachable from the OpenClaw runtime container.
+3. **The fix is verified from inside the live runtime container** — manual `docker version` checks now succeed in both shared sandbox pools when pointed at `unix:///run/user/1000/docker.sock`, so the remaining work is rollout/cutover validation rather than guessing at backend state.
+
+### Files touched
+
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `infra/dev/gke/RUNBOOK.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
 ## 2026-04-04 - R15 sandbox-ready shared pool baseline
 
 ### What changed

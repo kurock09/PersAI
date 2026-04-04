@@ -226,14 +226,14 @@ curl -fsS http://127.0.0.1:18789/readyz
 ```bash
 kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- which docker
 kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- printenv DOCKER_HOST
-kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- sh -lc 'test -S /var/run/docker.sock && echo socket-ok'
+kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- sh -lc 'test -S /run/user/1000/docker.sock && echo socket-ok'
 ```
 
 Expected:
 
 - `docker` is available in the runtime image.
 - `DOCKER_HOST` is present for the sandbox-capable pool.
-- the Docker socket/backend path is mounted and reachable inside the OpenClaw container.
+- the rootless Docker socket/backend path (`/run/user/1000/docker.sock`) is mounted and reachable inside the OpenClaw container.
 
 19. Verify OpenClaw explicit Control UI origin policy wiring:
 

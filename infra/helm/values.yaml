@@ -234,8 +234,8 @@ openclaw:
         cpus: 1
   sandboxRuntime:
     enabled: false
-    dockerSocketPath: /var/run/docker.sock
-    dockerHost: unix:///var/run/docker.sock
+    dockerSocketPath: /run/user/1000/docker.sock
+    dockerHost: unix:///run/user/1000/docker.sock
     dind:
       image: docker:29.3.1-dind-rootless
       pullPolicy: IfNotPresent
