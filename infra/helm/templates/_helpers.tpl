@@ -36,7 +36,7 @@
 
 {{- define "persai.openclaw.shellQuote" -}}
 {{- $value := toString . -}}
-'{{- replace $value "'" "'\"'\"'" -}}'
+'{{- replace "'" "'\"'\"'" $value -}}'
 {{- end -}}
 
 {{- define "persai.openclaw.shellJoin" -}}

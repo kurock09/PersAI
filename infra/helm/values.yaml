@@ -223,7 +223,7 @@ openclaw:
       # Separate sandbox-capable pools override this with a real Docker-backed path.
       mode: "off"
       backend: docker
-      scope: agent
+      scope: session
       workspaceAccess: rw
       sessionToolsVisibility: spawned
       docker:

@@ -281,7 +281,7 @@ openclaw:
       # Docker-backed sandbox path and separate rollout surface.
       mode: "off"
       backend: docker
-      scope: agent
+      scope: session
       workspaceAccess: rw
       sessionToolsVisibility: spawned
       docker:
