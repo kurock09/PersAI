@@ -241,6 +241,9 @@ openclaw:
     dockerSocketPath: /run/user/1000/docker.sock
     dockerHost: unix:///run/user/1000/docker.sock
     preloadSandboxImage: false
+    startupProbe:
+      failureThreshold: 180
+      periodSeconds: 5
     dind:
       image: docker:29.3.1-dind-rootless
       pullPolicy: IfNotPresent

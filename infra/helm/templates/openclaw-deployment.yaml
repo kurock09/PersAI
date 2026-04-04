@@ -188,8 +188,8 @@ spec:
             httpGet:
               path: /readyz
               port: {{ $openclaw.service.port }}
-            failureThreshold: 60
-            periodSeconds: 5
+            failureThreshold: {{ default 180 $openclaw.sandboxRuntime.startupProbe.failureThreshold }}
+            periodSeconds: {{ default 5 $openclaw.sandboxRuntime.startupProbe.periodSeconds }}
 {{- end }}
           readinessProbe:
             httpGet:
