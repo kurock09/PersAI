@@ -195,7 +195,7 @@ openclaw:
 
 
     tag: 31ec4f70d76eebfef933754934ee922c9d094c11
-    digest: sha256:b2b768286cfd427ecd98ccca714e768fea0e1359837e18f2f71acbdfe467f71f
+    digest: sha256:49bf11de9b08124aba4e69a7b81bc04bce1651078f1d39cf9357be2b506eca36
 
     pullPolicy: IfNotPresent
   controlUi:
