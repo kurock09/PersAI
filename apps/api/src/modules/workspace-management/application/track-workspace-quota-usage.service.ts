@@ -19,7 +19,6 @@ import {
   WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY,
   type WorkspaceToolDailyUsageRepository
 } from "../domain/workspace-tool-daily-usage.repository";
-import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 
 type PlanQuotaHints = {
@@ -103,8 +102,7 @@ export class TrackWorkspaceQuotaUsageService {
     private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
     @Inject(WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY)
     private readonly toolDailyUsageRepository: WorkspaceToolDailyUsageRepository,
-    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
-    private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
   ) {}
 
   async recordInboundTurnUsage(params: {
@@ -120,10 +118,6 @@ export class TrackWorkspaceQuotaUsageService {
   }): Promise<void> {
     const governance = await this.resolveGovernance(params.assistant.id);
     const limits = await this.resolveLimits(params.assistant, governance);
-    const effectiveCapabilities = await this.resolveEffectiveCapabilityStateService.execute({
-      assistant: params.assistant,
-      governance
-    });
 
     const tokenDelta = BigInt(
       estimateTokens(params.userContent) + estimateTokens(params.assistantContent)
@@ -138,22 +132,6 @@ export class TrackWorkspaceQuotaUsageService {
         source: params.source,
         metadata: {
           estimator: "chars_div_4_ceil_v1"
-        },
-        limits
-      });
-    }
-
-    if (effectiveCapabilities.toolClasses.costDriving.quotaGoverned) {
-      await this.workspaceQuotaAccountingRepository.incrementUsage({
-        workspaceId: params.assistant.workspaceId,
-        assistantId: params.assistant.id,
-        userId: params.assistant.userId,
-        dimension: "cost_or_token_driving_tool_class",
-        delta: BigInt(1),
-        source: params.source,
-        metadata: {
-          classKey: "cost_driving",
-          costDrivingAllowed: effectiveCapabilities.toolClasses.costDriving.allowed
         },
         limits
       });

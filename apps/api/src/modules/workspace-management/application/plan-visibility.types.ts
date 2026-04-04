@@ -59,7 +59,6 @@ export type AdminPlanVisibilityState = {
   };
   usagePressure: {
     tokenBudgetPercent: number;
-    costDrivingToolsPercent: number;
     activeWebChatsPercent: number;
     pressureLevel: "low" | "elevated" | "high";
   };

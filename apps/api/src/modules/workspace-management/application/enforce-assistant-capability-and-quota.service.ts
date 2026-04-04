@@ -21,7 +21,6 @@ import type { AssistantInboundSurface } from "./assistant-inbound.types";
 
 type ResolvedQuotaLimits = {
   tokenBudgetLimit: bigint | null;
-  costOrTokenDrivingToolClassUnitsLimit: number | null;
   activeWebChatsLimit: number;
 };
 
@@ -32,9 +31,7 @@ export type AssistantInboundQuotaDecision =
       reason: AssistantInboundQuotaDegradeReason;
     };
 
-export type AssistantInboundQuotaDegradeReason =
-  | "token_budget_limit_reached"
-  | "cost_driving_quota_limit_reached";
+export type AssistantInboundQuotaDegradeReason = "token_budget_limit_reached";
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -148,19 +145,6 @@ export class EnforceAssistantCapabilityAndQuotaService {
       };
     }
 
-    if (
-      limits.costOrTokenDrivingToolClassUnitsLimit !== null &&
-      effectiveCapabilities.toolClasses.costDriving.quotaGoverned &&
-      quotaState !== null &&
-      quotaState.costOrTokenDrivingToolClassUnitsUsed >=
-        limits.costOrTokenDrivingToolClassUnitsLimit
-    ) {
-      return {
-        mode: "degrade_allowed",
-        reason: "cost_driving_quota_limit_reached"
-      };
-    }
-
     return { mode: "allow" };
   }
 
@@ -205,24 +189,15 @@ export class EnforceAssistantCapabilityAndQuotaService {
     const planHints = asObject(plan?.billingProviderHints ?? null);
     const quotaHints = asObject(planHints?.quotaAccounting ?? null);
     const tokenLimitFromHints = asInteger(quotaHints?.tokenBudgetLimit);
-    const costToolLimitFromHints = asInteger(quotaHints?.costOrTokenDrivingToolClassUnitsLimit);
     const tokenLimitFromEntitlements = readLimitFromEntitlementLimits(
       plan?.entitlementModel?.limitsPermissions,
       "token_budget_limit"
-    );
-    const costToolLimitFromEntitlements = readLimitFromEntitlementLimits(
-      plan?.entitlementModel?.limitsPermissions,
-      "cost_or_token_driving_tool_class_units_limit"
     );
 
     return {
       tokenBudgetLimit: BigInt(
         tokenLimitFromHints ?? tokenLimitFromEntitlements ?? config.QUOTA_TOKEN_BUDGET_DEFAULT
       ),
-      costOrTokenDrivingToolClassUnitsLimit:
-        costToolLimitFromHints ??
-        costToolLimitFromEntitlements ??
-        config.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT,
       activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
     };
   }

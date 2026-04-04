@@ -2,16 +2,7 @@
 
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import {
-  Bot,
-  Gauge,
-  Loader2,
-  MessageSquare,
-  RefreshCw,
-  TrendingUp,
-  Wallet,
-  Zap
-} from "lucide-react";
+import { Bot, Gauge, Loader2, MessageSquare, RefreshCw, TrendingUp, Wallet } from "lucide-react";
 import {
   AdminBusinessCockpitStatePublishApplySuccessWindow,
   type AdminBusinessCockpitState,
@@ -239,7 +230,7 @@ export default function AdminBusinessPage() {
               </dl>
             </MetricCard>
 
-            <MetricCard title="Publish apply" icon={Zap}>
+            <MetricCard title="Publish apply" icon={TrendingUp}>
               <div className="mb-2 text-center">
                 <span className="text-2xl font-bold tabular-nums text-accent">
                   {cockpit.publishApplySuccess.applySuccessPercent.toFixed(1)}%
@@ -291,11 +282,6 @@ export default function AdminBusinessPage() {
                   label="Token budget"
                   percent={cockpit.quotaPressure.tokenBudgetPercent}
                   icon={Wallet}
-                />
-                <QuotaBar
-                  label="Cost-driving tools"
-                  percent={cockpit.quotaPressure.costDrivingToolsPercent}
-                  icon={Zap}
                 />
                 <QuotaBar
                   label="Active web chats"

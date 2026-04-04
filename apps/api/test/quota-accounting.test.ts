@@ -237,11 +237,9 @@ async function run(): Promise<void> {
     dailyCallLimit: 3
   });
 
-  assert.equal(incrementCalls.length, 2);
+  assert.equal(incrementCalls.length, 1);
   assert.equal(incrementCalls[0]?.dimension, "token_budget");
   assert.ok((incrementCalls[0]?.delta ?? BigInt(0)) > BigInt(0));
-  assert.equal(incrementCalls[1]?.dimension, "cost_or_token_driving_tool_class");
-  assert.equal(incrementCalls[1]?.delta, BigInt(1));
   assert.equal(refreshCalls.length, 1);
   assert.equal(refreshCalls[0]?.currentActiveWebChats, 7);
   assert.deepEqual(toolLimit, {

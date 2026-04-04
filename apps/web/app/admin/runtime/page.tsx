@@ -154,54 +154,16 @@ export default function AdminRuntimePage() {
         </div>
       )}
 
-      <div className="max-w-lg space-y-4">
-        <div className="rounded border border-border bg-surface p-3 space-y-3">
-          <h2 className="text-xs font-bold text-text uppercase tracking-wider">Primary</h2>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-text-muted">Provider</label>
-            <select
-              value={primaryProvider}
-              onChange={(e) => setPrimaryProvider(e.target.value as ManagedRuntimeProvider)}
-              className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-            >
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-            </select>
-          </div>
-          <Field
-            label="Model"
-            value={primaryModel}
-            onChange={setPrimaryModel}
-            placeholder="gpt-4o"
-          />
-        </div>
-
-        <div className="rounded border border-border bg-surface p-3 space-y-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-xs font-bold text-text uppercase tracking-wider">
-              Graceful fallback
-            </h2>
-            <label className="flex items-center gap-1 text-[10px] text-text-subtle">
-              <input
-                type="checkbox"
-                checked={fallbackEnabled}
-                onChange={(e) => setFallbackEnabled(e.target.checked)}
-                className="h-3 w-3 rounded border-border"
-              />
-              Enabled
-            </label>
-          </div>
-          <p className="text-xs text-text-subtle">
-            Used when the main model path is degraded or PersAI intentionally degrades a turn to a
-            safer/lower-cost route under current plan limits.
-          </p>
-          {fallbackEnabled && (
-            <>
+      <div className="space-y-4">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,720px)_minmax(320px,1fr)]">
+          <div className="space-y-4">
+            <div className="rounded border border-border bg-surface p-3 space-y-3">
+              <h2 className="text-xs font-bold text-text uppercase tracking-wider">Primary</h2>
               <div>
                 <label className="mb-1 block text-xs font-medium text-text-muted">Provider</label>
                 <select
-                  value={fallbackProvider}
-                  onChange={(e) => setFallbackProvider(e.target.value as ManagedRuntimeProvider)}
+                  value={primaryProvider}
+                  onChange={(e) => setPrimaryProvider(e.target.value as ManagedRuntimeProvider)}
                   className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
                 >
                   <option value="openai">OpenAI</option>
@@ -210,74 +172,121 @@ export default function AdminRuntimePage() {
               </div>
               <Field
                 label="Model"
-                value={fallbackModel}
-                onChange={setFallbackModel}
-                placeholder="gpt-4o-mini"
+                value={primaryModel}
+                onChange={setPrimaryModel}
+                placeholder="gpt-4o"
               />
-            </>
-          )}
-        </div>
+            </div>
 
-        <div className="rounded border border-border bg-surface p-3 space-y-3">
-          <h2 className="text-xs font-bold text-text uppercase tracking-wider">
-            Available models by provider
-          </h2>
-          <Field
-            label="OpenAI models (comma-separated)"
-            value={openaiModelsText}
-            onChange={setOpenaiModelsText}
-            placeholder="gpt-4o, gpt-4o-mini, gpt-4-turbo"
-          />
-          <Field
-            label="Anthropic models (comma-separated)"
-            value={anthropicModelsText}
-            onChange={setAnthropicModelsText}
-            placeholder="claude-sonnet-4-20250514, claude-3-haiku-20240307"
-          />
-        </div>
+            <div className="rounded border border-border bg-surface p-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-bold text-text uppercase tracking-wider">
+                  Graceful fallback
+                </h2>
+                <label className="flex items-center gap-1 text-[10px] text-text-subtle">
+                  <input
+                    type="checkbox"
+                    checked={fallbackEnabled}
+                    onChange={(e) => setFallbackEnabled(e.target.checked)}
+                    className="h-3 w-3 rounded border-border"
+                  />
+                  Enabled
+                </label>
+              </div>
+              <p className="text-xs text-text-subtle">
+                Used when the main model path is degraded or PersAI intentionally degrades a turn to
+                a safer/lower-cost route under current plan limits.
+              </p>
+              {fallbackEnabled && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-text-muted">
+                      Provider
+                    </label>
+                    <select
+                      value={fallbackProvider}
+                      onChange={(e) =>
+                        setFallbackProvider(e.target.value as ManagedRuntimeProvider)
+                      }
+                      className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="anthropic">Anthropic</option>
+                    </select>
+                  </div>
+                  <Field
+                    label="Model"
+                    value={fallbackModel}
+                    onChange={setFallbackModel}
+                    placeholder="gpt-4o-mini"
+                  />
+                </>
+              )}
+            </div>
 
-        <div className="rounded border border-border bg-surface p-3 space-y-3">
-          <h2 className="text-xs font-bold text-text uppercase tracking-wider">API Keys</h2>
-          <Field
-            label="OpenAI API key"
-            value={openaiKey}
-            onChange={setOpenaiKey}
-            placeholder={
-              settings?.providerKeys.openai.configured
-                ? `Configured ••••${settings.providerKeys.openai.lastFour ?? ""}`
-                : "Enter key..."
-            }
-            type="password"
-          />
-          <Field
-            label="Anthropic API key"
-            value={anthropicKey}
-            onChange={setAnthropicKey}
-            placeholder={
-              settings?.providerKeys.anthropic.configured
-                ? `Configured ••••${settings.providerKeys.anthropic.lastFour ?? ""}`
-                : "Enter key..."
-            }
-            type="password"
-          />
-        </div>
+            <div className="rounded border border-border bg-surface p-3 space-y-3">
+              <h2 className="text-xs font-bold text-text uppercase tracking-wider">
+                Available models by provider
+              </h2>
+              <Field
+                label="OpenAI models (comma-separated)"
+                value={openaiModelsText}
+                onChange={setOpenaiModelsText}
+                placeholder="gpt-4o, gpt-4o-mini, gpt-4-turbo"
+              />
+              <Field
+                label="Anthropic models (comma-separated)"
+                value={anthropicModelsText}
+                onChange={setAnthropicModelsText}
+                placeholder="claude-sonnet-4-20250514, claude-3-haiku-20240307"
+              />
+            </div>
 
-        {settings?.tierSecurityPolicies?.length ? (
-          <div className="rounded border border-border bg-surface p-3 space-y-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-text">
-              Runtime tier security matrix
-            </h2>
-            <p className="text-xs text-text-subtle">
-              Read-only control-plane baseline for sandbox, `exec`/`write`, service tools, and
-              always-denied built-ins by product tier.
-            </p>
-            <div className="space-y-3">
-              {settings.tierSecurityPolicies.map((policy) => (
-                <TierSecurityCard key={policy.tier} policy={policy} />
-              ))}
+            <div className="rounded border border-border bg-surface p-3 space-y-3">
+              <h2 className="text-xs font-bold text-text uppercase tracking-wider">API Keys</h2>
+              <Field
+                label="OpenAI API key"
+                value={openaiKey}
+                onChange={setOpenaiKey}
+                placeholder={
+                  settings?.providerKeys.openai.configured
+                    ? `Configured ••••${settings.providerKeys.openai.lastFour ?? ""}`
+                    : "Enter key..."
+                }
+                type="password"
+              />
+              <Field
+                label="Anthropic API key"
+                value={anthropicKey}
+                onChange={setAnthropicKey}
+                placeholder={
+                  settings?.providerKeys.anthropic.configured
+                    ? `Configured ••••${settings.providerKeys.anthropic.lastFour ?? ""}`
+                    : "Enter key..."
+                }
+                type="password"
+              />
             </div>
           </div>
-        ) : null}
+
+          {settings?.tierSecurityPolicies?.length ? (
+            <div className="rounded border border-border bg-surface p-3 space-y-3">
+              <div>
+                <h2 className="text-xs font-bold uppercase tracking-wider text-text">
+                  Runtime tier security matrix
+                </h2>
+                <p className="mt-1 text-xs text-text-subtle">
+                  Read-only policy truth for sandbox access and tool execution boundaries by tier.
+                </p>
+              </div>
+              <div className="space-y-3">
+                {settings.tierSecurityPolicies.map((policy) => (
+                  <TierSecurityCard key={policy.tier} policy={policy} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         <button
           type="button"
@@ -305,8 +314,10 @@ function TierSecurityCard({ policy }: { policy: RuntimeTierSecurityPolicyState }
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold text-text">{policy.tier}</span>
         <Badge>{policy.poolClass}</Badge>
-        <Badge>{policy.execPolicy}</Badge>
-        <Badge>{policy.writePolicy}</Badge>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <PolicyRow label="exec" value={policy.execPolicy} />
+        <PolicyRow label="write" value={policy.writePolicy} />
       </div>
       <div className="mt-2 grid gap-3 md:grid-cols-2">
         <div className="space-y-1 text-xs text-text-subtle">
@@ -333,6 +344,15 @@ function TierSecurityCard({ policy }: { policy: RuntimeTierSecurityPolicyState }
           ))}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+function PolicyRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-border/80 bg-surface px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-text-subtle">{label}</div>
+      <div className="mt-1 text-xs font-medium text-text">{value}</div>
     </div>
   );
 }

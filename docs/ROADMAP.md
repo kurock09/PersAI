@@ -406,6 +406,7 @@ Step 15 — Tiered OpenClaw runtime and production hardening
     - PersAI now has a code-backed runtime tier security matrix (`admin/runtime` read-only surface + contract state) instead of relying on scattered Helm/doc assumptions.
     - All three product tiers now declare the same restricted built-in deny baseline, `sandbox.mode=all` / `scope=session` / `network=none` / `readOnlyRoot=true`, `exec` only inside sandbox, and `write` only inside the sandbox workspace boundary.
     - `reminder_task` remains the only plan-managed service tool in the matrix, `cron` stays hidden-internal, and `persai_workspace_attach` plus `persai_tool_quota_status` are called out as always-on platform-managed tools across tiers.
+    - Dev Helm runtime wiring now also reflects that matrix honestly for sandbox sessions: the sandbox tool allowlist includes the actual PersAI product/service tools instead of collapsing to the OpenClaw coding-only default, and the Docker sandbox user is pinned to `0:0` so rootless `docker:dind` plus GCS FUSE workspaces no longer leave `write`/`edit` failing with live `Permission denied`.
   - [x] K16f — user-facing tariff and usage UX aligned with the new plan model
     - sidebar now shows current tariff plus token usage instead of the old chat-only progress bar
     - assistant settings keep only token/chat usage bars and list active per-tool daily limits from the effective plan

@@ -1011,7 +1011,7 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                     })
               }
             />
-            <div className="rounded-xl border border-border bg-surface-raised/60 p-3">
+            <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-medium text-text">{t("toolLimits")}</p>
                 <span className="text-[11px] text-text-subtle">
@@ -1019,14 +1019,14 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
                 </span>
               </div>
               {data.plan.limits.toolDailyLimits.length > 0 ? (
-                <ul className="mt-3 space-y-2">
+                <ul className="mt-2 divide-y divide-border/60">
                   {data.plan.limits.toolDailyLimits.map((tool) => (
                     <li
                       key={tool.toolCode}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/70 px-3 py-2"
+                      className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-xs font-medium text-text">{tool.displayName}</p>
+                        <p className="truncate text-xs text-text">{tool.displayName}</p>
                         <p className="truncate text-[11px] text-text-subtle">{tool.toolCode}</p>
                       </div>
                       <span className="shrink-0 text-[11px] text-text-muted">
@@ -1109,7 +1109,7 @@ function LimitBar({ label, pct, valueLabel }: { label: string; pct: number; valu
         <span className="text-text-muted">{label}</span>
         <span className="text-text-subtle">{valueLabel ?? `${pct}%`}</span>
       </div>
-      <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-raised">
+      <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-raised/80">
         <div
           className={cn("h-full rounded-full", pct >= 90 ? "bg-destructive" : "bg-accent")}
           style={{ width: `${Math.min(pct, 100)}%` }}

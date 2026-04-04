@@ -8,7 +8,6 @@ import type { BusinessCockpitPressureLevel } from "./businessCockpitPressureLeve
 
 export type AdminBusinessCockpitStateQuotaPressure = {
   tokenBudgetPercent: number;
-  costDrivingToolsPercent: number;
   activeWebChatsPercent: number;
   pressureLevel: BusinessCockpitPressureLevel;
 };

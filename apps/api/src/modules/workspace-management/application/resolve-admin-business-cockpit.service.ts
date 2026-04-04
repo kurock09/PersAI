@@ -175,7 +175,6 @@ export class ResolveAdminBusinessCockpitService {
       },
       quotaPressure: {
         tokenBudgetPercent: adminVisibility.usagePressure.tokenBudgetPercent,
-        costDrivingToolsPercent: adminVisibility.usagePressure.costDrivingToolsPercent,
         activeWebChatsPercent: adminVisibility.usagePressure.activeWebChatsPercent,
         pressureLevel: adminVisibility.usagePressure.pressureLevel
       },

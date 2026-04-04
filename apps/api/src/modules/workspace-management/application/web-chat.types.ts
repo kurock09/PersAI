@@ -41,7 +41,7 @@ export interface AssistantWebChatTurnState {
   runtime: {
     respondedAt: string;
     degradedByQuotaFallback: boolean;
-    quotaFallbackReason: "token_budget_limit_reached" | "cost_driving_quota_limit_reached" | null;
+    quotaFallbackReason: "token_budget_limit_reached" | null;
     quotaFallbackModel: string | null;
   };
 }

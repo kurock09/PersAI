@@ -183,15 +183,12 @@ export class ResolvePlanVisibilityService {
 
     const tokenLimit = limits.tokenBudgetLimit;
     const tokenUsed = Number(quotaState?.tokenBudgetUsed ?? BigInt(0));
-    const costLimit = limits.costOrTokenDrivingToolClassUnitsLimit;
-    const costUsed = quotaState?.costOrTokenDrivingToolClassUnitsUsed ?? 0;
     const chatsLimit = limits.activeWebChatsLimit;
     const chatsUsed = quotaState?.activeWebChatsCurrent ?? 0;
 
     const tokenPercent = toPercent(tokenUsed, tokenLimit);
-    const costPercent = toPercent(costUsed, costLimit);
     const chatsPercent = toPercent(chatsUsed, chatsLimit);
-    const maxPercent = Math.max(tokenPercent, costPercent, chatsPercent);
+    const maxPercent = Math.max(tokenPercent, chatsPercent);
     const pressureLevel: "low" | "elevated" | "high" =
       maxPercent >= 90 ? "high" : maxPercent >= 65 ? "elevated" : "low";
 
@@ -207,7 +204,6 @@ export class ResolvePlanVisibilityService {
       },
       usagePressure: {
         tokenBudgetPercent: tokenPercent,
-        costDrivingToolsPercent: costPercent,
         activeWebChatsPercent: chatsPercent,
         pressureLevel
       },
@@ -229,7 +225,6 @@ export class ResolvePlanVisibilityService {
 
   private resolveLimits(plan: Awaited<ReturnType<AssistantPlanCatalogRepository["findByCode"]>>): {
     tokenBudgetLimit: number;
-    costOrTokenDrivingToolClassUnitsLimit: number;
     activeWebChatsLimit: number;
   } {
     const config = loadApiConfig(process.env);
@@ -239,17 +234,8 @@ export class ResolvePlanVisibilityService {
       asPositiveInt(quotaHints?.tokenBudgetLimit) ??
       readLimitFromEntitlements(plan?.entitlementModel?.limitsPermissions, "token_budget_limit") ??
       config.QUOTA_TOKEN_BUDGET_DEFAULT;
-    const costOrTokenDrivingToolClassUnitsLimit =
-      asPositiveInt(quotaHints?.costOrTokenDrivingToolClassUnitsLimit) ??
-      readLimitFromEntitlements(
-        plan?.entitlementModel?.limitsPermissions,
-        "cost_or_token_driving_tool_class_units_limit"
-      ) ??
-      config.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT;
-
     return {
       tokenBudgetLimit,
-      costOrTokenDrivingToolClassUnitsLimit,
       activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
     };
   }

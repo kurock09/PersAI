@@ -224,6 +224,38 @@ async function run(): Promise<void> {
     })
   );
 
+  const serviceIgnoringLegacyCostQuota = new EnforceAssistantCapabilityAndQuotaService(
+    governanceRepo as AssistantGovernanceRepository,
+    planRepo as AssistantPlanCatalogRepository,
+    {
+      async findByWorkspaceId() {
+        return {
+          id: "state-2",
+          workspaceId: "workspace-1",
+          tokenBudgetUsed: BigInt(20),
+          tokenBudgetLimit: BigInt(100),
+          costOrTokenDrivingToolClassUnitsUsed: 99,
+          costOrTokenDrivingToolClassUnitsLimit: 3,
+          activeWebChatsCurrent: 1,
+          activeWebChatsLimit: 20,
+          lastComputedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      }
+    } as QuotaRepoStub as WorkspaceQuotaAccountingRepository,
+    capabilityResolver as ResolveEffectiveCapabilityStateService,
+    subscriptionResolver as ResolveEffectiveSubscriptionStateService
+  );
+
+  await assert.doesNotReject(() =>
+    serviceIgnoringLegacyCostQuota.enforceWebChatTurn({
+      assistant,
+      isNewThread: false,
+      activeWebChatsCount: 1
+    })
+  );
+
   await assert.rejects(
     () =>
       serviceWithDisabledWebChat.enforceInboundTurn({

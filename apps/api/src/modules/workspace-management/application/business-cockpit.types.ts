@@ -29,7 +29,6 @@ export type AdminBusinessCockpitState = {
   };
   quotaPressure: {
     tokenBudgetPercent: number;
-    costDrivingToolsPercent: number;
     activeWebChatsPercent: number;
     pressureLevel: BusinessCockpitPressureLevel;
   };

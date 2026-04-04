@@ -3234,15 +3234,10 @@ components:
       type: object
       required:
         - tokenBudgetPercent
-        - costDrivingToolsPercent
         - activeWebChatsPercent
         - pressureLevel
       properties:
         tokenBudgetPercent:
-          type: integer
-          minimum: 0
-          maximum: 100
-        costDrivingToolsPercent:
           type: integer
           minimum: 0
           maximum: 100
@@ -3474,7 +3469,6 @@ components:
           nullable: true
           enum:
             - token_budget_limit_reached
-            - cost_driving_quota_limit_reached
         quotaFallbackModel:
           type: string
           nullable: true
@@ -4100,13 +4094,10 @@ components:
           type: object
           required:
             - tokenBudgetPercent
-            - costDrivingToolsPercent
             - activeWebChatsPercent
             - pressureLevel
           properties:
             tokenBudgetPercent:
-              type: integer
-            costDrivingToolsPercent:
               type: integer
             activeWebChatsPercent:
               type: integer

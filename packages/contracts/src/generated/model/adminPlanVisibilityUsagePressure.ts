@@ -16,11 +16,6 @@ export interface AdminPlanVisibilityUsagePressure {
    * @minimum 0
    * @maximum 100
    */
-  costDrivingToolsPercent: number;
-  /**
-   * @minimum 0
-   * @maximum 100
-   */
   activeWebChatsPercent: number;
   pressureLevel: AdminPlanVisibilityUsagePressurePressureLevel;
 }

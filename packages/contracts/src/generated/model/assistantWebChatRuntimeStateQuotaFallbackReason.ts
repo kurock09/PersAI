@@ -14,6 +14,5 @@ export type AssistantWebChatRuntimeStateQuotaFallbackReason =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatRuntimeStateQuotaFallbackReason = {
-  token_budget_limit_reached: "token_budget_limit_reached",
-  cost_driving_quota_limit_reached: "cost_driving_quota_limit_reached"
+  token_budget_limit_reached: "token_budget_limit_reached"
 } as const;

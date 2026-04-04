@@ -259,16 +259,11 @@ export class EnforceAbuseRateLimitService {
     const limits =
       await this.trackWorkspaceQuotaUsageService.resolveEffectiveLimitsForAssistant(assistant);
     const tokenLimit = limits.tokenBudgetLimit;
-    const toolLimit = limits.costOrTokenDrivingToolClassUnitsLimit;
     const tokenPercent =
       tokenLimit === null || tokenLimit <= BigInt(0)
         ? 0
         : Number((quotaState.tokenBudgetUsed * BigInt(100)) / tokenLimit);
-    const toolPercent =
-      toolLimit === null || toolLimit <= 0
-        ? 0
-        : Math.floor((quotaState.costOrTokenDrivingToolClassUnitsUsed * 100) / toolLimit);
-    const maxPercent = Math.max(tokenPercent, toolPercent);
+    const maxPercent = tokenPercent;
 
     if (maxPercent >= config.ABUSE_QUOTA_BLOCK_PERCENT) {
       return {

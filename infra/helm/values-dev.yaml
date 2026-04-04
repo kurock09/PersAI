@@ -265,6 +265,42 @@ openclaw:
       - sessions_spawn
       - sessions_yield
       - subagents
+    sandbox:
+      tools:
+        allow:
+          - exec
+          - process
+          - read
+          - write
+          - edit
+          - apply_patch
+          - image
+          - web_search
+          - web_fetch
+          - image_generate
+          - tts
+          - browser
+          - memory_search
+          - memory_get
+          - reminder_task
+          - persai_tool_quota_status
+          - persai_workspace_attach
+          - pdf
+          - message
+        deny:
+          - cron
+          - canvas
+          - nodes
+          - gateway
+          - telegram
+          - whatsapp
+          - discord
+          - irc
+          - googlechat
+          - slack
+          - signal
+          - imessage
+          - line
   workspace:
     gcsFuse:
       enabled: true
@@ -288,6 +324,7 @@ openclaw:
         image: ""
         network: none
         readOnlyRoot: true
+        user: "0:0"
         capDrop:
           - ALL
         pidsLimit: 256

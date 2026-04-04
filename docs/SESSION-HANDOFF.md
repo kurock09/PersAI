@@ -1,5 +1,13 @@
 # SESSION-HANDOFF
 
+## 2026-04-04 - K16 sandbox runtime hotfix
+
+1. **Live runtime proof found two remaining deployment-side breaks after the earlier K16 slices** — sandbox sessions were still falling back to OpenClaw's coding-only default sandbox allowlist, so the agent only saw the six core coding tools instead of the PersAI product/service tools declared in materialized `TOOLS.md`.
+2. **`write` / `edit` were failing because the sandbox user did not match the real workspace mount ownership** — with rootless `docker:dind` and GCS FUSE, `/workspace` appeared as `root:root` inside the sandbox container while the runtime process still ran as `uid=1000`, producing the live `Permission denied` failures that the earlier control-plane work did not address.
+3. **Dev Helm now matches the intended runtime matrix more honestly** — `infra/helm/values-dev.yaml` sets an explicit sandbox `tools.allow` / `tools.deny` policy that includes the actual PersAI product/service tools (`web_search`, `web_fetch`, `image_generate`, `tts`, `browser`, `memory_*`, `reminder_task`, `persai_tool_quota_status`, `persai_workspace_attach`, etc.) while still keeping `cron` hidden-internal and the channel/system tools denied.
+4. **Sandbox writes are wired for the real rootless runtime topology** — the same Helm file now pins `agents.defaults.sandbox.docker.user` to `0:0`, which is the correct in-container identity for the rootless Docker namespace used by the shared sandbox pools and allows writable GCS FUSE workspaces without opening the network or root filesystem baseline.
+5. **Operational implication** — after rollout, tools and per-tool limits can only be claimed as working once the live sandbox pods are recreated and rechecked, but the deployment config no longer contains the two known structural reasons that were keeping the runtime surface out of sync with tariff truth.
+
 ## 2026-04-04 - OpenClaw runtime hardening pin advance
 
 1. **The OpenClaw fork is now cleanly pinned to the runtime hardening follow-up** — the approved fork SHA advanced to `62adb8631535262d9270bf5e4b1ab09bb16b5dd6`, and PersAI now points to that exact revision in both `openclaw-approved-sha.txt` and `infra/helm/values-dev.yaml`.

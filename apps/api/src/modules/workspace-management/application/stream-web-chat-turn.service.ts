@@ -32,7 +32,7 @@ export interface StreamWebChatTurnPrepared {
   publishedVersionId: string;
   runtimeTier: RuntimeTier;
   quotaDegradeModelOverride: { provider: "openai" | "anthropic"; model: string } | null;
-  quotaDegradeReason: "token_budget_limit_reached" | "cost_driving_quota_limit_reached" | null;
+  quotaDegradeReason: "token_budget_limit_reached" | null;
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
