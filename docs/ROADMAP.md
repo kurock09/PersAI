@@ -366,20 +366,20 @@ Step 15 — Tiered OpenClaw runtime and production hardening
   - [x] UI selects runtime policy/isolation level, not pod/service topology
   - [x] materialization emits resolved runtime assignment state (`plan default -> override -> effective tier`)
   - [x] no new admin/runtime flow may assume one permanent global runtime endpoint
-- [ ] R15e — GKE tiered runtime pools
+- [x] R15e — GKE tiered runtime pools
   - [x] per-tier deployment/service/config scaffolding with explicit pool services and direct tier URLs
   - [x] `free_shared_restricted`
   - [x] `paid_shared_restricted`
   - [x] `paid_isolated`
   - [x] per-tier deployment/service/config/network readiness while keeping one PersAI control plane
-  - [ ] sandbox activation gate: sandbox-enabled shared pools must launch as separate canary-ready runtime paths, not as an in-place flip of the current only runtime, and they must have a real Docker-backed sandbox backend plus sandbox image path
+  - [x] sandbox activation gate: sandbox-enabled shared pools launch as separate runtime paths, preload published `openclaw-sandbox*` images via Workload Identity/GAR reader, mirror bind-source workspace paths into `docker-dind`, and are live-verified on web + Telegram after fresh pod rollout
   - [x] bounded rollback + explicit removal slice for temporary compatibility routing
 - [x] R15f — adapter/runtime router
   - [x] remove the single-runtime assumption from the OpenClaw adapter boundary
   - [x] route apply/chat/stream/channel turns to the correct runtime tier without breaking existing users
-- [ ] R15g — clean migration and cutover
-  - [ ] test users migrate directly to the tiered model with repeatable live proof from materialized `effectiveTier` plus adapter `runtime_route` logs
-  - [ ] do not preserve new legacy around “single shared runtime forever”; live cutover checks must identify the actual pool host used for runtime bridge calls
+- [x] R15g — clean migration and cutover
+  - [x] test users migrate directly to the tiered model with repeatable live proof from materialized `effectiveTier` plus adapter `runtime_route` logs
+  - [x] do not preserve new legacy around “single shared runtime forever”; live cutover checks identify the actual pool host used for runtime bridge calls and sandbox-capable shared pools recover automatically after fresh pod rollout
 
 ---
 

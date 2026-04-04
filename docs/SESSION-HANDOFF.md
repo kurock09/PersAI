@@ -26,6 +26,65 @@ Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
 
 ---
 
+## 2026-04-04 - R15 sandbox image supply path
+
+### What changed
+
+1. **The missing sandbox image is now treated as a real deploy dependency** — the active live failure was not the Docker socket anymore, but the absence of `openclaw-sandbox-common` in Artifact Registry for the approved OpenClaw SHA.
+2. **Publish automation now covers the full sandbox image chain** — the OpenClaw dev-image workflow is updated to publish `openclaw`, `openclaw-sandbox`, and `openclaw-sandbox-common` for the same approved SHA instead of leaving the sandbox image outside the official GitOps supply path.
+3. **Sandbox-capable pools now preload their runtime image honestly** — before the OpenClaw gateway starts, the pod can log into GAR via Workload Identity and pull the exact sandbox images into the local rootless Docker backend, so a new pod does not depend on ad hoc manual preload state.
+
+### Files touched
+
+- `.github/workflows/openclaw-dev-image-publish.yml`
+- `infra/helm/templates/_helpers.tpl`
+- `infra/helm/templates/openclaw-deployment.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `infra/dev/gitops/README.md`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Push order
+
+PersAI only.
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
+## 2026-04-04 - R15 sandbox auto-recovery live fixes
+
+### What changed
+
+1. **The live blocker moved from "image missing" to "fresh pod cannot self-recover"** — after publishing the sandbox images, new sandbox-capable pods still failed until the runtime GSA could actually read Artifact Registry and the Docker daemon could see the same bind-source paths as the OpenClaw process.
+2. **Artifact Registry pull access is now part of the runtime baseline** — `openclaw-runtime` needed `roles/artifactregistry.reader` on the GAR repository so a newly rolled pod can preload `openclaw-sandbox` and `openclaw-sandbox-common` without manual operator warming.
+3. **`docker-dind` now mirrors the real workspace mount surface** — the chart mounts both `workspace-gcs` and `/home/node/.openclaw/workspace` into the sidecar daemon, which removes the live `mkdir /mnt/workspaces ... permission denied` / `mkdir /home/node ... permission denied` sandbox crash path and lets new pods recover automatically after rollout.
+
+### Files touched
+
+- `infra/helm/templates/openclaw-deployment.yaml`
+- `infra/dev/gke/RUNBOOK.md`
+- `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ROADMAP.md`
+
+### Push order
+
+1. PersAI
+2. Roll out/sync PersAI so new sandbox pool pods get the mirrored mount wiring
+3. Verify the `openclaw-runtime` GSA still has `Artifact Registry reader` and confirm a fresh pod can pull sandbox images without manual `docker pull`
+
+### Pinned OpenClaw SHA
+
+Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
+
+---
+
 ## 2026-04-04 - R15 sandbox-ready shared pool baseline
 
 ### What changed

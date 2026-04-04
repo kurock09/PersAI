@@ -97,6 +97,34 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push OpenClaw sandbox base image
+        id: build_openclaw_sandbox
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.OPENCLAW_SERVICE_PATH }}
+          file: ${{ env.OPENCLAW_SERVICE_PATH }}/Dockerfile.sandbox
+          push: true
+          tags: |
+            ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/openclaw-sandbox:${{ env.OPENCLAW_APPROVED_SHA }}
+            ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/openclaw-sandbox:${{ env.OPENCLAW_MAIN_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push OpenClaw sandbox common image
+        id: build_openclaw_sandbox_common
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.OPENCLAW_SERVICE_PATH }}
+          file: ${{ env.OPENCLAW_SERVICE_PATH }}/Dockerfile.sandbox-common
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/openclaw-sandbox:${{ env.OPENCLAW_APPROVED_SHA }}
+          tags: |
+            ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/openclaw-sandbox-common:${{ env.OPENCLAW_APPROVED_SHA }}
+            ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/openclaw-sandbox-common:${{ env.OPENCLAW_MAIN_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Pin OpenClaw Helm image tag to approved SHA
         if: ${{ github.event_name == 'push' }}
         run: |

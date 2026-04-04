@@ -33,3 +33,16 @@
 {{- $image := dict "name" (default "openclaw-sandbox-common" $common.name) "tag" (default $openclaw.image.tag $common.tag) "digest" (default "" $common.digest) -}}
 {{- include "persai.openclaw.imageRef" (dict "Values" $values "image" $image) -}}
 {{- end -}}
+
+{{- define "persai.openclaw.shellQuote" -}}
+{{- $value := toString . -}}
+'{{- replace $value "'" "'\"'\"'" -}}'
+{{- end -}}
+
+{{- define "persai.openclaw.shellJoin" -}}
+{{- $parts := list -}}
+{{- range . -}}
+{{- $parts = append $parts (include "persai.openclaw.shellQuote" .) -}}
+{{- end -}}
+{{- join " " $parts -}}
+{{- end -}}

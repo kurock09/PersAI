@@ -207,6 +207,10 @@ openclaw:
         enabled: true
         config: {}
   sandboxImages:
+    base:
+      name: openclaw-sandbox
+      tag: 31ec4f70d76eebfef933754934ee922c9d094c11
+      digest: ""
     common:
       name: openclaw-sandbox-common
       tag: 31ec4f70d76eebfef933754934ee922c9d094c11
@@ -286,6 +290,7 @@ openclaw:
     enabled: false
     dockerSocketPath: /run/user/1000/docker.sock
     dockerHost: unix:///run/user/1000/docker.sock
+    preloadSandboxImage: true
     dind:
       image: docker:29.3.1-dind-rootless
       pullPolicy: IfNotPresent

@@ -134,6 +134,13 @@ Goal: keep **today’s behavior** (push to PersAI `main` → workflow clones for
 - OpenClaw image refs produced:
   - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw:${OPENCLAW_APPROVED_SHA}`
   - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw:dev-main`
+  - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw-sandbox:${OPENCLAW_APPROVED_SHA}`
+  - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw-sandbox:dev-main`
+  - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw-sandbox-common:${OPENCLAW_APPROVED_SHA}`
+  - `${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/openclaw-sandbox-common:dev-main`
+- Runtime pull baseline for sandbox-capable pools:
+  - the pod GSA (`openclaw-runtime`) must have `roles/artifactregistry.reader` on the GAR repository used by `openclaw-sandbox*`
+  - otherwise the pod may boot but fail its sandbox image preload path on a fresh rollout
 - Scope guard:
   - workflow performs build/push + GitOps values pin update only
   - no direct cluster deploy/sync operation is executed

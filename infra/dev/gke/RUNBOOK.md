@@ -227,6 +227,7 @@ curl -fsS http://127.0.0.1:18789/readyz
 kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- which docker
 kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- printenv DOCKER_HOST
 kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- sh -lc 'test -S /run/user/1000/docker.sock && echo socket-ok'
+kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -c docker-dind -- sh -lc 'ls -ld /mnt/workspaces/persai /home/node/.openclaw/workspace'
 ```
 
 Expected:
@@ -234,6 +235,19 @@ Expected:
 - `docker` is available in the runtime image.
 - `DOCKER_HOST` is present for the sandbox-capable pool.
 - the rootless Docker socket/backend path (`/run/user/1000/docker.sock`) is mounted and reachable inside the OpenClaw container.
+- the `docker-dind` sidecar sees the same bind-source paths the runtime will hand to Docker (`/mnt/workspaces/persai` and `/home/node/.openclaw/workspace`).
+
+18.2 Verify sandbox image pull identity before relying on auto-recovery of fresh pods:
+
+```bash
+gcloud artifacts repositories get-iam-policy persai --location=europe-west1
+kubectl -n persai-dev exec deployment/openclaw-free-shared-restricted-sandbox -- python3 -c "import urllib.request; req=urllib.request.Request('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email', headers={'Metadata-Flavor':'Google'}); print(urllib.request.urlopen(req, timeout=10).read().decode())"
+```
+
+Expected:
+
+- the GAR repository policy includes `serviceAccount:openclaw-runtime@<PROJECT_ID>.iam.gserviceaccount.com` with `roles/artifactregistry.reader`
+- the pod identity still resolves to the expected `openclaw-runtime` GSA
 
 19. Verify OpenClaw explicit Control UI origin policy wiring:
 
