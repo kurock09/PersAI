@@ -77,6 +77,12 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      resolveByAssistantId: async (assistantId: string) => {
+        assert.equal(assistantId, "assistant-1");
+        return "free_shared_restricted";
+      }
+    } as never,
+    {
       refreshActiveWebChatsUsage: async (input: {
         source: string;
         activeWebChatsCurrent: number;
