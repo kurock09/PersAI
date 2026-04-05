@@ -162,6 +162,8 @@ spec:
               value: {{ $openclaw.sandboxRuntime.dockerHost | quote }}
             - name: OPENCLAW_DOCKER_SOCKET
               value: {{ $openclaw.sandboxRuntime.dockerSocketPath | quote }}
+            - name: DOCKER_CONFIG
+              value: /tmp/.docker
 {{- if $sandboxPreloadEnabled }}
             - name: SANDBOX_BASE_IMAGE
               value: {{ $sandboxBaseImage | quote }}
