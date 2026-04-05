@@ -44,6 +44,9 @@ spec:
         - name: openclaw-config
           configMap:
             name: {{ include "persai.openclaw.poolConfigMapName" $poolCtx }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 500Mi
 {{- if $sandboxRuntimeEnabled }}
         - name: docker-run
           emptyDir: {}
@@ -90,6 +93,19 @@ spec:
         - name: openclaw
           image: "{{ $openclawImage }}"
           imagePullPolicy: {{ $openclaw.image.pullPolicy }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+{{- with ($pool.config).resources }}
+          resources:
+{{ toYaml . | indent 12 }}
+{{- end }}
 {{- if and $sandboxPreloadEnabled (gt (len $runtimeCommand) 0) }}
           command:
             - /bin/sh
@@ -171,6 +187,8 @@ spec:
             - name: openclaw-config
               mountPath: {{ $openclaw.configPath | quote }}
               subPath: openclaw.json
+            - name: tmp
+              mountPath: /tmp
 {{- if $sandboxRuntimeEnabled }}
             - name: docker-run
               mountPath: /var/run

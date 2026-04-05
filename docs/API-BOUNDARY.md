@@ -654,7 +654,7 @@ Behavior baseline:
   - avatar URL is best-effort and derived from Telegram username when available
 - DM access model:
   - direct-message access is `owner_only` by default
-  - connect creates a pending owner-claim token/deep link
+  - connect creates a pending 6-digit owner-claim code
   - Telegram is not considered fully connected until owner claim completes
 - E4 keeps web as primary control-plane surface and does not move deep assistant config into Telegram.
 - E4 does not add WhatsApp/MAX delivery implementation.
@@ -691,7 +691,7 @@ Behavior baseline:
 ### Materialization: openclawBootstrap.channels.telegram (new)
 
 - added to `openclawBootstrap` during spec materialization when Telegram binding is active
-- shape: `{ enabled, botToken, webhookUrl, webhookSecret, dmPolicy, groupReplyMode, parseMode, inbound, outbound, accessMode, ownerClaimStatus, ownerClaimToken, ownerTelegramUserId, ownerTelegramUsername, ownerTelegramChatId, runtimeHealth }`
+- shape: `{ enabled, botToken, webhookUrl, webhookSecret, dmPolicy, groupReplyMode, parseMode, inbound, outbound, accessMode, ownerClaimStatus, ownerClaimCode, ownerClaimCodeExpiresAt, ownerTelegramUserId, ownerTelegramUsername, ownerTelegramChatId, runtimeHealth }`
 - `parseMode`: `plain_text` — outbound assistant text is sent without `parse_mode`. `markdown` — OpenClaw converts assistant output to **Telegram Bot API HTML** (`parse_mode: HTML`): escaped literals, subset of common markdown (`**bold**`, `` `inline code` ``, fenced ``` blocks, `[label](https://…)` only), paragraph-aware packing so each `sendMessage` stays within the 4096-character limit.
 - `webhookUrl` = `{TELEGRAM_WEBHOOK_BASE_URL}/telegram-webhook/{assistantId}`
 - `webhookSecret` = HMAC-SHA256(assistantId, TELEGRAM_WEBHOOK_HMAC_SECRET), truncated to 64 chars
@@ -703,6 +703,7 @@ Behavior baseline:
 - routes update to the dynamically managed Grammy bot for the assistant
 - repeated Telegram deliveries must be deduped by `assistantId + update_id` before a PersAI turn is started
 - owner-only Telegram DMs must be rejected in OpenClaw runtime ingress before `POST /api/v1/internal/runtime/turns/telegram`
+- while claim is pending, the bot prompts the user to send the 6-digit code from PersAI and only a matching code completes owner claim
 
 ### OpenClaw config: secrets.providers.persai-runtime
 

@@ -2,7 +2,21 @@
 
 ## Unreleased
 
+### Added
+
+- **Wave 3 media storage quota in Admin Plans:** `mediaStorageBytesLimit` is now a per-plan editable field in the Admin Plans UI (displayed in MB for clarity). The value flows through `AdminPlanQuotaLimits` in the OpenAPI contract, is persisted in `billingProviderHints.quotaAccounting`, and resolves at runtime via `TrackWorkspaceQuotaUsageService` with a fallback to the global `QUOTA_MEDIA_STORAGE_BYTES_DEFAULT` config when no plan-level override is set.
+
+- **Admin Runtime page usability overhaul:** the Runtime Settings page was restructured from a dense two-column layout to a clean sectioned grid (Model routing, Available models, API keys, Sandbox security per tier). Tier security cards now show human-readable tier names, key metrics (PIDs, RAM, CPU) in a compact grid, and collapse detailed tool policy lists behind a toggle instead of showing everything at once.
+
+- **Wave 1 infrastructure security hardening (ADR-065):** openclaw container now runs with locked-down securityContext (readOnlyRootFilesystem, runAsNonRoot, drop ALL capabilities, no privilege escalation) and explicit `/tmp` writable mount. Per-pool resource limits (CPU, RAM, ephemeral storage) are now differentiated for free_shared, paid_shared, and paid_isolated tiers on both the openclaw container and the docker-dind sidecar. Sandbox Docker limits (pidsLimit, memory, cpus) are now tier-specific instead of identical across all pools. Per-pool session maintenance limits bound disk pressure by tier. Egress NetworkPolicy restricts openclaw pod outbound traffic to DNS, PersAI internal API, and external HTTPS only (GCP metadata and internal CIDRs blocked). The `RuntimeTierSecurityPolicyState` type and admin UI now show real per-tier sandbox resource limits (PIDs, memory, CPUs) instead of identical policy flags.
+
+- **Wave 2 cross-assistant file read fix:** `resolvePersaiWorkspaceMediaStoragePath` in OpenClaw fork no longer falls back to the global workspace root. Download/delete/transcribe operations are now strictly constrained to the current assistant's workspace directory, blocking crafted storage paths from reading other assistants' files.
+
+- **Wave 2 lazy _stt_tmp cleanup:** PersAI media preprocessor now batch-deletes any orphan files in the `_stt_tmp` media directory before each transcription. This prevents accumulation of temp files from prior crashes or incomplete cleanups.
+
 ### Fixed
+
+- **Telegram owner claim flow switched from deep links to a 6-digit code:** freshly connected bots now stay in `claim_required` until the owner opens the bot chat and sends the one-time code shown in PersAI. The integrations UI no longer depends on `tg://` or `t.me` handoff reliability, the bot prompts for the code in the system language on first contact, and runtime claim success still ends with the immediate owner welcome message.
 
 - **Cron webhook token mismatch (reminder_task 401):** the Helm ConfigMap template hardcoded `cron.webhookToken.id` to `OPENCLAW_GATEWAY_TOKEN`, but the PersAI `cron-fire` endpoint validates against `PERSAI_INTERNAL_API_TOKEN`. These are two different secret values, so every cron webhook delivery was rejected with 401 and reminders never fired. Fixed by pointing the ConfigMap cron token to `PERSAI_INTERNAL_API_TOKEN` so OpenClaw sends the token PersAI expects. PersAI-only fix, no OpenClaw code changes.
 

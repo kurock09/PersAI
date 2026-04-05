@@ -142,8 +142,11 @@ export class RevokeTelegramIntegrationSecretService {
             : null,
         metadata: {
           ...metadata,
-          telegramOwnerClaimStatus: "pending",
+          telegramOwnerClaimStatus: "not_started",
+          telegramOwnerClaimCode: null,
+          telegramOwnerClaimIssuedAt: null,
           telegramOwnerClaimedAt: null,
+          telegramOwnerClaimExpiresAt: null,
           telegramOwnerTelegramUserId: null,
           telegramOwnerTelegramUsername: null,
           telegramOwnerTelegramChatId: null,

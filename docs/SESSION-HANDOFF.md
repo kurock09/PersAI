@@ -1,5 +1,122 @@
 # SESSION-HANDOFF
 
+## 2026-04-05 - Telegram owner claim switched to 6-digit code flow
+
+### What was done
+
+1. **Deep-link-first owner claim was removed** — PersAI no longer depends on `tg://` or `https://t.me/...start=...` to finish Telegram owner verification.
+2. **Telegram connect now issues a one-time 6-digit code** — the integrations panel shows that code directly, and the owner confirms by sending it to the bot chat.
+3. **OpenClaw runtime now prompts for the code in chat** — while claim is pending, Telegram DM ingress answers with a short locale-aware instruction telling the user to send the 6-digit code from PersAI.
+
+### What changed
+
+1. `apps/api/src/modules/workspace-management/application/telegram-integration.metadata.ts` — owner claim token/deep-link metadata replaced with `telegramOwnerClaimCode` and expiry field.
+2. `apps/api/src/modules/workspace-management/application/resolve-telegram-integration-state.service.ts` and `telegram-integration.types.ts` — integration state now exposes owner claim `code` / `claimExpiresAt` instead of `claimDeepLink`.
+3. `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — Telegram bootstrap now materializes `ownerClaimCode` and `ownerClaimCodeExpiresAt` for OpenClaw runtime.
+4. `apps/web/app/app/_components/telegram-connect.tsx` plus `apps/web/messages/{en,ru}.json` — claim-required UI now shows the 6-digit code with copy action instead of a link CTA.
+5. `openclaw/src/gateway/persai-runtime/persai-runtime-telegram.ts` — owner gate now accepts `482913`, `/start 482913`, or `/claim 482913`, prompts for the code while unclaimed, and no longer uses `persai_claim_*`.
+
+### Verification
+
+1. `corepack pnpm --filter @persai/api exec tsx test/telegram-integration.test.ts`
+2. `corepack pnpm --filter @persai/api run typecheck`
+3. `corepack pnpm --filter @persai/web run typecheck`
+4. `pnpm test -- src/gateway/persai-runtime/persai-runtime-telegram.test.ts`
+
+## 2026-04-05 - Wave 3 media storage quota + Admin Runtime UX
+
+### What was done
+
+1. **`mediaStorageBytesLimit` end-to-end** — added new field to `AdminPlanQuotaLimits` in OpenAPI, backend types, `manage-admin-plans.service.ts` (parse, write, read), `track-workspace-quota-usage.service.ts` (plan-level override with fallback to global default), and Admin Plans UI (editable in MB, stored as bytes).
+2. **Admin Runtime page usability overhaul** — restructured from cramped two-column wall-of-text to clean sectioned grid: Model routing, Available models, API keys sections with 2-column cards. Sandbox security tier cards show human-readable names, compact metric grid (PIDs/RAM/CPU), and collapsible tool policy details. No functional changes to save/load logic.
+
+### What changed
+
+1. `packages/contracts/openapi.yaml` — `mediaStorageBytesLimit` added to `AdminPlanQuotaLimits`
+2. `packages/contracts/src/generated/` — regenerated
+3. `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts` — `mediaStorageBytesLimit` in `AdminPlanInput` and `AdminPlanState` quotaLimits
+4. `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` — parsePlanInput, toWriteInput, toAdminPlanState updated
+5. `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts` — `PlanQuotaHints.mediaStorageBytesLimit`, plan-level override in `resolveLimits`
+6. `apps/web/app/admin/plans/page.tsx` — `PlanDraft.mediaStorageMb`, form field, read-only card display
+7. `apps/web/app/admin/runtime/page.tsx` — full rewrite for usability
+8. `docs/CHANGELOG.md` — updated
+9. `docs/SESSION-HANDOFF.md` — this entry
+
+### Risks
+
+- Existing plans have no `mediaStorageBytesLimit` in `billingProviderHints.quotaAccounting` — they continue to get the global default. This is safe because the read path already returns `null` for missing values, and `resolveLimits` falls back to config.
+- Admin UI converts MB to bytes via `* 1048576`. Very large values (>2TB) could overflow JS integer precision, but this is not a realistic plan limit.
+- The Runtime page rewrite is purely visual — all state management and API calls are identical. If any Tailwind class names don't resolve in the deployed theme, cards may render unstyled.
+
+### Deploy order
+
+No special deploy order needed. The API handles missing `mediaStorageBytesLimit` gracefully (returns null, defaults to global config). Frontend and API can deploy independently.
+
+---
+
+## 2026-04-05 - Wave 1 infrastructure security hardening (ADR-065)
+
+1. **openclaw container securityContext locked down** — readOnlyRootFilesystem, runAsNonRoot (uid 1000), drop ALL capabilities, no privilege escalation. Explicit `/tmp` emptyDir mount (500Mi) for Node.js scratch and ffmpeg temp files.
+2. **Per-pool resource limits differentiated** — free_shared gets 250m/1 CPU and 512Mi/1Gi RAM; paid_shared gets 500m/2 CPU and 1Gi/2Gi RAM; isolated gets 1/4 CPU and 2Gi/4Gi RAM. dind sidecar resources also per-pool.
+3. **Sandbox Docker limits per tier** — free_shared: 64 PIDs, 512m, 0.5 CPUs. paid_shared: 128 PIDs, 1g, 1 CPU. isolated: 256 PIDs, 2g, 2 CPUs. Previously all tiers used identical 256/1g/1 defaults.
+4. **Per-pool session maintenance** — free: 500 entries / 256mb disk. paid_shared: 1000 / 1gb. isolated: 2000 / 2gb (unchanged from global default for isolated).
+5. **Egress NetworkPolicy** — openclaw pods can only reach kube-dns (53), PersAI internal API (3002), and external HTTPS (443). GCP metadata endpoint (169.254.169.254) and private CIDRs (10/8, 172.16/12, 192.168/16) blocked.
+6. **RuntimeTierSecurityPolicyState v2** — added `sandboxLimits` field with per-tier pidsLimit, memoryMb, cpus. Admin Runtime UI `TierSecurityCard` now shows differentiated resource limits, not just identical policy flags.
+
+### What changed
+
+1. `docs/ADR/065-wave1-infra-security-hardening.md` — new ADR
+2. `infra/helm/templates/openclaw-deployment.yaml` — securityContext, /tmp volume, per-pool resources
+3. `infra/helm/templates/networkpolicies.yaml` — openclaw-egress-baseline NetworkPolicy
+4. `infra/helm/values-dev.yaml` — per-pool resource limits, sandbox Docker limits, session maintenance, dind resources
+5. `apps/api/src/modules/workspace-management/application/runtime-tier-security-policy.ts` — schema v2, `sandboxLimits`, `TIER_SANDBOX_LIMITS` per tier
+6. `packages/contracts/openapi.yaml` — `SandboxResourceLimits` schema, `sandboxLimits` in `RuntimeTierSecurityPolicyState`
+7. `packages/contracts/src/generated/` — regenerated
+8. `apps/web/app/admin/runtime/page.tsx` — `TierSecurityCard` shows PIDs/Memory/CPUs per tier
+9. `docs/CHANGELOG.md` — updated
+10. `docs/SESSION-HANDOFF.md` — this entry
+
+### Risks
+
+- `readOnlyRootFilesystem: true` on openclaw requires the runtime to use `/tmp` for scratch and `/mnt/workspaces/persai` (GCS FUSE) or `/home/node/.openclaw/workspace` (emptyDir) for state. If any library writes to other root paths, the pod will crash. Verify after deploy.
+- Free-tier sandbox limits (64 PIDs, 512m) are significantly lower than before (256 PIDs, 1g). Complex sandbox operations (multi-process builds, large npm installs) may OOM or hit PID limit. This is intentional for free tier blast radius but should be monitored.
+- Egress NetworkPolicy blocks all private CIDRs. If Redis Memorystore is on a private IP, it will be blocked. Redis access from openclaw goes through the PersAI internal API, not directly, so this should be safe. Verify.
+- dind sidecar still requires `privileged: true` — this is a known limitation addressed in a future gVisor (ADR-065 scope note) wave.
+
+### Deploy order
+
+1. Apply Helm changes: `helm template persai ./infra/helm -f ./infra/helm/values-dev.yaml | kubectl apply -f -`
+2. Restart all openclaw pool pods: `kubectl rollout restart deployment/openclaw-free-shared-restricted-sandbox deployment/openclaw-paid-shared-restricted-sandbox deployment/openclaw-paid-isolated -n persai-dev`
+3. Verify pods start cleanly (check for EROFS/crash from readOnlyRoot)
+4. Verify egress: from openclaw pod, `curl -s https://api.openai.com` should work, `curl http://169.254.169.254/` should timeout
+5. Verify sandbox exec works: send a web chat turn that triggers a tool call
+6. Verify admin UI: `/admin/runtime` should show differentiated PIDs/Memory/CPUs per tier
+
+### Next recommended step
+
+- Wave 3: PersAI product limits — `mediaStorageBytesLimit` editable in Admin Plans, `sandboxExecTimeoutSeconds` in materialization, concurrent turn mutex
+
+## 2026-04-05 - Wave 2: OpenClaw fork security fixes + PersAI media cleanup
+
+1. **Cross-assistant file read blocked** — `resolvePersaiWorkspaceMediaStoragePath` in OpenClaw no longer falls back to the global workspace root. Path resolution is strictly constrained to the current assistant's workspace directory. Previously, a crafted `storagePath` like `../../<other-assistant-id>/media/...` could read another assistant's files.
+2. **Lazy _stt_tmp cleanup** — PersAI media preprocessor now calls `deleteChatMediaBatch(assistantId, "_stt_tmp")` before each transcription, clearing any orphan temp files left by prior crashes or incomplete cleanups.
+
+### What changed
+
+1. `openclaw/src/gateway/persai-runtime/persai-runtime-media.ts` — `resolvePersaiWorkspaceMediaStoragePath` constrained to assistant workspace dir, removed `resolvePersaiWorkspaceRoot` import
+2. `openclaw/docs/PERSAI-FORK-PATCHES.md` — updated patch description
+3. `apps/api/src/modules/workspace-management/application/media/media-preprocessor.service.ts` — lazy `_stt_tmp` batch delete before transcription
+
+### Risks
+
+- If `image_generate` tool produces paths that resolve outside `workspaceDir/media/` but still within workspace root, those will now fail to download. Verified: image-generate saves to `workspaceDir/media/tool-image-generation/` which is inside the assistant workspace dir — safe.
+- The lazy `_stt_tmp` delete is fire-and-forget. If the runtime is unreachable at that moment, cleanup silently fails. The per-file delete in `finally` still runs as before, so this is a belt-and-suspenders approach.
+
+### Push order
+
+1. Push `openclaw` first (cross-assistant read fix)
+2. Push `PersAI` second (pin new OpenClaw SHA + media cleanup + Wave 1 infra hardening)
+
 ## 2026-04-05 - Cron webhook auth fix and web chat context leak fix
 
 1. **Cron webhook token mismatch fixed** — `openclaw-configmap.yaml` pointed `cron.webhookToken` at `OPENCLAW_GATEWAY_TOKEN`, but the PersAI `cron-fire` endpoint checks `PERSAI_INTERNAL_API_TOKEN`. These are different secrets (`30d2c1...` vs `97f0b1...`), so every cron-fired webhook (including `reminder_task`) was rejected with HTTP 401. Fixed by changing the ConfigMap template to use `PERSAI_INTERNAL_API_TOKEN`.
@@ -32,7 +149,7 @@
 3. **Disconnect/revoke from PersAI is resilient again** — Telegram revoke/disconnect no longer fails just because an older binding was still in legacy/unmanaged secret-ref state; the encrypted provider key is removed best-effort and the binding is pushed into inactive/not-connected truth anyway.
 4. **OpenClaw now blocks two real Telegram SaaS failure modes earlier in ingress** — repeated Telegram deliveries are deduped by `assistantId + update_id`, and owner-only DM gate checks now run before `requestPersaiTelegramTurn`, so random Telegram users and duplicate webhook retries do not silently create extra runtime turns.
 5. **Terminal Telegram auth failure is explicit** — runtime-side `401 Unauthorized` profile failures now promote the integration into `invalid_token` instead of being treated as endless retry-only noise.
-6. **Owner onboarding is now immediate after claim** — once the owner completes `/start persai_claim_<token>`, the bot sends a short system-language Telegram message so the private owner chat appears immediately without manual search.
+6. **Owner onboarding is now immediate after claim** — once the owner sends the matching 6-digit code from PersAI in the bot chat, the bot sends a short system-language Telegram message so the private owner chat appears immediately without manual search.
 
 ### What changed
 

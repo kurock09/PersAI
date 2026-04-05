@@ -92,7 +92,9 @@ export class SyncTelegramChatTargetService {
 
     if (input.claimOwner && isPrivateChat) {
       metadataPatch.telegramOwnerClaimStatus = "claimed";
+      metadataPatch.telegramOwnerClaimCode = null;
       metadataPatch.telegramOwnerClaimedAt = new Date().toISOString();
+      metadataPatch.telegramOwnerClaimExpiresAt = null;
       metadataPatch.telegramOwnerTelegramUserId = input.telegramUserId;
       metadataPatch.telegramOwnerTelegramUsername = input.username;
       metadataPatch.telegramOwnerTelegramChatId = input.telegramChatId;

@@ -7,6 +7,7 @@
 import type { RuntimeTier } from "./runtimeTier";
 import type { RuntimeTierSecurityPoolClass } from "./runtimeTierSecurityPoolClass";
 import type { RuntimeTierSandboxPolicyState } from "./runtimeTierSandboxPolicyState";
+import type { SandboxResourceLimits } from "./sandboxResourceLimits";
 import type { RuntimeTierSecurityExecPolicy } from "./runtimeTierSecurityExecPolicy";
 import type { RuntimeTierSecurityWritePolicy } from "./runtimeTierSecurityWritePolicy";
 import type { RuntimeTierSecurityUserPlanToolsPolicy } from "./runtimeTierSecurityUserPlanToolsPolicy";
@@ -16,6 +17,7 @@ export interface RuntimeTierSecurityPolicyState {
   tier: RuntimeTier;
   poolClass: RuntimeTierSecurityPoolClass;
   sandbox: RuntimeTierSandboxPolicyState;
+  sandboxLimits: SandboxResourceLimits;
   execPolicy: RuntimeTierSecurityExecPolicy;
   writePolicy: RuntimeTierSecurityWritePolicy;
   userPlanTools: RuntimeTierSecurityUserPlanToolsPolicy;

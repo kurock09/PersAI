@@ -221,10 +221,8 @@ async function run(): Promise<void> {
     assert.equal(connected.configPanel.available, true);
     assert.equal(connected.ownerClaim.required, true);
     assert.equal(connected.ownerClaim.status, "pending");
-    assert.match(
-      connected.ownerClaim.claimDeepLink ?? "",
-      /https:\/\/t\.me\/persai_bot\?start=persai_claim_/
-    );
+    assert.match(connected.ownerClaim.code ?? "", /^\d{6}$/);
+    assert.notEqual(connected.ownerClaim.claimExpiresAt, null);
 
     applyCallCount = 0;
     const updated = await updateConfigService.execute("user-1", {

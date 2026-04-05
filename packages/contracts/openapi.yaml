@@ -2934,8 +2934,9 @@ components:
       required:
         - required
         - status
-        - claimDeepLink
+        - code
         - claimIssuedAt
+        - claimExpiresAt
         - claimedAt
         - systemWelcomeSentAt
       properties:
@@ -2947,10 +2948,13 @@ components:
             - not_started
             - pending
             - claimed
-        claimDeepLink:
+        code:
           type: string
           nullable: true
         claimIssuedAt:
+          type: string
+          nullable: true
+        claimExpiresAt:
           type: string
           nullable: true
         claimedAt:
@@ -3678,6 +3682,9 @@ components:
       type: object
       properties:
         tokenBudgetLimit:
+          type: integer
+          nullable: true
+        mediaStorageBytesLimit:
           type: integer
           nullable: true
     AdminPlanEntitlementToolClasses:
@@ -4422,6 +4429,19 @@ components:
           type: string
           enum:
             - spawned
+    SandboxResourceLimits:
+      type: object
+      required:
+        - pidsLimit
+        - memoryMb
+        - cpus
+      properties:
+        pidsLimit:
+          type: integer
+        memoryMb:
+          type: integer
+        cpus:
+          type: number
     RuntimeTierSecurityPolicyState:
       type: object
       required:
@@ -4429,6 +4449,7 @@ components:
         - tier
         - poolClass
         - sandbox
+        - sandboxLimits
         - execPolicy
         - writePolicy
         - userPlanTools
@@ -4446,6 +4467,8 @@ components:
           $ref: "#/components/schemas/RuntimeTierSecurityPoolClass"
         sandbox:
           $ref: "#/components/schemas/RuntimeTierSandboxPolicyState"
+        sandboxLimits:
+          $ref: "#/components/schemas/SandboxResourceLimits"
         execPolicy:
           $ref: "#/components/schemas/RuntimeTierSecurityExecPolicy"
         writePolicy:

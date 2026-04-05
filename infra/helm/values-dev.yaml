@@ -181,39 +181,115 @@ openclaw:
       free_shared_restricted_sandbox:
         enabled: true
         config:
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+              ephemeral-storage: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+              ephemeral-storage: 1Gi
           sandboxRuntime:
             enabled: true
+            dind:
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 768Mi
+                limits:
+                  cpu: "1"
+                  memory: 1280Mi
+          sessionMaintenance:
+            maxEntries: 500
+            maxDiskBytes: 256mb
+            highWaterBytes: 200mb
+            rotateBytes: 10mb
           agentDefaults:
             sandbox:
               mode: "all"
               backend: docker
               docker:
                 image: ""
+                pidsLimit: 64
+                memory: 512m
+                memorySwap: 512m
+                cpus: 0.5
       paid_shared_restricted:
         enabled: false
         config: {}
       paid_shared_restricted_sandbox:
         enabled: true
         config:
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+              ephemeral-storage: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+              ephemeral-storage: 2Gi
           sandboxRuntime:
             enabled: true
+            dind:
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 1280Mi
+                limits:
+                  cpu: "1"
+                  memory: 2304Mi
+          sessionMaintenance:
+            maxEntries: 1000
+            maxDiskBytes: 1gb
+            highWaterBytes: 800mb
           agentDefaults:
             sandbox:
               mode: "all"
               backend: docker
               docker:
                 image: ""
+                pidsLimit: 128
+                memory: 1g
+                memorySwap: 1g
+                cpus: 1
       paid_isolated:
         enabled: true
         config:
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+              ephemeral-storage: 1Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+              ephemeral-storage: 5Gi
           sandboxRuntime:
             enabled: true
+            dind:
+              resources:
+                requests:
+                  cpu: "1"
+                  memory: 2304Mi
+                limits:
+                  cpu: "2"
+                  memory: 4352Mi
+          sessionMaintenance:
+            maxEntries: 2000
+            maxDiskBytes: 2gb
+            highWaterBytes: 1600mb
           agentDefaults:
             sandbox:
               mode: "all"
               backend: docker
               docker:
                 image: ""
+                pidsLimit: 256
+                memory: 2g
+                memorySwap: 2g
+                cpus: 2
   sandboxImages:
     base:
       name: openclaw-sandbox
@@ -233,8 +309,8 @@ openclaw:
 
 
 
-    tag: e4f73e39c64064d74d4127e7eebbb881054fdf78
-    digest: sha256:1ec4044720a0ac689ebbc07abcb9107a58abcca1e697f8bde622b91ea7198d18
+    tag: 1647217b13898f46de50341d675e2d1471db172e
+    digest: ""
 
     pullPolicy: IfNotPresent
   controlUi:

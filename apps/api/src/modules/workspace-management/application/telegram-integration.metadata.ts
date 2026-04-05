@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomInt } from "node:crypto";
 
 export type TelegramClaimStatus = "not_started" | "pending" | "claimed";
 export type TelegramConnectionStatus =
@@ -8,6 +8,9 @@ export type TelegramConnectionStatus =
   | "invalid_token";
 export type TelegramRuntimeHealth = "ok" | "invalid_token";
 
+export const TELEGRAM_OWNER_CLAIM_CODE_LENGTH = 6;
+export const TELEGRAM_OWNER_CLAIM_TTL_MS = 15 * 60_000;
+
 export type TelegramBindingMetadataState = {
   telegramUserId: number | null;
   username: string | null;
@@ -15,8 +18,9 @@ export type TelegramBindingMetadataState = {
   avatarUrl: string | null;
   telegramAccessMode: "owner_only";
   telegramOwnerClaimStatus: TelegramClaimStatus;
-  telegramOwnerClaimToken: string | null;
+  telegramOwnerClaimCode: string | null;
   telegramOwnerClaimIssuedAt: string | null;
+  telegramOwnerClaimExpiresAt: string | null;
   telegramOwnerClaimedAt: string | null;
   telegramOwnerTelegramUserId: number | null;
   telegramOwnerTelegramUsername: string | null;
@@ -50,8 +54,12 @@ function toRuntimeHealth(value: unknown): TelegramRuntimeHealth {
   return value === "invalid_token" ? "invalid_token" : "ok";
 }
 
-export function createTelegramOwnerClaimToken(): string {
-  return randomBytes(18).toString("hex");
+export function createTelegramOwnerClaimCode(): string {
+  return String(randomInt(0, 1_000_000)).padStart(TELEGRAM_OWNER_CLAIM_CODE_LENGTH, "0");
+}
+
+function createTelegramOwnerClaimExpiresAt(issuedAt: Date): string {
+  return new Date(issuedAt.getTime() + TELEGRAM_OWNER_CLAIM_TTL_MS).toISOString();
 }
 
 export function resolveTelegramBindingMetadataState(
@@ -71,8 +79,9 @@ export function resolveTelegramBindingMetadataState(
     avatarUrl: toStringOrNull(row?.avatarUrl) ?? fallbackBot.avatarUrl ?? null,
     telegramAccessMode: "owner_only",
     telegramOwnerClaimStatus: toClaimStatus(row?.telegramOwnerClaimStatus),
-    telegramOwnerClaimToken: toStringOrNull(row?.telegramOwnerClaimToken),
+    telegramOwnerClaimCode: toStringOrNull(row?.telegramOwnerClaimCode),
     telegramOwnerClaimIssuedAt: toStringOrNull(row?.telegramOwnerClaimIssuedAt),
+    telegramOwnerClaimExpiresAt: toStringOrNull(row?.telegramOwnerClaimExpiresAt),
     telegramOwnerClaimedAt: toStringOrNull(row?.telegramOwnerClaimedAt),
     telegramOwnerTelegramUserId: toNumberOrNull(row?.telegramOwnerTelegramUserId),
     telegramOwnerTelegramUsername: toStringOrNull(row?.telegramOwnerTelegramUsername),
@@ -82,16 +91,6 @@ export function resolveTelegramBindingMetadataState(
     telegramRuntimeHealthUpdatedAt: toStringOrNull(row?.telegramRuntimeHealthUpdatedAt),
     telegramRuntimeHealthMessage: toStringOrNull(row?.telegramRuntimeHealthMessage)
   };
-}
-
-export function buildTelegramClaimDeepLink(
-  username: string | null,
-  claimToken: string | null
-): string | null {
-  if (!username || !claimToken) {
-    return null;
-  }
-  return `https://t.me/${username}?start=persai_claim_${claimToken}`;
 }
 
 export function resolveTelegramConnectionStatus(params: {
@@ -131,6 +130,7 @@ export function createTelegramConnectedMetadata(input: {
   displayName: string | null;
   avatarUrl: string | null;
 }): Record<string, unknown> {
+  const claimIssuedAt = new Date();
   return {
     telegramUserId: input.telegramUserId,
     username: input.username,
@@ -138,8 +138,9 @@ export function createTelegramConnectedMetadata(input: {
     avatarUrl: input.avatarUrl,
     telegramAccessMode: "owner_only",
     telegramOwnerClaimStatus: "pending",
-    telegramOwnerClaimToken: createTelegramOwnerClaimToken(),
-    telegramOwnerClaimIssuedAt: new Date().toISOString(),
+    telegramOwnerClaimCode: createTelegramOwnerClaimCode(),
+    telegramOwnerClaimIssuedAt: claimIssuedAt.toISOString(),
+    telegramOwnerClaimExpiresAt: createTelegramOwnerClaimExpiresAt(claimIssuedAt),
     telegramOwnerClaimedAt: null,
     telegramOwnerTelegramUserId: null,
     telegramOwnerTelegramUsername: null,

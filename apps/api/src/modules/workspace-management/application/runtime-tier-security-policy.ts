@@ -1,6 +1,12 @@
 import type { RuntimeTier } from "./runtime-assignment";
 
-export const RUNTIME_TIER_SECURITY_POLICY_SCHEMA = "persai.runtimeTierSecurityPolicy.v1";
+export const RUNTIME_TIER_SECURITY_POLICY_SCHEMA = "persai.runtimeTierSecurityPolicy.v2";
+
+export type SandboxResourceLimits = {
+  pidsLimit: number;
+  memoryMb: number;
+  cpus: number;
+};
 
 export type RuntimeTierSecurityPolicyState = {
   schema: typeof RUNTIME_TIER_SECURITY_POLICY_SCHEMA;
@@ -16,6 +22,7 @@ export type RuntimeTierSecurityPolicyState = {
     readOnlyRoot: true;
     sessionToolsVisibility: "spawned";
   };
+  sandboxLimits: SandboxResourceLimits;
   execPolicy: "sandbox_only";
   writePolicy: "sandbox_workspace_only";
   userPlanTools: "plan_managed_only";
@@ -44,6 +51,12 @@ const PLATFORM_MANAGED_TOOLS = ["persai_workspace_attach", "persai_tool_quota_st
 const PLAN_MANAGED_SERVICE_TOOLS = ["reminder_task"] as const;
 const HIDDEN_INTERNAL_TOOLS = ["cron"] as const;
 
+const TIER_SANDBOX_LIMITS: Record<RuntimeTier, SandboxResourceLimits> = {
+  free_shared_restricted: { pidsLimit: 64, memoryMb: 512, cpus: 0.5 },
+  paid_shared_restricted: { pidsLimit: 128, memoryMb: 1024, cpus: 1 },
+  paid_isolated: { pidsLimit: 256, memoryMb: 2048, cpus: 2 }
+};
+
 function buildRuntimeTierSecurityPolicy(params: {
   tier: RuntimeTier;
   poolClass: "shared_restricted" | "isolated";
@@ -63,6 +76,7 @@ function buildRuntimeTierSecurityPolicy(params: {
       readOnlyRoot: true,
       sessionToolsVisibility: "spawned"
     },
+    sandboxLimits: TIER_SANDBOX_LIMITS[params.tier],
     execPolicy: "sandbox_only",
     writePolicy: "sandbox_workspace_only",
     userPlanTools: "plan_managed_only",

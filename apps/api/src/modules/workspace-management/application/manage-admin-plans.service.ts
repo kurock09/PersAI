@@ -292,7 +292,8 @@ export class ManageAdminPlansService {
         }
       },
       quotaLimits: {
-        tokenBudgetLimit: toNullablePositiveInt(quotaLimitsRaw.tokenBudgetLimit)
+        tokenBudgetLimit: toNullablePositiveInt(quotaLimitsRaw.tokenBudgetLimit),
+        mediaStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.mediaStorageBytesLimit)
       },
       primaryModelKey: toNullableString(parsed.primaryModelKey),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault)
@@ -346,6 +347,9 @@ export class ManageAdminPlansService {
     const quotaAccounting: Record<string, unknown> = {};
     if (input.quotaLimits.tokenBudgetLimit !== null) {
       quotaAccounting.tokenBudgetLimit = input.quotaLimits.tokenBudgetLimit;
+    }
+    if (input.quotaLimits.mediaStorageBytesLimit !== null) {
+      quotaAccounting.mediaStorageBytesLimit = input.quotaLimits.mediaStorageBytesLimit;
     }
     return {
       displayName: input.displayName,
@@ -453,7 +457,8 @@ export class ManageAdminPlansService {
         }
       },
       quotaLimits: {
-        tokenBudgetLimit: toNullablePositiveInt(quotaAccountingRaw.tokenBudgetLimit)
+        tokenBudgetLimit: toNullablePositiveInt(quotaAccountingRaw.tokenBudgetLimit),
+        mediaStorageBytesLimit: toNullablePositiveInt(quotaAccountingRaw.mediaStorageBytesLimit)
       },
       primaryModelKey: toNullableString(billingHints.primaryModelKey),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),

@@ -59,6 +59,7 @@ type PlanDraft = {
   channelWhatsapp: boolean;
   channelMax: boolean;
   tokenBudgetLimit: string;
+  mediaStorageMb: string;
   primaryModelKey: string;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
@@ -99,6 +100,7 @@ function emptyDraft(): PlanDraft {
     channelWhatsapp: false,
     channelMax: false,
     tokenBudgetLimit: "",
+    mediaStorageMb: "",
     primaryModelKey: "",
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: []
@@ -124,6 +126,10 @@ function planToDraft(plan: AdminPlanState): PlanDraft {
     channelWhatsapp: plan.entitlements.channelsAndSurfaces.whatsapp,
     channelMax: plan.entitlements.channelsAndSurfaces.max,
     tokenBudgetLimit: plan.quotaLimits?.tokenBudgetLimit?.toString() ?? "",
+    mediaStorageMb:
+      plan.quotaLimits?.mediaStorageBytesLimit != null
+        ? String(Math.round(plan.quotaLimits.mediaStorageBytesLimit / 1048576))
+        : "",
     primaryModelKey: plan.primaryModelKey ?? "",
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
     toolActivations: (plan.toolActivations ?? [])
@@ -167,7 +173,13 @@ function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       }
     },
     quotaLimits: {
-      tokenBudgetLimit: tokenBudget.length > 0 ? parseInt(tokenBudget, 10) || null : null
+      tokenBudgetLimit: tokenBudget.length > 0 ? parseInt(tokenBudget, 10) || null : null,
+      mediaStorageBytesLimit: (() => {
+        const mb = draft.mediaStorageMb.trim();
+        if (mb.length === 0) return null;
+        const parsed = parseInt(mb, 10);
+        return parsed > 0 ? parsed * 1048576 : null;
+      })()
     },
     primaryModelKey: toNullable(draft.primaryModelKey),
     runtimeTierDefault: draft.runtimeTierDefault,
@@ -653,6 +665,17 @@ function PlanForm({
                   className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                 />
               </label>
+              <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                Media storage (MB)
+                <input
+                  type="number"
+                  min={0}
+                  value={draft.mediaStorageMb}
+                  onChange={(e) => onPatch({ mediaStorageMb: e.target.value })}
+                  placeholder="default"
+                  className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                />
+              </label>
             </div>
           </Sec>
           <Sec label="AI model">
@@ -824,6 +847,12 @@ function PlanCardReadOnly({
               <Sec label="Quota limits">
                 <div className="space-y-0.5 text-[10px] text-text-subtle">
                   <div>Token budget: {plan.quotaLimits?.tokenBudgetLimit ?? "default"}</div>
+                  <div>
+                    Media storage:{" "}
+                    {plan.quotaLimits?.mediaStorageBytesLimit != null
+                      ? `${String(Math.round(plan.quotaLimits.mediaStorageBytesLimit / 1048576))} MB`
+                      : "default"}
+                  </div>
                 </div>
               </Sec>
               <Sec label="AI model">

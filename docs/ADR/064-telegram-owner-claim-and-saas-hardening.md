@@ -22,7 +22,8 @@ At the current product stage this is not acceptable for a multi-tenant SaaS targ
 2. A Telegram bot is not fully ready immediately after token connect:
    - connect stores token/binding truth
    - the integration enters `claim_required`
-   - the owner must complete Telegram claim through a personal deep link
+   - PersAI generates a one-time 6-digit owner claim code
+   - the owner opens the bot chat in Telegram and sends that code
    - only after claim does the integration become `connected`
 3. Existing connected Telegram bots are migrated into the same `claim_required` posture until the owner confirms the Telegram account.
 4. OpenClaw Telegram ingress becomes replay-safe:
@@ -32,7 +33,8 @@ At the current product stage this is not acceptable for a multi-tenant SaaS targ
 5. Telegram terminal auth failures are explicit:
    - `401 Unauthorized` on profile/runtime Telegram API calls transitions the integration into `invalid_token`
    - this is not treated as an infinite retry path
-6. After successful owner claim, the bot immediately sends a short system message in the assistant system language so the private owner chat appears in Telegram without manual searching.
+6. While Telegram is still unclaimed, the bot responds in the assistant system language with a short prompt telling the user to send the 6-digit code from PersAI.
+7. After successful owner claim, the bot immediately sends a short system message in the assistant system language so the private owner chat appears in Telegram without manual searching.
 
 ## Consequences
 
@@ -41,7 +43,8 @@ At the current product stage this is not acceptable for a multi-tenant SaaS targ
 - Telegram bots become private-by-default and safer for SaaS use.
 - Replayed Telegram updates no longer fan out into repeated user-visible turns.
 - Broken Telegram tokens move into an honest operator-visible state instead of endless log spam.
-- Telegram onboarding becomes clearer because claim completion produces an immediate owner chat.
+- Telegram onboarding becomes clearer because the owner only needs to send a short code instead of relying on platform-specific deep-link handoff.
+- claim completion still produces an immediate owner chat.
 - PersAI UI, PersAI control plane, and OpenClaw runtime share one explicit lifecycle: `not_connected -> claim_required -> connected` or `invalid_token`.
 
 ### Negative

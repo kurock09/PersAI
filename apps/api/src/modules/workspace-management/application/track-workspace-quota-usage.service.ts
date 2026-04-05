@@ -24,6 +24,7 @@ import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-su
 type PlanQuotaHints = {
   tokenBudgetLimit: bigint | null;
   costOrTokenDrivingToolClassUnitsLimit: number | null;
+  mediaStorageBytesLimit: bigint | null;
 };
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -77,9 +78,14 @@ function parsePlanQuotaHints(
       "cost_or_token_driving_tool_class_units_limit"
     );
 
+  const mediaStorageLimit =
+    asPositiveInteger(quotaHints?.mediaStorageBytesLimit) ??
+    readQuotaHintFromLimitsPermissions(limitsPermissions, "media_storage_bytes_limit");
+
   return {
     tokenBudgetLimit: tokenBudgetLimit === null ? null : BigInt(tokenBudgetLimit),
-    costOrTokenDrivingToolClassUnitsLimit: toolClassLimit
+    costOrTokenDrivingToolClassUnitsLimit: toolClassLimit,
+    mediaStorageBytesLimit: mediaStorageLimit === null ? null : BigInt(mediaStorageLimit)
   };
 }
 
@@ -270,7 +276,8 @@ export class TrackWorkspaceQuotaUsageService {
         planQuotaHints.costOrTokenDrivingToolClassUnitsLimit ??
         config.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT,
       activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP,
-      mediaStorageBytesLimit: BigInt(config.QUOTA_MEDIA_STORAGE_BYTES_DEFAULT)
+      mediaStorageBytesLimit:
+        planQuotaHints.mediaStorageBytesLimit ?? BigInt(config.QUOTA_MEDIA_STORAGE_BYTES_DEFAULT)
     };
   }
 }

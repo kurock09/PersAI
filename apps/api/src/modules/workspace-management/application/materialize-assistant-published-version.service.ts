@@ -890,7 +890,8 @@ export class MaterializeAssistantPublishedVersionService {
     outbound: boolean;
     accessMode: string;
     ownerClaimStatus: string;
-    ownerClaimToken: string | null;
+    ownerClaimCode: string | null;
+    ownerClaimCodeExpiresAt: string | null;
     ownerTelegramUserId: number | null;
     ownerTelegramUsername: string | null;
     ownerTelegramChatId: string | null;
@@ -917,7 +918,8 @@ export class MaterializeAssistantPublishedVersionService {
         outbound: false,
         accessMode: "owner_only",
         ownerClaimStatus: "not_started",
-        ownerClaimToken: null,
+        ownerClaimCode: null,
+        ownerClaimCodeExpiresAt: null,
         ownerTelegramUserId: null,
         ownerTelegramUsername: null,
         ownerTelegramChatId: null,
@@ -971,7 +973,8 @@ export class MaterializeAssistantPublishedVersionService {
       outbound: bindingPolicy.outboundAssistantMessages !== false,
       accessMode: bindingMetadata.telegramAccessMode,
       ownerClaimStatus: bindingMetadata.telegramOwnerClaimStatus,
-      ownerClaimToken: bindingMetadata.telegramOwnerClaimToken,
+      ownerClaimCode: bindingMetadata.telegramOwnerClaimCode,
+      ownerClaimCodeExpiresAt: bindingMetadata.telegramOwnerClaimExpiresAt,
       ownerTelegramUserId: bindingMetadata.telegramOwnerTelegramUserId,
       ownerTelegramUsername: bindingMetadata.telegramOwnerTelegramUsername,
       ownerTelegramChatId: bindingMetadata.telegramOwnerTelegramChatId,

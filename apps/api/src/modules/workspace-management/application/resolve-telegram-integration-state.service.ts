@@ -12,7 +12,6 @@ import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capa
 import type { TelegramIntegrationState } from "./telegram-integration.types";
 import { resolveTelegramSecretLifecycleState } from "./assistant-secret-refs-lifecycle";
 import {
-  buildTelegramClaimDeepLink,
   resolveTelegramBindingMetadataState,
   resolveTelegramConnectionStatus
 } from "./telegram-integration.metadata";
@@ -106,11 +105,9 @@ export class ResolveTelegramIntegrationStateService {
       ownerClaim: {
         required: hasConnectedBinding,
         status: telegramMetadata.telegramOwnerClaimStatus,
-        claimDeepLink: buildTelegramClaimDeepLink(
-          telegramMetadata.username,
-          telegramMetadata.telegramOwnerClaimToken
-        ),
+        code: telegramMetadata.telegramOwnerClaimCode,
         claimIssuedAt: telegramMetadata.telegramOwnerClaimIssuedAt,
+        claimExpiresAt: telegramMetadata.telegramOwnerClaimExpiresAt,
         claimedAt: telegramMetadata.telegramOwnerClaimedAt,
         systemWelcomeSentAt: telegramMetadata.telegramOwnerSystemWelcomeSentAt
       },

@@ -55,6 +55,7 @@ export type AdminPlanInput = {
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: {
     tokenBudgetLimit: number | null;
+    mediaStorageBytesLimit: number | null;
   };
   primaryModelKey: string | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
@@ -80,6 +81,7 @@ export type AdminPlanState = {
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: {
     tokenBudgetLimit: number | null;
+    mediaStorageBytesLimit: number | null;
   };
   primaryModelKey: string | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;

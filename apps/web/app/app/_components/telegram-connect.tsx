@@ -287,6 +287,7 @@ function ConnectedView({
   const [groupsLoading, setGroupsLoading] = useState(true);
   const [disconnecting, setDisconnecting] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [claimCodeCopied, setClaimCodeCopied] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -352,6 +353,23 @@ function ConnectedView({
     }
   }, [getToken, onUpdated]);
 
+  const handleCopyClaimCode = useCallback(async () => {
+    const claimCode = integration.ownerClaim.code;
+    if (!claimCode) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(claimCode);
+      setClaimCodeCopied(true);
+      setTimeout(() => setClaimCodeCopied(false), 1500);
+    } catch {
+      setFeedback({
+        type: "err",
+        text: t("copyCodeFailed")
+      });
+    }
+  }, [integration.ownerClaim.code, t]);
+
   return (
     <div className="space-y-5 px-5 py-5">
       {/* Bot info */}
@@ -373,21 +391,27 @@ function ConnectedView({
         </div>
       </div>
 
-      {integration.connectionStatus === "claim_required" &&
-        integration.ownerClaim.claimDeepLink && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-            <p className="text-xs font-medium text-amber-700">{t("claimRequiredTitle")}</p>
-            <p className="mt-1 text-xs text-text-muted">{t("claimRequiredDesc")}</p>
-            <a
-              href={integration.ownerClaim.claimDeepLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
-            >
-              {t("openClaimLink")} <ExternalLink className="h-3 w-3" />
-            </a>
+      {integration.connectionStatus === "claim_required" && integration.ownerClaim.code && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <p className="text-xs font-medium text-amber-700">{t("claimRequiredTitle")}</p>
+          <p className="mt-1 text-xs text-text-muted">{t("claimRequiredDesc")}</p>
+          <div className="mt-3 rounded-lg border border-amber-500/20 bg-black/10 px-3 py-3">
+            <p className="text-[10px] uppercase tracking-wide text-text-muted">{t("claimCode")}</p>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <code className="text-base font-semibold tracking-[0.2em] text-text">
+                {integration.ownerClaim.code}
+              </code>
+              <button
+                type="button"
+                onClick={() => void handleCopyClaimCode()}
+                className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+              >
+                {claimCodeCopied ? t("copiedCode") : t("copyCode")}
+              </button>
+            </div>
           </div>
-        )}
+        </div>
+      )}
 
       {integration.connectionStatus === "invalid_token" && (
         <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4">

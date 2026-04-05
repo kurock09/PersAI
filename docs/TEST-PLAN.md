@@ -135,7 +135,7 @@ Required in CI:
 - Telegram integration flow is validated in API test script (`test:telegram-integration`) for:
   - connect flow token verification path and persisted `claim_required` state
   - post-connect configuration update persistence and response shape
-  - owner-claim metadata/deep-link exposure in integration state
+  - owner-claim metadata and 6-digit code exposure in integration state
 - API lint/typecheck validate Telegram endpoints/services and binding persistence wiring.
 - Web app flow tests validate integrations-area Telegram connect interaction path.
 - Existing E1-E3 envelope/capability tests remain green.
@@ -511,6 +511,7 @@ Required in CI:
 - Telegram profile API calls honor cooldown and do not spam `setMyName` / `setMyDescription` / `setMyProfilePhoto` on repeated no-op apply.
 - repeated Telegram webhook deliveries are deduped before they can start duplicate runtime turns.
 - owner-only DM gate is validated before `requestPersaiTelegramTurn`.
+- unclaimed Telegram DM flow prompts for the PersAI 6-digit code and completes claim only on a matching code.
 - terminal Telegram `401 Unauthorized` maps to explicit `invalid_token` state instead of infinite retry-only behavior.
 
 ### Session lifecycle

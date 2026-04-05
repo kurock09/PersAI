@@ -533,7 +533,8 @@ It is not part of backend domain logic.
   - `invalid_token`
 - direct-message access is private by default:
   - `owner_only`
-  - owner claim completes through a Telegram deep link
+  - owner claim completes through a one-time 6-digit code shown in PersAI and sent to the bot chat
+  - while claim is pending, the bot answers with a short locale-aware prompt telling the user to send that code
   - successful claim triggers an immediate system-language Telegram welcome message so the owner chat appears without manual search
 - Telegram agent turns share the same per-assistant workspace as web chat (same `MEMORY.md`, bootstrap files).
 - Backend does not route Telegram messages or manage bot lifecycle directly.

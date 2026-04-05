@@ -10,9 +10,11 @@ export interface TelegramIntegrationOwnerClaimState {
   required: boolean;
   status: TelegramIntegrationOwnerClaimStateStatus;
   /** @nullable */
-  claimDeepLink: string | null;
+  code: string | null;
   /** @nullable */
   claimIssuedAt: string | null;
+  /** @nullable */
+  claimExpiresAt: string | null;
   /** @nullable */
   claimedAt: string | null;
   /** @nullable */

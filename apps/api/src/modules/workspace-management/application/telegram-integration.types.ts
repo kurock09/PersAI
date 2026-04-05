@@ -21,8 +21,9 @@ export type TelegramIntegrationState = {
   ownerClaim: {
     required: boolean;
     status: "not_started" | "pending" | "claimed";
-    claimDeepLink: string | null;
+    code: string | null;
     claimIssuedAt: string | null;
+    claimExpiresAt: string | null;
     claimedAt: string | null;
     systemWelcomeSentAt: string | null;
   };

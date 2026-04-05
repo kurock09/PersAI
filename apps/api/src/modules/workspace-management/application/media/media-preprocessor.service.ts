@@ -268,6 +268,11 @@ export class MediaPreprocessorService {
   ): Promise<string | null> {
     const runtimeTier =
       await this.resolveAssistantRuntimeTierService.resolveByAssistantId(assistantId);
+
+    void this.runtimeAdapter
+      .deleteChatMediaBatch(assistantId, "_stt_tmp", runtimeTier)
+      .catch(() => {});
+
     const uploadResult = await this.runtimeAdapter.uploadChatMedia({
       assistantId,
       runtimeTier,
