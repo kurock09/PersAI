@@ -1,9 +1,6 @@
 {{- $apiPublicCidrs := .Values.networkPolicy.apiIngress.publicIpBlocks | default (list) }}
 {{- $apiExtraCidrs := .Values.networkPolicy.apiIngress.extraFromIpBlocks | default (list) }}
 {{- $apiIngressSafe := or (not .Values.ingress.enabled) (gt (len $apiPublicCidrs) 0) }}
-{{- $freePoolKey := "free_shared_restricted" }}
-{{- $freeIngressPoolKey := "free_shared_restricted_sandbox" }}
-{{- $effectiveIngressPoolKey := ternary $freeIngressPoolKey $freePoolKey (hasKey .Values.openclaw.runtimePools.pools $freeIngressPoolKey) }}
 {{- if and .Values.networkPolicy.enabled .Values.api.enabled $apiIngressSafe }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

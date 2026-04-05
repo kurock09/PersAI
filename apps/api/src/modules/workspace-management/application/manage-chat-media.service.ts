@@ -190,6 +190,11 @@ export class ManageChatMediaService {
       );
     }
 
+    const quotaCheck = await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
+    if (!quotaCheck.allowed) {
+      throw new BadRequestException("Media storage quota exceeded for this workspace.");
+    }
+
     const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
     const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
@@ -204,11 +209,6 @@ export class ManageChatMediaService {
       fileBuffer,
       mimeType
     });
-
-    const quotaCheck = await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
-    if (!quotaCheck.allowed) {
-      throw new BadRequestException("Media storage quota exceeded for this workspace.");
-    }
 
     const sizeBytes = BigInt(uploadResult.sizeBytes);
     const attachment = await this.attachmentRepository.create({
