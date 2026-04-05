@@ -1,6 +1,7 @@
 import { All, Controller, Logger, Param, Req, Res } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import { ResolveAssistantRuntimeTierService } from "../../application/resolve-assistant-runtime-tier.service";
+import type { RuntimeTier } from "../../application/runtime-assignment";
 import {
   normalizeRuntimeBaseUrl,
   resolveRuntimeBaseUrl
@@ -53,7 +54,7 @@ export class TelegramWebhookProxyController {
       return;
     }
 
-    let tier: string;
+    let tier: RuntimeTier;
     try {
       tier = await this.resolveRuntimeTier.resolveByAssistantId(assistantId);
     } catch (err) {
@@ -70,7 +71,7 @@ export class TelegramWebhookProxyController {
           paid_isolated: isoUrl
         }
       },
-      runtimeTier: tier as any
+      runtimeTier: tier
     });
 
     const targetUrl = `${baseUrl}/telegram-webhook/${assistantId}`;
