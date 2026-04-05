@@ -32,6 +32,7 @@ import type {
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { resolveTelegramBindingMetadataState } from "./telegram-integration.metadata";
 
 function telegramBotSecretKey(assistantId: string): string {
   return `telegram_bot:${assistantId}`;
@@ -96,31 +97,34 @@ export class RevokeTelegramIntegrationSecretService {
     });
     const hasManagedSecret =
       lifecycleBefore.status !== "legacy_unmanaged" && lifecycleBefore.refKey !== null;
-    if (!hasManagedSecret) {
-      throw new ConflictException(
-        "Telegram secret reference is not managed yet. Rotate Telegram token first to enable managed lifecycle operations."
-      );
-    }
-
-    const revoked = revokeTelegramBotSecretRef(governance.secretRefs, {
-      emergency,
-      reason: input.reason
-    });
-    await this.assistantGovernanceRepository.updateSecretRefs(
-      assistant.id,
-      revoked as unknown as Record<string, unknown>
-    );
-
     const existingBinding =
       await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
         assistant.id,
         "telegram",
         "telegram_bot"
       );
-    await this.secretStoreService.deleteProviderKey(telegramBotSecretKey(assistant.id));
+    if (!hasManagedSecret && existingBinding === null) {
+      throw new ConflictException("Telegram is not connected yet.");
+    }
+
+    if (hasManagedSecret) {
+      const revoked = revokeTelegramBotSecretRef(governance.secretRefs, {
+        emergency,
+        reason: input.reason
+      });
+      await this.assistantGovernanceRepository.updateSecretRefs(
+        assistant.id,
+        revoked as unknown as Record<string, unknown>
+      );
+    }
+
+    await this.secretStoreService
+      .deleteProviderKey(telegramBotSecretKey(assistant.id))
+      .catch(() => undefined);
 
     if (existingBinding !== null) {
       const now = new Date();
+      const metadata = resolveTelegramBindingMetadataState(existingBinding.metadata);
       await this.assistantChannelSurfaceBindingRepository.upsert({
         assistantId: assistant.id,
         providerKey: "telegram",
@@ -136,10 +140,18 @@ export class RevokeTelegramIntegrationSecretService {
           existingBinding.config !== null && typeof existingBinding.config === "object"
             ? (existingBinding.config as Record<string, unknown>)
             : null,
-        metadata:
-          existingBinding.metadata !== null && typeof existingBinding.metadata === "object"
-            ? (existingBinding.metadata as Record<string, unknown>)
-            : null,
+        metadata: {
+          ...metadata,
+          telegramOwnerClaimStatus: "pending",
+          telegramOwnerClaimedAt: null,
+          telegramOwnerTelegramUserId: null,
+          telegramOwnerTelegramUsername: null,
+          telegramOwnerTelegramChatId: null,
+          telegramOwnerSystemWelcomeSentAt: null,
+          telegramRuntimeHealth: "ok",
+          telegramRuntimeHealthUpdatedAt: now.toISOString(),
+          telegramRuntimeHealthMessage: null
+        },
         connectedAt: existingBinding.connectedAt,
         disconnectedAt: now
       });

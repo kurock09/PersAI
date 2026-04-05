@@ -133,8 +133,9 @@ Required in CI:
 ## Step 8 E4 focus
 
 - Telegram integration flow is validated in API test script (`test:telegram-integration`) for:
-  - connect flow token verification path and persisted connected state
+  - connect flow token verification path and persisted `claim_required` state
   - post-connect configuration update persistence and response shape
+  - owner-claim metadata/deep-link exposure in integration state
 - API lint/typecheck validate Telegram endpoints/services and binding persistence wiring.
 - Web app flow tests validate integrations-area Telegram connect interaction path.
 - Existing E1-E3 envelope/capability tests remain green.
@@ -508,6 +509,9 @@ Required in CI:
 - Pod restart reinitializes persisted Telegram bots with bounded concurrency, jitter, and retry backoff.
 - Startup reinit defers non-critical profile sync until the gateway reports ready.
 - Telegram profile API calls honor cooldown and do not spam `setMyName` / `setMyDescription` / `setMyProfilePhoto` on repeated no-op apply.
+- repeated Telegram webhook deliveries are deduped before they can start duplicate runtime turns.
+- owner-only DM gate is validated before `requestPersaiTelegramTurn`.
+- terminal Telegram `401 Unauthorized` maps to explicit `invalid_token` state instead of infinite retry-only behavior.
 
 ### Session lifecycle
 

@@ -2794,6 +2794,8 @@ components:
       enum:
         - connected
         - not_connected
+        - claim_required
+        - invalid_token
     TelegramIntegrationBindingState:
       type: string
       enum:
@@ -2807,6 +2809,9 @@ components:
         - username
         - displayName
         - avatarUrl
+        - ownerTelegramUserId
+        - ownerTelegramUsername
+        - ownerTelegramChatId
       properties:
         telegramUserId:
           type: number
@@ -2818,6 +2823,15 @@ components:
           type: string
           nullable: true
         avatarUrl:
+          type: string
+          nullable: true
+        ownerTelegramUserId:
+          type: number
+          nullable: true
+        ownerTelegramUsername:
+          type: string
+          nullable: true
+        ownerTelegramChatId:
           type: string
           nullable: true
     TelegramIntegrationTokenHint:
@@ -2915,6 +2929,54 @@ components:
           type: boolean
         settings:
           $ref: "#/components/schemas/TelegramIntegrationConfigSettings"
+    TelegramIntegrationOwnerClaimState:
+      type: object
+      required:
+        - required
+        - status
+        - claimDeepLink
+        - claimIssuedAt
+        - claimedAt
+        - systemWelcomeSentAt
+      properties:
+        required:
+          type: boolean
+        status:
+          type: string
+          enum:
+            - not_started
+            - pending
+            - claimed
+        claimDeepLink:
+          type: string
+          nullable: true
+        claimIssuedAt:
+          type: string
+          nullable: true
+        claimedAt:
+          type: string
+          nullable: true
+        systemWelcomeSentAt:
+          type: string
+          nullable: true
+    TelegramIntegrationRuntimeState:
+      type: object
+      required:
+        - health
+        - lastError
+        - checkedAt
+      properties:
+        health:
+          type: string
+          enum:
+            - ok
+            - invalid_token
+        lastError:
+          type: string
+          nullable: true
+        checkedAt:
+          type: string
+          nullable: true
     TelegramIntegrationState:
       type: object
       required:
@@ -2927,6 +2989,8 @@ components:
         - connectedAt
         - bot
         - tokenHint
+        - ownerClaim
+        - runtime
         - secretLifecycle
         - configPanel
         - notes
@@ -2957,6 +3021,10 @@ components:
           $ref: "#/components/schemas/TelegramIntegrationBotState"
         tokenHint:
           $ref: "#/components/schemas/TelegramIntegrationTokenHint"
+        ownerClaim:
+          $ref: "#/components/schemas/TelegramIntegrationOwnerClaimState"
+        runtime:
+          $ref: "#/components/schemas/TelegramIntegrationRuntimeState"
         secretLifecycle:
           $ref: "#/components/schemas/TelegramSecretLifecycleState"
         configPanel:

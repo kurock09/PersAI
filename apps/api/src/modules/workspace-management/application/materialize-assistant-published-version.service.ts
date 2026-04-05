@@ -41,6 +41,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { normalizeAssistantGender } from "./assistant-gender";
 import { resolveRuntimeAssignmentState } from "./runtime-assignment";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
+import { resolveTelegramBindingMetadataState } from "./telegram-integration.metadata";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -887,6 +888,13 @@ export class MaterializeAssistantPublishedVersionService {
     parseMode: string;
     inbound: boolean;
     outbound: boolean;
+    accessMode: string;
+    ownerClaimStatus: string;
+    ownerClaimToken: string | null;
+    ownerTelegramUserId: number | null;
+    ownerTelegramUsername: string | null;
+    ownerTelegramChatId: string | null;
+    runtimeHealth: string;
   }> {
     const binding = await this.prisma.assistantChannelSurfaceBinding.findFirst({
       where: {
@@ -906,7 +914,14 @@ export class MaterializeAssistantPublishedVersionService {
         groupReplyMode: "mention_reply",
         parseMode: "plain_text",
         inbound: false,
-        outbound: false
+        outbound: false,
+        accessMode: "owner_only",
+        ownerClaimStatus: "not_started",
+        ownerClaimToken: null,
+        ownerTelegramUserId: null,
+        ownerTelegramUsername: null,
+        ownerTelegramChatId: null,
+        runtimeHealth: "ok"
       };
     }
 
@@ -936,13 +951,14 @@ export class MaterializeAssistantPublishedVersionService {
       binding.policy && typeof binding.policy === "object" && !Array.isArray(binding.policy)
         ? (binding.policy as Record<string, unknown>)
         : {};
+    const bindingMetadata = resolveTelegramBindingMetadataState(binding.metadata);
 
     return {
       enabled: botToken !== null,
       botToken,
       webhookUrl,
       webhookSecret,
-      dmPolicy: "open",
+      dmPolicy: "owner_only",
       groupReplyMode:
         typeof bindingConfig.groupReplyMode === "string"
           ? bindingConfig.groupReplyMode
@@ -952,7 +968,14 @@ export class MaterializeAssistantPublishedVersionService {
           ? bindingConfig.defaultParseMode
           : "plain_text",
       inbound: bindingPolicy.inboundUserMessages !== false,
-      outbound: bindingPolicy.outboundAssistantMessages !== false
+      outbound: bindingPolicy.outboundAssistantMessages !== false,
+      accessMode: bindingMetadata.telegramAccessMode,
+      ownerClaimStatus: bindingMetadata.telegramOwnerClaimStatus,
+      ownerClaimToken: bindingMetadata.telegramOwnerClaimToken,
+      ownerTelegramUserId: bindingMetadata.telegramOwnerTelegramUserId,
+      ownerTelegramUsername: bindingMetadata.telegramOwnerTelegramUsername,
+      ownerTelegramChatId: bindingMetadata.telegramOwnerTelegramChatId,
+      runtimeHealth: bindingMetadata.telegramRuntimeHealth
     };
   }
 

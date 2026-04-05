@@ -213,12 +213,18 @@ async function run(): Promise<void> {
     const connected = await connectService.execute("user-1", {
       botToken: "123456:ABCDEF01234567890123"
     });
-    assert.equal(connected.connectionStatus, "connected");
+    assert.equal(connected.connectionStatus, "claim_required");
     assert.equal(connected.secretLifecycle.status, "active");
     assert.equal(connected.secretLifecycle.version, 1);
     assert.equal(connected.bot.displayName, "PersAI Bot");
     assert.equal(connected.bot.username, "persai_bot");
     assert.equal(connected.configPanel.available, true);
+    assert.equal(connected.ownerClaim.required, true);
+    assert.equal(connected.ownerClaim.status, "pending");
+    assert.match(
+      connected.ownerClaim.claimDeepLink ?? "",
+      /https:\/\/t\.me\/persai_bot\?start=persai_claim_/
+    );
 
     applyCallCount = 0;
     const updated = await updateConfigService.execute("user-1", {
@@ -232,6 +238,7 @@ async function run(): Promise<void> {
     assert.equal(updated.configPanel.settings.outboundAssistantMessagesEnabled, false);
     assert.equal(updated.configPanel.settings.groupReplyMode, "mention_reply");
     assert.equal(updated.configPanel.settings.notes, "Only outbound notifications for now");
+    assert.equal(updated.connectionStatus, "claim_required");
     assert.equal(applyCallCount, 1);
 
     const revoked = await revokeService.execute("user-1", { reason: "token leaked" }, false);

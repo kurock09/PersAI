@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Telegram SaaS hardening baseline:** Telegram DM access is now owner-only by default, freshly connected bots enter `claim_required` until the owner completes a Telegram deep-link claim, and UI/API/runtime now expose honest Telegram states instead of a binary connected/not-connected flag. Disconnect/revoke from PersAI now works even when the prior Telegram secret lifecycle was legacy/unmanaged, and runtime-side repeated Telegram webhook deliveries are deduped by `assistantId + update_id` before they can replay a turn. Terminal Telegram `401 Unauthorized` failures are now surfaced as `invalid_token` instead of endless retry-only noise.
+- **OpenClaw Telegram hardening pin advanced:** the approved OpenClaw fork now points to `e4f73e39c64064d74d4127e7eebbb881054fdf78`, which adds runtime-side owner-claim gating, duplicate `update_id` ingress suppression, terminal invalid-token surfacing, and lazy Telegram bot bootstrap across replicas for the PersAI Telegram SaaS flow. `openclaw-approved-sha.txt` and `infra/helm/values-dev.yaml` were advanced to the same SHA, and the dev image digest was cleared again for CI repin.
+
+- **K16 sandbox tool surface deployed to cluster:** the `values-dev.yaml` sandbox tool allowlist and `docker.user: "0:0"` fix from the previous session had been committed but never applied to the live cluster. Running `helm template | kubectl apply` plus pod rollout restart immediately resolved the missing-tools issue — all PersAI product/service tools (`web_search`, `image_generate`, `tts`, `browser`, `memory_search`, `memory_get`, `reminder_task`, `web_fetch`, `persai_tool_quota_status`, `persai_workspace_attach`) now appear in fresh agent sessions alongside the six core coding tools. No OpenClaw source code patches were required.
+
 ### Added
 
 - **Tiered OpenClaw runtime strategy docs:** new `ADR-063` and `OPENCLAW-SAAS-RUNTIME-PLAN.md` define one clean runtime program for paid production: shared-runtime hardening, fork audit automation, runtime-tier control plane, GKE pool preparation, and clean cutover toward `free_shared_restricted` / `paid_shared_restricted` / `paid_isolated` without deepening one-runtime legacy assumptions.

@@ -15,6 +15,10 @@ import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.s
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { InboundMediaService } from "./media/inbound-media.service";
 import type { RawInboundAttachment } from "./media/media.types";
+import {
+  ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
+  type AssistantChannelSurfaceBindingRepository
+} from "../domain/assistant-channel-surface-binding.repository";
 
 export interface InternalTelegramAttachmentInput {
   type: "image" | "audio" | "voice" | "video" | "document";
@@ -30,12 +34,14 @@ export interface InternalTelegramTurnRequest {
   threadId: string;
   message: string;
   attachments?: InternalTelegramAttachmentInput[];
+  updateId?: number | null;
 }
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
   respondedAt: string;
   media: RuntimeMediaArtifact[];
+  deduplicated?: boolean;
 }
 
 function normalizeRequiredString(value: unknown, fieldName: string): string {
@@ -86,6 +92,8 @@ export class HandleInternalTelegramTurnService {
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly chatRepository: AssistantChatRepository,
+    @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
+    private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
     private readonly enforceAbuseRateLimitService: EnforceAbuseRateLimitService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
@@ -104,7 +112,9 @@ export class HandleInternalTelegramTurnService {
       assistantId: normalizeRequiredString(row.assistantId, "assistantId"),
       threadId: normalizeRequiredString(row.threadId, "threadId"),
       message: normalizeRequiredString(row.message, "message"),
-      attachments: parseAttachments(row.attachments)
+      attachments: parseAttachments(row.attachments),
+      updateId:
+        typeof row.updateId === "number" && Number.isFinite(row.updateId) ? row.updateId : null
     };
   }
 
@@ -112,6 +122,15 @@ export class HandleInternalTelegramTurnService {
     const resolved = await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
       input.assistantId
     );
+    if (input.updateId !== null && input.updateId !== undefined) {
+      const dedupe = await this.tryHandleDuplicateTelegramUpdate(
+        resolved.assistantId,
+        input.updateId
+      );
+      if (dedupe !== null) {
+        return dedupe;
+      }
+    }
 
     const quotaDecision = await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
       assistant: resolved.assistant,
@@ -200,9 +219,50 @@ export class HandleInternalTelegramTurnService {
       assistantContent: runtimeResponse.assistantMessage,
       source: "telegram_turn_sync"
     });
+    if (input.updateId !== null && input.updateId !== undefined) {
+      await this.bindingRepository.patchMetadata(resolved.assistantId, "telegram", "telegram_bot", {
+        telegramLastHandledUpdateId: input.updateId,
+        telegramLastHandledUpdateAt: new Date().toISOString()
+      });
+    }
     await this.consumeBootstrapBestEffort(resolved.assistantId);
 
     return runtimeResponse;
+  }
+
+  private async tryHandleDuplicateTelegramUpdate(
+    assistantId: string,
+    updateId: number
+  ): Promise<InternalTelegramTurnResult | null> {
+    const binding = await this.bindingRepository.findByAssistantProviderSurface(
+      assistantId,
+      "telegram",
+      "telegram_bot"
+    );
+    const metadata =
+      binding !== null &&
+      binding.metadata !== null &&
+      typeof binding.metadata === "object" &&
+      !Array.isArray(binding.metadata)
+        ? (binding.metadata as Record<string, unknown>)
+        : null;
+    const lastHandled =
+      typeof metadata?.telegramLastHandledUpdateId === "number" &&
+      Number.isFinite(metadata.telegramLastHandledUpdateId)
+        ? metadata.telegramLastHandledUpdateId
+        : null;
+    if (lastHandled === null || updateId > lastHandled) {
+      return null;
+    }
+    this.logger.warn(
+      `[telegram-turn] Dropped duplicate Telegram update ${updateId} for assistant ${assistantId}`
+    );
+    return {
+      assistantMessage: "",
+      respondedAt: new Date().toISOString(),
+      media: [],
+      deduplicated: true
+    };
   }
 
   private async downloadTelegramAttachments(

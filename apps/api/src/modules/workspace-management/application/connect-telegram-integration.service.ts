@@ -28,6 +28,7 @@ import { AppendAssistantAuditEventService } from "./append-assistant-audit-event
 import { rotateTelegramBotSecretRef } from "./assistant-secret-refs-lifecycle";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { createTelegramConnectedMetadata } from "./telegram-integration.metadata";
 
 function telegramBotSecretKey(assistantId: string): string {
   return `telegram_bot:${assistantId}`;
@@ -132,12 +133,12 @@ export class ConnectTelegramIntegrationService {
         groupReplyMode: "mention_reply",
         notes: null
       },
-      metadata: {
+      metadata: createTelegramConnectedMetadata({
         telegramUserId: bot.id,
         username: bot.username ?? null,
         displayName: bot.first_name ?? null,
         avatarUrl: toAvatarUrl(bot.username)
-      },
+      }),
       connectedAt: new Date(),
       disconnectedAt: null
     });
@@ -179,6 +180,7 @@ export class ConnectTelegramIntegrationService {
         providerKey: "telegram",
         surfaceType: "telegram_bot",
         username: bot.username ?? null,
+        ownerClaimStatus: "pending",
         tokenFingerprintPrefix: tokenFingerprint.slice(0, 12),
         tokenLastFour
       }

@@ -925,7 +925,13 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
       {/* 5. Channels */}
       <Section icon={<Send className="h-4 w-4" />} title={t("channels")} defaultOpen={false}>
         <div className="space-y-1.5">
-          <ChannelRow name="Telegram" connected={data.telegram?.connectionStatus === "connected"} />
+          <ChannelRow
+            name="Telegram"
+            connected={
+              data.telegram?.connectionStatus === "connected" ||
+              data.telegram?.connectionStatus === "claim_required"
+            }
+          />
           <ChannelRow name="WhatsApp" comingSoon />
           <ChannelRow name="MAX" comingSoon />
         </div>

@@ -33,6 +33,7 @@ export class InternalRuntimeTurnController {
         ok: true,
         assistantMessage: result.assistantMessage,
         respondedAt: result.respondedAt,
+        ...(result.deduplicated === true ? { deduplicated: true } : {}),
         ...(result.media ? { media: result.media } : {})
       };
     } catch (error) {

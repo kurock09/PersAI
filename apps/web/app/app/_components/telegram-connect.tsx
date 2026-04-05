@@ -46,7 +46,10 @@ export function TelegramConnect({
   onUpdated
 }: TelegramConnectProps) {
   const t = useTranslations("telegram");
-  const connected = integration?.connectionStatus === "connected";
+  const connected =
+    integration?.connectionStatus === "connected" ||
+    integration?.connectionStatus === "claim_required" ||
+    integration?.connectionStatus === "invalid_token";
   const allowed = integration?.capabilityAllowed ?? capabilityAllowed;
   const [reconnecting, setReconnecting] = useState(false);
 
@@ -261,6 +264,14 @@ function ConnectedView({
   const bot = integration.bot;
   const config = integration.configPanel.settings;
   const configAvailable = integration.configPanel.available;
+  const statusTone =
+    integration.connectionStatus === "connected"
+      ? { dot: "bg-success", text: "text-success", label: t("connectedLabel") }
+      : integration.connectionStatus === "claim_required"
+        ? { dot: "bg-amber-500", text: "text-amber-600", label: t("claimRequiredLabel") }
+        : integration.connectionStatus === "invalid_token"
+          ? { dot: "bg-destructive", text: "text-destructive", label: t("invalidTokenLabel") }
+          : { dot: "bg-text-subtle", text: "text-text-subtle", label: t("notConnectedLabel") };
 
   const [configOpen, setConfigOpen] = useState(false);
   const [parseMode, setParseMode] = useState(config.defaultParseMode);
@@ -357,14 +368,40 @@ function ConnectedView({
           {bot.username && <p className="text-xs text-text-muted">@{bot.username}</p>}
         </div>
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-success" />
-          <span className="text-xs text-success">{t("connectedLabel")}</span>
+          <span className={cn("h-2 w-2 rounded-full", statusTone.dot)} />
+          <span className={cn("text-xs", statusTone.text)}>{statusTone.label}</span>
         </div>
       </div>
+
+      {integration.connectionStatus === "claim_required" &&
+        integration.ownerClaim.claimDeepLink && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <p className="text-xs font-medium text-amber-700">{t("claimRequiredTitle")}</p>
+            <p className="mt-1 text-xs text-text-muted">{t("claimRequiredDesc")}</p>
+            <a
+              href={integration.ownerClaim.claimDeepLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+            >
+              {t("openClaimLink")} <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        )}
+
+      {integration.connectionStatus === "invalid_token" && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4">
+          <p className="text-xs font-medium text-destructive">{t("invalidTokenTitle")}</p>
+          <p className="mt-1 text-xs text-text-muted">
+            {integration.runtime.lastError || t("invalidTokenDesc")}
+          </p>
+        </div>
+      )}
 
       {/* Status details */}
       <div className="space-y-2 rounded-xl border border-border p-4">
         <Row label={t("binding")} value={integration.bindingState} />
+        <Row label={t("status")} value={statusTone.label} />
         {integration.connectedAt && (
           <Row
             label={t("connectedLabel")}
@@ -375,6 +412,9 @@ function ConnectedView({
           label={t("token")}
           value={integration.tokenHint.lastFour ? `****${integration.tokenHint.lastFour}` : "****"}
         />
+        {bot.ownerTelegramUsername && (
+          <Row label={t("owner")} value={`@${bot.ownerTelegramUsername}`} />
+        )}
       </div>
 
       {/* Config panel */}

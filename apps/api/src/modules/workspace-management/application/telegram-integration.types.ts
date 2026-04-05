@@ -3,7 +3,7 @@ export type TelegramIntegrationState = {
   provider: "telegram";
   surfaceType: "telegram_bot";
   capabilityAllowed: boolean;
-  connectionStatus: "connected" | "not_connected";
+  connectionStatus: "connected" | "not_connected" | "claim_required" | "invalid_token";
   bindingState: "active" | "inactive" | "unconfigured";
   connectedAt: string | null;
   bot: {
@@ -11,9 +11,25 @@ export type TelegramIntegrationState = {
     username: string | null;
     displayName: string | null;
     avatarUrl: string | null;
+    ownerTelegramUserId: number | null;
+    ownerTelegramUsername: string | null;
+    ownerTelegramChatId: string | null;
   };
   tokenHint: {
     lastFour: string | null;
+  };
+  ownerClaim: {
+    required: boolean;
+    status: "not_started" | "pending" | "claimed";
+    claimDeepLink: string | null;
+    claimIssuedAt: string | null;
+    claimedAt: string | null;
+    systemWelcomeSentAt: string | null;
+  };
+  runtime: {
+    health: "ok" | "invalid_token";
+    lastError: string | null;
+    checkedAt: string | null;
   };
   secretLifecycle: {
     status: "active" | "revoked" | "emergency_revoked" | "expired" | "legacy_unmanaged";

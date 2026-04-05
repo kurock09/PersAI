@@ -165,6 +165,14 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
     older: t("older")
   });
   const telegramConnected = data.telegram?.connectionStatus === "connected";
+  const telegramStatusLabel =
+    data.telegram?.connectionStatus === "connected"
+      ? t("connected")
+      : data.telegram?.connectionStatus === "claim_required"
+        ? t("telegramClaimRequired")
+        : data.telegram?.connectionStatus === "invalid_token"
+          ? t("telegramInvalidToken")
+          : t("notConnected");
   const planName = data.plan?.effectivePlan.displayName ?? t("freePlan");
   const planCode = data.plan?.effectivePlan.code ?? null;
   const tokenUsage = data.plan?.limits.tokenBudgetPercent ?? 0;
@@ -266,7 +274,7 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
           <IntegrationRow
             icon={<Send className="h-3.5 w-3.5" />}
             name={t("telegram")}
-            status={telegramConnected ? t("connected") : t("notConnected")}
+            status={telegramStatusLabel}
             connected={telegramConnected}
             onClick={onTelegramClick}
           />

@@ -25,7 +25,9 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
       )
     : null;
 
-  const telegramConnected = data.telegram?.connectionStatus === "connected";
+  const telegramConnected =
+    data.telegram?.connectionStatus === "connected" ||
+    data.telegram?.connectionStatus === "claim_required";
 
   const recentChats = data.chats
     .filter((c) => c.chat.archivedAt === null)

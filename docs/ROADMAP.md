@@ -212,6 +212,7 @@ Step 15 — Tiered OpenClaw runtime and production hardening
   - [x] H8s6 — keep startup cheap and readiness-safe: defer non-critical Telegram profile work until after gateway becomes ready
   - [x] H8s8 — add runtime session lifecycle control: clear `agent:persai:<assistantId>:*` sessions on assistant reset/recreate, enforce TTL/GC for stale channel sessions, and keep session growth bounded for 1000+ users
   - [x] H8s9 — full session purge on reset/recreate: delete all runtime sessions (`agent:main` + `agent:persai`) for the assistant's workspace and delete per-chat sessions on web chat deletion; policy decision: no archive, full purge
+  - [x] H8s10 — Telegram SaaS hardening: owner-only DM default, owner claim deep-link onboarding, honest `claim_required|connected|invalid_token` state, duplicate `update_id` dedupe, and terminal Telegram auth failure handling
 - [x] H12 — Cron webhook callback + preferred notification channel + memory lifecycle
   - [x] H12a — Prisma: `preferredNotificationChannel` field on assistant model + migration
   - [x] H12b — PersAI API: `POST /api/internal/cron-fire` webhook endpoint (current scope: receives OpenClaw cron callback, updates registry rows, delivers directly to Telegram when the assistant has an active Telegram binding plus a known inbound chat target, otherwise falls back to the dedicated web reminders chat; future WhatsApp/MAX outbound remains outside H12 scope)
@@ -407,6 +408,7 @@ Step 15 — Tiered OpenClaw runtime and production hardening
     - All three product tiers now declare the same restricted built-in deny baseline, `sandbox.mode=all` / `scope=session` / `network=none` / `readOnlyRoot=true`, `exec` only inside sandbox, and `write` only inside the sandbox workspace boundary.
     - `reminder_task` remains the only plan-managed service tool in the matrix, `cron` stays hidden-internal, and `persai_workspace_attach` plus `persai_tool_quota_status` are called out as always-on platform-managed tools across tiers.
     - Dev Helm runtime wiring now also reflects that matrix honestly for sandbox sessions: the sandbox tool allowlist includes the actual PersAI product/service tools instead of collapsing to the OpenClaw coding-only default, and the Docker sandbox user is pinned to `0:0` so rootless `docker:dind` plus GCS FUSE workspaces no longer leave `write`/`edit` failing with live `Permission denied`.
+    - Live cluster deploy verified 2026-04-05: `helm template | kubectl apply` + pod rollout restart confirmed the full tool surface (all product/service tools) appears in fresh sessions. No OpenClaw source patches were needed.
   - [x] K16f — user-facing tariff and usage UX aligned with the new plan model
     - sidebar now shows current tariff plus token usage instead of the old chat-only progress bar
     - assistant settings keep only token/chat usage bars and list active per-tool daily limits from the effective plan

@@ -11,6 +11,11 @@ import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assist
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import type { TelegramIntegrationState } from "./telegram-integration.types";
 import { resolveTelegramSecretLifecycleState } from "./assistant-secret-refs-lifecycle";
+import {
+  buildTelegramClaimDeepLink,
+  resolveTelegramBindingMetadataState,
+  resolveTelegramConnectionStatus
+} from "./telegram-integration.metadata";
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -21,10 +26,6 @@ function asObject(value: unknown): Record<string, unknown> | null {
 
 function toStringOrNull(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
-function toNumberOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 @Injectable()
@@ -62,6 +63,7 @@ export class ResolveTelegramIntegrationStateService {
     const metadata = asObject(binding?.metadata ?? null);
     const config = asObject(binding?.config ?? null);
     const policy = asObject(binding?.policy ?? null);
+    const telegramMetadata = resolveTelegramBindingMetadataState(metadata);
     const defaultParseMode = config?.defaultParseMode === "markdown" ? "markdown" : "plain_text";
     const inboundUserMessagesEnabled = policy?.inboundUserMessages === true;
     const outboundAssistantMessagesEnabled = policy?.outboundAssistantMessages !== false;
@@ -75,27 +77,51 @@ export class ResolveTelegramIntegrationStateService {
       binding.connectedAt !== null &&
       binding.disconnectedAt === null &&
       (secretLifecycle.status === "active" || secretLifecycle.status === "legacy_unmanaged");
+    const connectionStatus = resolveTelegramConnectionStatus({
+      hasConnectedBinding,
+      runtimeHealth: telegramMetadata.telegramRuntimeHealth,
+      claimStatus: telegramMetadata.telegramOwnerClaimStatus
+    });
 
     return {
       schema: "persai.telegramIntegration.v1",
       provider: "telegram",
       surfaceType: "telegram_bot",
       capabilityAllowed,
-      connectionStatus: hasConnectedBinding ? "connected" : "not_connected",
+      connectionStatus,
       bindingState: binding?.bindingState ?? "unconfigured",
       connectedAt: binding?.connectedAt?.toISOString() ?? null,
       bot: {
-        telegramUserId: toNumberOrNull(metadata?.telegramUserId),
-        username: toStringOrNull(metadata?.username),
-        displayName: toStringOrNull(metadata?.displayName),
-        avatarUrl: toStringOrNull(metadata?.avatarUrl)
+        telegramUserId: telegramMetadata.telegramUserId,
+        username: telegramMetadata.username,
+        displayName: telegramMetadata.displayName,
+        avatarUrl: telegramMetadata.avatarUrl,
+        ownerTelegramUserId: telegramMetadata.telegramOwnerTelegramUserId,
+        ownerTelegramUsername: telegramMetadata.telegramOwnerTelegramUsername,
+        ownerTelegramChatId: telegramMetadata.telegramOwnerTelegramChatId
       },
       tokenHint: {
         lastFour: binding?.tokenLastFour ?? null
       },
+      ownerClaim: {
+        required: hasConnectedBinding,
+        status: telegramMetadata.telegramOwnerClaimStatus,
+        claimDeepLink: buildTelegramClaimDeepLink(
+          telegramMetadata.username,
+          telegramMetadata.telegramOwnerClaimToken
+        ),
+        claimIssuedAt: telegramMetadata.telegramOwnerClaimIssuedAt,
+        claimedAt: telegramMetadata.telegramOwnerClaimedAt,
+        systemWelcomeSentAt: telegramMetadata.telegramOwnerSystemWelcomeSentAt
+      },
+      runtime: {
+        health: telegramMetadata.telegramRuntimeHealth,
+        lastError: telegramMetadata.telegramRuntimeHealthMessage,
+        checkedAt: telegramMetadata.telegramRuntimeHealthUpdatedAt
+      },
       secretLifecycle,
       configPanel: {
-        available: hasConnectedBinding,
+        available: connectionStatus === "connected" || connectionStatus === "claim_required",
         settings: {
           defaultParseMode,
           inboundUserMessagesEnabled,
@@ -107,6 +133,7 @@ export class ResolveTelegramIntegrationStateService {
       },
       notes: [
         "Telegram is modeled as one provider + one interaction surface binding.",
+        "Telegram direct messages are owner-only after claim.",
         "Web remains the primary control-plane surface for assistant configuration."
       ]
     };

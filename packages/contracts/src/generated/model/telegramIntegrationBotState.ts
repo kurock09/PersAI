@@ -14,4 +14,10 @@ export interface TelegramIntegrationBotState {
   displayName: string | null;
   /** @nullable */
   avatarUrl: string | null;
+  /** @nullable */
+  ownerTelegramUserId: number | null;
+  /** @nullable */
+  ownerTelegramUsername: string | null;
+  /** @nullable */
+  ownerTelegramChatId: string | null;
 }

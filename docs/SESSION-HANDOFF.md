@@ -1,5 +1,70 @@
 # SESSION-HANDOFF
 
+## 2026-04-05 - Telegram owner-claim and SaaS hardening baseline
+
+1. **Telegram DM access is no longer implicitly public** — the materialized Telegram channel policy is now `owner_only`, connect enters `claim_required`, and the intended direct-message owner must finish a Telegram deep-link claim before the integration is treated as fully connected.
+2. **Integration state is now honest across UI/control-plane/runtime** — `GET /assistant/integrations/telegram` and the web integrations UI now distinguish `not_connected`, `claim_required`, `connected`, and `invalid_token` instead of flattening everything into connected/not-connected.
+3. **Disconnect/revoke from PersAI is resilient again** — Telegram revoke/disconnect no longer fails just because an older binding was still in legacy/unmanaged secret-ref state; the encrypted provider key is removed best-effort and the binding is pushed into inactive/not-connected truth anyway.
+4. **OpenClaw now blocks two real Telegram SaaS failure modes earlier in ingress** — repeated Telegram deliveries are deduped by `assistantId + update_id`, and owner-only DM gate checks now run before `requestPersaiTelegramTurn`, so random Telegram users and duplicate webhook retries do not silently create extra runtime turns.
+5. **Terminal Telegram auth failure is explicit** — runtime-side `401 Unauthorized` profile failures now promote the integration into `invalid_token` instead of being treated as endless retry-only noise.
+6. **Owner onboarding is now immediate after claim** — once the owner completes `/start persai_claim_<token>`, the bot sends a short system-language Telegram message so the private owner chat appears immediately without manual search.
+
+### What changed
+
+1. **PersAI control-plane/UI/docs were updated together** — connect/revoke/state materialization, internal Telegram turn idempotency, the integrations UI, contracts, docs, and ADR now all reflect one Telegram SaaS model instead of partial/runtime-only behavior.
+2. **The OpenClaw fork revision is part of this delivery unit** — PersAI now pins `openclaw-approved-sha.txt` and `infra/helm/values-dev.yaml` to `e4f73e39c64064d74d4127e7eebbb881054fdf78`, the exact fork commit that carries the Telegram runtime hardening slice.
+3. **Dev image digest was intentionally cleared again** — `openclaw.image.digest` is blank in dev values so CI can rebuild and repin the image for the new approved fork SHA after push.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-telegram-integration-state.service.ts`
+- `apps/api/src/modules/workspace-management/application/revoke-telegram-integration-secret.service.ts`
+- `apps/api/src/modules/workspace-management/application/sync-telegram-chat-target.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-integration.metadata.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-integration.types.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-turn.controller.ts`
+- `apps/api/test/telegram-integration.test.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/home-dashboard.tsx`
+- `apps/web/app/app/_components/sidebar.tsx`
+- `apps/web/app/app/_components/telegram-connect.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/model/telegramIntegrationBotState.ts`
+- `packages/contracts/src/generated/model/telegramIntegrationConnectionStatus.ts`
+- `packages/contracts/src/generated/model/telegramIntegrationOwnerClaimState.ts`
+- `packages/contracts/src/generated/model/telegramIntegrationRuntimeState.ts`
+- `packages/contracts/src/generated/model/telegramIntegrationState.ts`
+- `docs/ADR/064-telegram-owner-claim-and-saas-hardening.md`
+- `docs/API-BOUNDARY.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CHANGELOG.md`
+- `docs/ROADMAP.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `infra/dev/gitops/openclaw-approved-sha.txt`
+- `infra/helm/values-dev.yaml`
+
+### Push order
+
+1. `openclaw`
+2. `PersAI`
+
+### Pinned OpenClaw SHA
+
+`e4f73e39c64064d74d4127e7eebbb881054fdf78`
+
+## 2026-04-05 - K16 sandbox tool surface live verification
+
+1. **Root cause confirmed: Helm template had never been applied to the cluster** — the `values-dev.yaml` changes from the previous session (explicit `tools.sandbox.tools.allow` with all PersAI product/service tools, `docker.user: "0:0"`) were committed and pushed but `helm template | kubectl apply` was never run, so live pods still carried the old ConfigMap with only `DEFAULT_TOOL_ALLOW` (six core coding tools).
+2. **After deploy + rollout restart all tools appeared** — `helm template persai ./infra/helm -f ./infra/helm/values-dev.yaml | kubectl apply -f -` updated three pool ConfigMaps, and `kubectl rollout restart` recycled all OpenClaw sandbox pods. A fresh session immediately showed the full tool surface: `tts`, `browser`, `reminder_task`, `web_fetch`, `web_search`, `image_generate`, `memory_search`, `memory_get`, `persai_tool_quota_status`, `persai_workspace_attach`, plus the six core coding tools.
+3. **No OpenClaw source patches were needed** — the initial hypothesis (tool factories returning `null`, plugin config missing, provider stubs required) turned out to be unnecessary. The bundled web-search providers (google, xai) are enabled by default, PersAI per-request credentials resolve at tool-creation time inside `persaiRuntimeRequestContext.run()`, and memory plugin tools load via the default `memory-core` slot.
+4. **Tool daily limits remain to be exercised** — the `toolQuotaPolicy` pipeline (PersAI → bootstrap → `persaiRuntimeRequestContext` → OpenClaw per-call webhook) is wired but not yet tested live with real call-count assertions.
+
 ## 2026-04-04 - K16 sandbox runtime hotfix
 
 1. **Live runtime proof found two remaining deployment-side breaks after the earlier K16 slices** — sandbox sessions were still falling back to OpenClaw's coding-only default sandbox allowlist, so the agent only saw the six core coding tools instead of the PersAI product/service tools declared in materialized `TOOLS.md`.

@@ -517,11 +517,24 @@ It is not part of backend domain logic.
   - webhook mode (when `TELEGRAM_WEBHOOK_BASE_URL` is configured) or polling fallback (when unset)
   - `message:text` event handling → agent turn with per-assistant `workspaceDir`
   - `my_chat_member` event handling → group status callback to PersAI (uses `secrets.providers.persai-runtime.baseUrl` from config)
+- OpenClaw Telegram ingress is also the enforcement point for Telegram-specific runtime safety:
+  - dedupe repeated Telegram deliveries by `assistantId + update_id`
+  - owner-only DM gate before runtime turn execution
+  - terminal `401 Unauthorized` promotion to explicit `invalid_token` state
 - PersAI owns Telegram control-plane:
   - connect/disconnect/rotate/revoke via assistant integration APIs
   - encrypted token storage (`PlatformRuntimeProviderSecretStoreService`)
   - `assistant_telegram_groups` persistence from OpenClaw callbacks
   - auto-apply after connect/disconnect to push config changes to OpenClaw immediately
+- PersAI Telegram lifecycle is now explicitly staged:
+  - `not_connected`
+  - `claim_required`
+  - `connected`
+  - `invalid_token`
+- direct-message access is private by default:
+  - `owner_only`
+  - owner claim completes through a Telegram deep link
+  - successful claim triggers an immediate system-language Telegram welcome message so the owner chat appears without manual search
 - Telegram agent turns share the same per-assistant workspace as web chat (same `MEMORY.md`, bootstrap files).
 - Backend does not route Telegram messages or manage bot lifecycle directly.
 
