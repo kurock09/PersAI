@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-04-05 - Cron webhook auth fix and web chat context leak fix
+
+1. **Cron webhook token mismatch fixed** — `openclaw-configmap.yaml` pointed `cron.webhookToken` at `OPENCLAW_GATEWAY_TOKEN`, but the PersAI `cron-fire` endpoint checks `PERSAI_INTERNAL_API_TOKEN`. These are different secrets (`30d2c1...` vs `97f0b1...`), so every cron-fired webhook (including `reminder_task`) was rejected with HTTP 401. Fixed by changing the ConfigMap template to use `PERSAI_INTERNAL_API_TOKEN`.
+2. **Web chat attachment context leak fixed** — `buildContextForExistingAttachments(chatId)` was called on every web chat turn, pulling ALL attachments (user uploads + model-generated media) from the entire chat into the user message. This caused: (a) growing token waste per turn, (b) repeated `[Files available in your workspace: ...]` blocks persisted in OpenClaw session history, (c) unnecessary `image` tool calls from the blanket "inspect it with the image tool" instruction even when no new images were present. Fixed by scoping to current message attachments only, deduplicating by storage path, and gating the image-inspect instruction on whether the current message actually contains images.
+
+### What changed
+
+1. `infra/helm/templates/openclaw-configmap.yaml` — `cron.webhookToken.id` changed from `OPENCLAW_GATEWAY_TOKEN` to `PERSAI_INTERNAL_API_TOKEN`
+2. `apps/api/src/modules/workspace-management/application/media/inbound-media.service.ts` — `buildContextForExistingAttachments(chatId)` replaced with `buildContextForCurrentMessageAttachments(messageId)` using `listByMessageId`, storagePath dedupe, and scoped image instruction
+3. `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` — caller updated to pass `userMessage.id`
+4. `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts` — caller updated to pass `userMessage.id`
+
+### Risks
+
+- Cron fix requires `helm template | kubectl apply` + pod rollout restart to take effect on the live cluster.
+- Telegram and group channels were audited and confirmed unaffected by bug 2 (they use `inboundMediaService.resolve()` scoped to current attachments only).
+- Old OpenClaw session history entries still contain previously injected `[Files available...]` text blocks; these will be naturally pruned by session compaction/rotation.
+
+### Deploy order
+
+1. Apply Helm changes: `helm template persai ./infra/helm -f ./infra/helm/values-dev.yaml | kubectl apply -f -`
+2. Restart OpenClaw pods: `kubectl rollout restart deployment/openclaw-free-shared-restricted-sandbox deployment/openclaw-paid-shared-restricted-sandbox deployment/openclaw-paid-isolated -n persai-dev`
+3. Restart API pod (for the attachment fix): `kubectl rollout restart deployment/api -n persai-dev`
+4. Verify: create a new `reminder_task` and confirm it fires; send a file in web chat and confirm subsequent messages do not re-inject it.
+
 ## 2026-04-05 - Telegram owner-claim and SaaS hardening baseline
 
 1. **Telegram DM access is no longer implicitly public** — the materialized Telegram channel policy is now `owner_only`, connect enters `claim_required`, and the intended direct-message owner must finish a Telegram deep-link claim before the integration is treated as fully connected.

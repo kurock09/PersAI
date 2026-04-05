@@ -110,9 +110,10 @@ export class SendWebChatTurnService {
       ...(request.title !== undefined ? { title: request.title } : {})
     });
 
-    const attachmentContext = await this.inboundMediaService.buildContextForExistingAttachments(
-      prepared.chat.id
-    );
+    const attachmentContext =
+      await this.inboundMediaService.buildContextForCurrentMessageAttachments(
+        prepared.userMessage.id
+      );
     const enrichedUserMessage = attachmentContext
       ? `${attachmentContext}\n${prepared.userMessage.content}`
       : prepared.userMessage.content;

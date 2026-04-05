@@ -42,7 +42,7 @@ data:
         "webhookToken": {
           "source": "env",
           "provider": "default",
-          "id": "OPENCLAW_GATEWAY_TOKEN"
+          "id": "PERSAI_INTERNAL_API_TOKEN"
         }
       },
       "session": {

@@ -117,9 +117,10 @@ export class StreamWebChatTurnService {
     let respondedAt: string | null = null;
     const collectedMedia: RuntimeMediaArtifact[] = [];
 
-    const attachmentContext = await this.inboundMediaService.buildContextForExistingAttachments(
-      prepared.chat.id
-    );
+    const attachmentContext =
+      await this.inboundMediaService.buildContextForCurrentMessageAttachments(
+        prepared.userMessage.id
+      );
     const baseMessage = prepared.welcomeTurn
       ? resolveWelcomeTurnInstruction(prepared.welcomeLocale)
       : prepared.userMessage.content;

@@ -109,23 +109,32 @@ export class InboundMediaService {
   }
 
   /**
-   * Build the context block for already-persisted attachments (e.g., web
-   * staged uploads that were created before the turn was sent).
+   * Build the context block for attachments belonging to the current user
+   * message only. Staged uploads are merged onto the message by
+   * MergeStagedWebChatAttachmentsService before this method runs, so
+   * querying by messageId is sufficient.
    */
-  async buildContextForExistingAttachments(chatId: string): Promise<string | null> {
+  async buildContextForCurrentMessageAttachments(messageId: string): Promise<string | null> {
     try {
-      const attachments = await this.attachmentRepository.listByChatId(chatId);
+      const attachments = await this.attachmentRepository.listByMessageId(messageId);
       const ready = attachments.filter((a) => a.processingStatus === "ready");
       if (ready.length === 0) return null;
 
-      const lines = ready.map((attachment) =>
+      const seen = new Set<string>();
+      const deduped = ready.filter((a) => {
+        if (seen.has(a.storagePath)) return false;
+        seen.add(a.storagePath);
+        return true;
+      });
+
+      const lines = deduped.map((attachment) =>
         this.formatContextLine(attachment, attachment.transcription, null)
       );
 
       return this.buildAttachmentBlock(
-        "Files available in your workspace",
+        "Files attached by user",
         lines,
-        ready.some((attachment) => attachment.attachmentType === "image")
+        deduped.some((attachment) => attachment.attachmentType === "image")
       );
     } catch {
       return null;
