@@ -13,5 +13,7 @@ export type UserPlanVisibilityLimitsToolDailyLimitsItem = {
    * @nullable
    */
   dailyCallLimit: number | null;
+  /** @minimum 0 */
+  dailyCallsUsed: number;
   active: boolean;
 };

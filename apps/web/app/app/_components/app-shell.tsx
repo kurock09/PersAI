@@ -35,6 +35,7 @@ export function useShellActions(): ShellActions {
 export function AppShell({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<string | undefined>();
   const [telegramOpen, setTelegramOpen] = useState(false);
   const appData = useAppData();
   const ts = useTranslations("settings");
@@ -76,8 +77,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="hidden md:flex">
               <Sidebar
                 data={appData}
-                onAssistantCardClick={() => setSettingsOpen(true)}
+                onAssistantCardClick={() => {
+                  setSettingsInitialSection(undefined);
+                  setSettingsOpen(true);
+                }}
                 onTelegramClick={() => setTelegramOpen(true)}
+                onLimitsClick={() => {
+                  setSettingsInitialSection("limits");
+                  setSettingsOpen(true);
+                }}
               />
             </div>
           </Suspense>
@@ -106,11 +114,17 @@ export function AppShell({ children }: { children: ReactNode }) {
                       onClose={() => setSidebarOpen(false)}
                       onAssistantCardClick={() => {
                         setSidebarOpen(false);
+                        setSettingsInitialSection(undefined);
                         setSettingsOpen(true);
                       }}
                       onTelegramClick={() => {
                         setSidebarOpen(false);
                         setTelegramOpen(true);
+                      }}
+                      onLimitsClick={() => {
+                        setSidebarOpen(false);
+                        setSettingsInitialSection("limits");
+                        setSettingsOpen(true);
                       }}
                     />
                   </Suspense>
@@ -141,8 +155,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         {/* Assistant settings slide-over */}
-        <SlideOver open={settingsOpen} onClose={() => setSettingsOpen(false)} title={ts("title")}>
-          <AssistantSettings data={appData} />
+        <SlideOver
+          open={settingsOpen}
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsInitialSection(undefined);
+          }}
+          title={ts("title")}
+        >
+          <AssistantSettings data={appData} initialSection={settingsInitialSection} />
         </SlideOver>
 
         {/* Telegram integration slide-over */}

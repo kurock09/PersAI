@@ -54,6 +54,7 @@ import { AssistantAvatar } from "./assistant-avatar";
 
 interface AssistantSettingsProps {
   data: AppData;
+  initialSection?: string | undefined;
 }
 
 type ActionFeedback = { type: "ok" | "err"; text: string } | null;
@@ -62,16 +63,32 @@ function Section({
   icon,
   title,
   children,
-  defaultOpen = true
+  defaultOpen = true,
+  forceOpen = false
 }: {
   icon: React.ReactNode;
   title: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  forceOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || forceOpen);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (forceOpen && !open) {
+      setOpen(true);
+    }
+  }, [forceOpen]);
+
+  useEffect(() => {
+    if (forceOpen && open && ref.current) {
+      ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [forceOpen, open]);
+
   return (
-    <div className="border-b border-border">
+    <div ref={ref} className="border-b border-border">
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -132,7 +149,7 @@ function ActionButton({
   );
 }
 
-export function AssistantSettings({ data }: AssistantSettingsProps) {
+export function AssistantSettings({ data, initialSection }: AssistantSettingsProps) {
   const router = useRouter();
   const { getToken } = useAuth();
   const t = useTranslations("settings");
@@ -980,29 +997,25 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
         icon={<BarChart3 className="h-4 w-4" />}
         title={t("limitsAndPlan")}
         defaultOpen={false}
+        forceOpen={initialSection === "limits"}
       >
         {data.plan ? (
           <div className="space-y-3">
-            <div>
+            <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-text">
                 {data.plan.effectivePlan.displayName ?? t("freePlan")}
               </p>
-              <p className="mt-1 text-[11px] text-text-subtle">
-                {data.plan.effectivePlan.code
-                  ? t("currentPlanCode", { code: data.plan.effectivePlan.code })
-                  : t("currentPlan")}
-              </p>
+              {data.plan.effectivePlan.code && (
+                <span className="text-[11px] text-text-muted">{data.plan.effectivePlan.code}</span>
+              )}
             </div>
             <LimitBar
               label={t("tokenBudget")}
               pct={data.plan.limits.tokenBudgetPercent}
               valueLabel={
                 data.plan.limits.tokenBudgetLimit === null
-                  ? t("tokensUsedOnly", { used: data.plan.limits.tokenBudgetUsed })
-                  : t("tokensUsageValue", {
-                      used: data.plan.limits.tokenBudgetUsed,
-                      limit: data.plan.limits.tokenBudgetLimit
-                    })
+                  ? String(data.plan.limits.tokenBudgetUsed)
+                  : `${data.plan.limits.tokenBudgetUsed}/${data.plan.limits.tokenBudgetLimit}`
               }
             />
             <LimitBar
@@ -1010,43 +1023,35 @@ export function AssistantSettings({ data }: AssistantSettingsProps) {
               pct={data.plan.limits.activeWebChatsPercent}
               valueLabel={
                 data.plan.limits.activeWebChatsLimit === null
-                  ? t("activeChatsUsedOnly", { used: data.plan.limits.activeWebChatsUsed })
-                  : t("activeChatsUsageValue", {
-                      used: data.plan.limits.activeWebChatsUsed,
-                      limit: data.plan.limits.activeWebChatsLimit
-                    })
+                  ? String(data.plan.limits.activeWebChatsUsed)
+                  : `${data.plan.limits.activeWebChatsUsed}/${data.plan.limits.activeWebChatsLimit}`
               }
             />
-            <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-medium text-text">{t("toolLimits")}</p>
-                <span className="text-[11px] text-text-subtle">
-                  {t("toolLimitsCount", { count: data.plan.limits.toolDailyLimits.length })}
-                </span>
-              </div>
-              {data.plan.limits.toolDailyLimits.length > 0 ? (
-                <ul className="mt-2 divide-y divide-border/60">
+            {data.plan.limits.toolDailyLimits.length > 0 && (
+              <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
+                <p className="mb-2 text-xs font-medium text-text">{t("toolLimits")}</p>
+                <ul className="space-y-1.5">
                   {data.plan.limits.toolDailyLimits.map((tool) => (
-                    <li
-                      key={tool.toolCode}
-                      className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-xs text-text">{tool.displayName}</p>
-                        <p className="truncate text-[11px] text-text-subtle">{tool.toolCode}</p>
-                      </div>
-                      <span className="shrink-0 text-[11px] text-text-muted">
+                    <li key={tool.toolCode} className="flex items-center gap-2 text-[11px]">
+                      <span
+                        className={cn(
+                          "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+                          tool.dailyCallLimit !== null && tool.dailyCallsUsed >= tool.dailyCallLimit
+                            ? "bg-destructive"
+                            : "bg-accent"
+                        )}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-text">{tool.displayName}</span>
+                      <span className="shrink-0 tabular-nums text-text-muted">
                         {tool.dailyCallLimit === null
-                          ? t("toolLimitUnlimited")
-                          : t("toolLimitPerDay", { count: tool.dailyCallLimit })}
+                          ? "∞"
+                          : `${tool.dailyCallsUsed}/${tool.dailyCallLimit}`}
                       </span>
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <p className="mt-3 text-[11px] text-text-subtle">{t("noToolLimits")}</p>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         ) : (
           <p className="text-xs text-text-subtle">{t("planUnavailable")}</p>

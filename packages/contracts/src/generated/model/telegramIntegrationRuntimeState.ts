@@ -4,9 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { TelegramIntegrationRuntimeStateHealth } from "./telegramIntegrationRuntimeStateHealth";
 
 export interface TelegramIntegrationRuntimeState {
-  health: "ok" | "invalid_token";
+  health: TelegramIntegrationRuntimeStateHealth;
   /** @nullable */
   lastError: string | null;
   /** @nullable */

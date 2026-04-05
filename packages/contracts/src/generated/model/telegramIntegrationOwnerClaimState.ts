@@ -4,10 +4,11 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { TelegramIntegrationOwnerClaimStateStatus } from "./telegramIntegrationOwnerClaimStateStatus";
 
 export interface TelegramIntegrationOwnerClaimState {
   required: boolean;
-  status: "not_started" | "pending" | "claimed";
+  status: TelegramIntegrationOwnerClaimStateStatus;
   /** @nullable */
   claimDeepLink: string | null;
   /** @nullable */

@@ -38,6 +38,7 @@ interface SidebarProps {
   onClose?: () => void;
   onAssistantCardClick?: () => void;
   onTelegramClick?: () => void;
+  onLimitsClick?: () => void;
   data: AppData;
 }
 
@@ -138,7 +139,13 @@ function IntegrationRow({
   );
 }
 
-export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }: SidebarProps) {
+export function Sidebar({
+  onClose,
+  onAssistantCardClick,
+  onTelegramClick,
+  onLimitsClick,
+  data
+}: SidebarProps) {
   const { user } = useUser();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -174,7 +181,6 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
           ? t("telegramInvalidToken")
           : t("notConnected");
   const planName = data.plan?.effectivePlan.displayName ?? t("freePlan");
-  const planCode = data.plan?.effectivePlan.code ?? null;
   const tokenUsage = data.plan?.limits.tokenBudgetPercent ?? 0;
   const tokenUsed = data.plan?.limits.tokenBudgetUsed ?? 0;
   const tokenLimit = data.plan?.limits.tokenBudgetLimit ?? null;
@@ -292,18 +298,14 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
           />
         </div>
 
-        {/* 6. Plan */}
-        <div className="border-t border-border px-3 py-2.5">
+        {/* 6. Plan — compact token bar */}
+        <button
+          type="button"
+          onClick={onLimitsClick}
+          className="w-full cursor-pointer border-t border-border px-3 py-2.5 text-left transition-colors hover:bg-surface-hover"
+        >
           <div className="px-2.5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-text">{planName}</p>
-                <p className="mt-0.5 text-[11px] text-text-subtle">
-                  {planCode ? t("planCode", { code: planCode }) : t("planCurrent")}
-                </p>
-              </div>
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3 text-[11px]">
+            <div className="flex items-center justify-between gap-3 text-[11px]">
               <span className="text-text-muted">{t("tokenUsage")}</span>
               <span className="text-text-subtle">
                 {tokenLimit === null
@@ -320,11 +322,12 @@ export function Sidebar({ onClose, onAssistantCardClick, onTelegramClick, data }
                 style={{ width: `${Math.min(tokenUsage, 100)}%` }}
               />
             </div>
-            <p className="mt-2 text-[11px] text-text-subtle">
-              {t("tokenPercent", { pct: tokenUsage })}
-            </p>
+            <div className="mt-1.5 flex items-center justify-between text-[11px]">
+              <span className="text-text-subtle">{t("tokenPercent", { pct: tokenUsage })}</span>
+              <span className="max-w-[120px] truncate text-text-muted">{planName}</span>
+            </div>
           </div>
-        </div>
+        </button>
 
         {/* Admin button (visible only for admins) */}
         {data.isAdmin && (

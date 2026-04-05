@@ -15,6 +15,7 @@ import {
 } from "../domain/workspace-quota-accounting.repository";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AdminPlanVisibilityState, UserPlanVisibilityState } from "./plan-visibility.types";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 
@@ -66,6 +67,7 @@ export class ResolvePlanVisibilityService {
     private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly adminAuthorizationService: AdminAuthorizationService
   ) {}
 
@@ -128,16 +130,10 @@ export class ResolvePlanVisibilityService {
         activeWebChatsUsed: chatsUsed,
         activeWebChatsLimit: chatsLimit,
         activeWebChatsPercent: toPercent(chatsUsed, chatsLimit),
-        toolDailyLimits: (plan?.toolActivations ?? [])
-          .filter(
-            (tool) => tool.policyClass === "plan_managed" && tool.activationStatus === "active"
-          )
-          .map((tool) => ({
-            toolCode: tool.toolCode,
-            displayName: tool.displayName,
-            dailyCallLimit: tool.dailyCallLimit,
-            active: tool.activationStatus === "active"
-          }))
+        toolDailyLimits: await this.resolveToolDailyLimitsWithUsage(
+          assistant.workspaceId,
+          plan?.toolActivations ?? []
+        )
       },
       updatedAt: new Date().toISOString()
     };
@@ -221,6 +217,45 @@ export class ResolvePlanVisibilityService {
       },
       updatedAt: new Date().toISOString()
     };
+  }
+
+  private async resolveToolDailyLimitsWithUsage(
+    workspaceId: string,
+    toolActivations: Array<{
+      toolCode: string;
+      displayName: string;
+      dailyCallLimit: number | null;
+      policyClass: string;
+      activationStatus: string;
+    }>
+  ): Promise<
+    Array<{
+      toolCode: string;
+      displayName: string;
+      dailyCallLimit: number | null;
+      dailyCallsUsed: number;
+      active: boolean;
+    }>
+  > {
+    const active = toolActivations.filter(
+      (t) => t.policyClass === "plan_managed" && t.activationStatus === "active"
+    );
+    return Promise.all(
+      active.map(async (tool) => {
+        const check = await this.trackWorkspaceQuotaUsageService.checkToolDailyLimit({
+          workspaceId,
+          toolCode: tool.toolCode,
+          dailyCallLimit: tool.dailyCallLimit
+        });
+        return {
+          toolCode: tool.toolCode,
+          displayName: tool.displayName,
+          dailyCallLimit: tool.dailyCallLimit,
+          dailyCallsUsed: check.currentCount,
+          active: true
+        };
+      })
+    );
   }
 
   private resolveLimits(plan: Awaited<ReturnType<AssistantPlanCatalogRepository["findByCode"]>>): {

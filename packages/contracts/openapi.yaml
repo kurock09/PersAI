@@ -3213,6 +3213,7 @@ components:
               - toolCode
               - displayName
               - dailyCallLimit
+              - dailyCallsUsed
               - active
             properties:
               toolCode:
@@ -3223,6 +3224,9 @@ components:
                 type: integer
                 minimum: 0
                 nullable: true
+              dailyCallsUsed:
+                type: integer
+                minimum: 0
               active:
                 type: boolean
     UserPlanVisibilityEntitlements:

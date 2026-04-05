@@ -41,6 +41,7 @@ export type UserPlanVisibilityState = {
       toolCode: string;
       displayName: string;
       dailyCallLimit: number | null;
+      dailyCallsUsed: number;
       active: boolean;
     }>;
   };
