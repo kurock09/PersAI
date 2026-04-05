@@ -310,7 +310,7 @@ openclaw:
 
 
     tag: 1647217b13898f46de50341d675e2d1471db172e
-    digest: ""
+    digest: sha256:633675d9f5ccd6bfc4160662384253281cc6d53093ccaed0a5595d5993b8ddf0
 
     pullPolicy: IfNotPresent
   controlUi:
