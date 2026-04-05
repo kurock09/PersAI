@@ -15,6 +15,7 @@ import {
   type ResolvedInboundMedia
 } from "./media.types";
 import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
+import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media-security-policy";
 
 @Injectable()
@@ -27,7 +28,8 @@ export class InboundMediaService {
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     private readonly preprocessor: MediaPreprocessorService,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   async resolve(params: InboundMediaResolveParams): Promise<ResolvedInboundMedia> {
@@ -89,6 +91,19 @@ export class InboundMediaService {
         });
 
         attachments.push(attachment);
+
+        await this.trackWorkspaceQuotaUsageService.recordMediaUpload({
+          assistant: {
+            id: params.assistantId,
+            userId: params.userId,
+            workspaceId: params.workspaceId
+          } as Parameters<
+            typeof this.trackWorkspaceQuotaUsageService.recordMediaUpload
+          >[0]["assistant"],
+          sizeBytes: BigInt(uploadResult.sizeBytes),
+          source: `channel_inbound_${params.channel}`
+        });
+
         contextLines.push(
           this.formatContextLine(attachment, processed.transcription, processed.textExtract)
         );

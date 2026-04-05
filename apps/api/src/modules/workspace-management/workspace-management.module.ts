@@ -29,6 +29,7 @@ import { ConnectTelegramIntegrationService } from "./application/connect-telegra
 import { UpdateTelegramIntegrationConfigService } from "./application/update-telegram-integration-config.service";
 import { UpdateAssistantNotificationPreferenceService } from "./application/update-assistant-notification-preference.service";
 import { RevokeTelegramIntegrationSecretService } from "./application/revoke-telegram-integration-secret.service";
+import { ResendTelegramOwnerMessageService } from "./application/resend-telegram-owner-message.service";
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
 import { AppendAssistantAuditEventService } from "./application/append-assistant-audit-event.service";
 import { AdminAuthorizationService } from "./application/admin-authorization.service";
@@ -204,6 +205,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     UpdateTelegramIntegrationConfigService,
     UpdateAssistantNotificationPreferenceService,
     RevokeTelegramIntegrationSecretService,
+    ResendTelegramOwnerMessageService,
     ResolvePlanVisibilityService,
     EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,

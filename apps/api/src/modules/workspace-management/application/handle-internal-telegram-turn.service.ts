@@ -140,7 +140,8 @@ export class HandleInternalTelegramTurnService {
     });
     await this.enforceAbuseRateLimitService.enforceAndRegisterAttempt({
       assistant: resolved.assistant,
-      surface: "telegram"
+      surface: "telegram",
+      peerKey: input.threadId
     });
 
     const workspace = await this.prisma.workspace.findUnique({
@@ -185,6 +186,7 @@ export class HandleInternalTelegramTurnService {
       const resolved2 = await this.inboundMediaService.resolve({
         channel: "telegram",
         assistantId: resolved.assistantId,
+        userId: resolved.userId,
         chatId: chat.id,
         messageId: userMessage.id,
         workspaceId: resolved.workspaceId,

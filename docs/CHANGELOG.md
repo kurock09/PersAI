@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **Application-layer security hardening (ADR-067):** media storage quota is now enforced on upload (pre-check + post-increment via `media_storage_bytes` dimension). Per-peer Telegram rate limiting prevents individual spammers from exhausting the owner's rate-limit bucket (in-memory sliding window, configurable via `ABUSE_PEER_*` env vars). Draft input validation enforces `displayName` max 100, `instructions` max 50,000, `avatarUrl` max 2,048 with mandatory `https://` scheme. `openclaw-ingress-baseline` NetworkPolicy now covers all runtime pools instead of only free-shared.
+
 - **Telegram webhook tier-aware proxy (ADR-066):** all Telegram webhook traffic was previously hardcoded via GKE Ingress to the `free_shared_restricted` OpenClaw pool, bypassing the runtime tier separation for paid/isolated assistants. A new `TelegramWebhookProxyController` on the PersAI API now receives `bot.persai.dev/telegram-webhook/:assistantId`, resolves the assistant's effective runtime tier from the materialized spec, and forwards the complete Telegram update to the correct tier-specific OpenClaw pool. The external webhook URL is unchanged — no Telegram bot re-registration needed. The ingress template no longer contains pool-specific service references for bot traffic.
 
 ### Added

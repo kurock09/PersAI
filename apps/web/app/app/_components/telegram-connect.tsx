@@ -19,6 +19,7 @@ import { AssistantAvatar } from "./assistant-avatar";
 import {
   postAssistantTelegramConnect,
   postAssistantTelegramDisconnect,
+  postAssistantTelegramResendOwnerMessage,
   patchAssistantTelegramConfig,
   fetchAssistantTelegramGroups,
   type TelegramIntegrationState,
@@ -287,8 +288,10 @@ function ConnectedView({
   const [groups, setGroups] = useState<TelegramGroupInfo[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(true);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [resendingOwnerMessage, setResendingOwnerMessage] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [claimCodeCopied, setClaimCodeCopied] = useState(false);
+  const canResendOwnerMessage = Boolean(integration.bot.ownerTelegramChatId);
 
   useEffect(() => {
     let cancelled = false;
@@ -389,6 +392,26 @@ function ConnectedView({
     }
   }, [integration.ownerClaim.code, t]);
 
+  const handleResendOwnerMessage = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+
+    setResendingOwnerMessage(true);
+    setFeedback(null);
+    try {
+      await postAssistantTelegramResendOwnerMessage(token);
+      setFeedback({ type: "ok", text: t("resendOwnerMessageSuccess") });
+      onUpdated();
+    } catch (e) {
+      setFeedback({
+        type: "err",
+        text: e instanceof Error ? e.message : t("resendOwnerMessageFailed")
+      });
+    } finally {
+      setResendingOwnerMessage(false);
+    }
+  }, [getToken, onUpdated, t]);
+
   return (
     <div className="space-y-5 px-5 py-5">
       {/* Bot info */}
@@ -422,13 +445,31 @@ function ConnectedView({
               <code className="text-base font-semibold tracking-[0.2em] text-text">
                 {integration.ownerClaim.code}
               </code>
-              <button
-                type="button"
-                onClick={() => void handleCopyClaimCode()}
-                className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
-              >
-                {claimCodeCopied ? t("copiedCode") : t("copyCode")}
-              </button>
+              <div className="shrink-0 text-right">
+                <button
+                  type="button"
+                  onClick={() => void handleCopyClaimCode()}
+                  className="rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                >
+                  {claimCodeCopied ? t("copiedCode") : t("copyCode")}
+                </button>
+                <div className="mt-1 min-h-[1rem]">
+                  {canResendOwnerMessage ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleResendOwnerMessage()}
+                      disabled={resendingOwnerMessage}
+                      className="text-[11px] text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {resendingOwnerMessage ? t("resendingOwnerMessage") : t("resendOwnerMessage")}
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-text-muted">
+                      {t("resendOwnerMessageHint")}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -14,6 +14,9 @@ import { createAssistantInboundRateLimitError } from "./assistant-inbound-error"
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
 const WINDOW_MS = 60_000;
+const PEER_GC_INTERVAL_MS = 120_000;
+
+type PeerWindow = { count: number; windowStart: number };
 
 type AbuseDecision = {
   blockedUntil: Date | null;
@@ -76,6 +79,9 @@ function throwTooManyRequests(message: string): never {
 
 @Injectable()
 export class EnforceAbuseRateLimitService {
+  private readonly peerWindows = new Map<string, PeerWindow>();
+  private lastPeerGc = Date.now();
+
   constructor(
     @Inject(ASSISTANT_ABUSE_GUARD_REPOSITORY)
     private readonly assistantAbuseGuardRepository: AssistantAbuseGuardRepository,
@@ -87,9 +93,15 @@ export class EnforceAbuseRateLimitService {
   async enforceAndRegisterAttempt(params: {
     assistant: Assistant;
     surface: AbuseSurface;
+    peerKey?: string | undefined;
   }): Promise<void> {
     const now = new Date();
     const config = loadApiConfig(process.env);
+
+    if (params.peerKey) {
+      this.enforcePeerLimit(params.assistant.id, params.surface, params.peerKey, config, now);
+    }
+
     const userState = await this.assistantAbuseGuardRepository.findUserState(
       params.assistant.id,
       params.assistant.userId,
@@ -237,6 +249,49 @@ export class EnforceAbuseRateLimitService {
       throwTooManyRequests(
         "Requests temporarily slowed due to abuse/rate-limit and quota pressure protection."
       );
+    }
+  }
+
+  private enforcePeerLimit(
+    assistantId: string,
+    surface: AbuseSurface,
+    peerKey: string,
+    config: ReturnType<typeof loadApiConfig>,
+    now: Date
+  ): void {
+    this.gcPeerWindowsIfNeeded(now);
+
+    const key = `${assistantId}:${surface}:${peerKey}`;
+    const nowMs = now.getTime();
+    const existing = this.peerWindows.get(key);
+
+    if (!existing || nowMs - existing.windowStart > WINDOW_MS) {
+      this.peerWindows.set(key, { count: 1, windowStart: nowMs });
+      return;
+    }
+
+    existing.count += 1;
+
+    if (existing.count >= config.ABUSE_PEER_BLOCK_REQUESTS_PER_MINUTE) {
+      throwTooManyRequests(
+        "Requests temporarily blocked for this peer due to rate-limit protection."
+      );
+    }
+    if (existing.count >= config.ABUSE_PEER_SLOWDOWN_REQUESTS_PER_MINUTE) {
+      throwTooManyRequests(
+        "Requests temporarily slowed for this peer due to rate-limit protection."
+      );
+    }
+  }
+
+  private gcPeerWindowsIfNeeded(now: Date): void {
+    const nowMs = now.getTime();
+    if (nowMs - this.lastPeerGc < PEER_GC_INTERVAL_MS) return;
+    this.lastPeerGc = nowMs;
+    for (const [key, window] of this.peerWindows) {
+      if (nowMs - window.windowStart > WINDOW_MS * 2) {
+        this.peerWindows.delete(key);
+      }
     }
   }
 

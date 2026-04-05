@@ -30,6 +30,13 @@ export interface UpdateAssistantDraftRequest {
   assistantGender?: string | null;
 }
 
+const DRAFT_FIELD_MAX_LENGTHS: Record<string, number> = {
+  displayName: 100,
+  instructions: 50_000,
+  avatarUrl: 2048,
+  avatarEmoji: 8
+};
+
 function normalizeOptionalDraftField(value: unknown, fieldName: string): string | null | undefined {
   if (value === undefined) {
     return undefined;
@@ -43,7 +50,26 @@ function normalizeOptionalDraftField(value: unknown, fieldName: string): string 
     throw new BadRequestException(`${fieldName} must be a non-empty string, null, or omitted.`);
   }
 
-  return value.trim();
+  const trimmed = value.trim();
+  const maxLen = DRAFT_FIELD_MAX_LENGTHS[fieldName];
+  if (maxLen !== undefined && trimmed.length > maxLen) {
+    throw new BadRequestException(
+      `${fieldName} must be at most ${maxLen} characters (got ${trimmed.length}).`
+    );
+  }
+
+  return trimmed;
+}
+
+function validateAvatarUrl(url: string): void {
+  if (!url.startsWith("https://")) {
+    throw new BadRequestException("avatarUrl must use the https:// scheme.");
+  }
+  try {
+    new URL(url);
+  } catch {
+    throw new BadRequestException("avatarUrl must be a valid URL.");
+  }
 }
 
 @Injectable()
@@ -70,6 +96,9 @@ export class UpdateAssistantDraftService {
     const instructions = normalizeOptionalDraftField(body.instructions, "instructions");
     const avatarEmoji = normalizeOptionalDraftField(body.avatarEmoji, "avatarEmoji");
     const avatarUrl = normalizeOptionalDraftField(body.avatarUrl, "avatarUrl");
+    if (typeof avatarUrl === "string") {
+      validateAvatarUrl(avatarUrl);
+    }
     const assistantGender = this.parseOptionalAssistantGender(body.assistantGender);
     const traits = this.parseOptionalTraits(body.traits);
 

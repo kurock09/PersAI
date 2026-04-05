@@ -52,6 +52,8 @@ const baseApiConfigSchema = z.object({
   ABUSE_USER_BLOCK_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(20),
   ABUSE_ASSISTANT_SLOWDOWN_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(40),
   ABUSE_ASSISTANT_BLOCK_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(120),
+  ABUSE_PEER_SLOWDOWN_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(5),
+  ABUSE_PEER_BLOCK_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(12),
   ABUSE_SLOWDOWN_SECONDS: z.coerce.number().int().positive().default(15),
   ABUSE_TEMP_BLOCK_SECONDS: z.coerce.number().int().positive().default(300),
   ABUSE_QUOTA_SLOWDOWN_PERCENT: z.coerce.number().int().min(1).max(100).default(90),

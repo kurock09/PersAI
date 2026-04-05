@@ -1,5 +1,52 @@
 # SESSION-HANDOFF
 
+## 2026-04-05 - Application-layer security hardening (ADR-067)
+
+### What was done
+
+Five application-layer security gaps found during live audit were fixed:
+
+1. **Media storage quota enforced** — `ManageChatMediaService` and `InboundMediaService` now call `recordMediaUpload()` after every successful attachment creation. A pre-check rejects uploads that would exceed the workspace's `media_storage_bytes` limit.
+2. **Per-peer Telegram rate limit** — `EnforceAbuseRateLimitService` gained an in-memory sliding-window counter keyed by `assistantId:surface:peerKey`. For Telegram turns, `threadId` (Telegram chat session key) is passed as the peer key. Configurable via `ABUSE_PEER_SLOWDOWN_REQUESTS_PER_MINUTE` (default 5) and `ABUSE_PEER_BLOCK_REQUESTS_PER_MINUTE` (default 12).
+3. **Draft string length limits** — `displayName` max 100, `instructions` max 50,000, `avatarUrl` max 2,048, `avatarEmoji` max 8.
+4. **avatarUrl validation** — must use `https://` scheme and parse as a valid URL.
+5. **NetworkPolicy covers all pools** — `openclaw-ingress-baseline` selector removed `persai.dev/runtime-pool` restriction so the ingress policy applies to all openclaw pods (free, paid-shared, paid-isolated). Safe because ADR-066 moved all external webhook traffic through the API proxy.
+
+### What changed
+
+1. `docs/ADR/067-application-layer-security-hardening.md` — new ADR
+2. `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts` — added `checkMediaStorageQuota()` and `recordMediaUpload()` methods
+3. `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts` — quota pre-check + post-increment on upload and staged upload paths
+4. `apps/api/src/modules/workspace-management/application/media/inbound-media.service.ts` — quota post-increment on channel inbound media
+5. `apps/api/src/modules/workspace-management/application/media/media.types.ts` — added `userId` to `InboundMediaResolveParams`
+6. `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts` — passes `userId` and `peerKey` (threadId)
+7. `apps/api/src/modules/workspace-management/application/update-assistant-draft.service.ts` — maxLength guards + avatarUrl https validation
+8. `apps/api/src/modules/workspace-management/application/enforce-abuse-rate-limit.service.ts` — in-memory per-peer sliding window counter
+9. `packages/config/src/api-config.ts` — `ABUSE_PEER_SLOWDOWN_REQUESTS_PER_MINUTE`, `ABUSE_PEER_BLOCK_REQUESTS_PER_MINUTE`
+10. `infra/helm/templates/networkpolicies.yaml` — removed pool-specific selector from openclaw-ingress-baseline
+
+### Risks
+
+- Media quota enforcement applies to new uploads only. Existing over-quota workspaces are not retroactively blocked.
+- Per-peer rate limit is in-memory and resets on pod restart. Acceptable for initial protection.
+- Draft length limits may reject payloads that were previously accepted. Limits are generous (100 / 50,000).
+- NetworkPolicy change is safe after ADR-066 (all external traffic via API proxy).
+
+### Deploy order
+
+1. Deploy PersAI API (all code changes)
+2. Deploy Helm chart (NetworkPolicy change)
+3. No OpenClaw changes needed
+
+### Verification
+
+1. `corepack pnpm --filter @persai/api run typecheck`
+2. `corepack pnpm --filter @persai/web run typecheck`
+3. `corepack pnpm -r --if-present run lint`
+4. `corepack pnpm run format:check`
+5. After deploy: upload a file with a workspace near quota limit, verify rejection
+6. After deploy: send >12 messages from one Telegram peer in 60s, verify rate-limit
+
 ## 2026-04-05 - Telegram tier-aware ingress proxy (ADR-066)
 
 ### What was done

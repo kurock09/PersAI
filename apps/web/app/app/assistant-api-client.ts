@@ -1653,6 +1653,29 @@ export async function postAssistantTelegramDisconnect(
   }
 }
 
+export async function postAssistantTelegramResendOwnerMessage(
+  token: string
+): Promise<TelegramIntegrationState> {
+  try {
+    const response = await fetch("/api/v1/assistant/integrations/telegram/resend-owner-message", {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const data = (await response.json()) as { integration?: TelegramIntegrationState };
+    if (!data.integration) {
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/integrations/telegram/resend-owner-message."
+      );
+    }
+    return data.integration;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
 export type TelegramGroupInfo = {
   id: string;
   telegramChatId: string;

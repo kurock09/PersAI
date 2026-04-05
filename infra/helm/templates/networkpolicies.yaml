@@ -85,10 +85,7 @@ spec:
 {{- end }}
 ---
 {{- $openclawTrustedIngressCidrs := .Values.networkPolicy.openclawIngress.trustedIngressIpBlocks | default (list) }}
-{{- $telegramWebhookCidrs := .Values.networkPolicy.openclawIngress.telegramWebhookIpBlocks | default (list) }}
-{{- $openclawIngressCidrs := concat $openclawTrustedIngressCidrs $telegramWebhookCidrs }}
-{{- $openclawIngressSafe := or (not .Values.openclaw.telegramWebhook.enabled) (gt (len $openclawIngressCidrs) 0) }}
-{{- if and .Values.networkPolicy.enabled .Values.openclaw.enabled $openclawIngressSafe }}
+{{- if and .Values.networkPolicy.enabled .Values.openclaw.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -98,7 +95,6 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: openclaw
-      persai.dev/runtime-pool: {{ $effectiveIngressPoolKey | quote }}
   policyTypes:
     - Ingress
   ingress:
@@ -106,11 +102,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: api
-        {{- if .Values.openclaw.telegramWebhook.enabled }}
-        {{- range $openclawIngressCidrs }}
+        {{- range $openclawTrustedIngressCidrs }}
         - ipBlock:
             cidr: {{ . | quote }}
-        {{- end }}
         {{- end }}
       ports:
         - protocol: TCP

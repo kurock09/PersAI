@@ -44,6 +44,7 @@ import { ConnectTelegramIntegrationService } from "../../application/connect-tel
 import { UpdateTelegramIntegrationConfigService } from "../../application/update-telegram-integration-config.service";
 import { UpdateAssistantNotificationPreferenceService } from "../../application/update-assistant-notification-preference.service";
 import { RevokeTelegramIntegrationSecretService } from "../../application/revoke-telegram-integration-secret.service";
+import { ResendTelegramOwnerMessageService } from "../../application/resend-telegram-owner-message.service";
 import { DoNotRememberAssistantMemoryService } from "../../application/do-not-remember-assistant-memory.service";
 import { ForgetAssistantMemoryItemService } from "../../application/forget-assistant-memory-item.service";
 import { ListAssistantMemoryItemsService } from "../../application/list-assistant-memory-items.service";
@@ -83,6 +84,7 @@ export class AssistantController {
     private readonly updateTelegramIntegrationConfigService: UpdateTelegramIntegrationConfigService,
     private readonly updateAssistantNotificationPreferenceService: UpdateAssistantNotificationPreferenceService,
     private readonly revokeTelegramIntegrationSecretService: RevokeTelegramIntegrationSecretService,
+    private readonly resendTelegramOwnerMessageService: ResendTelegramOwnerMessageService,
     private readonly listAssistantMemoryItemsService: ListAssistantMemoryItemsService,
     private readonly forgetAssistantMemoryItemService: ForgetAssistantMemoryItemService,
     private readonly doNotRememberAssistantMemoryService: DoNotRememberAssistantMemoryService,
@@ -360,6 +362,20 @@ export class AssistantController {
     const userId = this.resolveRequestUserId(req);
     const input = this.updateTelegramIntegrationConfigService.parseInput(body);
     const integration = await this.updateTelegramIntegrationConfigService.execute(userId, input);
+    return {
+      requestId: req.requestId ?? null,
+      integration
+    };
+  }
+
+  @Post("assistant/integrations/telegram/resend-owner-message")
+  @HttpCode(200)
+  async resendTelegramOwnerMessage(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    integration: TelegramIntegrationState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const integration = await this.resendTelegramOwnerMessageService.execute(userId);
     return {
       requestId: req.requestId ?? null,
       integration

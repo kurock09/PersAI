@@ -202,6 +202,44 @@ export class TrackWorkspaceQuotaUsageService {
     return this.toolDailyUsageRepository.incrementAndGet(workspaceId, toolCode);
   }
 
+  async checkMediaStorageQuota(assistant: Assistant): Promise<{
+    allowed: boolean;
+    usedBytes: bigint;
+    limitBytes: bigint | null;
+  }> {
+    const governance = await this.resolveGovernance(assistant.id);
+    const limits = await this.resolveLimits(assistant, governance);
+    const state = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(
+      assistant.workspaceId
+    );
+    const usedBytes = state?.mediaStorageBytesUsed ?? BigInt(0);
+    const limitBytes = limits.mediaStorageBytesLimit;
+    if (limitBytes !== null && usedBytes >= limitBytes) {
+      return { allowed: false, usedBytes, limitBytes };
+    }
+    return { allowed: true, usedBytes, limitBytes };
+  }
+
+  async recordMediaUpload(params: {
+    assistant: Assistant;
+    sizeBytes: bigint;
+    source: string;
+  }): Promise<void> {
+    if (params.sizeBytes <= BigInt(0)) return;
+    const governance = await this.resolveGovernance(params.assistant.id);
+    const limits = await this.resolveLimits(params.assistant, governance);
+    await this.workspaceQuotaAccountingRepository.incrementUsage({
+      workspaceId: params.assistant.workspaceId,
+      assistantId: params.assistant.id,
+      userId: params.assistant.userId,
+      dimension: "media_storage_bytes",
+      delta: params.sizeBytes,
+      source: params.source,
+      metadata: null,
+      limits
+    });
+  }
+
   async consumeToolDailyLimit(params: {
     assistant: Assistant;
     toolCode: string;

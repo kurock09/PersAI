@@ -16,6 +16,7 @@ import {
 } from "./assistant-runtime-adapter.types";
 import { MediaPreprocessorService } from "./media/media-preprocessor.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
@@ -46,7 +47,8 @@ export class ManageChatMediaService {
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
     private readonly preprocessor: MediaPreprocessorService,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   async uploadAttachment(params: {
@@ -79,6 +81,11 @@ export class ManageChatMediaService {
     if (!message || message.chatId !== chat.id) {
       throw new NotFoundException("Message does not exist in this chat.");
     }
+    const quotaCheck = await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
+    if (!quotaCheck.allowed) {
+      throw new BadRequestException("Media storage quota exceeded for this workspace.");
+    }
+
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
@@ -92,6 +99,7 @@ export class ManageChatMediaService {
       mimeType: validated.effectiveMimeType
     });
 
+    const sizeBytes = BigInt(uploadResult.sizeBytes);
     const attachment = await this.attachmentRepository.create({
       messageId: message.id,
       chatId: chat.id,
@@ -101,13 +109,19 @@ export class ManageChatMediaService {
       storagePath: uploadResult.storagePath,
       originalFilename: validated.originalFilename,
       mimeType: uploadResult.mimeType,
-      sizeBytes: BigInt(uploadResult.sizeBytes),
+      sizeBytes,
       durationMs: null,
       width: null,
       height: null,
       processingStatus: "ready",
       transcription: null,
       metadata: null
+    });
+
+    await this.trackWorkspaceQuotaUsageService.recordMediaUpload({
+      assistant,
+      sizeBytes,
+      source: "chat_upload"
     });
 
     return attachment;
@@ -191,6 +205,12 @@ export class ManageChatMediaService {
       mimeType
     });
 
+    const quotaCheck = await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
+    if (!quotaCheck.allowed) {
+      throw new BadRequestException("Media storage quota exceeded for this workspace.");
+    }
+
+    const sizeBytes = BigInt(uploadResult.sizeBytes);
     const attachment = await this.attachmentRepository.create({
       messageId: stagingMessage.id,
       chatId: chat.id,
@@ -200,7 +220,7 @@ export class ManageChatMediaService {
       storagePath: uploadResult.storagePath,
       originalFilename: validated.originalFilename,
       mimeType: uploadResult.mimeType,
-      sizeBytes: BigInt(uploadResult.sizeBytes),
+      sizeBytes,
       durationMs: processed?.durationMs ?? null,
       width: processed?.width ?? null,
       height: processed?.height ?? null,
@@ -210,6 +230,12 @@ export class ManageChatMediaService {
         source: "web_staged_upload",
         ...(processed?.textExtract ? { textExtract: "stored" } : {})
       }
+    });
+
+    await this.trackWorkspaceQuotaUsageService.recordMediaUpload({
+      assistant,
+      sizeBytes,
+      source: "web_staged_upload"
     });
 
     return { chatId: chat.id, messageId: stagingMessage.id, attachment };
