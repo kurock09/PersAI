@@ -123,6 +123,7 @@ import { BumpConfigGenerationService } from "./application/bump-config-generatio
 import { ForceReapplyAllService } from "./application/force-reapply-all.service";
 import { AdminForceReapplyController } from "./interface/http/admin-force-reapply.controller";
 import { MediaAttachmentController } from "./interface/http/media-attachment.controller";
+import { TelegramWebhookProxyController } from "./interface/http/telegram-webhook-proxy.controller";
 import { ManageChatMediaService } from "./application/manage-chat-media.service";
 import { MediaPreprocessorService } from "./application/media/media-preprocessor.service";
 import { InboundMediaService } from "./application/media/inbound-media.service";
@@ -157,7 +158,8 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     InternalRuntimeTurnController,
     InternalRuntimeToolQuotaController,
     AdminForceReapplyController,
-    MediaAttachmentController
+    MediaAttachmentController,
+    TelegramWebhookProxyController
   ],
   providers: [
     WorkspaceManagementPrismaService,

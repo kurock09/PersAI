@@ -1,5 +1,45 @@
 # SESSION-HANDOFF
 
+## 2026-04-05 - Telegram tier-aware ingress proxy (ADR-066)
+
+### What was done
+
+1. **Telegram webhook traffic is now tier-aware** — GKE Ingress for `bot.persai.dev/telegram-webhook` now routes to the PersAI API (`api:3001`) instead of the hardcoded `free_shared_restricted` OpenClaw pool. A new `TelegramWebhookProxyController` resolves the assistant's runtime tier and transparently forwards the Telegram update to the correct OpenClaw pool.
+2. **Ingress template cleaned** — removed all free-pool context variables and wiring from `ingress.yaml`. Bot traffic condition now depends on `api.enabled && telegramWebhook.enabled` instead of free pool readiness.
+3. **Security policy note updated** — the stale "Telegram follows free shared pool during cutover" note in `runtime-tier-security-policy.ts` replaced with the ADR-066 reference.
+4. **Documentation** — ADR-066, API-BOUNDARY, CHANGELOG, SESSION-HANDOFF updated.
+
+### What changed
+
+1. `docs/ADR/066-telegram-tier-aware-ingress-proxy.md` — new ADR documenting the decision
+2. `apps/api/src/modules/workspace-management/interface/http/telegram-webhook-proxy.controller.ts` — new controller
+3. `apps/api/src/modules/workspace-management/workspace-management.module.ts` — registered controller
+4. `infra/helm/templates/ingress.yaml` — bot.persai.dev backend changed from openclaw-free-shared to api
+5. `apps/api/src/modules/workspace-management/application/runtime-tier-security-policy.ts` — note updated
+6. `docs/API-BOUNDARY.md` — new endpoint documented
+7. `docs/CHANGELOG.md` — entry added
+
+### Risks
+
+- One extra network hop per Telegram webhook (~5-10ms, within Telegram's 60s tolerance).
+- If `resolveByAssistantId` fails (deleted assistant, DB outage), the proxy returns 200 `{ ok: false }` to Telegram, which prevents retries but drops the update. This matches the existing OpenClaw behavior for unknown assistants.
+- NestJS JSON body parser deserializes then re-serializes the Telegram update. Semantic content is identical; byte-for-byte equality is not guaranteed. OpenClaw's grammY parser accepts any valid JSON.
+
+### Deploy order
+
+1. Deploy PersAI API (new controller registers automatically)
+2. Deploy Helm chart (ingress rule changes)
+3. No OpenClaw changes needed
+4. No Telegram bot re-registration needed
+
+### Verification
+
+1. `corepack pnpm --filter @persai/api run typecheck`
+2. `corepack pnpm --filter @persai/web run typecheck`
+3. `corepack pnpm run format:check`
+4. After deploy: send a Telegram message to a paid-tier bot, verify in API logs that proxy routes to `paid_shared_restricted` pool
+5. Verify free-tier bot still works (routes to `free_shared_restricted`)
+
 ## 2026-04-05 - Telegram claim UX + Admin Ops fixes
 
 ### What was done

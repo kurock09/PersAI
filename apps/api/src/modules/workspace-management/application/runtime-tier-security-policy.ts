@@ -95,7 +95,7 @@ export function listRuntimeTierSecurityPolicies(): RuntimeTierSecurityPolicyStat
       poolClass: "shared_restricted",
       notes: [
         "Free traffic stays on the restricted shared lane and follows the same deny baseline as other shared tiers.",
-        "Telegram/webhook ingress follows the active free shared physical pool during cutover."
+        "Telegram webhook traffic is tier-aware: API proxy resolves assistant tier and forwards to the correct pool (ADR-066)."
       ]
     }),
     buildRuntimeTierSecurityPolicy({

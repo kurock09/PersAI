@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Telegram webhook tier-aware proxy (ADR-066):** all Telegram webhook traffic was previously hardcoded via GKE Ingress to the `free_shared_restricted` OpenClaw pool, bypassing the runtime tier separation for paid/isolated assistants. A new `TelegramWebhookProxyController` on the PersAI API now receives `bot.persai.dev/telegram-webhook/:assistantId`, resolves the assistant's effective runtime tier from the materialized spec, and forwards the complete Telegram update to the correct tier-specific OpenClaw pool. The external webhook URL is unchanged — no Telegram bot re-registration needed. The ingress template no longer contains pool-specific service references for bot traffic.
+
 ### Added
 
 - **Wave 3 media storage quota in Admin Plans:** `mediaStorageBytesLimit` is now a per-plan editable field in the Admin Plans UI (displayed in MB for clarity). The value flows through `AdminPlanQuotaLimits` in the OpenAPI contract, is persisted in `billingProviderHints.quotaAccounting`, and resolves at runtime via `TrackWorkspaceQuotaUsageService` with a fallback to the global `QUOTA_MEDIA_STORAGE_BYTES_DEFAULT` config when no plan-level override is set.

@@ -1639,3 +1639,15 @@ Response (extended M6):
 - `POST /api/v1/runtime/chat/web` response now includes optional `media[]`: `[{ url, type, audioAsVoice? }]`
 - `POST /api/v1/runtime/chat/web/stream` NDJSON now emits optional `{ type: "media", media: [...] }` record after `done`
 - `POST /api/v1/runtime/chat/channel` response now includes optional `media[]`
+
+## Telegram webhook proxy (ADR-066)
+
+### ALL /telegram-webhook/:assistantId
+
+Public endpoint. No Clerk auth. Not under `/api/v1/` prefix.
+
+GKE Ingress routes `bot.persai.dev/telegram-webhook/*` to the PersAI API service on port 3001. The `TelegramWebhookProxyController` extracts `assistantId` from the path, resolves the assistant's effective runtime tier via materialized spec, and forwards the complete Telegram update (re-serialized JSON body) to the matching tier-specific OpenClaw pool's `/telegram-webhook/:assistantId` endpoint.
+
+Returns the upstream OpenClaw response unchanged. On resolution failure or upstream error, returns `200 { ok: false, error: "..." }` to prevent Telegram from retrying.
+
+This replaces the previous ingress rule that hardcoded all Telegram traffic to the `free_shared_restricted` OpenClaw pool regardless of assistant tier.
