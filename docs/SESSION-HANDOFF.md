@@ -1,5 +1,27 @@
 # SESSION-HANDOFF
 
+## 2026-04-05 - OpenClaw Telegram owner claim instant bootstrap patch
+
+### What was done
+
+After a successful 6-digit Telegram owner claim, the runtime now patches the in-memory `bootstrap.channels.telegram` state immediately (`ownerClaimStatus: "claimed"`, fills `ownerTelegramUserId`/`ownerTelegramUsername`/`ownerTelegramChatId`, clears code fields). Without this patch, the bot would re-prompt for the claim code on subsequent messages until the next full spec refresh from PersAI API.
+
+### What changed (OpenClaw fork)
+
+1. `src/gateway/persai-runtime/persai-runtime-telegram.ts` — new `applyTelegramOwnerClaimToBootstrap()` function + call after successful claim
+2. `src/gateway/persai-runtime/persai-runtime-telegram.test.ts` — unit test for the new function
+
+### What changed (PersAI)
+
+1. `infra/dev/gitops/openclaw-approved-sha.txt` — advanced to `8d6a6fcbe842ee6cba24e8aeea590a9b522cce15`
+2. `infra/helm/values-dev.yaml` — openclaw image tag updated, digest cleared for CI repin
+3. `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Deploy order
+
+1. Push OpenClaw first
+2. Push PersAI — CI rebuilds/repins the OpenClaw image
+
 ## 2026-04-05 - Application-layer security hardening (ADR-067)
 
 ### What was done
