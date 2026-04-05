@@ -386,7 +386,7 @@ Step 15 — Tiered OpenClaw runtime and production hardening
 
 ## Pending / Future
 
-- [ ] K16 — Post-R15 security governance and admin control-plane hardening
+- [x] K16 — Post-R15 security governance and admin control-plane hardening
   - [x] K16a — separate plan-managed vs hidden-internal tool policy truth so runtime materialization, admin plan API, and user-visible tool docs no longer rely on the old raw activation rows alone
     - Admin plans now expose the same three-way tool policy split the control plane uses internally: editable `plan_managed`, read-only always-on `platform_managed`, and read-only `hidden_internal`.
     - `persai_workspace_attach` and `persai_tool_quota_status` are now cataloged as `platform_managed` system tools, existing plans are backfilled with non-plan-managed activation rows, and ordinary plan mutations still reject attempts to edit them.
@@ -413,6 +413,13 @@ Step 15 — Tiered OpenClaw runtime and production hardening
     - sidebar now shows current tariff plus token usage instead of the old chat-only progress bar
     - assistant settings keep only token/chat usage bars and list active per-tool daily limits from the effective plan
     - user-facing UI no longer reinforces the old `Cost tool units` product model
+  - [x] K16g — production security audit and hardening (ADR-065, ADR-066, ADR-067, ADR-069)
+    - [x] ADR-065 (Wave 1): openclaw container securityContext locked (readOnlyRootFilesystem, runAsNonRoot, drop ALL caps). Per-tier resource limits (CPU/RAM/ephemeral/PIDs). Egress NetworkPolicy for all openclaw pods.
+    - [x] ADR-066: Telegram webhook tier-aware proxy through PersAI API, removing hardcoded ingress to free_shared pool.
+    - [x] ADR-067: media storage quota enforcement, per-peer Telegram rate limit, draft input validation (maxLength + avatarUrl https), NetworkPolicy covering all pools.
+    - [x] ADR-069: workspace storage quota enforcement (write + exec guard with cached du, default 500 MB). dind privileged: false with rootless securityContext. Admin UI workspace storage field per plan.
+    - [x] Cross-assistant file isolation (Wave 2): workspace media path no longer falls back to global root.
+    - [x] GKE autoscaling enabled for runtime node pool.
 - [ ] H11 — WhatsApp/MAX follow-through: extend the current readiness model with Telegram-parity managed `secret_refs`, rotation/revoke flow, and runtime materialization when those channels ship
 - [ ] Channel media adapters: WhatsApp, VK, Matrix — add one `*MediaAdapter` plus module registration when each channel ships, and align channel enum/contracts with Matrix if it remains in scope
 - [ ] TTS admin advanced settings UI: expose provider-specific voice/model controls in PersAI admin (OpenAI first); current runtime behavior uses provider defaults and gender-based mapping, not the old `[[tts:voice=...]]` directive path

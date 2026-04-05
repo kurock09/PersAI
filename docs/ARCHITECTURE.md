@@ -165,6 +165,8 @@ It is not part of backend domain logic.
   - (legacy `capabilities` and `limits_permissions` arrays remain in DB schema but are no longer surfaced in API contracts or admin UI — effectively deprecated)
 - plan-level quota limits and model selection are stored in `plan_catalog_plans.billing_provider_hints` JSON:
   - `quotaAccounting.tokenBudgetLimit`
+  - `quotaAccounting.mediaStorageBytesLimit`
+  - `quotaAccounting.workspaceStorageBytesLimit`
   - `quotaAccounting.costOrTokenDrivingToolClassUnitsLimit`
   - `primaryModelKey` (per-plan default AI model)
 - default first-registration assignment is modeled by plan flag (`isDefaultFirstRegistrationPlan`) and applied to governance `quotaPlanCode` at assistant baseline creation
@@ -201,10 +203,12 @@ It is not part of backend domain logic.
 ## Quota accounting boundary (Step 7 P5)
 
 - quota accounting is centralized in backend control plane (`TrackWorkspaceQuotaUsageService`) and persisted per workspace
-- tracked commercial dimensions in P5:
+- tracked commercial dimensions:
   - token budget usage
   - cost/token-driving tool class usage units
   - active web chats cap current usage
+  - media storage bytes (enforced on upload, ADR-067)
+  - workspace storage bytes (enforced in OpenClaw sandbox write/exec tools, ADR-069)
 - tracked counters and append-only events are stored separately:
   - latest state (`workspace_quota_accounting_state`)
   - usage/snapshot event log (`workspace_quota_usage_events`)

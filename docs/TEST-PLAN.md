@@ -597,7 +597,7 @@ Required in CI:
   - explicit sandbox/workspace-access/runtime config generation
   - no accidental dependence on permissive OpenClaw defaults
   - current Helm-rendered baseline explicitly denies dangerous built-ins (`gateway`, `nodes`, `canvas`, `agents_list`, `session_status`, `sessions_*`, `subagents`)
-  - prepared sandbox limits render into config, but GKE rollout keeps `agents.defaults.sandbox.mode: "off"` until sandbox backend/container support is actually present
+  - sandbox is active (`mode: "all"`) in all tiered pools with per-tier resource limits and rootless dind (`privileged: false`, ADR-069)
   - `corepack pnpm run shared-runtime:readiness:strict` is the canonical prepared-baseline gate before rollout
 - Runtime assignment tests validate:
   - plan default + admin override resolution (`platform_fallback -> plan_default -> assistant_override`)
@@ -618,11 +618,11 @@ Required in CI:
     - runtime tier resolves from materialized/inbound context
     - `OPENCLAW_BASE_URL_<TIER>` routes directly to the explicit tier service
     - no global runtime fallback URL remains in the active adapter path
-- Sandbox activation gate checks validate:
-  - sandbox is never enabled by mutating the only current working runtime in place
-  - canary routing can target a separate sandbox-ready pool
-  - rollback to the current pool is still possible during migration
-  - temporary compatibility routing has an explicit removal step
+- Sandbox and quota enforcement checks validate:
+  - sandbox is active in all tiered pools with rootless dind and per-tier resource limits
+  - workspace storage quota is enforced at write and exec tool entry points (ADR-069)
+  - media storage quota is enforced on upload with pre-check + post-increment (ADR-067)
+  - per-peer Telegram rate limit is enforced in-memory per chatId (ADR-067)
 - Network/token hardening checks validate:
   - OpenClaw ingress can be reduced to API pods plus explicitly allowlisted pod-visible trusted ingress CIDRs
   - public API listener rejects `/api/v1/internal/*`

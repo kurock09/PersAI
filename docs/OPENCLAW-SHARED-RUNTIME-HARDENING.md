@@ -141,29 +141,19 @@ Current implemented baseline in Helm values:
 - `docker.memorySwap: "1g"`
 - `docker.cpus: 1`
 
-Current rollout constraint:
+Current status (2026-04-05):
 
-- sandbox remains `mode: "off"` in the present GKE deployment until the runtime gains an actual sandbox backend/container strategy in-cluster; enabling it prematurely would create a false sense of isolation and a real outage risk
-
-### Sandbox activation strategy
-
-The prepared sandbox config exists so PersAI can move cleanly toward sandbox-enabled shared tiers without editing config shape later.
-
-However, activation must happen through a **new runtime path**, not by mutating the only currently working runtime in place.
-
-Required rule:
-
-- current shared runtime remains stable while the sandbox-ready pool is introduced separately
-- PersAI control plane routes only canary/test assistants first
-- full cutover happens only after runtime smoke and rollback checks pass
-- temporary compatibility routing must have an explicit removal slice
+- sandbox is **active** (`mode: "all"`) in all three tiered pools (`free_shared_restricted`, `paid_shared_restricted`, `paid_isolated`)
+- Docker-in-Docker sidecar runs with `privileged: false`, `runAsNonRoot: true`, `runAsUser: 1000`, seccomp RuntimeDefault, capabilities drop ALL (+SETUID/SETGID) (ADR-069)
+- per-tier resource limits are differentiated (PIDs, memory, CPU) via Helm values
+- sandbox activation was verified live on GKE 2026-04-05 with full tool surface confirmation
 
 ### Workspace and storage
 
-- bounded workspace growth
-- bounded media growth
-- bounded temporary artifacts
-- bounded session/transcript growth
+- bounded workspace growth — **enforced** (ADR-069): per-plan `workspaceQuotaBytes` limit checked at write and exec tool entry points via cached `du -sb` guard (30s TTL). Default 500 MB for free tier, configurable per plan in Admin UI.
+- bounded media growth — **enforced** (ADR-067): `media_storage_bytes` quota pre-check on upload + post-increment. Per-plan override in Admin UI.
+- bounded temporary artifacts — `_stt_tmp` cleanup on every transcription call
+- bounded session/transcript growth — session TTL/GC enforced per assistant
 - no silent dependence on cleanup-by-luck
 
 ### Network
@@ -200,27 +190,31 @@ It does not:
 
 Instead it ensures the shared pool is a **restricted execution tier**, not a trust-all runtime.
 
-## Required next implementation slices
+## Implementation slices status
 
-### R15b1 — codify current runtime exposure
+### R15b1 — codify current runtime exposure — DONE
 
-- enumerate the effective built-in OpenClaw tools reachable in PersAI runtime turns
-- compare them to the PersAI product catalog and approved tool surface
+- explicit deny-by-default tool surface implemented in Helm/config
+- K16a separated plan-managed vs hidden-internal tool policy
 
-### R15b2 — explicit shared-runtime config
+### R15b2 — explicit shared-runtime config — DONE
 
-- render sandbox/tool/workspace limits through Helm/config instead of relying on implicit defaults
+- sandbox enabled (`mode: "all"`) with per-tier resource limits
+- workspace quota enforced (ADR-069)
+- media quota enforced (ADR-067)
 
-### R15b3 — internal boundary hardening
+### R15b3 — internal boundary hardening — DONE
 
-- codify GKE reachability and internal caller restrictions for runtime/internal endpoints
+- split API listener (public 3001 / internal 3002)
+- NetworkPolicy for API and OpenClaw pods
+- egress restricted to DNS/API/HTTPS only
 
-### R15b4 — production readiness verification
+### R15b4 — production readiness verification — DONE
 
-- add shared-runtime smoke checks and rollout gates before paid launch
-- canonical prepared-baseline gate: `corepack pnpm run shared-runtime:readiness`
-- strict rollout gate: `corepack pnpm run shared-runtime:readiness:strict`
-- required-secret baseline: `PERSAI_INTERNAL_API_TOKEN` must exist in the secret source-of-truth and in Kubernetes before treating runtime hardening as delivery-ready
+- `corepack pnpm run shared-runtime:readiness` gate
+- `corepack pnpm run shared-runtime:readiness:strict` gate
+- `PERSAI_INTERNAL_API_TOKEN` verified in Kubernetes
+- dind privileged: false with rootless securityContext (ADR-069)
 
 ## Related files
 
