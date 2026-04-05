@@ -180,6 +180,19 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async checkToolDailyLimit(params: {
+        workspaceId: string;
+        toolCode: string;
+        dailyCallLimit: number | null;
+      }) {
+        return {
+          allowed: true,
+          currentCount: params.dailyCallLimit === null ? 0 : 3,
+          limit: params.dailyCallLimit
+        };
+      }
+    } as never,
+    {
       async assertCanReadAdminSurface() {
         throw new Error("admin auth should not be used for user visibility");
       }
@@ -203,6 +216,7 @@ async function run(): Promise<void> {
     toolCode: "memory_search",
     displayName: "Memory Search",
     dailyCallLimit: 25,
+    dailyCallsUsed: 3,
     active: true
   });
 }
