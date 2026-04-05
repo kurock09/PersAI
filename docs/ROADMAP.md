@@ -4,6 +4,12 @@
 
 Step 15 — Tiered OpenClaw runtime and production hardening
 
+Scaling-readiness control layer is now tracked by:
+- `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
+- `docs/SCALING-READINESS-PLAN.md`
+- current active slice: `SR2` (GKE production baseline)
+- next recommended slice after `SR2`: `SR3` (API concurrency and dependency hardening)
+
 ## Step 1
 
 - [x] Monorepo scaffold
@@ -431,6 +437,29 @@ Step 15 — Tiered OpenClaw runtime and production hardening
 - [ ] H15 — GKE runtime tuning for 5 000+ users (execution follow-up inside Step 15 runtime program)
   - [x] H15a — tune sandbox-capable pool startup budget from measured preload/warmup behavior; API/web probes already live in Helm values, while broader OpenClaw readiness/liveness parity remains follow-up work
   - [ ] H15b — validate rollout safety and cold-start/recovery latency for `api`, `web`, and tiered `openclaw` pools with repeatable operational checks
+- [ ] SR0 — Scaling readiness documentation/control baseline
+  - [x] ADR-070 accepted as umbrella governance for scaling-readiness, evidence-first delivery, and clean-delivery rules
+  - [x] `docs/SCALING-READINESS-PLAN.md` created as central execution-plan source-of-truth for Cursor-agent slices
+  - [x] roadmap/test-plan/changelog/session-handoff aligned to the new program baseline
+- [x] SR1 — Platform baseline and observability
+  - closed with: honest API readiness, dependency/request/latency metrics, and explicit `SR1` deploy-observation + alert + OpenClaw probe/log baseline (`docs/SR1-OBSERVABILITY-BASELINE.md`)
+- [x] SR2 — GKE production baseline
+  - closed with: explicit workload rollout truth for `api`, `web`, and OpenClaw pools; enabled bounded disruption/placement baseline for `api` and `web` (`replicas=2`, `PDB`, topology spread); and explicit-but-disabled autoscaling assumptions so infra defaults are no longer implicit
+- [x] SR3 — API concurrency and dependency hardening
+  - closed with: bounded API correctness fixes for chat-thread creation races, OpenClaw preflight burst pressure, duplicate in-process Prisma clients, distributed `peerKey` abuse throttling, and atomic distributed registration of user/assistant abuse counters under contention
+  - `SR3b`: adapter preflight now uses short TTL caching plus in-flight dedup per runtime tier, reducing burst-time dependency pressure from repeated `/healthz` + `/readyz` checks on nearby runtime calls
+  - `SR3c`: API no longer opens two separate Prisma clients/pools for identity-access vs workspace-management in the same process; workspace-management now aliases the shared Prisma singleton
+  - `SR3d`: peer abuse throttling for `peerKey`-based inbound paths is no longer process-local memory only; the peer counter now persists and increments atomically in Postgres so the touched Telegram path keeps the same guard across API replicas
+  - `SR3e`: user/assistant abuse counters no longer rely on `find -> compute -> upsert` under burst; registration now runs through a serializable Postgres transaction with retry on contention
+- [x] SR4 — OpenClaw runtime throughput and multi-replica correctness
+  - closed with: explicit single-replica production runtime contract for OpenClaw (`single_replica`, one pod per runtime pool, `Recreate` rollout only), explicit prohibition of multi-replica session mode, and honest identification of the shared global active-turn lane as the current throughput ceiling
+  - `SR4a`: runtime readiness now treats PersAI `multi_replica` session mode as not yet supported by code: Redis-backed apply/spec storage is necessary metadata sharing, but session store continuity, workspace continuity, execution ordering, and restart handoff remain unproven across replicas
+- [ ] SR5 — Sandbox and dind capacity hardening
+- [ ] SR6 — Storage and workspace path hardening
+- [ ] SR7 — Media pipeline capacity hardening
+- [ ] SR8 — Webhook and realtime burst hardening
+- [ ] SR9 — Billing and quota correctness under concurrency
+- [ ] SR10 — Capacity validation and production gate
 - [ ] H16 — Autonomous workspace heartbeat deeper isolation
   - note: the immediate hygiene slice above is complete; the remaining H16 work is the deeper isolation/refactor track
   - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated

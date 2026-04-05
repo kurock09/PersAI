@@ -1,9 +1,5 @@
-import { Injectable, OnModuleDestroy } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
+import { PrismaService } from "../../../identity-access/infrastructure/persistence/prisma.service";
 
-@Injectable()
-export class WorkspaceManagementPrismaService extends PrismaClient implements OnModuleDestroy {
-  async onModuleDestroy(): Promise<void> {
-    await this.$disconnect();
-  }
-}
+// Workspace-management keeps its own injection token, but it now aliases the
+// shared identity-access Prisma singleton instead of opening a second client/pool.
+export abstract class WorkspaceManagementPrismaService extends PrismaService {}

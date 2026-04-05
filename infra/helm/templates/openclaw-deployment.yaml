@@ -3,6 +3,7 @@
 {{- if $pool.enabled }}
 {{- $poolCtx := dict "Values" $.Values "poolKey" $poolKey "pool" $pool }}
 {{- $openclaw := (include "persai.openclaw.poolMergedValues" (dict "Values" $.Values "pool" $pool) | fromYaml) }}
+{{- include "persai.openclaw.assertSupportedRuntimePool" (dict "poolKey" $poolKey "openclaw" $openclaw) }}
 {{- $openclawImage := include "persai.openclaw.imageRef" (dict "Values" $.Values "image" $openclaw.image) }}
 {{- $sandboxBaseImage := include "persai.openclaw.imageRef" (dict "Values" $.Values "image" (dict "name" (default "openclaw-sandbox" (($openclaw.sandboxImages | default dict).base | default dict).name) "tag" (default $openclaw.image.tag (($openclaw.sandboxImages | default dict).base | default dict).tag) "digest" (default "" (($openclaw.sandboxImages | default dict).base | default dict).digest)) ) }}
 {{- $sandboxCommonImage := include "persai.openclaw.sandboxCommonImageRef" (dict "Values" $.Values "openclaw" $openclaw) }}
@@ -21,6 +22,10 @@ metadata:
     app.kubernetes.io/component: runtime-pool
     persai.dev/runtime-pool: {{ $poolKey | quote }}
 spec:
+  revisionHistoryLimit: {{ default 2 $openclaw.revisionHistoryLimit }}
+  minReadySeconds: {{ default 0 $openclaw.minReadySeconds }}
+  strategy:
+{{ include "persai.openclaw.renderSupportedRuntimePoolStrategy" (dict "poolKey" $poolKey "strategy" $openclaw.strategy) | indent 4 }}
   replicas: {{ $openclaw.replicaCount }}
   selector:
     matchLabels:
@@ -39,6 +44,10 @@ spec:
     spec:
 {{- if $openclaw.serviceAccount.create }}
       serviceAccountName: {{ $openclaw.serviceAccount.name }}
+{{- end }}
+{{- if $openclaw.topologySpreadConstraints }}
+      topologySpreadConstraints:
+{{ include "persai.workloadTopologySpreadConstraints" (dict "constraints" $openclaw.topologySpreadConstraints "labels" (dict "app.kubernetes.io/name" "openclaw" "persai.dev/runtime-pool" $poolKey)) | indent 8 }}
 {{- end }}
       volumes:
         - name: openclaw-config
@@ -102,7 +111,7 @@ spec:
             capabilities:
               drop:
                 - ALL
-{{- with ($pool.config).resources }}
+{{- with $openclaw.resources }}
           resources:
 {{ toYaml . | indent 12 }}
 {{- end }}

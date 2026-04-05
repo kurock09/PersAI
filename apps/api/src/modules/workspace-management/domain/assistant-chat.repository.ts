@@ -26,6 +26,7 @@ export type AssistantChatListMetadata = {
 
 export interface AssistantChatRepository {
   createChat(input: CreateAssistantChatInput): Promise<AssistantChat>;
+  findOrCreateChatBySurfaceThread(input: CreateAssistantChatInput): Promise<AssistantChat>;
   findChatById(chatId: string): Promise<AssistantChat | null>;
   findChatBySurfaceThread(
     assistantId: string,

@@ -34,6 +34,9 @@ async function runWebDeliveryArtifactTest(): Promise<void> {
     createChat: async () => ({
       id: "chat-1"
     }),
+    findOrCreateChatBySurfaceThread: async () => ({
+      id: "chat-1"
+    }),
     createMessage: async (input: { content: string }) => {
       deliveredMessages.push(input.content);
       return { id: "message-1" };
@@ -137,6 +140,7 @@ async function runTelegramTaskTargetTest(): Promise<void> {
     const assistantChatRepository = {
       findChatBySurfaceThread: async () => null,
       createChat: async () => ({ id: "chat-1" }),
+      findOrCreateChatBySurfaceThread: async () => ({ id: "chat-1" }),
       createMessage: async () => ({ id: "message-1" })
     };
 
@@ -236,6 +240,7 @@ async function runQuotaRenderedFallbackTest(): Promise<void> {
     {
       findChatBySurfaceThread: async () => null,
       createChat: async () => ({ id: "chat-1" }),
+      findOrCreateChatBySurfaceThread: async () => ({ id: "chat-1" }),
       createMessage: async (input: { content: string }) => {
         deliveredMessages.push(input.content);
         return { id: "message-1" };

@@ -155,21 +155,14 @@ export class HandleInternalTelegramTurnService {
     let enrichedMessage = input.message;
 
     if (input.attachments && input.attachments.length > 0) {
-      let chat = await this.chatRepository.findChatBySurfaceThread(
-        resolved.assistantId,
-        "telegram",
-        input.threadId
-      );
-      if (!chat) {
-        chat = await this.chatRepository.createChat({
-          assistantId: resolved.assistantId,
-          userId: resolved.userId,
-          workspaceId: resolved.workspaceId,
-          surface: "telegram",
-          surfaceThreadKey: input.threadId,
-          title: null
-        });
-      }
+      const chat = await this.chatRepository.findOrCreateChatBySurfaceThread({
+        assistantId: resolved.assistantId,
+        userId: resolved.userId,
+        workspaceId: resolved.workspaceId,
+        surface: "telegram",
+        surfaceThreadKey: input.threadId,
+        title: null
+      });
 
       const userMessage = await this.chatRepository.createMessage({
         chatId: chat.id,

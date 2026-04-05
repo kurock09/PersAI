@@ -1,4 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { PlatformHttpMetricsService } from "./application/platform-http-metrics.service";
+import { PlatformReadinessService } from "./application/platform-readiness.service";
 import { HealthController } from "./interface/http/health.controller";
 import { MetricsController } from "./interface/http/metrics.controller";
 import { ReadyController } from "./interface/http/ready.controller";
@@ -9,7 +11,14 @@ import { RequestLoggingMiddleware } from "./interface/http/request-logging.middl
 
 @Module({
   controllers: [HealthController, ReadyController, MetricsController],
-  providers: [AppLoggerService, RequestContextStore, RequestIdMiddleware, RequestLoggingMiddleware],
+  providers: [
+    AppLoggerService,
+    PlatformHttpMetricsService,
+    PlatformReadinessService,
+    RequestContextStore,
+    RequestIdMiddleware,
+    RequestLoggingMiddleware
+  ],
   exports: [AppLoggerService, RequestContextStore]
 })
 export class PlatformCoreModule implements NestModule {

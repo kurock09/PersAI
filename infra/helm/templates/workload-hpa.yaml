@@ -1,0 +1,101 @@
+{{- if and .Values.api.enabled .Values.api.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: {{ .Values.api.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.api.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.api.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.api.autoscaling.targetMemoryUtilizationPercentage }}
+---
+{{- end }}
+{{- if and .Values.web.enabled .Values.web.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: web
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: web
+  minReplicas: {{ .Values.web.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.web.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.web.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.web.autoscaling.targetMemoryUtilizationPercentage }}
+---
+{{- end }}
+{{- if .Values.openclaw.enabled }}
+{{- range $poolKey, $pool := .Values.openclaw.runtimePools.pools }}
+{{- if $pool.enabled }}
+{{- $poolCtx := dict "Values" $.Values "poolKey" $poolKey "pool" $pool }}
+{{- $openclaw := (include "persai.openclaw.poolMergedValues" (dict "Values" $.Values "pool" $pool) | fromYaml) }}
+{{- include "persai.openclaw.assertSupportedRuntimePool" (dict "poolKey" $poolKey "openclaw" $openclaw) }}
+{{- if $openclaw.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "persai.openclaw.poolFullName" $poolCtx }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: openclaw
+    app.kubernetes.io/component: runtime-pool
+    persai.dev/runtime-pool: {{ $poolKey | quote }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "persai.openclaw.poolFullName" $poolCtx }}
+  minReplicas: {{ $openclaw.autoscaling.minReplicas }}
+  maxReplicas: {{ $openclaw.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $openclaw.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ $openclaw.autoscaling.targetMemoryUtilizationPercentage }}
+---
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

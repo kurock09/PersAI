@@ -3,6 +3,7 @@
 {{- if $pool.enabled }}
 {{- $poolCtx := dict "Values" $.Values "poolKey" $poolKey "pool" $pool }}
 {{- $openclaw := (include "persai.openclaw.poolMergedValues" (dict "Values" $.Values "pool" $pool) | fromYaml) }}
+{{- include "persai.openclaw.assertSupportedRuntimePool" (dict "poolKey" $poolKey "openclaw" $openclaw) }}
 {{- $sandboxImage := include "persai.openclaw.sandboxCommonImageRef" (dict "Values" $.Values "openclaw" $openclaw) }}
 apiVersion: v1
 kind: ConfigMap

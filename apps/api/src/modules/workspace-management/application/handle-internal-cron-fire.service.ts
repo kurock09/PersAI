@@ -391,21 +391,14 @@ export class HandleInternalCronFireService {
     workspaceId: string;
     content: string;
   }): Promise<void> {
-    const existingChat = await this.assistantChatRepository.findChatBySurfaceThread(
-      params.assistantId,
-      "web",
-      REMINDER_WEB_CHAT_THREAD_KEY
-    );
-    const chat =
-      existingChat ??
-      (await this.assistantChatRepository.createChat({
-        assistantId: params.assistantId,
-        userId: params.userId,
-        workspaceId: params.workspaceId,
-        surface: "web",
-        surfaceThreadKey: REMINDER_WEB_CHAT_THREAD_KEY,
-        title: REMINDER_WEB_CHAT_TITLE
-      }));
+    const chat = await this.assistantChatRepository.findOrCreateChatBySurfaceThread({
+      assistantId: params.assistantId,
+      userId: params.userId,
+      workspaceId: params.workspaceId,
+      surface: "web",
+      surfaceThreadKey: REMINDER_WEB_CHAT_THREAD_KEY,
+      title: REMINDER_WEB_CHAT_TITLE
+    });
 
     await this.assistantChatRepository.createMessage({
       chatId: chat.id,

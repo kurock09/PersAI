@@ -46,6 +46,11 @@ interface OpenClawRequestOptions {
   acceptedErrorStatuses?: number[];
 }
 
+type CachedPreflight = {
+  result: AssistantRuntimePreflightResult;
+  expiresAtMs: number;
+};
+
 function isObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -156,7 +161,13 @@ function toOpenClawAdapterConfig(runtimeTier?: RuntimeTier): OpenClawAdapterConf
 
 @Injectable()
 export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
+  private static readonly PREFLIGHT_CACHE_TTL_MS = 5_000;
   private readonly logger = new Logger(OpenClawRuntimeAdapter.name);
+  private readonly preflightCache = new Map<RuntimeTier, CachedPreflight>();
+  private readonly inFlightPreflights = new Map<
+    RuntimeTier,
+    Promise<AssistantRuntimePreflightResult>
+  >();
 
   async preflight(runtimeTier?: RuntimeTier): Promise<AssistantRuntimePreflightResult> {
     const config = toOpenClawAdapterConfig(runtimeTier);
@@ -167,6 +178,29 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     }
 
+    const cached = this.preflightCache.get(config.resolvedTier);
+    if (cached && cached.expiresAtMs > Date.now()) {
+      return cached.result;
+    }
+
+    const existingInFlight = this.inFlightPreflights.get(config.resolvedTier);
+    if (existingInFlight) {
+      return await existingInFlight;
+    }
+
+    const pending = this.fetchAndCachePreflight(config);
+    this.inFlightPreflights.set(config.resolvedTier, pending);
+
+    try {
+      return await pending;
+    } finally {
+      this.inFlightPreflights.delete(config.resolvedTier);
+    }
+  }
+
+  private async fetchAndCachePreflight(
+    config: OpenClawAdapterConfig
+  ): Promise<AssistantRuntimePreflightResult> {
     const healthPayload = await this.requestWithRetries("GET", "/healthz", undefined, config);
     const readyPayload = await this.requestWithRetries("GET", "/readyz", undefined, config, {
       acceptedErrorStatuses: [503]
@@ -191,11 +225,21 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     }
 
-    return {
+    const result = {
       live: healthOk,
       ready,
       checkedAt: new Date().toISOString()
     };
+    this.preflightCache.set(config.resolvedTier, {
+      result,
+      expiresAtMs: Date.now() + OpenClawRuntimeAdapter.PREFLIGHT_CACHE_TTL_MS
+    });
+    return result;
+  }
+
+  private invalidatePreflight(runtimeTier: RuntimeTier): void {
+    this.preflightCache.delete(runtimeTier);
+    this.inFlightPreflights.delete(runtimeTier);
   }
 
   async applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void> {
@@ -984,6 +1028,14 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         }
 
         lastError = error;
+        if (
+          error.code === "runtime_unreachable" ||
+          error.code === "timeout" ||
+          error.code === "runtime_degraded" ||
+          error.code === "invalid_response"
+        ) {
+          this.invalidatePreflight(config.resolvedTier);
+        }
         const retriable =
           error.code === "runtime_unreachable" ||
           error.code === "timeout" ||
@@ -1116,6 +1168,14 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         }
 
         lastError = error;
+        if (
+          error.code === "runtime_unreachable" ||
+          error.code === "timeout" ||
+          error.code === "runtime_degraded" ||
+          error.code === "invalid_response"
+        ) {
+          this.invalidatePreflight(config.resolvedTier);
+        }
         const retriable =
           error.code === "runtime_unreachable" ||
           error.code === "timeout" ||

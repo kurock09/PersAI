@@ -1,10 +1,43 @@
 import type {
   AbuseSurface,
   AssistantAbuseAssistantState,
-  AssistantAbuseGuardState
+  AssistantAbuseGuardState,
+  AssistantAbusePeerState
 } from "./assistant-abuse-guard.entity";
 
 export const ASSISTANT_ABUSE_GUARD_REPOSITORY = Symbol("ASSISTANT_ABUSE_GUARD_REPOSITORY");
+
+export type AbuseDecisionSnapshot = {
+  blockedUntil: Date | null;
+  slowedUntil: Date | null;
+  reason: string | null;
+};
+
+export type RegisterDistributedAbuseAttemptInput = {
+  assistantId: string;
+  userId: string;
+  workspaceId: string;
+  surface: AbuseSurface;
+  attemptedAt: Date;
+  windowMs: number;
+  quotaDecision: AbuseDecisionSnapshot;
+  userSlowdownRequestsPerMinute: number;
+  userBlockRequestsPerMinute: number;
+  assistantSlowdownRequestsPerMinute: number;
+  assistantBlockRequestsPerMinute: number;
+  tempBlockSeconds: number;
+  slowdownSeconds: number;
+};
+
+export type RegisterDistributedAbuseAttemptResult = {
+  userState: AssistantAbuseGuardState;
+  assistantState: AssistantAbuseAssistantState;
+  userBypass: boolean;
+  assistantBypass: boolean;
+  finalBlockedUntil: Date | null;
+  finalSlowedUntil: Date | null;
+  finalReason: string | null;
+};
 
 export interface AssistantAbuseGuardRepository {
   findUserState(
@@ -16,6 +49,16 @@ export interface AssistantAbuseGuardRepository {
     assistantId: string,
     surface: AbuseSurface
   ): Promise<AssistantAbuseAssistantState | null>;
+  registerPeerAttempt(input: {
+    assistantId: string;
+    surface: AbuseSurface;
+    peerKey: string;
+    attemptedAt: Date;
+    windowStartedAfter: Date;
+  }): Promise<AssistantAbusePeerState>;
+  registerDistributedAttempt(
+    input: RegisterDistributedAbuseAttemptInput
+  ): Promise<RegisterDistributedAbuseAttemptResult>;
   upsertUserState(input: {
     assistantId: string;
     userId: string;
@@ -46,4 +89,9 @@ export interface AssistantAbuseGuardRepository {
     surface: AbuseSurface;
     adminOverrideUntil: Date;
   }): Promise<{ userRows: number; assistantRows: number }>;
+  applyPeerAdminUnblock(input: {
+    assistantId: string;
+    surface: AbuseSurface;
+    adminOverrideUntil: Date;
+  }): Promise<number>;
 }

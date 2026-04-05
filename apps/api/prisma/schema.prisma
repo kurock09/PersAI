@@ -306,6 +306,7 @@ model Assistant {
   platformRolloutItems         AssistantPlatformRolloutItem[]
   abuseGuardStates             AssistantAbuseGuardState[]
   abuseAssistantStates         AssistantAbuseAssistantState[]
+  abusePeerStates              AssistantAbusePeerState[]
   telegramGroups               AssistantTelegramGroup[]
   chatMessageAttachments       AssistantChatMessageAttachment[]
 
@@ -585,6 +586,24 @@ model AssistantAbuseAssistantState {
   @@unique([assistantId, surface])
   @@index([surface, blockedUntil])
   @@map("assistant_abuse_assistant_states")
+}
+
+model AssistantAbusePeerState {
+  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId        String     @map("assistant_id") @db.Uuid
+  surface            AbuseSurface
+  peerKey            String     @map("peer_key") @db.Text
+  windowStartedAt    DateTime   @map("window_started_at") @db.Timestamptz(6)
+  requestCount       Int        @default(0) @map("request_count")
+  adminOverrideUntil DateTime?  @map("admin_override_until") @db.Timestamptz(6)
+  lastSeenAt         DateTime   @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant          Assistant  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([assistantId, surface, peerKey])
+  @@index([assistantId, surface, lastSeenAt])
+  @@map("assistant_abuse_peer_states")
 }
 
 model PlanCatalogPlan {

@@ -8,6 +8,12 @@ metadata:
   labels:
     app.kubernetes.io/name: api
 spec:
+  revisionHistoryLimit: {{ default 2 .Values.api.revisionHistoryLimit }}
+  minReadySeconds: {{ default 0 .Values.api.minReadySeconds }}
+{{- with .Values.api.strategy }}
+  strategy:
+{{ toYaml . | indent 4 }}
+{{- end }}
   replicas: {{ .Values.api.replicaCount }}
   selector:
     matchLabels:
@@ -18,6 +24,10 @@ spec:
         app.kubernetes.io/name: api
     spec:
       serviceAccountName: {{ .Values.api.serviceAccount.name }}
+{{- if .Values.api.topologySpreadConstraints }}
+      topologySpreadConstraints:
+{{ include "persai.workloadTopologySpreadConstraints" (dict "constraints" .Values.api.topologySpreadConstraints "labels" (dict "app.kubernetes.io/name" "api")) | indent 8 }}
+{{- end }}
       containers:
         - name: api
           image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.api.image.name }}:{{ $apiTag }}"
@@ -42,6 +52,10 @@ spec:
           ports:
             - containerPort: {{ .Values.api.service.port }}
             - containerPort: {{ .Values.api.internalService.port }}
+{{- with .Values.api.resources }}
+          resources:
+{{ toYaml . | indent 12 }}
+{{- end }}
 {{- with .Values.api.probes.readiness }}
           readinessProbe:
             httpGet:

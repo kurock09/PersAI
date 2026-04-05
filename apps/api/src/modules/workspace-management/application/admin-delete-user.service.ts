@@ -60,6 +60,7 @@ export class AdminDeleteUserService {
             await tx.assistantPlatformRolloutItem.deleteMany({ where: { assistantId: aid } });
             await tx.assistantAbuseGuardState.deleteMany({ where: { assistantId: aid } });
             await tx.assistantAbuseAssistantState.deleteMany({ where: { assistantId: aid } });
+            await tx.assistantAbusePeerState.deleteMany({ where: { assistantId: aid } });
 
             await tx.assistantChatMessageAttachment.deleteMany({ where: { assistantId: aid } });
             await tx.assistantChatMessage.deleteMany({ where: { assistantId: aid } });

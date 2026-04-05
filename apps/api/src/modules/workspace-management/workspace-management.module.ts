@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { IdentityAccessModule } from "../identity-access/identity-access.module";
+import { PrismaService } from "../identity-access/infrastructure/persistence/prisma.service";
 import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
 import { AdminSecurityController } from "./interface/http/admin-security.controller";
@@ -139,6 +141,7 @@ import { PrismaAssistantRepository } from "./infrastructure/persistence/prisma-a
 import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/workspace-management-prisma.service";
 
 @Module({
+  imports: [IdentityAccessModule],
   controllers: [
     AssistantController,
     AdminPlansController,
@@ -163,7 +166,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     TelegramWebhookProxyController
   ],
   providers: [
-    WorkspaceManagementPrismaService,
+    {
+      provide: WorkspaceManagementPrismaService,
+      useExisting: PrismaService
+    },
     AppendAssistantAuditEventService,
     AdminAuthorizationService,
     ResolveAdminOpsCockpitService,

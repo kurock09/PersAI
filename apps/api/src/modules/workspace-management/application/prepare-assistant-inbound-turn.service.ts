@@ -95,7 +95,7 @@ export class PrepareAssistantInboundTurnService {
 
     const chat =
       existingChat ??
-      (await this.assistantChatRepository.createChat({
+      (await this.assistantChatRepository.findOrCreateChatBySurfaceThread({
         assistantId: assistant.id,
         userId: assistant.userId,
         workspaceId: assistant.workspaceId,

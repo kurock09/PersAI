@@ -19,7 +19,8 @@ import { MeController } from "./interface/http/me.controller";
     UpsertOnboardingService,
     PrismaService,
     ClerkAuthMiddleware
-  ]
+  ],
+  exports: [PrismaService]
 })
 export class IdentityAccessModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import type {
-  AssistantChat as PrismaAssistantChat,
-  AssistantChatMessage as PrismaAssistantChatMessage
+import {
+  Prisma,
+  type AssistantChat as PrismaAssistantChat,
+  type AssistantChatMessage as PrismaAssistantChatMessage
 } from "@prisma/client";
 import type { AssistantChatMessage } from "../../domain/assistant-chat-message.entity";
 import type { AssistantChat, AssistantChatSurface } from "../../domain/assistant-chat.entity";
@@ -30,6 +31,27 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     });
 
     return this.mapChatToDomain(chat);
+  }
+
+  async findOrCreateChatBySurfaceThread(input: CreateAssistantChatInput): Promise<AssistantChat> {
+    try {
+      return await this.createChat(input);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError ||
+        (typeof error === "object" && error !== null && "code" in error && error.code === "P2002")
+      ) {
+        const existing = await this.findChatBySurfaceThread(
+          input.assistantId,
+          input.surface,
+          input.surfaceThreadKey
+        );
+        if (existing !== null) {
+          return existing;
+        }
+      }
+      throw error;
+    }
   }
 
   async findChatById(chatId: string): Promise<AssistantChat | null> {

@@ -108,6 +108,11 @@ export class ManageAdminAbuseControlsService {
       surface: input.surface,
       adminOverrideUntil
     });
+    await this.assistantAbuseGuardRepository.applyPeerAdminUnblock({
+      assistantId: input.assistantId,
+      surface: input.surface,
+      adminOverrideUntil
+    });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
       assistantId: input.assistantId,

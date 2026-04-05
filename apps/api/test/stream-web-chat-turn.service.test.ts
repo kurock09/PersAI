@@ -1,8 +1,51 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { StreamWebChatTurnService } from "../src/modules/workspace-management/application/stream-web-chat-turn.service";
+import { PrismaAssistantChatRepository } from "../src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository";
 
 describe("StreamWebChatTurnService", () => {
+  test("findOrCreateChatBySurfaceThread falls back to existing chat on unique race", async () => {
+    const existingChat = {
+      id: "chat-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+      surface: "web" as const,
+      surfaceThreadKey: "thread-1",
+      title: "Chat",
+      archivedAt: null,
+      lastMessageAt: null,
+      createdAt: new Date("2026-04-05T12:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T12:00:00.000Z")
+    };
+    const createError = Object.assign(new Error("Unique constraint failed"), {
+      code: "P2002",
+      clientVersion: "test"
+    });
+    const repository = new PrismaAssistantChatRepository({
+      assistantChat: {
+        create: async () => {
+          throw createError;
+        },
+        findUnique: async () => ({
+          ...existingChat
+        })
+      }
+    } as never);
+
+    const chat = await repository.findOrCreateChatBySurfaceThread({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+      surface: "web",
+      surfaceThreadKey: "thread-1",
+      title: "Chat"
+    });
+
+    assert.equal(chat.id, "chat-1");
+    assert.equal(chat.surfaceThreadKey, "thread-1");
+  });
+
   test("completes media-only runtime turns without leaking placeholder text", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
     const memoryWrites: Array<Record<string, unknown>> = [];

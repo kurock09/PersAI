@@ -11,9 +11,13 @@ export interface RequestResolvedAppUser {
 
 export interface RequestWithPlatformContext extends IncomingMessage {
   headers: IncomingHttpHeaders;
+  baseUrl?: string;
   method?: string;
   url?: string;
   originalUrl?: string;
+  route?: {
+    path?: string | string[];
+  };
   requestId?: string;
   userId?: string | null;
   workspaceId?: string | null;

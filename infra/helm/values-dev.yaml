@@ -52,7 +52,14 @@ networkPolicy:
 
 api:
   enabled: true
-  replicaCount: 1
+  replicaCount: 2
+  revisionHistoryLimit: 2
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   serviceAccount:
     create: true
     name: api-sa
@@ -123,6 +130,31 @@ api:
       periodSeconds: 20
       timeoutSeconds: 2
       failureThreshold: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 768Mi
+    limits:
+      cpu: "2"
+      memory: 1536Mi
+  autoscaling:
+    # Keep HPA explicit but disabled until SR3 owns request-path and dependency
+    # scaling behavior under real target-environment evidence.
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
   service:
     type: ClusterIP
     port: 3001
@@ -132,7 +164,14 @@ api:
 
 web:
   enabled: true
-  replicaCount: 1
+  replicaCount: 2
+  revisionHistoryLimit: 2
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   image:
     name: web
     tag: ""
@@ -160,6 +199,31 @@ web:
       periodSeconds: 20
       timeoutSeconds: 2
       failureThreshold: 3
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  autoscaling:
+    # Keep HPA explicit but disabled until SR2 gets target-environment evidence for
+    # request-driven scaling and safe interaction with long-lived web traffic.
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
   service:
     type: ClusterIP
     port: 3000
@@ -172,6 +236,10 @@ web:
 openclaw:
   enabled: true
   replicaCount: 1
+  revisionHistoryLimit: 2
+  minReadySeconds: 10
+  strategy:
+    type: Recreate
   runtimePools:
     defaultPoolKey: free_shared_restricted
     pools:
@@ -309,10 +377,19 @@ openclaw:
 
 
 
-    tag: 6dc96e833359b1deeeae54cdb85046fe52bad0e2
-    digest: sha256:d5a01828da9fe43b68fb607ba47b3e5ad9bcdd2ef366160b71de98e03434b9c3
+    tag: 7cb2c4b360a57b4523d775b67b11a11189fbe9bb
+    digest: ""
 
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+      ephemeral-storage: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+      ephemeral-storage: 1Gi
   controlUi:
     allowedOrigins:
       - http://localhost:18789
@@ -420,6 +497,16 @@ openclaw:
       pullPolicy: IfNotPresent
       env: {}
       resources: {}
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  topologySpreadConstraints: []
   args:
     - --allow-unconfigured
     - --bind
@@ -429,6 +516,8 @@ openclaw:
   env:
     TZ: UTC
     PERSAI_API_BASE_URL: "http://api-internal:3002"
+    # Supported PersAI/OpenClaw runtime contract remains one pod per runtime pool.
+    PERSAI_RUNTIME_READINESS_MODE: "single_replica"
     PERSAI_RUNTIME_SPEC_STORE: "redis"
     PERSAI_RUNTIME_SPEC_STORE_KEY_PREFIX: "persai:runtime-spec"
     PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS: "0"

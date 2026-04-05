@@ -144,21 +144,14 @@ export class ManageChatMediaService {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
-    let chat = await this.chatRepository.findChatBySurfaceThread(
-      assistant.id,
-      "web",
-      params.surfaceThreadKey
-    );
-    if (!chat) {
-      chat = await this.chatRepository.createChat({
-        assistantId: assistant.id,
-        userId: assistant.userId,
-        workspaceId: assistant.workspaceId,
-        surface: "web",
-        surfaceThreadKey: params.surfaceThreadKey,
-        title: null
-      });
-    }
+    const chat = await this.chatRepository.findOrCreateChatBySurfaceThread({
+      assistantId: assistant.id,
+      userId: assistant.userId,
+      workspaceId: assistant.workspaceId,
+      surface: "web",
+      surfaceThreadKey: params.surfaceThreadKey,
+      title: null
+    });
 
     const stagingMessage = await this.chatRepository.createMessage({
       chatId: chat.id,

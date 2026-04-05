@@ -3,6 +3,7 @@ import { loadApiConfig } from "@persai/config";
 import type { Assistant } from "../domain/assistant.entity";
 import {
   ASSISTANT_ABUSE_GUARD_REPOSITORY,
+  type AbuseDecisionSnapshot,
   type AssistantAbuseGuardRepository
 } from "../domain/assistant-abuse-guard.repository";
 import type { AbuseSurface } from "../domain/assistant-abuse-guard.entity";
@@ -14,9 +15,6 @@ import { createAssistantInboundRateLimitError } from "./assistant-inbound-error"
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
 const WINDOW_MS = 60_000;
-const PEER_GC_INTERVAL_MS = 120_000;
-
-type PeerWindow = { count: number; windowStart: number };
 
 type AbuseDecision = {
   blockedUntil: Date | null;
@@ -24,64 +22,12 @@ type AbuseDecision = {
   reason: string | null;
 };
 
-function maxDate(a: Date | null, b: Date | null): Date | null {
-  if (a === null) {
-    return b;
-  }
-  if (b === null) {
-    return a;
-  }
-  return a.getTime() >= b.getTime() ? a : b;
-}
-
-/** True while quota pressure logic is actively applying a block or slowdown for this turn. */
-function isQuotaPressureApplying(quotaDecision: AbuseDecision): boolean {
-  return quotaDecision.blockedUntil !== null || quotaDecision.slowedUntil !== null;
-}
-
-/**
- * When workspace quota is back below abuse thresholds, drop persisted block/slowdown rows that
- * were only written due to quota pressure — otherwise fixing the plan leaves users blocked until
- * `ABUSE_TEMP_BLOCK_SECONDS` elapses with no DB update.
- */
-function abuseDecisionAfterQuotaReconciled(
-  persisted: {
-    blockedUntil: Date | null;
-    slowedUntil: Date | null;
-    blockReason: string | null;
-  } | null,
-  quotaDecision: AbuseDecision
-): AbuseDecision {
-  if (persisted === null) {
-    return { blockedUntil: null, slowedUntil: null, reason: null };
-  }
-  if (isQuotaPressureApplying(quotaDecision)) {
-    return {
-      blockedUntil: persisted.blockedUntil,
-      slowedUntil: persisted.slowedUntil,
-      reason: persisted.blockReason
-    };
-  }
-  const reason = persisted.blockReason ?? "";
-  if (reason === "quota_pressure_temporary_block" || reason === "quota_pressure_slowdown") {
-    return { blockedUntil: null, slowedUntil: null, reason: null };
-  }
-  return {
-    blockedUntil: persisted.blockedUntil,
-    slowedUntil: persisted.slowedUntil,
-    reason: persisted.blockReason
-  };
-}
-
 function throwTooManyRequests(message: string): never {
   throw createAssistantInboundRateLimitError(message);
 }
 
 @Injectable()
 export class EnforceAbuseRateLimitService {
-  private readonly peerWindows = new Map<string, PeerWindow>();
-  private lastPeerGc = Date.now();
-
   constructor(
     @Inject(ASSISTANT_ABUSE_GUARD_REPOSITORY)
     private readonly assistantAbuseGuardRepository: AssistantAbuseGuardRepository,
@@ -99,199 +45,72 @@ export class EnforceAbuseRateLimitService {
     const config = loadApiConfig(process.env);
 
     if (params.peerKey) {
-      this.enforcePeerLimit(params.assistant.id, params.surface, params.peerKey, config, now);
+      await this.enforcePeerLimit(params.assistant.id, params.surface, params.peerKey, config, now);
     }
-
-    const userState = await this.assistantAbuseGuardRepository.findUserState(
-      params.assistant.id,
-      params.assistant.userId,
-      params.surface
-    );
-    const assistantState = await this.assistantAbuseGuardRepository.findAssistantState(
-      params.assistant.id,
-      params.surface
-    );
 
     const quotaDecision = await this.evaluateQuotaPressureDecision(params.assistant, now);
-    const userAfterQuota = abuseDecisionAfterQuotaReconciled(userState, quotaDecision);
-    const assistantAfterQuota = abuseDecisionAfterQuotaReconciled(assistantState, quotaDecision);
-
-    const userBypass =
-      userState !== null &&
-      userState.adminOverrideUntil !== null &&
-      userState.adminOverrideUntil.getTime() > now.getTime();
-    const assistantBypass =
-      assistantState !== null &&
-      assistantState.adminOverrideUntil !== null &&
-      assistantState.adminOverrideUntil.getTime() > now.getTime();
-
-    if (
-      !userBypass &&
-      userAfterQuota.blockedUntil !== null &&
-      userAfterQuota.blockedUntil.getTime() > now.getTime()
-    ) {
-      throwTooManyRequests(
-        "Requests temporarily blocked for this user-assistant channel due to abuse protection."
-      );
-    }
-    if (
-      !assistantBypass &&
-      assistantAfterQuota.blockedUntil !== null &&
-      assistantAfterQuota.blockedUntil.getTime() > now.getTime()
-    ) {
-      throwTooManyRequests(
-        "Requests temporarily blocked for this assistant channel due to abuse protection."
-      );
-    }
-
-    const userWindowStartedAt =
-      userState === null || now.getTime() - userState.windowStartedAt.getTime() > WINDOW_MS
-        ? now
-        : userState.windowStartedAt;
-    const assistantWindowStartedAt =
-      assistantState === null ||
-      now.getTime() - assistantState.windowStartedAt.getTime() > WINDOW_MS
-        ? now
-        : assistantState.windowStartedAt;
-
-    const userCount =
-      userState === null || userWindowStartedAt.getTime() === now.getTime()
-        ? 1
-        : userState.requestCount + 1;
-    const assistantCount =
-      assistantState === null || assistantWindowStartedAt.getTime() === now.getTime()
-        ? 1
-        : assistantState.requestCount + 1;
-
-    let userDecision: AbuseDecision = {
-      blockedUntil: userAfterQuota.blockedUntil,
-      slowedUntil: userAfterQuota.slowedUntil,
-      reason: userAfterQuota.reason
-    };
-    if (!userBypass) {
-      if (userCount >= config.ABUSE_USER_BLOCK_REQUESTS_PER_MINUTE) {
-        userDecision = {
-          blockedUntil: new Date(now.getTime() + config.ABUSE_TEMP_BLOCK_SECONDS * 1000),
-          slowedUntil: null,
-          reason: "user_request_rate_limit_blocked"
-        };
-      } else if (userCount >= config.ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE) {
-        userDecision = {
-          blockedUntil: null,
-          slowedUntil: new Date(now.getTime() + config.ABUSE_SLOWDOWN_SECONDS * 1000),
-          reason: "user_request_rate_limit_slowdown"
-        };
-      }
-    }
-
-    let assistantDecision: AbuseDecision = {
-      blockedUntil: assistantAfterQuota.blockedUntil,
-      slowedUntil: assistantAfterQuota.slowedUntil,
-      reason: assistantAfterQuota.reason
-    };
-    if (!assistantBypass) {
-      if (assistantCount >= config.ABUSE_ASSISTANT_BLOCK_REQUESTS_PER_MINUTE) {
-        assistantDecision = {
-          blockedUntil: new Date(now.getTime() + config.ABUSE_TEMP_BLOCK_SECONDS * 1000),
-          slowedUntil: null,
-          reason: "assistant_request_rate_limit_blocked"
-        };
-      } else if (assistantCount >= config.ABUSE_ASSISTANT_SLOWDOWN_REQUESTS_PER_MINUTE) {
-        assistantDecision = {
-          blockedUntil: null,
-          slowedUntil: new Date(now.getTime() + config.ABUSE_SLOWDOWN_SECONDS * 1000),
-          reason: "assistant_request_rate_limit_slowdown"
-        };
-      }
-    }
-
-    const finalBlockedUntil = maxDate(
-      maxDate(userDecision.blockedUntil, assistantDecision.blockedUntil),
-      quotaDecision.blockedUntil
-    );
-    const finalSlowedUntil = maxDate(
-      maxDate(userDecision.slowedUntil, assistantDecision.slowedUntil),
-      quotaDecision.slowedUntil
-    );
-    const finalReason =
-      quotaDecision.reason ?? assistantDecision.reason ?? userDecision.reason ?? null;
-
-    await this.assistantAbuseGuardRepository.upsertUserState({
+    const registered = await this.assistantAbuseGuardRepository.registerDistributedAttempt({
       assistantId: params.assistant.id,
       userId: params.assistant.userId,
       workspaceId: params.assistant.workspaceId,
       surface: params.surface,
-      windowStartedAt: userWindowStartedAt,
-      requestCount: userCount,
-      slowedUntil: finalSlowedUntil,
-      blockedUntil: finalBlockedUntil,
-      blockReason: finalReason,
-      adminOverrideUntil: userBypass ? (userState?.adminOverrideUntil ?? null) : null,
-      lastSeenAt: now
+      attemptedAt: now,
+      windowMs: WINDOW_MS,
+      quotaDecision: this.toDecisionSnapshot(quotaDecision),
+      userSlowdownRequestsPerMinute: config.ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE,
+      userBlockRequestsPerMinute: config.ABUSE_USER_BLOCK_REQUESTS_PER_MINUTE,
+      assistantSlowdownRequestsPerMinute: config.ABUSE_ASSISTANT_SLOWDOWN_REQUESTS_PER_MINUTE,
+      assistantBlockRequestsPerMinute: config.ABUSE_ASSISTANT_BLOCK_REQUESTS_PER_MINUTE,
+      tempBlockSeconds: config.ABUSE_TEMP_BLOCK_SECONDS,
+      slowdownSeconds: config.ABUSE_SLOWDOWN_SECONDS
     });
 
-    await this.assistantAbuseGuardRepository.upsertAssistantState({
-      assistantId: params.assistant.id,
-      surface: params.surface,
-      windowStartedAt: assistantWindowStartedAt,
-      requestCount: assistantCount,
-      slowedUntil: finalSlowedUntil,
-      blockedUntil: finalBlockedUntil,
-      blockReason: finalReason,
-      adminOverrideUntil: assistantBypass ? (assistantState?.adminOverrideUntil ?? null) : null,
-      lastSeenAt: now
-    });
-
-    if (finalBlockedUntil !== null && finalBlockedUntil.getTime() > now.getTime()) {
+    if (
+      registered.finalBlockedUntil !== null &&
+      registered.finalBlockedUntil.getTime() > now.getTime()
+    ) {
       throwTooManyRequests("Requests temporarily blocked due to abuse/rate-limit protection.");
     }
-    if (finalSlowedUntil !== null && finalSlowedUntil.getTime() > now.getTime()) {
+    if (
+      registered.finalSlowedUntil !== null &&
+      registered.finalSlowedUntil.getTime() > now.getTime()
+    ) {
       throwTooManyRequests(
         "Requests temporarily slowed due to abuse/rate-limit and quota pressure protection."
       );
     }
   }
 
-  private enforcePeerLimit(
+  private async enforcePeerLimit(
     assistantId: string,
     surface: AbuseSurface,
     peerKey: string,
     config: ReturnType<typeof loadApiConfig>,
     now: Date
-  ): void {
-    this.gcPeerWindowsIfNeeded(now);
+  ): Promise<void> {
+    const peerState = await this.assistantAbuseGuardRepository.registerPeerAttempt({
+      assistantId,
+      surface,
+      peerKey,
+      attemptedAt: now,
+      windowStartedAfter: new Date(now.getTime() - WINDOW_MS)
+    });
+    const peerBypass =
+      peerState.adminOverrideUntil !== null &&
+      peerState.adminOverrideUntil.getTime() > now.getTime();
 
-    const key = `${assistantId}:${surface}:${peerKey}`;
-    const nowMs = now.getTime();
-    const existing = this.peerWindows.get(key);
-
-    if (!existing || nowMs - existing.windowStart > WINDOW_MS) {
-      this.peerWindows.set(key, { count: 1, windowStart: nowMs });
+    if (peerBypass) {
       return;
     }
-
-    existing.count += 1;
-
-    if (existing.count >= config.ABUSE_PEER_BLOCK_REQUESTS_PER_MINUTE) {
+    if (peerState.requestCount >= config.ABUSE_PEER_BLOCK_REQUESTS_PER_MINUTE) {
       throwTooManyRequests(
         "Requests temporarily blocked for this peer due to rate-limit protection."
       );
     }
-    if (existing.count >= config.ABUSE_PEER_SLOWDOWN_REQUESTS_PER_MINUTE) {
+    if (peerState.requestCount >= config.ABUSE_PEER_SLOWDOWN_REQUESTS_PER_MINUTE) {
       throwTooManyRequests(
         "Requests temporarily slowed for this peer due to rate-limit protection."
       );
-    }
-  }
-
-  private gcPeerWindowsIfNeeded(now: Date): void {
-    const nowMs = now.getTime();
-    if (nowMs - this.lastPeerGc < PEER_GC_INTERVAL_MS) return;
-    this.lastPeerGc = nowMs;
-    for (const [key, window] of this.peerWindows) {
-      if (nowMs - window.windowStart > WINDOW_MS * 2) {
-        this.peerWindows.delete(key);
-      }
     }
   }
 
@@ -338,6 +157,14 @@ export class EnforceAbuseRateLimitService {
       blockedUntil: null,
       slowedUntil: null,
       reason: null
+    };
+  }
+
+  private toDecisionSnapshot(decision: AbuseDecision): AbuseDecisionSnapshot {
+    return {
+      blockedUntil: decision.blockedUntil,
+      slowedUntil: decision.slowedUntil,
+      reason: decision.reason
     };
   }
 }

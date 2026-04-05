@@ -191,7 +191,11 @@ export async function validatePersaiMediaFile(params: {
 
   const safeMimeType: string = effectiveMimeType;
 
-  if (params.surface === "voice_transcription" && !isAudioMime(safeMimeType)) {
+  if (
+    params.surface === "voice_transcription" &&
+    !isAudioMime(safeMimeType) &&
+    safeMimeType !== "video/webm"
+  ) {
     throw new BadRequestException("Only safe audio files can be transcribed.");
   }
 

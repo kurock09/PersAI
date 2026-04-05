@@ -1,5 +1,709 @@
 # SESSION-HANDOFF
 
+## 2026-04-05 - SR4 production decision gate
+
+### Active slice after this session
+
+- `SR5` — Sandbox and dind capacity hardening
+
+### Final SR4 verdict
+
+1. `SR4` can close honestly as the runtime production baseline for the current OpenClaw model.
+2. The supported production path is now explicit and enforced:
+   - PersAI/OpenClaw runtime mode is `single_replica`
+   - one pod per runtime pool only
+   - rollout overlap is blocked with `Recreate`
+   - multi-replica session mode is explicitly unsupported at readiness, startup, and deploy/render layers
+3. The architectural ceiling is also explicit:
+   - the first single-replica throughput ceiling is the shared global active-turn lane, especially `main`
+   - cache-backed prep was already moved out of that lane where safe
+   - the remaining lane-held work is tied to process-global/runtime-mutating behavior, so reducing it further would require changing the runtime ownership/concurrency model rather than another bounded local fix
+
+### What is now considered the SR4 production baseline
+
+- OpenClaw is acceptable only as a single-replica runtime base per pool.
+- This baseline is a deliberate bounded contract, not proof of horizontal session-safe scaling.
+- Queue saturation on the shared global active-turn lane is now a known runtime limit and operational signal, not an unresolved hidden assumption.
+- PersAI now pins the approved OpenClaw fork and dev image tag to `7cb2c4b360a57b4523d775b67b11a11189fbe9bb` for this closed `SR4` baseline.
+
+### What leaves SR4 and moves to later slices
+
+- `SR5` — sandbox/dind startup and heavy sandbox throughput ceilings
+- `SR6` — workspace/storage path and filesystem pressure ceilings
+- `SR8` — webhook/realtime burst fan-in against the now-explicit single-replica runtime
+- `SR10` — target-tier capacity validation and final production gate evidence
+
+## 2026-04-05 - SR4 single-replica throughput ceiling baseline
+
+### Active slice after this session
+
+- `SR4` — OpenClaw runtime throughput and multi-replica correctness
+
+### What was completed
+
+1. Took the next bounded `SR4` pass on the supported single-replica runtime path itself.
+2. Confirmed the first practical single-replica throughput ceiling is not a hidden multi-pod seam anymore, but the in-process active-turn lane:
+   - `runEmbeddedPiAgent(...)` still serializes each session on its own `session:` lane
+   - every active turn also consumes a shared global lane slot for the full run lifetime
+   - the default `main` lane capacity remains `agents.defaults.maxConcurrent = 4`
+   - once those slots are occupied, additional turns queue behind the same single gateway process
+3. Checked nearby candidates and did not find a smaller safe bottleneck fix than this queue/capacity seam:
+   - `models.json` preparation is already cached/serialized
+   - runtime plugin loading is cache-backed
+   - per-session transcript/workspace writes remain important cost centers, but they did not displace the global active-turn cap as the first obvious ceiling
+4. Added one narrow operational improvement without changing the runtime model:
+   - when an active turn waits for global lane capacity, OpenClaw now emits an explicit `[throughput-backpressure]` warning with lane, wait time, queue depth, and effective `maxConcurrent`
+   - this makes single-replica saturation visible as a named runtime signal instead of only a generic queue warning
+5. Took one more bounded pass on lane hold time itself:
+   - moved cache-backed pre-global prep (`resolveRunWorkspaceDir(...)`, fallback detection, `resolveOpenClawAgentDir()`, `ensureOpenClawModelsJson(...)`) out of the shared global lane
+   - kept global-mutating work inside the lane, including runtime plugin activation, hook/model resolution, auth/runtime mutation, `process.chdir(...)`, skill env overrides, and the actual active run lifecycle
+   - this shortens global-lane occupancy a bit without changing session ownership or queue semantics
+
+### What is now confirmed
+
+- The nearest single-replica ceiling is the shared global active-turn lane, especially `main`.
+- The global lane is still held by the real run body, but no longer by the cache-backed model/workspace prep that can safely happen earlier.
+- This is a bounded concurrency ceiling, not proof that the pool can safely scale to arbitrary active turns by config alone.
+- No honest local change in this pass removed that ceiling without changing the runtime ownership/concurrency model.
+
+### What remains inside SR4
+
+- `SR4` stays active.
+- The next bounded question is whether one more narrow pass can reduce the time each active turn holds a global lane slot, or whether the remaining ceiling is now honest enough to treat as the runtime limit for the current model.
+
+### Metrics / checks completed
+
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/pi-embedded-runner.run-queue-wait.test.ts`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/pi-embedded-runner.run-global-lane-prep.test.ts src/agents/pi-embedded-runner.run-queue-wait.test.ts`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+
+## 2026-04-05 - SR4 deploy/runtime prohibition baseline
+
+### Active slice after this session
+
+- `SR4` — OpenClaw runtime throughput and multi-replica correctness
+
+### What was completed
+
+1. Took the next bounded `SR4` pass on deploy/runtime contract enforcement rather than another exploratory runtime note.
+2. Confirmed there is still no honest multi-replica session-safe path in current OpenClaw runtime code:
+   - session ordering is still process-local
+   - restart/drain remains per process only
+   - active run ownership is still in-memory and not recovered after process restart
+   - Redis-backed spec storage plus shared workspace mount still do not prove distributed session ownership
+3. Converted that truth into enforcement instead of readiness-only warning:
+   - OpenClaw startup now fails fast if `PERSAI_RUNTIME_READINESS_MODE=multi_replica` is declared
+   - PersAI Helm render now fails if an OpenClaw runtime pool declares anything except `single_replica`
+   - PersAI Helm render now fails if an OpenClaw runtime pool sets `replicaCount != 1` or enables autoscaling
+   - PersAI Helm render now also fails if an OpenClaw runtime pool declares a rollout strategy other than `Recreate` or keeps `rollingUpdate` overlap settings that could create a second pod during update
+4. Made the supported bounded path explicit in canonical PersAI values:
+   - `PERSAI_RUNTIME_READINESS_MODE: "single_replica"`
+   - one pod per runtime pool remains the only supported contract
+   - OpenClaw rollout strategy is now `Recreate`, so update-time overlap cannot silently violate that contract
+
+### What is now confirmed
+
+- The only currently enforceable bounded-safe path is `single_replica` with one OpenClaw pod per runtime pool.
+- That supported path now includes non-overlapping rollout semantics, not just steady-state replica count.
+- This is an operational contract only, not proof of future multi-replica runtime correctness.
+- Multi-replica session mode is now explicitly unsupported at both startup and deploy/render layers instead of merely surfacing as readiness-only red.
+
+### What remains inside SR4
+
+- `SR4` stays active.
+- The next key runtime question is no longer "can operators accidentally deploy unsupported multi-replica mode?".
+- The next bounded piece is whether there is any narrow throughput/capacity seam left that can be improved without distributed session-ownership redesign.
+
+### Metrics / checks completed
+
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run --config vitest.gateway.config.ts src/gateway/server/readiness.test.ts src/gateway/server-http.probe.test.ts`
+- `helm template persai . -f values.yaml`
+- `helm template persai . -f values-dev.yaml`
+
+## 2026-04-05 - SR4 session continuity ceiling baseline
+
+### Active slice after this session
+
+- `SR4` — OpenClaw runtime throughput and multi-replica correctness
+
+### What was completed
+
+1. Took the next bounded `SR4` pass on the runtime session continuity / execution-ordering seam itself.
+2. Confirmed from the OpenClaw runtime code that multi-replica session correctness is still not proven:
+   - runtime session state lives in per-host `sessions.json` + transcript files
+   - command/session lane ownership is process-local in the in-memory command queue
+   - drain/restart logic is per process only and does not hand active session ownership to another pod
+   - Redis-backed apply/spec storage only shares apply metadata, not full session continuity
+3. Tightened the runtime contract again to remove false-positive cluster claims:
+   - in PersAI runtime `multi_replica` mode, readiness now stays `not ready` even with Redis-backed spec storage
+   - readiness explicitly surfaces that multi-replica session correctness is not yet supported, because session store, workspace continuity, and execution ordering are not cluster-proven by code
+4. This keeps the slice bounded:
+   - no distributed queue redesign
+   - no OpenClaw runtime architecture rewrite
+   - no PersAI API refactor
+
+### What is now confirmed
+
+- OpenClaw is not yet proven as a bounded multi-replica runtime for PersAI sessions.
+- `PERSAI_RUNTIME_SPEC_STORE=redis` remains necessary, but it still only covers applied-spec metadata.
+- The session continuity blocker is now confirmed more concretely:
+  - one `sessionKey` can still be executed concurrently on different pods because lane ownership is process-local
+  - session transcripts and session store remain per-host persistence unless a broader runtime redesign changes that contract
+  - restart/drain behavior does not transfer an active runtime session turn safely across replicas
+
+### What remains inside SR4
+
+- `SR4` stays active.
+- The next key bounded piece is to decide whether there is any genuinely bounded single-session safety path available without a queue/runtime redesign:
+  - either one honest pod-affinity / single-owner path that is enforceable by contract
+  - or explicit deploy/runtime prohibition of PersAI multi-replica session mode until distributed session ownership exists
+
+### Metrics / checks completed
+
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run --config vitest.gateway.config.ts src/gateway/server/readiness.test.ts src/gateway/server-http.probe.test.ts`
+
+## 2026-04-05 - SR3e distributed abuse counter closing pass
+
+### Active slice after this session
+
+- `SR4` — OpenClaw runtime throughput and multi-replica correctness
+
+### What was completed
+
+1. Closed the last clearly localized `SR3` API distributed abuse-correctness gap.
+2. `EnforceAbuseRateLimitService` no longer updates user-level and assistant-level abuse counters through `find -> compute -> upsert` outside a contention-safe boundary:
+   - added repository-level `registerDistributedAttempt(...)`
+   - moved the touched abuse counter registration path into a serializable Postgres transaction with retry on `P2034`
+3. This means the shared abuse counters for `assistantId + userId + surface` and `assistantId + surface` no longer silently lose increments under burst/multi-replica contention.
+4. Kept the slice bounded:
+   - no Redis/platform-wide rate-limit redesign
+   - no OpenClaw/runtime redesign
+   - no broad API refactor beyond the touched abuse-control seam
+
+### Can SR3 close after this?
+
+- Yes.
+- `SR3` can now close honestly as the API concurrency/dependency hardening baseline:
+  - chat bootstrap no longer relies on single-winner `find -> create`
+  - adapter preflight no longer amplifies burst-time dependency pressure
+  - duplicate in-process Prisma client pressure is removed
+  - touched abuse/rate-limit counters no longer rely on process-local memory or racy distributed `find -> compute -> upsert`
+- Remaining scale/distributed concerns now sit outside `SR3` and belong to later slices:
+  - OpenClaw runtime throughput / multi-replica correctness in `SR4`
+  - broader capacity validation / production gates in later slices
+
+### Confirmed risks
+
+- Closing `SR3` does not prove OpenClaw runtime distributed correctness or queue semantics.
+- Closing `SR3` does not by itself prove target-environment capacity; that remains for later validation slices.
+- Shared Postgres remains a direct dependency for the touched abuse-control source of truth.
+
+### Metrics / checks completed
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/enforce-abuse-rate-limit.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-abuse-guard.repository.test.ts`
+
+### Next recommended step
+
+- Close `SR3` and move to `SR4` — OpenClaw runtime throughput and multi-replica correctness.
+
+## 2026-04-05 - SR3d distributed peer abuse baseline
+
+### Active slice after this session
+
+- `SR3` — API concurrency and dependency hardening
+
+### What was completed
+
+1. Closed the next bounded `SR3` distributed abuse-correctness risk on the touched inbound peer-throttle path.
+2. `EnforceAbuseRateLimitService` no longer keeps `peerKey` abuse windows only in process-local memory:
+   - added persisted `assistant_abuse_peer_states`
+   - replaced the in-memory peer `Map` path with repository-backed atomic peer attempt registration
+3. This means the touched `assistantId + surface + peerKey` throttle window now survives API service-instance boundaries instead of silently resetting when the next request lands on another replica.
+4. Kept the slice bounded:
+   - no Redis/platform-wide rate-limit redesign
+   - no OpenClaw/runtime architecture changes
+   - no broader abuse-policy rewrite
+
+### What remains inside SR3
+
+- `SR3` is still active.
+- Next likely narrow API-side risks inside `SR3`:
+  - any remaining abuse/rate-limit paths that still rely on non-distributed assumptions outside the touched peer path
+  - any remaining adapter/request timeout or backpressure edges outside the already-hardened preflight path
+  - broader DB/query pressure under burst once the most obvious process-local assumptions are removed
+
+### Confirmed risks
+
+- The touched peer abuse path is no longer process-local only, but this does not yet prove every abuse-control decision is fully distributed across all API surfaces.
+- Shared Postgres is now the source of truth for the touched peer window, so DB health/latency now matters directly for that bounded guard path.
+- OpenClaw multi-replica correctness remains outside `SR3`.
+
+### Metrics / checks still required
+
+- Completed for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/enforce-abuse-rate-limit.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-admin-abuse-controls.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+
+### Next recommended step
+
+- Stay inside `SR3` and take the next narrow API correctness slice: another remaining abuse/rate-limit distributed gap, or a bounded timeout/backpressure edge outside the already-hardened preflight path.
+
+## 2026-04-05 - SR3c shared Prisma client baseline
+
+### Active slice after this session
+
+- `SR3` — API concurrency and dependency hardening
+
+### What was completed
+
+1. Closed the next bounded `SR3` DB/process-pressure risk inside the API process.
+2. Identity-access and workspace-management no longer open separate `PrismaClient` instances for the same API process:
+   - `PrismaService` is now exported from `IdentityAccessModule`
+   - `WorkspaceManagementPrismaService` is now an alias token to the shared `PrismaService` singleton
+3. This removes one concrete source of connection-pool fragmentation and duplicate process-local DB pressure without changing the higher-level repository/service contracts.
+4. Kept the slice narrow:
+   - no ORM-wide refactor
+   - no schema changes
+   - no runtime/OpenClaw redesign
+
+### What remains inside SR3
+
+- `SR3` is still active.
+- Next likely narrow API-side risks inside `SR3`:
+  - distributed abuse/rate-limit correctness beyond process-local memory
+  - any remaining adapter/request timeout or backpressure edges outside the already-hardened preflight path
+  - broader DB/query pressure once pool fragmentation is no longer doubled by two local Prisma clients
+
+### Confirmed risks
+
+- One duplicate Prisma client/pool inside the API process is gone, but this does not by itself prove safe DB behavior under burst.
+- In-memory peer abuse throttling remains process-local and is not yet a distributed guarantee across replicas.
+- OpenClaw multi-replica correctness remains outside `SR3`.
+
+### Metrics / checks still required
+
+- Completed for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/prisma-service-sharing.test.ts`
+
+### Next recommended step
+
+- Stay inside `SR3` and take the next narrow API concurrency slice: distributed abuse/rate-limit correctness or another bounded pressure path.
+
+## 2026-04-05 - SR3b adapter preflight pressure hardening
+
+### Active slice after this session
+
+- `SR3` — API concurrency and dependency hardening
+
+### What was completed
+
+1. Closed the next bounded `SR3` dependency/backpressure risk inside the API-side OpenClaw adapter path.
+2. `OpenClawRuntimeAdapter.preflight(...)` no longer re-runs `/healthz` + `/readyz` on every burst-adjacent API call:
+   - added short TTL cache (`5s`)
+   - added in-flight dedup per runtime tier
+3. Added cache invalidation when a runtime-side request fails in a way that makes the cached readiness suspect:
+   - `runtime_unreachable`
+   - `timeout`
+   - `runtime_degraded`
+   - `invalid_response`
+4. Kept the slice bounded:
+   - no OpenClaw redesign
+   - no queue/runtime distributed changes
+   - no Prisma/data-layer refactor
+
+### What remains inside SR3
+
+- `SR3` is still active.
+- Next likely narrow API-side risks inside `SR3`:
+  - DB pool strategy / Prisma client process assumptions
+  - distributed abuse/rate-limit correctness beyond process-local memory
+  - any remaining long-request timeout/backpressure edges outside the preflight path itself
+
+### Confirmed risks
+
+- Adapter preflight no longer amplifies dependency pressure linearly with every nearby runtime call in the touched window, but the API still lacks a broader DB pool strategy slice.
+- In-memory peer abuse throttling remains process-local and is not yet a distributed guarantee across replicas.
+- OpenClaw multi-replica correctness remains outside `SR3`.
+
+### Metrics / checks still required
+
+- Completed for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/openclaw-runtime-adapter.test.ts`
+
+### Next recommended step
+
+- Stay inside `SR3` and take the next narrow API concurrency slice: DB pool / Prisma process assumptions, or distributed abuse guard correctness.
+
+## 2026-04-05 - SR3 thread-creation race hardening
+
+### Active slice after this session
+
+- `SR3` — API concurrency and dependency hardening
+
+### What was completed
+
+1. Closed the first bounded `SR3` API concurrency risk around chat-thread creation under burst and multi-replica operation.
+2. Added an atomic repository seam:
+   - `AssistantChatRepository.findOrCreateChatBySurfaceThread(...)`
+   - Prisma implementation now treats `P2002` unique-key races as an expected concurrent-create case and falls back to the already-created row instead of assuming one process/thread wins cleanly.
+3. Switched the burst-sensitive API paths that previously did `find -> create` to the new atomic path:
+   - web inbound turn prepare
+   - staged web attachment/chat bootstrap
+   - internal Telegram turn attachment bootstrap
+   - reminder web fallback delivery
+4. Kept the slice narrow:
+   - no DB pool redesign
+   - no OpenClaw runtime redesign
+   - no queue / Redis / cron architecture changes
+
+### What remains inside SR3
+
+- `SR3` is still active.
+- Next likely narrow API-side risks inside `SR3`:
+  - DB pool strategy and Prisma-client/process assumptions
+  - OpenClaw adapter timeout / backpressure behavior on long or degraded runtime calls
+  - distributed abuse/rate-limit correctness beyond single-process in-memory guards
+
+### Confirmed risks
+
+- Chat-thread creation no longer depends on a hidden single-process assumption for the touched paths, but other API concurrency surfaces still exist.
+- In-memory peer abuse throttling remains process-local and is not yet a distributed correctness guarantee across replicas.
+- OpenClaw multi-replica correctness remains outside `SR3`.
+
+### Metrics / checks still required
+
+- Completed for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
+
+### Next recommended step
+
+- Stay inside `SR3` and take the next narrow API concurrency slice: DB/dependency pressure and timeout behavior under burst.
+
+## 2026-04-05 - SR2 closure baseline
+
+### Active slice after this session
+
+- `SR3` — API concurrency and dependency hardening
+
+### What was completed
+
+1. Closed the infra-only `SR2` baseline around explicit workload rollout/disruption truth:
+   - `api` now has the same first bounded disruption/placement baseline as `web`
+   - both `api` and `web` now run with:
+     - `replicaCount: 2`
+     - `PodDisruptionBudget` enabled with `minAvailable: 1`
+     - topology spread across hostname and zone using `ScheduleAnyway`
+2. Kept `autoscaling` explicit but disabled for `api`, `web`, and OpenClaw:
+   - the Helm truth now shows where HPA belongs
+   - but `SR2` does not pretend CPU/memory HPA policy is proven before request-path/runtime evidence exists
+3. Kept OpenClaw inside honest `SR2` scope only:
+   - runtime pools remain topology/config ready
+   - OpenClaw is still **not** declared multi-replica safe
+   - distributed runtime correctness remains outside `SR2`
+4. `SR2` is now closeable as an infra baseline slice:
+   - rollout strategy, disruption baseline, placement baseline, and autoscaling assumptions are explicit
+   - base/dev chart truth is internally consistent
+   - the next unresolved risk domain is no longer infra defaults, but API/runtime correctness under concurrency
+
+### What remains after SR2
+
+- `SR3` — API concurrency and dependency hardening
+
+### Confirmed risks
+
+- `SR2` only closes the infra baseline. It does **not** prove API burst behavior, DB pool behavior, webhook fan-in safety, or other concurrency semantics.
+- OpenClaw multi-replica correctness remains unproven and stays outside `SR2`.
+- HPA remains intentionally disabled until later slices provide evidence that request-path behavior and autoscaling policy match real runtime characteristics.
+
+### Metrics / checks still required
+
+- `SR2` completion evidence for this closing pass:
+  - `helm template` for base and dev values
+  - `corepack pnpm run runtime-pools:readiness:strict`
+- Future slices need their own verification:
+  - `SR3` for API concurrency/dependency behavior under multi-replica operation
+  - later runtime slices for OpenClaw throughput and distributed correctness
+
+### Next recommended step
+
+- Close `SR2` and open `SR3` — API concurrency and dependency hardening.
+
+## 2026-04-05 - SR2b first disruption / placement baseline
+
+### Active slice after this session
+
+- `SR2` — GKE production baseline
+
+### What was completed
+
+1. Turned the `web` workload into the first honest `SR2` disruption/placement baseline:
+   - `replicaCount: 2`
+   - `PodDisruptionBudget` enabled with `minAvailable: 1`
+   - topology spread enabled across hostname and zone using `ScheduleAnyway`
+2. Kept `autoscaling` explicit but still disabled for `web`:
+   - the chart now clearly shows the intended HPA seam
+   - but `SR2b` does not pretend CPU/memory-based HPA policy is proven without target-environment evidence
+3. Intentionally did **not** enable the same baseline for `api` or OpenClaw pools yet:
+   - `api` still has infra dependencies and request-path risk that should not be masked by a cosmetic multi-replica claim before target-environment rollout evidence
+   - OpenClaw multi-replica correctness remains outside `SR2`; infra config must not imply runtime distributed safety that has not been proven
+
+### What remains inside SR2
+
+- `SR2` is still not closed.
+- One final narrow infra piece remains:
+  - decide and validate the honest target-environment baseline for `api` disruption behavior
+  - keep OpenClaw explicitly outside multi-replica safety claims while still documenting the runtime-pool rollout expectation
+  - collect deploy-smoke and observation-window evidence for the now-enabled `web` baseline plus the final `api` decision
+
+### Confirmed risks
+
+- `web` now has the first real disruption/placement baseline, but it still needs target-environment rollout and observation evidence before it counts as accepted production proof.
+- `api` still lacks an enabled disruption/placement baseline, so full `SR2` closure is blocked on the final API-side infra decision and verification.
+- OpenClaw infra remains pool-aware, but that must not be misread as proof of safe multi-replica runtime semantics.
+
+### Metrics / checks still required
+
+- `Tier 0` completed for this sub-slice:
+  - `helm template` for base and dev values
+  - `corepack pnpm run runtime-pools:readiness:strict`
+- Still required before `SR2` can close:
+  - `Tier 2` target-environment smoke for `web` rollout/disruption behavior
+  - `Tier 3` observation window for `web` readiness/restarts/rollout health
+  - the final `api` disruption baseline decision plus the same smoke/observation evidence
+
+### Next recommended step
+
+- Stay inside `SR2` and land the final narrow infra piece: the honest `api` disruption baseline decision plus target-environment validation for `web` and `api`.
+
+## 2026-04-05 - SR2 workload rollout baseline
+
+### Active slice after this session
+
+- `SR2` — GKE production baseline
+
+### What was completed
+
+1. Made the Helm workload baseline explicit for `api`, `web`, and OpenClaw runtime pools instead of relying on implicit Kubernetes defaults:
+   - explicit `revisionHistoryLimit`
+   - explicit `minReadySeconds`
+   - explicit rolling-update strategy (`maxUnavailable: 0`, `maxSurge: 1`)
+   - explicit container `resources`
+2. Added the chart seams for the next controlled SR2 infra moves without enabling them by default:
+   - workload `autoscaling` sections
+   - workload `podDisruptionBudget` sections
+   - workload `topologySpreadConstraints` sections
+   - dedicated Helm templates for `HorizontalPodAutoscaler` and `PodDisruptionBudget`
+3. Kept the slice bounded and honest:
+   - no application concurrency changes
+   - no OpenClaw distributed-correctness claims
+   - no queue / Redis / cron redesign
+4. Fixed one existing chart-truth inconsistency discovered during SR2 validation:
+   - base `infra/helm/values.yaml` did not define `ingress`, but multiple templates already expected `.Values.ingress.enabled`
+   - added explicit base `ingress` defaults so the base chart now renders cleanly
+
+### What remains inside SR2
+
+- `SR2` is not closed yet.
+- Still required inside `SR2`:
+  - turn the new `podDisruptionBudget` / `topologySpreadConstraints` / `autoscaling` seams into a target-environment baseline with explicit enabled values per workload
+  - define the final replica/disruption policy for `api`, `web`, and the OpenClaw pools instead of leaving the production switch disabled
+  - collect target-environment `Tier 2` deploy smoke and `Tier 3` observation evidence for rollout/restart/disruption behavior
+
+### Confirmed risks
+
+- Current chart truth now makes rollout assumptions explicit, but `api` and `web` still run with `replicaCount: 1` in current values, so zero-downtime disruption safety is not yet proven.
+- HPA/PDB/topology rules now have explicit config surfaces, but they are not yet enabled in the active environment values, so autoscaling and eviction behavior remain unproven.
+- OpenClaw multi-replica correctness remains outside `SR2`; infra prep must not be misread as proof that multi-replica runtime behavior is safe.
+
+### Metrics / checks still required
+
+- `Tier 0`:
+  - `helm template` for base and env values
+  - `corepack pnpm run runtime-pools:readiness:strict`
+- Future `SR2` acceptance must also include:
+  - target-environment deploy smoke for rollout and restart behavior
+  - observation-window evidence for pod readiness, restart, rollout progress, and disruption handling
+
+### Next recommended step
+
+- Stay inside `SR2` and land the next narrow infra slice: enable and validate the first honest production `PDB` / topology / autoscaling baseline per workload in the target environment.
+
+## 2026-04-05 - SR1 closure baseline (observation / alerts / runbook)
+
+### Active slice after this session
+
+- `SR2` — GKE production baseline
+
+### What was completed
+
+1. Added `docs/SR1-OBSERVABILITY-BASELINE.md` as the canonical `SR1` operational baseline for:
+   - deploy smoke checklist
+   - first observation-window checklist
+   - minimum alert baseline
+   - operator notes for PersAI API `/health` / `/ready` / `/metrics`
+   - operator notes for OpenClaw `/healthz` / `/readyz`
+2. Documented the current honest OpenClaw-side signal truth without inventing a larger runtime observability platform:
+   - probes: `/healthz`, `/readyz`
+   - guarded readiness details: `ready`, `failing[]`, `uptimeMs`
+   - startup/readiness failure logs from `waitForTransportReady()`
+   - Telegram runtime failure logs when Telegram is enabled
+   - PersAI API `runtime_route` logs as the proof of which OpenClaw pool actually handled live traffic
+3. Updated `docs/TEST-PLAN.md` so `SR1` now has explicit `Tier 2` and `Tier 3` verification expectations instead of only code-level metrics work.
+4. `SR1` is now closeable as a baseline slice:
+   - API readiness baseline exists
+   - API request/error/latency baseline exists
+   - OpenClaw probe/log baseline is explicit
+   - deploy observation and alert expectations are explicit
+
+### What remains after SR1
+
+- `SR2` — GKE production baseline
+
+### Confirmed risks
+
+- OpenClaw still does not expose a Prometheus metrics endpoint in the `SR1` baseline; runtime-side observation is still probe/log based.
+- OpenClaw multi-replica safety is still unproven and remains outside `SR1`.
+- Queue throughput, queue depth, and distributed tracing remain outside `SR1`.
+
+### Metrics / alerts still required
+
+- No additional `SR1` baseline metrics are required before closing the slice.
+- Future slices will need their own domain-specific metrics and alerts:
+  - `SR2` infra rollout/disruption/autoscaling signals
+  - later runtime/queue/storage/media/burst slices beyond the `SR1` baseline
+
+### Next recommended step
+
+- Close `SR1` and open `SR2` — GKE production baseline.
+
+## 2026-04-05 - SR1 readiness baseline (API health/ready/metrics)
+
+### Active slice
+
+- `SR1` — platform baseline and observability
+
+### What was completed
+
+1. Replaced the formal `/ready` behavior with a real readiness snapshot backed by the two active API Prisma clients:
+   - `identity_access_db`
+   - `workspace_management_db`
+2. Added a small shared readiness service with short TTL + in-flight dedup so `/ready` and `/metrics` use one operational truth instead of independent hardcoded values.
+3. `/ready` now returns `503` with dependency-level status/error detail when either DB dependency is not ready.
+4. `/metrics` no longer hardcodes `app_ready 1`; it now exposes:
+   - `app_ready`
+   - `app_dependency_ready{dependency=...}`
+   - `app_dependency_check_duration_ms{dependency=...}`
+   - `process_resident_memory_bytes`
+   - `nodejs_heap_used_bytes`
+   - `nodejs_heap_total_bytes`
+   - `nodejs_external_memory_bytes`
+5. Added focused API test coverage for readiness caching and the new `/ready` + `/metrics` contracts.
+6. Follow-up hardening for the same SR1 sub-slice:
+   - `/ready` no longer forces a fresh DB probe on every request; it now reuses the short TTL + in-flight dedup snapshot path
+   - `/ready` no longer exposes raw DB/Prisma error text; public dependency errors are now sanitized to safe readiness codes
+7. `SR1b` added the first minimal API request metrics baseline at the existing HTTP completion point in `RequestLoggingMiddleware`:
+   - `http_requests_total`
+   - `http_requests_in_flight`
+   - `http_error_requests_total`
+   - `http_requests_by_status_total{method,route,status_code,status_class}`
+   - `http_request_duration_ms_sum{...}`
+   - `http_request_duration_ms_max{...}`
+   - `http_request_duration_ms_bucket{...,le=...}`
+8. `SR1b` keeps request logging and request metrics on one completed-response truth, instead of introducing a separate observability pipeline.
+9. `SR1b` fix-pass corrected three operational issues in the HTTP metrics export:
+   - latency histogram now emits a Prometheus-compatible histogram family shape with bounded buckets, `+Inf`, `_sum`, and `_count`
+   - route labels no longer use raw request URLs as-is; when a framework route pattern is unavailable, labels fall back to bounded low-cardinality route groups
+   - `http_requests_in_flight` now closes on non-finish response termination paths (`close`) and no longer depends on `finish` only
+
+### What remains inside SR1
+
+- Add the next minimal observability sub-slice without widening scope:
+  - explicit alert/dashboard doc for OpenClaw-side baseline signals
+  - deploy-time observation checklist for `/health`, `/ready`, and `/metrics` in the target environment
+
+### Confirmed risks
+
+- `/ready` is no longer a formality, but it currently proves only API process + DB availability; it does not yet prove OpenClaw runtime readiness, Telegram reachability, or wider external dependency health.
+- Multi-replica OpenClaw safety remains unproven and stays outside this SR1 sub-slice.
+- Dependency readiness still has no historical failure counters, so alerting currently depends on scrape-time gauges rather than failure-rate series.
+
+### Unresolved hypotheses
+
+- It is still unverified whether API operator pain during burst comes more from DB latency, runtime saturation, or ingress/request fan-in; this sub-slice only makes those next measurements possible.
+
+### Metrics / alerts still required
+
+- Mandatory alerts now possible from the current baseline:
+  - `app_ready == 0`
+  - `app_dependency_ready{dependency="identity_access_db"} == 0`
+  - `app_dependency_ready{dependency="workspace_management_db"} == 0`
+  - sustained increase in `app_dependency_check_duration_ms{dependency=...}`
+  - sustained high `process_resident_memory_bytes` / heap growth
+  - no request traffic when traffic is expected: `increase(http_requests_total[5m]) == 0`
+  - sustained 5xx responses: `increase(http_error_requests_total[5m]) > 0`
+  - sustained high latency on active routes using `http_request_duration_ms_sum`, `http_requests_by_status_total`, and latency buckets
+- Still missing before SR1 can be considered closed:
+  - runtime/OpenClaw dependency signals
+  - target-environment deploy observation using the new request metrics
+
+### Next recommended step
+
+- Stay inside `SR1` and land the next narrow observability slice: target-environment deploy observation for the new readiness/request metrics plus the first OpenClaw-side baseline signals.
+
+## 2026-04-05 - Scaling readiness program control baseline (SR0)
+
+### What was done
+
+Established the documentation/control layer for the scaling-readiness program so future Cursor-agent sessions can continue the `1000–5000` online-user readiness work from canonical repo docs instead of reconstructing context from chat history.
+
+### What changed
+
+1. Added `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md` as the umbrella ADR for:
+   - evidence-first scaling delivery
+   - clean-delivery / no-trash rules
+   - anti-scope rules
+   - explicit deploy/verification cadence
+2. Added `docs/SCALING-READINESS-PLAN.md` as the central execution-plan source-of-truth with:
+   - `SR0`-`SR10` slice order
+   - current active slice = `SR0`
+   - next recommended slice = `SR1`
+   - Cursor-agent session entry + handoff protocol
+   - verification tiers and deploy batching rules
+3. Updated `docs/ROADMAP.md` and `docs/TEST-PLAN.md` to reference the scaling-readiness program as the canonical future execution path.
+4. Updated `docs/CHANGELOG.md` so the control-layer baseline is visible in repo history.
+
+### Why this matters
+
+- Scaling work now has one umbrella architecture decision and one central execution plan.
+- Future agent sessions should not need to infer slice order, cleanup rules, or observation cadence from older audit conversations.
+- Risky scale-path work can now be delivered as bounded slices without silently deepening legacy branches or temporary rollout paths.
+
+### Current active slice
+
+- `SR0` — documentation/control baseline
+
+### Next recommended slice
+
+- `SR1` — platform baseline and observability
+
+### Suggested entry reads for the next session
+
+1. `docs/SCALING-READINESS-PLAN.md`
+2. `docs/ROADMAP.md`
+3. `docs/SESSION-HANDOFF.md`
+4. `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
+5. relevant runtime/infra ADRs for `SR1`
+
 ## 2026-04-05 - Workspace quota guard hardening (3 live-test bug fixes)
 
 ### What was done

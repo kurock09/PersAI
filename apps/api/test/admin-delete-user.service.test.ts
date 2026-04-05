@@ -50,6 +50,9 @@ async function run(): Promise<void> {
     assistantAbuseAssistantState: {
       deleteMany: recordDelete("assistantAbuseAssistantState")
     },
+    assistantAbusePeerState: {
+      deleteMany: recordDelete("assistantAbusePeerState")
+    },
     assistantChatMessageAttachment: {
       deleteMany: recordDelete("assistantChatMessageAttachment")
     },

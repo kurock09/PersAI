@@ -39,7 +39,8 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      applyAdminUnblock: async () => ({ userRows: 1, assistantRows: 1 })
+      applyAdminUnblock: async () => ({ userRows: 1, assistantRows: 1 }),
+      applyPeerAdminUnblock: async () => 1
     } as never
   );
 

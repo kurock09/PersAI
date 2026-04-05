@@ -1,5 +1,16 @@
 # TEST-PLAN
 
+## SR4 first bounded runtime honesty pass
+
+- OpenClaw readiness must stay green in default/single-replica PersAI runtime mode when channel health is otherwise healthy.
+- When PersAI runtime multi-replica mode is explicitly declared, readiness must fail unless all currently required shared-runtime seams are explicitly present:
+  - this pass closes with a stricter truth: readiness must still fail even with shared apply metadata, because full session continuity and execution ordering are not yet cluster-proven by code
+- `/ready` and `/readyz` must surface the same not-ready truth for authenticated/local readiness callers.
+- Redis-backed spec/apply storage must not be treated as proof of bounded multi-replica runtime session safety.
+- Minimum verification for this pass:
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run --config vitest.gateway.config.ts src/gateway/server/readiness.test.ts src/gateway/server-http.probe.test.ts`
+
 ## Quality gate
 
 Required in CI:
@@ -663,3 +674,162 @@ Required in CI:
   - `corepack pnpm --filter @persai/api run typecheck`
   - `corepack pnpm --filter @persai/web run typecheck`
   - focused tests for touched K16 slices, including `apps/api/test/plan-visibility.service.test.ts`
+
+## Scaling readiness program verification baseline
+
+- `ADR-070` and `docs/SCALING-READINESS-PLAN.md` are the canonical control documents for the `SR*` scaling-readiness slices.
+- Before closing any `SR*` slice, docs must state:
+  - active slice id
+  - verification tier reached (`Tier 0` to `Tier 4`)
+  - rollback/safe fallback path
+  - deploy scope and observation window
+- `SR1` through `SR9` should not be considered complete from static checks alone when they affect runtime, infra, storage, quota, or burst behavior.
+- `SR10` is the required production gate for explicit evidence at `1000`, `3000`, and `5000` online-user targets.
+- Recommended verification model for `SR*` slices:
+  - `Tier 0`: lint, typecheck, contracts, config/render validation
+  - `Tier 1`: focused functional smoke for touched flows
+  - `Tier 2`: target-environment deploy smoke
+  - `Tier 3`: observation window with metrics/log review
+  - `Tier 4`: targeted load/burst validation for scale-path slices
+
+## SR1 operational baseline
+
+- Canonical runbook/checklist doc:
+  - `docs/SR1-OBSERVABILITY-BASELINE.md`
+- `SR1` close baseline for PersAI API:
+  - `GET /health` returns `200`
+  - `GET /ready` returns `200` in healthy baseline and `503` when DB dependencies are not ready
+  - `GET /metrics` exposes readiness, dependency, request, latency, and process-memory metrics
+- `SR1` close baseline for OpenClaw:
+  - `GET /healthz` returns `200`
+  - `GET /readyz` returns `200` in healthy baseline
+  - local/authenticated readiness callers can inspect `failing[]` and `uptimeMs`
+  - runtime startup/backoff and Telegram bridge failures remain log-driven signals, not Prometheus metrics
+- Tier 2 deploy smoke for `SR1` must include:
+  - API `/health`, `/ready`, `/metrics`
+  - OpenClaw `/healthz`, `/readyz`
+  - one real runtime path with matching PersAI API `runtime_route` log proof
+- Tier 3 observation window for `SR1` must include:
+  - `app_ready`
+  - `app_dependency_ready{dependency=...}`
+  - `http_error_requests_total`
+  - latency histogram family `http_request_duration_ms_*`
+  - OpenClaw probe stability (`healthz` / `readyz`)
+  - repeated OpenClaw transport-not-ready or `[persai-telegram]` failures treated as observation-window regressions
+
+## SR2 workload rollout baseline
+
+- `Tier 0` config/render validation for this `SR2` sub-slice must include:
+  - `helm template persai infra/helm -f infra/helm/values.yaml`
+  - `helm template persai infra/helm -f infra/helm/values-dev.yaml`
+  - `corepack pnpm run runtime-pools:readiness:strict`
+- Canonical chart truth added by this `SR2` sub-slice:
+  - explicit deployment rollout strategy for `api`, `web`, and OpenClaw runtime pools
+  - explicit resource requests/limits for `api`, `web`, and OpenClaw runtime pools
+  - explicit but default-disabled config seams for `HorizontalPodAutoscaler`, `PodDisruptionBudget`, and `topologySpreadConstraints`
+- `SR2` is still not closeable from this sub-slice alone; final acceptance must include target-environment evidence for:
+  - rollout behavior during deployment replacement and restart
+  - disruption behavior under eviction/drain assumptions
+  - autoscaling assumptions for workloads where HPA is later enabled
+
+## SR2b first disruption / placement baseline
+
+- Canonical enabled baseline after `SR2b`:
+  - `web.replicaCount = 2`
+  - `web.podDisruptionBudget.enabled = true` with `minAvailable: 1`
+  - `web.topologySpreadConstraints` enabled across hostname and zone with `ScheduleAnyway`
+- Canonical explicit-but-still-disabled baseline after `SR2b`:
+  - `web.autoscaling.enabled = false`
+  - `api` and OpenClaw `autoscaling` remain explicit but disabled
+  - `api` and OpenClaw `podDisruptionBudget` / topology spread remain unenabled until their infra behavior is justified separately
+- Required `Tier 2` smoke for `SR2b`:
+  - confirm `web` deploy replacement keeps at least one ready pod throughout the rollout window
+  - confirm the rendered `web` `PodDisruptionBudget` is admitted and does not deadlock ordinary rollout
+  - confirm scheduled `web` pods can land on more than one node when the target environment has that capacity
+- Required `Tier 3` observation for `SR2b`:
+  - no unexpected `web` restart loop or readiness flapping after rollout
+  - no rollout stall caused by the new `PDB`
+  - no evidence that topology spread creates unschedulable pressure in the current cluster shape
+
+## SR2 closure baseline
+
+- Canonical `SR2` baseline after the closing pass:
+  - `api.replicaCount = 2`
+  - `web.replicaCount = 2`
+  - `api.podDisruptionBudget.enabled = true` with `minAvailable: 1`
+  - `web.podDisruptionBudget.enabled = true` with `minAvailable: 1`
+  - `api.topologySpreadConstraints` enabled across hostname and zone with `ScheduleAnyway`
+  - `web.topologySpreadConstraints` enabled across hostname and zone with `ScheduleAnyway`
+  - `api.autoscaling.enabled = false`
+  - `web.autoscaling.enabled = false`
+  - OpenClaw runtime pools remain explicit and pool-aware, but do **not** count as proven multi-replica-safe runtime behavior
+- `SR2` close criteria for this infra slice are now satisfied by chart truth plus `Tier 0` validation:
+  - rollout/disruption/placement defaults are explicit
+  - autoscaling assumptions are explicit even where disabled
+  - no hidden Kubernetes-default rollout baseline remains for `api` or `web`
+- What `SR2` closure does **not** claim:
+  - no proof of API correctness under burst or multi-replica dependency pressure
+  - no proof of OpenClaw distributed correctness
+  - no HPA policy proof beyond explicit disabled baseline
+
+## SR3 first bounded concurrency baseline
+
+- First `SR3` fix-pass now covers one concrete API race:
+  - concurrent chat-thread bootstrap on unique `assistantId + surface + surfaceThreadKey`
+- Acceptance for this sub-slice:
+  - repository-level `findOrCreate` behavior falls back cleanly on Prisma unique-key race (`P2002`)
+  - touched API paths no longer rely on `find -> create` succeeding as if only one process handled the request
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
+
+## SR3b adapter preflight pressure baseline
+
+- This sub-slice covers one bounded dependency/backpressure risk:
+  - repeated API-side OpenClaw preflight checks (`/healthz` + `/readyz`) on adjacent runtime calls
+- Acceptance for this sub-slice:
+  - preflight uses short TTL caching
+  - concurrent preflight calls dedupe in-flight per runtime tier
+  - runtime-side failures invalidate the cached preflight state so the next call rechecks live readiness
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/openclaw-runtime-adapter.test.ts`
+
+## SR3c shared Prisma client baseline
+
+- This sub-slice covers one bounded DB/process-pressure risk:
+  - separate Prisma clients/pools for identity-access and workspace-management inside the same API process
+- Acceptance for this sub-slice:
+  - workspace-management resolves through the shared Prisma singleton instead of constructing a second `PrismaClient`
+  - existing service/repository injection contracts remain intact
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/prisma-service-sharing.test.ts`
+
+## SR3d distributed peer abuse baseline
+
+- This sub-slice covers one bounded distributed abuse-correctness risk:
+  - `peerKey`-based abuse throttling for inbound API paths was previously kept only in process-local memory
+- Acceptance for this sub-slice:
+  - the touched peer counter survives service-instance boundaries and no longer resets just because another API replica handles the next request
+  - peer-attempt registration is atomic on the shared Postgres row for the same `assistantId + surface + peerKey`
+  - existing user-level and assistant-level abuse state contracts remain intact
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/enforce-abuse-rate-limit.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-admin-abuse-controls.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+
+## SR3e distributed abuse counter closing pass
+
+- This sub-slice covers the last clearly localized distributed abuse-correctness gap inside `SR3`:
+  - user-level and assistant-level abuse counters still used `find -> compute -> upsert`, which could lose increments under burst/multi-replica contention
+- Acceptance for this sub-slice:
+  - user/assistant abuse attempt registration is serialized on shared Postgres state instead of depending on optimistic read/compute/write order
+  - serializable transaction conflicts retry cleanly for the touched path
+  - the higher-level abuse policy remains the same while the counter-registration correctness improves under contention
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/enforce-abuse-rate-limit.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-abuse-guard.repository.test.ts`

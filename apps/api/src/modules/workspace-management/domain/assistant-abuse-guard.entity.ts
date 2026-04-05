@@ -31,3 +31,16 @@ export type AssistantAbuseAssistantState = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+export type AssistantAbusePeerState = {
+  id: string;
+  assistantId: string;
+  surface: AbuseSurface;
+  peerKey: string;
+  windowStartedAt: Date;
+  requestCount: number;
+  adminOverrideUntil: Date | null;
+  lastSeenAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+};
