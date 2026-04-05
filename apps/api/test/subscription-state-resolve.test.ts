@@ -52,9 +52,9 @@ async function run(): Promise<void> {
     assistantPlanOverrideCode: "starter_trial",
     assistantQuotaPlanCode: "starter_trial"
   });
-  assert.equal(fromWorkspace.source, "workspace_subscription");
-  assert.equal(fromWorkspace.status, "active");
-  assert.equal(fromWorkspace.planCode, "pro");
+  assert.equal(fromWorkspace.source, "assistant_plan_override");
+  assert.equal(fromWorkspace.status, "unconfigured");
+  assert.equal(fromWorkspace.planCode, "starter_trial");
 
   const overrideFromAssistant = await createService({
     workspaceSubscriptionRepo: {

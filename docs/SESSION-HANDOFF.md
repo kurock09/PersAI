@@ -1,5 +1,33 @@
 # SESSION-HANDOFF
 
+## 2026-04-05 - Telegram claim UX + Admin Ops fixes
+
+### What was done
+
+1. **Telegram claim-required UI was cleaned up** — the integrations card no longer shows a redundant `claim_required` badge in the header while the code panel is already visible.
+2. **Expired Telegram owner-claim codes now self-heal** — the API rotates an expired pending code on integration-state read, and the web UI refreshes around the expiry time so operators see the new valid code without manual reload.
+3. **Ops Cockpit tester override was completed** — assistant-level test plan override now really changes effective plan/runtime reads instead of only persisting an override field in governance.
+4. **Admin delete-user no longer crashes on append-only audit log** — the delete flow stopped issuing forbidden `assistantAuditEvent.updateMany(...)` mutations and now uses one scoped maintenance path while parent deletes trigger FK `SET NULL`.
+5. **Ops Cockpit IDs are copyable** — assistant/workspace/apply IDs in the cockpit cards now have copy actions for the full raw values.
+
+### What changed
+
+1. `apps/api/src/modules/workspace-management/application/telegram-integration.metadata.ts` and `resolve-telegram-integration-state.service.ts` — expired pending Telegram owner-claim codes are reissued on read.
+2. `apps/web/app/app/_components/telegram-connect.tsx` — hides the noisy claim badge and auto-refreshes state around claim expiry.
+3. `apps/api/src/modules/workspace-management/application/resolve-effective-subscription-state.service.ts` — precedence is now `assistant override -> workspace subscription -> assistant fallback -> catalog default -> none`, matching the intended tester-override behavior.
+4. `apps/web/app/admin/ops/page.tsx` — `Plan Control` keeps operator selection stable, shows feedback in-card, and adds copy buttons for visible IDs.
+5. `apps/api/src/modules/workspace-management/application/admin-delete-user.service.ts` — removes direct audit-row `updateMany(...)` calls and narrows the append-only trigger bypass to the parent-delete transaction path.
+6. `apps/api/test/subscription-state-resolve.test.ts` and `apps/api/test/admin-delete-user.service.test.ts` — focused regressions for override precedence and delete-user audit handling.
+
+### Verification
+
+1. `corepack pnpm --filter @persai/api exec tsx test/telegram-integration.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+3. `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+4. `corepack pnpm --filter @persai/api run typecheck`
+5. `corepack pnpm --filter @persai/web run typecheck`
+6. `corepack pnpm run format:check`
+
 ## 2026-04-05 - Telegram owner claim switched to 6-digit code flow
 
 ### What was done

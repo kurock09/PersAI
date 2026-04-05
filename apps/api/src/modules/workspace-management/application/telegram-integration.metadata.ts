@@ -62,6 +62,31 @@ function createTelegramOwnerClaimExpiresAt(issuedAt: Date): string {
   return new Date(issuedAt.getTime() + TELEGRAM_OWNER_CLAIM_TTL_MS).toISOString();
 }
 
+export function isTelegramOwnerClaimExpired(expiresAt: string | null): boolean {
+  if (!expiresAt) {
+    return false;
+  }
+  const ts = Date.parse(expiresAt);
+  return Number.isFinite(ts) && ts <= Date.now();
+}
+
+export function refreshTelegramOwnerClaimMetadata(metadata: unknown): Record<string, unknown> {
+  const current = resolveTelegramBindingMetadataState(metadata);
+  const claimIssuedAt = new Date();
+  return {
+    ...current,
+    telegramOwnerClaimStatus: "pending",
+    telegramOwnerClaimCode: createTelegramOwnerClaimCode(),
+    telegramOwnerClaimIssuedAt: claimIssuedAt.toISOString(),
+    telegramOwnerClaimExpiresAt: createTelegramOwnerClaimExpiresAt(claimIssuedAt),
+    telegramOwnerClaimedAt: null,
+    telegramOwnerTelegramUserId: null,
+    telegramOwnerTelegramUsername: null,
+    telegramOwnerTelegramChatId: null,
+    telegramOwnerSystemWelcomeSentAt: null
+  };
+}
+
 export function resolveTelegramBindingMetadataState(
   metadata: unknown,
   fallbackBot: {
@@ -130,22 +155,13 @@ export function createTelegramConnectedMetadata(input: {
   displayName: string | null;
   avatarUrl: string | null;
 }): Record<string, unknown> {
-  const claimIssuedAt = new Date();
   return {
+    ...refreshTelegramOwnerClaimMetadata(null),
     telegramUserId: input.telegramUserId,
     username: input.username,
     displayName: input.displayName,
     avatarUrl: input.avatarUrl,
     telegramAccessMode: "owner_only",
-    telegramOwnerClaimStatus: "pending",
-    telegramOwnerClaimCode: createTelegramOwnerClaimCode(),
-    telegramOwnerClaimIssuedAt: claimIssuedAt.toISOString(),
-    telegramOwnerClaimExpiresAt: createTelegramOwnerClaimExpiresAt(claimIssuedAt),
-    telegramOwnerClaimedAt: null,
-    telegramOwnerTelegramUserId: null,
-    telegramOwnerTelegramUsername: null,
-    telegramOwnerTelegramChatId: null,
-    telegramOwnerSystemWelcomeSentAt: null,
     telegramRuntimeHealth: "ok",
     telegramRuntimeHealthUpdatedAt: null,
     telegramRuntimeHealthMessage: null

@@ -264,6 +264,7 @@ function ConnectedView({
   const bot = integration.bot;
   const config = integration.configPanel.settings;
   const configAvailable = integration.configPanel.available;
+  const showHeaderStatusBadge = integration.connectionStatus !== "claim_required";
   const statusTone =
     integration.connectionStatus === "connected"
       ? { dot: "bg-success", text: "text-success", label: t("connectedLabel") }
@@ -304,6 +305,24 @@ function ConnectedView({
       cancelled = true;
     };
   }, [getToken]);
+
+  useEffect(() => {
+    if (
+      integration.connectionStatus !== "claim_required" ||
+      !integration.ownerClaim.claimExpiresAt
+    ) {
+      return;
+    }
+    const expiresAtMs = Date.parse(integration.ownerClaim.claimExpiresAt);
+    if (!Number.isFinite(expiresAtMs)) {
+      return;
+    }
+    const delayMs = Math.max(0, expiresAtMs - Date.now()) + 250;
+    const timer = window.setTimeout(() => {
+      onUpdated();
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [integration.connectionStatus, integration.ownerClaim.claimExpiresAt, onUpdated]);
 
   const handleSave = useCallback(async () => {
     const token = await getToken();
@@ -385,10 +404,12 @@ function ConnectedView({
           </p>
           {bot.username && <p className="text-xs text-text-muted">@{bot.username}</p>}
         </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          <span className={cn("h-2 w-2 rounded-full", statusTone.dot)} />
-          <span className={cn("text-xs", statusTone.text)}>{statusTone.label}</span>
-        </div>
+        {showHeaderStatusBadge && (
+          <div className="ml-auto flex items-center gap-1.5">
+            <span className={cn("h-2 w-2 rounded-full", statusTone.dot)} />
+            <span className={cn("text-xs", statusTone.text)}>{statusTone.label}</span>
+          </div>
+        )}
       </div>
 
       {integration.connectionStatus === "claim_required" && integration.ownerClaim.code && (

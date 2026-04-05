@@ -134,6 +134,23 @@ async function run(): Promise<void> {
       };
       return binding;
     },
+    patchMetadata: async (
+      _assistantId: string,
+      _providerKey: string,
+      _surfaceType: string,
+      patch: Record<string, unknown>
+    ) => {
+      if (!binding) {
+        return;
+      }
+      binding = {
+        ...binding,
+        metadata: {
+          ...(binding.metadata ?? {}),
+          ...patch
+        }
+      };
+    },
     hasActiveBindingForProvider: async () => binding?.bindingState === "active"
   };
   const auditEventService = {
@@ -238,6 +255,17 @@ async function run(): Promise<void> {
     assert.equal(updated.configPanel.settings.notes, "Only outbound notifications for now");
     assert.equal(updated.connectionStatus, "claim_required");
     assert.equal(applyCallCount, 1);
+
+    const previousCode = updated.ownerClaim.code;
+    assert.notEqual(previousCode, null);
+    if (binding?.metadata) {
+      binding.metadata.telegramOwnerClaimExpiresAt = "2000-01-01T00:00:00.000Z";
+    }
+    const refreshed = await resolveStateService.execute("user-1");
+    assert.equal(refreshed.connectionStatus, "claim_required");
+    assert.match(refreshed.ownerClaim.code ?? "", /^\d{6}$/);
+    assert.notEqual(refreshed.ownerClaim.code, previousCode);
+    assert.notEqual(refreshed.ownerClaim.claimExpiresAt, null);
 
     const revoked = await revokeService.execute("user-1", { reason: "token leaked" }, false);
     assert.equal(revoked.connectionStatus, "not_connected");

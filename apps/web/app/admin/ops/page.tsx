@@ -12,6 +12,8 @@ import { useAuth } from "@clerk/nextjs";
 import {
   Activity,
   Bot,
+  Check,
+  Copy,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -182,6 +184,49 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
     <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-x-2 gap-y-0.5 text-xs">
       <span className="text-text-muted">{label}</span>
       <span className="min-w-0 break-all text-right font-mono text-text">{value}</span>
+    </div>
+  );
+}
+
+function CopyableDetailRow({
+  label,
+  value,
+  copyValue
+}: {
+  label: string;
+  value: ReactNode;
+  copyValue: string | null | undefined;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    if (!copyValue) return;
+    try {
+      await navigator.clipboard.writeText(copyValue);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  }, [copyValue]);
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-x-2 gap-y-0.5 text-xs">
+      <span className="text-text-muted">{label}</span>
+      <span className="flex min-w-0 items-center justify-end gap-1.5">
+        <span className="min-w-0 break-all text-right font-mono text-text">{value}</span>
+        {copyValue ? (
+          <button
+            type="button"
+            onClick={() => void handleCopy()}
+            className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded border border-border p-1 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            aria-label={`Copy ${label}`}
+            title={`Copy ${label}`}
+          >
+            {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+          </button>
+        ) : null}
+      </span>
     </div>
   );
 }
@@ -510,6 +555,7 @@ export default function AdminOpsPage() {
   const [reapplyBusy, setReapplyBusy] = useState(false);
   const [planOverrideBusy, setPlanOverrideBusy] = useState(false);
   const [selectedPlanCode, setSelectedPlanCode] = useState("");
+  const [planSelectionDirty, setPlanSelectionDirty] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUserLabel, setSelectedUserLabel] = useState<string | null>(null);
   const selectedUserIdRef = useRef<string | null>(null);
@@ -555,14 +601,18 @@ export default function AdminOpsPage() {
 
   useEffect(() => {
     const overrideCode = cockpit?.assistant.effectivePlan.assistantPlanOverrideCode ?? "";
-    setSelectedPlanCode(overrideCode);
-  }, [cockpit?.assistant.effectivePlan.assistantPlanOverrideCode]);
+    if (!planSelectionDirty || overrideCode !== "") {
+      setSelectedPlanCode(overrideCode);
+      setPlanSelectionDirty(false);
+    }
+  }, [cockpit?.assistant.effectivePlan.assistantPlanOverrideCode, planSelectionDirty]);
 
   const onSelectUser = useCallback(
     (userId: string, email: string) => {
       setSelectedUserId(userId);
       setSelectedUserLabel(email);
       setActionMessage(null);
+      setPlanSelectionDirty(false);
       void load(userId);
     },
     [load]
@@ -683,6 +733,7 @@ export default function AdminOpsPage() {
                 setSelectedUserId(null);
                 setSelectedUserLabel(null);
                 setActionMessage(null);
+                setPlanSelectionDirty(false);
                 void load(undefined);
               }}
               className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-surface px-2 py-1.5 text-[10px] font-medium text-text-muted transition-colors hover:bg-surface-hover"
@@ -737,8 +788,16 @@ export default function AdminOpsPage() {
                   {cockpit.assistant.exists ? "Yes" : "No"}
                 </span>
               </div>
-              <DetailRow label="ID" value={truncateId(cockpit.assistant.assistantId)} />
-              <DetailRow label="Workspace" value={truncateId(cockpit.assistant.workspaceId)} />
+              <CopyableDetailRow
+                label="ID"
+                value={truncateId(cockpit.assistant.assistantId)}
+                copyValue={cockpit.assistant.assistantId}
+              />
+              <CopyableDetailRow
+                label="Workspace"
+                value={truncateId(cockpit.assistant.workspaceId)}
+                copyValue={cockpit.assistant.workspaceId}
+              />
               <div className="border-t border-border pt-2">
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
                   Effective plan
@@ -792,13 +851,15 @@ export default function AdminOpsPage() {
                       {cockpit.assistant.runtimeApply.status.replace(/_/g, " ")}
                     </span>
                   </div>
-                  <DetailRow
+                  <CopyableDetailRow
                     label="Target"
                     value={truncateId(cockpit.assistant.runtimeApply.targetPublishedVersionId)}
+                    copyValue={cockpit.assistant.runtimeApply.targetPublishedVersionId}
                   />
-                  <DetailRow
+                  <CopyableDetailRow
                     label="Applied"
                     value={truncateId(cockpit.assistant.runtimeApply.appliedPublishedVersionId)}
+                    copyValue={cockpit.assistant.runtimeApply.appliedPublishedVersionId}
                   />
                   <DetailRow
                     label="Requested"
@@ -863,7 +924,10 @@ export default function AdminOpsPage() {
                 <span>Tester override plan</span>
                 <select
                   value={selectedPlanCode}
-                  onChange={(e) => setSelectedPlanCode(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedPlanCode(e.target.value);
+                    setPlanSelectionDirty(true);
+                  }}
                   disabled={!selectedUserId || planOverrideBusy}
                   className="h-9 rounded border border-border bg-bg px-2 text-sm text-text focus:border-accent/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -914,6 +978,11 @@ export default function AdminOpsPage() {
                   Reset to normal
                 </button>
               </div>
+              {actionMessage && (
+                <p className="rounded border border-border/60 bg-surface px-2 py-1.5 text-[10px] text-text-muted">
+                  {actionMessage}
+                </p>
+              )}
             </CardShell>
           </div>
 
@@ -953,9 +1022,6 @@ export default function AdminOpsPage() {
                   Restart
                 </button>
               </div>
-              {actionMessage && (
-                <p className="mt-1.5 text-[10px] text-text-muted">{actionMessage}</p>
-              )}
             </section>
 
             <section className="rounded-lg border border-border bg-surface-raised p-3">

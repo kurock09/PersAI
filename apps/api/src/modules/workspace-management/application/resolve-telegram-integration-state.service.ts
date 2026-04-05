@@ -12,6 +12,8 @@ import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capa
 import type { TelegramIntegrationState } from "./telegram-integration.types";
 import { resolveTelegramSecretLifecycleState } from "./assistant-secret-refs-lifecycle";
 import {
+  isTelegramOwnerClaimExpired,
+  refreshTelegramOwnerClaimMetadata,
   resolveTelegramBindingMetadataState,
   resolveTelegramConnectionStatus
 } from "./telegram-integration.metadata";
@@ -62,7 +64,22 @@ export class ResolveTelegramIntegrationStateService {
     const metadata = asObject(binding?.metadata ?? null);
     const config = asObject(binding?.config ?? null);
     const policy = asObject(binding?.policy ?? null);
-    const telegramMetadata = resolveTelegramBindingMetadataState(metadata);
+    let telegramMetadata = resolveTelegramBindingMetadataState(metadata);
+    if (
+      binding !== null &&
+      binding.bindingState === "active" &&
+      telegramMetadata.telegramOwnerClaimStatus !== "claimed" &&
+      isTelegramOwnerClaimExpired(telegramMetadata.telegramOwnerClaimExpiresAt)
+    ) {
+      const refreshedMetadata = refreshTelegramOwnerClaimMetadata(metadata);
+      await this.assistantChannelSurfaceBindingRepository.patchMetadata(
+        assistant.id,
+        "telegram",
+        "telegram_bot",
+        refreshedMetadata
+      );
+      telegramMetadata = resolveTelegramBindingMetadataState(refreshedMetadata);
+    }
     const defaultParseMode = config?.defaultParseMode === "markdown" ? "markdown" : "plain_text";
     const inboundUserMessagesEnabled = policy?.inboundUserMessages === true;
     const outboundAssistantMessagesEnabled = policy?.outboundAssistantMessages !== false;
