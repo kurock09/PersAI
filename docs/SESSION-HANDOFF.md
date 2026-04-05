@@ -1,6 +1,28 @@
 # SESSION-HANDOFF
 
-## 2026-04-05 - Workspace storage quota + dind privileged removal (ADR-069)
+## 2026-04-05 - Voice-only response NO_REPLY suppression
+
+### What was done
+
+OpenClaw runtime no longer injects fallback text when a response contains only media (voice/image). The `NO_REPLY` sentinel text from TTS tool output is now filtered at three levels: `resolveAgentResponse` returns empty text when only media is present, stream handler skips `NO_REPLY` prefix deltas, and HTTP sync/channel handlers stop forcing fallback text.
+
+### What changed (OpenClaw fork)
+
+1. `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — `resolveAgentResponse` returns empty text for media-only; stream filters `isSilentReplyText`/`isSilentReplyPrefixText`; no fallback delta when text is empty
+2. `src/gateway/persai-runtime/persai-runtime-http.ts` — sync/channel handlers stop injecting "No response from OpenClaw." on empty text
+3. `src/gateway/persai-runtime/persai-runtime-agent-turn.test.ts` — tests for media-only sync + stream scenarios
+
+### What changed (PersAI)
+
+1. `infra/dev/gitops/openclaw-approved-sha.txt` — `cce6f701912effb39897120f124683f974210a60`
+2. `infra/helm/values-dev.yaml` — openclaw image tag updated
+
+### Deploy order
+
+1. Push OpenClaw first
+2. Push PersAI — CI rebuilds/repins the OpenClaw image
+
+## 2026-04-05 - Workspace storage quota + dind privileged canary (ADR-069)
 
 ### What was done
 
