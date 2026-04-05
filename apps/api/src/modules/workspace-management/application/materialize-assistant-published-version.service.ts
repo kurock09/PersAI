@@ -256,7 +256,10 @@ export class MaterializeAssistantPublishedVersionService {
     const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
 
     const apiConfig = loadApiConfig(process.env);
-    const workspaceQuotaBytes = apiConfig.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT;
+    const workspaceQuotaBytes = await this.resolveWorkspaceQuotaBytes(
+      effectivePlanCode,
+      apiConfig.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT
+    );
 
     const openclawBootstrap = {
       schema: OPENCLAW_BOOTSTRAP_SCHEMA,
@@ -435,6 +438,30 @@ export class MaterializeAssistantPublishedVersionService {
       record.runtimeTierDefault === "paid_isolated"
       ? record.runtimeTierDefault
       : null;
+  }
+
+  private async resolveWorkspaceQuotaBytes(
+    planCode: string | null,
+    envDefault: number
+  ): Promise<number> {
+    if (planCode === null) return envDefault;
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) return envDefault;
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) return envDefault;
+    const record = hints as Record<string, unknown>;
+    const qa =
+      record.quotaAccounting !== null &&
+      typeof record.quotaAccounting === "object" &&
+      !Array.isArray(record.quotaAccounting)
+        ? (record.quotaAccounting as Record<string, unknown>)
+        : null;
+    if (!qa) return envDefault;
+    const raw = qa.workspaceStorageBytesLimit;
+    return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : envDefault;
   }
 
   private async resolveToolQuotaPolicy(

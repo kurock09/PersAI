@@ -21,9 +21,11 @@ Pass a per-plan `workspaceQuotaBytes` limit through the bootstrap payload to Ope
 - **write tool** (`fs-bridge.ts`): pre-check before every file write
 - **exec tool** (`bash-tools.exec.ts`): pre-check before execution + post-check warning after
 
-The guard uses a cached `du -sb` call (30s TTL) to avoid per-operation filesystem scans on GCS FUSE.
+The guard uses a cached `du -sb` call (30s TTL) to avoid per-operation filesystem scans on GCS FUSE. The cache is invalidated after every write/exec to prevent large burst writes from slipping through a stale cache window.
 
-Default limits: free = 500 MB, paid_shared = 5 GB, paid_isolated = 20 GB. Configurable per plan in Admin UI.
+Cleanup commands (`rm`, `unlink`, `truncate`, `find -delete`) bypass the exec pre-check even when quota is exceeded, so the assistant can remediate without a deadlock.
+
+Default limits: free = 500 MB, paid_shared = 5 GB, paid_isolated = 20 GB. Configurable per plan in Admin UI. The materialize service resolves workspace quota from the plan's `quotaAccounting.workspaceStorageBytesLimit`, falling back to `QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT` env var.
 
 ### dind Privileged — Canary Result
 
@@ -43,10 +45,10 @@ OpenClaw persai-runtime-http.ts → extractWorkspaceQuotaBytes(bootstrap)
     ↓
 PersaiRuntimeRequestCtx.workspaceQuotaBytes (AsyncLocalStorage)
     ↓
-workspace-quota-guard.ts → cached du -sb + enforceWorkspaceQuota()
+workspace-quota-guard.ts → cached du -sb + enforceWorkspaceQuota() + invalidateWorkspaceCache()
     ↓
-fs-bridge.ts writeFile() → pre-check
-bash-tools.exec.ts → pre-check + post-check
+fs-bridge.ts writeFile() → pre-check → invalidate cache after write
+bash-tools.exec.ts → pre-check (cleanup commands bypass) + invalidate cache + post-check
 ```
 
 ## Files Changed
@@ -57,14 +59,14 @@ bash-tools.exec.ts → pre-check + post-check
 - `src/agents/persai-runtime-context.ts` — `workspaceQuotaBytes` on `PersaiRuntimeRequestCtx`
 - `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — wire through all 3 turn types
 - `src/gateway/persai-runtime/persai-runtime-http.ts` — extract + pass at all 3 call sites
-- `src/agents/workspace-quota-guard.ts` — NEW: cached du + enforce
-- `src/agents/sandbox/fs-bridge.ts` — write quota pre-check
-- `src/agents/bash-tools.exec.ts` — exec pre-check + post-check
+- `src/agents/workspace-quota-guard.ts` — NEW: cached du + enforce + invalidateWorkspaceCache
+- `src/agents/sandbox/fs-bridge.ts` — write quota pre-check + cache invalidation after write
+- `src/agents/bash-tools.exec.ts` — exec pre-check (cleanup bypass) + cache invalidation + post-check
 
 ### PersAI
 
 - `packages/config/src/api-config.ts` — `QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT`
-- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — `workspaceQuotaBytes` in bootstrap
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — `workspaceQuotaBytes` in bootstrap, resolved from plan `quotaAccounting` with env fallback
 - `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts` — resolve workspace quota from plan
 - `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts` — types
 - `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` — service
@@ -74,5 +76,7 @@ bash-tools.exec.ts → pre-check + post-check
 ## Consequences
 
 - Free-tier users limited to 500 MB workspace. Blocks GCS billing abuse.
-- `du -sb` cache (30s) means a fast burst of writes can briefly exceed quota by the amount written in one cache window. Acceptable trade-off vs filesystem-level quota.
-- dind privileged removal closes the container escape vector. If GKE node kernel does not support unprivileged user namespaces, fallback is to re-enable privileged per-pool in values.
+- `du -sb` cache (30s) is invalidated after every write/exec, closing the burst-write window that previously allowed 1.5 GB to slip through.
+- Cleanup commands bypass quota pre-check, preventing the deadlock where an assistant could neither delete nor write files after exceeding quota.
+- Workspace quota is resolved from plan's `quotaAccounting.workspaceStorageBytesLimit`, so admin UI changes take effect on the next turn without pod restart.
+- dind privileged removal was attempted but GKE COS rejected rootless dind. Reverted to `privileged: true` as a known infra trade-off. Mitigation path: GKE Sandbox (gVisor).

@@ -1,5 +1,36 @@
 # SESSION-HANDOFF
 
+## 2026-04-05 - Workspace quota guard hardening (3 live-test bug fixes)
+
+### What was done
+
+Live testing via assistant revealed three bugs in workspace quota enforcement:
+1. **exec pre-check blocked cleanup commands** (`rm -rf`) when quota exceeded — deadlock, assistant could not free space
+2. **du cache 30s TTL** allowed 1.5 GB burst writes in a single turn before enforcement triggered
+3. **workspaceQuotaBytes resolved from env default** instead of plan's `quotaAccounting`, so admin UI changes did not propagate
+
+### What changed (OpenClaw fork)
+
+- `src/agents/bash-tools.exec.ts` — cleanup commands (`rm`, `unlink`, `truncate`, `find -delete`) now bypass quota pre-check with warning; du cache invalidated before post-check
+- `src/agents/workspace-quota-guard.ts` — added `invalidateWorkspaceCache()` export
+- `src/agents/sandbox/fs-bridge.ts` — invalidates du cache after successful write
+- `docs/PERSAI-FORK-PATCHES.md` — updated Patch #28 description
+
+### What changed (PersAI)
+
+- `apps/api/src/.../materialize-assistant-published-version.service.ts` — `resolveWorkspaceQuotaBytes()` reads `quotaAccounting.workspaceStorageBytesLimit` from plan, falls back to env default
+- `docs/ADR/069-...` — updated with cleanup bypass, cache invalidation, plan-aware quota
+- Updated OpenClaw SHA in `openclaw-approved-sha.txt` and `infra/helm/values-dev.yaml`
+
+### Deploy order
+
+1. Push OpenClaw first
+2. Update PersAI SHA + push
+
+### Risks
+
+- Cleanup regex is simple; complex piped commands (`bash -c "rm ..."`) won't match — acceptable, assistant uses direct `rm` calls
+
 ## 2026-04-05 - Voice-only response NO_REPLY suppression
 
 ### What was done
