@@ -270,6 +270,7 @@ export class AssistantController {
   }
 
   @Post("assistant/integrations/telegram/connect")
+  @HttpCode(200)
   async connectTelegramIntegration(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown
@@ -287,6 +288,7 @@ export class AssistantController {
   }
 
   @Post("assistant/integrations/telegram/rotate")
+  @HttpCode(200)
   async rotateTelegramIntegrationSecret(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown
@@ -304,6 +306,7 @@ export class AssistantController {
   }
 
   @Post("assistant/integrations/telegram/revoke")
+  @HttpCode(200)
   async revokeTelegramIntegrationSecret(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown
@@ -325,6 +328,7 @@ export class AssistantController {
   }
 
   @Post("assistant/integrations/telegram/emergency-revoke")
+  @HttpCode(200)
   async emergencyRevokeTelegramIntegrationSecret(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown

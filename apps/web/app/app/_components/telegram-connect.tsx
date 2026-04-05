@@ -341,10 +341,10 @@ function ConnectedView({
       await postAssistantTelegramDisconnect(token, { reason: "User disconnected from UI" });
       setConfirmDisconnect(false);
       onUpdated();
-    } catch {
+    } catch (e) {
       setFeedback({
         type: "err",
-        text: t("disconnectFailed")
+        text: e instanceof Error ? e.message : t("disconnectFailed")
       });
       setConfirmDisconnect(false);
     } finally {

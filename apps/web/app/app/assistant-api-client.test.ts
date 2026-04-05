@@ -3,6 +3,7 @@ import {
   getAdminRuntimeProviderSettings,
   postAdminPlatformRollout,
   postAdminPlatformRolloutRollback,
+  postAssistantTelegramDisconnect,
   toWebChatUxIssue,
   putAdminRuntimeProviderSettings,
   streamAssistantWebChatTurn
@@ -14,7 +15,8 @@ const contractMocks = vi.hoisted(() => {
     getAdminRuntimeProviderSettings: vi.fn(),
     postAdminPlatformRollout: vi.fn(),
     postAdminPlatformRolloutRollback: vi.fn(),
-    putAdminRuntimeProviderSettings: vi.fn()
+    putAdminRuntimeProviderSettings: vi.fn(),
+    postAssistantTelegramRevoke: vi.fn()
   };
 });
 
@@ -26,7 +28,8 @@ vi.mock("@persai/contracts", async () => {
     getAdminRuntimeProviderSettings: contractMocks.getAdminRuntimeProviderSettings,
     postAdminPlatformRollout: contractMocks.postAdminPlatformRollout,
     postAdminPlatformRolloutRollback: contractMocks.postAdminPlatformRolloutRollback,
-    putAdminRuntimeProviderSettings: contractMocks.putAdminRuntimeProviderSettings
+    putAdminRuntimeProviderSettings: contractMocks.putAdminRuntimeProviderSettings,
+    postAssistantTelegramRevoke: contractMocks.postAssistantTelegramRevoke
   };
 });
 
@@ -236,6 +239,24 @@ describe("admin rollout client", () => {
     await expect(postAdminPlatformRolloutRollback("token-1", "rollout-1")).resolves.toMatchObject({
       id: "rollout-1",
       status: "rolled_back"
+    });
+  });
+
+  it("accepts 201 Created for telegram disconnect", async () => {
+    contractMocks.postAssistantTelegramRevoke.mockResolvedValue({
+      status: 201,
+      data: {
+        integration: {
+          connectionStatus: "not_connected",
+          capabilityAllowed: true
+        }
+      }
+    });
+
+    await expect(
+      postAssistantTelegramDisconnect("token-1", { reason: "User disconnected from UI" })
+    ).resolves.toMatchObject({
+      connectionStatus: "not_connected"
     });
   });
 });

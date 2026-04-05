@@ -1637,8 +1637,15 @@ export async function postAssistantTelegramDisconnect(
     const response = await postAssistantTelegramRevokeContract(payload ?? {}, {
       headers: getAuthHeaders(token)
     });
-    if (response.status !== 200) {
-      throw new Error("Failed to disconnect Telegram bot.");
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("integration" in response.data)
+    ) {
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/integrations/telegram/revoke."
+      );
     }
     return response.data.integration;
   } catch (error) {
