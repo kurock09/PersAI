@@ -417,7 +417,7 @@ Step 15 — Tiered OpenClaw runtime and production hardening
     - [x] ADR-065 (Wave 1): openclaw container securityContext locked (readOnlyRootFilesystem, runAsNonRoot, drop ALL caps). Per-tier resource limits (CPU/RAM/ephemeral/PIDs). Egress NetworkPolicy for all openclaw pods.
     - [x] ADR-066: Telegram webhook tier-aware proxy through PersAI API, removing hardcoded ingress to free_shared pool.
     - [x] ADR-067: media storage quota enforcement, per-peer Telegram rate limit, draft input validation (maxLength + avatarUrl https), NetworkPolicy covering all pools.
-    - [x] ADR-069: workspace storage quota enforcement (write + exec guard with cached du, default 500 MB). dind privileged: false with rootless securityContext. Admin UI workspace storage field per plan.
+    - [x] ADR-069: workspace storage quota enforcement (write + exec guard with cached du, default 500 MB). dind privileged canary attempted then reverted (GKE COS doesn't support rootless dind without privileged). Admin UI workspace storage field per plan.
     - [x] Cross-assistant file isolation (Wave 2): workspace media path no longer falls back to global root.
     - [x] GKE autoscaling enabled for runtime node pool.
 - [ ] H11 — WhatsApp/MAX follow-through: extend the current readiness model with Telegram-parity managed `secret_refs`, rotation/revoke flow, and runtime materialization when those channels ship

@@ -150,6 +150,79 @@ async function run(): Promise<void> {
       error instanceof AssistantRuntimeAdapterError && error.code === "runtime_unreachable"
   );
 
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.endsWith("/healthz")) {
+      return new Response(JSON.stringify({ ok: true, status: "live" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (url.endsWith("/readyz")) {
+      return new Response(JSON.stringify({ ready: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (url.endsWith("/api/v1/runtime/chat/web")) {
+      return new Response(
+        JSON.stringify({
+          assistantMessage: "",
+          respondedAt: "2026-04-05T12:00:00.000Z",
+          media: [{ url: "/tmp/reply.ogg", type: "audio", audioAsVoice: true }]
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      );
+    }
+    throw new Error(`Unexpected fetch url: ${url}`);
+  }) as typeof fetch;
+
+  const mediaOnlyWebResult = await adapter.sendWebChatTurn({
+    assistantId: "assistant-1",
+    publishedVersionId: "pub-1",
+    chatId: "chat-1",
+    surfaceThreadKey: "thread-1",
+    userMessageId: "msg-1",
+    userMessage: "hello"
+  });
+  assert.deepEqual(mediaOnlyWebResult, {
+    assistantMessage: "",
+    respondedAt: "2026-04-05T12:00:00.000Z",
+    media: [{ url: "/tmp/reply.ogg", type: "audio", audioAsVoice: true }]
+  });
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.endsWith("/healthz")) {
+      return new Response(JSON.stringify({ ok: true, status: "live" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (url.endsWith("/readyz")) {
+      return new Response(JSON.stringify({ ready: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (url.endsWith("/api/v1/runtime/chat/channel")) {
+      return new Response(
+        JSON.stringify({
+          assistantMessage: "Telegram reply",
+          respondedAt: "2026-03-31T00:00:00.000Z"
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      );
+    }
+    throw new Error(`Unexpected fetch url: ${url}`);
+  }) as typeof fetch;
+
   const channelResult = await adapter.sendChannelTurn({
     assistantId: "assistant-1",
     publishedVersionId: "pub-1",

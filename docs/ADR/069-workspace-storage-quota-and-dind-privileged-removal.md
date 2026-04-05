@@ -25,15 +25,11 @@ The guard uses a cached `du -sb` call (30s TTL) to avoid per-operation filesyste
 
 Default limits: free = 500 MB, paid_shared = 5 GB, paid_isolated = 20 GB. Configurable per plan in Admin UI.
 
-### dind Privileged Removal
+### dind Privileged — Canary Result
 
-Replace `privileged: true` with a minimal securityContext for rootless dind:
-- `privileged: false`
-- `runAsNonRoot: true`
-- `runAsUser: 1000`
-- `seccomp` and capabilities restricted to what rootless dind needs
+Attempted `privileged: false` with rootless securityContext (runAsNonRoot, runAsUser 1000, caps SETUID/SETGID). GKE nodes rejected it: `rootlesskit: fork/exec /proc/self/exe: operation not permitted`. Root cause: GKE Container-Optimized OS does not expose unprivileged user namespaces to pods without `privileged: true`.
 
-This is a canary change — if rootless dind cannot start sandbox containers on GKE without privileged, the flag can be restored per-pool via Helm values override.
+**Decision:** revert to `privileged: true`. This remains a known infra trade-off documented here. Mitigation path: GKE Sandbox (gVisor) or a dedicated rootless-capable node pool with `sysctl net.ipv4.ip_unprivileged_port_start=0` and `/proc/sys/kernel/unprivileged_userns_clone=1`.
 
 ## Data Flow
 

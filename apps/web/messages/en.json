@@ -49,6 +49,8 @@
     "newChat": "New chat",
     "placeholder": "Message your assistant...",
     "disclaimer": "Your assistant may make mistakes. Verify important information.",
+    "inputHint": "You can drag files here or paste screenshots and other supported files from the clipboard.",
+    "dropFilesHere": "Drop files to attach them",
     "attachFile": "Attach file",
     "voiceMessage": "Voice message",
     "send": "Send",

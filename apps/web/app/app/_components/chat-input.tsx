@@ -18,6 +18,7 @@ import { useTranslations } from "next-intl";
 const ACCEPT =
   "image/png,image/jpeg,image/gif,image/webp,audio/mpeg,audio/ogg,audio/wav,audio/webm,video/mp4,video/webm,application/pdf";
 const MAX_FILES = 5;
+const ACCEPTED_MIME_TYPES = new Set(ACCEPT.split(","));
 
 function fileIcon(mime: string) {
   if (mime.startsWith("image/")) return null;
@@ -30,6 +31,20 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${String(m)}:${String(s).padStart(2, "0")}`;
+}
+
+function isAcceptedFile(file: File): boolean {
+  return ACCEPTED_MIME_TYPES.has(file.type);
+}
+
+function collectAcceptedFiles(files: Iterable<File>, existingCount: number): File[] {
+  const accepted: File[] = [];
+  for (const file of files) {
+    if (!isAcceptedFile(file)) continue;
+    if (existingCount + accepted.length >= MAX_FILES) break;
+    accepted.push(file);
+  }
+  return accepted;
 }
 
 type RecordingState = "idle" | "recording" | "transcribing";
@@ -54,7 +69,9 @@ export function ChatInput({
   const t = useTranslations("chat");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [dragActive, setDragActive] = useState(false);
 
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -109,20 +126,85 @@ export function ChatInput({
     const selected = e.target.files;
     if (!selected) return;
     setPendingFiles((prev) => {
-      const combined = [...prev];
-      for (let i = 0; i < selected.length; i++) {
-        if (combined.length >= MAX_FILES) break;
-        const f = selected[i];
-        if (f) combined.push(f);
-      }
-      return combined;
+      return [...prev, ...collectAcceptedFiles(Array.from(selected), prev.length)];
     });
     e.target.value = "";
+  }, []);
+
+  const appendFiles = useCallback((files: Iterable<File>) => {
+    setPendingFiles((prev) => [...prev, ...collectAcceptedFiles(files, prev.length)]);
   }, []);
 
   const removeFile = useCallback((index: number) => {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   }, []);
+
+  const isRecording = recordingState === "recording";
+  const isTranscribing = recordingState === "transcribing";
+  const inputDisabled = disabled || isRecording || isTranscribing;
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const pastedFiles = collectAcceptedFiles(
+        Array.from(e.clipboardData.items)
+          .filter((item) => item.kind === "file")
+          .map((item) => item.getAsFile())
+          .filter((file): file is File => file !== null),
+        pendingFiles.length
+      );
+      if (pastedFiles.length === 0) {
+        return;
+      }
+      e.preventDefault();
+      appendFiles(pastedFiles);
+    },
+    [appendFiles, pendingFiles.length]
+  );
+
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (inputDisabled || isStreaming || recordingState !== "idle") return;
+      if (!Array.from(e.dataTransfer.items).some((item) => item.kind === "file")) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      setDragActive(true);
+    },
+    [inputDisabled, isStreaming, recordingState]
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (inputDisabled || isStreaming || recordingState !== "idle") return;
+      if (!Array.from(e.dataTransfer.items).some((item) => item.kind === "file")) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    [inputDisabled, isStreaming, recordingState]
+  );
+
+  const handleDragLeave = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!dragActive) return;
+      e.preventDefault();
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) {
+        setDragActive(false);
+      }
+    },
+    [dragActive]
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (inputDisabled || isStreaming || recordingState !== "idle") return;
+      if (!Array.from(e.dataTransfer.items).some((item) => item.kind === "file")) return;
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setDragActive(false);
+      appendFiles(Array.from(e.dataTransfer.files));
+    },
+    [appendFiles, inputDisabled, isStreaming, recordingState]
+  );
 
   const stopRecordingCleanup = useCallback(() => {
     if (timerRef.current) {
@@ -228,10 +310,6 @@ export function ChatInput({
     setRecordingSeconds(0);
   }, [stopRecordingCleanup]);
 
-  const isRecording = recordingState === "recording";
-  const isTranscribing = recordingState === "transcribing";
-  const inputDisabled = disabled || isRecording || isTranscribing;
-
   return (
     <div className="border-t border-border bg-bg px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4 md:py-3">
       <div className="mx-auto max-w-3xl">
@@ -295,7 +373,22 @@ export function ChatInput({
           </div>
         )}
 
-        <div className="flex items-end gap-2 rounded-xl border border-border bg-surface p-2 transition-colors focus-within:border-border-strong">
+        {dragActive && (
+          <div className="mb-2 rounded-lg border border-dashed border-accent/50 bg-accent/5 px-3 py-2 text-center text-xs text-text-muted">
+            {t("dropFilesHere")}
+          </div>
+        )}
+
+        <div
+          className={cn(
+            "flex items-end gap-2 rounded-xl border border-border bg-surface p-2 transition-colors focus-within:border-border-strong",
+            dragActive && "border-accent bg-accent/5"
+          )}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
           <input
             ref={fileInputRef}
             type="file"
@@ -326,6 +419,7 @@ export function ChatInput({
             disabled={inputDisabled}
             onInput={resize}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             className={cn(
               "flex-1 resize-none bg-transparent text-sm text-text placeholder:text-text-subtle",
               "outline-none",
@@ -378,7 +472,7 @@ export function ChatInput({
         </div>
 
         <p className="mt-1.5 hidden text-center text-[11px] text-text-subtle md:block">
-          {t("disclaimer")}
+          {t("inputHint")}
         </p>
       </div>
     </div>

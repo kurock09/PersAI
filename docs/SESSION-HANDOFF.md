@@ -8,7 +8,7 @@ Two remaining security gaps closed:
 
 1. **Workspace storage quota**: sandbox `write` and `exec` tools now enforce a per-plan workspace size limit via cached `du -sb` (30s TTL). Default 500 MB. Write tool hard-blocks on quota exceeded; exec tool hard-blocks before execution and appends warning after execution if quota exceeded.
 
-2. **dind privileged removal**: all runtime pools' `docker-dind` sidecar now runs with `privileged: false`, `runAsNonRoot: true`, `runAsUser: 1000`, restricted capabilities (only SETUID/SETGID), and RuntimeDefault seccomp profile. Closes the container escape vector.
+2. **dind privileged canary (reverted)**: attempted `privileged: false` with rootless securityContext. GKE COS rejected rootlesskit (`operation not permitted`). Reverted to `privileged: true`. Known infra trade-off — mitigation via GKE Sandbox (gVisor) or rootless-capable node pool.
 
 ### What changed (OpenClaw fork)
 
@@ -29,7 +29,7 @@ Two remaining security gaps closed:
 4. `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts` — `workspaceStorageBytesLimit` in types
 5. `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` — read/write workspace quota
 6. `apps/web/app/admin/plans/page.tsx` — Workspace storage (MB) field in Admin Plans UI
-7. `infra/helm/templates/openclaw-deployment.yaml` — dind securityContext overhaul
+7. `infra/helm/templates/openclaw-deployment.yaml` — dind privileged canary attempted then reverted
 8. `infra/dev/gitops/openclaw-approved-sha.txt` — `5ce51cb37d5d22d9a648b2d3b4f5100ed33791fc`
 9. `infra/helm/values-dev.yaml` — openclaw image tag updated
 
@@ -40,7 +40,7 @@ Two remaining security gaps closed:
 
 ### Risks
 
-- dind rootless without `privileged` may fail on GKE nodes that don't support unprivileged user namespaces. Mitigation: per-pool Helm override to restore `privileged: true` if needed.
+- dind rootless without `privileged` failed on GKE COS nodes (rootlesskit `operation not permitted`). Reverted to `privileged: true`. Known infra trade-off.
 - Workspace quota uses cached `du` (30s window). A fast burst can briefly exceed quota by the amount written in one cache window.
 - Existing over-quota workspaces are not retroactively blocked — they will be blocked on the next write/exec attempt.
 

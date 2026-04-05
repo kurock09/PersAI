@@ -6,7 +6,7 @@
 
 - **Workspace storage quota enforcement (ADR-069):** per-plan workspace storage quota is now enforced inside the OpenClaw sandbox at both `write` and `exec` tool entry points. The quota limit flows through `bootstrap.governance.workspaceQuotaBytes` from PersAI to OpenClaw, where a cached `du -sb` guard (30s TTL) blocks writes exceeding the plan limit. Default 500 MB for free tier. Configurable per plan in Admin UI (Plans > Quota limits > Workspace storage MB). OpenClaw fork advanced to `5ce51cb37d`.
 
-- **dind privileged removal (ADR-069):** the `docker-dind` sidecar in all runtime pools now runs with `privileged: false`, `runAsNonRoot: true`, `runAsUser: 1000`, `seccompProfile: RuntimeDefault`, and `capabilities.drop: ALL` (+SETUID/SETGID). A dedicated `docker-rootless-state` emptyDir volume provides writable state for rootless Docker daemon. This closes the last known container escape vector.
+- **dind privileged canary (ADR-069):** attempted `privileged: false` with rootless securityContext on all dind sidecars. GKE Container-Optimized OS rejected rootlesskit (`operation not permitted`). Reverted to `privileged: true`. Documented as known infra trade-off in ADR-069. Mitigation path: GKE Sandbox (gVisor) or rootless-capable node pool.
 
 ### Fixed
 

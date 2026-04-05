@@ -597,7 +597,7 @@ Required in CI:
   - explicit sandbox/workspace-access/runtime config generation
   - no accidental dependence on permissive OpenClaw defaults
   - current Helm-rendered baseline explicitly denies dangerous built-ins (`gateway`, `nodes`, `canvas`, `agents_list`, `session_status`, `sessions_*`, `subagents`)
-  - sandbox is active (`mode: "all"`) in all tiered pools with per-tier resource limits and rootless dind (`privileged: false`, ADR-069)
+  - sandbox is active (`mode: "all"`) in all tiered pools with per-tier resource limits; dind retains `privileged: true` (rootless canary failed on GKE COS, ADR-069)
   - `corepack pnpm run shared-runtime:readiness:strict` is the canonical prepared-baseline gate before rollout
 - Runtime assignment tests validate:
   - plan default + admin override resolution (`platform_fallback -> plan_default -> assistant_override`)

@@ -144,7 +144,7 @@ Current implemented baseline in Helm values:
 Current status (2026-04-05):
 
 - sandbox is **active** (`mode: "all"`) in all three tiered pools (`free_shared_restricted`, `paid_shared_restricted`, `paid_isolated`)
-- Docker-in-Docker sidecar runs with `privileged: false`, `runAsNonRoot: true`, `runAsUser: 1000`, seccomp RuntimeDefault, capabilities drop ALL (+SETUID/SETGID) (ADR-069)
+- Docker-in-Docker sidecar runs with `privileged: true` (rootless dind canary failed on GKE COS — ADR-069 documents the trade-off and mitigation path)
 - per-tier resource limits are differentiated (PIDs, memory, CPU) via Helm values
 - sandbox activation was verified live on GKE 2026-04-05 with full tool surface confirmation
 

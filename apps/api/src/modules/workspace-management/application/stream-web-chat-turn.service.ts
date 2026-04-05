@@ -174,7 +174,7 @@ export class StreamWebChatTurnService {
       }
 
       const cleanedAccumulated = accumulated.trim();
-      if (cleanedAccumulated.length === 0) {
+      if (cleanedAccumulated.length === 0 && collectedMedia.length === 0) {
         return {
           status: "failed",
           transport: null,

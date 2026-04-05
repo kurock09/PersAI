@@ -352,7 +352,11 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
 
     const assistantMessage = payload.assistantMessage;
     const respondedAt = payload.respondedAt;
-    if (typeof assistantMessage !== "string" || assistantMessage.trim().length === 0) {
+    const media = parseMediaArray(payload.media);
+    if (
+      typeof assistantMessage !== "string" ||
+      (assistantMessage.trim().length === 0 && media.length === 0)
+    ) {
       throw new AssistantRuntimeAdapterError(
         "invalid_response",
         "OpenClaw web chat response is missing assistantMessage."
@@ -368,7 +372,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     return {
       assistantMessage: assistantMessage.trim(),
       respondedAt: respondedAt.trim(),
-      media: parseMediaArray(payload.media)
+      media
     };
   }
 
@@ -481,7 +485,11 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
 
     const assistantMessage = payload.assistantMessage;
     const respondedAt = payload.respondedAt;
-    if (typeof assistantMessage !== "string" || assistantMessage.trim().length === 0) {
+    const media = parseMediaArray(payload.media);
+    if (
+      typeof assistantMessage !== "string" ||
+      (assistantMessage.trim().length === 0 && media.length === 0)
+    ) {
       throw new AssistantRuntimeAdapterError(
         "invalid_response",
         "OpenClaw channel chat response is missing assistantMessage."
@@ -497,7 +505,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     return {
       assistantMessage: assistantMessage.trim(),
       respondedAt: respondedAt.trim(),
-      media: parseMediaArray(payload.media)
+      media
     };
   }
 
