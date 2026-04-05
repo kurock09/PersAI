@@ -255,6 +255,9 @@ export class MaterializeAssistantPublishedVersionService {
     );
     const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
 
+    const apiConfig = loadApiConfig(process.env);
+    const workspaceQuotaBytes = apiConfig.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT;
+
     const openclawBootstrap = {
       schema: OPENCLAW_BOOTSTRAP_SCHEMA,
       assistant: {
@@ -276,6 +279,7 @@ export class MaterializeAssistantPublishedVersionService {
         runtimeProviderProfile,
         toolCredentialRefs,
         toolQuotaPolicy,
+        workspaceQuotaBytes,
         secretRefs: governance.secretRefs,
         auditHook: governance.auditHook
       },

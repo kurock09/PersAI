@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- **Workspace storage quota enforcement (ADR-069):** per-plan workspace storage quota is now enforced inside the OpenClaw sandbox at both `write` and `exec` tool entry points. The quota limit flows through `bootstrap.governance.workspaceQuotaBytes` from PersAI to OpenClaw, where a cached `du -sb` guard (30s TTL) blocks writes exceeding the plan limit. Default 500 MB for free tier. Configurable per plan in Admin UI (Plans > Quota limits > Workspace storage MB). OpenClaw fork advanced to `5ce51cb37d`.
+
+- **dind privileged removal (ADR-069):** the `docker-dind` sidecar in all runtime pools now runs with `privileged: false`, `runAsNonRoot: true`, `runAsUser: 1000`, `seccompProfile: RuntimeDefault`, and `capabilities.drop: ALL` (+SETUID/SETGID). A dedicated `docker-rootless-state` emptyDir volume provides writable state for rootless Docker daemon. This closes the last known container escape vector.
+
 ### Fixed
 
 - **OpenClaw Telegram owner claim instant bootstrap patch:** after a successful 6-digit claim, the runtime now patches the in-memory bootstrap immediately so the bot stops re-prompting for the code on subsequent messages within the same pod lifecycle. OpenClaw fork advanced to `8d6a6fcbe842`.

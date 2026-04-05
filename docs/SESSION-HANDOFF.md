@@ -1,5 +1,59 @@
 # SESSION-HANDOFF
 
+## 2026-04-05 - Workspace storage quota + dind privileged removal (ADR-069)
+
+### What was done
+
+Two remaining security gaps closed:
+
+1. **Workspace storage quota**: sandbox `write` and `exec` tools now enforce a per-plan workspace size limit via cached `du -sb` (30s TTL). Default 500 MB. Write tool hard-blocks on quota exceeded; exec tool hard-blocks before execution and appends warning after execution if quota exceeded.
+
+2. **dind privileged removal**: all runtime pools' `docker-dind` sidecar now runs with `privileged: false`, `runAsNonRoot: true`, `runAsUser: 1000`, restricted capabilities (only SETUID/SETGID), and RuntimeDefault seccomp profile. Closes the container escape vector.
+
+### What changed (OpenClaw fork)
+
+1. `src/gateway/persai-runtime/persai-runtime-tool-policy.ts` — `extractWorkspaceQuotaBytes()`
+2. `src/agents/persai-runtime-context.ts` — `workspaceQuotaBytes` on request context
+3. `src/gateway/persai-runtime/persai-runtime-agent-turn.ts` — wire through all 3 turn types
+4. `src/gateway/persai-runtime/persai-runtime-http.ts` — extract + pass at all 3 call sites
+5. `src/agents/workspace-quota-guard.ts` — NEW: cached du + enforceWorkspaceQuota
+6. `src/agents/sandbox/fs-bridge.ts` — write quota pre-check
+7. `src/agents/bash-tools.exec.ts` — exec pre-check + post-check
+8. `docs/PERSAI-FORK-PATCHES.md` — Patch #28
+
+### What changed (PersAI)
+
+1. `docs/ADR/069-workspace-storage-quota-and-dind-privileged-removal.md` — new ADR
+2. `packages/config/src/api-config.ts` — `QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT` (524288000 = 500 MB)
+3. `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — `workspaceQuotaBytes` in bootstrap governance
+4. `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts` — `workspaceStorageBytesLimit` in types
+5. `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` — read/write workspace quota
+6. `apps/web/app/admin/plans/page.tsx` — Workspace storage (MB) field in Admin Plans UI
+7. `infra/helm/templates/openclaw-deployment.yaml` — dind securityContext overhaul
+8. `infra/dev/gitops/openclaw-approved-sha.txt` — `5ce51cb37d5d22d9a648b2d3b4f5100ed33791fc`
+9. `infra/helm/values-dev.yaml` — openclaw image tag updated
+
+### Deploy order
+
+1. Push OpenClaw first
+2. Push PersAI — CI rebuilds/repins the OpenClaw image
+
+### Risks
+
+- dind rootless without `privileged` may fail on GKE nodes that don't support unprivileged user namespaces. Mitigation: per-pool Helm override to restore `privileged: true` if needed.
+- Workspace quota uses cached `du` (30s window). A fast burst can briefly exceed quota by the amount written in one cache window.
+- Existing over-quota workspaces are not retroactively blocked — they will be blocked on the next write/exec attempt.
+
+### Verification
+
+1. After deploy: run `exec` with `dd if=/dev/zero of=test.bin bs=1M count=600` in a free-tier assistant — should be blocked.
+2. After deploy: verify dind sidecar starts successfully and sandbox code execution works.
+
+### Next recommended step
+
+- Delete 7.5 GB test data from GCS workspace (manual cleanup)
+- Monitor dind pod startup in all pools after deploy
+
 ## 2026-04-05 - OpenClaw Telegram owner claim instant bootstrap patch
 
 ### What was done

@@ -52,6 +52,8 @@ spec:
           emptyDir: {}
         - name: agent-workspace
           emptyDir: {}
+        - name: docker-rootless-state
+          emptyDir: {}
 {{- end }}
 {{- if $gcsFuseEnabled }}
         - name: workspace-gcs
@@ -75,10 +77,24 @@ spec:
               value: {{ $value | quote }}
 {{- end }}
           securityContext:
-            privileged: true
+            privileged: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - SETUID
+                - SETGID
           volumeMounts:
             - name: docker-run
-              mountPath: /var/run
+              mountPath: /run/user/1000
+            - name: docker-rootless-state
+              mountPath: /home/rootless/.local/share/docker
             - name: agent-workspace
               mountPath: /home/node/.openclaw/workspace
 {{- if $gcsFuseEnabled }}

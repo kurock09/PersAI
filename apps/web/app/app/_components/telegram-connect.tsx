@@ -7,6 +7,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  Copy,
   ChevronDown,
   ExternalLink,
   Users,
@@ -291,7 +292,10 @@ function ConnectedView({
   const [resendingOwnerMessage, setResendingOwnerMessage] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [claimCodeCopied, setClaimCodeCopied] = useState(false);
+  const [claimHelpOpen, setClaimHelpOpen] = useState(false);
+  const [findBotHintVisible, setFindBotHintVisible] = useState(false);
   const canResendOwnerMessage = Boolean(integration.bot.ownerTelegramChatId);
+  const findBotUrl = bot.username ? `https://t.me/${bot.username}` : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -412,6 +416,14 @@ function ConnectedView({
     }
   }, [getToken, onUpdated, t]);
 
+  const handleFindBot = useCallback(() => {
+    if (!findBotUrl || typeof window === "undefined") {
+      return;
+    }
+    setFindBotHintVisible(true);
+    window.open(findBotUrl, "_blank", "noopener,noreferrer");
+  }, [findBotUrl]);
+
   return (
     <div className="space-y-5 px-5 py-5">
       {/* Bot info */}
@@ -437,39 +449,76 @@ function ConnectedView({
 
       {integration.connectionStatus === "claim_required" && integration.ownerClaim.code && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-          <p className="text-xs font-medium text-amber-700">{t("claimRequiredTitle")}</p>
-          <p className="mt-1 text-xs text-text-muted">{t("claimRequiredDesc")}</p>
+          <div>
+            <p className="text-xs font-medium text-amber-700">{t("claimRequiredTitle")}</p>
+            <button
+              type="button"
+              onClick={() => setClaimHelpOpen((value) => !value)}
+              className="mt-1 text-[11px] text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline"
+            >
+              {claimHelpOpen ? t("hideClaimHelp") : t("showClaimHelp")}
+            </button>
+          </div>
+          {claimHelpOpen && (
+            <div className="mt-3 rounded-lg border border-amber-500/20 bg-white/40 px-3 py-2.5 text-[11px] text-text-muted">
+              <p>{t("claimRequiredDesc")}</p>
+              <p className="mt-2">{t("resendOwnerMessageHint")}</p>
+            </div>
+          )}
           <div className="mt-3 rounded-lg border border-amber-500/20 bg-black/10 px-3 py-3">
             <p className="text-[10px] uppercase tracking-wide text-text-muted">{t("claimCode")}</p>
-            <div className="mt-1 flex items-center justify-between gap-3">
-              <code className="text-base font-semibold tracking-[0.2em] text-text">
+            <div className="mt-1 flex items-center gap-2">
+              <code className="flex-1 text-base font-semibold tracking-[0.2em] text-text">
                 {integration.ownerClaim.code}
               </code>
-              <div className="shrink-0 text-right">
+              <button
+                type="button"
+                onClick={() => void handleCopyClaimCode()}
+                aria-label={claimCodeCopied ? t("copiedCode") : t("copyCode")}
+                title={claimCodeCopied ? t("copiedCode") : t("copyCode")}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-bg text-text transition-colors hover:bg-surface-hover"
+              >
+                {claimCodeCopied ? (
+                  <CheckCircle2 className="h-4 w-4" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleFindBot}
+                disabled={!findBotUrl}
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-bg px-3 py-1.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("findBot")}
+                <ExternalLink className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setClaimHelpOpen((value) => !value)}
+                className="text-[11px] text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline"
+              >
+                {claimHelpOpen ? t("hideClaimHelp") : t("showClaimHelp")}
+              </button>
+            </div>
+            {findBotHintVisible && bot.username && (
+              <p className="mt-2 text-[11px] text-text-muted">
+                {t("findBotHint", { username: `@${bot.username}` })}
+              </p>
+            )}
+            <div className="mt-1 min-h-[1rem] text-right">
+              {canResendOwnerMessage ? (
                 <button
                   type="button"
-                  onClick={() => void handleCopyClaimCode()}
-                  className="rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                  onClick={() => void handleResendOwnerMessage()}
+                  disabled={resendingOwnerMessage}
+                  className="text-[11px] text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {claimCodeCopied ? t("copiedCode") : t("copyCode")}
+                  {resendingOwnerMessage ? t("resendingOwnerMessage") : t("resendOwnerMessage")}
                 </button>
-                <div className="mt-1 min-h-[1rem]">
-                  {canResendOwnerMessage ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleResendOwnerMessage()}
-                      disabled={resendingOwnerMessage}
-                      className="text-[11px] text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {resendingOwnerMessage ? t("resendingOwnerMessage") : t("resendOwnerMessage")}
-                    </button>
-                  ) : (
-                    <span className="text-[11px] text-text-muted">
-                      {t("resendOwnerMessageHint")}
-                    </span>
-                  )}
-                </div>
-              </div>
+              ) : null}
             </div>
           </div>
         </div>

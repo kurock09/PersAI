@@ -10,4 +10,6 @@ export interface AdminPlanQuotaLimits {
   tokenBudgetLimit?: number | null;
   /** @nullable */
   mediaStorageBytesLimit?: number | null;
+  /** @nullable */
+  workspaceStorageBytesLimit?: number | null;
 }

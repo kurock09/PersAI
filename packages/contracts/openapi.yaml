@@ -3687,6 +3687,9 @@ components:
         mediaStorageBytesLimit:
           type: integer
           nullable: true
+        workspaceStorageBytesLimit:
+          type: integer
+          nullable: true
     AdminPlanEntitlementToolClasses:
       type: object
       required:

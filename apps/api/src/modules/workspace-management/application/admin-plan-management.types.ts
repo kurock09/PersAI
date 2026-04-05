@@ -56,6 +56,7 @@ export type AdminPlanInput = {
   quotaLimits: {
     tokenBudgetLimit: number | null;
     mediaStorageBytesLimit: number | null;
+    workspaceStorageBytesLimit: number | null;
   };
   primaryModelKey: string | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
@@ -82,6 +83,7 @@ export type AdminPlanState = {
   quotaLimits: {
     tokenBudgetLimit: number | null;
     mediaStorageBytesLimit: number | null;
+    workspaceStorageBytesLimit: number | null;
   };
   primaryModelKey: string | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;

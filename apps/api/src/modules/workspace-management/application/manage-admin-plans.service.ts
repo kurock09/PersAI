@@ -293,7 +293,8 @@ export class ManageAdminPlansService {
       },
       quotaLimits: {
         tokenBudgetLimit: toNullablePositiveInt(quotaLimitsRaw.tokenBudgetLimit),
-        mediaStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.mediaStorageBytesLimit)
+        mediaStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.mediaStorageBytesLimit),
+        workspaceStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.workspaceStorageBytesLimit)
       },
       primaryModelKey: toNullableString(parsed.primaryModelKey),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault)
@@ -350,6 +351,9 @@ export class ManageAdminPlansService {
     }
     if (input.quotaLimits.mediaStorageBytesLimit !== null) {
       quotaAccounting.mediaStorageBytesLimit = input.quotaLimits.mediaStorageBytesLimit;
+    }
+    if (input.quotaLimits.workspaceStorageBytesLimit !== null) {
+      quotaAccounting.workspaceStorageBytesLimit = input.quotaLimits.workspaceStorageBytesLimit;
     }
     return {
       displayName: input.displayName,
@@ -458,7 +462,10 @@ export class ManageAdminPlansService {
       },
       quotaLimits: {
         tokenBudgetLimit: toNullablePositiveInt(quotaAccountingRaw.tokenBudgetLimit),
-        mediaStorageBytesLimit: toNullablePositiveInt(quotaAccountingRaw.mediaStorageBytesLimit)
+        mediaStorageBytesLimit: toNullablePositiveInt(quotaAccountingRaw.mediaStorageBytesLimit),
+        workspaceStorageBytesLimit: toNullablePositiveInt(
+          quotaAccountingRaw.workspaceStorageBytesLimit
+        )
       },
       primaryModelKey: toNullableString(billingHints.primaryModelKey),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),

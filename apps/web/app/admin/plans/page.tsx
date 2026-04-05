@@ -60,6 +60,7 @@ type PlanDraft = {
   channelMax: boolean;
   tokenBudgetLimit: string;
   mediaStorageMb: string;
+  workspaceStorageMb: string;
   primaryModelKey: string;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
@@ -101,6 +102,7 @@ function emptyDraft(): PlanDraft {
     channelMax: false,
     tokenBudgetLimit: "",
     mediaStorageMb: "",
+    workspaceStorageMb: "",
     primaryModelKey: "",
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: []
@@ -129,6 +131,10 @@ function planToDraft(plan: AdminPlanState): PlanDraft {
     mediaStorageMb:
       plan.quotaLimits?.mediaStorageBytesLimit != null
         ? String(Math.round(plan.quotaLimits.mediaStorageBytesLimit / 1048576))
+        : "",
+    workspaceStorageMb:
+      plan.quotaLimits?.workspaceStorageBytesLimit != null
+        ? String(Math.round(plan.quotaLimits.workspaceStorageBytesLimit / 1048576))
         : "",
     primaryModelKey: plan.primaryModelKey ?? "",
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
@@ -176,6 +182,12 @@ function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       tokenBudgetLimit: tokenBudget.length > 0 ? parseInt(tokenBudget, 10) || null : null,
       mediaStorageBytesLimit: (() => {
         const mb = draft.mediaStorageMb.trim();
+        if (mb.length === 0) return null;
+        const parsed = parseInt(mb, 10);
+        return parsed > 0 ? parsed * 1048576 : null;
+      })(),
+      workspaceStorageBytesLimit: (() => {
+        const mb = draft.workspaceStorageMb.trim();
         if (mb.length === 0) return null;
         const parsed = parseInt(mb, 10);
         return parsed > 0 ? parsed * 1048576 : null;
@@ -676,6 +688,17 @@ function PlanForm({
                   className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                 />
               </label>
+              <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                Workspace storage (MB)
+                <input
+                  type="number"
+                  min={0}
+                  value={draft.workspaceStorageMb}
+                  onChange={(e) => onPatch({ workspaceStorageMb: e.target.value })}
+                  placeholder="500"
+                  className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                />
+              </label>
             </div>
           </Sec>
           <Sec label="AI model">
@@ -852,6 +875,12 @@ function PlanCardReadOnly({
                     {plan.quotaLimits?.mediaStorageBytesLimit != null
                       ? `${String(Math.round(plan.quotaLimits.mediaStorageBytesLimit / 1048576))} MB`
                       : "default"}
+                  </div>
+                  <div>
+                    Workspace storage:{" "}
+                    {plan.quotaLimits?.workspaceStorageBytesLimit != null
+                      ? `${String(Math.round(plan.quotaLimits.workspaceStorageBytesLimit / 1048576))} MB`
+                      : "500 MB"}
                   </div>
                 </div>
               </Sec>
