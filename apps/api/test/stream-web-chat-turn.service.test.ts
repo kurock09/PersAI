@@ -1,4 +1,5 @@
-import { describe, expect, test } from "vitest";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
 import { StreamWebChatTurnService } from "../src/modules/workspace-management/application/stream-web-chat-turn.service";
 
 describe("StreamWebChatTurnService", () => {
@@ -120,25 +121,23 @@ describe("StreamWebChatTurnService", () => {
       }
     );
 
-    expect(outcome.status).toBe("completed");
-    expect(createdMessages).toHaveLength(1);
-    expect(createdMessages[0]?.content).toBe("");
-    expect(memoryWrites).toHaveLength(1);
-    expect(memoryWrites[0]?.assistantContent).toBe("");
-    expect(quotaWrites).toHaveLength(1);
-    expect(quotaWrites[0]?.assistantContent).toBe("");
-    expect(
-      (outcome as { transport: { assistantMessage: { content: string; attachments: unknown[] } } })
-        .transport.assistantMessage
-    ).toMatchObject({
-      content: "",
-      attachments: [
-        {
-          id: "att-1",
-          attachmentType: "audio",
-          originalFilename: "reply.ogg"
-        }
-      ]
-    });
+    assert.equal(outcome.status, "completed");
+    assert.equal(createdMessages.length, 1);
+    assert.equal(createdMessages[0]?.content, "");
+    assert.equal(memoryWrites.length, 1);
+    assert.equal(memoryWrites[0]?.assistantContent, "");
+    assert.equal(quotaWrites.length, 1);
+    assert.equal(quotaWrites[0]?.assistantContent, "");
+    const transport = (
+      outcome as { transport: { assistantMessage: { content: string; attachments: unknown[] } } }
+    ).transport.assistantMessage;
+    assert.equal(transport.content, "");
+    assert.ok(Array.isArray(transport.attachments));
+    assert.equal((transport.attachments[0] as Record<string, unknown>)?.id, "att-1");
+    assert.equal((transport.attachments[0] as Record<string, unknown>)?.attachmentType, "audio");
+    assert.equal(
+      (transport.attachments[0] as Record<string, unknown>)?.originalFilename,
+      "reply.ogg"
+    );
   });
 });
