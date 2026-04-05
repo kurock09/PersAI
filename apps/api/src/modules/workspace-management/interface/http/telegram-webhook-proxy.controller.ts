@@ -84,11 +84,15 @@ export class TelegramWebhookProxyController {
 
     try {
       const hasBody = req.method !== "GET" && req.method !== "HEAD";
+      const telegramSecret = req.headers["x-telegram-bot-api-secret-token"];
       const upstreamRes = await fetch(targetUrl, {
         method: req.method,
         headers: {
           "content-type": "application/json",
-          ...(token.length > 0 ? { Authorization: `Bearer ${token}` } : {})
+          ...(token.length > 0 ? { Authorization: `Bearer ${token}` } : {}),
+          ...(typeof telegramSecret === "string"
+            ? { "x-telegram-bot-api-secret-token": telegramSecret }
+            : {})
         },
         ...(hasBody ? { body: JSON.stringify(req.body) } : {}),
         signal: controller.signal
