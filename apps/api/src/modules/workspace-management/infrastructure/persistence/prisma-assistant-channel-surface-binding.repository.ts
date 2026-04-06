@@ -66,6 +66,49 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
     return { id: row.id, metadata: this.toMetadataRecord(row.metadata) };
   }
 
+  private async lockOrCreateBindingRow(
+    tx: Prisma.TransactionClient,
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType
+  ): Promise<{ id: string; metadata: Record<string, unknown> }> {
+    const existing = await this.lockBindingRow(tx, assistantId, providerKey, surfaceType);
+    if (existing !== null) {
+      return existing;
+    }
+
+    try {
+      const created = await tx.assistantChannelSurfaceBinding.create({
+        data: {
+          assistantId,
+          providerKey,
+          surfaceType,
+          bindingState: "active",
+          tokenFingerprint: null,
+          tokenLastFour: null,
+          policy: Prisma.DbNull,
+          config: Prisma.DbNull,
+          metadata: {} as Prisma.InputJsonValue,
+          connectedAt: null,
+          disconnectedAt: null
+        },
+        select: {
+          id: true,
+          metadata: true
+        }
+      });
+      return { id: created.id, metadata: this.toMetadataRecord(created.metadata) };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const raced = await this.lockBindingRow(tx, assistantId, providerKey, surfaceType);
+        if (raced !== null) {
+          return raced;
+        }
+      }
+      throw error;
+    }
+  }
+
   async findByAssistantProviderSurface(
     assistantId: string,
     providerKey: AssistantIntegrationProviderKey,
@@ -132,11 +175,7 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
     staleAfterMs: number
   ): Promise<"claimed" | "duplicate_handled" | "duplicate_inflight" | "missing_binding"> {
     return this.prisma.$transaction(async (tx) => {
-      const binding = await this.lockBindingRow(tx, assistantId, providerKey, surfaceType);
-      if (!binding) {
-        return "missing_binding";
-      }
-
+      const binding = await this.lockOrCreateBindingRow(tx, assistantId, providerKey, surfaceType);
       const metadata = binding.metadata;
       const lastHandled = this.readFiniteNumber(
         metadata[PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_LAST_HANDLED_UPDATE_ID_KEY]
