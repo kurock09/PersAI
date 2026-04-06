@@ -2,8 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
   AssistantAbuseAssistantState as PrismaAssistantAbuseAssistantState,
-  AssistantAbuseGuardState as PrismaAssistantAbuseGuardState,
-  AssistantAbusePeerState as PrismaAssistantAbusePeerState
+  AssistantAbuseGuardState as PrismaAssistantAbuseGuardState
 } from "@prisma/client";
 import type {
   AbuseDecisionSnapshot,
@@ -19,18 +18,20 @@ import type {
 } from "../../domain/assistant-abuse-guard.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
-function maxDate(a: Date | null, b: Date | null): Date | null {
-  if (a === null) {
-    return b;
+function maxDate(a: Date | null | undefined, b: Date | null | undefined): Date | null {
+  const sa = a ?? null;
+  const sb = b ?? null;
+  if (sa === null) {
+    return sb;
   }
-  if (b === null) {
-    return a;
+  if (sb === null) {
+    return sa;
   }
-  return a.getTime() >= b.getTime() ? a : b;
+  return sa.getTime() >= sb.getTime() ? sa : sb;
 }
 
 function isQuotaPressureApplying(quotaDecision: AbuseDecisionSnapshot): boolean {
-  return quotaDecision.blockedUntil !== null || quotaDecision.slowedUntil !== null;
+  return quotaDecision.blockedUntil != null || quotaDecision.slowedUntil != null;
 }
 
 function abuseDecisionAfterQuotaReconciled(
@@ -105,7 +106,7 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
     attemptedAt: Date;
     windowStartedAfter: Date;
   }): Promise<AssistantAbusePeerState> {
-    const rows = await this.prisma.$queryRaw<Array<PrismaAssistantAbusePeerState>>`
+    const rows = await this.prisma.$queryRaw<Array<Record<string, unknown>>>`
       INSERT INTO "assistant_abuse_peer_states" (
         "assistant_id",
         "surface",
@@ -355,11 +356,11 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
     );
     const userBypass =
       userState !== null &&
-      userState.adminOverrideUntil !== null &&
+      userState.adminOverrideUntil != null &&
       userState.adminOverrideUntil.getTime() > input.attemptedAt.getTime();
     const assistantBypass =
       assistantState !== null &&
-      assistantState.adminOverrideUntil !== null &&
+      assistantState.adminOverrideUntil != null &&
       assistantState.adminOverrideUntil.getTime() > input.attemptedAt.getTime();
 
     const userWindowStartedAt =
@@ -515,10 +516,10 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       surface: row.surface,
       windowStartedAt: row.windowStartedAt,
       requestCount: row.requestCount,
-      slowedUntil: row.slowedUntil,
-      blockedUntil: row.blockedUntil,
-      blockReason: row.blockReason,
-      adminOverrideUntil: row.adminOverrideUntil,
+      slowedUntil: row.slowedUntil ?? null,
+      blockedUntil: row.blockedUntil ?? null,
+      blockReason: row.blockReason ?? null,
+      adminOverrideUntil: row.adminOverrideUntil ?? null,
       lastSeenAt: row.lastSeenAt,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
@@ -532,28 +533,36 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       surface: row.surface,
       windowStartedAt: row.windowStartedAt,
       requestCount: row.requestCount,
-      slowedUntil: row.slowedUntil,
-      blockedUntil: row.blockedUntil,
-      blockReason: row.blockReason,
-      adminOverrideUntil: row.adminOverrideUntil,
+      slowedUntil: row.slowedUntil ?? null,
+      blockedUntil: row.blockedUntil ?? null,
+      blockReason: row.blockReason ?? null,
+      adminOverrideUntil: row.adminOverrideUntil ?? null,
       lastSeenAt: row.lastSeenAt,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
     };
   }
 
-  private toPeerDomain(row: PrismaAssistantAbusePeerState): AssistantAbusePeerState {
+  /**
+   * Map a peer-state row to domain. Accepts both camelCase (Prisma client)
+   * and snake_case ($queryRaw RETURNING *) shapes so the same mapper works
+   * regardless of how the row was obtained.
+   */
+  private toPeerDomain(row: Record<string, unknown>): AssistantAbusePeerState {
+    const get = <T>(camel: string, snake: string): T =>
+      ((row as Record<string, unknown>)[camel] ?? (row as Record<string, unknown>)[snake]) as T;
+
     return {
-      id: row.id,
-      assistantId: row.assistantId,
-      surface: row.surface,
-      peerKey: row.peerKey,
-      windowStartedAt: row.windowStartedAt,
-      requestCount: row.requestCount,
-      adminOverrideUntil: row.adminOverrideUntil,
-      lastSeenAt: row.lastSeenAt,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt
+      id: get<string>("id", "id"),
+      assistantId: get<string>("assistantId", "assistant_id"),
+      surface: get<AbuseSurface>("surface", "surface"),
+      peerKey: get<string>("peerKey", "peer_key"),
+      windowStartedAt: get<Date>("windowStartedAt", "window_started_at"),
+      requestCount: get<number>("requestCount", "request_count"),
+      adminOverrideUntil: get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
+      lastSeenAt: get<Date>("lastSeenAt", "last_seen_at"),
+      createdAt: get<Date>("createdAt", "created_at"),
+      updatedAt: get<Date>("updatedAt", "updated_at")
     };
   }
 }

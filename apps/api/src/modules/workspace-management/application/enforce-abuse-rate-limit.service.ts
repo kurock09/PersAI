@@ -66,13 +66,13 @@ export class EnforceAbuseRateLimitService {
     });
 
     if (
-      registered.finalBlockedUntil !== null &&
+      registered.finalBlockedUntil != null &&
       registered.finalBlockedUntil.getTime() > now.getTime()
     ) {
       throwTooManyRequests("Requests temporarily blocked due to abuse/rate-limit protection.");
     }
     if (
-      registered.finalSlowedUntil !== null &&
+      registered.finalSlowedUntil != null &&
       registered.finalSlowedUntil.getTime() > now.getTime()
     ) {
       throwTooManyRequests(
@@ -96,7 +96,7 @@ export class EnforceAbuseRateLimitService {
       windowStartedAfter: new Date(now.getTime() - WINDOW_MS)
     });
     const peerBypass =
-      peerState.adminOverrideUntil !== null &&
+      peerState.adminOverrideUntil != null &&
       peerState.adminOverrideUntil.getTime() > now.getTime();
 
     if (peerBypass) {

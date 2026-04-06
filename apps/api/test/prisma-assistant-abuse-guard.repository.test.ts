@@ -138,4 +138,71 @@ const assistantAbuseAssistantState = {
   })
 };
 
+async function runPeerDomainMapsSnakeCaseRawQueryResult(): Promise<void> {
+  const now = new Date("2026-04-06T00:00:00.000Z");
+  const repository = new PrismaAssistantAbuseGuardRepository({
+    $queryRaw: async () => [
+      {
+        id: "peer-raw-1",
+        assistant_id: "assistant-raw-1",
+        surface: "telegram",
+        peer_key: "thread-42",
+        window_started_at: now,
+        request_count: 3,
+        admin_override_until: null,
+        last_seen_at: now,
+        created_at: now,
+        updated_at: now
+      }
+    ]
+  } as never);
+
+  const result = await repository.registerPeerAttempt({
+    assistantId: "assistant-raw-1",
+    surface: "telegram",
+    peerKey: "thread-42",
+    attemptedAt: now,
+    windowStartedAfter: new Date(now.getTime() - 60_000)
+  });
+
+  assert.equal(result.assistantId, "assistant-raw-1");
+  assert.equal(result.peerKey, "thread-42");
+  assert.equal(result.requestCount, 3);
+  assert.equal(result.adminOverrideUntil, null);
+  assert.deepEqual(result.windowStartedAt, now);
+  assert.deepEqual(result.lastSeenAt, now);
+}
+
+async function runPeerDomainNormalizesUndefinedAdminOverrideToNull(): Promise<void> {
+  const now = new Date("2026-04-06T00:00:00.000Z");
+  const repository = new PrismaAssistantAbuseGuardRepository({
+    $queryRaw: async () => [
+      {
+        id: "peer-undef-1",
+        assistant_id: "assistant-undef-1",
+        surface: "telegram",
+        peer_key: "thread-99",
+        window_started_at: now,
+        request_count: 1,
+        last_seen_at: now,
+        created_at: now,
+        updated_at: now
+        // admin_override_until intentionally missing → undefined
+      }
+    ]
+  } as never);
+
+  const result = await repository.registerPeerAttempt({
+    assistantId: "assistant-undef-1",
+    surface: "telegram",
+    peerKey: "thread-99",
+    attemptedAt: now,
+    windowStartedAfter: new Date(now.getTime() - 60_000)
+  });
+
+  assert.equal(result.adminOverrideUntil, null, "undefined must be normalized to null");
+}
+
 void runRetriesSerializableDistributedAttempt();
+void runPeerDomainMapsSnakeCaseRawQueryResult();
+void runPeerDomainNormalizesUndefinedAdminOverrideToNull();

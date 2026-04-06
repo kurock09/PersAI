@@ -175,7 +175,16 @@ export async function validatePersaiMediaFile(params: {
     headerMime !== null && !GENERIC_BINARY_MIMES.has(headerMime) && isAllowedMime(headerMime)
       ? headerMime
       : null;
-  const effectiveMimeType = sniffedMime ?? headerMimeAllowed ?? extensionMime;
+
+  // WebM containers with audio-only content (e.g. opus voice recordings) are
+  // sniffed as video/webm by file-type. When the client declares audio/webm,
+  // prefer the header to keep downstream attachmentType = "audio".
+  const preferHeaderOverSniff =
+    sniffedMime === "video/webm" && headerMimeAllowed !== null && isAudioMime(headerMimeAllowed);
+
+  const effectiveMimeType = preferHeaderOverSniff
+    ? headerMimeAllowed
+    : (sniffedMime ?? headerMimeAllowed ?? extensionMime);
 
   if (!isAllowedMime(effectiveMimeType ?? null)) {
     if (headerMime !== null && GENERIC_BINARY_MIMES.has(headerMime)) {
@@ -191,11 +200,7 @@ export async function validatePersaiMediaFile(params: {
 
   const safeMimeType: string = effectiveMimeType;
 
-  if (
-    params.surface === "voice_transcription" &&
-    !isAudioMime(safeMimeType) &&
-    safeMimeType !== "video/webm"
-  ) {
+  if (params.surface === "voice_transcription" && !isAudioMime(safeMimeType)) {
     throw new BadRequestException("Only safe audio files can be transcribed.");
   }
 

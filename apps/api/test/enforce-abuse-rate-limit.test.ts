@@ -752,8 +752,208 @@ async function runDistributedAbuseLimitPersistsAcrossServiceInstances(): Promise
   assert.equal(threw, true);
 }
 
+async function runTelegramPeerPathHandlesUndefinedDateFieldsGracefully(): Promise<void> {
+  ensureApiConfigEnv();
+
+  const service = new EnforceAbuseRateLimitService(
+    {
+      findUserState: async () => null,
+      findAssistantState: async () => null,
+      registerPeerAttempt: async ({ assistantId, surface, peerKey, attemptedAt }) => ({
+        id: "peer-undef-1",
+        assistantId,
+        surface,
+        peerKey,
+        windowStartedAt: attemptedAt,
+        requestCount: 1,
+        adminOverrideUntil: undefined as unknown as Date | null,
+        lastSeenAt: attemptedAt,
+        createdAt: attemptedAt,
+        updatedAt: attemptedAt
+      }),
+      registerDistributedAttempt: async (
+        input: RegisterDistributedAbuseAttemptInput
+      ): Promise<RegisterDistributedAbuseAttemptResult> => {
+        const userState: AssistantAbuseGuardState = {
+          id: "user-state-tg",
+          assistantId: input.assistantId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          surface: input.surface,
+          windowStartedAt: input.attemptedAt,
+          requestCount: 1,
+          slowedUntil: null,
+          blockedUntil: null,
+          blockReason: null,
+          adminOverrideUntil: null,
+          lastSeenAt: input.attemptedAt,
+          createdAt: input.attemptedAt,
+          updatedAt: input.attemptedAt
+        };
+        const assistantState: AssistantAbuseAssistantState = {
+          id: "assistant-state-tg",
+          assistantId: input.assistantId,
+          surface: input.surface,
+          windowStartedAt: input.attemptedAt,
+          requestCount: 1,
+          slowedUntil: null,
+          blockedUntil: null,
+          blockReason: null,
+          adminOverrideUntil: null,
+          lastSeenAt: input.attemptedAt,
+          createdAt: input.attemptedAt,
+          updatedAt: input.attemptedAt
+        };
+        return {
+          userState,
+          assistantState,
+          userBypass: false,
+          assistantBypass: false,
+          finalBlockedUntil: null,
+          finalSlowedUntil: null,
+          finalReason: null
+        };
+      },
+      upsertUserState: async (input) => ({
+        id: "user-state-tg",
+        ...input,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }),
+      upsertAssistantState: async (input) => ({
+        id: "assistant-state-tg",
+        ...input,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }),
+      applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
+      applyPeerAdminUnblock: async () => 0
+    } as never,
+    {
+      findByWorkspaceId: async () => ({
+        id: "quota-tg",
+        workspaceId: assistant.workspaceId,
+        tokenBudgetUsed: BigInt(100),
+        tokenBudgetLimit: BigInt(1000),
+        costOrTokenDrivingToolClassUnitsUsed: 10,
+        costOrTokenDrivingToolClassUnitsLimit: 1000,
+        activeWebChatsCurrent: 0,
+        activeWebChatsLimit: 20,
+        mediaStorageBytesUsed: BigInt(0),
+        mediaStorageBytesLimit: BigInt(104_857_600),
+        lastComputedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+    } as never,
+    trackLimitsMatchingQuotaRepo(BigInt(1000), 1000) as never
+  );
+
+  await service.enforceAndRegisterAttempt({
+    assistant,
+    surface: "telegram",
+    peerKey: "telegram-thread-42"
+  });
+}
+
+async function runTelegramPeerPathWithUndefinedFinalBlockedUntil(): Promise<void> {
+  ensureApiConfigEnv();
+
+  const service = new EnforceAbuseRateLimitService(
+    {
+      findUserState: async () => null,
+      findAssistantState: async () => null,
+      registerPeerAttempt: async ({ assistantId, surface, peerKey, attemptedAt }) =>
+        buildPeerState({ assistantId, surface, peerKey, requestCount: 1, attemptedAt }),
+      registerDistributedAttempt: async (
+        input: RegisterDistributedAbuseAttemptInput
+      ): Promise<RegisterDistributedAbuseAttemptResult> => {
+        const userState: AssistantAbuseGuardState = {
+          id: "user-state-tg2",
+          assistantId: input.assistantId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          surface: input.surface,
+          windowStartedAt: input.attemptedAt,
+          requestCount: 1,
+          slowedUntil: null,
+          blockedUntil: null,
+          blockReason: null,
+          adminOverrideUntil: null,
+          lastSeenAt: input.attemptedAt,
+          createdAt: input.attemptedAt,
+          updatedAt: input.attemptedAt
+        };
+        const assistantState: AssistantAbuseAssistantState = {
+          id: "assistant-state-tg2",
+          assistantId: input.assistantId,
+          surface: input.surface,
+          windowStartedAt: input.attemptedAt,
+          requestCount: 1,
+          slowedUntil: null,
+          blockedUntil: null,
+          blockReason: null,
+          adminOverrideUntil: null,
+          lastSeenAt: input.attemptedAt,
+          createdAt: input.attemptedAt,
+          updatedAt: input.attemptedAt
+        };
+        return {
+          userState,
+          assistantState,
+          userBypass: false,
+          assistantBypass: false,
+          finalBlockedUntil: undefined as unknown as Date | null,
+          finalSlowedUntil: undefined as unknown as Date | null,
+          finalReason: null
+        };
+      },
+      upsertUserState: async (input) => ({
+        id: "user-state-tg2",
+        ...input,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }),
+      upsertAssistantState: async (input) => ({
+        id: "assistant-state-tg2",
+        ...input,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }),
+      applyAdminUnblock: async () => ({ userRows: 0, assistantRows: 0 }),
+      applyPeerAdminUnblock: async () => 0
+    } as never,
+    {
+      findByWorkspaceId: async () => ({
+        id: "quota-tg2",
+        workspaceId: assistant.workspaceId,
+        tokenBudgetUsed: BigInt(100),
+        tokenBudgetLimit: BigInt(1000),
+        costOrTokenDrivingToolClassUnitsUsed: 10,
+        costOrTokenDrivingToolClassUnitsLimit: 1000,
+        activeWebChatsCurrent: 0,
+        activeWebChatsLimit: 20,
+        mediaStorageBytesUsed: BigInt(0),
+        mediaStorageBytesLimit: BigInt(104_857_600),
+        lastComputedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+    } as never,
+    trackLimitsMatchingQuotaRepo(BigInt(1000), 1000) as never
+  );
+
+  await service.enforceAndRegisterAttempt({
+    assistant,
+    surface: "telegram",
+    peerKey: "telegram-thread-99"
+  });
+}
+
 void run();
 void runQuotaPressurePersistedClearedWhenHealthy();
 void runQuotaPressureUsesEffectivePlanLimitsNotStaleSnapshot();
 void runPeerLimitPersistsAcrossServiceInstances();
 void runDistributedAbuseLimitPersistsAcrossServiceInstances();
+void runTelegramPeerPathHandlesUndefinedDateFieldsGracefully();
+void runTelegramPeerPathWithUndefinedFinalBlockedUntil();
