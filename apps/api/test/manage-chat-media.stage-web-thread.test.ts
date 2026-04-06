@@ -29,7 +29,16 @@ const assistant: Assistant = {
 };
 
 async function run(): Promise<void> {
+  process.env.APP_ENV = "local";
+  process.env.DATABASE_URL =
+    "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public";
+  process.env.CLERK_SECRET_KEY = "sk_test_stub";
+  process.env.PERSAI_INTERNAL_API_TOKEN = "internal-api-token";
+  process.env.WEB_ACTIVE_CHATS_CAP = "20";
+  process.env.QUOTA_TOKEN_BUDGET_DEFAULT = "100";
+  process.env.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT = "3";
   const metrics = new PlatformHttpMetricsService();
+  const deletedStoragePaths: string[] = [];
   const service = new ManageChatMediaService(
     {
       async findByUserId(userId: string) {
@@ -37,19 +46,22 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async findOrCreateChatBySurfaceThread() {
+      async getOrCreateWebChatBySurfaceThreadUnderCap() {
         return {
-          id: "chat-1",
-          assistantId: assistant.id,
-          userId: assistant.userId,
-          workspaceId: assistant.workspaceId,
-          surface: "web",
-          surfaceThreadKey: "thread-1",
-          title: null,
-          archivedAt: null,
-          lastMessageAt: null,
-          createdAt: new Date("2026-04-06T00:00:00.000Z"),
-          updatedAt: new Date("2026-04-06T00:00:00.000Z")
+          outcome: "created" as const,
+          chat: {
+            id: "chat-1",
+            assistantId: assistant.id,
+            userId: assistant.userId,
+            workspaceId: assistant.workspaceId,
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: null,
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: new Date("2026-04-06T00:00:00.000Z"),
+            updatedAt: new Date("2026-04-06T00:00:00.000Z")
+          }
         };
       },
       async createMessage() {
@@ -108,6 +120,136 @@ async function run(): Promise<void> {
           sizeBytes: input.fileBuffer.length,
           mimeType: input.mimeType
         };
+      },
+      async deleteChatMedia(_assistantId: string, storagePath: string) {
+        deletedStoragePaths.push(storagePath);
+      }
+    } as never,
+    {
+      async process(buffer: Buffer, mime: string) {
+        return {
+          normalizedBuffer: buffer,
+          normalizedMime: mime,
+          normalizedExtension: "png",
+          transcription: null,
+          textExtract: null,
+          durationMs: null,
+          width: 100,
+          height: 100
+        };
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return "free_shared_restricted";
+      }
+    } as never,
+    {
+      async checkMediaStorageQuota() {
+        return { allowed: true };
+      },
+      async recordMediaUpload(input: { sizeBytes: bigint }) {
+        return {
+          appliedDelta: input.sizeBytes,
+          capped: false,
+          state: {
+            id: "state-1",
+            workspaceId: assistant.workspaceId,
+            tokenBudgetUsed: BigInt(0),
+            tokenBudgetLimit: null,
+            costOrTokenDrivingToolClassUnitsUsed: 0,
+            costOrTokenDrivingToolClassUnitsLimit: null,
+            activeWebChatsCurrent: 0,
+            activeWebChatsLimit: null,
+            mediaStorageBytesUsed: input.sizeBytes,
+            mediaStorageBytesLimit: BigInt(1000),
+            lastComputedAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        };
+      }
+    } as never,
+    metrics
+  );
+
+  const staged = await service.stageForWebThread({
+    userId: "user-1",
+    surfaceThreadKey: "thread-1",
+    file: {
+      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+      mimetype: "image/png",
+      originalname: "image.png"
+    }
+  });
+
+  assert.equal(staged.chatId, "chat-1");
+  assert.equal(staged.messageId, "msg-1");
+  assert.deepEqual(deletedStoragePaths, []);
+  const successSeries = metrics
+    .getSnapshot()
+    .mediaStageSeries.find(
+      (series) =>
+        series.key.stage === "web_stage_attachment" &&
+        series.key.channel === "web" &&
+        series.key.outcome === "success"
+    );
+  assert.equal(successSeries?.count, 1);
+
+  const failureMetrics = new PlatformHttpMetricsService();
+  const cappedDeletes: string[] = [];
+  const failingService = new ManageChatMediaService(
+    {
+      async findByUserId() {
+        return assistant;
+      }
+    } as never,
+    {
+      async getOrCreateWebChatBySurfaceThreadUnderCap() {
+        return {
+          outcome: "created" as const,
+          chat: {
+            id: "chat-1",
+            assistantId: assistant.id,
+            userId: assistant.userId,
+            workspaceId: assistant.workspaceId,
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: null,
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: new Date("2026-04-06T00:00:00.000Z"),
+            updatedAt: new Date("2026-04-06T00:00:00.000Z")
+          }
+        };
+      },
+      async createMessage() {
+        return {
+          id: "msg-1",
+          chatId: "chat-1",
+          assistantId: assistant.id,
+          author: "user",
+          content: "",
+          createdAt: new Date("2026-04-06T00:00:00.000Z"),
+          updatedAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      }
+    } as never,
+    {
+      async create() {
+        throw new Error("attachment must not be created when quota caps the upload");
+      }
+    } as never,
+    {
+      async uploadChatMedia() {
+        return {
+          storagePath: "chat-1/msg-1/image.png",
+          sizeBytes: 12,
+          mimeType: "image/png"
+        };
+      },
+      async deleteChatMedia(_assistantId: string, storagePath: string) {
+        cappedDeletes.push(storagePath);
       }
     } as never,
     {
@@ -134,96 +276,25 @@ async function run(): Promise<void> {
         return { allowed: true };
       },
       async recordMediaUpload() {
-        return undefined;
-      }
-    } as never,
-    metrics
-  );
-
-  const staged = await service.stageForWebThread({
-    userId: "user-1",
-    surfaceThreadKey: "thread-1",
-    file: {
-      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
-      mimetype: "image/png",
-      originalname: "image.png"
-    }
-  });
-
-  assert.equal(staged.chatId, "chat-1");
-  assert.equal(staged.messageId, "msg-1");
-  const successSeries = metrics
-    .getSnapshot()
-    .mediaStageSeries.find(
-      (series) =>
-        series.key.stage === "web_stage_attachment" &&
-        series.key.channel === "web" &&
-        series.key.outcome === "success"
-    );
-  assert.equal(successSeries?.count, 1);
-
-  const failureMetrics = new PlatformHttpMetricsService();
-  const failingService = new ManageChatMediaService(
-    {
-      async findByUserId() {
-        return assistant;
-      }
-    } as never,
-    {
-      async findOrCreateChatBySurfaceThread() {
         return {
-          id: "chat-1",
-          assistantId: assistant.id,
-          userId: assistant.userId,
-          workspaceId: assistant.workspaceId,
-          surface: "web",
-          surfaceThreadKey: "thread-1",
-          title: null,
-          archivedAt: null,
-          lastMessageAt: null,
-          createdAt: new Date("2026-04-06T00:00:00.000Z"),
-          updatedAt: new Date("2026-04-06T00:00:00.000Z")
+          appliedDelta: BigInt(5),
+          capped: true,
+          state: {
+            id: "state-1",
+            workspaceId: assistant.workspaceId,
+            tokenBudgetUsed: BigInt(0),
+            tokenBudgetLimit: null,
+            costOrTokenDrivingToolClassUnitsUsed: 0,
+            costOrTokenDrivingToolClassUnitsLimit: null,
+            activeWebChatsCurrent: 0,
+            activeWebChatsLimit: null,
+            mediaStorageBytesUsed: BigInt(100),
+            mediaStorageBytesLimit: BigInt(100),
+            lastComputedAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
         };
-      },
-      async createMessage() {
-        return {
-          id: "msg-1",
-          chatId: "chat-1",
-          assistantId: assistant.id,
-          author: "user",
-          content: "",
-          createdAt: new Date("2026-04-06T00:00:00.000Z"),
-          updatedAt: new Date("2026-04-06T00:00:00.000Z")
-        };
-      }
-    } as never,
-    {} as never,
-    {} as never,
-    {
-      async process(buffer: Buffer, mime: string) {
-        return {
-          normalizedBuffer: buffer,
-          normalizedMime: mime,
-          normalizedExtension: "png",
-          transcription: null,
-          textExtract: null,
-          durationMs: null,
-          width: 100,
-          height: 100
-        };
-      }
-    } as never,
-    {
-      async resolveByAssistantId() {
-        return "free_shared_restricted";
-      }
-    } as never,
-    {
-      async checkMediaStorageQuota() {
-        return { allowed: false };
-      },
-      async recordMediaUpload() {
-        return undefined;
       }
     } as never,
     failureMetrics
@@ -244,6 +315,7 @@ async function run(): Promise<void> {
       error instanceof BadRequestException &&
       error.message === "Media storage quota exceeded for this workspace."
   );
+  assert.deepEqual(cappedDeletes, ["chat-1/msg-1/image.png"]);
   const failureSeries = failureMetrics
     .getSnapshot()
     .mediaStageSeries.find(
@@ -253,6 +325,47 @@ async function run(): Promise<void> {
         series.key.outcome === "failure"
     );
   assert.equal(failureSeries?.count, 1);
+
+  await assert.rejects(
+    () =>
+      new ManageChatMediaService(
+        {
+          async findByUserId() {
+            return assistant;
+          }
+        } as never,
+        {
+          async getOrCreateWebChatBySurfaceThreadUnderCap() {
+            return {
+              outcome: "cap_reached" as const,
+              activeCount: 20,
+              limit: 20
+            };
+          }
+        } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        new PlatformHttpMetricsService()
+      ).stageForWebThread({
+        userId: "user-1",
+        surfaceThreadKey: "thread-cap",
+        file: {
+          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+          mimetype: "image/png",
+          originalname: "image.png"
+        }
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "errorObject" in error &&
+      typeof error.errorObject === "object" &&
+      error.errorObject !== null &&
+      "code" in error.errorObject &&
+      error.errorObject.code === "active_chat_cap_reached"
+  );
 }
 
 void run();

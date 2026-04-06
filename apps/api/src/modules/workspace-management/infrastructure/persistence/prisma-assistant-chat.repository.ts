@@ -10,7 +10,9 @@ import type {
   AssistantChatListMetadata,
   AssistantChatRepository,
   CreateAssistantChatInput,
-  CreateAssistantChatMessageInput
+  CreateAssistantChatMessageInput,
+  GetOrCreateWebChatUnderCapInput,
+  GetOrCreateWebChatUnderCapResult
 } from "../../domain/assistant-chat.repository";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
@@ -52,6 +54,96 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       }
       throw error;
     }
+  }
+
+  async getOrCreateWebChatBySurfaceThreadUnderCap(
+    input: GetOrCreateWebChatUnderCapInput
+  ): Promise<GetOrCreateWebChatUnderCapResult> {
+    const maxRetries = 3;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            const existing = await tx.assistantChat.findUnique({
+              where: {
+                assistantId_surface_surfaceThreadKey: {
+                  assistantId: input.assistantId,
+                  surface: "web",
+                  surfaceThreadKey: input.surfaceThreadKey
+                }
+              }
+            });
+
+            if (existing !== null) {
+              return {
+                outcome: "existing",
+                chat: this.mapChatToDomain(existing)
+              };
+            }
+
+            const activeCount = await tx.assistantChat.count({
+              where: {
+                assistantId: input.assistantId,
+                surface: "web",
+                archivedAt: null
+              }
+            });
+
+            if (activeCount >= input.activeWebChatsLimit) {
+              return {
+                outcome: "cap_reached",
+                activeCount,
+                limit: input.activeWebChatsLimit
+              };
+            }
+
+            const created = await tx.assistantChat.create({
+              data: {
+                assistantId: input.assistantId,
+                userId: input.userId,
+                workspaceId: input.workspaceId,
+                surface: "web",
+                surfaceThreadKey: input.surfaceThreadKey,
+                title: input.title
+              }
+            });
+
+            return {
+              outcome: "created",
+              chat: this.mapChatToDomain(created)
+            };
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+          }
+        );
+      } catch (error) {
+        const prismaCode =
+          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
+        if (prismaCode === "P2034" && attempt < maxRetries) {
+          continue;
+        }
+
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          const existing = await this.findChatBySurfaceThread(
+            input.assistantId,
+            "web",
+            input.surfaceThreadKey
+          );
+          if (existing !== null) {
+            return {
+              outcome: "existing",
+              chat: existing
+            };
+          }
+        }
+
+        throw error;
+      }
+    }
+
+    throw new Error("Failed to reserve active web chat slot after serialization retries.");
   }
 
   async findChatById(chatId: string): Promise<AssistantChat | null> {

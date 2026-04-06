@@ -12,6 +12,15 @@ export type CreateAssistantChatInput = {
   title: string | null;
 };
 
+export type GetOrCreateWebChatUnderCapInput = CreateAssistantChatInput & {
+  activeWebChatsLimit: number;
+};
+
+export type GetOrCreateWebChatUnderCapResult =
+  | { outcome: "existing"; chat: AssistantChat }
+  | { outcome: "created"; chat: AssistantChat }
+  | { outcome: "cap_reached"; activeCount: number; limit: number };
+
 export type CreateAssistantChatMessageInput = {
   chatId: string;
   assistantId: string;
@@ -27,6 +36,9 @@ export type AssistantChatListMetadata = {
 export interface AssistantChatRepository {
   createChat(input: CreateAssistantChatInput): Promise<AssistantChat>;
   findOrCreateChatBySurfaceThread(input: CreateAssistantChatInput): Promise<AssistantChat>;
+  getOrCreateWebChatBySurfaceThreadUnderCap(
+    input: GetOrCreateWebChatUnderCapInput
+  ): Promise<GetOrCreateWebChatUnderCapResult>;
   findChatById(chatId: string): Promise<AssistantChat | null>;
   findChatBySurfaceThread(
     assistantId: string,

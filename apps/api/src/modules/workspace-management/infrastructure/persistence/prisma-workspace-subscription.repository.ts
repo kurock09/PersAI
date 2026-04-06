@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import type { WorkspaceSubscription as PrismaWorkspaceSubscription } from "@prisma/client";
+import { Prisma, type WorkspaceSubscription as PrismaWorkspaceSubscription } from "@prisma/client";
+import type { BillingProviderSubscriptionSnapshot } from "../../application/billing-provider.port";
 import type { WorkspaceSubscriptionRepository } from "../../domain/workspace-subscription.repository";
 import type { WorkspaceSubscription } from "../../domain/workspace-subscription.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
@@ -13,6 +14,48 @@ export class PrismaWorkspaceSubscriptionRepository implements WorkspaceSubscript
       where: { workspaceId }
     });
     return row === null ? null : this.toDomain(row);
+  }
+
+  async upsertFromBillingSnapshot(
+    snapshot: BillingProviderSubscriptionSnapshot
+  ): Promise<WorkspaceSubscription> {
+    const row = await this.prisma.workspaceSubscription.upsert({
+      where: { workspaceId: snapshot.workspaceId },
+      update: {
+        planCode: snapshot.planCode,
+        status: snapshot.status,
+        trialStartedAt: this.toDate(snapshot.trialStartedAt),
+        trialEndsAt: this.toDate(snapshot.trialEndsAt),
+        currentPeriodStartedAt: this.toDate(snapshot.currentPeriodStartedAt),
+        currentPeriodEndsAt: this.toDate(snapshot.currentPeriodEndsAt),
+        cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+        billingProvider: null,
+        providerCustomerRef: snapshot.providerCustomerRef,
+        providerSubscriptionRef: snapshot.providerSubscriptionRef,
+        metadata: this.toPrismaMetadata(snapshot.metadata)
+      },
+      create: {
+        workspaceId: snapshot.workspaceId,
+        planCode: snapshot.planCode,
+        status: snapshot.status,
+        trialStartedAt: this.toDate(snapshot.trialStartedAt),
+        trialEndsAt: this.toDate(snapshot.trialEndsAt),
+        currentPeriodStartedAt: this.toDate(snapshot.currentPeriodStartedAt),
+        currentPeriodEndsAt: this.toDate(snapshot.currentPeriodEndsAt),
+        cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+        billingProvider: null,
+        providerCustomerRef: snapshot.providerCustomerRef,
+        providerSubscriptionRef: snapshot.providerSubscriptionRef,
+        metadata: this.toPrismaMetadata(snapshot.metadata)
+      }
+    });
+    return this.toDomain(row);
+  }
+
+  async deleteByWorkspaceId(workspaceId: string): Promise<void> {
+    await this.prisma.workspaceSubscription.deleteMany({
+      where: { workspaceId }
+    });
   }
 
   private toDomain(row: PrismaWorkspaceSubscription): WorkspaceSubscription {
@@ -33,5 +76,15 @@ export class PrismaWorkspaceSubscriptionRepository implements WorkspaceSubscript
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
     };
+  }
+
+  private toDate(value: string | null): Date | null {
+    return value === null ? null : new Date(value);
+  }
+
+  private toPrismaMetadata(
+    value: Record<string, unknown> | null
+  ): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput {
+    return value === null ? Prisma.JsonNull : (value as Prisma.InputJsonValue);
   }
 }

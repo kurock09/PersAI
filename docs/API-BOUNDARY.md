@@ -288,12 +288,12 @@ Behavior baseline:
 - `POST /api/v1/internal/runtime/tools/consume`
 - caller: OpenClaw `persai-runtime` only
 - auth: internal PersAI bearer token (`PERSAI_INTERNAL_API_TOKEN`)
-- purpose: atomically consume/check per-tool `dailyCallLimit` at actual runtime tool-call time
+- purpose: authoritatively consume/check per-tool `dailyCallLimit` at actual runtime tool-call time using server-side effective plan policy plus the atomic daily counter
 - backend response on exhaustion uses stable error code family:
   - `tool_daily_limit_reached`
 - OpenClaw stays a thin executor:
   - it invokes this endpoint through the already existing `before_tool_call` seam
-  - it does not own plan/quota policy or counter state
+  - it does not own plan/quota policy or counter state; runtime-supplied `dailyCallLimit` is advisory only and must not override PersAI control-plane truth
 
 ### Internal runtime tool quota check (read-only)
 
@@ -301,7 +301,7 @@ Behavior baseline:
 - caller: OpenClaw PersAI runtime tool `persai_tool_quota_status` (optional future callers)
 - auth: same internal PersAI bearer token (`PERSAI_INTERNAL_API_TOKEN`) as `consume`
 - body: `{ "assistantId": "<uuid>", "toolCode"?: "<catalog code>" }` — omit `toolCode` to return all tools on the **effective plan** (subscription / governance fallback)
-- purpose: return **live** `currentCount` for today (workspace-scoped) vs **current** plan `dailyCallLimit` and `activationStatus` from the control plane — does **not** increment counters; use when the user asks about remaining quota or after admins change plan limits (chat history is not authoritative)
+- purpose: return **live** `currentCount` for today (workspace-scoped) vs **current** plan `dailyCallLimit` and `activationStatus` from the control plane — does **not** increment counters and is advisory/read-only; enforcement remains `consume`
 - success: `{ ok: true, planCode, tools: [{ toolCode, activationStatus, dailyCallLimit, currentCount, allowed }] }`
 
 ### POST /api/v1/assistant/publish (Step 3 A3 baseline)

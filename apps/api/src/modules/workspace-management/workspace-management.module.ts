@@ -88,6 +88,8 @@ import { RenderAssistantInboundSurfaceMessageService } from "./application/rende
 import { SyncAssistantTaskRegistryService } from "./application/sync-assistant-task-registry.service";
 import { SyncTelegramChatTargetService } from "./application/sync-telegram-chat-target.service";
 import { TrackWorkspaceQuotaUsageService } from "./application/track-workspace-quota-usage.service";
+import { ResolveInternalRuntimeToolDailyPolicyService } from "./application/resolve-internal-runtime-tool-daily-policy.service";
+import { SyncWorkspaceSubscriptionService } from "./application/sync-workspace-subscription.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY } from "./domain/assistant-chat-message-attachment.repository";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
@@ -190,6 +192,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManageAdminAssistantPlanOverrideService,
     HandleInternalCronFireService,
     HandleInternalTelegramTurnService,
+    ResolveInternalRuntimeToolDailyPolicyService,
     ConsumeInternalRuntimeToolDailyLimitService,
     CheckInternalRuntimeToolDailyLimitService,
     ResolveAssistantInboundRuntimeContextService,
@@ -216,6 +219,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ResolvePlanVisibilityService,
     EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,
+    SyncWorkspaceSubscriptionService,
     ManageWebChatListService,
     CreateAssistantService,
     PublishAssistantDraftService,

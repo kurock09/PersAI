@@ -18,7 +18,7 @@ A security audit (code + live GKE cluster) after Wave 1-3 infrastructure hardeni
 
 ### D1 — Media quota enforcement
 
-`ManageChatMediaService` and `InboundMediaService` now call `TrackWorkspaceQuotaUsageService.recordMediaUpload()` after every successful attachment creation. A pre-check rejects uploads that would exceed the workspace's media storage limit.
+`ManageChatMediaService` and `InboundMediaService` call `TrackWorkspaceQuotaUsageService.recordMediaUpload()` on the media upload path. `ManageChatMediaService` keeps a cheap pre-check, while the authoritative guard is the shared-state media-byte apply path: if the full object no longer fits the remaining workspace media-storage budget, the uploaded blob is deleted and the attachment is not retained.
 
 ### D2 — Per-peer Telegram rate limit
 
@@ -47,7 +47,7 @@ A security audit (code + live GKE cluster) after Wave 1-3 infrastructure hardeni
 
 ## Consequences
 
-- Media storage is now hard-enforced. Existing over-quota workspaces won't be blocked retroactively — the limit only applies to new uploads.
+- Media storage is now enforced on the touched upload-retention paths. Existing over-quota workspaces are not repaired retroactively, and this ADR does not by itself claim perfect long-term byte reconciliation for every later delete path.
 - Per-peer rate limiting is in-memory and resets on pod restart. This is acceptable for initial protection. A persistent store can be added later if needed.
 - Draft length limits may reject payloads that were previously accepted. The chosen limits (100 / 50,000) are generous for legitimate use.
 - NetworkPolicy change is safe because ADR-066 already moved all external traffic through the API proxy.

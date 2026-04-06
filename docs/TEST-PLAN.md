@@ -1047,6 +1047,127 @@ Required in CI:
   - that quota/billing correctness under all duplicated-runtime side effects is globally solved (`SR9`)
   - that the final webhook/realtime burst envelope is proven (`SR10`)
 
+## SR9a assistant plan override propagation baseline
+
+- This bounded `SR9a` pass covers one concrete commercial-propagation seam:
+  - assistant-scoped admin plan override set/reset changed effective subscription truth immediately in API reads, but did not mark the assistant stale for the existing lazy rematerialization path, so runtime/materialized plan-derived behavior could remain on the old commercial baseline until an unrelated refresh happened
+- Acceptance for this sub-slice:
+  - `ManageAdminAssistantPlanOverrideService` marks `assistant.configDirtyAt` on override set and reset
+  - existing lazy-refresh machinery can now detect that the assistant needs rematerialization without waiting for an unrelated global generation bump
+  - docs reflect the actual implemented effective subscription precedence:
+    - `assistant_plan_override`
+    - `workspace_subscription`
+    - `assistant_plan_fallback`
+    - `catalog_default_fallback`
+    - `none`
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-admin-assistant-plan-override.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `SR9a` does NOT prove:
+  - that per-assistant plan changes propagate faster than the existing lazy-refresh TTL on every active OpenClaw process
+  - that workspace subscription webhook writes are wired into the same invalidation path yet
+  - that token/media/chat-cap quota enforcement is already atomic under concurrent requests across shared state
+  - that `SR9` is closed without later shared-state or live evidence
+
+## SR9b token budget atomic accounting baseline
+
+- This bounded `SR9b` pass covers one concrete shared-state commercial race:
+  - inbound turn paths enforced token budget before runtime, but wrote token usage only after runtime with a blind increment, so concurrent legitimate turns could push the shared token ledger above the configured limit
+- Acceptance for this sub-slice:
+  - token-budget writes use one serializable capped shared-state path instead of an unconditional post-turn increment
+  - when the remaining budget is smaller than the requested estimated delta, only the remaining budget is applied to the ledger and to the quota event row
+  - docs stay honest that this is atomicity for the current estimator-backed ledger, not yet a full pre-runtime reservation contract
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-quota-accounting.repository.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/enforcement-points.test.ts`
+- `SR9b` does NOT prove:
+  - that pre-runtime degrade decisions are reservation-atomic across the whole turn lifecycle
+  - that the current `chars_div_4_ceil_v1` estimator matches provider-exact token billing
+  - that media-storage or active-chat-cap races are solved
+  - that all of `SR9` is closed without deploy/live shared-state evidence
+
+## SR9c media storage quota atomicity baseline
+
+- This bounded `SR9c` pass covers one concrete shared-state commercial race:
+  - media upload paths could pass a stale workspace media quota read, upload the blob, and then blindly increment `media_storage_bytes`, allowing concurrent uploads to retain quota-violating stored bytes
+- Acceptance for this sub-slice:
+  - media-byte writes use one serializable capped shared-state path instead of an unconditional increment
+  - if the uploaded object no longer fully fits into the remaining media-storage budget, the touched path deletes the newly uploaded blob and does not retain a ready attachment row
+  - docs stay honest that this pass hardens touched retain-or-rollback correctness, not the whole long-term media-byte decrement/reconciliation model
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-quota-accounting.repository.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+- `SR9c` does NOT prove:
+  - that every media delete path now decrements `media_storage_bytes` back to perfect long-term truth
+  - that preprocessing cost or stage latency is redesigned (`SR7`)
+  - that token-budget or active-chat-cap races are solved
+  - that all of `SR9` is closed without deploy/live shared-state evidence
+
+## SR9d active web chats cap race-safe creation baseline
+
+- This bounded `SR9d` pass covers one concrete shared-state commercial race:
+  - two or more new web threads could observe the same stale active-chat count and then each create a fresh active chat row, silently overshooting `WEB_ACTIVE_CHATS_CAP`; the staged web attachment path could also create a fresh web chat without applying that cap at all
+- Acceptance for this sub-slice:
+  - new active web-chat creation uses one serializable shared-state path that returns the existing thread, creates under cap, or rejects at cap
+  - staged web attachment uses that same cap-aware creation contract instead of bypassing the commercial limit
+  - docs stay honest that this pass hardens touched web creation seams, not the full chat lifecycle or final concurrency/load proof
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-chat.repository.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `SR9d` does NOT prove:
+  - that broader chat archive/delete/reconciliation semantics were redesigned
+  - that abuse/rate limiting behavior changed
+  - that token-budget or media-storage races are solved by this pass
+  - that all of `SR9` is closed without deploy/live shared-state evidence
+
+## SR9e workspace subscription sync propagation correctness baseline
+
+- This bounded `SR9e` pass covers one concrete commercial propagation gap:
+  - API-side effective subscription resolution reads `workspace_subscriptions` live, while runtime materialization freshness depends on `configDirtyAt` / lazy rematerialization; without a write seam that marks assistants dirty, subscription truth can split between API and runtime after a billing sync write
+- Acceptance for this sub-slice:
+  - the touched subscription sync path persists normalized subscription rows through one application seam
+  - real subscription changes or deletion mark all assistants in the workspace `configDirtyAt`, while unchanged snapshots remain no-op
+  - docs stay honest that this pass creates the safe propagation contract, not the final billing webhook/provider transport surface
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/sync-workspace-subscription.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-subscription.repository.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `SR9e` does NOT prove:
+  - that a real billing webhook/controller surface is already wired
+  - that final runtime freshness was observed live after deploy
+  - that token-budget, media-storage, or active-chat-cap races are solved by this pass
+  - that all of `SR9` is closed without deploy/live shared-state evidence
+
+## SR9f tool daily quota check-vs-consume concurrency baseline
+
+- This bounded `SR9f` pass covers one concrete commercial correctness gap:
+  - internal runtime tool quota `check` resolved the current control-plane plan limit, but `consume` enforced the runtime-supplied `dailyCallLimit` from a possibly stale materialized policy, allowing split-brain commercial enforcement after plan changes
+- Acceptance for this sub-slice:
+  - `consume` derives the effective tool daily limit from server-side plan truth instead of trusting the runtime-supplied body field for enforcement
+  - `check` and `consume` now share the same control-plane tool daily quota policy source
+  - docs stay honest that `check` is advisory/read-only and `consume` is the authoritative enforcement seam
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/consume-internal-runtime-tool-daily-limit.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-tool-daily-usage.repository.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-tool-quota.controller.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+- `SR9f` does NOT prove:
+  - that HTTP retry/idempotency for `/tools/consume` was redesigned
+  - that tool catalog or availability policy was redesigned
+  - that final deploy/live proof already exists for the touched tool quota seam
+  - that all of `SR9` is closed without deploy/live shared-state evidence
+
 ## SR6c workspace quota measurement fail-safe baseline
 
 - This bounded `SR6c` pass covers one concrete quota-integrity gap:

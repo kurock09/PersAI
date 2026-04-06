@@ -4,10 +4,12 @@ import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-ma
 import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
 import type { AssistantGovernanceRepository } from "../src/modules/workspace-management/domain/assistant-governance.repository";
 import type { AdminAuthorizationService } from "../src/modules/workspace-management/application/admin-authorization.service";
+import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 
 async function run(): Promise<void> {
   const authCalls: string[] = [];
   const overrideWrites: Array<{ assistantId: string; planCode: string | null }> = [];
+  const dirtyWrites: string[] = [];
 
   const service = new ManageAdminAssistantPlanOverrideService(
     {
@@ -95,17 +97,29 @@ async function run(): Promise<void> {
         }
         return null;
       }
-    } as Pick<AssistantPlanCatalogRepository, "findByCode"> as AssistantPlanCatalogRepository
+    } as Pick<AssistantPlanCatalogRepository, "findByCode"> as AssistantPlanCatalogRepository,
+    {
+      assistant: {
+        async update(args: { where: { id: string }; data: { configDirtyAt: Date } }) {
+          assert.equal(args.where.id, "assistant-1");
+          assert.ok(args.data.configDirtyAt instanceof Date);
+          dirtyWrites.push(args.where.id);
+          return {};
+        }
+      }
+    } as Pick<WorkspaceManagementPrismaService, "assistant"> as WorkspaceManagementPrismaService
   );
 
   const setResult = await service.setOverride("admin-1", "user-1", "pro_tester");
   assert.deepEqual(setResult, { ok: true });
   assert.deepEqual(authCalls, ["admin-1"]);
   assert.deepEqual(overrideWrites[0], { assistantId: "assistant-1", planCode: "pro_tester" });
+  assert.deepEqual(dirtyWrites, ["assistant-1"]);
 
   const resetResult = await service.resetOverride("admin-1", "user-1");
   assert.deepEqual(resetResult, { ok: true });
   assert.deepEqual(overrideWrites[1], { assistantId: "assistant-1", planCode: null });
+  assert.deepEqual(dirtyWrites, ["assistant-1", "assistant-1"]);
 }
 
 void run();

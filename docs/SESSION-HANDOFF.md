@@ -1,5 +1,400 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR9f tool daily quota check-vs-consume concurrency code pass
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- `SR9f` — tool daily quota check-vs-consume concurrency contract
+
+### What stale program state was fixed
+
+1. Canon still showed `SR9e` as the active sub-slice even though the final remaining bounded `SR9` code pass had moved to tool daily quota check/consume contract correctness.
+2. `API-BOUNDARY` still implied a stronger check/consume coherence story than the code actually provided, because `consume` trusted the runtime-supplied `dailyCallLimit` instead of the current control-plane plan truth.
+
+### What subagents were launched and why
+
+1. A readonly tool quota race inventory subagent to map exact check/consume order and determine whether the real bug was counter overshoot or policy split-brain.
+2. A readonly boundary subagent to keep the chosen work inside `SR9f` and out of tool catalog redesign, runtime protocol refactor, and `SR10`.
+
+### What evidence they returned
+
+- The shared daily counter was already protected by serializable `consumeWithinLimit`, so the main remaining correctness gap was not the increment itself but which `dailyCallLimit` was enforced.
+- `check` resolved the current control-plane tool limit, while `consume` enforced the runtime-supplied `dailyCallLimit` from possibly stale materialized policy.
+- The smallest honest path was one shared server-side tool daily policy resolver reused by both `check` and `consume`, with `consume` enforcing server truth instead of the body field.
+
+### What was completed
+
+1. Added `ResolveInternalRuntimeToolDailyPolicyService` so internal tool quota surfaces resolve the same effective per-tool daily quota policy from assistant context, governance, subscription, and plan activations.
+2. Updated `ConsumeInternalRuntimeToolDailyLimitService` to enforce the server-resolved `dailyCallLimit` rather than trusting the runtime-supplied body value, while preserving `tool_daily_limit_reached` as the stable conflict surface.
+3. Kept `check` and `consume` on the same control-plane policy source and clarified `API-BOUNDARY` so `check` is advisory/read-only and `consume` remains the authoritative guard.
+4. Added focused regression coverage in `apps/api/test/consume-internal-runtime-tool-daily-limit.service.test.ts` and `apps/api/test/prisma-workspace-tool-daily-usage.repository.test.ts`, while keeping controller and quota-accounting tests green.
+
+### What remains
+
+1. Deploy the API-only `SR9b`-`SR9f` code-pass wave.
+2. Run the requested bounded live validation wave after deploy, including checks around token budget, media quota rollback, active chat cap, subscription propagation freshness, and stale runtime tool limit mismatch.
+3. Decide honestly after live evidence whether `SR9` can close and `SR10` can open on a clean base.
+
+### Confirmed risks
+
+1. `SR9f` now closes the stale-limit policy split on the touched tool quota seam, but does not redesign HTTP retry/idempotency for `/tools/consume`.
+2. This pass does not redesign tool catalog or broader tool availability policy.
+3. No claim is made that deploy/live evidence already exists yet for `SR9b` through `SR9f`.
+
+### Unresolved hypotheses
+
+1. The new shared server-side policy resolver may be sufficient to close the main `SR9f` bar once deploy/live evidence confirms stale runtime policy can no longer over-consume.
+2. If live behavior still shows double-consume under retry conditions, the next honest follow-up is an idempotency seam rather than pretending the current contract fix solved every tool quota edge.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/consume-internal-runtime-tool-daily-limit.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-tool-daily-usage.repository.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-tool-quota.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR10` is still blocked for the moment because `SR9` now has bounded code-pass evidence across `SR9b`-`SR9f`, but there is still no deploy/live shared-state proof for this package yet; the next honest step is the agreed deploy/live-test wave, not silently opening `SR10`.
+
+### Next recommended step
+
+- Do the requested deploy for the `SR9b`-`SR9f` API package and run the live validation wave before deciding whether `SR9` is honestly closed.
+
+## 2026-04-06 - SR9e workspace subscription sync propagation correctness code pass
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- `SR9e` — workspace subscription sync propagation correctness
+
+### What stale program state was fixed
+
+1. Canon had already moved past `SR9d`, but there was still no named bounded `SR9e` sub-slice even though the remaining propagation gap was now clearly separated from active-chat-cap work.
+2. ADR-054 still described the subscription invalidation hook as future-only, while there was no concrete application seam in code to persist subscription snapshots and dirty assistants safely.
+
+### What subagents were launched and why
+
+1. A readonly billing propagation mapping subagent to identify the exact split-brain risk between live `workspace_subscriptions` reads and stale materialized/runtime state.
+2. A readonly boundary subagent to keep the chosen work inside `SR9e` and out of pricing redesign, webhook transport hardening, and the already-bounded atomic quota slices.
+
+### What evidence they returned
+
+- API-side commercial enforcement resolves subscription directly from `workspace_subscriptions`, but runtime freshness depends on `configDirtyAt` / lazy rematerialization.
+- No application-layer write seam existed to update `workspace_subscriptions` and dirty all assistants in the same workspace when subscription truth changed.
+- The smallest honest path was one idempotent sync/apply service that persists the normalized snapshot and marks workspace assistants dirty only on real change or deletion.
+
+### What was completed
+
+1. Added `SyncWorkspaceSubscriptionService` as a bounded application seam that pulls a provider-agnostic subscription snapshot, compares it to current persisted truth, upserts or deletes the workspace subscription row, and marks all assistants in that workspace `configDirtyAt` only when the effective subscription changed.
+2. Extended `WorkspaceSubscriptionRepository` and Prisma persistence with explicit `upsertFromBillingSnapshot` and `deleteByWorkspaceId` operations so future billing webhook/scheduled sync callers do not need to write `workspace_subscriptions` ad hoc.
+3. Added focused regression coverage in `apps/api/test/sync-workspace-subscription.service.test.ts` and `apps/api/test/prisma-workspace-subscription.repository.test.ts`, while keeping `subscription-state-resolve.test.ts` green for precedence behavior.
+4. Corrected canon and ADR-054 so docs now describe the real safe propagation seam instead of only mentioning a future subscription hook.
+
+### What remains
+
+1. Wire a real billing webhook or scheduled provider-sync caller to `SyncWorkspaceSubscriptionService`.
+2. Deploy the API-only `SR9e` code pass together with the prior `SR9` code passes when you choose the requested post-`SR9f` deploy wave.
+3. Run one bounded live validation window that changes workspace subscription truth and confirms runtime freshness converges through the touched `configDirtyAt` path.
+4. Keep `SR9` open for the remaining tool daily quota concurrency seam and for deploy/live closure of `SR9b`-`SR9e`.
+
+### Confirmed risks
+
+1. `SR9e` now provides a safe propagation seam, but does not itself wire a public webhook/controller surface or scheduled job.
+2. This pass does not redesign pricing/catalog behavior or change the subscription resolution precedence.
+3. No claim is made that deploy/live evidence already exists for `SR9b`, `SR9c`, `SR9d`, or `SR9e`.
+
+### Unresolved hypotheses
+
+1. The new sync/apply seam may be sufficient to close the main `SR9e` bar once a real caller and live freshness check are exercised, but that still needs deploy/live evidence.
+2. If live behavior still shows stale runtime plan truth after subscription change, the next honest follow-up is on the caller/freshness integration path rather than pretending this bounded seam alone proved end-to-end closure.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/sync-workspace-subscription.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-subscription.repository.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR10` is still blocked because `SR9` is not honestly closed yet: `SR9b` through `SR9e` now have bounded code-pass evidence, but there is still no deploy/live shared-state proof for these seams, and `SR9f` remains open.
+
+### Next recommended step
+
+- Continue to `SR9f` without deploy if you want to finish the remaining bounded `SR9` code passes first, then do the requested deploy/live-test wave after `SR9f`.
+
+## 2026-04-06 - SR9d active web chats cap race-safe creation code pass
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- `SR9d` — active web chats cap race-safe creation
+
+### What stale program state was fixed
+
+1. Canon still showed `SR9c` as the active sub-slice even after the next bounded concurrency seam had moved to active web chat creation.
+2. `SR9d` existed only as an out-of-scope reference from neighboring sub-slices, not as an explicitly named bounded pass with its own verification and exit criteria.
+
+### What subagents were launched and why
+
+1. A readonly active-chat race inventory subagent to map exact `count -> enforce -> create` order and determine the smallest honest transactional seam for `SR9d`.
+2. A readonly boundary subagent to keep the chosen work inside `SR9d` and out of chat UX refactors, abuse controls, and `SR10`.
+
+### What evidence they returned
+
+- `PrepareAssistantInboundTurnService` enforced the active-chat cap on a stale pre-create count, so concurrent new thread creation could overshoot the cap.
+- `ManageChatMediaService.stageForWebThread` could create a fresh web chat through `findOrCreateChatBySurfaceThread` without applying the active-chat cap at all.
+- The smallest honest path was one serializable repository primitive that returns an existing thread, creates under cap, or rejects at cap, reused by both touched web creation seams.
+
+### What was completed
+
+1. Added a dedicated serializable `getOrCreateWebChatBySurfaceThreadUnderCap` repository path with `P2034` retry handling for active web chat creation.
+2. Updated `PrepareAssistantInboundTurnService` and `ManageChatMediaService.stageForWebThread` to use that shared cap-aware creation seam instead of stale count plus create or silent bypass.
+3. Added focused regression coverage in `apps/api/test/prepare-assistant-inbound-turn.service.test.ts`, `apps/api/test/prisma-assistant-chat.repository.test.ts`, and updated `apps/api/test/manage-chat-media.stage-web-thread.test.ts`.
+4. Corrected canon so `SR9d` is now the explicit active bounded sub-slice with truthful verification and exit criteria.
+
+### What remains
+
+1. Deploy the API-only `SR9d` code pass together with the prior `SR9` code passes when you choose the requested post-`SR9f` deploy wave.
+2. Run one bounded live validation window that exercises concurrent new web-thread creation near `WEB_ACTIVE_CHATS_CAP`, including the staged-attachment seam, and confirm the cap is rejected instead of overshot.
+3. Keep `SR9` open for later seams like billing/subscription propagation and tool daily quota concurrency, plus deploy/live closure for earlier `SR9` code passes.
+
+### Confirmed risks
+
+1. `SR9d` hardens active-chat-cap correctness only on the touched web chat creation paths; it does not claim a broader chat lifecycle redesign.
+2. This pass does not change abuse/rate limiting or final concurrency/load proof; those remain outside `SR9d`.
+3. No claim is made that deploy/live evidence already exists for `SR9b`, `SR9c`, or `SR9d`.
+
+### Unresolved hypotheses
+
+1. The touched create seams may already be sufficient to close the main `SR9d` bar after deploy/live proof, but that still needs shared-state evidence outside focused tests.
+2. If live behavior still reveals active-chat drift through untouched lifecycle paths, the next honest follow-up is a broader chat-state reconciliation pass rather than pretending this bounded create fix solved everything.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-chat.repository.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR10` is still blocked because `SR9` is not honestly closed yet: `SR9b`, `SR9c`, and `SR9d` now have bounded code-pass evidence, but there is still no deploy/live shared-state proof for these seams, and later `SR9` sub-slices remain open.
+
+### Next recommended step
+
+- Continue to `SR9e` without deploy if you want to finish the remaining bounded `SR9` code passes first, then do the requested deploy/live-test wave after `SR9f`.
+
+## 2026-04-06 - SR9c media storage quota atomicity code pass
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- `SR9c` — media storage quota atomicity under concurrency
+
+### What stale program state was fixed
+
+1. Canon still showed `SR9b` as the active sub-slice even after the next bounded shared-state commercial seam had moved to media storage.
+2. Supporting docs around ADR-067 still overstated the real enforcement model by implying both web and inbound media paths were covered by a simple pre-check, while the real correctness gap was retain-or-rollback atomicity after upload.
+
+### What subagents were launched and why
+
+1. A readonly media quota race inventory subagent to map exact upload/check/record order and determine whether a bounded `SR9c` fix was possible without drifting into `SR7`.
+2. A readonly boundary subagent to keep the chosen work inside `SR9c` and out of `SR6`, `SR7`, and `SR10`.
+
+### What evidence they returned
+
+- Web upload paths did a stale pre-check, then uploaded, then blindly incremented `media_storage_bytes`; inbound media path was even weaker because it had no quota pre-check at all.
+- A post-upload capped ledger without rollback would be fake atomicity, because physical stored bytes could still exceed the commercial limit while the DB counter sat at the cap.
+- The smallest honest path was one serializable capped media-byte apply plus deletion of the newly uploaded blob when the full object no longer fits.
+
+### What was completed
+
+1. Added a dedicated serializable capped repository path for `media_storage_bytes`, mirroring the shared-state approach used in `SR9b`.
+2. Updated `ManageChatMediaService` and `InboundMediaService` so touched uploads now roll back the newly uploaded blob when the full object no longer fits the remaining media-storage budget, instead of retaining illegal bytes and only incrementing the ledger.
+3. Added focused regression coverage in `apps/api/test/manage-chat-media.stage-web-thread.test.ts`, `apps/api/test/inbound-media.service.test.ts`, and extended `apps/api/test/prisma-workspace-quota-accounting.repository.test.ts`.
+4. Corrected canon and ADR wording so docs now describe the actual touched enforcement model instead of the old overstated pre-check-only story.
+
+### What remains
+
+1. Deploy the API-only `SR9c` code pass.
+2. Run one bounded live validation window that exercises concurrent uploads near the media-storage limit and confirms the touched paths delete the overflowing new blob instead of retaining it.
+3. Keep `SR9` open for later seams like `SR9d` and for broader reconciliation questions not solved by this pass.
+
+### Confirmed risks
+
+1. `SR9c` hardens retain-or-rollback correctness for touched upload paths, but does not yet claim perfect long-term `media_storage_bytes` decrement/reconciliation for every delete lifecycle.
+2. This pass does not redesign preprocessing cost, media throughput, or observation surfaces; those remain outside `SR9c`.
+3. No claim is made that token-budget or active-chat-cap races are solved by this media pass.
+
+### Unresolved hypotheses
+
+1. The touched upload paths may already be sufficient to close the main `SR9c` bar after deploy/live proof, but that still needs shared-state evidence outside unit tests.
+2. If live behavior still shows over-retention or drift, the next honest follow-up is byte-reconciliation/decrement work rather than pretending the current rollback-on-cap pass solved all media accounting.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-quota-accounting.repository.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR10` is still blocked because `SR9` is not honestly closed yet: `SR9c` now has a verified code pass, but there is still no deploy/live shared-state evidence for this media-storage seam, and later `SR9` sub-slices remain open.
+
+### Next recommended step
+
+- Continue to `SR9d` without deploy if you want to finish the remaining bounded code passes first, then do the requested deploy/live-test wave after `SR9f`.
+
+## 2026-04-06 - SR9b token budget atomic accounting code pass
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- `SR9b` — token budget atomic accounting under concurrency
+
+### What stale program state was fixed
+
+1. `SR9` canon listed only the earlier propagation pass even after the next bounded concurrency seam had been selected and implemented.
+2. The active-state docs did not yet say explicitly that `SR9b` is still awaiting deploy/live evidence rather than being silently treated as closed from static checks.
+
+### What subagents were launched and why
+
+1. A readonly quota/billing race inventory subagent to rank the remaining shared-state `SR9` risks.
+2. A readonly implementation-options subagent to test whether a bounded honest `SR9b` fix was possible without a broad pricing/runtime redesign.
+
+### What evidence they returned
+
+- The strongest remaining `SR9` risk after `SR9a` was the token-budget check-then-record race: enforcement happens before runtime, while token usage is written afterward.
+- They also confirmed that weaker options like “just recheck later” or “just add Serializable to blind increments” would still be fake atomicity because the shared ledger could still overshoot.
+- The smallest honest repo-local path was one serializable capped token-budget write, reusing the same retry pattern already used by tool daily limits.
+
+### What was completed
+
+1. Added a dedicated token-budget repository path that applies the estimated token delta under `Serializable` isolation with retry on `P2034`.
+2. Changed token-budget recording to use the capped shared-state path so the ledger and usage event row now record only the applied delta that actually fit into the remaining budget.
+3. Added focused regression coverage in `apps/api/test/quota-accounting.test.ts` and `apps/api/test/prisma-workspace-quota-accounting.repository.test.ts`.
+4. Updated canonical docs so `SR9b` is the truthful current active sub-slice and is not overclaimed as fully closed before deploy/live proof.
+
+### What remains
+
+1. Deploy the API-only `SR9b` code pass.
+2. Run one bounded live validation window against the shared token-budget state to confirm concurrent touched paths no longer push the ledger above limit.
+3. After live proof, choose the next bounded `SR9` seam, likely `SR9c` or `SR9d`.
+
+### Confirmed risks
+
+1. `SR9b` fixes atomicity of the current estimator-backed token ledger, not provider-exact billing.
+2. Pre-runtime degrade decisions are still not reservation-atomic across the full turn lifecycle; this pass does not claim otherwise.
+3. Media-storage and active-chat-cap races remain open `SR9` seams.
+
+### Unresolved hypotheses
+
+1. The new capped write path may be sufficient to close the ledger-overshoot bar for `SR9b` without a reservation redesign, but that still needs deploy/live evidence.
+2. If live traffic still shows undesirable non-degraded turns near limit, the next honest move is a reservation-style follow-up, not an overclaim that `SR9b` solved the whole budget lifecycle.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-quota-accounting.repository.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/enforcement-points.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR10` is still blocked because `SR9` is not honestly closed yet: `SR9b` has a verified code pass, but no deploy/live shared-state evidence has been recorded yet, and other `SR9` seams remain open.
+
+### Next recommended step
+
+- Deploy the API-only `SR9b` pass and run a bounded live concurrency check around token-budget usage so we can decide honestly whether `SR9b` itself closes before moving to `SR9c`.
+
+## 2026-04-06 - SR9a assistant plan override propagation correctness
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- none yet; `SR9a` is complete, so the next session should choose the next bounded `SR9` seam from evidence
+
+### What stale program state was fixed
+
+1. Supporting docs still disagreed with live code about effective subscription precedence: code already resolves `assistant_plan_override -> workspace_subscription -> assistant_plan_fallback -> catalog_default_fallback -> none`, while older docs still described workspace subscription as the first source.
+2. `SCALING-READINESS-PLAN.md` still contained one stale `SR8b` observation-window line saying `SR9` could not open until `SR8` proved live, even though the top-level active-state markers had already moved to `SR9`.
+3. The `SR9` active-state markers still said no sub-slice had been chosen, even after evidence had identified a first bounded plan-propagation seam.
+
+### What subagents were launched and why
+
+1. A readonly quota/billing race inventory subagent to rank concrete shared-state concurrency risks and identify the narrowest first seam.
+2. A readonly plan-propagation mapping subagent to trace how override/subscription changes reach enforcement, materialization, and runtime freshness.
+3. A readonly boundary subagent to keep the chosen work inside `SR9` and out of `SR6`, `SR8`, and `SR10`.
+
+### What evidence they returned
+
+- The quota/billing inventory found the heaviest remaining `SR9` risks in non-atomic token/media/chat-cap checks, but identified a smaller first seam: assistant plan override changes were not participating in the existing lazy-rematerialization invalidation path.
+- The propagation mapping confirmed that effective subscription precedence in code is already `assistant_plan_override -> workspace_subscription -> assistant_plan_fallback -> catalog_default_fallback -> none`, and that `ManageAdminAssistantPlanOverrideService` was missing the `configDirtyAt` marker that other per-assistant materialization-affecting writes already set.
+- The boundary review confirmed that this is honest `SR9` work because it affects commercial plan propagation and runtime/materialized commercial truth, not filesystem quota enforcement (`SR6`), replay/idempotency ingress (`SR8`), or final capacity proof (`SR10`).
+
+### What was completed
+
+1. Chose and completed `SR9a` — assistant plan override propagation correctness — as the first bounded `SR9` sub-slice.
+2. Updated `ManageAdminAssistantPlanOverrideService` so override set/reset now marks `assistant.configDirtyAt`, bringing this commercial-plan seam into the existing lazy-refresh contract instead of waiting for unrelated invalidation.
+3. Added focused regression coverage in `apps/api/test/manage-admin-assistant-plan-override.service.test.ts`.
+4. Corrected supporting docs and canon to match the actual effective subscription precedence and truthful `SR9` active state.
+
+### What remains
+
+1. Choose the next bounded `SR9` seam from evidence; the strongest remaining candidates are atomic token-budget enforcement, media-storage quota atomicity, and active-chat-cap race-safe enforcement.
+2. Wire real workspace-subscription change paths into the same or stronger propagation contract when billing sync/webhooks are introduced.
+3. Gather shared-state evidence beyond unit tests before claiming broader `SR9` closure.
+
+### Confirmed risks
+
+1. `SR9a` only closes the indefinite-staleness seam for assistant plan override propagation; it does not make per-assistant plan changes faster than the existing lazy-refresh TTL on every active runtime process.
+2. The main `SR9` concurrency risks are still the non-atomic check-then-record quota paths under concurrent legitimate requests.
+3. No claim is made that workspace subscription webhook propagation or billing-provider synchronization is already wired.
+
+### Unresolved hypotheses
+
+1. The next highest-value `SR9` pass is likely one atomic quota seam rather than more propagation-only work, but that still needs focused selection from code and test evidence.
+2. Some runtime/materialized commercial behavior may still remain stale until the next freshness check window even after `configDirtyAt` is set; this is bounded by the existing lazy-refresh model, not yet replaced.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-assistant-plan-override.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR10` is still blocked because `SR9` is not honestly closed yet: this session fixed one plan-propagation seam and corrected canon, but did not yet prove race-safe commercial enforcement under shared concurrent usage.
+
+### Next recommended step
+
+- Choose one atomic quota seam for the next bounded `SR9` pass, preferably token-budget or media-storage enforcement, and require shared-state evidence that concurrent requests can no longer silently overshoot the touched commercial boundary.
+
 ## 2026-04-06 - SR8 operational closure after bounded live replay validation
 
 ### Current active slice

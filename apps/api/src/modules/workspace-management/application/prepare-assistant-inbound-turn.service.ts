@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { loadApiConfig } from "@persai/config";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -20,6 +21,7 @@ import {
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { MergeStagedWebChatAttachmentsService } from "./merge-staged-web-chat-attachments.service";
 import type { AssistantInboundQuotaDegradeReason } from "./enforce-assistant-capability-and-quota.service";
+import { createAssistantInboundConflict } from "./assistant-inbound-error";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -93,16 +95,13 @@ export class PrepareAssistantInboundTurnService {
       });
     }
 
-    const chat =
-      existingChat ??
-      (await this.assistantChatRepository.findOrCreateChatBySurfaceThread({
-        assistantId: assistant.id,
-        userId: assistant.userId,
-        workspaceId: assistant.workspaceId,
-        surface: "web",
-        surfaceThreadKey: input.surfaceThreadKey,
-        title: input.title ?? (input.message.trim().slice(0, 50).replace(/\s+/g, " ") || null)
-      }));
+    const chat = existingChat
+      ? existingChat
+      : await this.reserveWebChatUnderCap({
+          assistant,
+          surfaceThreadKey: input.surfaceThreadKey,
+          title: input.title ?? (input.message.trim().slice(0, 50).replace(/\s+/g, " ") || null)
+        });
 
     const userMessage = await this.assistantChatRepository.createMessage({
       chatId: chat.id,
@@ -181,5 +180,32 @@ export class PrepareAssistantInboundTurnService {
       workspaceId: assistant.workspaceId,
       workspaceTimezone: workspace.timezone
     };
+  }
+
+  private async reserveWebChatUnderCap(params: {
+    assistant: Assistant;
+    surfaceThreadKey: string;
+    title: string | null;
+  }) {
+    const config = loadApiConfig(process.env);
+    const result = await this.assistantChatRepository.getOrCreateWebChatBySurfaceThreadUnderCap({
+      assistantId: params.assistant.id,
+      userId: params.assistant.userId,
+      workspaceId: params.assistant.workspaceId,
+      surface: "web",
+      surfaceThreadKey: params.surfaceThreadKey,
+      title: params.title,
+      activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
+    });
+
+    if (result.outcome === "cap_reached") {
+      throw createAssistantInboundConflict(
+        "active_chat_cap_reached",
+        `Active web chats cap reached (${result.limit}). Archive an existing chat or continue in an existing thread.`,
+        { limit: result.limit }
+      );
+    }
+
+    return result.chat;
   }
 }

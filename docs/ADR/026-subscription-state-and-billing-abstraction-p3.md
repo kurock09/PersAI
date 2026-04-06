@@ -29,7 +29,8 @@ Step 7 P3 must define subscription truth and effective resolution without coupli
    - default adapter in this slice is a null/no-op implementation
 
 3. Define effective subscription resolution precedence for assistant context:
-   - workspace subscription row (authoritative)
+   - assistant governance explicit plan override
+   - workspace subscription row
    - assistant governance quota plan fallback
    - catalog default first-registration fallback
    - none

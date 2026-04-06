@@ -184,6 +184,7 @@ It is not part of backend domain logic.
 - canonical subscription state is workspace-scoped (`workspace_subscriptions`) and remains in backend control plane
 - provider integration boundary is application-layer port (`BillingProviderPort`) with provider-agnostic normalized snapshot contract
 - effective assistant subscription resolution uses precedence:
+  - assistant governance explicit plan override
   - workspace subscription
   - assistant governance `quotaPlanCode` fallback
   - catalog default first-registration fallback

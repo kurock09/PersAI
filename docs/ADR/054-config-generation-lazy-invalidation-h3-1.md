@@ -73,9 +73,10 @@ OpenClaw chat handlers (sync and stream) implement a two-layer check:
 | Service | Trigger |
 |---------|---------|
 | `UpsertOnboardingService` | Profile update (name, birthday, gender, locale, timezone) |
+| `ManageAdminAssistantPlanOverrideService` | Assistant plan override set/reset |
 | `ConnectTelegramIntegrationService` | Telegram connect |
 | `RevokeTelegramIntegrationSecretService` | Telegram revoke |
-| Future billing webhook handler | Subscription change |
+| `SyncWorkspaceSubscriptionService` | Subscription snapshot changed or deleted |
 
 ## Consequences
 
@@ -84,7 +85,7 @@ OpenClaw chat handlers (sync and stream) implement a two-layer check:
 - Admin saves complete instantly regardless of assistant count. Scales to 10,000+ workspaces.
 - All 8 data sources auto-propagate to assistants lazily within the configured TTL.
 - 99% of chat requests incur zero additional HTTP overhead (generation cache hit).
-- Billing integration ready — when subscription changes are wired, they automatically trigger lazy refresh via `configDirtyAt`.
+- Billing sync propagation seam is ready — when a real billing webhook or scheduled sync caller is wired, it can trigger lazy refresh via `SyncWorkspaceSubscriptionService` and `configDirtyAt`.
 - Manual reapply remains as an instant escape hatch for individual assistants.
 - Platform rollout per-workspace sequential apply is unaffected (small N, different concern).
 

@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { loadApiConfig } from "@persai/config";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
@@ -11,6 +12,7 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import type { Assistant } from "../domain/assistant.entity";
 import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
@@ -19,6 +21,7 @@ import { MediaPreprocessorService } from "./media/media-preprocessor.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
+import { createAssistantInboundConflict } from "./assistant-inbound-error";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -102,6 +105,13 @@ export class ManageChatMediaService {
     });
 
     const sizeBytes = BigInt(uploadResult.sizeBytes);
+    await this.ensureMediaStorageQuotaApplied({
+      assistant,
+      runtimeTier,
+      storagePath: uploadResult.storagePath,
+      sizeBytes,
+      source: "chat_upload"
+    });
     const attachment = await this.attachmentRepository.create({
       messageId: message.id,
       chatId: chat.id,
@@ -118,12 +128,6 @@ export class ManageChatMediaService {
       processingStatus: "ready",
       transcription: null,
       metadata: null
-    });
-
-    await this.trackWorkspaceQuotaUsageService.recordMediaUpload({
-      assistant,
-      sizeBytes,
-      source: "chat_upload"
     });
 
     return attachment;
@@ -149,14 +153,24 @@ export class ManageChatMediaService {
         throw new NotFoundException("Assistant does not exist for this user.");
       }
 
-      const chat = await this.chatRepository.findOrCreateChatBySurfaceThread({
+      const config = loadApiConfig(process.env);
+      const chatResult = await this.chatRepository.getOrCreateWebChatBySurfaceThreadUnderCap({
         assistantId: assistant.id,
         userId: assistant.userId,
         workspaceId: assistant.workspaceId,
         surface: "web",
         surfaceThreadKey: params.surfaceThreadKey,
-        title: null
+        title: null,
+        activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
       });
+      if (chatResult.outcome === "cap_reached") {
+        throw createAssistantInboundConflict(
+          "active_chat_cap_reached",
+          `Active web chats cap reached (${chatResult.limit}). Archive an existing chat or continue in an existing thread.`,
+          { limit: chatResult.limit }
+        );
+      }
+      const chat = chatResult.chat;
 
       const stagingMessage = await this.chatRepository.createMessage({
         chatId: chat.id,
@@ -210,6 +224,13 @@ export class ManageChatMediaService {
       });
 
       const sizeBytes = BigInt(uploadResult.sizeBytes);
+      await this.ensureMediaStorageQuotaApplied({
+        assistant,
+        runtimeTier,
+        storagePath: uploadResult.storagePath,
+        sizeBytes,
+        source: "web_staged_upload"
+      });
       const attachment = await this.attachmentRepository.create({
         messageId: stagingMessage.id,
         chatId: chat.id,
@@ -229,12 +250,6 @@ export class ManageChatMediaService {
           source: "web_staged_upload",
           ...(processed?.textExtract ? { textExtract: "stored" } : {})
         }
-      });
-
-      await this.trackWorkspaceQuotaUsageService.recordMediaUpload({
-        assistant,
-        sizeBytes,
-        source: "web_staged_upload"
       });
 
       outcome = "success";
@@ -347,6 +362,28 @@ export class ManageChatMediaService {
     } finally {
       await unlink(inputPath).catch(() => {});
       await unlink(outputPath).catch(() => {});
+    }
+  }
+
+  private async ensureMediaStorageQuotaApplied(params: {
+    assistant: Assistant;
+    runtimeTier: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
+    storagePath: string;
+    sizeBytes: bigint;
+    source: "chat_upload" | "web_staged_upload";
+  }): Promise<void> {
+    const applied = await this.trackWorkspaceQuotaUsageService.recordMediaUpload({
+      assistant: params.assistant,
+      sizeBytes: params.sizeBytes,
+      source: params.source
+    });
+    if (applied.capped) {
+      await this.runtimeAdapter.deleteChatMedia(
+        params.assistant.id,
+        params.storagePath,
+        params.runtimeTier
+      );
+      throw new BadRequestException("Media storage quota exceeded for this workspace.");
     }
   }
 

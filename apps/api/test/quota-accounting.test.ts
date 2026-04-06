@@ -11,7 +11,10 @@ type GovernanceRepoStub = Pick<AssistantGovernanceRepository, "findByAssistantId
 type PlanRepoStub = Pick<AssistantPlanCatalogRepository, "findByCode">;
 type QuotaRepoStub = Pick<
   WorkspaceQuotaAccountingRepository,
-  "incrementUsage" | "refreshActiveWebChatsUsage"
+  | "incrementUsage"
+  | "applyTokenBudgetUsage"
+  | "applyMediaStorageUsage"
+  | "refreshActiveWebChatsUsage"
 >;
 type ToolDailyUsageRepoStub = Pick<
   WorkspaceToolDailyUsageRepository,
@@ -30,8 +33,8 @@ async function run(): Promise<void> {
   process.env.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT = "1000";
   process.env.WEB_ACTIVE_CHATS_CAP = "20";
 
-  const incrementCalls: Array<{ dimension: string; delta: bigint; source: string }> = [];
   const refreshCalls: Array<{ currentActiveWebChats: number; source: string }> = [];
+  const cappedTokenCalls: Array<{ delta: bigint; source: string }> = [];
 
   const governanceRepo: GovernanceRepoStub = {
     async findByAssistantId() {
@@ -84,11 +87,6 @@ async function run(): Promise<void> {
 
   const quotaRepo: QuotaRepoStub = {
     async incrementUsage(input) {
-      incrementCalls.push({
-        dimension: input.dimension,
-        delta: input.delta,
-        source: input.source
-      });
       return {
         id: "state-1",
         workspaceId: input.workspaceId,
@@ -101,6 +99,31 @@ async function run(): Promise<void> {
         lastComputedAt: new Date(),
         createdAt: new Date(),
         updatedAt: new Date()
+      };
+    },
+    async applyTokenBudgetUsage(input) {
+      cappedTokenCalls.push({
+        delta: input.delta,
+        source: input.source
+      });
+      return {
+        appliedDelta: input.delta,
+        capped: false,
+        state: {
+          id: "state-1",
+          workspaceId: input.workspaceId,
+          tokenBudgetUsed: input.delta,
+          tokenBudgetLimit: input.limits.tokenBudgetLimit,
+          costOrTokenDrivingToolClassUnitsUsed: 0,
+          costOrTokenDrivingToolClassUnitsLimit: input.limits.costOrTokenDrivingToolClassUnitsLimit,
+          activeWebChatsCurrent: 0,
+          activeWebChatsLimit: input.limits.activeWebChatsLimit,
+          mediaStorageBytesUsed: BigInt(0),
+          mediaStorageBytesLimit: input.limits.mediaStorageBytesLimit,
+          lastComputedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
       };
     },
     async refreshActiveWebChatsUsage(input) {
@@ -172,6 +195,27 @@ async function run(): Promise<void> {
           file: false
         }
       };
+    },
+    async applyMediaStorageUsage(input) {
+      return {
+        appliedDelta: input.delta,
+        capped: false,
+        state: {
+          id: "state-1",
+          workspaceId: input.workspaceId,
+          tokenBudgetUsed: BigInt(0),
+          tokenBudgetLimit: input.limits.tokenBudgetLimit,
+          costOrTokenDrivingToolClassUnitsUsed: 0,
+          costOrTokenDrivingToolClassUnitsLimit: input.limits.costOrTokenDrivingToolClassUnitsLimit,
+          activeWebChatsCurrent: 0,
+          activeWebChatsLimit: input.limits.activeWebChatsLimit,
+          mediaStorageBytesUsed: input.delta,
+          mediaStorageBytesLimit: input.limits.mediaStorageBytesLimit,
+          lastComputedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      };
     }
   };
 
@@ -237,9 +281,8 @@ async function run(): Promise<void> {
     dailyCallLimit: 3
   });
 
-  assert.equal(incrementCalls.length, 1);
-  assert.equal(incrementCalls[0]?.dimension, "token_budget");
-  assert.ok((incrementCalls[0]?.delta ?? BigInt(0)) > BigInt(0));
+  assert.equal(cappedTokenCalls.length, 1);
+  assert.ok((cappedTokenCalls[0]?.delta ?? BigInt(0)) > BigInt(0));
   assert.equal(refreshCalls.length, 1);
   assert.equal(refreshCalls[0]?.currentActiveWebChats, 7);
   assert.deepEqual(toolLimit, {

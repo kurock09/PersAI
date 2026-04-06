@@ -9,6 +9,7 @@ import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 @Injectable()
 export class ManageAdminAssistantPlanOverrideService {
@@ -19,7 +20,8 @@ export class ManageAdminAssistantPlanOverrideService {
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
-    private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository
+    private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   async setOverride(
@@ -51,6 +53,7 @@ export class ManageAdminAssistantPlanOverrideService {
       assistant.id,
       trimmedPlanCode
     );
+    await this.markAssistantConfigDirty(assistant.id);
     return { ok: true };
   }
 
@@ -67,6 +70,14 @@ export class ManageAdminAssistantPlanOverrideService {
     }
 
     await this.assistantGovernanceRepository.setAssistantPlanOverride(assistant.id, null);
+    await this.markAssistantConfigDirty(assistant.id);
     return { ok: true };
+  }
+
+  private async markAssistantConfigDirty(assistantId: string): Promise<void> {
+    await this.prisma.assistant.update({
+      where: { id: assistantId },
+      data: { configDirtyAt: new Date() }
+    });
   }
 }

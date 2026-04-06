@@ -71,6 +71,27 @@ export class InboundMediaService {
           mimeType: processed.normalizedMime
         });
 
+        const applied = await this.trackWorkspaceQuotaUsageService.recordMediaUpload({
+          assistant: {
+            id: params.assistantId,
+            userId: params.userId,
+            workspaceId: params.workspaceId
+          } as Parameters<
+            typeof this.trackWorkspaceQuotaUsageService.recordMediaUpload
+          >[0]["assistant"],
+          sizeBytes: BigInt(uploadResult.sizeBytes),
+          source: `channel_inbound_${params.channel}`
+        });
+
+        if (applied.capped) {
+          await this.runtimeAdapter.deleteChatMedia(
+            params.assistantId,
+            uploadResult.storagePath,
+            runtimeTier
+          );
+          throw new Error("Media storage quota exceeded for this workspace.");
+        }
+
         const attachmentType = inferAttachmentTypeFromMime(processed.normalizedMime);
 
         const attachment = await this.attachmentRepository.create({
@@ -95,18 +116,6 @@ export class InboundMediaService {
         });
 
         attachments.push(attachment);
-
-        await this.trackWorkspaceQuotaUsageService.recordMediaUpload({
-          assistant: {
-            id: params.assistantId,
-            userId: params.userId,
-            workspaceId: params.workspaceId
-          } as Parameters<
-            typeof this.trackWorkspaceQuotaUsageService.recordMediaUpload
-          >[0]["assistant"],
-          sizeBytes: BigInt(uploadResult.sizeBytes),
-          source: `channel_inbound_${params.channel}`
-        });
 
         contextLines.push(
           this.formatContextLine(attachment, processed.transcription, processed.textExtract)

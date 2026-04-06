@@ -11,7 +11,9 @@ import {
 } from "../domain/assistant-plan-catalog.repository";
 import type { Assistant } from "../domain/assistant.entity";
 import {
+  type ApplyMediaStorageUsageResult,
   WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
+  type ApplyTokenBudgetUsageResult,
   type WorkspaceQuotaAccountingRepository,
   type WorkspaceQuotaLimitsInput
 } from "../domain/workspace-quota-accounting.repository";
@@ -111,6 +113,8 @@ export class TrackWorkspaceQuotaUsageService {
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
   ) {}
 
+  private static readonly TOKEN_USAGE_ESTIMATOR = "chars_div_4_ceil_v1";
+
   async recordInboundTurnUsage(params: {
     assistant: Assistant;
     userContent: string;
@@ -129,18 +133,18 @@ export class TrackWorkspaceQuotaUsageService {
       estimateTokens(params.userContent) + estimateTokens(params.assistantContent)
     );
     if (tokenDelta > BigInt(0)) {
-      await this.workspaceQuotaAccountingRepository.incrementUsage({
+      const applied = await this.workspaceQuotaAccountingRepository.applyTokenBudgetUsage({
         workspaceId: params.assistant.workspaceId,
         assistantId: params.assistant.id,
         userId: params.assistant.userId,
-        dimension: "token_budget",
         delta: tokenDelta,
         source: params.source,
         metadata: {
-          estimator: "chars_div_4_ceil_v1"
+          estimator: TrackWorkspaceQuotaUsageService.TOKEN_USAGE_ESTIMATOR
         },
         limits
       });
+      this.logTokenBudgetCapIfNeeded(params.assistant.id, params.source, tokenDelta, applied);
     }
   }
 
@@ -224,20 +228,41 @@ export class TrackWorkspaceQuotaUsageService {
     assistant: Assistant;
     sizeBytes: bigint;
     source: string;
-  }): Promise<void> {
-    if (params.sizeBytes <= BigInt(0)) return;
+  }): Promise<ApplyMediaStorageUsageResult> {
+    if (params.sizeBytes <= BigInt(0)) {
+      return {
+        appliedDelta: BigInt(0),
+        capped: false,
+        state: {
+          id: "noop",
+          workspaceId: params.assistant.workspaceId,
+          tokenBudgetUsed: BigInt(0),
+          tokenBudgetLimit: null,
+          costOrTokenDrivingToolClassUnitsUsed: 0,
+          costOrTokenDrivingToolClassUnitsLimit: null,
+          activeWebChatsCurrent: 0,
+          activeWebChatsLimit: null,
+          mediaStorageBytesUsed: BigInt(0),
+          mediaStorageBytesLimit: null,
+          lastComputedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      };
+    }
     const governance = await this.resolveGovernance(params.assistant.id);
     const limits = await this.resolveLimits(params.assistant, governance);
-    await this.workspaceQuotaAccountingRepository.incrementUsage({
+    const applied = await this.workspaceQuotaAccountingRepository.applyMediaStorageUsage({
       workspaceId: params.assistant.workspaceId,
       assistantId: params.assistant.id,
       userId: params.assistant.userId,
-      dimension: "media_storage_bytes",
       delta: params.sizeBytes,
       source: params.source,
       metadata: null,
       limits
     });
+    this.logMediaStorageCapIfNeeded(params.assistant.id, params.source, params.sizeBytes, applied);
+    return applied;
   }
 
   async consumeToolDailyLimit(params: {
@@ -317,5 +342,35 @@ export class TrackWorkspaceQuotaUsageService {
       mediaStorageBytesLimit:
         planQuotaHints.mediaStorageBytesLimit ?? BigInt(config.QUOTA_MEDIA_STORAGE_BYTES_DEFAULT)
     };
+  }
+
+  private logTokenBudgetCapIfNeeded(
+    assistantId: string,
+    source: string,
+    requestedDelta: bigint,
+    applied: ApplyTokenBudgetUsageResult
+  ): void {
+    if (!applied.capped) {
+      return;
+    }
+
+    console.warn(
+      `[quota] token budget capped for assistant ${assistantId} on ${source}: requested=${requestedDelta.toString()} applied=${applied.appliedDelta.toString()}`
+    );
+  }
+
+  private logMediaStorageCapIfNeeded(
+    assistantId: string,
+    source: string,
+    requestedDelta: bigint,
+    applied: ApplyMediaStorageUsageResult
+  ): void {
+    if (!applied.capped) {
+      return;
+    }
+
+    console.warn(
+      `[quota] media storage capped for assistant ${assistantId} on ${source}: requested=${requestedDelta.toString()} applied=${applied.appliedDelta.toString()}`
+    );
   }
 }
