@@ -3458,6 +3458,8 @@ components:
           type: string
         message:
           type: string
+        clientTurnId:
+          type: string
         title:
           type: string
           nullable: true

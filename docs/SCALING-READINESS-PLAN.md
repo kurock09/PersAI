@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR8` — Webhook and realtime burst hardening
-- `Current active sub-slice`: `SR8a` — Telegram webhook ingress retry/replay hardening
+- `Current active sub-slice`: `SR8b` — Combined webhook/realtime replay closure package
 - `Current phase`: Webhook/realtime burst hardening
 - `Next recommended slice after SR8`: `SR9` — Billing and quota correctness under concurrency
 - `Last closed slice`: `SR7` — Media pipeline capacity hardening (closed 2026-04-06 after bounded live burst observation with accepted residual on final capacity-envelope claims)
@@ -953,29 +953,40 @@ Observation window:
 Exit criteria:
 - burst behavior is measured and bounded
 
-#### SR8a — Telegram webhook ingress retry/replay hardening
+#### SR8b — Combined webhook/realtime replay closure package
 Outcome:
-- Telegram webhook ingress behaves predictably for duplicate deliveries and transient upstream failures before we move on to broader `SR8` fan-in seams
+- Telegram, web chat, and internal reminder callback ingress behave predictably under duplicate deliveries, replay, and transient retry conditions so `SR8` can be closed on one bounded combined package
 
 In scope:
 - Telegram internal turn replay/idempotency before quota/runtime work begins
+- OpenClaw runtime-side Telegram deduplicated no-op handling so duplicate updates do not emit `...`
 - atomic claim/release/complete handling for one `assistantId + updateId` path on the PersAI side
-- bounded duplicate suppression for same-update retries while one attempt is already in flight
+- web chat sync/stream replay protection keyed by one client-provided `clientTurnId`
+- bounded duplicate suppression for same logical web turn while one attempt is already in flight
+- reminder callback replay protection keyed by one logical cron-finished delivery identity
 - Telegram webhook proxy transient upstream timeout/error semantics so retry-worthy failures are not silently acknowledged as success
-- docs correction so `SR8` has an explicit first bounded sub-slice and truthful verification baseline
+- OpenClaw cron callback failure logging so non-2xx internal webhook completion does not masquerade as success
+- docs correction so `SR8` has one truthful final combined closure package and verification baseline
 
 Out of scope:
-- web stream client idempotency or SSE retry protocol redesign
 - quota/billing/accounting correctness under duplicated deliveries (`SR9`)
 - final burst-capacity envelope proof (`SR10`)
 - media preprocessing/offload changes (`SR7`)
 
 Primary files / domains:
 - `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-cron-fire.service.ts`
 - `apps/api/src/modules/workspace-management/interface/http/telegram-webhook-proxy.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
 - `apps/api/src/modules/workspace-management/domain/assistant-channel-surface-binding.repository.ts`
 - `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-channel-surface-binding.repository.ts`
-- focused API tests for Telegram internal turn replay handling and webhook proxy retry semantics
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/_components/use-chat.ts`
+- `openclaw/src/gateway/persai-runtime/persai-runtime-telegram.ts`
+- `openclaw/src/gateway/server-cron.ts`
+- focused API/OpenClaw tests for Telegram internal turn replay handling, web replay handling, reminder callback replay handling, and callback retry semantics
 - `docs/SCALING-READINESS-PLAN.md`
 - `docs/TEST-PLAN.md`
 - `docs/SESSION-HANDOFF.md`
@@ -984,34 +995,46 @@ Evidence required:
 - concurrent or repeated delivery of the same Telegram `updateId` does not start more than one runtime turn from PersAI
 - the replay guard is acquired before quota usage and runtime execution, not only after success is written back
 - failed attempts release or age out the in-flight claim so the same update is not deadlocked forever after one broken attempt
+- concurrent or repeated delivery of the same web `clientTurnId` does not create more than one persisted user-visible turn or more than one runtime execution
+- repeated delivery of the same logical reminder callback does not append more than one reminders-chat message or more than one Telegram reminder send
 - Telegram proxy timeout/network failures return a retry-worthy non-2xx response instead of a false success acknowledgement
 - transient `OpenClaw -> PersAI internal Telegram turn` failures are not converted into a successful webhook acknowledgment with fallback user text; retry-worthy internal-turn failures remain retry-worthy at the webhook boundary
-- docs do not overclaim that broader webhook/stream burst hardening is closed by this Telegram ingress package
+- OpenClaw cron webhook non-2xx completion is surfaced as failure in runtime logs instead of silent success
+- docs do not overclaim that quota/billing correctness (`SR9`) or final envelope proof (`SR10`) were solved by this combined replay package
 
 Verification:
 - `Tier 0`: `corepack pnpm --filter @persai/api run typecheck`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-turn.controller.test.ts`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/web run test -- app/app/assistant-api-client.test.ts`
+- `Tier 0`: `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/gateway/persai-runtime/persai-runtime-telegram.test.ts src/gateway/server-cron.test.ts`
+- `Tier 0`: `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
 
 Rollback / safe fallback:
-- revert the Telegram update-claim logic and proxy transient-error response change, falling back to the previous watermark-only dedupe plus `200 upstream_error` proxy behavior
+- revert the web/reminder replay claim logic and Telegram/OpenClaw retry semantics changes, falling back to the pre-`SR8b` behavior where duplicate retries could still create repeated user-visible work
 
 Removal / cleanup obligations:
-- if a later `SR8` or post-`SR8` pass introduces a more general inbox/queue/idempotency architecture, remove this metadata-claim stop-gap and document the new baseline
+- if a later `SR8` successor or post-`SR8` pass introduces a more general inbox/queue/idempotency architecture, remove this metadata-claim stop-gap and document the new baseline
 
 Deploy window:
-- API only
+- API plus OpenClaw runtime/gateway
 
 Observation window:
-- required; this sub-slice alone does not close all of `SR8`
+- required; this combined package is the final bounded `SR8` closure attempt and must be proven live before `SR9` opens
 
 Exit criteria:
 - same-update Telegram retries no longer create duplicate concurrent inbound turns on the PersAI side
 - duplicate suppression is bounded and recoverable after failure
+- same logical web turn keyed by `clientTurnId` no longer creates duplicate runtime work or duplicate persisted user-visible turns on replay/reconnect
+- same logical reminder callback no longer creates duplicate reminder fanout to web or Telegram
 - Telegram transient upstream failures are no longer silently acknowledged as successful webhook deliveries at the proxy layer
 - transient internal-turn failures no longer collapse into a false-success Telegram webhook completion on the runtime side
-- canon reflects this Telegram ingress package as the truthful active `SR8` sub-slice instead of leaving `SR8` unbounded
+- cron callback non-2xx completion is observable as runtime failure instead of false success
+- canon reflects this combined replay package as the truthful final `SR8` sub-slice instead of leaving `SR8` fragmented across undocumented follow-ups
 
 ### SR9 — Billing And Quota Correctness Under Concurrency
 Outcome:

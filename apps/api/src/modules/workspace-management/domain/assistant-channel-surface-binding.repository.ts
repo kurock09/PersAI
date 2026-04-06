@@ -22,6 +22,24 @@ export interface UpsertAssistantChannelSurfaceBindingInput {
   disconnectedAt: Date | null;
 }
 
+export type CompletedWebTurnReplayState = {
+  clientTurnId: string;
+  chatId: string;
+  userMessageId: string;
+  assistantMessageId: string;
+  respondedAt: string;
+  degradedByQuotaFallback: boolean;
+  quotaFallbackReason: string | null;
+  quotaFallbackModel: string | null;
+  completedAt: string;
+};
+
+export type CompletedReminderReplayState = {
+  replayKey: string;
+  deliveredTo: "telegram" | "web" | "fallback_web" | "none";
+  completedAt: string;
+};
+
 export interface AssistantChannelSurfaceBindingRepository {
   findByAssistantProviderSurface(
     assistantId: string,
@@ -49,6 +67,58 @@ export interface AssistantChannelSurfaceBindingRepository {
     providerKey: AssistantIntegrationProviderKey,
     surfaceType: AssistantIntegrationSurfaceType,
     updateId: number
+  ): Promise<void>;
+  claimWebTurnProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    clientTurnId: string,
+    claimedAt: Date,
+    staleAfterMs: number
+  ): Promise<"claimed" | "duplicate_handled" | "duplicate_inflight">;
+  getCompletedWebTurnProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    clientTurnId: string
+  ): Promise<CompletedWebTurnReplayState | null>;
+  completeWebTurnProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    state: CompletedWebTurnReplayState
+  ): Promise<void>;
+  releaseWebTurnProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    clientTurnId: string
+  ): Promise<void>;
+  claimReminderDeliveryProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    replayKey: string,
+    claimedAt: Date,
+    staleAfterMs: number
+  ): Promise<"claimed" | "duplicate_handled" | "duplicate_inflight">;
+  getCompletedReminderDeliveryProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    replayKey: string
+  ): Promise<CompletedReminderReplayState | null>;
+  completeReminderDeliveryProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    state: CompletedReminderReplayState
+  ): Promise<void>;
+  releaseReminderDeliveryProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    replayKey: string
   ): Promise<void>;
   patchMetadata(
     assistantId: string,

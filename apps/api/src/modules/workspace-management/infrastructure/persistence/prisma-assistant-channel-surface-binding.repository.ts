@@ -8,6 +8,8 @@ import type {
 } from "../../domain/assistant-channel-surface-binding.entity";
 import type {
   AssistantChannelSurfaceBindingRepository,
+  CompletedReminderReplayState,
+  CompletedWebTurnReplayState,
   UpsertAssistantChannelSurfaceBindingInput
 } from "../../domain/assistant-channel-surface-binding.repository";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
@@ -20,6 +22,12 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
   private static readonly TELEGRAM_ACTIVE_UPDATE_CLAIMED_AT_KEY = "telegramActiveUpdateClaimedAt";
   private static readonly TELEGRAM_LAST_HANDLED_UPDATE_ID_KEY = "telegramLastHandledUpdateId";
   private static readonly TELEGRAM_LAST_HANDLED_UPDATE_AT_KEY = "telegramLastHandledUpdateAt";
+  private static readonly WEB_ACTIVE_TURN_ID_KEY = "webActiveTurnId";
+  private static readonly WEB_ACTIVE_TURN_CLAIMED_AT_KEY = "webActiveTurnClaimedAt";
+  private static readonly WEB_LAST_COMPLETED_TURN_KEY = "webLastCompletedTurn";
+  private static readonly REMINDER_ACTIVE_REPLAY_KEY = "reminderActiveReplayKey";
+  private static readonly REMINDER_ACTIVE_REPLAY_CLAIMED_AT_KEY = "reminderActiveReplayClaimedAt";
+  private static readonly REMINDER_LAST_COMPLETED_REPLAY_KEY = "reminderLastCompletedReplay";
 
   private toNullableJsonInput(
     value: Record<string, unknown> | null
@@ -41,6 +49,195 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
     if (typeof value !== "string" || value.length === 0) return null;
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private readTrimmedString(value: unknown): string | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private readCompletedWebTurn(value: unknown): CompletedWebTurnReplayState | null {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const clientTurnId = this.readTrimmedString(row.clientTurnId);
+    const chatId = this.readTrimmedString(row.chatId);
+    const userMessageId = this.readTrimmedString(row.userMessageId);
+    const assistantMessageId = this.readTrimmedString(row.assistantMessageId);
+    const respondedAt = this.readTrimmedString(row.respondedAt);
+    const completedAt = this.readTrimmedString(row.completedAt);
+    if (
+      clientTurnId === null ||
+      chatId === null ||
+      userMessageId === null ||
+      assistantMessageId === null ||
+      respondedAt === null ||
+      completedAt === null
+    ) {
+      return null;
+    }
+    return {
+      clientTurnId,
+      chatId,
+      userMessageId,
+      assistantMessageId,
+      respondedAt,
+      degradedByQuotaFallback: row.degradedByQuotaFallback === true,
+      quotaFallbackReason: this.readTrimmedString(row.quotaFallbackReason),
+      quotaFallbackModel: this.readTrimmedString(row.quotaFallbackModel),
+      completedAt
+    };
+  }
+
+  private readCompletedReminderReplay(value: unknown): CompletedReminderReplayState | null {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const replayKey = this.readTrimmedString(row.replayKey);
+    const completedAt = this.readTrimmedString(row.completedAt);
+    const deliveredTo = row.deliveredTo;
+    if (
+      replayKey === null ||
+      completedAt === null ||
+      (deliveredTo !== "telegram" &&
+        deliveredTo !== "web" &&
+        deliveredTo !== "fallback_web" &&
+        deliveredTo !== "none")
+    ) {
+      return null;
+    }
+    return {
+      replayKey,
+      deliveredTo,
+      completedAt
+    };
+  }
+
+  private async claimStringProcessing(
+    tx: Prisma.TransactionClient,
+    params: {
+      assistantId: string;
+      providerKey: AssistantIntegrationProviderKey;
+      surfaceType: AssistantIntegrationSurfaceType;
+      activeKey: string;
+      activeClaimedAtKey: string;
+      completedKey: string;
+      identifier: string;
+      claimedAt: Date;
+      staleAfterMs: number;
+      readCompleted: (value: unknown) => { clientTurnId?: string; replayKey?: string } | null;
+    }
+  ): Promise<"claimed" | "duplicate_handled" | "duplicate_inflight"> {
+    const binding = await this.lockOrCreateBindingRow(
+      tx,
+      params.assistantId,
+      params.providerKey,
+      params.surfaceType
+    );
+    const metadata = binding.metadata;
+    const completed = params.readCompleted(metadata[params.completedKey]);
+    const completedId = completed?.clientTurnId ?? completed?.replayKey ?? null;
+    if (completedId === params.identifier) {
+      return "duplicate_handled";
+    }
+
+    const activeId = this.readTrimmedString(metadata[params.activeKey]);
+    const activeClaimedAt = this.readDate(metadata[params.activeClaimedAtKey]);
+    const activeClaimIsFresh =
+      activeId === params.identifier &&
+      activeClaimedAt !== null &&
+      params.claimedAt.getTime() - activeClaimedAt.getTime() < params.staleAfterMs;
+    if (activeClaimIsFresh) {
+      return "duplicate_inflight";
+    }
+
+    await tx.assistantChannelSurfaceBinding.update({
+      where: { id: binding.id },
+      data: {
+        metadata: {
+          ...metadata,
+          [params.activeKey]: params.identifier,
+          [params.activeClaimedAtKey]: params.claimedAt.toISOString()
+        } as Prisma.InputJsonValue
+      }
+    });
+    return "claimed";
+  }
+
+  private async completeStringProcessing(
+    tx: Prisma.TransactionClient,
+    params: {
+      assistantId: string;
+      providerKey: AssistantIntegrationProviderKey;
+      surfaceType: AssistantIntegrationSurfaceType;
+      activeKey: string;
+      activeClaimedAtKey: string;
+      completedKey: string;
+      identifier: string;
+      completedState: Record<string, unknown>;
+    }
+  ): Promise<void> {
+    const binding = await this.lockBindingRow(
+      tx,
+      params.assistantId,
+      params.providerKey,
+      params.surfaceType
+    );
+    if (!binding) {
+      return;
+    }
+    const metadata = { ...binding.metadata };
+    metadata[params.completedKey] = params.completedState;
+
+    const activeId = this.readTrimmedString(metadata[params.activeKey]);
+    if (activeId === params.identifier) {
+      delete metadata[params.activeKey];
+      delete metadata[params.activeClaimedAtKey];
+    }
+
+    await tx.assistantChannelSurfaceBinding.update({
+      where: { id: binding.id },
+      data: { metadata: metadata as Prisma.InputJsonValue }
+    });
+  }
+
+  private async releaseStringProcessing(
+    tx: Prisma.TransactionClient,
+    params: {
+      assistantId: string;
+      providerKey: AssistantIntegrationProviderKey;
+      surfaceType: AssistantIntegrationSurfaceType;
+      activeKey: string;
+      activeClaimedAtKey: string;
+      identifier: string;
+    }
+  ): Promise<void> {
+    const binding = await this.lockBindingRow(
+      tx,
+      params.assistantId,
+      params.providerKey,
+      params.surfaceType
+    );
+    if (!binding) {
+      return;
+    }
+
+    const metadata = { ...binding.metadata };
+    const activeId = this.readTrimmedString(metadata[params.activeKey]);
+    if (activeId !== params.identifier) {
+      return;
+    }
+    delete metadata[params.activeKey];
+    delete metadata[params.activeClaimedAtKey];
+    await tx.assistantChannelSurfaceBinding.update({
+      where: { id: binding.id },
+      data: { metadata: metadata as Prisma.InputJsonValue }
+    });
   }
 
   private async lockBindingRow(
@@ -290,6 +487,180 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
         data: { metadata: metadata as Prisma.InputJsonValue }
       });
     });
+  }
+
+  async claimWebTurnProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    clientTurnId: string,
+    claimedAt: Date,
+    staleAfterMs: number
+  ): Promise<"claimed" | "duplicate_handled" | "duplicate_inflight"> {
+    return this.prisma.$transaction((tx) =>
+      this.claimStringProcessing(tx, {
+        assistantId,
+        providerKey,
+        surfaceType,
+        activeKey: PrismaAssistantChannelSurfaceBindingRepository.WEB_ACTIVE_TURN_ID_KEY,
+        activeClaimedAtKey:
+          PrismaAssistantChannelSurfaceBindingRepository.WEB_ACTIVE_TURN_CLAIMED_AT_KEY,
+        completedKey: PrismaAssistantChannelSurfaceBindingRepository.WEB_LAST_COMPLETED_TURN_KEY,
+        identifier: clientTurnId,
+        claimedAt,
+        staleAfterMs,
+        readCompleted: (value) => this.readCompletedWebTurn(value)
+      })
+    );
+  }
+
+  async getCompletedWebTurnProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    clientTurnId: string
+  ): Promise<CompletedWebTurnReplayState | null> {
+    const binding = await this.findByAssistantProviderSurface(
+      assistantId,
+      providerKey,
+      surfaceType
+    );
+    if (!binding) {
+      return null;
+    }
+    const metadata = this.toMetadataRecord(binding.metadata);
+    const completed = this.readCompletedWebTurn(
+      metadata[PrismaAssistantChannelSurfaceBindingRepository.WEB_LAST_COMPLETED_TURN_KEY]
+    );
+    return completed?.clientTurnId === clientTurnId ? completed : null;
+  }
+
+  async completeWebTurnProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    state: CompletedWebTurnReplayState
+  ): Promise<void> {
+    await this.prisma.$transaction((tx) =>
+      this.completeStringProcessing(tx, {
+        assistantId,
+        providerKey,
+        surfaceType,
+        activeKey: PrismaAssistantChannelSurfaceBindingRepository.WEB_ACTIVE_TURN_ID_KEY,
+        activeClaimedAtKey:
+          PrismaAssistantChannelSurfaceBindingRepository.WEB_ACTIVE_TURN_CLAIMED_AT_KEY,
+        completedKey: PrismaAssistantChannelSurfaceBindingRepository.WEB_LAST_COMPLETED_TURN_KEY,
+        identifier: state.clientTurnId,
+        completedState: state
+      })
+    );
+  }
+
+  async releaseWebTurnProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    clientTurnId: string
+  ): Promise<void> {
+    await this.prisma.$transaction((tx) =>
+      this.releaseStringProcessing(tx, {
+        assistantId,
+        providerKey,
+        surfaceType,
+        activeKey: PrismaAssistantChannelSurfaceBindingRepository.WEB_ACTIVE_TURN_ID_KEY,
+        activeClaimedAtKey:
+          PrismaAssistantChannelSurfaceBindingRepository.WEB_ACTIVE_TURN_CLAIMED_AT_KEY,
+        identifier: clientTurnId
+      })
+    );
+  }
+
+  async claimReminderDeliveryProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    replayKey: string,
+    claimedAt: Date,
+    staleAfterMs: number
+  ): Promise<"claimed" | "duplicate_handled" | "duplicate_inflight"> {
+    return this.prisma.$transaction((tx) =>
+      this.claimStringProcessing(tx, {
+        assistantId,
+        providerKey,
+        surfaceType,
+        activeKey: PrismaAssistantChannelSurfaceBindingRepository.REMINDER_ACTIVE_REPLAY_KEY,
+        activeClaimedAtKey:
+          PrismaAssistantChannelSurfaceBindingRepository.REMINDER_ACTIVE_REPLAY_CLAIMED_AT_KEY,
+        completedKey:
+          PrismaAssistantChannelSurfaceBindingRepository.REMINDER_LAST_COMPLETED_REPLAY_KEY,
+        identifier: replayKey,
+        claimedAt,
+        staleAfterMs,
+        readCompleted: (value) => this.readCompletedReminderReplay(value)
+      })
+    );
+  }
+
+  async getCompletedReminderDeliveryProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    replayKey: string
+  ): Promise<CompletedReminderReplayState | null> {
+    const binding = await this.findByAssistantProviderSurface(
+      assistantId,
+      providerKey,
+      surfaceType
+    );
+    if (!binding) {
+      return null;
+    }
+    const metadata = this.toMetadataRecord(binding.metadata);
+    const completed = this.readCompletedReminderReplay(
+      metadata[PrismaAssistantChannelSurfaceBindingRepository.REMINDER_LAST_COMPLETED_REPLAY_KEY]
+    );
+    return completed?.replayKey === replayKey ? completed : null;
+  }
+
+  async completeReminderDeliveryProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    state: CompletedReminderReplayState
+  ): Promise<void> {
+    await this.prisma.$transaction((tx) =>
+      this.completeStringProcessing(tx, {
+        assistantId,
+        providerKey,
+        surfaceType,
+        activeKey: PrismaAssistantChannelSurfaceBindingRepository.REMINDER_ACTIVE_REPLAY_KEY,
+        activeClaimedAtKey:
+          PrismaAssistantChannelSurfaceBindingRepository.REMINDER_ACTIVE_REPLAY_CLAIMED_AT_KEY,
+        completedKey:
+          PrismaAssistantChannelSurfaceBindingRepository.REMINDER_LAST_COMPLETED_REPLAY_KEY,
+        identifier: state.replayKey,
+        completedState: state
+      })
+    );
+  }
+
+  async releaseReminderDeliveryProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    replayKey: string
+  ): Promise<void> {
+    await this.prisma.$transaction((tx) =>
+      this.releaseStringProcessing(tx, {
+        assistantId,
+        providerKey,
+        surfaceType,
+        activeKey: PrismaAssistantChannelSurfaceBindingRepository.REMINDER_ACTIVE_REPLAY_KEY,
+        activeClaimedAtKey:
+          PrismaAssistantChannelSurfaceBindingRepository.REMINDER_ACTIVE_REPLAY_CLAIMED_AT_KEY,
+        identifier: replayKey
+      })
+    );
   }
 
   async patchMetadata(

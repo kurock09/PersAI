@@ -4,6 +4,15 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import {
+  ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
+  type AssistantChatMessageAttachmentRepository
+} from "../domain/assistant-chat-message-attachment.repository";
+import {
+  ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
+  type AssistantChannelSurfaceBindingRepository,
+  type CompletedWebTurnReplayState
+} from "../domain/assistant-channel-surface-binding.repository";
+import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
@@ -12,9 +21,13 @@ import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.se
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatTurnState } from "./web-chat.types";
 import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-turn.service";
-import { toAssistantInboundHttpException } from "./assistant-inbound-error";
+import {
+  createAssistantInboundConflict,
+  toAssistantInboundHttpException
+} from "./assistant-inbound-error";
 import { InboundMediaService } from "./media/inbound-media.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
+import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
@@ -32,9 +45,16 @@ export interface SendWebChatTurnRequest {
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  clientTurnId?: string;
   welcomeTurn?: boolean;
   welcomeLocale?: string;
 }
+
+const WEB_TURN_PROVIDER_KEY = "web_internal";
+const WEB_TURN_SURFACE_TYPE = "web_chat";
+const WEB_TURN_CLAIM_STALE_MS = 120_000;
+const WEB_TURN_REPLAY_WAIT_MS = 12_000;
+const WEB_TURN_REPLAY_POLL_MS = 250;
 
 function normalizeOptionalTitle(value: unknown): string | null | undefined {
   if (value === undefined) {
@@ -52,6 +72,40 @@ function normalizeOptionalTitle(value: unknown): string | null | undefined {
   return value.trim();
 }
 
+function normalizeOptionalClientTurnId(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new BadRequestException("clientTurnId must be a non-empty string or omitted.");
+  }
+  return value.trim();
+}
+
+function toAttachmentState(attachment: {
+  id: string;
+  attachmentType: string;
+  originalFilename: string | null;
+  mimeType: string;
+  sizeBytes: bigint;
+  processingStatus: string;
+  createdAt: Date;
+}) {
+  return {
+    id: attachment.id,
+    attachmentType: attachment.attachmentType,
+    originalFilename: attachment.originalFilename,
+    mimeType: attachment.mimeType,
+    sizeBytes: Number(attachment.sizeBytes),
+    processingStatus: attachment.processingStatus,
+    createdAt: attachment.createdAt.toISOString()
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 @Injectable()
 export class SendWebChatTurnService {
   private readonly logger = new Logger(SendWebChatTurnService.name);
@@ -59,9 +113,14 @@ export class SendWebChatTurnService {
   constructor(
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
+    @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
+    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
+    @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
+    private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
     private readonly prepareAssistantInboundTurnService: PrepareAssistantInboundTurnService,
+    private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly inboundMediaService: InboundMediaService,
@@ -77,6 +136,7 @@ export class SendWebChatTurnService {
     const surfaceThreadKey = body.surfaceThreadKey;
     const message = body.message;
     const title = normalizeOptionalTitle(body.title);
+    const clientTurnId = normalizeOptionalClientTurnId(body.clientTurnId);
     const welcomeTurn = body.welcomeTurn === true;
 
     if (typeof surfaceThreadKey !== "string" || surfaceThreadKey.trim().length === 0) {
@@ -93,6 +153,7 @@ export class SendWebChatTurnService {
       surfaceThreadKey: surfaceThreadKey.trim(),
       message: welcomeTurn ? WELCOME_TURN_SENTINEL : (message as string).trim(),
       ...(title !== undefined ? { title } : {}),
+      ...(clientTurnId !== undefined ? { clientTurnId } : {}),
       ...(welcomeTurn ? { welcomeTurn: true } : {}),
       ...(welcomeLocale !== undefined ? { welcomeLocale } : {})
     };
@@ -102,100 +163,252 @@ export class SendWebChatTurnService {
     userId: string,
     request: SendWebChatTurnRequest
   ): Promise<AssistantWebChatTurnState> {
-    const prepared = await this.prepareAssistantInboundTurnService.execute({
-      userId,
-      surface: "web_chat",
-      surfaceThreadKey: request.surfaceThreadKey,
-      message: request.message,
-      ...(request.title !== undefined ? { title: request.title } : {})
-    });
+    const replayTransport = await this.claimOrReplayWebTurn(userId, request.clientTurnId);
+    if (replayTransport !== null) {
+      return replayTransport;
+    }
+    let preparedAssistantId: string | null = null;
+    try {
+      const prepared = await this.prepareAssistantInboundTurnService.execute({
+        userId,
+        surface: "web_chat",
+        surfaceThreadKey: request.surfaceThreadKey,
+        message: request.message,
+        ...(request.title !== undefined ? { title: request.title } : {})
+      });
+      preparedAssistantId = prepared.assistantId;
 
-    const attachmentContext =
-      await this.inboundMediaService.buildContextForCurrentMessageAttachments(
-        prepared.userMessage.id
-      );
-    const enrichedUserMessage = attachmentContext
-      ? `${attachmentContext}\n${prepared.userMessage.content}`
-      : prepared.userMessage.content;
+      const attachmentContext =
+        await this.inboundMediaService.buildContextForCurrentMessageAttachments(
+          prepared.userMessage.id
+        );
+      const enrichedUserMessage = attachmentContext
+        ? `${attachmentContext}\n${prepared.userMessage.content}`
+        : prepared.userMessage.content;
 
-    const runtimeResponse = await this.assistantRuntimeAdapter
-      .sendWebChatTurn({
-        assistantId: prepared.assistantId,
-        publishedVersionId: prepared.publishedVersionId,
-        runtimeTier: prepared.runtimeTier,
-        ...(prepared.quotaDegradeModelOverride
-          ? {
-              providerOverride: prepared.quotaDegradeModelOverride.provider,
-              modelOverride: prepared.quotaDegradeModelOverride.model
-            }
-          : {}),
+      const runtimeResponse = await this.assistantRuntimeAdapter
+        .sendWebChatTurn({
+          assistantId: prepared.assistantId,
+          publishedVersionId: prepared.publishedVersionId,
+          runtimeTier: prepared.runtimeTier,
+          ...(prepared.quotaDegradeModelOverride
+            ? {
+                providerOverride: prepared.quotaDegradeModelOverride.provider,
+                modelOverride: prepared.quotaDegradeModelOverride.model
+              }
+            : {}),
+          chatId: prepared.chat.id,
+          surfaceThreadKey: prepared.chat.surfaceThreadKey,
+          userMessageId: prepared.userMessage.id,
+          userMessage: enrichedUserMessage,
+          userTimezone: prepared.workspaceTimezone,
+          currentTimeIso: new Date().toISOString()
+        })
+        .catch((error: unknown) => {
+          throw toAssistantInboundHttpException(error);
+        });
+
+      const assistantMessage = await this.assistantChatRepository.createMessage({
         chatId: prepared.chat.id,
-        surfaceThreadKey: prepared.chat.surfaceThreadKey,
-        userMessageId: prepared.userMessage.id,
-        userMessage: enrichedUserMessage,
-        userTimezone: prepared.workspaceTimezone,
-        currentTimeIso: new Date().toISOString()
-      })
-      .catch((error: unknown) => {
-        throw toAssistantInboundHttpException(error);
+        assistantId: prepared.assistantId,
+        author: "assistant",
+        content: runtimeResponse.assistantMessage
       });
 
-    const assistantMessage = await this.assistantChatRepository.createMessage({
-      chatId: prepared.chat.id,
-      assistantId: prepared.assistantId,
-      author: "assistant",
-      content: runtimeResponse.assistantMessage
-    });
+      const delivered = await this.mediaDeliveryService.deliver({
+        artifacts: runtimeResponse.media.map((m) => ({
+          url: m.url,
+          type: m.type,
+          audioAsVoice: m.audioAsVoice
+        })),
+        channel: "web",
+        assistantId: prepared.assistantId,
+        chatId: prepared.chat.id,
+        messageId: assistantMessage.id,
+        workspaceId: prepared.assistant.workspaceId
+      });
 
-    const delivered = await this.mediaDeliveryService.deliver({
-      artifacts: runtimeResponse.media.map((m) => ({
-        url: m.url,
-        type: m.type,
-        audioAsVoice: m.audioAsVoice
-      })),
-      channel: "web",
-      assistantId: prepared.assistantId,
-      chatId: prepared.chat.id,
-      messageId: assistantMessage.id,
-      workspaceId: prepared.assistant.workspaceId
-    });
+      await this.recordWebChatMemoryTurnService.execute({
+        assistantId: prepared.assistantId,
+        userId: prepared.userId,
+        workspaceId: prepared.workspaceId,
+        chatId: prepared.chat.id,
+        userMessageId: prepared.userMessage.id,
+        assistantMessageId: assistantMessage.id,
+        userContent: prepared.userMessage.content,
+        assistantContent: runtimeResponse.assistantMessage,
+        memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
+      });
+      await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
+        assistant: prepared.assistant,
+        userContent: prepared.userMessage.content,
+        assistantContent: assistantMessage.content,
+        source: "web_chat_turn_sync"
+      });
+      await this.consumeBootstrapBestEffort(prepared.assistantId);
 
-    await this.recordWebChatMemoryTurnService.execute({
-      assistantId: prepared.assistantId,
-      userId: prepared.userId,
-      workspaceId: prepared.workspaceId,
-      chatId: prepared.chat.id,
-      userMessageId: prepared.userMessage.id,
-      assistantMessageId: assistantMessage.id,
-      userContent: prepared.userMessage.content,
-      assistantContent: runtimeResponse.assistantMessage,
-      memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
-    });
-    await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
-      assistant: prepared.assistant,
-      userContent: prepared.userMessage.content,
-      assistantContent: assistantMessage.content,
-      source: "web_chat_turn_sync"
-    });
-    await this.consumeBootstrapBestEffort(prepared.assistantId);
+      if (request.clientTurnId !== undefined) {
+        await this.bindingRepository.completeWebTurnProcessing(
+          prepared.assistantId,
+          WEB_TURN_PROVIDER_KEY,
+          WEB_TURN_SURFACE_TYPE,
+          {
+            clientTurnId: request.clientTurnId,
+            chatId: prepared.chat.id,
+            userMessageId: prepared.userMessage.id,
+            assistantMessageId: assistantMessage.id,
+            respondedAt: runtimeResponse.respondedAt,
+            degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
+            quotaFallbackReason: prepared.quotaDegradeReason,
+            quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+            completedAt: new Date().toISOString()
+          }
+        );
+      }
+
+      return {
+        chat: prepared.chat,
+        userMessage: prepared.userMessage,
+        assistantMessage: {
+          id: assistantMessage.id,
+          chatId: assistantMessage.chatId,
+          assistantId: assistantMessage.assistantId,
+          author: assistantMessage.author,
+          content: assistantMessage.content,
+          attachments: delivered.attachments,
+          createdAt: assistantMessage.createdAt.toISOString()
+        },
+        runtime: {
+          respondedAt: runtimeResponse.respondedAt,
+          degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
+          quotaFallbackReason: prepared.quotaDegradeReason,
+          quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null
+        }
+      };
+    } catch (error) {
+      if (request.clientTurnId !== undefined && preparedAssistantId !== null) {
+        await this.bindingRepository.releaseWebTurnProcessing(
+          preparedAssistantId,
+          WEB_TURN_PROVIDER_KEY,
+          WEB_TURN_SURFACE_TYPE,
+          request.clientTurnId
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async claimOrReplayWebTurn(
+    userId: string,
+    clientTurnId: string | undefined
+  ): Promise<AssistantWebChatTurnState | null> {
+    if (clientTurnId === undefined) {
+      return null;
+    }
+    const resolved =
+      await this.resolveAssistantInboundRuntimeContextService.resolveByUserId(userId);
+    const claim = await this.bindingRepository.claimWebTurnProcessing(
+      resolved.assistantId,
+      WEB_TURN_PROVIDER_KEY,
+      WEB_TURN_SURFACE_TYPE,
+      clientTurnId,
+      new Date(),
+      WEB_TURN_CLAIM_STALE_MS
+    );
+    if (claim === "claimed") {
+      return null;
+    }
+
+    if (claim === "duplicate_handled") {
+      const completed = await this.bindingRepository.getCompletedWebTurnProcessing(
+        resolved.assistantId,
+        WEB_TURN_PROVIDER_KEY,
+        WEB_TURN_SURFACE_TYPE,
+        clientTurnId
+      );
+      return completed ? this.rebuildStoredWebTurnState(resolved.assistantId, completed) : null;
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < WEB_TURN_REPLAY_WAIT_MS) {
+      const completed = await this.bindingRepository.getCompletedWebTurnProcessing(
+        resolved.assistantId,
+        WEB_TURN_PROVIDER_KEY,
+        WEB_TURN_SURFACE_TYPE,
+        clientTurnId
+      );
+      if (completed !== null) {
+        return this.rebuildStoredWebTurnState(resolved.assistantId, completed);
+      }
+      await delay(WEB_TURN_REPLAY_POLL_MS);
+    }
+
+    throw createAssistantInboundConflict(
+      "web_turn_inflight",
+      "This web turn is already being processed."
+    );
+  }
+
+  private async rebuildStoredWebTurnState(
+    assistantId: string,
+    state: CompletedWebTurnReplayState
+  ): Promise<AssistantWebChatTurnState> {
+    const chat = await this.assistantChatRepository.findChatById(state.chatId);
+    const userMessage = await this.assistantChatRepository.findMessageByIdForAssistant(
+      state.userMessageId,
+      assistantId
+    );
+    const assistantMessage = await this.assistantChatRepository.findMessageByIdForAssistant(
+      state.assistantMessageId,
+      assistantId
+    );
+    if (chat === null || userMessage === null || assistantMessage === null) {
+      throw new BadRequestException("Stored web turn replay state is incomplete.");
+    }
+
+    const [userAttachments, assistantAttachments] = await Promise.all([
+      this.attachmentRepository.listByMessageId(userMessage.id),
+      this.attachmentRepository.listByMessageId(assistantMessage.id)
+    ]);
 
     return {
-      chat: prepared.chat,
-      userMessage: prepared.userMessage,
+      chat: {
+        id: chat.id,
+        assistantId: chat.assistantId,
+        surface: chat.surface,
+        surfaceThreadKey: chat.surfaceThreadKey,
+        title: chat.title,
+        archivedAt: chat.archivedAt?.toISOString() ?? null,
+        lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
+        createdAt: chat.createdAt.toISOString(),
+        updatedAt: chat.updatedAt.toISOString()
+      },
+      userMessage: {
+        id: userMessage.id,
+        chatId: userMessage.chatId,
+        assistantId: userMessage.assistantId,
+        author: userMessage.author,
+        content: userMessage.content,
+        attachments: userAttachments.map((attachment) => toAttachmentState(attachment)),
+        createdAt: userMessage.createdAt.toISOString()
+      },
       assistantMessage: {
         id: assistantMessage.id,
         chatId: assistantMessage.chatId,
         assistantId: assistantMessage.assistantId,
         author: assistantMessage.author,
         content: assistantMessage.content,
-        attachments: delivered.attachments,
+        attachments: assistantAttachments.map((attachment) => toAttachmentState(attachment)),
         createdAt: assistantMessage.createdAt.toISOString()
       },
       runtime: {
-        respondedAt: runtimeResponse.respondedAt,
-        degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
-        quotaFallbackReason: prepared.quotaDegradeReason,
-        quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null
+        respondedAt: state.respondedAt,
+        degradedByQuotaFallback: state.degradedByQuotaFallback,
+        quotaFallbackReason:
+          state.quotaFallbackReason === "token_budget_limit_reached"
+            ? "token_budget_limit_reached"
+            : null,
+        quotaFallbackModel: state.quotaFallbackModel
       }
     };
   }

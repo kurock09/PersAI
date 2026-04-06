@@ -833,7 +833,7 @@ export class AssistantController {
   ): Promise<void> {
     const userId = this.resolveRequestUserId(req);
     const input = this.sendWebChatTurnService.parseInput(body);
-    const prepared = await this.streamWebChatTurnService.prepare(userId, input);
+    const preparation = await this.streamWebChatTurnService.prepare(userId, input);
 
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -857,6 +857,13 @@ export class AssistantController {
       }
     };
 
+    if (preparation.mode === "replayed") {
+      sendSse("completed", { transport: preparation.transport });
+      res.end();
+      return;
+    }
+
+    const prepared = preparation.prepared;
     sendSse("started", {
       requestId: req.requestId ?? null,
       chat: prepared.chat,

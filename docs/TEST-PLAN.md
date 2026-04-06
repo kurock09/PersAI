@@ -1017,27 +1017,34 @@ Required in CI:
   - that quota or billing correctness under concurrency is solved (`SR9`)
   - that the whole media pipeline is now capacity-safe under burst without further live observation
 
-## SR8a Telegram webhook ingress retry/replay baseline
+## SR8b Combined webhook/realtime replay closure baseline
 
-- This bounded `SR8a` pass covers one concrete webhook/realtime idempotency seam:
+- This bounded `SR8b` pass covers the remaining replay/idempotency seams needed for one final `SR8` closure attempt:
   - the same Telegram `updateId` could still pass through PersAI more than once when duplicate or retried webhook deliveries overlapped before the old watermark-only dedupe was written back
-- the Telegram webhook proxy could still return `200` on transient upstream timeout/network failure, causing retry-worthy ingress failure to be acknowledged as success
+  - the same logical web turn could still create a second runtime turn when client retry/reconnect resent the same request
+  - the same logical internal reminder callback could still fan out a duplicate reminder to web or Telegram
 - Acceptance for this sub-slice:
-  - PersAI claims one `assistantId + updateId` before quota/runtime work starts, so concurrent retries of the same update do not fan out into duplicate inbound turns
-  - successful completion advances the handled watermark and clears the in-flight claim
-  - failed attempts release or age out the in-flight claim so the same update is not deadlocked forever after one broken run
+  - PersAI claims one `assistantId + updateId` before Telegram quota/runtime work starts, so concurrent retries of the same update do not fan out into duplicate inbound turns
+  - PersAI claims one web `clientTurnId` before web user-message creation/runtime execution, so replay/reconnect does not create a second user-visible turn
+  - PersAI claims one logical reminder replay key before reminder fanout, so repeated callback delivery does not append/send duplicate reminders
+  - successful completion advances the handled/completed replay marker and clears the in-flight claim
+  - failed attempts release or age out the in-flight claim so the same logical delivery is not deadlocked forever after one broken run
 - transient Telegram proxy timeout/network failure returns a retry-worthy non-2xx response instead of silent `200` success
 - transient `OpenClaw -> PersAI internal Telegram turn` failures are treated as retry-worthy webhook failures instead of being rendered to the user and acknowledged as successful webhook completion
-- canonical docs reflect this Telegram ingress seam as the active `SR8` sub-slice instead of leaving `SR8` unbounded
+- OpenClaw cron webhook non-2xx completion is surfaced as runtime failure in logs instead of being silently treated as success
 - Minimum verification for this sub-slice:
   - `corepack pnpm --filter @persai/api run typecheck`
   - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-turn.controller.test.ts`
-- `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
-- `SR8a` does NOT prove:
-  - that web stream retries or client reconnect behavior are fully idempotent across the whole SSE transport
-  - that internal callback/reminder delivery fan-in is fully bounded under burst
-  - that duplicated runtime work can no longer affect quota/billing correctness in every other path (`SR9`)
+  - `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
+  - `corepack pnpm --filter @persai/web run test -- app/app/assistant-api-client.test.ts`
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/gateway/persai-runtime/persai-runtime-telegram.test.ts src/gateway/server-cron.test.ts`
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `SR8b` does NOT prove:
+  - that quota/billing correctness under all duplicated-runtime side effects is globally solved (`SR9`)
   - that the final webhook/realtime burst envelope is proven (`SR10`)
 
 ## SR6c workspace quota measurement fail-safe baseline

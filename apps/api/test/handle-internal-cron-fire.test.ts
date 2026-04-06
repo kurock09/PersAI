@@ -4,6 +4,12 @@ import { ApiErrorHttpException } from "../src/modules/platform-core/interface/ht
 
 async function runWebDeliveryArtifactTest(): Promise<void> {
   const deliveredMessages: string[] = [];
+  const bindingRepository = {
+    claimReminderDeliveryProcessing: async () => "claimed",
+    getCompletedReminderDeliveryProcessing: async () => null,
+    completeReminderDeliveryProcessing: async () => undefined,
+    releaseReminderDeliveryProcessing: async () => undefined
+  };
 
   const prisma = {
     assistant: {
@@ -67,6 +73,7 @@ async function runWebDeliveryArtifactTest(): Promise<void> {
         return { code: "ok", text: "rendered" };
       }
     } as never,
+    bindingRepository as never,
     assistantChatRepository as never
   );
 
@@ -143,6 +150,12 @@ async function runTelegramTaskTargetTest(): Promise<void> {
       findOrCreateChatBySurfaceThread: async () => ({ id: "chat-1" }),
       createMessage: async () => ({ id: "message-1" })
     };
+    const bindingRepository = {
+      claimReminderDeliveryProcessing: async () => "claimed",
+      getCompletedReminderDeliveryProcessing: async () => null,
+      completeReminderDeliveryProcessing: async () => undefined,
+      releaseReminderDeliveryProcessing: async () => undefined
+    };
 
     const service = new HandleInternalCronFireService(
       prisma as never,
@@ -168,6 +181,7 @@ async function runTelegramTaskTargetTest(): Promise<void> {
           return { code: "ok", text: "rendered" };
         }
       } as never,
+      bindingRepository as never,
       assistantChatRepository as never
     );
 
@@ -190,6 +204,12 @@ async function runTelegramTaskTargetTest(): Promise<void> {
 
 async function runQuotaRenderedFallbackTest(): Promise<void> {
   const deliveredMessages: string[] = [];
+  const bindingRepository = {
+    claimReminderDeliveryProcessing: async () => "claimed",
+    getCompletedReminderDeliveryProcessing: async () => null,
+    completeReminderDeliveryProcessing: async () => undefined,
+    releaseReminderDeliveryProcessing: async () => undefined
+  };
   const prisma = {
     assistant: {
       findUnique: async () => ({
@@ -237,6 +257,7 @@ async function runQuotaRenderedFallbackTest(): Promise<void> {
         };
       }
     } as never,
+    bindingRepository as never,
     {
       findChatBySurfaceThread: async () => null,
       createChat: async () => ({ id: "chat-1" }),
@@ -262,10 +283,142 @@ async function runQuotaRenderedFallbackTest(): Promise<void> {
   ]);
 }
 
+async function runReminderReplayDedupTest(): Promise<void> {
+  const deliveredMessages: string[] = [];
+  const replayStates = new Map<
+    string,
+    {
+      active?: string;
+      completed?: { replayKey: string; deliveredTo: "telegram" | "web" | "fallback_web" | "none" };
+    }
+  >();
+  const key = "assistant-1:system_notifications:system_notification";
+  const prisma = {
+    assistant: {
+      findUnique: async () => ({
+        id: "assistant-1",
+        userId: "user-1",
+        workspaceId: "ws-1",
+        preferredNotificationChannel: "web" as const,
+        channelSurfaceBindings: []
+      })
+    },
+    assistantTaskRegistryItem: {
+      deleteMany: async () => ({ count: 1 }),
+      updateMany: async () => ({ count: 0 })
+    },
+    assistantChannelSurfaceBinding: {
+      findFirst: async () => null,
+      update: async () => ({})
+    }
+  };
+
+  const bindingRepository = {
+    claimReminderDeliveryProcessing: async (
+      _assistantId: string,
+      _providerKey: string,
+      _surfaceType: string,
+      replayKey: string
+    ) => {
+      const state = replayStates.get(key) ?? {};
+      if (state.completed?.replayKey === replayKey) return "duplicate_handled";
+      if (state.active === replayKey) return "duplicate_inflight";
+      replayStates.set(key, { ...state, active: replayKey });
+      return "claimed";
+    },
+    getCompletedReminderDeliveryProcessing: async (
+      _assistantId: string,
+      _providerKey: string,
+      _surfaceType: string,
+      replayKey: string
+    ) => {
+      const state = replayStates.get(key);
+      return state?.completed?.replayKey === replayKey
+        ? {
+            replayKey,
+            deliveredTo: state.completed.deliveredTo,
+            completedAt: "2026-04-06T00:00:00.000Z"
+          }
+        : null;
+    },
+    completeReminderDeliveryProcessing: async (
+      _assistantId: string,
+      _providerKey: string,
+      _surfaceType: string,
+      state: { replayKey: string; deliveredTo: "telegram" | "web" | "fallback_web" | "none" }
+    ) => {
+      replayStates.set(key, { completed: state });
+    },
+    releaseReminderDeliveryProcessing: async () => undefined
+  };
+
+  const service = new HandleInternalCronFireService(
+    prisma as never,
+    {
+      resolveSecretValueByProviderKey: async () => null
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return {
+          assistant: {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "ws-1"
+          }
+        };
+      }
+    } as never,
+    {
+      async enforceInboundTurn() {
+        return;
+      }
+    } as never,
+    {
+      renderError() {
+        return { code: "ok", text: "rendered" };
+      }
+    } as never,
+    bindingRepository as never,
+    {
+      findChatBySurfaceThread: async () => null,
+      createChat: async () => ({ id: "chat-1" }),
+      findOrCreateChatBySurfaceThread: async () => ({ id: "chat-1" }),
+      createMessage: async (input: { content: string }) => {
+        deliveredMessages.push(input.content);
+        return { id: "message-1" };
+      }
+    } as never
+  );
+
+  const first = await service.execute({
+    assistantId: "assistant-1",
+    jobId: "job-1",
+    action: "finished",
+    status: "ok",
+    sessionId: "cron-run-1",
+    runAtMs: 1712352000000,
+    summary: "Пора спать!"
+  });
+  const second = await service.execute({
+    assistantId: "assistant-1",
+    jobId: "job-1",
+    action: "finished",
+    status: "ok",
+    sessionId: "cron-run-1",
+    runAtMs: 1712352000000,
+    summary: "Пора спать!"
+  });
+
+  assert.equal(first.deliveredTo, "web");
+  assert.equal(second.deliveredTo, "web");
+  assert.deepEqual(deliveredMessages, ["Пора спать!"]);
+}
+
 async function run(): Promise<void> {
   await runWebDeliveryArtifactTest();
   await runTelegramTaskTargetTest();
   await runQuotaRenderedFallbackTest();
+  await runReminderReplayDedupTest();
   console.log("handle-internal-cron-fire tests passed");
 }
 

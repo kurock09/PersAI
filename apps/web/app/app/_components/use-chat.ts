@@ -36,6 +36,12 @@ export type ChatEntry =
   | { kind: "message"; message: ChatMessage }
   | { kind: "activity"; event: ActivityEvent };
 
+function createClientTurnId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ?? `turn-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+}
+
 export interface UseChatReturn {
   entries: ChatEntry[];
   messages: ChatMessage[];
@@ -158,6 +164,7 @@ export function useChat(threadKey: string): UseChatReturn {
 
       const userMsgId = `local-user-${Date.now()}`;
       const assistantMsgId = `local-assistant-${Date.now()}`;
+      const clientTurnId = createClientTurnId();
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -252,7 +259,7 @@ export function useChat(threadKey: string): UseChatReturn {
       try {
         await streamAssistantWebChatTurn(
           token,
-          { surfaceThreadKey: threadKey, message: trimmed },
+          { surfaceThreadKey: threadKey, message: trimmed, clientTurnId },
           {
             onStarted: ({ chat }) => {
               const c = chat as { id?: string } | null;
@@ -452,6 +459,7 @@ export function useChat(threadKey: string): UseChatReturn {
       }
 
       const assistantMsgId = `local-assistant-welcome-${Date.now()}`;
+      const clientTurnId = createClientTurnId();
       const controller = new AbortController();
       abortRef.current = controller;
       setIsStreaming(true);
@@ -485,6 +493,7 @@ export function useChat(threadKey: string): UseChatReturn {
           {
             surfaceThreadKey: WELCOME_THREAD_KEY,
             message: "",
+            clientTurnId,
             title: locale === "ru" ? "Добро пожаловать" : "Welcome",
             welcomeTurn: true,
             welcomeLocale: locale

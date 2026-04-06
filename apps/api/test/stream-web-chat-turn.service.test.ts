@@ -77,6 +77,13 @@ describe("StreamWebChatTurnService", () => {
         })
       } as never,
       {
+        listByMessageId: async () => []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
         streamWebChatTurn: async function* () {
           yield {
             type: "media",
@@ -89,6 +96,11 @@ describe("StreamWebChatTurnService", () => {
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
         }
       } as never,
       {
@@ -182,5 +194,84 @@ describe("StreamWebChatTurnService", () => {
       (transport.attachments[0] as Record<string, unknown>)?.originalFilename,
       "reply.ogg"
     );
+  });
+
+  test("replays duplicate clientTurnId without starting a second runtime stream", async () => {
+    let runtimeCalls = 0;
+    const completedState = {
+      clientTurnId: "turn-1",
+      chatId: "chat-1",
+      userMessageId: "user-msg-1",
+      assistantMessageId: "assistant-msg-1",
+      respondedAt: "2026-04-05T12:00:01.000Z",
+      degradedByQuotaFallback: false,
+      quotaFallbackReason: null,
+      quotaFallbackModel: null,
+      completedAt: "2026-04-05T12:00:02.000Z"
+    };
+    const service = new StreamWebChatTurnService(
+      {
+        findChatById: async () => ({
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: new Date("2026-04-05T12:00:02.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:02.000Z")
+        }),
+        findMessageByIdForAssistant: async (messageId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: messageId === "user-msg-1" ? "user" : "assistant",
+          content: messageId === "user-msg-1" ? "hello" : "hi back",
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        claimWebTurnProcessing: async () => "duplicate_handled",
+        getCompletedWebTurnProcessing: async () => completedState
+      } as never,
+      {
+        streamWebChatTurn: async function* () {
+          runtimeCalls += 1;
+          yield { type: "done", respondedAt: "2026-04-05T12:00:01.000Z" };
+        }
+      } as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called for replay");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1"
+        })
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+
+    const preparation = await service.prepare("user-1", {
+      surfaceThreadKey: "thread-1",
+      message: "hello",
+      clientTurnId: "turn-1"
+    });
+
+    assert.equal(preparation.mode, "replayed");
+    assert.equal(runtimeCalls, 0);
+    if (preparation.mode === "replayed") {
+      assert.equal(preparation.transport.userMessage.id, "user-msg-1");
+      assert.equal(preparation.transport.assistantMessage.id, "assistant-msg-1");
+      assert.equal(preparation.transport.assistantMessage.content, "hi back");
+    }
   });
 });

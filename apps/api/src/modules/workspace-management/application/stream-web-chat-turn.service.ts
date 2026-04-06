@@ -4,6 +4,15 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import {
+  ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
+  type AssistantChatMessageAttachmentRepository
+} from "../domain/assistant-chat-message-attachment.repository";
+import {
+  ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
+  type AssistantChannelSurfaceBindingRepository,
+  type CompletedWebTurnReplayState
+} from "../domain/assistant-channel-surface-binding.repository";
+import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter,
   type RuntimeMediaArtifact
@@ -22,6 +31,8 @@ import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { InboundMediaService } from "./media/inbound-media.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { resolveWelcomeTurnInstruction } from "./send-web-chat-turn.service";
+import { createAssistantInboundConflict } from "./assistant-inbound-error";
+import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import type { RuntimeTier } from "./runtime-assignment";
 
 export interface StreamWebChatTurnPrepared {
@@ -36,6 +47,7 @@ export interface StreamWebChatTurnPrepared {
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
+  clientTurnId?: string;
   welcomeTurn?: boolean;
   welcomeLocale?: string;
 }
@@ -44,8 +56,43 @@ export interface StreamWebChatTurnRequest {
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  clientTurnId?: string;
   welcomeTurn?: boolean;
   welcomeLocale?: string;
+}
+
+export type StreamWebChatTurnPreparation =
+  | { mode: "prepared"; prepared: StreamWebChatTurnPrepared }
+  | { mode: "replayed"; transport: AssistantWebChatTurnState };
+
+const WEB_TURN_PROVIDER_KEY = "web_internal";
+const WEB_TURN_SURFACE_TYPE = "web_chat";
+const WEB_TURN_CLAIM_STALE_MS = 120_000;
+const WEB_TURN_REPLAY_WAIT_MS = 12_000;
+const WEB_TURN_REPLAY_POLL_MS = 250;
+
+function toAttachmentState(attachment: {
+  id: string;
+  attachmentType: string;
+  originalFilename: string | null;
+  mimeType: string;
+  sizeBytes: bigint;
+  processingStatus: string;
+  createdAt: Date;
+}) {
+  return {
+    id: attachment.id,
+    attachmentType: attachment.attachmentType,
+    originalFilename: attachment.originalFilename,
+    mimeType: attachment.mimeType,
+    sizeBytes: Number(attachment.sizeBytes),
+    processingStatus: attachment.processingStatus,
+    createdAt: attachment.createdAt.toISOString()
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface StreamWebChatTurnOutcomeCompleted {
@@ -77,9 +124,14 @@ export class StreamWebChatTurnService {
   constructor(
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
+    @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
+    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
+    @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
+    private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
     private readonly prepareAssistantInboundTurnService: PrepareAssistantInboundTurnService,
+    private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly inboundMediaService: InboundMediaService,
@@ -89,7 +141,12 @@ export class StreamWebChatTurnService {
   async prepare(
     userId: string,
     request: StreamWebChatTurnRequest
-  ): Promise<StreamWebChatTurnPrepared> {
+  ): Promise<StreamWebChatTurnPreparation> {
+    const replayTransport = await this.claimOrReplayWebTurn(userId, request.clientTurnId);
+    if (replayTransport !== null) {
+      return { mode: "replayed", transport: replayTransport };
+    }
+
     const prepared = await this.prepareAssistantInboundTurnService.execute({
       userId,
       surface: "web_chat",
@@ -98,9 +155,13 @@ export class StreamWebChatTurnService {
       ...(request.title !== undefined ? { title: request.title } : {})
     });
     return {
-      ...prepared,
-      ...(request.welcomeTurn ? { welcomeTurn: true } : {}),
-      ...(request.welcomeLocale !== undefined ? { welcomeLocale: request.welcomeLocale } : {})
+      mode: "prepared",
+      prepared: {
+        ...prepared,
+        ...(request.clientTurnId !== undefined ? { clientTurnId: request.clientTurnId } : {}),
+        ...(request.welcomeTurn ? { welcomeTurn: true } : {}),
+        ...(request.welcomeLocale !== undefined ? { welcomeLocale: request.welcomeLocale } : {})
+      }
     };
   }
 
@@ -147,6 +208,14 @@ export class StreamWebChatTurnService {
         currentTimeIso: new Date().toISOString()
       })) {
         if (callbacks.isClientAborted()) {
+          if (prepared.clientTurnId !== undefined) {
+            await this.bindingRepository.releaseWebTurnProcessing(
+              prepared.assistantId,
+              WEB_TURN_PROVIDER_KEY,
+              WEB_TURN_SURFACE_TYPE,
+              prepared.clientTurnId
+            );
+          }
           return this.persistInterruptedOutcome(prepared, accumulated, respondedAt);
         }
 
@@ -175,6 +244,14 @@ export class StreamWebChatTurnService {
 
       const cleanedAccumulated = accumulated.trim();
       if (cleanedAccumulated.length === 0 && collectedMedia.length === 0) {
+        if (prepared.clientTurnId !== undefined) {
+          await this.bindingRepository.releaseWebTurnProcessing(
+            prepared.assistantId,
+            WEB_TURN_PROVIDER_KEY,
+            WEB_TURN_SURFACE_TYPE,
+            prepared.clientTurnId
+          );
+        }
         return {
           status: "failed",
           transport: null,
@@ -224,6 +301,24 @@ export class StreamWebChatTurnService {
         source: "web_chat_turn_stream_completed"
       });
       await this.consumeBootstrapBestEffort(prepared.assistantId);
+      if (prepared.clientTurnId !== undefined) {
+        await this.bindingRepository.completeWebTurnProcessing(
+          prepared.assistantId,
+          WEB_TURN_PROVIDER_KEY,
+          WEB_TURN_SURFACE_TYPE,
+          {
+            clientTurnId: prepared.clientTurnId,
+            chatId: prepared.chat.id,
+            userMessageId: prepared.userMessage.id,
+            assistantMessageId: assistantMessage.id,
+            respondedAt: respondedAt ?? new Date().toISOString(),
+            degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
+            quotaFallbackReason: prepared.quotaDegradeReason,
+            quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+            completedAt: new Date().toISOString()
+          }
+        );
+      }
       const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
       if (refreshedChat === null) {
         throw new NotFoundException("Chat does not exist for this assistant.");
@@ -262,6 +357,14 @@ export class StreamWebChatTurnService {
         }
       };
     } catch (error) {
+      if (prepared.clientTurnId !== undefined) {
+        await this.bindingRepository.releaseWebTurnProcessing(
+          prepared.assistantId,
+          WEB_TURN_PROVIDER_KEY,
+          WEB_TURN_SURFACE_TYPE,
+          prepared.clientTurnId
+        );
+      }
       const normalized = toAssistantInboundFailurePayload(error);
       const interruptedOutcome = await this.persistInterruptedOutcome(
         prepared,
@@ -275,6 +378,120 @@ export class StreamWebChatTurnService {
         message: normalized.message
       };
     }
+  }
+
+  private async claimOrReplayWebTurn(
+    userId: string,
+    clientTurnId: string | undefined
+  ): Promise<AssistantWebChatTurnState | null> {
+    if (clientTurnId === undefined) {
+      return null;
+    }
+    const resolved =
+      await this.resolveAssistantInboundRuntimeContextService.resolveByUserId(userId);
+    const claim = await this.bindingRepository.claimWebTurnProcessing(
+      resolved.assistantId,
+      WEB_TURN_PROVIDER_KEY,
+      WEB_TURN_SURFACE_TYPE,
+      clientTurnId,
+      new Date(),
+      WEB_TURN_CLAIM_STALE_MS
+    );
+    if (claim === "claimed") {
+      return null;
+    }
+    if (claim === "duplicate_handled") {
+      const completed = await this.bindingRepository.getCompletedWebTurnProcessing(
+        resolved.assistantId,
+        WEB_TURN_PROVIDER_KEY,
+        WEB_TURN_SURFACE_TYPE,
+        clientTurnId
+      );
+      return completed ? this.rebuildStoredWebTurnState(resolved.assistantId, completed) : null;
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < WEB_TURN_REPLAY_WAIT_MS) {
+      const completed = await this.bindingRepository.getCompletedWebTurnProcessing(
+        resolved.assistantId,
+        WEB_TURN_PROVIDER_KEY,
+        WEB_TURN_SURFACE_TYPE,
+        clientTurnId
+      );
+      if (completed !== null) {
+        return this.rebuildStoredWebTurnState(resolved.assistantId, completed);
+      }
+      await delay(WEB_TURN_REPLAY_POLL_MS);
+    }
+
+    throw createAssistantInboundConflict(
+      "web_turn_inflight",
+      "This web turn is already being processed."
+    );
+  }
+
+  private async rebuildStoredWebTurnState(
+    assistantId: string,
+    state: CompletedWebTurnReplayState
+  ): Promise<AssistantWebChatTurnState> {
+    const chat = await this.assistantChatRepository.findChatById(state.chatId);
+    const userMessage = await this.assistantChatRepository.findMessageByIdForAssistant(
+      state.userMessageId,
+      assistantId
+    );
+    const assistantMessage = await this.assistantChatRepository.findMessageByIdForAssistant(
+      state.assistantMessageId,
+      assistantId
+    );
+    if (chat === null || userMessage === null || assistantMessage === null) {
+      throw new NotFoundException("Stored web turn replay state is incomplete.");
+    }
+
+    const [userAttachments, assistantAttachments] = await Promise.all([
+      this.attachmentRepository.listByMessageId(userMessage.id),
+      this.attachmentRepository.listByMessageId(assistantMessage.id)
+    ]);
+
+    return {
+      chat: {
+        id: chat.id,
+        assistantId: chat.assistantId,
+        surface: chat.surface,
+        surfaceThreadKey: chat.surfaceThreadKey,
+        title: chat.title,
+        archivedAt: chat.archivedAt?.toISOString() ?? null,
+        lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
+        createdAt: chat.createdAt.toISOString(),
+        updatedAt: chat.updatedAt.toISOString()
+      },
+      userMessage: {
+        id: userMessage.id,
+        chatId: userMessage.chatId,
+        assistantId: userMessage.assistantId,
+        author: userMessage.author,
+        content: userMessage.content,
+        attachments: userAttachments.map((attachment) => toAttachmentState(attachment)),
+        createdAt: userMessage.createdAt.toISOString()
+      },
+      assistantMessage: {
+        id: assistantMessage.id,
+        chatId: assistantMessage.chatId,
+        assistantId: assistantMessage.assistantId,
+        author: assistantMessage.author,
+        content: assistantMessage.content,
+        attachments: assistantAttachments.map((attachment) => toAttachmentState(attachment)),
+        createdAt: assistantMessage.createdAt.toISOString()
+      },
+      runtime: {
+        respondedAt: state.respondedAt,
+        degradedByQuotaFallback: state.degradedByQuotaFallback,
+        quotaFallbackReason:
+          state.quotaFallbackReason === "token_budget_limit_reached"
+            ? "token_budget_limit_reached"
+            : null,
+        quotaFallbackModel: state.quotaFallbackModel
+      }
+    };
   }
 
   private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {

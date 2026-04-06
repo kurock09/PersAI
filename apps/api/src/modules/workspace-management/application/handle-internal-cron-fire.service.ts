@@ -4,12 +4,19 @@ import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
+import {
+  ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
+  type AssistantChannelSurfaceBindingRepository
+} from "../domain/assistant-channel-surface-binding.repository";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { RenderAssistantInboundSurfaceMessageService } from "./render-assistant-inbound-surface-message.service";
-import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
+import {
+  createAssistantInboundConflict,
+  toAssistantInboundFailurePayload
+} from "./assistant-inbound-error";
 
 const REMINDER_WEB_CHAT_THREAD_KEY = "system:reminders";
 const REMINDER_WEB_CHAT_TITLE = "Reminders";
@@ -22,8 +29,16 @@ export interface InternalCronFireRequest {
   status: "ok" | "error" | "skipped";
   summary?: string;
   error?: string;
+  runAtMs?: number;
+  sessionId?: string;
   nextRunAtMs?: number;
 }
+
+const REMINDER_REPLAY_PROVIDER_KEY = "system_notifications";
+const REMINDER_REPLAY_SURFACE_TYPE = "system_notification";
+const REMINDER_REPLAY_CLAIM_STALE_MS = 120_000;
+const REMINDER_REPLAY_WAIT_MS = 8_000;
+const REMINDER_REPLAY_POLL_MS = 250;
 
 function normalizeOptionalTrimmedString(value: unknown): string | undefined {
   if (typeof value !== "string") {
@@ -143,6 +158,17 @@ function stripReminderContextArtifact(value: string): string {
   return value.slice(0, markerIndex).trim();
 }
 
+function buildReminderReplayKey(input: InternalCronFireRequest): string {
+  if (input.sessionId) {
+    return `session:${input.sessionId}`;
+  }
+  return `job:${input.jobId}:run:${typeof input.runAtMs === "number" ? input.runAtMs : "na"}:status:${input.status}`;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 @Injectable()
 export class HandleInternalCronFireService {
   constructor(
@@ -151,6 +177,8 @@ export class HandleInternalCronFireService {
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
     private readonly renderAssistantInboundSurfaceMessageService: RenderAssistantInboundSurfaceMessageService,
+    @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
+    private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository
   ) {}
@@ -164,6 +192,8 @@ export class HandleInternalCronFireService {
     const jobId = normalizeOptionalTrimmedString(body.jobId);
     const action = body.action;
     const status = body.status;
+    const runAtMs = body.runAtMs;
+    const sessionId = normalizeOptionalTrimmedString(body.sessionId);
     const nextRunAtMs = body.nextRunAtMs;
 
     if (!assistantId.trim()) {
@@ -177,6 +207,13 @@ export class HandleInternalCronFireService {
     }
     if (status !== "ok" && status !== "error" && status !== "skipped") {
       throw new BadRequestException("status must be ok, error, or skipped.");
+    }
+    if (
+      runAtMs !== undefined &&
+      runAtMs !== null &&
+      (typeof runAtMs !== "number" || !Number.isFinite(runAtMs))
+    ) {
+      throw new BadRequestException("runAtMs must be a finite number, null, or omitted.");
     }
     if (
       nextRunAtMs !== undefined &&
@@ -196,6 +233,8 @@ export class HandleInternalCronFireService {
       status,
       ...(summary ? { summary } : {}),
       ...(error ? { error } : {}),
+      ...(typeof runAtMs === "number" ? { runAtMs } : {}),
+      ...(sessionId ? { sessionId } : {}),
       ...(typeof nextRunAtMs === "number" ? { nextRunAtMs } : {})
     };
   }
@@ -223,59 +262,151 @@ export class HandleInternalCronFireService {
       throw new NotFoundException("Assistant not found.");
     }
 
-    await this.syncTaskRegistryFromCronRun(input);
-
-    const preferred = assistant.preferredNotificationChannel;
-    const hasExternalChannel =
-      preferred !== "web" &&
-      assistant.channelSurfaceBindings.some((binding) => binding.providerKey === preferred);
-
-    const rawSummary = input.summary ? stripReminderContextArtifact(input.summary) : undefined;
-    if (input.status !== "ok" || !rawSummary) {
-      return { ok: true, deliveredTo: "none" };
+    const replayKey = buildReminderReplayKey(input);
+    const replayed = await this.claimOrReplayReminderDelivery(assistant.id, replayKey);
+    if (replayed !== null) {
+      return { ok: true, deliveredTo: replayed.deliveredTo };
     }
 
-    let summary = rawSummary;
     try {
-      const resolved = await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
-        input.assistantId
-      );
-      await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
-        assistant: resolved.assistant,
-        surface: "reminder_callback",
-        isNewThread: false,
-        activeSurfaceChatsCount: 0
-      });
-    } catch (error) {
-      const failure = toAssistantInboundFailurePayload(error);
-      summary = this.renderAssistantInboundSurfaceMessageService.renderError(
-        "reminder_callback",
-        failure.code,
-        failure.message
-      ).text;
-    }
+      await this.syncTaskRegistryFromCronRun(input);
 
-    if (preferred === "telegram") {
-      const delivered = await this.tryDeliverReminderToTelegram({
-        assistantId: assistant.id,
-        jobId: input.jobId,
-        summary,
-        bindings: assistant.channelSurfaceBindings
-      });
-      if (delivered) {
-        return { ok: true, deliveredTo: "telegram" };
+      const preferred = assistant.preferredNotificationChannel;
+      const hasExternalChannel =
+        preferred !== "web" &&
+        assistant.channelSurfaceBindings.some((binding) => binding.providerKey === preferred);
+
+      const rawSummary = input.summary ? stripReminderContextArtifact(input.summary) : undefined;
+      if (input.status !== "ok" || !rawSummary) {
+        await this.bindingRepository.completeReminderDeliveryProcessing(
+          assistant.id,
+          REMINDER_REPLAY_PROVIDER_KEY,
+          REMINDER_REPLAY_SURFACE_TYPE,
+          {
+            replayKey,
+            deliveredTo: "none",
+            completedAt: new Date().toISOString()
+          }
+        );
+        return { ok: true, deliveredTo: "none" };
       }
+
+      let summary = rawSummary;
+      try {
+        const resolved =
+          await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
+            input.assistantId
+          );
+        await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
+          assistant: resolved.assistant,
+          surface: "reminder_callback",
+          isNewThread: false,
+          activeSurfaceChatsCount: 0
+        });
+      } catch (error) {
+        const failure = toAssistantInboundFailurePayload(error);
+        summary = this.renderAssistantInboundSurfaceMessageService.renderError(
+          "reminder_callback",
+          failure.code,
+          failure.message
+        ).text;
+      }
+
+      if (preferred === "telegram") {
+        const delivered = await this.tryDeliverReminderToTelegram({
+          assistantId: assistant.id,
+          jobId: input.jobId,
+          summary,
+          bindings: assistant.channelSurfaceBindings
+        });
+        if (delivered) {
+          await this.bindingRepository.completeReminderDeliveryProcessing(
+            assistant.id,
+            REMINDER_REPLAY_PROVIDER_KEY,
+            REMINDER_REPLAY_SURFACE_TYPE,
+            {
+              replayKey,
+              deliveredTo: "telegram",
+              completedAt: new Date().toISOString()
+            }
+          );
+          return { ok: true, deliveredTo: "telegram" };
+        }
+      }
+
+      const deliveredTo = hasExternalChannel ? "fallback_web" : "web";
+      await this.deliverReminderToWeb({
+        assistantId: assistant.id,
+        userId: assistant.userId,
+        workspaceId: assistant.workspaceId,
+        content: summary
+      });
+      await this.bindingRepository.completeReminderDeliveryProcessing(
+        assistant.id,
+        REMINDER_REPLAY_PROVIDER_KEY,
+        REMINDER_REPLAY_SURFACE_TYPE,
+        {
+          replayKey,
+          deliveredTo,
+          completedAt: new Date().toISOString()
+        }
+      );
+
+      return { ok: true, deliveredTo };
+    } catch (error) {
+      await this.bindingRepository.releaseReminderDeliveryProcessing(
+        assistant.id,
+        REMINDER_REPLAY_PROVIDER_KEY,
+        REMINDER_REPLAY_SURFACE_TYPE,
+        replayKey
+      );
+      throw error;
+    }
+  }
+
+  private async claimOrReplayReminderDelivery(
+    assistantId: string,
+    replayKey: string
+  ): Promise<{ deliveredTo: "telegram" | "web" | "fallback_web" | "none" } | null> {
+    const claim = await this.bindingRepository.claimReminderDeliveryProcessing(
+      assistantId,
+      REMINDER_REPLAY_PROVIDER_KEY,
+      REMINDER_REPLAY_SURFACE_TYPE,
+      replayKey,
+      new Date(),
+      REMINDER_REPLAY_CLAIM_STALE_MS
+    );
+    if (claim === "claimed") {
+      return null;
+    }
+    if (claim === "duplicate_handled") {
+      const completed = await this.bindingRepository.getCompletedReminderDeliveryProcessing(
+        assistantId,
+        REMINDER_REPLAY_PROVIDER_KEY,
+        REMINDER_REPLAY_SURFACE_TYPE,
+        replayKey
+      );
+      return completed ? { deliveredTo: completed.deliveredTo } : null;
     }
 
-    const deliveredTo = hasExternalChannel ? "fallback_web" : "web";
-    await this.deliverReminderToWeb({
-      assistantId: assistant.id,
-      userId: assistant.userId,
-      workspaceId: assistant.workspaceId,
-      content: summary
-    });
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < REMINDER_REPLAY_WAIT_MS) {
+      const completed = await this.bindingRepository.getCompletedReminderDeliveryProcessing(
+        assistantId,
+        REMINDER_REPLAY_PROVIDER_KEY,
+        REMINDER_REPLAY_SURFACE_TYPE,
+        replayKey
+      );
+      if (completed !== null) {
+        return { deliveredTo: completed.deliveredTo };
+      }
+      await delay(REMINDER_REPLAY_POLL_MS);
+    }
 
-    return { ok: true, deliveredTo };
+    throw createAssistantInboundConflict(
+      "reminder_delivery_inflight",
+      "This reminder delivery is already being processed."
+    );
   }
 
   private async tryDeliverReminderToTelegram(params: {

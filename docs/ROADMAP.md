@@ -470,7 +470,7 @@ Scaling-readiness control layer is now tracked by:
   - [x] `SR7a` — PersAI-owned STT ingress paths now use per-request transient scratch directories instead of the shared `_stt_tmp` / `_voice_tmp` paths, and `/metrics` now exposes bounded stage-level signals for touched media-heavy paths so the first `SR7` deploy has an honest observation surface
   - [x] `SR7b` — web staged uploads now emit the same bounded media-stage visibility model through `web_stage_attachment`, so web image/file upload observation is no longer outside the shared `SR7` metrics surface
 - [ ] SR8 — Webhook and realtime burst hardening ← **active slice**
-  - [ ] `SR8a` — Telegram webhook ingress retry/replay hardening
+  - [ ] `SR8b` — combined Telegram/web/reminder replay closure package
 - [ ] SR9 — Billing and quota correctness under concurrency
 - [ ] SR10 — Capacity validation and production gate
 - [ ] H16 — Autonomous workspace heartbeat deeper isolation

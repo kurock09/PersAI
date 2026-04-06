@@ -151,6 +151,7 @@ export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 export interface AssistantWebChatStreamPayload {
   surfaceThreadKey: string;
   message: string;
+  clientTurnId?: string;
   title?: string | null;
   welcomeTurn?: boolean;
   welcomeLocale?: string;

@@ -262,6 +262,33 @@ describe("admin rollout client", () => {
 });
 
 describe("streamAssistantWebChatTurn", () => {
+  it("sends clientTurnId in the streaming request body", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}\n\n`
+        ])
+      ) as typeof fetch;
+
+    await streamAssistantWebChatTurn(
+      "token-1",
+      { surfaceThreadKey: "thread-1", message: "Hello", clientTurnId: "turn-1" },
+      {}
+    );
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/assistant/chat/web/stream"),
+      expect.objectContaining({
+        body: JSON.stringify({
+          surfaceThreadKey: "thread-1",
+          message: "Hello",
+          clientTurnId: "turn-1"
+        })
+      })
+    );
+  });
+
   it("rejects when the stream closes without a terminal event", async () => {
     global.fetch = vi
       .fn()

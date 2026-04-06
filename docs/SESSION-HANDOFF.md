@@ -1,6 +1,6 @@
 # SESSION-HANDOFF
 
-## 2026-04-06 - SR8a Telegram webhook ingress retry/replay hardening
+## 2026-04-06 - SR8b combined webhook/realtime replay closure package
 
 ### Current active slice
 
@@ -8,13 +8,13 @@
 
 ### Current active sub-slice
 
-- `SR8a` — Telegram webhook ingress retry/replay hardening
+- `SR8b` — combined Telegram/web/reminder replay closure package
 
 ### What stale program state was fixed
 
-1. `SR8` was already the active slice in canon, but it first had no named bounded sub-slice, and then the first wording became too narrow for one deploy-sized Telegram ingress package.
-2. `TEST-PLAN.md` and `API-BOUNDARY.md` did not yet describe the combined `SR8a` acceptance shape for both same-update replay suppression and transient proxy retry semantics.
-3. `ROADMAP.md` and `API-BOUNDARY.md` still reflected an older/narrower view of `SR8a` instead of the current deploy-sized Telegram ingress package.
+1. `SR8` canon still centered the earlier Telegram-only `SR8a` wording even after the remaining real replay seams had moved to web chat retries and internal reminder callbacks.
+2. `TEST-PLAN.md`, `API-BOUNDARY.md`, and `SCALING-READINESS-PLAN.md` did not yet describe one final combined `SR8` delivery unit spanning Telegram, web, and reminder replay semantics.
+3. `ROADMAP.md` and `CHANGELOG.md` still made the active work look like a Telegram-only package instead of the actual one-deploy closure attempt.
 
 ### What subagents were launched and why
 
@@ -27,40 +27,40 @@
 
 ### What evidence they returned
 
-- Fan-in mapping showed that Telegram webhook ingress, web SSE streaming, and internal callback paths converge through shared runtime routing and adapter seams, but the narrowest first `SR8` candidate was the Telegram ingress path rather than the full SSE or callback surface.
-- Retry/idempotency inventory showed the old Telegram dedupe was only a watermark written after success, so overlapping retries of the same `updateId` could both pass before the watermark advanced and could duplicate runtime work plus usage recording.
-- Proxy-specific evidence showed `telegram-webhook-proxy.controller.ts` still returned `200` on transient upstream timeout/network failure, which would silently acknowledge a retry-worthy ingress failure.
-- Boundary review confirmed this combined package is honest `SR8` work because it hardens webhook/realtime ingress behavior without redesigning media pressure (`SR7`), quota/billing correctness (`SR9`), or the final burst envelope (`SR10`).
+- Fan-in mapping showed that Telegram webhook ingress, web SSE streaming, and internal callback paths converge through shared runtime routing and adapter seams, and the remaining unfixed duplication seams after `SR8a` were now web retry/reconnect plus reminder callback replay.
+- Retry/idempotency inventory showed the web surface still needed one durable logical turn key before user-message creation/runtime execution, and reminder delivery still needed one durable logical replay key before outbound fanout.
+- Runtime-side evidence also showed two honesty gaps outside the original `SR8a` package: deduplicated Telegram turns still surfaced as `...`, and cron webhook non-2xx completion was not explicitly surfaced as callback failure in runtime logs.
+- Boundary review confirmed the combined package remains honest `SR8` work because it hardens webhook/realtime ingress behavior without redesigning media pressure (`SR7`), quota/billing correctness (`SR9`), or the final burst envelope (`SR10`).
 
 ### What was completed
 
-1. Re-scoped `SR8a` in canon as one deploy-sized Telegram ingress package and updated `SCALING-READINESS-PLAN.md`, `ROADMAP.md`, `TEST-PLAN.md`, and `API-BOUNDARY.md` accordingly.
-2. Replaced the old watermark-only Telegram replay suppression in `HandleInternalTelegramTurnService` with claim/release/complete handling around one `assistantId + updateId`.
-3. Added repository support in `PrismaAssistantChannelSurfaceBindingRepository` for atomic Telegram update claim, completion, and release against channel-binding metadata.
-4. Updated `telegram-webhook-proxy.controller.ts` so transient upstream timeout/network failures return retry-worthy `504 upstream_timeout` or `502 upstream_error`, while permanent route failures still deliberately return `200`.
-5. Updated the OpenClaw Telegram bridge so retry-worthy internal-turn failures (`runtime_timeout`, `runtime_degraded`, `runtime_unreachable`, plus retry-worthy HTTP `408/425/429/5xx`) rethrow through the webhook path instead of being rendered as a fallback user reply and acknowledged as successful webhook completion.
-6. Added focused regression coverage in `apps/api/test/handle-internal-telegram-turn.service.test.ts`, `apps/api/test/telegram-webhook-proxy.controller.test.ts`, and `openclaw/src/gateway/persai-runtime/persai-runtime-telegram.test.ts`.
-7. Fixed `apps/web/next-env.d.ts` drift by stabilizing the generated route-types path around the existing `typedRoutes` baseline, so the web app no longer keeps flipping back to the dev-only route-types reference.
-8. Updated `CHANGELOG.md` so the current `SR8a` package is recoverable from the normal startup reading pack.
+1. Kept the original `SR8a` Telegram replay/proxy hardening in place, including atomic `assistantId + updateId` claim/release/complete handling and retry-worthy proxy/runtime semantics.
+2. Added durable web replay protection to both sync and stream web chat ingress using one logical `clientTurnId`, stored via `AssistantChannelSurfaceBinding` metadata before user-message creation/runtime execution.
+3. Added durable reminder callback replay protection using one logical replay key derived from callback identity so repeated cron-fire delivery cannot fan out duplicate reminders.
+4. Updated the OpenClaw Telegram bridge so deduplicated PersAI turns are a silent no-op instead of sending `...`.
+5. Updated OpenClaw cron callback delivery so non-2xx webhook completion emits a warning instead of looking like silent success.
+6. Added focused regression coverage in `apps/api/test/send-web-chat-turn.service.test.ts`, `apps/api/test/stream-web-chat-turn.service.test.ts`, `apps/api/test/handle-internal-cron-fire.test.ts`, `apps/web/app/app/assistant-api-client.test.ts`, `openclaw/src/gateway/persai-runtime/persai-runtime-telegram.test.ts`, and `openclaw/src/gateway/server-cron.test.ts`.
+7. Investigated `apps/web/next-env.d.ts` drift honestly: on Next 16, `next dev` rewrites the file to the dev-specific `./.next/dev/types/routes.d.ts` path, while `next build` restores the stable `./.next/types/routes.d.ts` import. The file was returned to the clean production form for commit, but the underlying toolchain churn is not claimed as fully solved inside `SR8`.
+8. Updated `SCALING-READINESS-PLAN.md`, `ROADMAP.md`, `TEST-PLAN.md`, `API-BOUNDARY.md`, and `CHANGELOG.md` so the combined `SR8b` package is recoverable from the normal startup reading pack.
 
 ### What remains
 
-- Deploy the current `SR8a` delivery unit and run one bounded live Telegram ingress check that covers same-update replay suppression plus transient retry behavior across both seams:
-  - PersAI webhook proxy transient upstream failure
-  - OpenClaw runtime-side internal-turn transient failure
-- After that live proof, choose the next `SR8` seam from evidence between web SSE retry/idempotency and internal callback/reminder replay.
-- Keep `SR8` active until there is measured and bounded evidence for the broader webhook/realtime burst surface.
+- Deploy the current `SR8b` delivery unit and run one bounded live validation window that covers all three replay seams:
+  - Telegram same-`updateId` retry stays single-turn and does not emit `...`
+  - web retry/reconnect with the same `clientTurnId` replays completion instead of starting a second turn
+  - repeated reminder callback with the same logical replay key does not create duplicate delivery
+- Keep `SR8` active until that single live window is complete and honestly recorded.
 
 ### Confirmed risks
 
-1. This pass hardens only the Telegram ingress package; it does not yet make the whole webhook/realtime burst surface bounded.
-2. Web stream retries/client reconnect semantics remain outside this sub-slice and may still duplicate work until a later `SR8` pass proves otherwise.
-3. Duplicate-runtime side effects in other paths can still influence quota/billing correctness, but fixing those semantics globally belongs to `SR9`, not to this bounded replay pass.
+1. This combined replay package still does not prove global quota/billing correctness under every duplicated side effect; that remains `SR9`.
+2. This package still does not prove the final burst-capacity envelope; that remains `SR10`.
+3. Live closure still depends on one honest deploy + observation window, not just local tests.
 
 ### Unresolved hypotheses
 
-1. After this Telegram ingress package is deployed, the next dominant `SR8` bottleneck may move to web SSE retries rather than to Telegram ingress itself.
-2. Internal callback/reminder delivery may still need its own bounded replay/idempotency pass once Telegram ingress behavior is observed live.
+1. If the live window stays clean across Telegram, web, and reminder replay, `SR8` can close directly without another code pass.
+2. If the live window still reveals burst instability, the remaining issue is likely capacity/queueing shape rather than missing replay-idempotency on the touched seams.
 
 ### Verification run
 
@@ -68,16 +68,21 @@
 - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
 - `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-turn.controller.test.ts`
 - `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
+- `corepack pnpm --filter @persai/web run test -- app/app/assistant-api-client.test.ts`
 - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/gateway/persai-runtime/persai-runtime-telegram.test.ts`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/gateway/server-cron.test.ts`
 - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
 
 ### Why the next SR is still blocked or can be opened
 
-- `SR9` is still blocked because `SR8` is not honestly closed yet: this session assembled one bounded Telegram ingress package, but there is still no deploy-time and observation-window evidence that webhook/realtime burst behavior as a whole is measured and bounded.
+- `SR9` is still blocked because `SR8` is not honestly closed yet: this session assembled the combined replay-closure package, but there is still no deploy-time and observation-window evidence that the touched webhook/realtime burst behavior is bounded live.
 
 ### Next recommended step
 
-- Deploy the current `SR8a` delivery unit and run one bounded live Telegram ingress repro: first confirm same-`updateId` retries stay single-turn, then force one transient upstream/proxy failure and one transient internal-turn/runtime failure, and confirm both stay retry-worthy instead of collapsing into false-success webhook acknowledgements. After that, choose the next `SR8` sub-slice from evidence.
+- Deploy the current `SR8b` delivery unit and run one bounded live replay-validation window across Telegram, web, and reminders. If Telegram same-`updateId` retries stay single-turn without `...`, web retry/reconnect with the same `clientTurnId` replays instead of duplicating, and repeated reminder callback delivery stays single-send, then `SR8` can close and `SR9` can open.
 
 ## 2026-04-06 - SR7 operational closure after bounded live media burst
 

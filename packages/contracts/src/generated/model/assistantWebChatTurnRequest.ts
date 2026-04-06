@@ -8,6 +8,7 @@
 export interface AssistantWebChatTurnRequest {
   surfaceThreadKey: string;
   message: string;
+  clientTurnId?: string;
   /** @nullable */
   title?: string | null;
 }

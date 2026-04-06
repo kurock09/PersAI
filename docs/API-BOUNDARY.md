@@ -51,6 +51,7 @@ Request body fields:
 
 - `surfaceThreadKey` (string, required)
 - `message` (string, required)
+- `clientTurnId` (string, optional but required for replay-safe clients; one logical web turn id reused across retries/reconnects)
 - `title` (string | null, optional; used when chat record is first created)
 
 Behavior baseline:
@@ -63,6 +64,7 @@ Behavior baseline:
 - sends transport turn through adapter boundary to OpenClaw runtime (`POST /api/v1/runtime/chat/web`)
 - persists assistant message record in backend chat history
 - returns transport result with chat + user message + assistant message records
+- if `clientTurnId` matches a recently completed logical turn for the same `(assistantId, surfaceThreadKey)`, returns the stored transport result instead of starting a second runtime turn
 - no streaming in C2
 
 ## Step 5 C3 streaming web chat baseline
@@ -73,6 +75,7 @@ Request body fields:
 
 - `surfaceThreadKey` (string, required)
 - `message` (string, required)
+- `clientTurnId` (string, optional but required for replay-safe clients; one logical web turn id reused across retries/reconnects)
 - `title` (string | null, optional)
 
 Behavior baseline:
@@ -82,6 +85,7 @@ Behavior baseline:
 - streaming-first path for web chat UX
 - preserves lifecycle/apply gate from C2 before stream starts
 - persists canonical user message before runtime stream begins
+- if `clientTurnId` matches a recently completed logical turn for the same `(assistantId, surfaceThreadKey)`, emits a replayed `completed` event and does not start a second runtime stream
 - emits stream events to client:
   - `started`
   - `delta`
