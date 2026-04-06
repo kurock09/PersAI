@@ -21,7 +21,7 @@ Pass a per-plan `workspaceQuotaBytes` limit through the bootstrap payload to Ope
 - **write tool** (`fs-bridge.ts`): pre-check before every file write
 - **exec tool** (`bash-tools.exec.ts`): pre-check before execution + post-check warning after
 
-The guard uses a cached `du -sb` call (30s TTL) to avoid per-operation filesystem scans on GCS FUSE. The cache is invalidated after every write/exec to prevent large burst writes from slipping through a stale cache window.
+The guard uses a cached `du -sb` call (30s TTL) to avoid per-operation filesystem scans on GCS FUSE. The cache is invalidated after every write/exec-backed mutation, and after sandbox `remove` / `rename`, so quota reads do not stay stale after space is freed or files are atomically replaced. If `du` fails or returns malformed output, the guarded non-cleanup paths now fail safe instead of degrading to an effectively empty-workspace reading.
 
 Cleanup commands (`rm`, `unlink`, `truncate`, `find -delete`) bypass the exec pre-check even when quota is exceeded, so the assistant can remediate without a deadlock.
 
@@ -47,8 +47,8 @@ PersaiRuntimeRequestCtx.workspaceQuotaBytes (AsyncLocalStorage)
     ↓
 workspace-quota-guard.ts → cached du -sb + enforceWorkspaceQuota() + invalidateWorkspaceCache()
     ↓
-fs-bridge.ts writeFile() → pre-check → invalidate cache after write
-bash-tools.exec.ts → pre-check (cleanup commands bypass) + invalidate cache + post-check
+fs-bridge.ts writeFile()/remove()/rename() → invalidate cache after mutation; writeFile fails safe if quota cannot be measured
+bash-tools.exec.ts → pre-check (cleanup commands bypass) + periodic quota watch + invalidate cache + post-check
 ```
 
 ## Files Changed
@@ -76,7 +76,9 @@ bash-tools.exec.ts → pre-check (cleanup commands bypass) + invalidate cache + 
 ## Consequences
 
 - Free-tier users limited to 500 MB workspace. Blocks GCS billing abuse.
-- `du -sb` cache (30s) is invalidated after every write/exec, closing the burst-write window that previously allowed 1.5 GB to slip through.
+- `du -sb` cache (30s) plus invalidation after mutations materially reduces stale-read tails, but pre/post-only `exec` checks were not sufficient to stop a single long-running command from writing multi-GB data before exit. A later `SR6` pass adds mid-exec quota watch as an explicit stop-gap.
+- `du` failure or malformed output no longer weakens quota enforcement into a fail-open "0 bytes used" reading on the guarded non-cleanup paths.
+- sandbox `remove` / `rename` now invalidate the same cache, so quota reads do not stay stale after delete/replace operations that bypass the `exec` path.
 - Cleanup commands bypass quota pre-check, preventing the deadlock where an assistant could neither delete nor write files after exceeding quota.
 - Workspace quota is resolved from plan's `quotaAccounting.workspaceStorageBytesLimit`, so admin UI changes take effect on the next turn without pod restart.
 - dind privileged removal was attempted but GKE COS rejected rootless dind. Reverted to `privileged: true` as a known infra trade-off. Mitigation path: GKE Sandbox (gVisor).

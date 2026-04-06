@@ -883,3 +883,55 @@ Required in CI:
   - sandbox GC/TTL not stress-tested
   - IO-bound sandbox workloads not tested
   - node co-location bandwidth contention during pulls (~2.5 min extra)
+
+## SR6a workspace quota cache invalidation parity baseline
+
+- This bounded `SR6a` pass covers one concrete filesystem-pressure tail:
+  - sandbox `remove` / `rename` mutations could leave the cached workspace quota reading stale even after files were freed or atomically replaced
+- Acceptance for this sub-slice:
+  - sandbox `writeFile`, `remove`, and `rename` all invalidate the workspace quota cache consistently
+  - the fix is documented as filesystem-cost hardening under `SR6`, not as `SR9` quota/billing correctness
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
+- `SR6a` does NOT prove:
+  - that cached `du -sb` is the final acceptable architecture for all GCS FUSE churn
+  - that transcript/session filesystem growth is fully bounded
+  - that quota correctness under concurrency or billing propagation is solved (`SR9`)
+  - that media preprocessing temp-file throughput is solved (`SR7`)
+
+## SR6b mid-exec workspace quota watch baseline
+
+- This bounded `SR6b` pass covers one concrete active-path storage failure:
+  - a single long-running `exec` command could create multi-GB files in one session because quota was checked only before spawn and after exit
+- Acceptance for this sub-slice:
+  - a running non-cleanup `exec` is terminated when periodic quota checks observe the workspace above limit
+  - direct cleanup commands still bypass the kill path so over-quota remediation is possible
+  - docs no longer claim that the burst-write window is fully closed beyond the evidence of this pass
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
+- Required live verification before claiming broader SR6 closure:
+  - rerun the oversized single-command write repro and confirm the command is terminated near the quota boundary instead of reaching multi-GB growth
+- `SR6b` does NOT prove:
+  - that periodic `du -sb` polling is the final acceptable architecture for all GCS FUSE churn
+  - that backgrounded commands are fully bounded by the same mechanism
+  - that transcript/session filesystem growth is fully bounded
+  - that quota correctness under concurrency or billing propagation is solved (`SR9`)
+
+## SR6c workspace quota measurement fail-safe baseline
+
+- This bounded `SR6c` pass covers one concrete quota-integrity gap:
+  - `du -sb` failure or malformed output could collapse workspace usage to an effectively permissive read and weaken the guarded paths
+- Acceptance for this sub-slice:
+  - quota measurement failure is treated as fail-safe on guarded non-cleanup paths
+  - non-cleanup `exec` is blocked or terminated when quota cannot be verified
+  - sandbox `writeFile` does not proceed when quota cannot be verified
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/workspace-quota-guard.test.ts src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
+- `SR6c` does NOT prove:
+  - that `du -sb` polling cost is acceptable as the final architecture
+  - that backgrounded commands are fully bounded under the same live evidence standard
+  - that transcript/session filesystem growth is fully bounded
+  - that quota correctness under concurrency or billing propagation is solved (`SR9`)

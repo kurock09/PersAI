@@ -19,13 +19,14 @@
 
 ### Fixed
 
-- **Workspace quota guard hardening (ADR-069):** fixed three live-test bugs — exec pre-check no longer blocks cleanup commands (`rm`, `unlink`, `truncate`) when quota is exceeded; du cache invalidated after every write/exec (closed 30s burst-write window); workspace quota now resolved from plan's `quotaAccounting.workspaceStorageBytesLimit` instead of hardcoded env default.
+- **Workspace quota guard hardening (ADR-069):** fixed three live-test bugs — exec pre-check no longer blocks cleanup commands (`rm`, `unlink`, `truncate`) when quota is exceeded; du cache invalidation now keeps mutation paths aligned; workspace quota now resolves from plan's `quotaAccounting.workspaceStorageBytesLimit` instead of hardcoded env default. Follow-up `SR6` work was still required after later live evidence showed that a single long-running `exec` could overrun quota before exit.
 
 - **Voice-only response NO_REPLY suppression:** OpenClaw runtime no longer injects fallback text when a voice/media-only response is returned. Stream handler filters `NO_REPLY` prefix fragments. HTTP sync/channel handlers stop forcing "No response from OpenClaw." on media-only turns. OpenClaw fork advanced to `cce6f70191`.
 
 ### Added
 
 - **Workspace storage quota enforcement (ADR-069):** per-plan workspace storage quota is now enforced inside the OpenClaw sandbox at both `write` and `exec` tool entry points. The quota limit flows through `bootstrap.governance.workspaceQuotaBytes` from PersAI to OpenClaw, where a cached `du -sb` guard (30s TTL, invalidated after each mutation) blocks writes exceeding the plan limit. Cleanup commands bypass pre-check to prevent deadlock. Default 500 MB for free tier. Configurable per plan in Admin UI (Plans > Quota limits > Workspace storage MB). OpenClaw fork advanced to `5ce51cb37d`.
+- **SR6 quota guard follow-ups:** the runtime now also stops oversized single-command write bursts by watching workspace usage during non-cleanup `exec`, and quota measurement no longer fails open when `du -sb` fails or returns malformed output. Guarded non-cleanup paths now fail safe instead of degrading to an empty-workspace reading.
 
 - **dind privileged canary (ADR-069):** attempted `privileged: false` with rootless securityContext on all dind sidecars. GKE Container-Optimized OS rejected rootlesskit (`operation not permitted`). Reverted to `privileged: true`. Documented as known infra trade-off in ADR-069. Mitigation path: GKE Sandbox (gVisor) or rootless-capable node pool.
 

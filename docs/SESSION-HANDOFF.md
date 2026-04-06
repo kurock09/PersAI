@@ -1,5 +1,224 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR6c workspace quota measurement fail-safe semantics
+
+### Current active slice
+
+- `SR6` — Storage and workspace path hardening
+
+### Current active sub-slice
+
+- `SR6c` — Workspace quota measurement fail-safe semantics
+
+### What stale program state was fixed
+
+1. `SR6b` reduced large-write burst risk, but quota measurement could still fail open when `du -sb` failed or returned malformed output.
+2. Prior docs described the guard path too optimistically for that case; updated them to truthful fail-safe semantics.
+
+### What subagents were launched and why
+
+Three readonly evidence-gathering subagents:
+
+1. **Quota measurement failure mapper** — mapped exact `du` failure and malformed-output fail-open behavior.
+2. **Next SR6 hot-path selector** — compared fail-open against other remaining SR6 tails to decide what was best to batch before one deploy.
+3. **Docs truth recheck** — identified which canonical docs needed updates for another bounded SR6 pass.
+
+### What evidence they returned
+
+- `workspace-quota-guard.ts` returned `cached?.bytes ?? 0` on `du` failure, which could degrade guarded paths into an effectively permissive reading.
+- Invalid `du` output also collapsed to `0` and could be cached as if it were valid.
+- This was the best next bounded fix to batch with `SR6b`, because it directly protects the same runtime quota guard path before one deploy window.
+
+### What was completed
+
+1. `openclaw/src/agents/workspace-quota-guard.ts` now treats `du` failure or malformed output as measurement failure instead of silently reading `0`.
+2. `openclaw/src/agents/bash-tools.exec.ts` now fails safe on unverified quota state for guarded non-cleanup commands, and terminates a running command if mid-exec quota measurement cannot be verified.
+3. `openclaw/src/agents/sandbox/fs-bridge.ts` now fails safe for `writeFile` when quota cannot be measured.
+4. Added focused regression coverage in:
+   - `openclaw/src/agents/workspace-quota-guard.test.ts`
+   - `openclaw/src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts`
+   - `openclaw/src/agents/bash-tools.exec.workspace-quota-watch.test.ts`
+
+### What remains
+
+- `SR6` is still active and not honestly closed.
+- Remaining work still includes:
+  - live deploy verification for the oversized-write repro
+  - measuring the cost of periodic `du -sb` checks on active paths
+  - transcript/session filesystem churn and cleanup cost
+  - many-small-files behavior and workspace-wide scans on hot paths
+
+### Confirmed risks
+
+1. This pass improves quota integrity, but does not make `du -sb` cheap.
+2. Overshoot is still bounded by the polling interval rather than true kernel-level quota enforcement.
+3. Backgrounded command behavior still needs live evidence before broader closure claims.
+
+### Unresolved hypotheses
+
+1. After deploy, the next main SR6 bottleneck may become `du -sb` polling cost itself.
+2. Transcript/session churn may still dominate long-tail filesystem pressure even after quota guard hardening.
+
+### Verification run
+
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/workspace-quota-guard.test.ts src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` is still blocked because `SR6` is not honestly closed yet.
+- These changes make the runtime quota guard materially safer for one deploy window, but broader SR6 closure still depends on live evidence and remaining filesystem tails.
+
+### Next recommended step
+
+- Deploy the combined `SR6a` / `SR6b` / `SR6c` guard batch and rerun the oversized single-command write repro before touching any non-SR6 slice.
+
+## 2026-04-06 - SR6b mid-exec workspace quota watch
+
+### Current active slice
+
+- `SR6` — Storage and workspace path hardening
+
+### Current active sub-slice
+
+- `SR6b` — Mid-exec workspace quota watch for large-write bursts
+
+### What stale program state was fixed
+
+1. New live evidence showed a single command could still grow workspace storage by ~17 GB in one session, so prior docs language implying the burst window was already closed became too strong.
+2. `SCALING-READINESS-PLAN.md`, `TEST-PLAN.md`, `ROADMAP.md`, `ADR-069`, `CHANGELOG.md`, and `SESSION-HANDOFF.md` were updated to reflect the truthful state: `SR6` is still active and required another bounded pass.
+
+### What subagents were launched and why
+
+Three readonly evidence-gathering subagents:
+
+1. **Exec kill-path mapper** — identified the safest bounded place to monitor and terminate a running `exec`.
+2. **Quota burst-gap mapper** — verified exactly why a single command could still write multi-GB data before quota enforcement reacted.
+3. **SR6 boundary recheck** — confirmed the 17 GB burst issue is still `SR6`, not `SR7` or `SR9`, unless later evidence shows concurrent billing semantics are involved.
+
+### What evidence they returned
+
+- `bash-tools.exec.ts` only checked quota before spawn and after exit; the post-check only warned.
+- A running `exec` already had a safe kill path via `runExecProcess(...).kill()` -> supervisor cancellation -> `SIGKILL`.
+- Existing docs overclaimed by implying the burst-write window was already closed, even though a single command could still overrun quota before exit.
+
+### What was completed
+
+1. Added a bounded mid-exec quota watch in `openclaw/src/agents/bash-tools.exec.ts` for non-cleanup commands.
+2. When periodic checks detect workspace usage above quota during a running command, the process is terminated to stop further workspace growth.
+3. Cleanup commands still bypass this kill path so over-quota remediation remains possible.
+4. Added focused OpenClaw regression coverage in `openclaw/src/agents/bash-tools.exec.workspace-quota-watch.test.ts`.
+5. Updated canonical docs to truthful `SR6b` state and corrected prior over-strong quota wording.
+
+### What remains
+
+- `SR6` is still active and not honestly closed.
+- Remaining storage/workspace work still includes:
+  - validating this fix against the real oversized-write repro in a live environment
+  - reducing the cost of periodic `du -sb` checks on active paths
+  - session/transcript filesystem churn and cleanup cost
+  - many-small-files behavior and workspace-wide scans on hot paths
+
+### Confirmed risks
+
+1. This is a stop-gap: periodic `du -sb` polling limits growth but is not the final storage enforcement architecture.
+2. A command can still overshoot by the amount written between quota-watch polls.
+3. Backgrounded commands are not proven bounded by the same live enforcement path yet.
+
+### Unresolved hypotheses
+
+1. The next dominant `SR6` bottleneck may still be `du -sb` cost itself rather than the write burst.
+2. Session/transcript churn may still be a larger long-tail filesystem cost than large-file bursts once this path is deployed.
+
+### Verification run
+
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` is still blocked because `SR6` is not honestly closed yet.
+- Even after this bounded `SR6b` fix, broader FUSE/churn/cleanup evidence for `SR6` closure is still missing.
+
+### Next recommended step
+
+- Deploy this `SR6b` fix and rerun the oversized single-command write repro in the target environment; do not open `SR7` unless that live check passes and the remaining `SR6` tails are honestly reduced.
+
+## 2026-04-06 - SR6a workspace quota cache invalidation parity
+
+### Current active slice
+
+- `SR6` — Storage and workspace path hardening
+
+### Current active sub-slice
+
+- `SR6c` — Workspace quota measurement fail-safe semantics
+
+### What stale program state was fixed
+
+1. `SESSION-HANDOFF.md` still had a stale footer marker at `SR0` / `SR1`; updated to truthful `SR6` / `SR6a` / `SR7`.
+2. `SCALING-READINESS-PLAN.md` wording for `SR6` mixed filesystem quota-enforcement cost with broader quota correctness; clarified `SR6` vs `SR7` / `SR9` boundaries.
+3. `ADR-069` still described cache invalidation as write/exec-only even though `SR6` evidence showed the missing `remove` / `rename` parity tail.
+
+### What subagents were launched and why
+
+Three readonly evidence-gathering subagents:
+
+1. **Storage/workspace path mapper** — mapped where assistant workspaces, sessions, transcripts, media, and OpenClaw state actually live.
+2. **Cleanup/quota hot-path mapper** — found active-path filesystem amplification around quota checks, cleanup, and transcript/session churn.
+3. **SR6 scope separator** — prevented this pass from drifting into `SR7` media redesign or `SR9` quota/billing correctness.
+
+### What evidence they returned
+
+- PersAI assistant workspaces and OpenClaw state both land on the same GCS FUSE-backed bucket prefix in dev, but use different subtrees.
+- Sandbox `writeFile` invalidated the workspace quota cache, while sandbox `remove` / `rename` did not.
+- That gap could leave a stale over-quota reading after files were deleted or atomically replaced through the filesystem bridge.
+- The broader remaining `SR6` risks are still `du -sb` pressure on active exec paths, session/transcript file churn, cleanup scans, and many-small-files growth.
+
+### What was completed
+
+1. `openclaw/src/agents/sandbox/fs-bridge.ts` now invalidates the workspace quota cache after successful sandbox `remove` and `rename`, matching `writeFile`.
+2. Added focused OpenClaw regression coverage in `openclaw/src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`.
+3. Updated canonical docs for truthful `SR6` state and boundaries:
+   - `docs/SCALING-READINESS-PLAN.md`
+   - `docs/ROADMAP.md`
+   - `docs/TEST-PLAN.md`
+   - `docs/ADR/069-workspace-storage-quota-and-dind-privileged-removal.md`
+   - `docs/SESSION-HANDOFF.md`
+
+### What remains
+
+- `SR6` remains active.
+- Next storage/workspace passes still need evidence and possible fixes for:
+  - `du -sb` amplification on active exec paths
+  - session/transcript filesystem churn and cleanup cost
+  - many-small-files behavior under workspace/media growth
+  - workspace-wide `readdir` patterns on hot paths
+
+### Confirmed risks
+
+1. This pass fixes one stale-cache tail, not the underlying cost of `du -sb` on GCS FUSE.
+2. Session/transcript persistence still uses small-file patterns that may remain expensive under churn.
+
+### Unresolved hypotheses
+
+1. The next dominant `SR6` cost center may be the post-exec forced `du` refresh in `bash-tools.exec.ts`.
+2. Workspace-wide scans such as avatar/path cleanup may become material before transcript append cost does.
+
+### Verification run
+
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` is still blocked because `SR6` is not honestly closed yet.
+- This session only closed one bounded `SR6a` amplification seam; broader FUSE/churn/cleanup behavior still needs more `SR6` evidence and fixes.
+
+### Next recommended step
+
+- Stay in `SR6` and take the next bounded pass on active-path `du -sb` amplification versus transcript/session filesystem churn; do not open `SR7` yet.
+
 ## 2026-04-06 - SR5a sandbox startup path optimization
 
 ### Active slice after this session
@@ -818,11 +1037,15 @@ Established the documentation/control layer for the scaling-readiness program so
 
 ### Current active slice
 
-- `SR0` — documentation/control baseline
+- `SR6` — Storage and workspace path hardening
+
+### Current active sub-slice
+
+- `SR6a` — Workspace quota cache invalidation parity for filesystem mutations
 
 ### Next recommended slice
 
-- `SR1` — platform baseline and observability
+- `SR7` — Media pipeline capacity hardening
 
 ### Suggested entry reads for the next session
 
@@ -830,7 +1053,7 @@ Established the documentation/control layer for the scaling-readiness program so
 2. `docs/ROADMAP.md`
 3. `docs/SESSION-HANDOFF.md`
 4. `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
-5. relevant runtime/infra ADRs for `SR1`
+5. relevant storage/workspace ADRs and docs for `SR6`
 
 ## 2026-04-05 - Workspace quota guard hardening (3 live-test bug fixes)
 

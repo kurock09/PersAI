@@ -105,6 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR6` — Storage and workspace path hardening
+- `Current active sub-slice`: `SR6c` — Workspace quota measurement fail-safe semantics
 - `Current phase`: Storage/workspace hardening
 - `Next recommended slice after SR6`: `SR7` — Media pipeline capacity hardening
 - `Last closed slice`: `SR5` — Sandbox and dind capacity hardening (closed 2026-04-06)
@@ -467,11 +468,13 @@ In scope:
 - GCS FUSE pressure
 - many-small-files behavior
 - cleanup cost
-- workspace quota cost
+- workspace quota enforcement filesystem cost
 - session/transcript FS behavior
 
 Out of scope:
 - media business semantics changes
+- media preprocessing/offload redesign (`SR7`)
+- quota atomicity, billing sync, and commercial correctness under concurrency (`SR9`)
 
 Primary files / domains:
 - workspace cleanup and quota guards
@@ -485,6 +488,148 @@ Observation window:
 
 Exit criteria:
 - no major hidden FUSE/cleanup amplification left in the active path
+
+#### SR6a — Workspace quota cache invalidation parity for filesystem mutations
+
+Outcome:
+- workspace quota cache no longer stays stale just because the agent frees or atomically replaces files through the sandbox filesystem bridge instead of the `exec` path
+
+In scope:
+- sandbox filesystem mutation paths that can change effective workspace usage without going through `writeFile`
+- cache invalidation parity for `remove` / `rename`
+- docs clarification that `SR6` owns filesystem cost of quota enforcement, not `SR9` commercial correctness
+
+Out of scope:
+- changing quota semantics, limits, or billing correctness rules
+- replacing cached `du -sb` with a different accounting architecture
+- media preprocessing temp-file throughput or offload work (`SR7`)
+
+Primary files / domains:
+- `openclaw/src/agents/sandbox/fs-bridge.ts`
+- focused OpenClaw tests for filesystem mutation paths
+- `docs/SCALING-READINESS-PLAN.md`
+- `docs/TEST-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ADR/069-workspace-storage-quota-and-dind-privileged-removal.md`
+
+Evidence required:
+- `writeFile`, `remove`, and `rename` all keep workspace quota cache invalidation behavior aligned
+- no new claim is made that quota correctness under concurrency is solved beyond this filesystem-cost seam
+
+Verification:
+- `Tier 0`: OpenClaw typecheck plus focused quota/fs-bridge tests
+
+Rollback / safe fallback:
+- revert the `fs-bridge.ts` mutation-cache invalidation change; no schema or API contract change
+
+Removal / cleanup obligations:
+- if a later `SR6` pass replaces cached `du` entirely, remove this parity-only note and document the new baseline
+
+Deploy window:
+- OpenClaw runtime only
+
+Observation window:
+- not closeable from this pass alone; later `SR6` passes still need live evidence for broader FUSE/churn behavior
+
+Exit criteria:
+- sandbox delete/rename paths no longer leave a hidden stale-cache tail after freeing or replacing workspace files
+
+#### SR6b — Mid-exec workspace quota watch for large-write bursts
+
+Outcome:
+- a single long-running `exec` command can no longer keep filling the workspace unchecked until exit; quota breach is detected during the run and the process is terminated
+
+In scope:
+- foreground `exec` path quota monitoring while the child process is still running
+- bounded kill path when workspace usage crosses the configured limit mid-command
+- docs correction for prior over-strong claims that the burst window was already closed
+
+Out of scope:
+- replacing cached `du -sb` with final incremental accounting
+- quota correctness under concurrency or billing semantics (`SR9`)
+- media preprocessing temp-file redesign (`SR7`)
+- broader session/transcript churn closure for all `SR6`
+
+Primary files / domains:
+- `openclaw/src/agents/bash-tools.exec.ts`
+- focused OpenClaw quota-watch tests
+- `docs/ADR/069-workspace-storage-quota-and-dind-privileged-removal.md`
+- `docs/TEST-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+Evidence required:
+- a running non-cleanup `exec` is terminated when periodic quota checks observe the workspace over limit
+- cleanup commands still bypass the kill path so over-quota remediation remains possible
+- docs no longer claim the large-write burst window is fully closed beyond the evidence of this pass
+
+Verification:
+- `Tier 0`: OpenClaw typecheck plus focused quota-watch tests
+- `Tier 2`: live repro using an oversized single-command write must stop near the quota boundary instead of reaching multi-GB growth
+
+Rollback / safe fallback:
+- revert the quota-watch loop in `bash-tools.exec.ts`; fall back to pre/post checks only
+
+Removal / cleanup obligations:
+- if a later `SR6` pass replaces periodic `du` polling with a different enforcement architecture, remove this stop-gap note and document the new active baseline
+
+Deploy window:
+- OpenClaw runtime only
+
+Observation window:
+- required; this pass is still not sufficient to close all of `SR6`
+
+Exit criteria:
+- a single foreground `exec` can no longer silently grow the workspace far past quota before the command exits
+
+#### SR6c — Workspace quota measurement fail-safe semantics
+
+Outcome:
+- quota enforcement no longer silently weakens to "0 bytes used" just because `du -sb` failed or returned malformed output
+
+In scope:
+- `workspace-quota-guard.ts` measurement failure behavior
+- fail-safe semantics for `exec` and sandbox `writeFile` when workspace usage cannot be measured
+- docs correction so quota enforcement claims match the real guarded behavior
+
+Out of scope:
+- replacing `du -sb` with final incremental accounting
+- transcript/session filesystem churn closure
+- quota correctness under concurrency or billing semantics (`SR9`)
+- media preprocessing/offload redesign (`SR7`)
+
+Primary files / domains:
+- `openclaw/src/agents/workspace-quota-guard.ts`
+- `openclaw/src/agents/bash-tools.exec.ts`
+- `openclaw/src/agents/sandbox/fs-bridge.ts`
+- focused OpenClaw quota guard tests
+- `docs/ADR/069-workspace-storage-quota-and-dind-privileged-removal.md`
+- `docs/TEST-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+Evidence required:
+- quota checks fail safe when measurement is unavailable or malformed
+- non-cleanup `exec` does not continue under an unverified quota state
+- sandbox `writeFile` does not proceed when quota cannot be measured
+
+Verification:
+- `Tier 0`: OpenClaw typecheck plus focused quota guard / exec / fs-bridge tests
+
+Rollback / safe fallback:
+- revert the measurement-failure handling and fall back to the prior permissive behavior
+
+Removal / cleanup obligations:
+- if a later `SR6` pass replaces `du -sb` entirely, remove this fail-safe note and document the new measurement contract
+
+Deploy window:
+- OpenClaw runtime only
+
+Observation window:
+- required; this still does not close all of `SR6`
+
+Exit criteria:
+- quota measurement failure no longer degrades into fail-open workspace growth on the active guarded paths
 
 ### SR7 — Media Pipeline Capacity Hardening
 Outcome:

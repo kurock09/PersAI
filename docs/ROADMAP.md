@@ -460,6 +460,9 @@ Scaling-readiness control layer is now tracked by:
   - `SR5a`: sandbox startup path optimization — parallel docker pulls with retry, progress logging, ~5-7 min deploy-gap reduction
   - `SR5b`: dind contention baseline — 4× concurrent sandbox CPU saturation measured on all tiers, linear degradation confirmed, pod stability proven, cross-pool isolation verified
 - [ ] SR6 — Storage and workspace path hardening ← **active slice**
+  - [x] `SR6a` — workspace quota cache invalidation parity for sandbox `remove` / `rename`, plus docs drift cleanup for truthful `SR6` boundaries vs `SR7`/`SR9`
+  - [x] `SR6b` — mid-exec workspace quota watch for oversized single-command writes, plus docs correction after live 17 GB burst evidence
+  - [x] `SR6c` — workspace quota measurement fail-safe semantics for `du` failure / malformed output
 - [ ] SR7 — Media pipeline capacity hardening
 - [ ] SR8 — Webhook and realtime burst hardening
 - [ ] SR9 — Billing and quota correctness under concurrency
