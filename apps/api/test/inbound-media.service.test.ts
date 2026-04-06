@@ -4,6 +4,7 @@ import { InboundMediaService } from "../src/modules/workspace-management/applica
 
 async function run(): Promise<void> {
   const deletedStoragePaths: string[] = [];
+  const releasedBytes: bigint[] = [];
   let attachmentCreated = false;
   const metrics = new PlatformHttpMetricsService();
 
@@ -66,6 +67,27 @@ async function run(): Promise<void> {
             updatedAt: new Date()
           }
         };
+      },
+      async releaseMediaStorage(input: { sizeBytes: bigint }) {
+        releasedBytes.push(input.sizeBytes);
+        return {
+          releasedDelta: input.sizeBytes,
+          state: {
+            id: "state-1",
+            workspaceId: "workspace-1",
+            tokenBudgetUsed: BigInt(0),
+            tokenBudgetLimit: null,
+            costOrTokenDrivingToolClassUnitsUsed: 0,
+            costOrTokenDrivingToolClassUnitsLimit: null,
+            activeWebChatsCurrent: 0,
+            activeWebChatsLimit: null,
+            mediaStorageBytesUsed: BigInt(95),
+            mediaStorageBytesLimit: BigInt(100),
+            lastComputedAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        };
       }
     } as never,
     metrics
@@ -90,9 +112,12 @@ async function run(): Promise<void> {
   });
 
   assert.deepEqual(result.attachments, []);
-  assert.equal(result.enrichedMessage, "hello");
+  assert.match(result.enrichedMessage, /Attachment processing notes:/);
+  assert.match(result.enrichedMessage, /workspace media storage limit was reached/i);
+  assert.match(result.enrichedMessage, /hello/);
   assert.equal(attachmentCreated, false);
   assert.deepEqual(deletedStoragePaths, ["chat-1/msg-1/photo.jpg"]);
+  assert.deepEqual(releasedBytes, [BigInt(5)]);
   const failureSeries = metrics
     .getSnapshot()
     .mediaStageSeries.find(

@@ -39,6 +39,7 @@ async function run(): Promise<void> {
   process.env.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT = "3";
   const metrics = new PlatformHttpMetricsService();
   const deletedStoragePaths: string[] = [];
+  const releasedBytes: bigint[] = [];
   const service = new ManageChatMediaService(
     {
       async findByUserId(userId: string) {
@@ -168,6 +169,27 @@ async function run(): Promise<void> {
             updatedAt: new Date()
           }
         };
+      },
+      async releaseMediaStorage(input: { sizeBytes: bigint }) {
+        releasedBytes.push(input.sizeBytes);
+        return {
+          releasedDelta: input.sizeBytes,
+          state: {
+            id: "state-1",
+            workspaceId: assistant.workspaceId,
+            tokenBudgetUsed: BigInt(0),
+            tokenBudgetLimit: null,
+            costOrTokenDrivingToolClassUnitsUsed: 0,
+            costOrTokenDrivingToolClassUnitsLimit: null,
+            activeWebChatsCurrent: 0,
+            activeWebChatsLimit: null,
+            mediaStorageBytesUsed: BigInt(0),
+            mediaStorageBytesLimit: BigInt(1000),
+            lastComputedAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        };
       }
     } as never,
     metrics
@@ -186,6 +208,7 @@ async function run(): Promise<void> {
   assert.equal(staged.chatId, "chat-1");
   assert.equal(staged.messageId, "msg-1");
   assert.deepEqual(deletedStoragePaths, []);
+  assert.deepEqual(releasedBytes, []);
   const successSeries = metrics
     .getSnapshot()
     .mediaStageSeries.find(
@@ -198,6 +221,7 @@ async function run(): Promise<void> {
 
   const failureMetrics = new PlatformHttpMetricsService();
   const cappedDeletes: string[] = [];
+  const cappedReleases: bigint[] = [];
   const failingService = new ManageChatMediaService(
     {
       async findByUserId() {
@@ -295,6 +319,27 @@ async function run(): Promise<void> {
             updatedAt: new Date()
           }
         };
+      },
+      async releaseMediaStorage(input: { sizeBytes: bigint }) {
+        cappedReleases.push(input.sizeBytes);
+        return {
+          releasedDelta: input.sizeBytes,
+          state: {
+            id: "state-1",
+            workspaceId: assistant.workspaceId,
+            tokenBudgetUsed: BigInt(0),
+            tokenBudgetLimit: null,
+            costOrTokenDrivingToolClassUnitsUsed: 0,
+            costOrTokenDrivingToolClassUnitsLimit: null,
+            activeWebChatsCurrent: 0,
+            activeWebChatsLimit: null,
+            mediaStorageBytesUsed: BigInt(95),
+            mediaStorageBytesLimit: BigInt(100),
+            lastComputedAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        };
       }
     } as never,
     failureMetrics
@@ -316,6 +361,7 @@ async function run(): Promise<void> {
       error.message === "Media storage quota exceeded for this workspace."
   );
   assert.deepEqual(cappedDeletes, ["chat-1/msg-1/image.png"]);
+  assert.deepEqual(cappedReleases, [BigInt(5)]);
   const failureSeries = failureMetrics
     .getSnapshot()
     .mediaStageSeries.find(

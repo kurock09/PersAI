@@ -279,8 +279,19 @@ export class ManageWebChatListService {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
+    const attachments = await this.attachmentRepository.listByChatId(chat.id);
+    const releasedBytes = attachments.reduce(
+      (sum, attachment) => sum + attachment.sizeBytes,
+      BigInt(0)
+    );
     await this.runtimeAdapter.deleteChatMediaBatch(assistant.id, chat.id, runtimeTier);
     await this.attachmentRepository.deleteByChatId(chat.id);
+    await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
+      assistant,
+      sizeBytes: releasedBytes,
+      source: "web_chat_hard_delete_media_cleanup",
+      metadata: { chatId: chat.id }
+    });
 
     const deleted = await this.assistantChatRepository.hardDeleteChat(chatId, assistant.id);
     if (!deleted) {

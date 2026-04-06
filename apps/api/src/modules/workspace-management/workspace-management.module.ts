@@ -51,6 +51,7 @@ import { EnforceAbuseRateLimitService } from "./application/enforce-abuse-rate-l
 import { ManageAdminAbuseControlsService } from "./application/manage-admin-abuse-controls.service";
 import { ManageAdminAssistantOwnershipService } from "./application/manage-admin-assistant-ownership.service";
 import { ManageAdminAssistantPlanOverrideService } from "./application/manage-admin-assistant-plan-override.service";
+import { ManageAdminWorkspaceSubscriptionService } from "./application/manage-admin-workspace-subscription.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -190,6 +191,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManageAdminAbuseControlsService,
     ManageAdminAssistantOwnershipService,
     ManageAdminAssistantPlanOverrideService,
+    ManageAdminWorkspaceSubscriptionService,
     HandleInternalCronFireService,
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,

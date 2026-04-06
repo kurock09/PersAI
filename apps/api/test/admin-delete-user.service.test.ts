@@ -12,6 +12,7 @@ async function run(): Promise<void> {
   const auditUpdateCalls: Array<unknown> = [];
   const deleted: string[] = [];
   const runtimeResets: string[] = [];
+  const releasedBytes: bigint[] = [];
   const recordDelete = (label: string) => async () => {
     deleted.push(label);
   };
@@ -94,7 +95,7 @@ async function run(): Promise<void> {
     },
     workspaceMember: {
       deleteMany: recordDelete("workspaceMember"),
-      count: async () => 0
+      count: async () => 1
     },
     appUserAdminRole: {
       deleteMany: recordDelete("appUserAdminRole")
@@ -140,7 +141,13 @@ async function run(): Promise<void> {
     },
     workspaceMember: {
       findFirst: async ({ where }: { where: { userId: string } }) =>
-        where.userId === "user-1" ? { workspaceId: "ws-1" } : null
+        where.userId === "user-1" ? { workspaceId: "ws-1" } : null,
+      count: async () => 1
+    },
+    assistantChatMessageAttachment: {
+      aggregate: async () => ({
+        _sum: { sizeBytes: BigInt(7) }
+      })
     },
     $transaction: async <T>(callback: (txArg: typeof tx) => Promise<T>) => callback(tx)
   };
@@ -154,7 +161,12 @@ async function run(): Promise<void> {
     } as Pick<AssistantRuntimeAdapter, "resetWorkspace"> as AssistantRuntimeAdapter,
     {
       assertCanReadAdminSurface: async () => undefined
-    } as Pick<AdminAuthorizationService, "assertCanReadAdminSurface"> as AdminAuthorizationService
+    } as Pick<AdminAuthorizationService, "assertCanReadAdminSurface"> as AdminAuthorizationService,
+    {
+      releaseMediaStorage: async (input: { sizeBytes: bigint }) => {
+        releasedBytes.push(input.sizeBytes);
+      }
+    } as never
   );
 
   await service.execute("admin-1", "user-1");
@@ -179,7 +191,7 @@ async function run(): Promise<void> {
   );
   assert.ok(deleted.includes("assistant"));
   assert.ok(deleted.includes("appUser"));
-  assert.ok(deleted.includes("workspace"));
+  assert.deepEqual(releasedBytes, [BigInt(7)]);
 }
 
 void run();

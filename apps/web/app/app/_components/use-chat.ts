@@ -217,8 +217,8 @@ export function useChat(threadKey: string): UseChatReturn {
               })
             );
           }
-        } catch {
-          setIssue(toWebChatUxIssue("Failed to upload attachments. Please try again."));
+        } catch (error) {
+          setIssue(toWebChatUxIssue(error));
           setIsStreaming(false);
           abortRef.current = null;
           return;

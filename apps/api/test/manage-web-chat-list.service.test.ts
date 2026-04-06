@@ -3,6 +3,7 @@ import { ManageWebChatListService } from "../src/modules/workspace-management/ap
 
 async function run(): Promise<void> {
   const callOrder: string[] = [];
+  const releasedBytes: bigint[] = [];
   const service = new ManageWebChatListService(
     {
       findByUserId: async (userId: string) =>
@@ -55,6 +56,46 @@ async function run(): Promise<void> {
       countActiveChatsByAssistantIdAndSurface: async () => 0
     } as never,
     {
+      listByChatId: async () => [
+        {
+          id: "att-1",
+          messageId: "msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          attachmentType: "image",
+          storagePath: "chat-1/msg-1/a.png",
+          originalFilename: "a.png",
+          mimeType: "image/png",
+          sizeBytes: BigInt(2),
+          durationMs: null,
+          width: null,
+          height: null,
+          processingStatus: "ready",
+          transcription: null,
+          metadata: null,
+          createdAt: new Date("2026-03-31T00:00:00.000Z")
+        },
+        {
+          id: "att-2",
+          messageId: "msg-2",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          attachmentType: "image",
+          storagePath: "chat-1/msg-2/b.png",
+          originalFilename: "b.png",
+          mimeType: "image/png",
+          sizeBytes: BigInt(3),
+          durationMs: null,
+          width: null,
+          height: null,
+          processingStatus: "ready",
+          transcription: null,
+          metadata: null,
+          createdAt: new Date("2026-03-31T00:00:00.000Z")
+        }
+      ],
       deleteByChatId: async () => {
         callOrder.push("attachments-delete");
       }
@@ -83,6 +124,9 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      releaseMediaStorage: async (input: { sizeBytes: bigint }) => {
+        releasedBytes.push(input.sizeBytes);
+      },
       refreshActiveWebChatsUsage: async (input: {
         source: string;
         activeWebChatsCurrent: number;
@@ -100,6 +144,7 @@ async function run(): Promise<void> {
     "repo-delete",
     "quota-web_chat_hard_delete-0"
   ]);
+  assert.deepEqual(releasedBytes, [BigInt(5)]);
 }
 
 void run();

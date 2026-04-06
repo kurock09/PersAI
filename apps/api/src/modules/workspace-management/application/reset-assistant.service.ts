@@ -1,5 +1,9 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import {
+  ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
+  type AssistantChatMessageAttachmentRepository
+} from "../domain/assistant-chat-message-attachment.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
@@ -7,6 +11,7 @@ import {
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
 @Injectable()
 export class ResetAssistantService {
@@ -15,10 +20,13 @@ export class ResetAssistantService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
+    @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
+    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   async execute(userId: string): Promise<void> {
@@ -28,6 +36,7 @@ export class ResetAssistantService {
     }
 
     const aid = assistant.id;
+    const releasedBytes = await this.attachmentRepository.sumSizeBytesByAssistantId(aid);
 
     this.logger.log(`Starting reset transaction for assistant ${aid}`);
 
@@ -94,6 +103,12 @@ export class ResetAssistantService {
 
     this.logger.log("Resetting runtime workspace to clean memory baseline");
     await this.runtimeAdapter.resetWorkspace(aid);
+    await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
+      assistant,
+      sizeBytes: releasedBytes,
+      source: "assistant_reset_media_cleanup",
+      metadata: { assistantId: aid }
+    });
 
     try {
       await this.appendAssistantAuditEventService.execute({

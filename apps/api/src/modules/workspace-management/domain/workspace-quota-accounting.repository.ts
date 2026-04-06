@@ -57,6 +57,21 @@ export type ApplyMediaStorageUsageResult = {
   capped: boolean;
 };
 
+export type ReleaseMediaStorageUsageInput = {
+  workspaceId: string;
+  assistantId: string | null;
+  userId: string | null;
+  delta: bigint;
+  source: string;
+  metadata: Record<string, unknown> | null;
+  limits: WorkspaceQuotaLimitsInput;
+};
+
+export type ReleaseMediaStorageUsageResult = {
+  state: WorkspaceQuotaAccountingState;
+  releasedDelta: bigint;
+};
+
 export type RefreshActiveWebChatsQuotaInput = {
   workspaceId: string;
   assistantId: string | null;
@@ -71,6 +86,9 @@ export interface WorkspaceQuotaAccountingRepository {
   incrementUsage(input: IncrementWorkspaceQuotaUsageInput): Promise<WorkspaceQuotaAccountingState>;
   applyTokenBudgetUsage(input: ApplyTokenBudgetUsageInput): Promise<ApplyTokenBudgetUsageResult>;
   applyMediaStorageUsage(input: ApplyMediaStorageUsageInput): Promise<ApplyMediaStorageUsageResult>;
+  releaseMediaStorageUsage(
+    input: ReleaseMediaStorageUsageInput
+  ): Promise<ReleaseMediaStorageUsageResult>;
   refreshActiveWebChatsUsage(
     input: RefreshActiveWebChatsQuotaInput
   ): Promise<WorkspaceQuotaAccountingState>;

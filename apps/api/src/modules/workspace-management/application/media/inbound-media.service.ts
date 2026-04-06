@@ -41,6 +41,7 @@ export class InboundMediaService {
 
     const attachments: AssistantChatMessageAttachment[] = [];
     const contextLines: string[] = [];
+    const failureNotices: string[] = [];
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       params.assistantId
     );
@@ -89,6 +90,17 @@ export class InboundMediaService {
             uploadResult.storagePath,
             runtimeTier
           );
+          await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
+            assistant: {
+              id: params.assistantId,
+              userId: params.userId,
+              workspaceId: params.workspaceId
+            } as Parameters<
+              typeof this.trackWorkspaceQuotaUsageService.releaseMediaStorage
+            >[0]["assistant"],
+            sizeBytes: applied.appliedDelta,
+            source: `channel_inbound_${params.channel}_rollback`
+          });
           throw new Error("Media storage quota exceeded for this workspace.");
         }
 
@@ -125,6 +137,14 @@ export class InboundMediaService {
         this.logger.warn(
           `Failed to process inbound attachment "${raw.originalFilename}": ${String(err)}`
         );
+        const notice = this.renderInboundAttachmentFailureNotice(
+          params.channel,
+          raw.originalFilename,
+          err
+        );
+        if (notice !== null) {
+          failureNotices.push(notice);
+        }
       } finally {
         const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
         this.platformHttpMetricsService.recordMediaStage({
@@ -139,7 +159,8 @@ export class InboundMediaService {
     const enrichedMessage = this.buildEnrichedMessage(
       params.userMessage,
       contextLines,
-      attachments.some((attachment) => attachment.attachmentType === "image")
+      attachments.some((attachment) => attachment.attachmentType === "image"),
+      failureNotices
     );
 
     return { attachments, enrichedMessage };
@@ -201,17 +222,33 @@ export class InboundMediaService {
   private buildEnrichedMessage(
     userMessage: string,
     contextLines: string[],
-    hasImageAttachments: boolean
+    hasImageAttachments: boolean,
+    failureNotices: string[]
   ): string {
-    if (contextLines.length === 0) return userMessage;
+    if (contextLines.length === 0 && failureNotices.length === 0) {
+      return userMessage;
+    }
 
-    const block = this.buildAttachmentBlock(
-      "Files attached by user",
-      contextLines,
-      hasImageAttachments
-    );
+    const blocks: string[] = [];
 
-    return `${block}\n${userMessage}`;
+    if (failureNotices.length > 0) {
+      blocks.push(
+        [
+          "[Attachment processing notes:",
+          ...failureNotices,
+          "Briefly explain these upload issues to the user before answering the rest of the message.]"
+        ].join("\n")
+      );
+    }
+
+    if (contextLines.length > 0) {
+      blocks.push(
+        this.buildAttachmentBlock("Files attached by user", contextLines, hasImageAttachments)
+      );
+    }
+
+    const baseMessage = userMessage.trim().length > 0 ? userMessage : "User sent attachments only.";
+    return `${blocks.join("\n")}\n${baseMessage}`;
   }
 
   private buildAttachmentBlock(
@@ -227,5 +264,25 @@ export class InboundMediaService {
     }
     lines.push("You can read or reference them by their path.]");
     return lines.join("\n");
+  }
+
+  private renderInboundAttachmentFailureNotice(
+    channel: InboundMediaResolveParams["channel"],
+    originalFilename: string,
+    error: unknown
+  ): string | null {
+    if (channel !== "telegram" && channel !== "whatsapp" && channel !== "vk") {
+      return null;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    const normalized = message.toLowerCase();
+    const filename = originalFilename.trim().length > 0 ? `"${originalFilename}"` : "The file";
+
+    if (normalized.includes("media storage quota exceeded")) {
+      return `- ${filename} was not uploaded because the workspace media storage limit was reached.`;
+    }
+
+    return `- ${filename} could not be processed, so continue without that attachment and tell the user it was not accepted.`;
   }
 }

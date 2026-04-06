@@ -354,4 +354,15 @@ describe("toWebChatUxIssue", () => {
         "No safe fallback route is available for this request right now. Wait for quota refresh, simplify the request, or upgrade the plan."
     });
   });
+
+  it("maps media storage quota errors to quota-style guidance", () => {
+    expect(toWebChatUxIssue(new Error("Media storage quota exceeded for this workspace."))).toEqual(
+      {
+        classId: "quota_limit_reached",
+        message: "You've reached your plan's usage limit.",
+        guidance:
+          "Your message quota or tool usage limit has been exceeded. Wait for the next billing cycle or upgrade your plan."
+      }
+    );
+  });
 });

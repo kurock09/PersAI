@@ -1171,15 +1171,17 @@ Exit criteria:
 #### SR9c — Media storage quota atomicity under concurrency
 Outcome:
 - concurrent media uploads no longer retain quota-violating stored bytes just because multiple upload paths race through the same workspace media ledger
+- touched cleanup/delete paths no longer leave the workspace logically full after quota-capped uploads or explicit media cleanup on the PersAI side
 
 In scope:
 - `media_storage_bytes` shared-state accounting on the PersAI API side
 - atomic capped media-byte apply semantics plus rollback of the newly uploaded blob when the full object no longer fits
+- bounded release/reconciliation of `media_storage_bytes` on the touched PersAI delete/cleanup paths needed to restore honest workspace headroom after cleanup
 - alignment of docs that previously overstated inbound media pre-check coverage
 
 Out of scope:
 - media preprocessing throughput redesign (`SR7`)
-- media-byte decrement/reconciliation redesign for every delete lifecycle
+- full cross-system media lifecycle reconciliation beyond the touched PersAI-owned cleanup/delete seams
 - token-budget or active-chat-cap atomicity (`SR9b` / `SR9d`)
 - final capacity proof (`SR10`)
 
@@ -1199,12 +1201,15 @@ Primary files / domains:
 Evidence required:
 - media-byte usage writes use one serializable capped shared-state path instead of a blind increment
 - when the uploaded object no longer fully fits, the newly uploaded blob is deleted and no attachment row is retained on the touched path
-- docs stay honest that this pass hardens retain-or-rollback correctness for touched uploads, not the full long-term media-byte reconciliation story
+- touched PersAI cleanup/delete paths release `media_storage_bytes` through one bounded shared-state seam so cleanup restores upload headroom instead of leaving stale ledger usage
+- docs stay honest that this pass hardens touched PersAI-owned retain/release correctness, not the whole long-term cross-system media reconciliation story
 
 Verification:
 - `Tier 0`: `corepack pnpm --filter @persai/api run typecheck`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-quota-accounting.repository.test.ts`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
 
@@ -1222,7 +1227,8 @@ Observation window:
 
 Exit criteria:
 - touched upload paths no longer retain media blobs above the workspace media-storage limit purely because concurrent uploads raced through the same ledger
-- docs remain explicit that full media-byte decrement/reconciliation across all delete flows is not yet claimed here
+- touched PersAI cleanup/delete paths no longer leave stale `media_storage_bytes` usage that blocks later uploads after cleanup
+- docs remain explicit that full media-byte reconciliation across every possible external/runtime lifecycle is not yet claimed here
 
 #### SR9d — Active web chats cap race-safe creation
 Outcome:

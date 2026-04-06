@@ -27,9 +27,14 @@ export class ManageAdminAssistantPlanOverrideService {
   async setOverride(
     callerUserId: string,
     targetUserId: string,
-    planCode: string
+    planCode: string,
+    stepUpToken: string | null
   ): Promise<{ ok: true }> {
-    await this.adminAuthorizationService.assertCanReadAdminSurface(callerUserId);
+    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      callerUserId,
+      "admin.plan.update",
+      stepUpToken
+    );
     const trimmedUserId = targetUserId.trim();
     if (trimmedUserId.length === 0) {
       throw new BadRequestException("userId is required.");
@@ -57,8 +62,16 @@ export class ManageAdminAssistantPlanOverrideService {
     return { ok: true };
   }
 
-  async resetOverride(callerUserId: string, targetUserId: string): Promise<{ ok: true }> {
-    await this.adminAuthorizationService.assertCanReadAdminSurface(callerUserId);
+  async resetOverride(
+    callerUserId: string,
+    targetUserId: string,
+    stepUpToken: string | null
+  ): Promise<{ ok: true }> {
+    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      callerUserId,
+      "admin.plan.update",
+      stepUpToken
+    );
     const trimmedUserId = targetUserId.trim();
     if (trimmedUserId.length === 0) {
       throw new BadRequestException("userId is required.");

@@ -72,6 +72,14 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
     return records.map((r) => this.mapToDomain(r));
   }
 
+  async sumSizeBytesByAssistantId(assistantId: string): Promise<bigint> {
+    const result = await this.prisma.assistantChatMessageAttachment.aggregate({
+      where: { assistantId },
+      _sum: { sizeBytes: true }
+    });
+    return result._sum.sizeBytes ?? BigInt(0);
+  }
+
   async deleteByAssistantId(assistantId: string): Promise<number> {
     const result = await this.prisma.assistantChatMessageAttachment.deleteMany({
       where: { assistantId }

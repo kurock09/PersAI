@@ -1,5 +1,68 @@
 # SESSION-HANDOFF
 
+## 2026-04-07 - SR9c media storage reconciliation follow-up code pass
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- `SR9c` — media storage quota atomicity under concurrency
+
+### What stale program state was fixed
+
+1. Canon still treated full `media_storage_bytes` decrement/reconciliation as outside the touched `SR9c` seam, but live evidence showed a real commercial blocker inside `SR9c`: after quota cap + cleanup, the workspace could remain logically full and still reject a small upload.
+2. The active top-of-handoff marker had advanced to `SR9f`, which stopped being truthful once the live `SR9c` residual reopened as the immediate bounded blocker before deploy.
+
+### What subagents were launched and why
+
+1. A readonly media delete-path inventory subagent to map the minimum PersAI-owned cleanup/delete seams that must release `media_storage_bytes` without drifting into `SR7` or a broad storage redesign.
+
+### What evidence they returned
+
+- The original `SR9c` upload-side capped apply path was working, but touched cleanup/delete paths (`web` hard delete, assistant reset, admin delete-user with surviving workspace, and quota-capped upload rollback) never released bytes from the shared media ledger.
+- The smallest honest fix was one bounded shared-state release seam with floor-at-zero semantics, reused by the touched PersAI-owned cleanup/delete paths.
+
+### What was completed
+
+1. Added `releaseMediaStorageUsage` / `releaseMediaStorage` as the bounded shared-state release seam for `media_storage_bytes`, with serializable retry behavior and floor-at-zero release semantics.
+2. Wired rollback release for quota-capped media upload paths in `ManageChatMediaService` and `InboundMediaService`, so rejected uploads no longer retain stale accounted bytes.
+3. Wired byte release into touched PersAI cleanup/delete paths: web hard delete, assistant reset, and admin delete-user when the workspace survives.
+4. Added focused regression coverage for rollback release and cleanup release behavior in `manage-chat-media.stage-web-thread.test.ts`, `inbound-media.service.test.ts`, `manage-web-chat-list.service.test.ts`, and `admin-delete-user.service.test.ts`.
+
+### What remains
+
+1. Do the requested deploy of the current `SR9` package to `persai-dev`.
+2. Re-run the live media scenario that previously failed: exceed media cap, clean up, then verify a small upload succeeds again.
+3. Complete the rest of the already-agreed live validation wave for `SR9b`-`SR9f` before deciding whether `SR9` is honestly closed.
+
+### Confirmed risks
+
+1. This follow-up now covers the touched PersAI-owned cleanup/delete seams, but does not claim perfect reconciliation for every possible external/runtime-only media lifecycle.
+2. No deploy/live evidence exists yet for this follow-up; closure still depends on real shared-state validation after rollout.
+
+### Unresolved hypotheses
+
+1. The new release seam may be sufficient to close the practical `SR9c` blocker once live validation confirms cleanup restores upload headroom on `persai-dev`.
+2. If live behavior still leaves the workspace logically full after cleanup, the next honest follow-up is a narrower reconciliation gap in an unpatched lifecycle rather than pretending the shared release seam is globally complete.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR10` is still blocked because `SR9` still lacks deploy/live shared-state proof; the truthful next step is deploy plus live validation, not opening the next slice.
+
+### Next recommended step
+
+- Commit/push the current `SR9` package so CI can publish the new dev image and Argo can roll out `persai-dev`, then immediately rerun the blocked media cleanup/upload scenario.
+
 ## 2026-04-06 - SR9f tool daily quota check-vs-consume concurrency code pass
 
 ### Current active slice

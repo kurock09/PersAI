@@ -1093,18 +1093,23 @@ Required in CI:
 
 - This bounded `SR9c` pass covers one concrete shared-state commercial race:
   - media upload paths could pass a stale workspace media quota read, upload the blob, and then blindly increment `media_storage_bytes`, allowing concurrent uploads to retain quota-violating stored bytes
+- Live follow-up also closed the concrete stale-ledger bug discovered during verification:
+  - after a quota-capped upload or explicit PersAI-side cleanup/delete path, the workspace could stay logically full because touched delete/cleanup paths never released `media_storage_bytes`
 - Acceptance for this sub-slice:
   - media-byte writes use one serializable capped shared-state path instead of an unconditional increment
   - if the uploaded object no longer fully fits into the remaining media-storage budget, the touched path deletes the newly uploaded blob and does not retain a ready attachment row
-  - docs stay honest that this pass hardens touched retain-or-rollback correctness, not the whole long-term media-byte decrement/reconciliation model
+  - touched PersAI cleanup/delete paths release accounted bytes through one bounded shared-state seam so cleanup restores upload headroom
+  - docs stay honest that this pass hardens touched retain/release correctness, not the whole long-term media-byte reconciliation model
 - Minimum verification for this sub-slice:
   - `corepack pnpm --filter @persai/api run typecheck`
   - `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-quota-accounting.repository.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
 - `SR9c` does NOT prove:
-  - that every media delete path now decrements `media_storage_bytes` back to perfect long-term truth
+  - that every possible external/runtime media lifecycle now reconciles `media_storage_bytes` back to perfect long-term truth
   - that preprocessing cost or stage latency is redesigned (`SR7`)
   - that token-budget or active-chat-cap races are solved
   - that all of `SR9` is closed without deploy/live shared-state evidence

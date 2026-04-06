@@ -119,6 +119,35 @@ function toErrorMessage(error: unknown): string {
   return "Unknown API request error.";
 }
 
+async function readJsonErrorMessage(response: Response, fallbackMessage: string): Promise<string> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return fallbackMessage;
+  }
+
+  try {
+    const payload = (await response.json()) as unknown;
+    if (typeof payload !== "object" || payload === null) {
+      return fallbackMessage;
+    }
+
+    const envelope = payload as {
+      error?: { message?: unknown };
+      message?: unknown;
+    };
+    if (typeof envelope.error?.message === "string" && envelope.error.message.trim().length > 0) {
+      return envelope.error.message;
+    }
+    if (typeof envelope.message === "string" && envelope.message.trim().length > 0) {
+      return envelope.message;
+    }
+  } catch {
+    return fallbackMessage;
+  }
+
+  return fallbackMessage;
+}
+
 function getApiBaseUrl(): string {
   const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL;
   if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
@@ -343,7 +372,8 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   if (
     normalized.includes("quota limit reached") ||
     normalized.includes("budget limit reached") ||
-    normalized.includes("quota refresh")
+    normalized.includes("quota refresh") ||
+    normalized.includes("media storage quota exceeded")
   ) {
     return {
       classId: "quota_limit_reached",
@@ -1543,8 +1573,12 @@ export async function postAdminOpsUserPlanOverride(
   params: PostAdminOpsUserPlanOverrideParams
 ): Promise<void> {
   try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
     const response = await postAdminOpsUserPlanOverrideContract(userId, params, {
-      headers: getAuthHeaders(token)
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
     });
     if (!isSuccessStatus(response.status)) {
       throw new Error(
@@ -1558,13 +1592,73 @@ export async function postAdminOpsUserPlanOverride(
 
 export async function deleteAdminOpsUserPlanOverride(token: string, userId: string): Promise<void> {
   try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
     const response = await deleteAdminOpsUserPlanOverrideContract(userId, {
-      headers: getAuthHeaders(token)
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
     });
     if (!isSuccessStatus(response.status)) {
       throw new Error(
         "Unexpected non-success response for DELETE /admin/ops/users/{userId}/plan-override."
       );
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminOpsUserWorkspaceSubscription(
+  token: string,
+  userId: string,
+  payload: { planCode: string }
+): Promise<void> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
+    const base = getApiBaseUrl();
+    const res = await fetch(
+      `${base}/admin/ops/users/${encodeURIComponent(userId)}/workspace-subscription`,
+      {
+        method: "POST",
+        headers: {
+          ...getAuthHeaders(token),
+          "Content-Type": "application/json",
+          "x-persai-step-up-token": stepUpToken
+        },
+        body: JSON.stringify({
+          planCode: payload.planCode,
+          status: "active"
+        })
+      }
+    );
+    if (!res.ok) {
+      throw new Error(await readJsonErrorMessage(res, "Failed to apply workspace subscription."));
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function deleteAdminOpsUserWorkspaceSubscription(
+  token: string,
+  userId: string
+): Promise<void> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
+    const base = getApiBaseUrl();
+    const res = await fetch(
+      `${base}/admin/ops/users/${encodeURIComponent(userId)}/workspace-subscription`,
+      {
+        method: "DELETE",
+        headers: {
+          ...getAuthHeaders(token),
+          "x-persai-step-up-token": stepUpToken
+        }
+      }
+    );
+    if (!res.ok) {
+      throw new Error(await readJsonErrorMessage(res, "Failed to reset workspace subscription."));
     }
   } catch (error) {
     throw new Error(toErrorMessage(error));
@@ -1834,7 +1928,9 @@ export async function stageWebChatAttachment(
     headers: { Authorization: `Bearer ${token}` },
     body: formData
   });
-  if (!res.ok) throw new Error("Failed to stage attachment.");
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to stage attachment."));
+  }
   const data = (await res.json()) as StagedAttachmentResult;
   return data;
 }
@@ -1856,7 +1952,9 @@ export async function uploadChatAttachment(
       body: formData
     }
   );
-  if (!res.ok) throw new Error("Failed to upload attachment.");
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to upload attachment."));
+  }
   const data = (await res.json()) as { attachment: UploadedAttachment };
   return data.attachment;
 }

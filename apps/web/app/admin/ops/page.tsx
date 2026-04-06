@@ -35,8 +35,10 @@ import {
   type AssistantRuntimeApplyStatus as ApplyStatus
 } from "@persai/contracts";
 import {
+  deleteAdminOpsUserWorkspaceSubscription,
   deleteAdminOpsUserPlanOverride,
   getAdminPlans,
+  postAdminOpsUserWorkspaceSubscription,
   postAdminOpsUserPlanOverride,
   postAssistantReapply
 } from "@/app/app/assistant-api-client";
@@ -554,6 +556,7 @@ export default function AdminOpsPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [reapplyBusy, setReapplyBusy] = useState(false);
   const [planOverrideBusy, setPlanOverrideBusy] = useState(false);
+  const [workspaceSubscriptionBusy, setWorkspaceSubscriptionBusy] = useState(false);
   const [selectedPlanCode, setSelectedPlanCode] = useState("");
   const [planSelectionDirty, setPlanSelectionDirty] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -704,6 +707,58 @@ export default function AdminOpsPage() {
       setPlanOverrideBusy(false);
     }
   }, [cockpit?.controls.assistantPlanResetSupported, getToken, load, selectedUserId]);
+
+  const onApplyWorkspaceSubscription = useCallback(async () => {
+    if (!selectedUserId) {
+      setActionMessage("Select a user assistant first.");
+      return;
+    }
+    if (!selectedPlanCode) {
+      setActionMessage("Choose a target plan first.");
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      setActionMessage("Not signed in.");
+      return;
+    }
+    setWorkspaceSubscriptionBusy(true);
+    setActionMessage(null);
+    try {
+      await postAdminOpsUserWorkspaceSubscription(token, selectedUserId, {
+        planCode: selectedPlanCode
+      });
+      setActionMessage("Workspace subscription snapshot applied for live propagation check.");
+      await load(selectedUserId);
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : "Failed to apply workspace subscription.");
+    } finally {
+      setWorkspaceSubscriptionBusy(false);
+    }
+  }, [getToken, load, selectedPlanCode, selectedUserId]);
+
+  const onResetWorkspaceSubscription = useCallback(async () => {
+    if (!selectedUserId) {
+      setActionMessage("Select a user assistant first.");
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      setActionMessage("Not signed in.");
+      return;
+    }
+    setWorkspaceSubscriptionBusy(true);
+    setActionMessage(null);
+    try {
+      await deleteAdminOpsUserWorkspaceSubscription(token, selectedUserId);
+      setActionMessage("Workspace subscription snapshot removed.");
+      await load(selectedUserId);
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : "Failed to reset workspace subscription.");
+    } finally {
+      setWorkspaceSubscriptionBusy(false);
+    }
+  }, [getToken, load, selectedUserId]);
 
   if (loading && cockpit === null) {
     return (
@@ -977,6 +1032,46 @@ export default function AdminOpsPage() {
                   <RotateCcw className="h-3 w-3" />
                   Reset to normal
                 </button>
+              </div>
+              <div className="border-t border-border pt-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Workspace subscription snapshot
+                </p>
+                <p className="mb-2 text-[11px] leading-relaxed text-text-muted">
+                  Use only for `SR9e` propagation/live verification. This updates the workspace
+                  subscription row and should force runtime rematerialization through
+                  `configDirtyAt`.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!selectedUserId || !selectedPlanCode || workspaceSubscriptionBusy}
+                    onClick={() => void onApplyWorkspaceSubscription()}
+                    className={cn(
+                      "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                    )}
+                  >
+                    {workspaceSubscriptionBusy ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Users className="h-3 w-3" />
+                    )}
+                    Apply workspace subscription
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selectedUserId || workspaceSubscriptionBusy}
+                    onClick={() => void onResetWorkspaceSubscription()}
+                    className={cn(
+                      "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                    )}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Reset workspace subscription
+                  </button>
+                </div>
               </div>
               {actionMessage && (
                 <p className="rounded border border-border/60 bg-surface px-2 py-1.5 text-[10px] text-text-muted">

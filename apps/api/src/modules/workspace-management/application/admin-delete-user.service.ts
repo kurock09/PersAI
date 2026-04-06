@@ -5,6 +5,7 @@ import {
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
 import { AdminAuthorizationService } from "./admin-authorization.service";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
 const ASSISTANT_PUBLISHED_VERSIONS_NO_DELETE_TRIGGER = "assistant_published_versions_no_delete";
 const ASSISTANT_AUDIT_EVENTS_NO_UPDATE_TRIGGER = "assistant_audit_events_no_update";
@@ -17,7 +18,8 @@ export class AdminDeleteUserService {
     private readonly prisma: WorkspaceManagementPrismaService,
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
-    private readonly adminAuthorizationService: AdminAuthorizationService
+    private readonly adminAuthorizationService: AdminAuthorizationService,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   async execute(callerUserId: string, targetUserId: string): Promise<void> {
@@ -40,6 +42,15 @@ export class AdminDeleteUserService {
         this.logger.warn("Runtime workspace reset failed (continuing)", err);
       }
     }
+    const releasedBytes =
+      assistant === null
+        ? BigInt(0)
+        : ((
+            await this.prisma.assistantChatMessageAttachment.aggregate({
+              where: { assistantId: assistant.id },
+              _sum: { sizeBytes: true }
+            })
+          )._sum.sizeBytes ?? BigInt(0));
 
     const workspaceMember = await this.prisma.workspaceMember.findFirst({
       where: { userId: targetUserId }
@@ -50,6 +61,7 @@ export class AdminDeleteUserService {
 
     await this.prisma.$transaction(
       async (tx) => {
+        let workspaceDeleted = false;
         await tx.$executeRawUnsafe(
           `ALTER TABLE "assistant_audit_events" DISABLE TRIGGER "${ASSISTANT_AUDIT_EVENTS_NO_UPDATE_TRIGGER}"`
         );
@@ -112,6 +124,7 @@ export class AdminDeleteUserService {
               await tx.workspaceQuotaUsageEvent.deleteMany({ where: { workspaceId } });
               await tx.workspaceQuotaAccountingState.deleteMany({ where: { workspaceId } });
               await tx.workspaceSubscription.deleteMany({ where: { workspaceId } });
+              workspaceDeleted = true;
 
               const channels = await tx.workspaceAdminNotificationChannel.findMany({
                 where: { workspaceId },
@@ -134,9 +147,30 @@ export class AdminDeleteUserService {
             `ALTER TABLE "assistant_audit_events" ENABLE TRIGGER "${ASSISTANT_AUDIT_EVENTS_NO_UPDATE_TRIGGER}"`
           );
         }
+        return workspaceDeleted;
       },
       { timeout: 60_000 }
     );
+
+    if (assistant !== null && workspaceId !== null) {
+      const survivingMembers = await this.prisma.workspaceMember.count({
+        where: { workspaceId }
+      });
+      if (survivingMembers > 0) {
+        await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
+          assistant: {
+            id: assistant.id,
+            userId: assistant.userId,
+            workspaceId: assistant.workspaceId
+          } as Parameters<
+            typeof this.trackWorkspaceQuotaUsageService.releaseMediaStorage
+          >[0]["assistant"],
+          sizeBytes: releasedBytes,
+          source: "admin_delete_user_media_cleanup",
+          metadata: { targetUserId }
+        });
+      }
+    }
 
     this.logger.log(`User ${targetUserId} fully deleted`);
   }

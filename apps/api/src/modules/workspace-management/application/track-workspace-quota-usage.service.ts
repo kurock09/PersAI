@@ -12,6 +12,7 @@ import {
 import type { Assistant } from "../domain/assistant.entity";
 import {
   type ApplyMediaStorageUsageResult,
+  type ReleaseMediaStorageUsageResult,
   WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
   type ApplyTokenBudgetUsageResult,
   type WorkspaceQuotaAccountingRepository,
@@ -263,6 +264,46 @@ export class TrackWorkspaceQuotaUsageService {
     });
     this.logMediaStorageCapIfNeeded(params.assistant.id, params.source, params.sizeBytes, applied);
     return applied;
+  }
+
+  async releaseMediaStorage(params: {
+    assistant: Assistant;
+    sizeBytes: bigint;
+    source: string;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<ReleaseMediaStorageUsageResult> {
+    if (params.sizeBytes <= BigInt(0)) {
+      return {
+        releasedDelta: BigInt(0),
+        state: {
+          id: "noop",
+          workspaceId: params.assistant.workspaceId,
+          tokenBudgetUsed: BigInt(0),
+          tokenBudgetLimit: null,
+          costOrTokenDrivingToolClassUnitsUsed: 0,
+          costOrTokenDrivingToolClassUnitsLimit: null,
+          activeWebChatsCurrent: 0,
+          activeWebChatsLimit: null,
+          mediaStorageBytesUsed: BigInt(0),
+          mediaStorageBytesLimit: null,
+          lastComputedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      };
+    }
+
+    const governance = await this.resolveGovernance(params.assistant.id);
+    const limits = await this.resolveLimits(params.assistant, governance);
+    return this.workspaceQuotaAccountingRepository.releaseMediaStorageUsage({
+      workspaceId: params.assistant.workspaceId,
+      assistantId: params.assistant.id,
+      userId: params.assistant.userId,
+      delta: params.sizeBytes,
+      source: params.source,
+      metadata: params.metadata ?? null,
+      limits
+    });
   }
 
   async consumeToolDailyLimit(params: {

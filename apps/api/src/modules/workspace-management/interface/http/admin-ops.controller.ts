@@ -1,4 +1,5 @@
 import {
+  Body,
   BadRequestException,
   Controller,
   Delete,
@@ -20,6 +21,10 @@ import {
 import { ReapplyAssistantService } from "../../application/reapply-assistant.service";
 import { AdminDeleteUserService } from "../../application/admin-delete-user.service";
 import { ManageAdminAssistantPlanOverrideService } from "../../application/manage-admin-assistant-plan-override.service";
+import {
+  ManageAdminWorkspaceSubscriptionService,
+  type AdminWorkspaceSubscriptionInput
+} from "../../application/manage-admin-workspace-subscription.service";
 
 @Controller("api/v1/admin/ops")
 export class AdminOpsController {
@@ -28,7 +33,8 @@ export class AdminOpsController {
     private readonly adminOpsUserDirectoryService: AdminOpsUserDirectoryService,
     private readonly reapplyAssistantService: ReapplyAssistantService,
     private readonly adminDeleteUserService: AdminDeleteUserService,
-    private readonly manageAdminAssistantPlanOverrideService: ManageAdminAssistantPlanOverrideService
+    private readonly manageAdminAssistantPlanOverrideService: ManageAdminAssistantPlanOverrideService,
+    private readonly manageAdminWorkspaceSubscriptionService: ManageAdminWorkspaceSubscriptionService
   ) {}
 
   @Get("cockpit")
@@ -103,7 +109,8 @@ export class AdminOpsController {
     await this.manageAdminAssistantPlanOverrideService.setOverride(
       callerId,
       targetUserId.trim(),
-      trimmedPlanCode
+      trimmedPlanCode,
+      this.resolveStepUpToken(req)
     );
     return { requestId: req.requestId ?? null, ok: true };
   }
@@ -118,8 +125,46 @@ export class AdminOpsController {
     if (!targetUserId || targetUserId.trim().length === 0) {
       throw new BadRequestException("userId is required.");
     }
-    await this.manageAdminAssistantPlanOverrideService.resetOverride(callerId, targetUserId.trim());
+    await this.manageAdminAssistantPlanOverrideService.resetOverride(
+      callerId,
+      targetUserId.trim(),
+      this.resolveStepUpToken(req)
+    );
     return { requestId: req.requestId ?? null, ok: true };
+  }
+
+  @Post("users/:userId/workspace-subscription")
+  @HttpCode(200)
+  async setWorkspaceSubscription(
+    @Req() req: RequestWithPlatformContext,
+    @Param("userId") targetUserId: string,
+    @Body() body: unknown
+  ): Promise<{ requestId: string | null; ok: boolean; changed: boolean; workspaceId: string }> {
+    const callerId = this.resolveRequestUserId(req);
+    const input: AdminWorkspaceSubscriptionInput =
+      this.manageAdminWorkspaceSubscriptionService.parseApplyInput(body);
+    const result = await this.manageAdminWorkspaceSubscriptionService.setWorkspaceSubscription(
+      callerId,
+      targetUserId,
+      input,
+      this.resolveStepUpToken(req)
+    );
+    return { requestId: req.requestId ?? null, ...result };
+  }
+
+  @Delete("users/:userId/workspace-subscription")
+  @HttpCode(200)
+  async resetWorkspaceSubscription(
+    @Req() req: RequestWithPlatformContext,
+    @Param("userId") targetUserId: string
+  ): Promise<{ requestId: string | null; ok: boolean; changed: boolean; workspaceId: string }> {
+    const callerId = this.resolveRequestUserId(req);
+    const result = await this.manageAdminWorkspaceSubscriptionService.resetWorkspaceSubscription(
+      callerId,
+      targetUserId,
+      this.resolveStepUpToken(req)
+    );
+    return { requestId: req.requestId ?? null, ...result };
   }
 
   @Delete("users/:userId")
@@ -144,5 +189,13 @@ export class AdminOpsController {
       throw new UnauthorizedException("Authenticated user context is missing.");
     }
     return req.resolvedAppUser.id;
+  }
+
+  private resolveStepUpToken(req: RequestWithPlatformContext): string | null {
+    const header = req.headers["x-persai-step-up-token"];
+    if (Array.isArray(header)) {
+      return header[0] ?? null;
+    }
+    return typeof header === "string" ? header : null;
   }
 }

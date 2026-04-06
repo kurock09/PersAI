@@ -10,11 +10,18 @@ async function run(): Promise<void> {
   const authCalls: string[] = [];
   const overrideWrites: Array<{ assistantId: string; planCode: string | null }> = [];
   const dirtyWrites: string[] = [];
+  const stepUpTokens: Array<string | null> = [];
 
   const service = new ManageAdminAssistantPlanOverrideService(
     {
-      async assertCanReadAdminSurface(userId: string) {
+      async assertCanPerformDangerousAdminAction(
+        userId: string,
+        action: string,
+        stepUpToken: string | null
+      ) {
         authCalls.push(userId);
+        assert.equal(action, "admin.plan.update");
+        stepUpTokens.push(stepUpToken);
         return {
           userId,
           workspaceId: "ws-admin",
@@ -23,7 +30,10 @@ async function run(): Promise<void> {
           hasGlobalPlatformAdminScope: true
         };
       }
-    } as Pick<AdminAuthorizationService, "assertCanReadAdminSurface"> as AdminAuthorizationService,
+    } as Pick<
+      AdminAuthorizationService,
+      "assertCanPerformDangerousAdminAction"
+    > as AdminAuthorizationService,
     {
       async findByUserId(userId: string) {
         if (userId === "missing-user") {
@@ -110,14 +120,16 @@ async function run(): Promise<void> {
     } as Pick<WorkspaceManagementPrismaService, "assistant"> as WorkspaceManagementPrismaService
   );
 
-  const setResult = await service.setOverride("admin-1", "user-1", "pro_tester");
+  const setResult = await service.setOverride("admin-1", "user-1", "pro_tester", "step-up-1");
   assert.deepEqual(setResult, { ok: true });
   assert.deepEqual(authCalls, ["admin-1"]);
+  assert.deepEqual(stepUpTokens, ["step-up-1"]);
   assert.deepEqual(overrideWrites[0], { assistantId: "assistant-1", planCode: "pro_tester" });
   assert.deepEqual(dirtyWrites, ["assistant-1"]);
 
-  const resetResult = await service.resetOverride("admin-1", "user-1");
+  const resetResult = await service.resetOverride("admin-1", "user-1", "step-up-2");
   assert.deepEqual(resetResult, { ok: true });
+  assert.deepEqual(stepUpTokens, ["step-up-1", "step-up-2"]);
   assert.deepEqual(overrideWrites[1], { assistantId: "assistant-1", planCode: null });
   assert.deepEqual(dirtyWrites, ["assistant-1", "assistant-1"]);
 }

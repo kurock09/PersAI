@@ -383,6 +383,11 @@ export class ManageChatMediaService {
         params.storagePath,
         params.runtimeTier
       );
+      await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
+        assistant: params.assistant,
+        sizeBytes: applied.appliedDelta,
+        source: `${params.source}_rollback`
+      });
       throw new BadRequestException("Media storage quota exceeded for this workspace.");
     }
   }

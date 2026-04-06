@@ -32,6 +32,7 @@ export interface AssistantChatMessageAttachmentRepository {
   listByMessageId(messageId: string): Promise<AssistantChatMessageAttachment[]>;
   listByMessageIds(messageIds: string[]): Promise<AssistantChatMessageAttachment[]>;
   listByChatId(chatId: string): Promise<AssistantChatMessageAttachment[]>;
+  sumSizeBytesByAssistantId(assistantId: string): Promise<bigint>;
   deleteByAssistantId(assistantId: string): Promise<number>;
   deleteByChatId(chatId: string): Promise<number>;
   sumSizeBytesByWorkspaceId(workspaceId: string): Promise<bigint>;

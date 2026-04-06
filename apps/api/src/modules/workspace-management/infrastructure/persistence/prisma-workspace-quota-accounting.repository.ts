@@ -6,6 +6,8 @@ import {
 import type {
   ApplyMediaStorageUsageInput,
   ApplyMediaStorageUsageResult,
+  ReleaseMediaStorageUsageInput,
+  ReleaseMediaStorageUsageResult,
   ApplyTokenBudgetUsageInput,
   ApplyTokenBudgetUsageResult,
   RefreshActiveWebChatsQuotaInput,
@@ -120,6 +122,32 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     }
 
     throw new Error("Failed to apply media storage usage after serialization retries.");
+  }
+
+  async releaseMediaStorageUsage(
+    input: ReleaseMediaStorageUsageInput
+  ): Promise<ReleaseMediaStorageUsageResult> {
+    const maxRetries = 3;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => this.releaseMediaStorageUsageTx(tx, input),
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+          }
+        );
+      } catch (error) {
+        const prismaCode =
+          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
+        if (prismaCode === "P2034" && attempt < maxRetries) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error("Failed to release media storage usage after serialization retries.");
   }
 
   async refreshActiveWebChatsUsage(
@@ -274,6 +302,55 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
       state: this.mapToDomain(nextState),
       appliedDelta,
       capped: appliedDelta < input.delta
+    };
+  }
+
+  private async releaseMediaStorageUsageTx(
+    tx: Prisma.TransactionClient,
+    input: ReleaseMediaStorageUsageInput
+  ): Promise<ReleaseMediaStorageUsageResult> {
+    const existing = await tx.workspaceQuotaAccountingState.findUnique({
+      where: { workspaceId: input.workspaceId }
+    });
+
+    const used = existing?.mediaStorageBytesUsed ?? BigInt(0);
+    const releasedDelta =
+      input.delta <= BigInt(0) ? BigInt(0) : input.delta < used ? input.delta : used;
+
+    const nextState = existing
+      ? await tx.workspaceQuotaAccountingState.update({
+          where: { workspaceId: input.workspaceId },
+          data: {
+            mediaStorageBytesUsed: { decrement: releasedDelta },
+            ...this.toLimitUpdateInput(input.limits),
+            lastComputedAt: new Date()
+          }
+        })
+      : await tx.workspaceQuotaAccountingState.create({
+          data: {
+            workspaceId: input.workspaceId,
+            ...this.toLimitCreateInput(input.limits),
+            ...this.toUsageCreateInput("media_storage_bytes", BigInt(0)),
+            lastComputedAt: new Date()
+          }
+        });
+
+    await tx.workspaceQuotaUsageEvent.create({
+      data: {
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        userId: input.userId,
+        dimension: "media_storage_bytes",
+        delta: -releasedDelta,
+        source: input.source,
+        metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : Prisma.DbNull,
+        limitValue: this.resolveLimitValueForDimension("media_storage_bytes", input.limits)
+      }
+    });
+
+    return {
+      state: this.mapToDomain(nextState),
+      releasedDelta
     };
   }
 
