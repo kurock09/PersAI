@@ -396,6 +396,52 @@ Exit criteria:
 - pod readiness time is measurably reduced compared to sequential baseline
 - retry path does not mask permanent pull failures (still exits after max attempts)
 
+#### SR5b — dind contention baseline and per-tier sandbox capacity evidence
+
+Outcome:
+- measured dind CPU contention behavior under 4 concurrent CPU-bound sandbox sessions per tier
+- documented per-tier capacity ceiling as confirmed evidence, not hypothesis
+
+In scope:
+- controlled stress test (4× concurrent `python3 sum(i*i for i in range(10**8))`) on all three sandbox-capable pools
+- per-tier dind CPU/RAM measurement under contention
+- pod stability verification (readiness, restarts) under sustained sandbox load
+
+Out of scope:
+- changing dind CPU limits (requires cost/capacity decision, not SR5b)
+- changing `maxConcurrent` queue cap (queue semantics, not dind contention)
+- sandbox session GC/TTL tuning (later SR5 sub-slice if needed)
+
+Evidence (measured 2026-04-06):
+
+| Pool | dind CPU limit | dind CPU at 4× stress | dind RAM at 4× | Slowdown | Pod stable |
+|---|---|---|---|---|---|
+| `free_shared_restricted_sandbox` | 1000m (1 core) | **741-1000m** (saturated) | 267-372 MiB / 1280 MiB | ~4× | Yes, 0 restarts |
+| `paid_shared_restricted_sandbox` | 1000m (1 core) | **1001m** (saturated) | 297-372 MiB / 2304 MiB | ~4× | Yes, 0 restarts |
+| `paid_isolated` | 2000m (2 cores) | **2000m** (saturated) | 288-294 MiB / 4352 MiB | ~2× | Yes, 0 restarts |
+
+Key findings:
+- dind CPU is the binding constraint; RAM has 70-90% headroom on all tiers
+- 4 concurrent CPU-bound sandbox exec saturates dind CPU on all tiers
+- degradation is linear/predictable (proportional to core count), not crash/OOM
+- pod readiness never lost during sustained saturation — gateway stays healthy
+- `paid_isolated` (2 cores) completes ~2× faster than shared tiers (1 core) under same load
+- `docker stats` CPU% inside rootless dind is unreliable for monitoring — use `kubectl top` or dind-internal `top`
+
+Confirmed capacity per tier (4 concurrent CPU-bound sandbox exec):
+- `free_shared_restricted`: 1 core shared → each session gets ~250m effective → severe slowdown
+- `paid_shared_restricted`: 1 core shared → same ceiling as free
+- `paid_isolated`: 2 cores → each session gets ~500m effective → moderate slowdown
+
+Verification:
+- `Tier 2`: controlled stress test on live dev cluster, all three pools
+- `Tier 3`: pod readiness confirmed stable through full test duration
+
+Exit criteria:
+- per-tier sandbox CPU ceiling is measured and documented as confirmed evidence
+- degradation behavior is linear, not catastrophic
+- pod stability under sustained dind saturation is proven
+
 ### SR6 — Storage And Workspace Path Hardening
 Outcome:
 - storage path remains predictable under workspace/file churn

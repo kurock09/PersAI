@@ -851,3 +851,21 @@ Required in CI:
   - actual wall-clock startup improvement (requires `Tier 2` deploy observation)
   - retry resilience under real transient GAR failures (requires `Tier 3` observation)
   - dind contention or sandbox session concurrency behavior (later SR5 sub-slices)
+
+## SR5b dind contention and sandbox capacity baseline
+
+- `Tier 2` controlled stress test for this `SR5b` sub-slice:
+  - 4× concurrent `python3 -c 'sum(i*i for i in range(10**8))'` inside sandbox containers on each pool
+  - `kubectl top` for K8s-level CPU/RAM, `top` inside dind sidecar for process-level verification
+  - pod readiness and restart count checked before, during, and after stress
+- Confirmed findings:
+  - all three tiers saturate dind CPU at limit under 4 concurrent CPU-bound sandbox exec
+  - `free_shared` and `paid_shared` (1 core): ~4× slowdown, 741-1001m dind CPU
+  - `paid_isolated` (2 cores): ~2× slowdown, 2000m dind CPU, completes ~2× faster
+  - RAM is not the binding constraint (70-90% headroom on all tiers)
+  - pod readiness never lost, 0 restarts, gateway stays healthy
+  - `docker stats` CPU% inside rootless dind is unreliable — `kubectl top` is the honest signal
+- `SR5b` does NOT prove:
+  - what the optimal dind CPU limit should be per tier (cost/capacity tradeoff, not SR5b)
+  - sandbox session GC/TTL behavior under sustained contention
+  - behavior under IO-bound sandbox workloads (only CPU-bound tested)

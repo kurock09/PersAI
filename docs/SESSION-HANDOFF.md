@@ -86,10 +86,27 @@ Outside SR5 (later slices):
 
 SR5 is not closed. SR5a is closed (Tier 2 confirmed). Remaining SR5 sub-slices cover dind contention, sandbox concurrency caps, and degradation behavior. SR6 cannot open until SR5 is honestly closed.
 
+### SR5b — dind contention baseline (completed same session)
+
+Controlled stress test: 4× concurrent `python3 sum(i*i for i in range(10**8))` on all three sandbox pools.
+
+Results:
+- `free_shared_restricted_sandbox` (dind 1 core): saturated at 741-1000m, ~4× slowdown, pod stable
+- `paid_shared_restricted_sandbox` (dind 1 core): saturated at 1001m, ~4× slowdown, pod stable
+- `paid_isolated` (dind 2 cores): saturated at 2000m, ~2× slowdown, pod stable, completes ~2× faster
+- RAM is not the constraint — 70-90% headroom on all tiers
+- degradation is linear and predictable, not crash/OOM
+- pod readiness never lost during sustained saturation, 0 restarts across all pools
+- `docker stats` CPU% inside rootless dind is unreliable — use `kubectl top` for honest metrics
+
 ### Next recommended step
 
-- SR5a is closed. Move to SR5b — dind contention and sandbox session concurrency caps under burst.
-- Consider node placement optimization: shared sandbox pools on the same node cause ~2.5 min extra pull time from bandwidth contention. This is an operational observation, not an SR5 code change.
+- SR5a and SR5b are closed with Tier 2 evidence.
+- Remaining SR5 sub-slices:
+  - SR5c: document per-tier capacity assumptions and degradation expectations for ops/product
+  - SR5d: decide if dind CPU limits need adjustment (cost/capacity tradeoff, not code change)
+  - SR5e: startupProbe budget tightening after measuring actual startup variance
+- Consider node placement: shared sandbox pools on the same node cause ~2.5 min extra pull time from bandwidth contention.
 
 ---
 

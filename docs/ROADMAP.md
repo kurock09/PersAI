@@ -457,6 +457,7 @@ Scaling-readiness control layer is now tracked by:
   - `SR4a`: runtime readiness now treats PersAI `multi_replica` session mode as not yet supported by code: Redis-backed apply/spec storage is necessary metadata sharing, but session store continuity, workspace continuity, execution ordering, and restart handoff remain unproven across replicas
 - [ ] SR5 — Sandbox and dind capacity hardening ← **active slice**
   - [x] `SR5a`: sandbox startup path optimization — parallel docker pulls with retry, progress logging, configurable `preloadPullRetries` (Tier 2 closed: ~5-7 min deploy-gap reduction confirmed)
+  - [x] `SR5b`: dind contention baseline — measured 4× concurrent sandbox CPU saturation on all tiers, confirmed linear degradation, pod stability proven (Tier 2 closed)
 - [ ] SR6 — Storage and workspace path hardening
 - [ ] SR7 — Media pipeline capacity hardening
 - [ ] SR8 — Webhook and realtime burst hardening
