@@ -48,13 +48,14 @@ Dev values image composition pattern:
 Dev image publish behavior:
 
 - CI publishes both `${GITHUB_SHA}` and `dev-main` tags to GAR.
-- CI then updates `infra/helm/values-dev.yaml` -> `global.images.tag: <GITHUB_SHA>` and pushes that commit to `main`.
+- `dev-image-publish.yml` now runs only for api/web/shared-build-input changes and then updates `infra/helm/values-dev.yaml` -> `global.images.tag: <GITHUB_SHA>`.
 - OpenClaw CI publishes both `<OPENCLAW_APPROVED_SHA>` and `dev-main` tags to GAR.
-- OpenClaw CI then updates `infra/helm/values-dev.yaml` and pushes that commit to `main`:
+- `openclaw-dev-image-publish.yml` now runs only when `infra/dev/gitops/openclaw-approved-sha.txt` changes (or by `workflow_dispatch`) and then updates `infra/helm/values-dev.yaml`:
   - `openclaw.image.tag: <OPENCLAW_APPROVED_SHA>`
   - `openclaw.image.digest: <built image digest>`
 - Argo CD deploys the pinned SHA tag from GitOps values, avoiding stale-node-cache issues with moving tags.
 - Argo CD auto-sync is enabled for `persai-dev`, so new GitOps commits are applied automatically.
+- This split avoids unnecessary api/web rebuilds and extra Argo rollouts for OpenClaw-only deliveries.
 
 Database migration behavior on every deploy sync:
 
@@ -107,17 +108,20 @@ Goal: keep **today’s behavior** (push to PersAI `main` → workflow clones for
 3. **Updating “vanilla” OpenClaw**  
    If the fork tracks another upstream: merge or rebase upstream into your branch, fix conflicts, run fork tests / build image locally or via `workflow_dispatch`, then set `openclaw-approved-sha.txt` to the new commit and merge the PersAI PR (CHANGELOG + SESSION-HANDOFF per existing rule).
 
-4. **CI validation**  
+4. **OpenClaw-only pin bumps should not be hand-pinned in Helm anymore**  
+   For a normal fork advance, update `infra/dev/gitops/openclaw-approved-sha.txt` plus docs in PersAI and let `openclaw-dev-image-publish.yml` own the follow-up `values-dev.yaml` commit. This keeps OpenClaw-only deliveries from triggering unnecessary api/web image builds and extra Argo syncs.
+
+5. **CI validation**  
    `bash infra/dev/gitops/validate-openclaw-persai-runtime.sh` (see `.github/workflows/ci.yml`) clones the pinned SHA and asserts native PersAI runtime sources exist.
 
-5. **Emergency / small deltas**  
+6. **Emergency / small deltas**  
    Optional extra `.patch` applied after checkout — use sparingly; conflicts often on fork upgrades.
 
 ## OpenClaw image build/push automation (Step 3 O2)
 
 - Workflow: `.github/workflows/openclaw-dev-image-publish.yml`
 - Trigger:
-  - `push` to `main`
+  - `push` to `main` when `infra/dev/gitops/openclaw-approved-sha.txt` changes
   - `workflow_dispatch`
 - Auth: same WIF/OIDC GAR variables used by api/web workflows:
   - `GAR_REGION`

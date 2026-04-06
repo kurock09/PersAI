@@ -104,12 +104,14 @@ Do not combine in one deploy window by default:
 - storage/quota algorithm changes
 
 ## Active Program State
-- `Current active slice`: `SR6` — Storage and workspace path hardening
-- `Current active sub-slice`: `SR6f` — One-shot oversized write runtime stop closure
-- `Current phase`: Storage/workspace hardening
-- `Next recommended slice after SR6`: `SR7` — Media pipeline capacity hardening
-- `Last closed slice`: `SR5` — Sandbox and dind capacity hardening (closed 2026-04-06)
+- `Current active slice`: `SR7` — Media pipeline capacity hardening
+- `Current active sub-slice`: none yet; next bounded `SR7` sub-slice should be chosen from real media burst evidence
+- `Current phase`: Media/temp-file capacity hardening
+- `Next recommended slice after SR7`: `SR8` — Webhook and realtime burst hardening
+- `Last closed slice`: `SR6` — Storage and workspace path hardening (closed 2026-04-06, operational closure with accepted residual)
 - `Post-SR5 baseline`: parallel sandbox image preload with retry, per-tier dind contention measured and documented, cross-pool isolation confirmed, predictable linear degradation under sandbox-heavy bursts
+- `Post-SR6 baseline`: workspace quota enforcement is fail-safe on active guarded paths, oversized writes are bounded near quota instead of running away, post-command non-cleanup `exec` failures are surfaced as failed tool outcomes, and cleanup remains allowed under exceedance so remediation does not deadlock
+- `Accepted residual (SR6)`: we do not claim that every one-shot oversized write always ends with ideal shell/`dd` exit-code semantics or zero overshoot before enforcement; remaining `dd`/exit-code presentation is accepted operational risk rather than an active blocker for opening `SR7`
 
 ## Slice Template
 Each slice must use this shape:
@@ -489,6 +491,9 @@ Observation window:
 Exit criteria:
 - no major hidden FUSE/cleanup amplification left in the active path
 
+Closure note:
+- `SR6` is closed operationally, not by the original strict `SR6f` ideal-exit-code bar. Production baseline now includes bounded oversized-write behavior, fail-safe quota measurement, mutation-cost reduction on known file paths, user-visible non-cleanup quota failure, and cleanup bypass under exceedance. The remaining gap is accepted operational risk: some one-shot `dd`/shell paths can still present a clean command exit even though quota enforcement already bounded growth and blocks subsequent work.
+
 #### SR6a — Workspace quota cache invalidation parity for filesystem mutations
 
 Outcome:
@@ -732,7 +737,7 @@ Exit criteria:
 #### SR6f — One-shot oversized write runtime stop closure
 
 Outcome:
-- one oversized foreground write can no longer complete successfully past quota and defer enforcement only to later commands
+- one oversized foreground write no longer behaves like an unbounded runaway storage path, and quota-triggered failure is surfaced to the user even though ideal shell exit-code semantics are not guaranteed on every live `dd` path
 
 In scope:
 - truthful program-state correction after post-`SR6e` live evidence
@@ -754,13 +759,13 @@ Primary files / domains:
 - `docs/TEST-PLAN.md`
 
 Evidence required:
-- a one-shot oversized write above quota does not exit successfully with `code 0`
-- the same command is terminated by runtime enforcement rather than only causing follow-up commands to fail
+- oversized one-shot writes are bounded near quota instead of running away to multi-GB growth
+- post-command non-cleanup quota violations are surfaced as failed tool outcomes in the runtime/UI path
 - ordinary file mutations and cleanup continue to work without false quota deadlocks
 
 Verification:
 - `Tier 0`: OpenClaw typecheck plus focused quota-watch tests
-- `Tier 2`: live repro with a single oversized write above quota must no longer report a clean success outcome for the write command, and should preferably show the write being interrupted rather than completing and only blocking subsequent commands
+- `Tier 2`: live repro confirmed that oversized writes are cut off near the quota boundary, follow-up commands are blocked, and cleanup remains allowed; this pass does not claim the stricter "clean shell success impossible" outcome on every `dd` path
 
 Rollback / safe fallback:
 - revert the bounded runtime-stop change and fall back to the current polling-based behavior
@@ -772,10 +777,10 @@ Deploy window:
 - OpenClaw runtime only
 
 Observation window:
-- required before calling all of `SR6` closed
+- completed for operational closure; future work should revisit only if the residual `dd`/exit-code semantics cause real abuse or support pain
 
 Exit criteria:
-- one-shot oversized writes no longer complete successfully past quota in the target environment
+- one-shot oversized writes are operationally bounded near quota, user-visible quota failure is preserved, ordinary mutations keep working, and cleanup is still allowed under exceedance
 
 ### SR7 — Media Pipeline Capacity Hardening
 Outcome:

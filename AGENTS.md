@@ -51,9 +51,7 @@ Pushing code that fails CI is treated as a bug introduced by the agent.
   - commit the OpenClaw fork changes locally
   - capture the new OpenClaw commit SHA
   - update `infra/dev/gitops/openclaw-approved-sha.txt` in PersAI to that SHA
-  - if PersAI should build/deploy that fork revision, update `infra/helm/values-dev.yaml`:
-    - set `openclaw.image.tag` to the same fork SHA
-    - clear `openclaw.image.digest` so the image publish workflow can repin digest
+  - do **not** manually update `infra/helm/values-dev.yaml` for OpenClaw-only fork bumps; `openclaw-dev-image-publish.yml` owns `openclaw.image.tag` / `digest` after the approved SHA changes
   - update `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md`
   - if the runtime contract / deploy semantics changed, update the relevant docs/ADR first (`docs/API-BOUNDARY.md`, `docs/ADR/048-*`, runbooks)
 - before handoff, the agent must explicitly tell the user:
@@ -76,7 +74,7 @@ When updating the fork from upstream OpenClaw:
 7. **Run OpenClaw checks:** `npx tsc --noEmit`, `node scripts/sync-plugin-sdk-exports.mjs --check`, `node scripts/check-plugin-sdk-subpath-exports.mjs`
 8. **Review high-risk native patches explicitly:** confirm each still has a valid runtime-side justification and is not replaceable by a PersAI-only fix after the upstream merge
 9. **Merge to main:** `git checkout main && git merge update/upstream-YYYYMMDD`
-10. **Update PersAI:** `openclaw-approved-sha.txt`, `values-dev.yaml`, `CHANGELOG.md`, `SESSION-HANDOFF.md`
+10. **Update PersAI:** `openclaw-approved-sha.txt`, `CHANGELOG.md`, `SESSION-HANDOFF.md`
 11. **Rollback** if broken: `git reset --hard persai-pre-update-YYYYMMDD`
 
 ## Live test guidance for agents

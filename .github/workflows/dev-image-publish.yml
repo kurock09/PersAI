@@ -4,8 +4,15 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - infra/helm/values-dev.yaml
+    paths:
+      - .github/workflows/dev-image-publish.yml
+      - apps/api/**
+      - apps/web/**
+      - packages/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .dockerignore
   workflow_dispatch:
 
 jobs:

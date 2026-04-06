@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- **Program state and dev rollout hygiene:** `SR6` is now closed operationally and `SR7` is the active scaling slice. Canon now records the accepted residual honestly: workspace quota enforcement is operationally sufficient, but strict ideal `dd`/shell exit-code semantics are not claimed. Dev GitHub workflow triggers were also narrowed so OpenClaw-only pin bumps no longer trigger unnecessary api/web image builds and extra Argo/GKE churn.
 - **SR6f post-command quota hard fail for non-cleanup exec:** OpenClaw no longer reports a non-cleanup `exec` as a clean success when the post-command quota check finds the workspace already over limit. Ordinary cleanup commands still keep their remediation bypass, but oversized writes that leave the workspace over quota are now surfaced as failed tool outcomes instead of `code 0` plus a follow-up-only block.
 - **SR6f embedded reply surfacing for quota exec failures:** the embedded/UI reply path no longer suppresses workspace-quota `exec` failures just because verbose mode is off. Quota-triggered `exec` failures now stay visible to the user as explicit failed outcomes instead of being silently hidden behind an apparently normal reply.
 

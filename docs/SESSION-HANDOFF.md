@@ -1,5 +1,73 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR6 operational closure accepted, SR7 opened, and dev rollout churn reduced
+
+### Current active slice
+
+- `SR7` — Media pipeline capacity hardening
+
+### Current active sub-slice
+
+- none yet; the next session should choose one bounded `SR7` sub-slice from actual media/temp-file burst evidence
+
+### What stale program state was fixed
+
+1. Canon still treated `SR6f` as a blocking storage slice even after the user explicitly accepted operational sufficiency and live evidence showed the protection already bounds oversized writes near quota, blocks follow-up work, and preserves cleanup.
+2. Dev delivery still treated OpenClaw-only pin bumps as if they should also trigger api/web image rebuilds and extra GitOps churn, which was causing unnecessary Argo syncs and GKE cost.
+
+### What subagents were launched and why
+
+Two readonly evidence-gathering subagents:
+
+1. **Inspect double rollout** — to identify the minimal safe CI/workflow change that removes unnecessary OpenClaw/api/web rollout churn.
+2. **Check SR6 closure docs** — to identify the exact canonical markers that still blocked `SR7` and how to close `SR6` truthfully without pretending the original strict `SR6f` shell-exit bar passed.
+
+### What evidence they returned
+
+- The extra rollout churn came from two workflows independently writing `infra/helm/values-dev.yaml`, while OpenClaw-only SHA bumps still triggered the generic api/web image workflow.
+- The current live pod already carried the latest runtime and payload fixes, so the remaining `dd exit code 0` behavior was not a stale-image/cache issue.
+- Canonical docs still blocked `SR7` on the strict original `SR6f` criterion even though the user accepted operational closure with an explicit residual risk.
+
+### What was completed
+
+1. `SR6` was closed in canon as an operationally sufficient storage/workspace hardening slice.
+2. `SR7` was opened as the new active slice.
+3. Canon now records the accepted residual honestly: we do not claim ideal `dd`/shell exit-code semantics on every oversized-write path, only bounded growth plus visible quota failure and cleanup safety.
+4. Dev GitHub workflows were narrowed so OpenClaw-only deliveries no longer trigger unnecessary api/web image builds and related extra Argo/GKE churn.
+5. Repo instructions/runbooks were updated so future agents bump `openclaw-approved-sha.txt` and let the OpenClaw workflow own the follow-up Helm image pin.
+
+### What remains
+
+- Choose one bounded `SR7` media/temp-file sub-slice from fresh evidence instead of continuing storage work.
+- Observe the narrowed workflow behavior in the next normal OpenClaw-only delivery to confirm that the extra rollout/build churn is actually reduced as intended.
+
+### Confirmed risks
+
+1. Accepted residual from `SR6`: one-shot oversized `dd`/shell paths can still present a clean command exit even though quota enforcement already bounds growth and blocks follow-up work.
+2. The workflow change reduces unnecessary dev churn, but it does not collapse all GitOps writes into a single commit; api/web pushes and OpenClaw pin bumps still remain separate delivery events when both truly change.
+
+### Unresolved hypotheses
+
+1. `SR7` may uncover that media temp-file churn, not the remaining `dd` semantics edge, is now the dominant storage-pressure path at scale.
+2. If GKE cost pressure remains high even after narrower workflow triggers, the next infra hygiene pass may still want a single combined GitOps writer for dev.
+
+### Verification run
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/workspace-quota-guard.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts src/agents/pi-embedded-runner/run/payloads.test.ts src/agents/pi-embedded-runner/run/payloads.errors.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` can now be opened because the user accepted `SR6` operational closure and canon now reflects that accepted residual explicitly instead of pretending the original strict `SR6f` shell-exit criterion passed.
+
+### Next recommended step
+
+- Start `SR7` with one bounded media/temp-file evidence pass and keep the remaining `SR6` residual only as accepted background risk unless real abuse/support evidence says it must be reopened.
+
 ## 2026-04-06 - SR6f embedded quota exec failures stay visible in UI replies
 
 ### Current active slice

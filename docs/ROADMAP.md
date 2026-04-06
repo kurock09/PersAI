@@ -7,9 +7,9 @@ Step 15 — Tiered OpenClaw runtime and production hardening
 Scaling-readiness control layer is now tracked by:
 - `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
 - `docs/SCALING-READINESS-PLAN.md`
-- current active slice: `SR6` (Storage and workspace path hardening)
-- next recommended slice after `SR6`: `SR7` (Media pipeline capacity hardening)
-- last closed slice: `SR5` (Sandbox and dind capacity hardening, closed 2026-04-06)
+- current active slice: `SR7` (Media pipeline capacity hardening)
+- next recommended slice after `SR7`: `SR8` (Webhook and realtime burst hardening)
+- last closed slice: `SR6` (Storage and workspace path hardening, closed 2026-04-06 with accepted operational residual on ideal `dd` exit-code semantics)
 
 ## Step 1
 
@@ -459,14 +459,14 @@ Scaling-readiness control layer is now tracked by:
   - closed with: parallel sandbox image preload (SR5a), per-tier dind contention evidence (SR5b), cross-pool isolation confirmation, predictable linear degradation under sandbox-heavy bursts
   - `SR5a`: sandbox startup path optimization — parallel docker pulls with retry, progress logging, ~5-7 min deploy-gap reduction
   - `SR5b`: dind contention baseline — 4× concurrent sandbox CPU saturation measured on all tiers, linear degradation confirmed, pod stability proven, cross-pool isolation verified
-- [ ] SR6 — Storage and workspace path hardening ← **active slice**
+- [x] SR6 — Storage and workspace path hardening
   - [x] `SR6a` — workspace quota cache invalidation parity for sandbox `remove` / `rename`, plus docs drift cleanup for truthful `SR6` boundaries vs `SR7`/`SR9`
   - [x] `SR6b` — mid-exec workspace quota watch for oversized single-command writes, plus docs correction after live 17 GB burst evidence
   - [x] `SR6c` — workspace quota measurement fail-safe semantics for `du` failure / malformed output
   - [x] `SR6d` — first-poll quota watch tightening after live evidence that one `800 MB` write could still complete against a `700 MB` quota and only block follow-up commands
   - [x] `SR6e` — known file-mutation quota cache delta accounting reduced avoidable post-mutation `du -sb` pressure on ordinary file-mutation paths
-  - [ ] `SR6f` — non-cleanup `exec` no longer reports success after leaving workspace over quota; live oversized-write closure still pending
-- [ ] SR7 — Media pipeline capacity hardening
+  - [x] `SR6f` — oversized writes are operationally bounded near quota, user-visible quota failure is preserved, and cleanup remains allowed; strict ideal `dd` exit-code semantics are accepted residual risk rather than a blocker
+- [ ] SR7 — Media pipeline capacity hardening ← **active slice**
 - [ ] SR8 — Webhook and realtime burst hardening
 - [ ] SR9 — Billing and quota correctness under concurrency
 - [ ] SR10 — Capacity validation and production gate

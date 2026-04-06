@@ -4,8 +4,9 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - infra/helm/values-dev.yaml
+    paths:
+      - .github/workflows/openclaw-dev-image-publish.yml
+      - infra/dev/gitops/openclaw-approved-sha.txt
   workflow_dispatch:
 
 concurrency:

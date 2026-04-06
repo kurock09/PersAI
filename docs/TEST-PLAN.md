@@ -911,8 +911,8 @@ Required in CI:
 - Minimum verification for this sub-slice:
   - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
   - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
-- Required live verification before claiming broader SR6 closure:
-  - rerun the oversized single-command write repro and confirm the same command is terminated by the quota watch instead of succeeding and only blocking follow-up commands
+- Live verification used for SR6 operational closure:
+  - oversized single-command writes are now bounded near quota instead of running away, follow-up commands are blocked, and cleanup remains allowed; strict ideal shell-exit semantics were not claimed for closure
 - `SR6b` does NOT prove:
   - that periodic `du -sb` polling is the final acceptable architecture for all GCS FUSE churn
   - that backgrounded commands are fully bounded by the same mechanism
@@ -930,8 +930,8 @@ Required in CI:
 - Minimum verification for this sub-slice:
   - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
   - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts src/agents/workspace-quota-guard.test.ts`
-- Required live verification before claiming broader SR6 closure:
-  - with a quota such as `700 MB`, rerun one single-command oversized write above that limit and confirm the same command is terminated by the quota watch instead of completing successfully and only blocking subsequent commands
+- Live verification used for SR6 operational closure:
+  - with a quota such as `700 MB`, the same oversized write now gets cut off near the boundary and no longer behaves like an unbounded runaway path; remaining clean-shell-success presentation is accepted residual risk
 - `SR6d` does NOT prove:
   - that periodic `du -sb` polling is the final acceptable architecture for all GCS FUSE churn
   - that backgrounded commands are fully bounded by the same mechanism
@@ -949,8 +949,8 @@ Required in CI:
 - Minimum verification for this sub-slice:
   - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
   - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/workspace-quota-guard.test.ts src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
-- Required live verification before claiming broader SR6 closure:
-  - rerun one representative workspace-mutation-heavy assistant flow after deploy and confirm no new quota-regression symptoms appear while the remaining `SR6` decision is reduced to accepted residual polling/cleanup risks
+- Live verification used for SR6 operational closure:
+  - representative workspace-mutation-heavy flows stayed clean after deploy, with no new quota-regression symptoms on ordinary write/overwrite/delete/rename paths
 - `SR6e` does NOT prove:
   - that periodic `du -sb` polling is the final acceptable architecture for all GCS FUSE churn
   - that backgrounded commands are fully bounded by the same mechanism
@@ -959,22 +959,24 @@ Required in CI:
 
 ## SR6f one-shot oversized write runtime stop closure baseline
 
-- This bounded `SR6f` pass covers the still-open active-path storage failure:
-  - even after `SR6d` and `SR6e`, one oversized write above quota can still complete successfully with `code 0`, and only the following command gets blocked by the quota guard
+- This bounded `SR6f` pass closed `SR6` operationally but not by the original strict shell-exit criterion:
+  - even after `SR6d` and `SR6e`, one oversized write above quota can still present a clean shell exit on some live `dd` paths, but the runtime now bounds the write near quota, blocks follow-up work, surfaces quota failure in the user-facing path, and preserves cleanup remediation
 - Acceptance for this sub-slice:
-  - the oversized write command itself is interrupted by runtime enforcement instead of completing successfully
+  - oversized writes are operationally bounded near quota instead of running away
+  - non-cleanup quota failure is surfaced to the user in the runtime/UI path
   - ordinary file mutations still succeed without false quota deadlocks
   - cleanup remains allowed after quota exceedance
 - Minimum verification for this sub-slice:
   - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
   - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/workspace-quota-guard.test.ts`
-- Required live verification before claiming broader SR6 closure:
-  - with a quota such as `700 MB`, run one single-command oversized write above that limit and confirm the write command itself does not finish successfully; it must be terminated by runtime enforcement rather than only causing follow-up commands to fail
+- Live verification used for SR6 operational closure:
+  - with a quota such as `700 MB`, one single-command oversized write above that limit was cut off around the quota boundary, follow-up commands were blocked by the guard, and cleanup remained allowed
 - `SR6f` does NOT prove:
   - that periodic `du -sb` polling is the final acceptable architecture for all GCS FUSE churn
   - that backgrounded commands are fully bounded by the same mechanism
   - that transcript/session filesystem growth is fully bounded
   - that quota correctness under concurrency or billing propagation is solved (`SR9`)
+  - that every one-shot oversized `dd`/shell path always ends with ideal non-zero exit-code semantics before any overshoot
 
 ## SR6c workspace quota measurement fail-safe baseline
 
