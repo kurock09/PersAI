@@ -5,7 +5,7 @@
 ### Active slice after this session
 
 - `SR5` — Sandbox and dind capacity hardening
-- `SR5a` sub-slice: sandbox startup path optimization and readiness budget baseline — **Tier 0 closed**
+- `SR5a` sub-slice: sandbox startup path optimization and readiness budget baseline — **Tier 2 closed**
 
 ### What stale program state was fixed
 
@@ -70,15 +70,26 @@ Outside SR5 (later slices):
   - `helm template` renders cleanly for both `values.yaml` and `values-dev.yaml`
   - `runtime-pools:readiness:strict` gate passes
   - all three sandbox-capable dev pools render the parallel pull + retry script with correct retry count
+- `Tier 2` deploy smoke passed (2026-04-06):
+  - ArgoCD auto-synced after push, fresh pod rollout for all 3 sandbox pools
+  - all pods reached 3/3 Ready, zero restarts
+  - `[sandbox-preload]` logs confirmed parallel pull behavior with interleaved layer downloads
+  - measured startup times (container start → gateway start):
+    - `paid_isolated` (separate node): **~7m46s** (socket 5s, token+login 2s, parallel pulls 7m39s)
+    - `free_shared_sandbox` (shared node): **~10m25s** (socket 6s, token+login 2s, parallel pulls 10m17s)
+    - `paid_shared_sandbox` (shared node): **~10m25s** (socket 6s, token+login 2s, parallel pulls 10m17s)
+  - retry was not triggered — all pulls succeeded on attempt 1
+  - estimated sequential baseline would be ~13-17 min → parallel saves **~5-7 min** per deploy
+  - shared-node pools are slower due to bandwidth contention between 2 pods on the same node
 
 ### Why SR6 is still blocked
 
-SR5 is not closed. Only SR5a (Tier 0) is done. Remaining SR5 sub-slices cover dind contention, sandbox concurrency caps, and degradation behavior. SR6 cannot open until SR5 is honestly closed.
+SR5 is not closed. SR5a is closed (Tier 2 confirmed). Remaining SR5 sub-slices cover dind contention, sandbox concurrency caps, and degradation behavior. SR6 cannot open until SR5 is honestly closed.
 
 ### Next recommended step
 
-- **Tier 2 deploy**: deploy the updated Helm chart to dev, observe `[sandbox-preload]` logs during fresh pod rollout, measure actual readiness time improvement vs sequential baseline.
-- If Tier 2 confirms improvement, close SR5a fully and move to SR5b (dind contention and sandbox session concurrency caps).
+- SR5a is closed. Move to SR5b — dind contention and sandbox session concurrency caps under burst.
+- Consider node placement optimization: shared sandbox pools on the same node cause ~2.5 min extra pull time from bandwidth contention. This is an operational observation, not an SR5 code change.
 
 ---
 
