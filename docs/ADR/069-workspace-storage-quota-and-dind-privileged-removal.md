@@ -21,7 +21,7 @@ Pass a per-plan `workspaceQuotaBytes` limit through the bootstrap payload to Ope
 - **write tool** (`fs-bridge.ts`): pre-check before every file write
 - **exec tool** (`bash-tools.exec.ts`): pre-check before execution + post-check warning after
 
-The guard uses a cached `du -sb` call (30s TTL) to avoid per-operation filesystem scans on GCS FUSE. The cache is invalidated after every write/exec-backed mutation, and after sandbox `remove` / `rename`, so quota reads do not stay stale after space is freed or files are atomically replaced. If `du` fails or returns malformed output, the guarded non-cleanup paths now fail safe instead of degrading to an effectively empty-workspace reading.
+The guard uses a cached `du -sb` call (30s TTL) to avoid per-operation filesystem scans on GCS FUSE. The cache is still invalidated around `exec`-backed mutations and directory-shaped sandbox mutations, but known sandbox file mutations now update the cached workspace usage with exact byte deltas instead of always forcing the next guarded read back to `du -sb`. If `du` fails or returns malformed output, the guarded non-cleanup paths now fail safe instead of degrading to an effectively empty-workspace reading.
 
 Cleanup commands (`rm`, `unlink`, `truncate`, `find -delete`) bypass the exec pre-check even when quota is exceeded, so the assistant can remediate without a deadlock.
 
@@ -45,9 +45,9 @@ OpenClaw persai-runtime-http.ts → extractWorkspaceQuotaBytes(bootstrap)
     ↓
 PersaiRuntimeRequestCtx.workspaceQuotaBytes (AsyncLocalStorage)
     ↓
-workspace-quota-guard.ts → cached du -sb + enforceWorkspaceQuota() + invalidateWorkspaceCache()
+workspace-quota-guard.ts → cached du -sb + enforceWorkspaceQuota() + invalidate/adjust cache helpers
     ↓
-fs-bridge.ts writeFile()/remove()/rename() → invalidate cache after mutation; writeFile fails safe if quota cannot be measured
+fs-bridge.ts writeFile()/remove()/rename() → adjust cache after known file mutations, invalidate after directory-shaped mutations; writeFile fails safe if quota cannot be measured
 bash-tools.exec.ts → pre-check (cleanup commands bypass) + periodic quota watch + invalidate cache + post-check
 ```
 
@@ -76,9 +76,9 @@ bash-tools.exec.ts → pre-check (cleanup commands bypass) + periodic quota watc
 ## Consequences
 
 - Free-tier users limited to 500 MB workspace. Blocks GCS billing abuse.
-- `du -sb` cache (30s) plus invalidation after mutations materially reduces stale-read tails, but pre/post-only `exec` checks were not sufficient to stop a single long-running command from writing multi-GB data before exit. `SR6b` added a mid-exec quota watch as an explicit stop-gap, and later live evidence showed one fast oversized write could still finish before the first scheduled poll, so `SR6d` tightens that first-poll window.
+- `du -sb` cache (30s) plus mutation-aware cache updates materially reduce stale-read and avoidable re-measure tails, but pre/post-only `exec` checks were not sufficient to stop a single long-running command from writing multi-GB data before exit. `SR6b` added a mid-exec quota watch as an explicit stop-gap, and later live evidence showed one fast oversized write could still finish before the first scheduled poll, so `SR6d` tightens that first-poll window.
 - `du` failure or malformed output no longer weakens quota enforcement into a fail-open "0 bytes used" reading on the guarded non-cleanup paths.
-- sandbox `remove` / `rename` now invalidate the same cache, so quota reads do not stay stale after delete/replace operations that bypass the `exec` path.
+- sandbox file `write` / `remove` / overwrite `rename` now keep the same cache updated with known byte deltas, while directory-shaped mutations still invalidate it as a safe fallback.
 - Cleanup commands bypass quota pre-check, preventing the deadlock where an assistant could neither delete nor write files after exceeding quota.
 - Workspace quota is resolved from plan's `quotaAccounting.workspaceStorageBytesLimit`, so admin UI changes take effect on the next turn without pod restart.
 - dind privileged removal was attempted but GKE COS rejected rootless dind. Reverted to `privileged: true` as a known infra trade-off. Mitigation path: GKE Sandbox (gVisor).

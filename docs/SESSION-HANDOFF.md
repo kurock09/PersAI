@@ -1,5 +1,79 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR6e known file-mutation quota cache delta accounting
+
+### Current active slice
+
+- `SR6` — Storage and workspace path hardening
+
+### Current active sub-slice
+
+- `SR6e` — Known file-mutation quota cache delta accounting
+
+### What stale program state was fixed
+
+1. `SR6d` was still shown as active in canon even after live evidence had already confirmed the fast oversized write now gets terminated near the quota boundary instead of completing successfully.
+2. Canon still treated all sandbox file mutations as unconditional cache invalidation tails, even though the remaining honest active-path issue had shifted to avoidable post-mutation `du -sb` cost rather than another correctness gap on the same write path.
+
+### What subagents were launched and why
+
+Three readonly evidence-gathering subagents:
+
+1. **DU hot-path map** — identified where `du -sb` still runs on active quota paths and whether that had become the main remaining `SR6` blocker.
+2. **Workspace churn map** — checked session/transcript cleanup, workspace cleanup, and archive churn to separate active-path blockers from episodic residual tails.
+3. **Many-files closure check** — compared remaining many-small-files / cleanup risks and recommended the single best final bounded `SR6` pass.
+
+### What evidence they returned
+
+- `workspace-quota-guard.ts` still performs the real workspace measurement via cached `du -sb`, and the exec quota watch intentionally invalidates before each sample, so the hot-path cost question moved from correctness to storage amplification.
+- `fs-bridge.ts` still invalidated the cache after known file mutations even when the runtime already knew the exact byte delta, which meant the next guarded read fell back to another full `du -sb` walk.
+- Session/archive cleanup tails still exist, but current deployed config already enforces bounded session maintenance and the strongest remaining active-path cost seam was the avoidable re-measure immediately after known file mutations.
+
+### What was completed
+
+1. `openclaw/src/agents/workspace-quota-guard.ts` now exposes a bounded cache-adjust helper so known file mutations can keep cached usage aligned without a fresh full-tree scan.
+2. `openclaw/src/agents/sandbox/fs-bridge.ts` now updates cached usage by exact byte delta for file overwrite, file remove, and overwrite rename; recursive/directory-shaped removals still fail safe through invalidation.
+3. Added focused regression coverage in `openclaw/src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts` for the new mutation-aware cache path.
+4. Updated canonical docs to truthful `SR6e` state across:
+   - `docs/SCALING-READINESS-PLAN.md`
+   - `docs/ROADMAP.md`
+   - `docs/TEST-PLAN.md`
+   - `docs/ADR/069-workspace-storage-quota-and-dind-privileged-removal.md`
+   - `docs/CHANGELOG.md`
+
+### What remains
+
+- `SR6` still needs one honest deploy/live decision after `SR6e`.
+- Remaining residual risks are now narrower:
+  - periodic `du -sb` polling during long-running `exec` is still a stop-gap rather than final accounting
+  - backgrounded command behavior still lacks the same level of live evidence
+  - session/archive cleanup churn remains an episodic storage-cost tail, but no longer appears to be the strongest active-path blocker under the current bounded config
+
+### Confirmed risks
+
+1. This pass reduces avoidable `du` walks after known file mutations, but does not remove `du -sb` from the active architecture.
+2. Mid-exec quota watch overshoot is still bounded by sampling, not by byte-accurate reservations.
+3. Recursive deletes and directory-shaped mutations still fall back to invalidation, so some full re-measure tails remain by design.
+
+### Unresolved hypotheses
+
+1. Live deploy evidence may show that periodic `exec` polling cost is already acceptable after `SR6e`, allowing honest `SR6` closure.
+2. If not, the only honest remaining storage tail before `SR7` may be a later redesign of `du` polling cadence/accounting rather than any new correctness gap.
+
+### Verification run
+
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/workspace-quota-guard.test.ts src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` is still blocked until `SR6e` is deployed and the remaining `SR6` residual risks are checked against live behavior one more time.
+- Unlike the earlier `SR6b`/`SR6d` state, the main active-path correctness blocker is no longer open in docs or code; the remaining question is whether the residual storage-cost tails are acceptable enough to close `SR6` honestly after deploy.
+
+### Next recommended step
+
+- Deploy `SR6e`, run one live workspace-mutation-heavy flow plus one quota-watch sanity flow, and then make the final honest `SR6` closure decision instead of opening `SR7` speculatively.
+
 ## 2026-04-06 - SR6c workspace quota measurement fail-safe semantics
 
 ### Current active slice

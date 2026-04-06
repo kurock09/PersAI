@@ -938,6 +938,25 @@ Required in CI:
   - that transcript/session filesystem growth is fully bounded
   - that quota correctness under concurrency or billing propagation is solved (`SR9`)
 
+## SR6e known file-mutation quota cache delta accounting baseline
+
+- This bounded `SR6e` pass covers one concrete active-path storage-cost tail:
+  - known sandbox file mutations were still invalidating the workspace quota cache unconditionally, so the next guarded operation fell back to another full `du -sb` walk even when the runtime already knew the exact byte delta
+- Acceptance for this sub-slice:
+  - sandbox file overwrite/delete/overwrite-rename paths update the cached workspace usage with exact byte deltas instead of always forcing the next guarded read back to `du -sb`
+  - recursive or directory-shaped mutations still fail safe by invalidating the cache instead of pretending exact accounting exists
+  - docs truthfully reflect that this is a cost-reduction stop-gap, not the final quota accounting architecture
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/workspace-quota-guard.test.ts src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
+- Required live verification before claiming broader SR6 closure:
+  - rerun one representative workspace-mutation-heavy assistant flow after deploy and confirm no new quota-regression symptoms appear while the remaining `SR6` decision is reduced to accepted residual polling/cleanup risks
+- `SR6e` does NOT prove:
+  - that periodic `du -sb` polling is the final acceptable architecture for all GCS FUSE churn
+  - that backgrounded commands are fully bounded by the same mechanism
+  - that transcript/session filesystem growth is fully bounded under all future retention settings
+  - that quota correctness under concurrency or billing propagation is solved (`SR9`)
+
 ## SR6c workspace quota measurement fail-safe baseline
 
 - This bounded `SR6c` pass covers one concrete quota-integrity gap:

@@ -463,7 +463,8 @@ Scaling-readiness control layer is now tracked by:
   - [x] `SR6a` — workspace quota cache invalidation parity for sandbox `remove` / `rename`, plus docs drift cleanup for truthful `SR6` boundaries vs `SR7`/`SR9`
   - [x] `SR6b` — mid-exec workspace quota watch for oversized single-command writes, plus docs correction after live 17 GB burst evidence
   - [x] `SR6c` — workspace quota measurement fail-safe semantics for `du` failure / malformed output
-  - [ ] `SR6d` — first-poll quota watch tightening after live evidence that one `800 MB` write could still complete against a `700 MB` quota and only block follow-up commands
+  - [x] `SR6d` — first-poll quota watch tightening after live evidence that one `800 MB` write could still complete against a `700 MB` quota and only block follow-up commands
+  - [ ] `SR6e` — known file-mutation quota cache delta accounting to reduce avoidable post-mutation `du -sb` pressure on active workspace paths
 - [ ] SR7 — Media pipeline capacity hardening
 - [ ] SR8 — Webhook and realtime burst hardening
 - [ ] SR9 — Billing and quota correctness under concurrency

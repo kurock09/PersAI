@@ -19,6 +19,8 @@
 
 ### Fixed
 
+- **SR6e known file-mutation quota cache delta accounting:** OpenClaw no longer drops back to a full workspace `du -sb` measurement after every known sandbox file mutation. `writeFile`, file `remove`, and overwrite `rename` now update the cached workspace usage using exact byte deltas, while directory-shaped mutations still fall back to cache invalidation. Canonical `SR6` docs were updated to reflect the new active sub-slice and the narrower remaining residual risks.
+
 - **SR6d first-poll quota watch tightening:** live `SR6` repro showed that separate `150 MB` writes correctly hit a `700 MB` quota on follow-up commands, but one single-command `800 MB` write could still complete and only block later commands. OpenClaw `exec` quota watch now performs its first post-spawn quota sample almost immediately instead of waiting for the full periodic interval, and focused regression coverage now protects that fast-write blind window. Canonical `SR6` docs were updated to keep the active sub-slice truthful.
 
 - **Workspace quota guard hardening (ADR-069):** fixed three live-test bugs — exec pre-check no longer blocks cleanup commands (`rm`, `unlink`, `truncate`) when quota is exceeded; du cache invalidation now keeps mutation paths aligned; workspace quota now resolves from plan's `quotaAccounting.workspaceStorageBytesLimit` instead of hardcoded env default. Follow-up `SR6` work was still required after later live evidence showed that a single long-running `exec` could overrun quota before exit.

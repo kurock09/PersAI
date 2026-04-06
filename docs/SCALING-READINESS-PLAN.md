@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR6` — Storage and workspace path hardening
-- `Current active sub-slice`: `SR6d` — First-poll quota watch tightening for fast oversized writes
+- `Current active sub-slice`: `SR6e` — Known file-mutation quota cache delta accounting
 - `Current phase`: Storage/workspace hardening
 - `Next recommended slice after SR6`: `SR7` — Media pipeline capacity hardening
 - `Last closed slice`: `SR5` — Sandbox and dind capacity hardening (closed 2026-04-06)
@@ -678,6 +678,56 @@ Observation window:
 
 Exit criteria:
 - a single foreground `exec` can no longer avoid mid-exec enforcement purely because it finishes before the first scheduled quota-watch sample
+
+#### SR6e — Known file-mutation quota cache delta accounting
+
+Outcome:
+- known file mutations no longer force a full workspace re-measure on the next guarded operation when the runtime already knows the exact byte delta
+
+In scope:
+- quota-cache updates for known file mutations on sandbox `writeFile`, file `remove`, and file-overwrite `rename`
+- reducing avoidable `du -sb` pressure on active file-mutation paths without changing quota semantics
+- truthful docs update after `SR6d` live evidence showed the remaining tail had shifted from burst correctness to storage-cost amplification
+
+Out of scope:
+- replacing cached `du -sb` with final incremental accounting for all paths
+- recursive directory-delete accounting beyond safe fallback invalidation
+- quota correctness under concurrency or billing semantics (`SR9`)
+- media preprocessing temp-file redesign (`SR7`)
+- broader session/transcript cleanup redesign
+
+Primary files / domains:
+- `openclaw/src/agents/workspace-quota-guard.ts`
+- `openclaw/src/agents/sandbox/fs-bridge.ts`
+- focused OpenClaw quota / fs-bridge tests
+- `docs/SCALING-READINESS-PLAN.md`
+- `docs/TEST-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+Evidence required:
+- file overwrite/delete/overwrite-rename paths update the cached workspace usage using known byte deltas instead of always forcing the next guarded read back to `du -sb`
+- recursive or directory-shaped mutations still fail safe through cache invalidation
+- docs no longer overstate `SR6` as already fully closed while this cost-reduction pass is still in flight
+
+Verification:
+- `Tier 0`: OpenClaw typecheck plus focused quota / fs-bridge tests
+- `Tier 2`: after deploy, rerun one representative workspace-mutation-heavy flow and confirm the remaining `SR6` decision is now about accepted residual risks rather than a still-open hidden mutation-cost tail
+
+Rollback / safe fallback:
+- revert the `fs-bridge` cache-delta accounting and fall back to invalidation-only behavior
+
+Removal / cleanup obligations:
+- if a later `SR6` or post-`SR6` pass replaces cached `du -sb` entirely, remove this delta-accounting stop-gap and document the new baseline
+
+Deploy window:
+- OpenClaw runtime only
+
+Observation window:
+- required before calling all of `SR6` closed
+
+Exit criteria:
+- known file-mutation paths no longer create an avoidable full-workspace re-measure tail on the next guarded operation
 
 ### SR7 — Media Pipeline Capacity Hardening
 Outcome:
