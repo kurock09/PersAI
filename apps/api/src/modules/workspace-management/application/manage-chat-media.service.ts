@@ -134,106 +134,119 @@ export class ManageChatMediaService {
     surfaceThreadKey: string;
     file: { buffer: Buffer; mimetype: string; originalname: string };
   }): Promise<{ chatId: string; messageId: string; attachment: AssistantChatMessageAttachment }> {
-    const validated = await validatePersaiMediaFile({
-      buffer: params.file.buffer,
-      mimeType: params.file.mimetype,
-      originalFilename: params.file.originalname,
-      surface: "chat_upload"
-    });
-
-    const assistant = await this.assistantRepository.findByUserId(params.userId);
-    if (!assistant) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-
-    const chat = await this.chatRepository.findOrCreateChatBySurfaceThread({
-      assistantId: assistant.id,
-      userId: assistant.userId,
-      workspaceId: assistant.workspaceId,
-      surface: "web",
-      surfaceThreadKey: params.surfaceThreadKey,
-      title: null
-    });
-
-    const stagingMessage = await this.chatRepository.createMessage({
-      chatId: chat.id,
-      assistantId: assistant.id,
-      author: "user",
-      content: ""
-    });
-
-    let processed: {
-      normalizedBuffer: Buffer;
-      normalizedMime: string;
-      transcription: string | null;
-      textExtract: string | null;
-      durationMs: number | null;
-      width: number | null;
-      height: number | null;
-    } | null = null;
-
+    const startedAt = process.hrtime.bigint();
+    let outcome: "success" | "failure" = "failure";
     try {
-      processed = await this.preprocessor.process(
-        params.file.buffer,
-        validated.effectiveMimeType,
-        params.file.originalname,
+      const validated = await validatePersaiMediaFile({
+        buffer: params.file.buffer,
+        mimeType: params.file.mimetype,
+        originalFilename: params.file.originalname,
+        surface: "chat_upload"
+      });
+
+      const assistant = await this.assistantRepository.findByUserId(params.userId);
+      if (!assistant) {
+        throw new NotFoundException("Assistant does not exist for this user.");
+      }
+
+      const chat = await this.chatRepository.findOrCreateChatBySurfaceThread({
+        assistantId: assistant.id,
+        userId: assistant.userId,
+        workspaceId: assistant.workspaceId,
+        surface: "web",
+        surfaceThreadKey: params.surfaceThreadKey,
+        title: null
+      });
+
+      const stagingMessage = await this.chatRepository.createMessage({
+        chatId: chat.id,
+        assistantId: assistant.id,
+        author: "user",
+        content: ""
+      });
+
+      let processed: {
+        normalizedBuffer: Buffer;
+        normalizedMime: string;
+        transcription: string | null;
+        textExtract: string | null;
+        durationMs: number | null;
+        width: number | null;
+        height: number | null;
+      } | null = null;
+
+      try {
+        processed = await this.preprocessor.process(
+          params.file.buffer,
+          validated.effectiveMimeType,
+          params.file.originalname,
+          assistant.id
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Preprocessing failed for staged upload "${params.file.originalname}", uploading raw: ${String(err)}`
+        );
+      }
+
+      const quotaCheck = await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
+      if (!quotaCheck.allowed) {
+        throw new BadRequestException("Media storage quota exceeded for this workspace.");
+      }
+
+      const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
+      const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
+      const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
         assistant.id
       );
-    } catch (err) {
-      this.logger.warn(
-        `Preprocessing failed for staged upload "${params.file.originalname}", uploading raw: ${String(err)}`
-      );
+
+      const uploadResult = await this.runtimeAdapter.uploadChatMedia({
+        assistantId: assistant.id,
+        runtimeTier,
+        chatId: chat.id,
+        messageId: stagingMessage.id,
+        fileBuffer,
+        mimeType
+      });
+
+      const sizeBytes = BigInt(uploadResult.sizeBytes);
+      const attachment = await this.attachmentRepository.create({
+        messageId: stagingMessage.id,
+        chatId: chat.id,
+        assistantId: assistant.id,
+        workspaceId: assistant.workspaceId,
+        attachmentType: inferAttachmentType(mimeType),
+        storagePath: uploadResult.storagePath,
+        originalFilename: validated.originalFilename,
+        mimeType: uploadResult.mimeType,
+        sizeBytes,
+        durationMs: processed?.durationMs ?? null,
+        width: processed?.width ?? null,
+        height: processed?.height ?? null,
+        processingStatus: "ready",
+        transcription: processed?.transcription ?? null,
+        metadata: {
+          source: "web_staged_upload",
+          ...(processed?.textExtract ? { textExtract: "stored" } : {})
+        }
+      });
+
+      await this.trackWorkspaceQuotaUsageService.recordMediaUpload({
+        assistant,
+        sizeBytes,
+        source: "web_staged_upload"
+      });
+
+      outcome = "success";
+      return { chatId: chat.id, messageId: stagingMessage.id, attachment };
+    } finally {
+      const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+      this.platformHttpMetricsService.recordMediaStage({
+        stage: "web_stage_attachment",
+        channel: "web",
+        outcome,
+        latencyMs: Number(latencyMs.toFixed(2))
+      });
     }
-
-    const quotaCheck = await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
-    if (!quotaCheck.allowed) {
-      throw new BadRequestException("Media storage quota exceeded for this workspace.");
-    }
-
-    const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
-    const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
-
-    const uploadResult = await this.runtimeAdapter.uploadChatMedia({
-      assistantId: assistant.id,
-      runtimeTier,
-      chatId: chat.id,
-      messageId: stagingMessage.id,
-      fileBuffer,
-      mimeType
-    });
-
-    const sizeBytes = BigInt(uploadResult.sizeBytes);
-    const attachment = await this.attachmentRepository.create({
-      messageId: stagingMessage.id,
-      chatId: chat.id,
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      attachmentType: inferAttachmentType(mimeType),
-      storagePath: uploadResult.storagePath,
-      originalFilename: validated.originalFilename,
-      mimeType: uploadResult.mimeType,
-      sizeBytes,
-      durationMs: processed?.durationMs ?? null,
-      width: processed?.width ?? null,
-      height: processed?.height ?? null,
-      processingStatus: "ready",
-      transcription: processed?.transcription ?? null,
-      metadata: {
-        source: "web_staged_upload",
-        ...(processed?.textExtract ? { textExtract: "stored" } : {})
-      }
-    });
-
-    await this.trackWorkspaceQuotaUsageService.recordMediaUpload({
-      assistant,
-      sizeBytes,
-      source: "web_staged_upload"
-    });
-
-    return { chatId: chat.id, messageId: stagingMessage.id, attachment };
   }
 
   async transcribeVoice(params: {

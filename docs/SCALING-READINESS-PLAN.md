@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR7` — Media pipeline capacity hardening
-- `Current active sub-slice`: `SR7a` — Transient STT scratch isolation for concurrent preprocessing
+- `Current active sub-slice`: `SR7b` — Web staged attachment visibility parity
 - `Current phase`: Media/temp-file capacity hardening
 - `Next recommended slice after SR7`: `SR8` — Webhook and realtime burst hardening
 - `Last closed slice`: `SR6` — Storage and workspace path hardening (closed 2026-04-06, operational closure with accepted residual)
@@ -870,6 +870,59 @@ Exit criteria:
 - the PersAI-owned STT ingress paths no longer rely on shared `_stt_tmp` / `_voice_tmp` directories that can be deleted by another in-flight transcription
 - focused verification proves cleanup still runs after success and after STT failure across both touched STT ingress paths
 - `/metrics` exposes bounded stage-level signals for the touched media-heavy paths so the first `SR7` deploy has an observation surface beyond generic HTTP latency
+
+#### SR7b — Web staged attachment visibility parity
+Outcome:
+- the same bounded media-stage visibility model now covers the web staged attachment path, so web image/file uploads participate in the shared `SR7` observation surface instead of remaining a blind spot
+
+In scope:
+- one bounded stage-level metric around `ManageChatMediaService.stageForWebThread`
+- success/failure visibility for the web staged upload path after validation, optional preprocessing, quota gate, and runtime upload/persist
+- focused regression coverage for the new `web_stage_attachment` metric family output
+- active-state docs correction so canon reflects the truthful current `SR7` sub-slice after `SR7a`
+
+Out of scope:
+- webhook/realtime burst behavior (`SR8`)
+- quota or billing correctness under concurrency (`SR9`)
+- broad media worker/offload redesign
+- splitting web uploads into multiple new internal stages unless live evidence proves that one stage is insufficient
+
+Primary files / domains:
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/test/manage-chat-media.stage-web-thread.test.ts`
+- `apps/api/test/platform-readiness.service.test.ts`
+- `docs/SCALING-READINESS-PLAN.md`
+- `docs/TEST-PLAN.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+Evidence required:
+- `stageForWebThread` records bounded success/failure stage metrics without changing the user-visible upload contract
+- `/metrics` serializes `web_stage_attachment` series alongside the existing `SR7a` media-stage families
+- docs no longer imply that only STT/inbound/delivery touched paths are inside the current observation baseline
+
+Verification:
+- `Tier 0`: `corepack pnpm --filter @persai/api run typecheck`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/platform-readiness.service.test.ts`
+
+Rollback / safe fallback:
+- remove the `web_stage_attachment` metric recording from `ManageChatMediaService.stageForWebThread`
+
+Removal / cleanup obligations:
+- if a later `SR7` pass replaces this single web staged-upload metric with a richer queue/worker or multi-stage visibility model, remove this sub-slice note and document the new active baseline
+
+Deploy window:
+- API only
+
+Observation window:
+- required; this sub-slice still does not close all of `SR7`
+
+Exit criteria:
+- the web staged attachment path is visible in `/metrics` through the same bounded media-stage model already used for the touched `SR7a` paths
+- focused tests prove both direct metric recording and Prometheus serialization for `web_stage_attachment`
+- canon reflects this parity pass as the truthful current active `SR7` sub-slice instead of leaving it as undocumented follow-up work
 
 ### SR8 — Webhook And Realtime Burst Hardening
 Outcome:

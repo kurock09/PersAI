@@ -1000,6 +1000,23 @@ Required in CI:
   - that media quota ordering or billing correctness under concurrency is solved (`SR9`)
   - that the entire `SR7` media pipeline no longer dominates API/runtime under burst
 
+## SR7b web staged attachment visibility parity baseline
+
+- This bounded `SR7b` pass covers one concrete media observability seam:
+  - the web staged upload path already shared the same overall media system, but its `stageForWebThread` flow was not contributing a bounded stage-level metric, leaving web image/file uploads as an observation gap compared with the touched `SR7a` media paths
+- Acceptance for this sub-slice:
+  - `ManageChatMediaService.stageForWebThread` records a bounded `web_stage_attachment` metric for both success and failure outcomes
+  - `/metrics` exposes `web_stage_attachment` series through the same media-stage metric families used by `SR7a`
+  - canonical docs reflect this web visibility pass as the current active `SR7` sub-slice
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/platform-readiness.service.test.ts`
+- `SR7b` does NOT prove:
+  - that webhook/realtime fan-in is bounded (`SR8`)
+  - that quota or billing correctness under concurrency is solved (`SR9`)
+  - that the whole media pipeline is now capacity-safe under burst without further live observation
+
 ## SR6c workspace quota measurement fail-safe baseline
 
 - This bounded `SR6c` pass covers one concrete quota-integrity gap:

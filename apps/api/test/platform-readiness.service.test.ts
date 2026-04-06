@@ -214,6 +214,12 @@ async function run(): Promise<void> {
     outcome: "success",
     latencyMs: 120
   });
+  httpMetricsService.recordMediaStage({
+    stage: "web_stage_attachment",
+    channel: "web",
+    outcome: "failure",
+    latencyMs: 45
+  });
   const metricsTextWithMedia = await metricsController.getMetrics({
     setHeader() {
       return undefined;
@@ -226,6 +232,14 @@ async function run(): Promise<void> {
   assert.match(
     metricsTextWithMedia,
     /^media_stage_duration_ms_sum\{stage="stt_transcribe",channel="voice_http",outcome="success"\} 120\.00$/m
+  );
+  assert.match(
+    metricsTextWithMedia,
+    /^media_stage_operations_total\{stage="web_stage_attachment",channel="web",outcome="failure"\} 1$/m
+  );
+  assert.match(
+    metricsTextWithMedia,
+    /^media_stage_duration_ms_sum\{stage="web_stage_attachment",channel="web",outcome="failure"\} 45\.00$/m
   );
   assert.match(
     metricsText,

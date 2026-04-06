@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR7b web staged attachment visibility parity
+
+### Current active slice
+
+- `SR7` — Media pipeline capacity hardening
+
+### Current active sub-slice
+
+- `SR7b` — Web staged attachment visibility parity
+
+### What stale program state was fixed
+
+1. After `SR7a`, canon still left the active sub-slice wording anchored to the STT scratch pass even though the next truthful bounded seam had already narrowed to the web staged upload visibility gap.
+2. The shared `SR7` observation baseline described touched STT/inbound/delivery metrics but did not yet record the web staged attachment path as part of that same bounded media-stage surface.
+
+### What subagents were launched and why
+
+No new subagents were needed in this pass because the web staged-upload observability gap had already been narrowed from prior readonly `SR7` evidence gathering and live validation discussion.
+
+### What evidence they returned
+
+- Prior `SR7` evidence already showed the media system is shared across channels, but the web staged upload/image path remained the obvious bounded visibility gap after `SR7a`.
+- Direct code inspection confirmed `ManageChatMediaService.stageForWebThread` performed validation, optional preprocessing, quota gating, runtime upload, and attachment persist without recording a media-stage metric.
+- Existing metrics serialization tests already covered one media-stage family, making a small parity extension the minimal honest `SR7b` implementation.
+
+### What was completed
+
+1. `ManageChatMediaService.stageForWebThread` now records bounded `web_stage_attachment` media-stage metrics with `success` and `failure` outcomes.
+2. Added focused regression coverage in `apps/api/test/manage-chat-media.stage-web-thread.test.ts` for direct metric emission on the web staged upload path.
+3. Extended `apps/api/test/platform-readiness.service.test.ts` so `/metrics` serialization now also covers `web_stage_attachment`.
+4. Updated canonical docs and progress markers so `SR7b` is the truthful active `SR7` sub-slice instead of an undocumented follow-up.
+
+### What remains
+
+- Deploy and observe the expanded `SR7` media-stage surface in the target environment across web upload/image/file use, plus the earlier voice/STT paths.
+- Make one honest decision from live evidence: either `SR7` can close on bounded visibility plus current fixes, or one more bounded media-pressure seam still remains active.
+
+### Confirmed risks
+
+1. This pass improves operational visibility but does not by itself remove inline preprocessing/upload pressure from the API request path.
+2. `web_stage_attachment` is intentionally one bounded stage, so deeper intra-stage hotspots may still need later decomposition if live evidence shows the single metric is insufficient.
+
+### Unresolved hypotheses
+
+1. With the web staged-upload gap closed, the next remaining `SR7` hotspot may be true runtime/API pressure rather than observability blind spots.
+2. Live multi-channel use may still show that one more bounded media-pressure control is needed before `SR7` can close honestly.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/platform-readiness.service.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` remains active because this pass closes a visibility gap but still needs live target-environment observation before claiming media bursts are bounded and operationally visible enough to open `SR8`.
+
+### Next recommended step
+
+- Deploy the `SR7b` API change, exercise voice plus web image/file upload flows in the live environment, inspect `media_stage_*` across both API pods, and then decide honestly whether `SR7` can close or needs one final bounded pressure-control pass.
+
 ## 2026-04-06 - SR7a STT scratch isolation and media-stage visibility
 
 ### Current active slice
