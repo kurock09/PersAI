@@ -19,6 +19,8 @@
 
 ### Fixed
 
+- **SR6f post-command quota hard fail for non-cleanup exec:** OpenClaw no longer reports a non-cleanup `exec` as a clean success when the post-command quota check finds the workspace already over limit. Ordinary cleanup commands still keep their remediation bypass, but oversized writes that leave the workspace over quota are now surfaced as failed tool outcomes instead of `code 0` plus a follow-up-only block.
+
 - **SR6e known file-mutation quota cache delta accounting:** OpenClaw no longer drops back to a full workspace `du -sb` measurement after every known sandbox file mutation. `writeFile`, file `remove`, and overwrite `rename` now update the cached workspace usage using exact byte deltas, while directory-shaped mutations still fall back to cache invalidation. Canonical `SR6` docs were updated to reflect the new active sub-slice and the narrower remaining residual risks.
 
 - **SR6d first-poll quota watch tightening:** live `SR6` repro showed that separate `150 MB` writes correctly hit a `700 MB` quota on follow-up commands, but one single-command `800 MB` write could still complete and only block later commands. OpenClaw `exec` quota watch now performs its first post-spawn quota sample almost immediately instead of waiting for the full periodic interval, and focused regression coverage now protects that fast-write blind window. Canonical `SR6` docs were updated to keep the active sub-slice truthful.

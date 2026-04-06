@@ -1,5 +1,136 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR6f one-shot oversized write still completes past quota
+
+### Current active slice
+
+- `SR6` — Storage and workspace path hardening
+
+### Current active sub-slice
+
+- `SR6f` — One-shot oversized write runtime stop closure
+
+### What stale program state was fixed
+
+1. Canon had drifted into treating `SR6d` as live-confirmed enough to move the active blocker fully to `SR6e`, but the next live repro showed the core oversized-write termination gate is still not honestly closed.
+2. `SR6` could not be closed truthfully after a live run where ordinary file mutations passed but one oversized write still exited successfully and only later commands were blocked.
+
+### What subagents were launched and why
+
+- None in this pass; the new evidence was a direct live test result against the deployed runtime and was sufficient to re-open the truthful active blocker immediately.
+
+### What evidence they returned
+
+- Ordinary file mutations were clean in live use:
+  - `writeFile`
+  - overwrite
+  - delete
+  - rename with overwrite
+- Workspace stayed near `48M` during those operations and cleanup still worked.
+- The one-shot oversized write repro remained a live failure:
+  - command: `dd if=/dev/zero of=/workspace/quota_live_check_big/oversized_1000M.bin bs=1M count=1000`
+  - result: command completed with `code 0`
+  - follow-up command then failed with `Workspace storage quota exceeded: 880.0 MB used, limit 700.0 MB. Delete files to free space.`
+
+### What was completed
+
+1. Recorded truthful post-deploy evidence that `SR6e` helped ordinary file-mutation paths but did not close the one-shot oversized write gate.
+2. Updated canonical docs so `SR6` remains active and the honest blocker is now `SR6f`, not speculative `SR7`.
+
+### What remains
+
+- A bounded runtime-side fix is still required so one oversized foreground write does not complete successfully past quota.
+- `SR7` remains blocked until that live gate is actually passed.
+
+### Confirmed risks
+
+1. Current quota enforcement is still permissive enough that one long write can finish and only later commands fail.
+2. This is still a real active-path `SR6` blocker, not only a docs or observation nuance.
+
+### Unresolved hypotheses
+
+1. The remaining failure may still be caused by polling cadence / kill timing rather than by the broader `SR6e` mutation-cost work.
+2. A tighter runtime-stop strategy may still close `SR6` without requiring a full quota-accounting redesign.
+
+### Verification run
+
+- Live evidence from UI/runtime:
+  - initial workspace: `48M`
+  - ordinary file mutations: pass cleanly
+  - oversized one-shot write: still completes successfully
+  - cleanup after exceedance: succeeds
+  - final workspace after cleanup: `48M`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` is still blocked because the main `SR6` live closure gate failed again: one oversized write still finished successfully past quota.
+
+### Next recommended step
+
+- Take one more bounded runtime pass on `bash-tools.exec.ts` so the oversized write command itself gets interrupted in the target environment, then rerun the same live repro before any `SR6` closure claim.
+
+## 2026-04-06 - SR6f post-command quota hard fail for non-cleanup exec
+
+### Current active slice
+
+- `SR6` — Storage and workspace path hardening
+
+### Current active sub-slice
+
+- `SR6f` — One-shot oversized write runtime stop closure
+
+### What stale program state was fixed
+
+1. The prior `SR6f` wording treated the remaining live gap as purely "kill during command", but the code still had a smaller truthful seam: a non-cleanup command could leave the workspace over quota and still be returned as a clean success with `exitCode 0`.
+
+### What subagents were launched and why
+
+Two readonly evidence-gathering subagents:
+
+1. **SR6f exec gap** — identified the exact runtime seam still allowing a successful outcome after post-command over-quota detection.
+2. **Argo double rollout** — investigated the user's CI/gitops concern and separated it from the bounded SR6 runtime fix.
+
+### What evidence they returned
+
+- In `bash-tools.exec.ts`, the post-command quota check only appended a warning when the workspace ended over quota, then still resolved the tool result with `status: "completed"` and `exitCode: outcome.exitCode ?? 0`.
+- The likely reason for the double Argo/OpenClaw rollout is two separate GitHub workflows independently committing `infra/helm/values-dev.yaml` (`global.images.tag` vs `openclaw.image.tag`/`digest`), which is a separate infra hygiene issue rather than the narrow SR6 runtime blocker.
+
+### What was completed
+
+1. `openclaw/src/agents/bash-tools.exec.ts` now rejects non-cleanup exec commands when the post-command quota check still finds the workspace over limit or cannot verify quota, instead of returning a clean success.
+2. Added focused regression coverage in `openclaw/src/agents/bash-tools.exec.workspace-quota-watch.test.ts` for the post-command over-quota failure path.
+3. Updated canonical docs to keep `SR6f` truthful after the new bounded implementation pass.
+
+### What remains
+
+- Live repro is still required.
+- The final `SR6` closure question is now narrower: confirm the same oversized write no longer surfaces as a clean success in the target environment.
+- The duplicate Argo/OpenClaw rollout concern is still real, but remains outside this bounded SR6 runtime pass.
+
+### Confirmed risks
+
+1. This pass guarantees a non-cleanup exec no longer reports clean success after leaving the workspace over quota, but it still does not prove the process is always interrupted early enough to avoid any overshoot.
+2. Cleanup commands remain intentionally more permissive so remediation still works under quota exceedance.
+
+### Unresolved hypotheses
+
+1. This narrower post-command hard-fail may be enough for honest `SR6` closure if the live environment now surfaces the oversized write as failed instead of successful.
+2. If the live repro still looks too permissive, one more bounded runtime pass may be needed on kill timing rather than on post-command result semantics.
+
+### Verification run
+
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/workspace-quota-guard.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` remains blocked until the same oversized-write live repro is rerun after deploy.
+- The Argo double-rollout issue was investigated, but it is caused by two independent gitops commits and should be handled as a separate infra hygiene slice rather than mixed into the current SR6 runtime-attribution window.
+
+### Next recommended step
+
+- Push the `SR6f` runtime-result hardening, let deploy finish, rerun the same oversized-write repro, and then decide whether `SR6` can finally close.
+
 ## 2026-04-06 - SR6e known file-mutation quota cache delta accounting
 
 ### Current active slice

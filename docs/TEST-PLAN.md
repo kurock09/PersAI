@@ -957,6 +957,25 @@ Required in CI:
   - that transcript/session filesystem growth is fully bounded under all future retention settings
   - that quota correctness under concurrency or billing propagation is solved (`SR9`)
 
+## SR6f one-shot oversized write runtime stop closure baseline
+
+- This bounded `SR6f` pass covers the still-open active-path storage failure:
+  - even after `SR6d` and `SR6e`, one oversized write above quota can still complete successfully with `code 0`, and only the following command gets blocked by the quota guard
+- Acceptance for this sub-slice:
+  - the oversized write command itself is interrupted by runtime enforcement instead of completing successfully
+  - ordinary file mutations still succeed without false quota deadlocks
+  - cleanup remains allowed after quota exceedance
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/workspace-quota-guard.test.ts`
+- Required live verification before claiming broader SR6 closure:
+  - with a quota such as `700 MB`, run one single-command oversized write above that limit and confirm the write command itself does not finish successfully; it must be terminated by runtime enforcement rather than only causing follow-up commands to fail
+- `SR6f` does NOT prove:
+  - that periodic `du -sb` polling is the final acceptable architecture for all GCS FUSE churn
+  - that backgrounded commands are fully bounded by the same mechanism
+  - that transcript/session filesystem growth is fully bounded
+  - that quota correctness under concurrency or billing propagation is solved (`SR9`)
+
 ## SR6c workspace quota measurement fail-safe baseline
 
 - This bounded `SR6c` pass covers one concrete quota-integrity gap:

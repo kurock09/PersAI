@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR6` — Storage and workspace path hardening
-- `Current active sub-slice`: `SR6e` — Known file-mutation quota cache delta accounting
+- `Current active sub-slice`: `SR6f` — One-shot oversized write runtime stop closure
 - `Current phase`: Storage/workspace hardening
 - `Next recommended slice after SR6`: `SR7` — Media pipeline capacity hardening
 - `Last closed slice`: `SR5` — Sandbox and dind capacity hardening (closed 2026-04-06)
@@ -728,6 +728,54 @@ Observation window:
 
 Exit criteria:
 - known file-mutation paths no longer create an avoidable full-workspace re-measure tail on the next guarded operation
+
+#### SR6f — One-shot oversized write runtime stop closure
+
+Outcome:
+- one oversized foreground write can no longer complete successfully past quota and defer enforcement only to later commands
+
+In scope:
+- truthful program-state correction after post-`SR6e` live evidence
+- the remaining active `exec` quota-watch gap for one-shot oversized writes
+- bounded runtime-side fix selection inside `SR6`, not `SR7` or `SR9`
+
+Out of scope:
+- replacing cached `du -sb` with final incremental accounting for all paths
+- media preprocessing temp-file redesign (`SR7`)
+- quota correctness under concurrency or billing semantics (`SR9`)
+- broad transcript/session cleanup redesign
+
+Primary files / domains:
+- `openclaw/src/agents/bash-tools.exec.ts`
+- focused OpenClaw quota-watch tests
+- `docs/SCALING-READINESS-PLAN.md`
+- `docs/ROADMAP.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+Evidence required:
+- a one-shot oversized write above quota does not exit successfully with `code 0`
+- the same command is terminated by runtime enforcement rather than only causing follow-up commands to fail
+- ordinary file mutations and cleanup continue to work without false quota deadlocks
+
+Verification:
+- `Tier 0`: OpenClaw typecheck plus focused quota-watch tests
+- `Tier 2`: live repro with a single oversized write above quota must no longer report a clean success outcome for the write command, and should preferably show the write being interrupted rather than completing and only blocking subsequent commands
+
+Rollback / safe fallback:
+- revert the bounded runtime-stop change and fall back to the current polling-based behavior
+
+Removal / cleanup obligations:
+- if a later `SR6` or post-`SR6` pass replaces periodic `du` polling entirely, remove this stop-gap note and document the new runtime baseline
+
+Deploy window:
+- OpenClaw runtime only
+
+Observation window:
+- required before calling all of `SR6` closed
+
+Exit criteria:
+- one-shot oversized writes no longer complete successfully past quota in the target environment
 
 ### SR7 — Media Pipeline Capacity Hardening
 Outcome:
