@@ -55,8 +55,8 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
       SELECT "id", "metadata"
       FROM "assistant_channel_surface_bindings"
       WHERE "assistant_id" = CAST(${assistantId} AS uuid)
-        AND "provider_key" = ${providerKey}
-        AND "surface_type" = ${surfaceType}
+        AND "provider_key" = CAST(${providerKey} AS "AssistantIntegrationProviderKey")
+        AND "surface_type" = CAST(${surfaceType} AS "AssistantIntegrationSurfaceType")
       FOR UPDATE
     `);
     const row = rows[0];
