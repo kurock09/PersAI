@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { IdentityAccessModule } from "../identity-access/identity-access.module";
+import { PlatformCoreModule } from "../platform-core/platform-core.module";
 import { PrismaService } from "../identity-access/infrastructure/persistence/prisma.service";
 import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
@@ -141,7 +142,7 @@ import { PrismaAssistantRepository } from "./infrastructure/persistence/prisma-a
 import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/workspace-management-prisma.service";
 
 @Module({
-  imports: [IdentityAccessModule],
+  imports: [IdentityAccessModule, PlatformCoreModule],
   controllers: [
     AssistantController,
     AdminPlansController,

@@ -19,7 +19,7 @@ import { RequestLoggingMiddleware } from "./interface/http/request-logging.middl
     RequestIdMiddleware,
     RequestLoggingMiddleware
   ],
-  exports: [AppLoggerService, RequestContextStore]
+  exports: [AppLoggerService, RequestContextStore, PlatformHttpMetricsService]
 })
 export class PlatformCoreModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
