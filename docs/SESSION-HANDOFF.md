@@ -1,5 +1,70 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR7 operational closure after bounded live media burst
+
+### Current active slice
+
+- `SR8` — Webhook and realtime burst hardening
+
+### Current active sub-slice
+
+- none yet; the next session should choose one bounded `SR8` sub-slice from actual webhook/realtime burst evidence
+
+### What stale program state was fixed
+
+1. After `SR7b` deploy and live observation, canon still treated `SR7` as active even though the bounded media visibility gap had closed and the next honest question was whether a short live media burst remained unstable.
+2. Active-state markers still described `SR7b` as the current blocker even after bounded live burst evidence showed the touched media paths stayed ready and visible under parallel use.
+
+### What subagents were launched and why
+
+No new subagents were needed in this closure pass because the remaining decision depended on direct live GKE evidence, not additional codebase research.
+
+### What evidence they returned
+
+- Fresh `api` replicas rolled out on the new image and both returned `/metrics` with the expected `media_stage_*` families.
+- After live user traffic (`voice`, `PDF`, `Img`) and then a short parallel burst, both API replicas stayed `Running` / `Ready` with zero restarts and `app_ready 1`.
+- Live `/metrics` on the fresh pods showed `web_stage_attachment` success series on both replicas, plus `stt_transcribe` success series on the active pod handling the voice/media preprocessing path.
+- The burst window showed zero new `5xx`, successful `201` responses for staged uploads and voice transcription, and visible metric growth rather than blind success.
+
+### What was completed
+
+1. Confirmed `SR7a` and `SR7b` signals are live on fresh GKE API replicas after deploy.
+2. Observed a bounded parallel media burst with successful web staged uploads and voice transcriptions, while both API replicas remained ready and did not restart.
+3. Closed `SR7` operationally in canon with an explicit residual that final throughput-envelope proof remains outside this slice.
+4. Opened `SR8` as the next truthful active slice.
+
+### What remains
+
+- Choose one bounded `SR8` sub-slice around webhook/realtime burst behavior from actual ingress/fan-in evidence.
+- Leave final capacity-envelope proof to `SR10` instead of smuggling it into `SR7` closure.
+
+### Confirmed risks
+
+1. `SR7` is now operationally closed, but this does not prove the final maximum media throughput ceiling across larger or longer bursts.
+2. Media preprocessing still occurs inline on the API path; the closure claim is bounded to observed operational stability and visibility, not to a fully offloaded architecture.
+
+### Unresolved hypotheses
+
+1. The next dominant scale blocker may now sit in webhook/realtime fan-in (`SR8`) rather than the touched media paths.
+2. A future larger-scale validation pass may still find media-envelope limits that belong to `SR10`, not to reopened `SR7`.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/platform-readiness.service.test.ts`
+- live GKE rollout verification for fresh `api` / `web` replicas on the deployed image
+- live in-pod `/metrics` verification on both fresh API replicas after real `voice` / `PDF` / `Img` traffic
+- bounded parallel media-burst observation: both API replicas stayed ready, zero restarts, zero new `5xx`, and `web_stage_attachment` / `stt_transcribe` counters increased on live pods
+
+### Why the next SR is still blocked or can be opened
+
+- `SR8` can now be opened because the active `SR7` seams were both fixed and observed live under a bounded parallel burst, while the remaining residual belongs to final capacity validation (`SR10`) rather than to media-path observability or temp-file correctness.
+
+### Next recommended step
+
+- Start `SR8` with one bounded webhook/realtime burst evidence pass and keep the accepted `SR7` residual limited to final capacity-envelope proof instead of reopening media-path work without new evidence.
+
 ## 2026-04-06 - SR7b web staged attachment visibility parity
 
 ### Current active slice

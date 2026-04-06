@@ -7,9 +7,9 @@ Step 15 — Tiered OpenClaw runtime and production hardening
 Scaling-readiness control layer is now tracked by:
 - `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
 - `docs/SCALING-READINESS-PLAN.md`
-- current active slice: `SR7` (Media pipeline capacity hardening)
-- next recommended slice after `SR7`: `SR8` (Webhook and realtime burst hardening)
-- last closed slice: `SR6` (Storage and workspace path hardening, closed 2026-04-06 with accepted operational residual on ideal `dd` exit-code semantics)
+- current active slice: `SR8` (Webhook and realtime burst hardening)
+- next recommended slice after `SR8`: `SR9` (Billing and quota correctness under concurrency)
+- last closed slice: `SR7` (Media pipeline capacity hardening, closed 2026-04-06 after bounded live media-burst observation with accepted residual on final capacity-envelope claims)
 
 ## Step 1
 
@@ -466,10 +466,10 @@ Scaling-readiness control layer is now tracked by:
   - [x] `SR6d` — first-poll quota watch tightening after live evidence that one `800 MB` write could still complete against a `700 MB` quota and only block follow-up commands
   - [x] `SR6e` — known file-mutation quota cache delta accounting reduced avoidable post-mutation `du -sb` pressure on ordinary file-mutation paths
   - [x] `SR6f` — oversized writes are operationally bounded near quota, user-visible quota failure is preserved, and cleanup remains allowed; strict ideal `dd` exit-code semantics are accepted residual risk rather than a blocker
-- [ ] SR7 — Media pipeline capacity hardening ← **active slice**
+- [x] SR7 — Media pipeline capacity hardening
   - [x] `SR7a` — PersAI-owned STT ingress paths now use per-request transient scratch directories instead of the shared `_stt_tmp` / `_voice_tmp` paths, and `/metrics` now exposes bounded stage-level signals for touched media-heavy paths so the first `SR7` deploy has an honest observation surface
   - [x] `SR7b` — web staged uploads now emit the same bounded media-stage visibility model through `web_stage_attachment`, so web image/file upload observation is no longer outside the shared `SR7` metrics surface
-- [ ] SR8 — Webhook and realtime burst hardening
+- [ ] SR8 — Webhook and realtime burst hardening ← **active slice**
 - [ ] SR9 — Billing and quota correctness under concurrency
 - [ ] SR10 — Capacity validation and production gate
 - [ ] H16 — Autonomous workspace heartbeat deeper isolation

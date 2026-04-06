@@ -104,14 +104,16 @@ Do not combine in one deploy window by default:
 - storage/quota algorithm changes
 
 ## Active Program State
-- `Current active slice`: `SR7` — Media pipeline capacity hardening
-- `Current active sub-slice`: `SR7b` — Web staged attachment visibility parity
-- `Current phase`: Media/temp-file capacity hardening
-- `Next recommended slice after SR7`: `SR8` — Webhook and realtime burst hardening
-- `Last closed slice`: `SR6` — Storage and workspace path hardening (closed 2026-04-06, operational closure with accepted residual)
+- `Current active slice`: `SR8` — Webhook and realtime burst hardening
+- `Current active sub-slice`: none yet; the next session should choose one bounded `SR8` sub-slice from actual webhook/realtime burst evidence
+- `Current phase`: Webhook/realtime burst hardening
+- `Next recommended slice after SR8`: `SR9` — Billing and quota correctness under concurrency
+- `Last closed slice`: `SR7` — Media pipeline capacity hardening (closed 2026-04-06 after bounded live burst observation with accepted residual on final capacity-envelope claims)
 - `Post-SR5 baseline`: parallel sandbox image preload with retry, per-tier dind contention measured and documented, cross-pool isolation confirmed, predictable linear degradation under sandbox-heavy bursts
 - `Post-SR6 baseline`: workspace quota enforcement is fail-safe on active guarded paths, oversized writes are bounded near quota instead of running away, post-command non-cleanup `exec` failures are surfaced as failed tool outcomes, and cleanup remains allowed under exceedance so remediation does not deadlock
 - `Accepted residual (SR6)`: we do not claim that every one-shot oversized write always ends with ideal shell/`dd` exit-code semantics or zero overshoot before enforcement; remaining `dd`/exit-code presentation is accepted operational risk rather than an active blocker for opening `SR7`
+- `Post-SR7 baseline`: PersAI-owned STT ingress paths use per-request transient scratch directories, bounded media-stage metrics cover STT and web staged uploads, and a short live parallel media burst completed with both API replicas staying ready, zero new `5xx`, zero pod restarts, and visible per-stage metric growth on the active pods
+- `Accepted residual (SR7)`: this is an operational closure for bounded live media burst behavior and visibility, not a claim that the final throughput ceiling or full capacity envelope has been proven; that remains `SR10`
 
 ## Slice Template
 Each slice must use this shape:
