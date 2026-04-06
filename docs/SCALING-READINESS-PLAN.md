@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR6` — Storage and workspace path hardening
-- `Current active sub-slice`: `SR6c` — Workspace quota measurement fail-safe semantics
+- `Current active sub-slice`: `SR6d` — First-poll quota watch tightening for fast oversized writes
 - `Current phase`: Storage/workspace hardening
 - `Next recommended slice after SR6`: `SR7` — Media pipeline capacity hardening
 - `Last closed slice`: `SR5` — Sandbox and dind capacity hardening (closed 2026-04-06)
@@ -630,6 +630,54 @@ Observation window:
 
 Exit criteria:
 - quota measurement failure no longer degrades into fail-open workspace growth on the active guarded paths
+
+#### SR6d — First-poll quota watch tightening for fast oversized writes
+
+Outcome:
+- a single foreground `exec` can no longer evade the mid-exec quota watch just by finishing before the first scheduled quota sample
+
+In scope:
+- the first quota-watch scheduling window after `exec` spawn
+- focused docs correction after live evidence showed a `700 MB` quota session still allowed one `800 MB` single-command write to finish and only blocked later commands
+- focused regression coverage for the pre-fix blind window
+
+Out of scope:
+- replacing cached `du -sb` with final incremental accounting
+- quota correctness under concurrency or billing semantics (`SR9`)
+- media preprocessing temp-file redesign (`SR7`)
+- broader session/transcript churn closure for all `SR6`
+
+Primary files / domains:
+- `openclaw/src/agents/bash-tools.exec.ts`
+- focused OpenClaw quota-watch tests
+- `docs/ADR/069-workspace-storage-quota-and-dind-privileged-removal.md`
+- `docs/TEST-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+Evidence required:
+- the first mid-exec quota sample happens early enough that a fast oversized single-command write does not rely only on post-command blocking
+- focused tests cover the old "finishes before first poll" blind window
+- docs no longer imply the deployed `SR6b` stop-gap already closed this fast-write gap before live proof
+
+Verification:
+- `Tier 0`: OpenClaw typecheck plus focused quota-watch tests
+- `Tier 2`: rerun the single-command oversized write repro and confirm the same command is terminated by the quota watch instead of succeeding and only blocking follow-up commands
+
+Rollback / safe fallback:
+- revert the first-poll tightening in `bash-tools.exec.ts`; fall back to the slower `SR6b` polling-only stop-gap
+
+Removal / cleanup obligations:
+- if a later `SR6` pass replaces periodic `du` polling with a different enforcement architecture, remove this stop-gap note and document the new active baseline
+
+Deploy window:
+- OpenClaw runtime only
+
+Observation window:
+- required; this still does not close all of `SR6`
+
+Exit criteria:
+- a single foreground `exec` can no longer avoid mid-exec enforcement purely because it finishes before the first scheduled quota-watch sample
 
 ### SR7 — Media Pipeline Capacity Hardening
 Outcome:

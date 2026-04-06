@@ -912,8 +912,27 @@ Required in CI:
   - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
   - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
 - Required live verification before claiming broader SR6 closure:
-  - rerun the oversized single-command write repro and confirm the command is terminated near the quota boundary instead of reaching multi-GB growth
+  - rerun the oversized single-command write repro and confirm the same command is terminated by the quota watch instead of succeeding and only blocking follow-up commands
 - `SR6b` does NOT prove:
+  - that periodic `du -sb` polling is the final acceptable architecture for all GCS FUSE churn
+  - that backgrounded commands are fully bounded by the same mechanism
+  - that transcript/session filesystem growth is fully bounded
+  - that quota correctness under concurrency or billing propagation is solved (`SR9`)
+
+## SR6d first-poll quota watch tightening baseline
+
+- This bounded `SR6d` pass covers one concrete active-path storage failure:
+  - a fast oversized single-command write could still finish before the first scheduled `SR6b` quota-watch poll, so the same command succeeded and only later commands were blocked
+- Acceptance for this sub-slice:
+  - the first mid-exec quota check happens early enough that a fast oversized write does not rely only on post-command blocking
+  - focused regression coverage proves the old "finishes before first poll" blind window is closed
+  - docs truthfully reflect that `SR6b` alone did not yet satisfy this live bar
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts src/agents/workspace-quota-guard.test.ts`
+- Required live verification before claiming broader SR6 closure:
+  - with a quota such as `700 MB`, rerun one single-command oversized write above that limit and confirm the same command is terminated by the quota watch instead of completing successfully and only blocking subsequent commands
+- `SR6d` does NOT prove:
   - that periodic `du -sb` polling is the final acceptable architecture for all GCS FUSE churn
   - that backgrounded commands are fully bounded by the same mechanism
   - that transcript/session filesystem growth is fully bounded

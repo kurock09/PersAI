@@ -73,6 +73,84 @@ Three readonly evidence-gathering subagents:
 
 - Deploy the combined `SR6a` / `SR6b` / `SR6c` guard batch and rerun the oversized single-command write repro before touching any non-SR6 slice.
 
+## 2026-04-06 - SR6d first-poll quota watch tightening for fast oversized writes
+
+### Current active slice
+
+- `SR6` — Storage and workspace path hardening
+
+### Current active sub-slice
+
+- `SR6d` — First-poll quota watch tightening for fast oversized writes
+
+### What stale program state was fixed
+
+1. `SCALING-READINESS-PLAN.md`, `TEST-PLAN.md`, and `SESSION-HANDOFF.md` still framed the active bounded work as `SR6c`, even though new live evidence showed the open problem had moved back to the `SR6b` kill window.
+2. `TEST-PLAN.md` still described the live bar as if the already-deployed stop-gap had closed the fast single-command write gap; updated to truthful post-repro wording.
+3. `ADR-069` still described mid-exec watch as only a later follow-up without capturing the new first-poll blind-window evidence.
+
+### What subagents were launched and why
+
+Three readonly evidence-gathering subagents:
+
+1. **Quota race analysis** — mapped why one oversized command could still finish despite the deployed mid-exec watch.
+2. **Tool path mapping** — checked whether the assistant could be writing through a different unguarded path instead of the intended `exec` path.
+3. **Docs truth check** — identified exactly which canonical docs were now stale after the new live repro.
+
+### What evidence they returned
+
+- `bash-tools.exec.ts` scheduled the first mid-exec quota sample only after the full `WORKSPACE_QUOTA_WATCH_INTERVAL_MS = 2000`, leaving a blind window where a fast oversized write could complete before the first check.
+- The user live repro on the deployed runtime showed truthful behavior:
+  - repeated `150 MB` writes crossed the configured `700 MB` quota and then blocked follow-up commands
+  - one single-command `800 MB` write still completed successfully in the same session
+  - the next command then failed with `Workspace storage quota exceeded: 796.9 MB used, limit 700.0 MB. Delete files to free space.`
+- The core remaining issue was still on the guarded `exec` path, not a docs-only misunderstanding and not a proven `SR7` or `SR9` concern.
+
+### What was completed
+
+1. `openclaw/src/agents/bash-tools.exec.ts` now performs the first post-spawn quota-watch check almost immediately instead of waiting for the full periodic interval.
+2. Added focused regression coverage in `openclaw/src/agents/bash-tools.exec.workspace-quota-watch.test.ts` for the old "finishes before first poll" blind window.
+3. Updated canonical docs to truthful `SR6d` state across:
+   - `docs/SCALING-READINESS-PLAN.md`
+   - `docs/TEST-PLAN.md`
+   - `docs/ROADMAP.md`
+   - `docs/ADR/069-workspace-storage-quota-and-dind-privileged-removal.md`
+   - `docs/CHANGELOG.md`
+
+### What remains
+
+- `SR6` is still active and not honestly closed.
+- Remaining work still includes:
+  - live deploy verification that the same single-command oversized write is now terminated by the quota watch instead of succeeding and only blocking follow-up commands
+  - measuring the cost of periodic `du -sb` checks on active paths
+  - transcript/session filesystem churn and cleanup cost
+  - many-small-files behavior and workspace-wide scans on hot paths
+
+### Confirmed risks
+
+1. This remains a stop-gap based on `du -sb` polling, not true kernel-level quota enforcement.
+2. Overshoot is still bounded by the first sample plus the polling interval rather than by byte-accurate reservations.
+3. Backgrounded command behavior still needs separate live evidence before broader closure claims.
+
+### Unresolved hypotheses
+
+1. After this first-poll tightening, the next dominant `SR6` bottleneck may become `du -sb` cost itself rather than the fast-write blind window.
+2. Session/transcript churn may still dominate long-tail filesystem pressure even after this pass.
+
+### Verification run
+
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/workspace-quota-guard.test.ts src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` is still blocked because `SR6` is not honestly closed yet.
+- The new live repro proved the previously deployed stop-gap was still insufficient for one fast oversized write, so another bounded `SR6` pass was required before any next-slice claim.
+
+### Next recommended step
+
+- Deploy `SR6d`, rerun the exact single-command oversized write repro in the target environment, and only then decide whether the active `SR6` blocker has actually moved away from the `exec` kill window.
+
 ## 2026-04-06 - SR6b mid-exec workspace quota watch
 
 ### Current active slice

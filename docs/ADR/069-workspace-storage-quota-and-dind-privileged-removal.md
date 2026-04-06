@@ -76,7 +76,7 @@ bash-tools.exec.ts → pre-check (cleanup commands bypass) + periodic quota watc
 ## Consequences
 
 - Free-tier users limited to 500 MB workspace. Blocks GCS billing abuse.
-- `du -sb` cache (30s) plus invalidation after mutations materially reduces stale-read tails, but pre/post-only `exec` checks were not sufficient to stop a single long-running command from writing multi-GB data before exit. A later `SR6` pass adds mid-exec quota watch as an explicit stop-gap.
+- `du -sb` cache (30s) plus invalidation after mutations materially reduces stale-read tails, but pre/post-only `exec` checks were not sufficient to stop a single long-running command from writing multi-GB data before exit. `SR6b` added a mid-exec quota watch as an explicit stop-gap, and later live evidence showed one fast oversized write could still finish before the first scheduled poll, so `SR6d` tightens that first-poll window.
 - `du` failure or malformed output no longer weakens quota enforcement into a fail-open "0 bytes used" reading on the guarded non-cleanup paths.
 - sandbox `remove` / `rename` now invalidate the same cache, so quota reads do not stay stale after delete/replace operations that bypass the `exec` path.
 - Cleanup commands bypass quota pre-check, preventing the deadlock where an assistant could neither delete nor write files after exceeding quota.

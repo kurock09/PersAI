@@ -19,6 +19,8 @@
 
 ### Fixed
 
+- **SR6d first-poll quota watch tightening:** live `SR6` repro showed that separate `150 MB` writes correctly hit a `700 MB` quota on follow-up commands, but one single-command `800 MB` write could still complete and only block later commands. OpenClaw `exec` quota watch now performs its first post-spawn quota sample almost immediately instead of waiting for the full periodic interval, and focused regression coverage now protects that fast-write blind window. Canonical `SR6` docs were updated to keep the active sub-slice truthful.
+
 - **Workspace quota guard hardening (ADR-069):** fixed three live-test bugs — exec pre-check no longer blocks cleanup commands (`rm`, `unlink`, `truncate`) when quota is exceeded; du cache invalidation now keeps mutation paths aligned; workspace quota now resolves from plan's `quotaAccounting.workspaceStorageBytesLimit` instead of hardcoded env default. Follow-up `SR6` work was still required after later live evidence showed that a single long-running `exec` could overrun quota before exit.
 
 - **Voice-only response NO_REPLY suppression:** OpenClaw runtime no longer injects fallback text when a voice/media-only response is returned. Stream handler filters `NO_REPLY` prefix fragments. HTTP sync/channel handlers stop forcing "No response from OpenClaw." on media-only turns. OpenClaw fork advanced to `cce6f70191`.
