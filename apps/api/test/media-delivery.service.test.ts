@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PlatformHttpMetricsService } from "../src/modules/platform-core/application/platform-http-metrics.service";
 import { MediaDeliveryService } from "../src/modules/workspace-management/application/media/media-delivery.service";
 import type { AssistantChatMessageAttachment } from "../src/modules/workspace-management/domain/assistant-chat-message-attachment.entity";
 
@@ -30,6 +31,7 @@ function createAttachment(
 async function run(): Promise<void> {
   let uploadCalls = 0;
   let createCalls = 0;
+  const blockedMetrics = new PlatformHttpMetricsService();
 
   const blockedService = new MediaDeliveryService(
     {
@@ -59,7 +61,8 @@ async function run(): Promise<void> {
       async resolveByAssistantId() {
         return "free_shared_restricted";
       }
-    } as never
+    } as never,
+    blockedMetrics
   );
 
   const blocked = await blockedService.deliver({
@@ -74,8 +77,18 @@ async function run(): Promise<void> {
   assert.deepEqual(blocked.attachments, []);
   assert.equal(uploadCalls, 0);
   assert.equal(createCalls, 0);
+  const blockedSeries = blockedMetrics
+    .getSnapshot()
+    .mediaStageSeries.find(
+      (series) =>
+        series.key.stage === "delivery_persist" &&
+        series.key.channel === "web" &&
+        series.key.outcome === "failure"
+    );
+  assert.equal(blockedSeries?.count, 1);
 
   let uploadedMime: string | null = null;
+  const safeMetrics = new PlatformHttpMetricsService();
   const safeService = new MediaDeliveryService(
     {
       async downloadChatMedia() {
@@ -120,7 +133,8 @@ async function run(): Promise<void> {
       async resolveByAssistantId() {
         return "free_shared_restricted";
       }
-    } as never
+    } as never,
+    safeMetrics
   );
 
   const delivered = await safeService.deliver({
@@ -136,6 +150,15 @@ async function run(): Promise<void> {
   assert.equal(delivered.attachments.length, 1);
   assert.equal(delivered.attachments[0]?.mimeType, "image/png");
   assert.equal(delivered.attachments[0]?.originalFilename, "render.png");
+  const successSeries = safeMetrics
+    .getSnapshot()
+    .mediaStageSeries.find(
+      (series) =>
+        series.key.stage === "delivery_persist" &&
+        series.key.channel === "web" &&
+        series.key.outcome === "success"
+    );
+  assert.equal(successSeries?.count, 1);
 }
 
 void run();

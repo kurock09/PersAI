@@ -467,6 +467,7 @@ Scaling-readiness control layer is now tracked by:
   - [x] `SR6e` — known file-mutation quota cache delta accounting reduced avoidable post-mutation `du -sb` pressure on ordinary file-mutation paths
   - [x] `SR6f` — oversized writes are operationally bounded near quota, user-visible quota failure is preserved, and cleanup remains allowed; strict ideal `dd` exit-code semantics are accepted residual risk rather than a blocker
 - [ ] SR7 — Media pipeline capacity hardening ← **active slice**
+  - [x] `SR7a` — PersAI-owned STT ingress paths now use per-request transient scratch directories instead of the shared `_stt_tmp` / `_voice_tmp` paths, and `/metrics` now exposes bounded stage-level signals for touched media-heavy paths so the first `SR7` deploy has an honest observation surface
 - [ ] SR8 — Webhook and realtime burst hardening
 - [ ] SR9 — Billing and quota correctness under concurrency
 - [ ] SR10 — Capacity validation and production gate

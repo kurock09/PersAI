@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
 import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
@@ -42,7 +43,8 @@ export class MediaPreprocessorService {
   constructor(
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
+    private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
 
   async process(
@@ -266,17 +268,17 @@ export class MediaPreprocessorService {
     mime: string,
     assistantId: string
   ): Promise<string | null> {
+    const startedAt = process.hrtime.bigint();
+    let outcome: "success" | "failure" = "failure";
     const runtimeTier =
       await this.resolveAssistantRuntimeTierService.resolveByAssistantId(assistantId);
-
-    void this.runtimeAdapter
-      .deleteChatMediaBatch(assistantId, "_stt_tmp", runtimeTier)
-      .catch(() => {});
+    const { randomUUID } = await import("crypto");
+    const transientChatId = `_stt_tmp_${randomUUID()}`;
 
     const uploadResult = await this.runtimeAdapter.uploadChatMedia({
       assistantId,
       runtimeTier,
-      chatId: "_stt_tmp",
+      chatId: transientChatId,
       messageId: "transcribe",
       fileBuffer: buffer,
       mimeType: mime
@@ -288,11 +290,17 @@ export class MediaPreprocessorService {
         uploadResult.storagePath,
         runtimeTier
       );
+      outcome = "success";
       return result.text && result.text.trim().length > 0 ? result.text.trim() : null;
     } finally {
-      void this.runtimeAdapter
-        .deleteChatMedia(assistantId, uploadResult.storagePath, runtimeTier)
-        .catch(() => {});
+      await this.runtimeAdapter.deleteChatMediaBatch(assistantId, transientChatId, runtimeTier);
+      const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+      this.platformHttpMetricsService.recordMediaStage({
+        stage: "stt_transcribe",
+        channel: "preprocessor",
+        outcome,
+        latencyMs: Number(latencyMs.toFixed(2))
+      });
     }
   }
 

@@ -72,6 +72,29 @@ export class MetricsController {
         `http_request_duration_ms_sum{method="${series.key.method}",route="${series.key.route}",status_code="${series.key.statusCode}",status_class="${Math.floor(series.key.statusCode / 100)}xx"} ${series.durationMsTotal.toFixed(2)}`,
         `http_request_duration_ms_count{method="${series.key.method}",route="${series.key.route}",status_code="${series.key.statusCode}",status_class="${Math.floor(series.key.statusCode / 100)}xx"} ${series.count}`
       ]),
+      "# HELP media_stage_operations_total Total media-stage operations by stage channel and outcome",
+      "# TYPE media_stage_operations_total counter",
+      ...httpMetrics.mediaStageSeries.map(
+        (series) =>
+          `media_stage_operations_total{stage="${series.key.stage}",channel="${series.key.channel}",outcome="${series.key.outcome}"} ${series.count}`
+      ),
+      "# HELP media_stage_duration_ms Media-stage operation duration in milliseconds",
+      "# TYPE media_stage_duration_ms histogram",
+      "# HELP media_stage_duration_ms_max Maximum observed media-stage operation duration in milliseconds",
+      "# TYPE media_stage_duration_ms_max gauge",
+      ...httpMetrics.mediaStageSeries.map(
+        (series) =>
+          `media_stage_duration_ms_max{stage="${series.key.stage}",channel="${series.key.channel}",outcome="${series.key.outcome}"} ${series.maxDurationMs.toFixed(2)}`
+      ),
+      ...httpMetrics.mediaStageSeries.flatMap((series) => [
+        ...series.buckets.map(
+          (bucket) =>
+            `media_stage_duration_ms_bucket{stage="${series.key.stage}",channel="${series.key.channel}",outcome="${series.key.outcome}",le="${bucket.le}"} ${bucket.value}`
+        ),
+        `media_stage_duration_ms_bucket{stage="${series.key.stage}",channel="${series.key.channel}",outcome="${series.key.outcome}",le="+Inf"} ${series.count}`,
+        `media_stage_duration_ms_sum{stage="${series.key.stage}",channel="${series.key.channel}",outcome="${series.key.outcome}"} ${series.durationMsTotal.toFixed(2)}`,
+        `media_stage_duration_ms_count{stage="${series.key.stage}",channel="${series.key.channel}",outcome="${series.key.outcome}"} ${series.count}`
+      ]),
       "# HELP process_uptime_seconds Process uptime in seconds",
       "# TYPE process_uptime_seconds gauge",
       `process_uptime_seconds ${process.uptime().toFixed(2)}`,

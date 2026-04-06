@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
 import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
@@ -29,7 +30,8 @@ export class InboundMediaService {
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     private readonly preprocessor: MediaPreprocessorService,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
 
   async resolve(params: InboundMediaResolveParams): Promise<ResolvedInboundMedia> {
@@ -44,6 +46,8 @@ export class InboundMediaService {
     );
 
     for (const raw of params.rawAttachments) {
+      const startedAt = process.hrtime.bigint();
+      let outcome: "success" | "failure" = "failure";
       try {
         const validated = await validatePersaiMediaFile({
           buffer: raw.buffer,
@@ -107,10 +111,19 @@ export class InboundMediaService {
         contextLines.push(
           this.formatContextLine(attachment, processed.transcription, processed.textExtract)
         );
+        outcome = "success";
       } catch (err) {
         this.logger.warn(
           `Failed to process inbound attachment "${raw.originalFilename}": ${String(err)}`
         );
+      } finally {
+        const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+        this.platformHttpMetricsService.recordMediaStage({
+          stage: "inbound_resolve",
+          channel: params.channel,
+          outcome,
+          latencyMs: Number(latencyMs.toFixed(2))
+        });
       }
     }
 

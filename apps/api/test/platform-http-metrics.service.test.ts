@@ -58,6 +58,44 @@ async function run(): Promise<void> {
   assert.equal(errorSeries?.buckets.find((bucket) => bucket.le === 500)?.value, 0);
   assert.equal(errorSeries?.buckets.find((bucket) => bucket.le === 1_000)?.value, 1);
 
+  service.recordMediaStage({
+    stage: "stt_transcribe",
+    channel: "voice_http",
+    outcome: "success",
+    latencyMs: 88.25
+  });
+  service.recordMediaStage({
+    stage: "delivery_persist",
+    channel: "web",
+    outcome: "failure",
+    latencyMs: 320
+  });
+
+  const mediaSuccessSeries = service
+    .getSnapshot()
+    .mediaStageSeries.find(
+      (series) =>
+        series.key.stage === "stt_transcribe" &&
+        series.key.channel === "voice_http" &&
+        series.key.outcome === "success"
+    );
+  assert.ok(mediaSuccessSeries);
+  assert.equal(mediaSuccessSeries?.count, 1);
+  assert.equal(mediaSuccessSeries?.durationMsTotal, 88.25);
+  assert.equal(mediaSuccessSeries?.maxDurationMs, 88.25);
+
+  const mediaFailureSeries = service
+    .getSnapshot()
+    .mediaStageSeries.find(
+      (series) =>
+        series.key.stage === "delivery_persist" &&
+        series.key.channel === "web" &&
+        series.key.outcome === "failure"
+    );
+  assert.ok(mediaFailureSeries);
+  assert.equal(mediaFailureSeries?.count, 1);
+  assert.equal(mediaFailureSeries?.buckets.find((bucket) => bucket.le === 500)?.value, 1);
+
   const middlewareMetrics = new PlatformHttpMetricsService();
   const middleware = new RequestLoggingMiddleware(
     {

@@ -20,11 +20,26 @@ type RequestMetricSeries = {
   buckets: HistogramBucket[];
 };
 
+type MediaStageMetricKey = {
+  stage: string;
+  channel: string;
+  outcome: string;
+};
+
+type MediaStageMetricSeries = {
+  key: MediaStageMetricKey;
+  count: number;
+  durationMsTotal: number;
+  maxDurationMs: number;
+  buckets: HistogramBucket[];
+};
+
 export type PlatformHttpMetricsSnapshot = {
   requestsTotal: number;
   errorRequestsTotal: number;
   inFlightRequests: number;
   series: RequestMetricSeries[];
+  mediaStageSeries: MediaStageMetricSeries[];
 };
 
 const LATENCY_BUCKETS_MS = [50, 100, 250, 500, 1_000, 2_500, 5_000];
@@ -104,12 +119,17 @@ function seriesKeyOf(key: RequestMetricKey): string {
   return `${key.method} ${key.route} ${key.statusCode}`;
 }
 
+function mediaSeriesKeyOf(key: MediaStageMetricKey): string {
+  return `${key.stage} ${key.channel} ${key.outcome}`;
+}
+
 @Injectable()
 export class PlatformHttpMetricsService {
   private inFlightRequests = 0;
   private requestsTotal = 0;
   private errorRequestsTotal = 0;
   private readonly series = new Map<string, RequestMetricSeries>();
+  private readonly mediaStageSeries = new Map<string, MediaStageMetricSeries>();
 
   beginRequest(): void {
     this.inFlightRequests += 1;
@@ -162,6 +182,39 @@ export class PlatformHttpMetricsService {
     this.series.set(seriesKey, series);
   }
 
+  recordMediaStage(input: {
+    stage: string;
+    channel?: string;
+    outcome: "success" | "failure";
+    latencyMs: number;
+  }): void {
+    const key: MediaStageMetricKey = {
+      stage: input.stage.trim(),
+      channel: (input.channel ?? "unknown").trim(),
+      outcome: input.outcome
+    };
+    const seriesKey = mediaSeriesKeyOf(key);
+    const series = this.mediaStageSeries.get(seriesKey) ?? {
+      key,
+      count: 0,
+      durationMsTotal: 0,
+      maxDurationMs: 0,
+      buckets: createBuckets()
+    };
+
+    series.count += 1;
+    series.durationMsTotal += input.latencyMs;
+    series.maxDurationMs = Math.max(series.maxDurationMs, input.latencyMs);
+
+    for (const bucket of series.buckets) {
+      if (input.latencyMs <= bucket.le) {
+        bucket.value += 1;
+      }
+    }
+
+    this.mediaStageSeries.set(seriesKey, series);
+  }
+
   getSnapshot(): PlatformHttpMetricsSnapshot {
     return {
       requestsTotal: this.requestsTotal,
@@ -169,6 +222,9 @@ export class PlatformHttpMetricsService {
       inFlightRequests: this.inFlightRequests,
       series: Array.from(this.series.values()).sort((left, right) => {
         return seriesKeyOf(left.key).localeCompare(seriesKeyOf(right.key));
+      }),
+      mediaStageSeries: Array.from(this.mediaStageSeries.values()).sort((left, right) => {
+        return mediaSeriesKeyOf(left.key).localeCompare(mediaSeriesKeyOf(right.key));
       })
     };
   }

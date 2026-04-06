@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR7` — Media pipeline capacity hardening
-- `Current active sub-slice`: none yet; next bounded `SR7` sub-slice should be chosen from real media burst evidence
+- `Current active sub-slice`: `SR7a` — Transient STT scratch isolation for concurrent preprocessing
 - `Current phase`: Media/temp-file capacity hardening
 - `Next recommended slice after SR7`: `SR8` — Webhook and realtime burst hardening
 - `Last closed slice`: `SR6` — Storage and workspace path hardening (closed 2026-04-06, operational closure with accepted residual)
@@ -806,6 +806,70 @@ Observation window:
 
 Exit criteria:
 - media bursts are bounded and visible operationally
+
+#### SR7a — STT scratch isolation and bounded media-stage visibility
+Outcome:
+- PersAI-owned STT ingress paths no longer share one runtime scratch directory across concurrent transcriptions, and the API exposes bounded stage-level signals for the touched media-heavy paths
+
+In scope:
+- per-request transient STT scratch location on the runtime media path used by `MediaPreprocessorService`
+- per-request transient STT scratch location for direct web voice transcription in `ManageChatMediaService`
+- scoped cleanup after transcription so one request cannot delete another request's in-flight scratch files
+- bounded stage-level metrics for touched media-heavy API paths (`stt_transcribe`, inbound resolve, outbound delivery persist)
+- docs correction for the active baseline after choosing the first bounded `SR7` sub-slice
+
+Out of scope:
+- webhook/realtime retry or fan-in behavior (`SR8`)
+- quota ordering/atomicity and billing correctness under concurrency (`SR9`)
+- broad worker/offload redesign for all media preprocessing
+
+Primary files / domains:
+- `apps/api/src/modules/platform-core/application/platform-http-metrics.service.ts`
+- `apps/api/src/modules/platform-core/interface/http/metrics.controller.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-preprocessor.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/inbound-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/test/platform-http-metrics.service.test.ts`
+- `apps/api/test/platform-readiness.service.test.ts`
+- `apps/api/test/media-preprocessor.service.test.ts`
+- `apps/api/test/manage-chat-media.transcribe-voice.test.ts`
+- `apps/api/test/media-delivery.service.test.ts`
+- `docs/SCALING-READINESS-PLAN.md`
+- `docs/TEST-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+
+Evidence required:
+- consecutive or concurrent STT preprocessing calls use distinct transient media directories instead of the shared `_stt_tmp` path
+- direct web voice transcription calls use distinct transient media directories instead of the shared `_voice_tmp` path
+- cleanup is scoped to the transient directory created by the same transcription request
+- bounded metrics expose the touched media stages in `/metrics` so later `SR7` observation does not depend only on logs
+- docs no longer describe shared lazy `_stt_tmp` cleanup as the active baseline
+
+Verification:
+- `Tier 0`: `corepack pnpm --filter @persai/api run typecheck`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/platform-http-metrics.service.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/platform-readiness.service.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/media-preprocessor.service.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.transcribe-voice.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+
+Rollback / safe fallback:
+- revert `MediaPreprocessorService` / `ManageChatMediaService` to the old shared `_stt_tmp` / `_voice_tmp` scratch paths and per-file cleanup
+
+Removal / cleanup obligations:
+- if a later `SR7` pass moves STT preprocessing to a worker/offload model or to a different transient-storage contract, remove this scratch-directory note and document the new baseline
+
+Deploy window:
+- API only
+
+Observation window:
+- required; this sub-slice does not close all of `SR7`
+
+Exit criteria:
+- the PersAI-owned STT ingress paths no longer rely on shared `_stt_tmp` / `_voice_tmp` directories that can be deleted by another in-flight transcription
+- focused verification proves cleanup still runs after success and after STT failure across both touched STT ingress paths
+- `/metrics` exposes bounded stage-level signals for the touched media-heavy paths so the first `SR7` deploy has an observation surface beyond generic HTTP latency
 
 ### SR8 — Webhook And Realtime Burst Hardening
 Outcome:

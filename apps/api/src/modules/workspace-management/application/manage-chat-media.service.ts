@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository,
@@ -48,7 +49,8 @@ export class ManageChatMediaService {
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
     private readonly preprocessor: MediaPreprocessorService,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
 
   async uploadAttachment(params: {
@@ -238,6 +240,8 @@ export class ManageChatMediaService {
     userId: string;
     file: { buffer: Buffer; mimetype: string; originalname: string };
   }): Promise<{ text: string }> {
+    const startedAt = process.hrtime.bigint();
+    let outcome: "success" | "failure" = "failure";
     const validated = await validatePersaiMediaFile({
       buffer: params.file.buffer,
       mimeType: params.file.mimetype,
@@ -256,6 +260,8 @@ export class ManageChatMediaService {
     let fileBuffer = params.file.buffer;
     let mimeType = validated.effectiveMimeType;
     const baseMime = (mimeType.split(";")[0] ?? mimeType).trim();
+    const { randomUUID } = await import("crypto");
+    const transientChatId = `_voice_tmp_${randomUUID()}`;
 
     if (AUDIO_MIMES_NEEDING_CONVERSION.has(baseMime)) {
       try {
@@ -271,7 +277,7 @@ export class ManageChatMediaService {
     const uploadResult = await this.runtimeAdapter.uploadChatMedia({
       assistantId: assistant.id,
       runtimeTier,
-      chatId: "_voice_tmp",
+      chatId: transientChatId,
       messageId: "transcribe",
       fileBuffer,
       mimeType
@@ -287,11 +293,17 @@ export class ManageChatMediaService {
       if (text.length === 0) {
         throw new BadRequestException("Voice transcription returned empty text. Please try again.");
       }
+      outcome = "success";
       return { text };
     } finally {
-      void this.runtimeAdapter
-        .deleteChatMedia(assistant.id, uploadResult.storagePath, runtimeTier)
-        .catch(() => {});
+      await this.runtimeAdapter.deleteChatMediaBatch(assistant.id, transientChatId, runtimeTier);
+      const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+      this.platformHttpMetricsService.recordMediaStage({
+        stage: "stt_transcribe",
+        channel: "voice_http",
+        outcome,
+        latencyMs: Number(latencyMs.toFixed(2))
+      });
     }
   }
 

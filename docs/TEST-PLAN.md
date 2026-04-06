@@ -978,6 +978,28 @@ Required in CI:
   - that quota correctness under concurrency or billing propagation is solved (`SR9`)
   - that every one-shot oversized `dd`/shell path always ends with ideal non-zero exit-code semantics before any overshoot
 
+## SR7a STT scratch isolation and media-stage visibility baseline
+
+- This bounded `SR7a` pass covers one concrete media temp-file lifecycle seam:
+  - PersAI-owned STT ingress paths previously staged transcriptions through shared runtime media directories (`_stt_tmp` in `MediaPreprocessorService`, `_voice_tmp` in `ManageChatMediaService`), so one transcription's cleanup could collide with another in-flight request
+- Acceptance for this sub-slice:
+  - media-preprocessor STT uses a per-request transient scratch directory instead of the shared `_stt_tmp` location
+  - direct web voice transcription uses a per-request transient scratch directory instead of the shared `_voice_tmp` location
+  - cleanup targets the same transient directory created by that request and still runs after success or STT failure
+  - `/metrics` exposes bounded stage-level signals for touched media-heavy paths (`stt_transcribe`, inbound resolve, outbound delivery persist)
+  - canonical docs no longer describe shared lazy `_stt_tmp` cleanup as the active baseline
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/platform-http-metrics.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/platform-readiness.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/media-preprocessor.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.transcribe-voice.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `SR7a` does NOT prove:
+  - that webhook/realtime fan-in is bounded (`SR8`)
+  - that media quota ordering or billing correctness under concurrency is solved (`SR9`)
+  - that the entire `SR7` media pipeline no longer dominates API/runtime under burst
+
 ## SR6c workspace quota measurement fail-safe baseline
 
 - This bounded `SR6c` pass covers one concrete quota-integrity gap:

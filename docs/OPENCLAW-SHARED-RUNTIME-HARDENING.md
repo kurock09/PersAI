@@ -152,7 +152,7 @@ Current status (2026-04-05):
 
 - bounded workspace growth — **enforced** (ADR-069): per-plan `workspaceQuotaBytes` limit checked at write and exec tool entry points via cached `du -sb` guard (30s TTL). Default 500 MB for free tier, configurable per plan in Admin UI.
 - bounded media growth — **enforced** (ADR-067): `media_storage_bytes` quota pre-check on upload + post-increment. Per-plan override in Admin UI.
-- bounded temporary artifacts — `_stt_tmp` cleanup on every transcription call
+- bounded temporary artifacts — PersAI-owned STT ingress paths now use per-request transient scratch directories with scoped cleanup after each transcription; broader media temp-file closure remains active `SR7` work
 - bounded session/transcript growth — session TTL/GC enforced per assistant
 - no silent dependence on cleanup-by-luck
 

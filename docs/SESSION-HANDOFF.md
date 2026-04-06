@@ -1,5 +1,75 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR7a STT scratch isolation and media-stage visibility
+
+### Current active slice
+
+- `SR7` — Media pipeline capacity hardening
+
+### Current active sub-slice
+
+- `SR7a` — STT scratch isolation and media-stage visibility
+
+### What stale program state was fixed
+
+1. Canon still showed `SR7` as active but with no chosen bounded sub-slice even after fresh evidence isolated the shared `_stt_tmp` scratch directory as the first honest media temp-file seam.
+2. Current baseline docs still described shared lazy `_stt_tmp` cleanup as the active safeguard, and the active `SR7` state still had no bounded media-stage observation surface recorded in canon.
+
+### What subagents were launched and why
+
+Three readonly evidence-gathering subagents:
+
+1. **Map media hot paths** — to identify which media paths can dominate API/runtime under burst and whether a small implementation target existed.
+2. **Map temp file lifecycle** — to trace where media temp files are created, cleaned, or can collide/leak across STT paths.
+3. **Check SR7 boundaries** — to confirm the chosen fix stays inside `SR7` and not `SR6`, `SR8`, or `SR9`.
+
+### What evidence they returned
+
+- Hot-path mapping showed that web and Telegram inbound media both hit `MediaPreprocessorService` inline on the API request path, and STT currently stages through runtime upload -> transcribe -> cleanup.
+- Temp-file mapping showed that `MediaPreprocessorService.transcribeAudio()` used a shared `_stt_tmp` runtime media directory with fire-and-forget batch cleanup before upload, and direct web voice transcription used a separate but still shared `_voice_tmp` path, creating the same class of collision risk across PersAI-owned STT ingress paths.
+- Boundary mapping confirmed this seam belongs to `SR7` because it is media preprocessing and temp-file lifecycle pressure, not workspace quota enforcement (`SR6`), webhook/realtime fan-in (`SR8`), or quota/billing correctness (`SR9`).
+- The existing metrics surface exposed only generic HTTP/request signals, not bounded stage-level media signals for the touched STT/inbound/delivery hotspots.
+
+### What was completed
+
+1. `MediaPreprocessorService` now stages preprocessing STT through a per-request transient scratch directory instead of the shared `_stt_tmp` path.
+2. Direct web voice transcription in `ManageChatMediaService` now stages through a per-request transient scratch directory instead of the shared `_voice_tmp` path.
+3. Cleanup now removes the same transient directory after the transcription attempt on both touched STT ingress paths, so one in-flight request no longer depends on deleting another request's scratch files.
+4. Added bounded `/metrics` visibility for touched media-heavy paths: `stt_transcribe`, inbound attachment resolve, and outbound delivery persist.
+5. Added focused regression coverage in `apps/api/test/platform-http-metrics.service.test.ts`, `apps/api/test/platform-readiness.service.test.ts`, `apps/api/test/media-preprocessor.service.test.ts`, `apps/api/test/manage-chat-media.transcribe-voice.test.ts`, and `apps/api/test/media-delivery.service.test.ts`.
+6. Updated canonical docs and related baseline docs so `SR7a` is the explicit active sub-slice and the old shared scratch-path wording is no longer presented as the current baseline.
+
+### What remains
+
+- The broader `SR7` slice still needs deploy-time observation and later bounded fixes around media burst pressure across uploads/STT/TTS/image/pdf flows.
+
+### Confirmed risks
+
+1. This pass isolates PersAI-owned STT scratch paths and adds bounded visibility for touched media stages; it does not yet bound all media temp-file churn or remove preprocessing from the hot API request path.
+2. Cleanup remains best-effort at the adapter/runtime boundary, so crash-time or runtime-unreachable leftovers can still require a later cleanup strategy.
+
+### Unresolved hypotheses
+
+1. The next dominant `SR7` pressure point may now be duplicated download -> re-upload I/O in media delivery or broader inline preprocessing pressure rather than shared STT scratch collisions.
+2. A later `SR7` pass may still need bounded preprocessing concurrency limits or worker/offload if live burst evidence shows inline preprocessing still dominates API/runtime resources.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/platform-http-metrics.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/platform-readiness.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/media-preprocessor.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.transcribe-voice.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` remains active because this first deploy package still needs target-environment observation; even with the new metrics surface we do not yet have live evidence that media bursts are bounded and visible operationally, so opening `SR8` would be dishonest.
+
+### Next recommended step
+
+- Deploy this first `SR7a` package, observe the new media-stage signals in the target environment, and only then choose the next bounded `SR7` fix based on which hotspot actually dominates.
+
 ## 2026-04-06 - SR6 operational closure accepted, SR7 opened, and dev rollout churn reduced
 
 ### Current active slice

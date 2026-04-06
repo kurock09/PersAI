@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
 import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
@@ -33,7 +34,8 @@ export class MediaDeliveryService {
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(CHANNEL_MEDIA_ADAPTERS)
     adapters: ChannelMediaAdapter[],
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
+    private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {
     this.adapterMap = new Map(adapters.map((a) => [a.channel, a]));
   }
@@ -51,6 +53,8 @@ export class MediaDeliveryService {
     const results: AssistantWebChatMessageAttachmentState[] = [];
 
     for (const artifact of params.artifacts) {
+      const startedAt = process.hrtime.bigint();
+      let outcome: "success" | "failure" = "failure";
       try {
         const persisted = await this.persistArtifact(artifact, params);
 
@@ -59,8 +63,17 @@ export class MediaDeliveryService {
         }
 
         results.push(persisted.state);
+        outcome = "success";
       } catch (err) {
         this.logger.warn(`Failed to deliver media artifact "${artifact.url}": ${String(err)}`);
+      } finally {
+        const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+        this.platformHttpMetricsService.recordMediaStage({
+          stage: "delivery_persist",
+          channel: params.channel,
+          outcome,
+          latencyMs: Number(latencyMs.toFixed(2))
+        });
       }
     }
 

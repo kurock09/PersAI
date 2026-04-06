@@ -208,6 +208,25 @@ async function run(): Promise<void> {
     metricsText,
     /^http_request_duration_ms_bucket\{method="GET",route="\/ready",status_code="503",status_class="5xx",le="\+Inf"\} 1$/m
   );
+  httpMetricsService.recordMediaStage({
+    stage: "stt_transcribe",
+    channel: "voice_http",
+    outcome: "success",
+    latencyMs: 120
+  });
+  const metricsTextWithMedia = await metricsController.getMetrics({
+    setHeader() {
+      return undefined;
+    }
+  });
+  assert.match(
+    metricsTextWithMedia,
+    /^media_stage_operations_total\{stage="stt_transcribe",channel="voice_http",outcome="success"\} 1$/m
+  );
+  assert.match(
+    metricsTextWithMedia,
+    /^media_stage_duration_ms_sum\{stage="stt_transcribe",channel="voice_http",outcome="success"\} 120\.00$/m
+  );
   assert.match(
     metricsText,
     /^http_request_duration_ms_count\{method="GET",route="\/ready",status_code="503",status_class="5xx"\} 1$/m
