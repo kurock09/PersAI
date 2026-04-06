@@ -7,8 +7,9 @@ Step 15 — Tiered OpenClaw runtime and production hardening
 Scaling-readiness control layer is now tracked by:
 - `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
 - `docs/SCALING-READINESS-PLAN.md`
-- current active slice: `SR2` (GKE production baseline)
-- next recommended slice after `SR2`: `SR3` (API concurrency and dependency hardening)
+- current active slice: `SR5` (Sandbox and dind capacity hardening)
+- next recommended slice after `SR5`: `SR6` (Storage and workspace path hardening)
+- last closed slice: `SR4` (OpenClaw runtime throughput and multi-replica correctness, closed 2026-04-05)
 
 ## Step 1
 
@@ -454,7 +455,8 @@ Scaling-readiness control layer is now tracked by:
 - [x] SR4 — OpenClaw runtime throughput and multi-replica correctness
   - closed with: explicit single-replica production runtime contract for OpenClaw (`single_replica`, one pod per runtime pool, `Recreate` rollout only), explicit prohibition of multi-replica session mode, and honest identification of the shared global active-turn lane as the current throughput ceiling
   - `SR4a`: runtime readiness now treats PersAI `multi_replica` session mode as not yet supported by code: Redis-backed apply/spec storage is necessary metadata sharing, but session store continuity, workspace continuity, execution ordering, and restart handoff remain unproven across replicas
-- [ ] SR5 — Sandbox and dind capacity hardening
+- [ ] SR5 — Sandbox and dind capacity hardening ← **active slice**
+  - [x] `SR5a`: sandbox startup path optimization — parallel docker pulls with retry, progress logging, configurable `preloadPullRetries` (Tier 0 closed, Tier 2 deploy pending)
 - [ ] SR6 — Storage and workspace path hardening
 - [ ] SR7 — Media pipeline capacity hardening
 - [ ] SR8 — Webhook and realtime burst hardening

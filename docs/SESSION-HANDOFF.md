@@ -1,5 +1,87 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR5a sandbox startup path optimization
+
+### Active slice after this session
+
+- `SR5` — Sandbox and dind capacity hardening
+- `SR5a` sub-slice: sandbox startup path optimization and readiness budget baseline — **Tier 0 closed**
+
+### What stale program state was fixed
+
+1. `SCALING-READINESS-PLAN.md` active-state marker was stale at `SR2` — updated to `SR5` active, `SR6` next, `SR4` last closed.
+2. `ROADMAP.md` active-state marker was stale at `SR2` — updated to match truthful post-SR4 state.
+3. Both docs now carry the honest post-SR4 baseline (single_replica contract, Recreate rollout, multi-replica unsupported, active-turn lane ceiling).
+
+### What subagents were launched and why
+
+Three readonly evidence-gathering subagents:
+
+1. **Sandbox startup path mapper** — mapped the full startup timeline from container start to `/readyz` in OpenClaw fork. Key finding: sequential `docker pull`, no retry, no progress logging.
+2. **Helm sandbox pool config mapper** — mapped all pool definitions, dind sidecar config, probes, resources, rollout strategy. Key finding: startupProbe budget = 900s, dind has no probes, all three dev pools use Recreate + sandbox preload.
+3. **Sandbox image preload implementation mapper** — mapped preload script, registry auth, dind socket wait, sandbox session lifecycle. Key finding: preload is Helm-only shell wrapper, two sequential pulls into dind daemon store, no caching between restarts.
+
+### What evidence they returned
+
+- Startup path is fully sequential: dind start → socket poll (≤180s) → metadata token → docker login → pull #1 → pull #2 → exec gateway → HTTP listen → readiness.
+- Two `docker pull` commands are independent — parallelizable.
+- No retry on pull failure — container restarts from scratch.
+- No operational logging during preload — silent until gateway starts or fails.
+- `startupProbe` allows up to 900s (180 × 5s) before Kubernetes kills the startup.
+- Recreate strategy means full downtime during pod replacement — reducing preload time directly reduces deploy gap.
+
+### What was completed
+
+1. **Parallel docker pulls**: both `SANDBOX_BASE_IMAGE` and `SANDBOX_COMMON_IMAGE` now pull concurrently via `&` + `wait` in the preload shell script.
+2. **Bounded retry with backoff**: each pull retries up to `preloadPullRetries` (default 3) with 5s backoff between attempts, instead of immediate container crash.
+3. **Timestamped progress logging**: `[sandbox-preload]` log markers at socket wait, token acquisition, GAR login, pull start/completion, and gateway start.
+4. **Configurable retry count**: new `sandboxRuntime.preloadPullRetries` Helm value (default 3).
+5. **Docs alignment**: SCALING-READINESS-PLAN, ROADMAP, TEST-PLAN, SESSION-HANDOFF all updated to truthful post-SR4 state with SR5 active.
+6. **SR5a sub-slice defined** in SCALING-READINESS-PLAN with full template (outcome, scope, out-of-scope, evidence, verification, rollback, exit criteria).
+
+### What remains
+
+Inside SR5 (later sub-slices):
+- `SR5b`: dind contention and sandbox session concurrency caps under burst
+- `SR5c`: per-tier sandbox concurrency assumptions and predictable degradation documentation
+- `SR5d`: startupProbe budget tightening after Tier 2 measurement of actual startup times
+- `SR5e`: dind sidecar probe addition (requires measuring dind startup variance)
+
+Outside SR5 (later slices):
+- `SR6`: storage/workspace path redesign, GCS FUSE pressure
+- `SR7`: media pipeline redesign
+- `SR8`: webhook/realtime burst fan-in
+- `SR9`: billing/quota concurrency correctness
+- `SR10`: final capacity validation and prod gate
+
+### Confirmed risks
+
+1. Parallel `docker pull` with `&` + `wait` requires `/bin/sh` job control — this is standard POSIX and works in the `docker:dind-rootless` image's shell environment, but has not been validated on a live cluster yet (Tier 2 pending).
+2. Retry count of 3 means a permanently broken registry will delay container death by ~30s (3 attempts × 2 images × 5s backoff worst case) before `set -eu` exits the script.
+
+### Unresolved hypotheses
+
+1. **Actual wall-clock improvement from parallel pulls**: plausible hypothesis is ~40-60% reduction in pull phase (depends on bandwidth vs latency), but requires Tier 2 measurement.
+2. **dind startup time variance**: unknown whether dind sidecar readiness is the dominant wait or the image pulls are — requires operational measurement.
+
+### Verification run
+
+- `Tier 0` checks passed:
+  - `helm template` renders cleanly for both `values.yaml` and `values-dev.yaml`
+  - `runtime-pools:readiness:strict` gate passes
+  - all three sandbox-capable dev pools render the parallel pull + retry script with correct retry count
+
+### Why SR6 is still blocked
+
+SR5 is not closed. Only SR5a (Tier 0) is done. Remaining SR5 sub-slices cover dind contention, sandbox concurrency caps, and degradation behavior. SR6 cannot open until SR5 is honestly closed.
+
+### Next recommended step
+
+- **Tier 2 deploy**: deploy the updated Helm chart to dev, observe `[sandbox-preload]` logs during fresh pod rollout, measure actual readiness time improvement vs sequential baseline.
+- If Tier 2 confirms improvement, close SR5a fully and move to SR5b (dind contention and sandbox session concurrency caps).
+
+---
+
 ## 2026-04-05 - SR4 production decision gate
 
 ### Active slice after this session

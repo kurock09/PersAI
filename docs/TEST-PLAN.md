@@ -833,3 +833,21 @@ Required in CI:
   - `corepack pnpm --filter @persai/api run typecheck`
   - `corepack pnpm --filter @persai/api exec tsx test/enforce-abuse-rate-limit.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-abuse-guard.repository.test.ts`
+
+## SR5a sandbox startup path optimization baseline
+
+- `Tier 0` config/render validation for this `SR5a` sub-slice must include:
+  - `helm template persai infra/helm -f infra/helm/values.yaml`
+  - `helm template persai infra/helm -f infra/helm/values-dev.yaml`
+  - `corepack pnpm run runtime-pools:readiness:strict`
+- Canonical preload script changes in this `SR5a` sub-slice:
+  - two `docker pull` commands now run in parallel via `&` + `wait` instead of sequential
+  - each pull has bounded retry (default 3 attempts, configurable via `sandboxRuntime.preloadPullRetries`)
+  - timestamped `[sandbox-preload]` progress logging at socket wait, token acquisition, login, pull start, pull completion, and gateway start
+- `SR5a` is closeable from `Tier 0` static validation + verified render output:
+  - all three sandbox-capable pools in dev values render the parallel pull + retry script
+  - `startupProbe` budget (900s) remains unchanged — tightening deferred to post-measurement sub-slice
+- `SR5a` does NOT prove:
+  - actual wall-clock startup improvement (requires `Tier 2` deploy observation)
+  - retry resilience under real transient GAR failures (requires `Tier 3` observation)
+  - dind contention or sandbox session concurrency behavior (later SR5 sub-slices)

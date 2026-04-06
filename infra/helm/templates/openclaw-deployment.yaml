@@ -122,6 +122,9 @@ spec:
           args:
             - |
               set -eu
+
+              log() { printf '[sandbox-preload] [%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+
               if [ "${DOCKER_HOST:-}" = "" ]; then
                 echo "DOCKER_HOST is required for sandbox image preload." >&2
                 exit 1
@@ -130,6 +133,8 @@ spec:
                 echo "OPENCLAW_DOCKER_SOCKET is required for sandbox image preload." >&2
                 exit 1
               fi
+
+              log "waiting for dind socket at ${OPENCLAW_DOCKER_SOCKET}"
               attempts=0
               until [ -S "${OPENCLAW_DOCKER_SOCKET}" ]; do
                 attempts=$((attempts + 1))
@@ -139,14 +144,51 @@ spec:
                 fi
                 sleep 1
               done
+              log "dind socket ready after ${attempts}s"
+
+              log "fetching GCE metadata token"
               token="$(node -e "fetch('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',{headers:{'Metadata-Flavor':'Google'}}).then(async (res)=>{if(!res.ok){throw new Error('metadata token fetch failed: '+res.status)} const payload=await res.json(); process.stdout.write(payload.access_token || '');}).catch((error)=>{console.error(error); process.exit(1);});")"
               if [ -z "$token" ]; then
                 echo "Metadata access token is empty." >&2
                 exit 1
               fi
+              log "token acquired, logging into GAR"
               printf '%s' "$token" | docker login -u oauth2accesstoken --password-stdin "https://${GAR_REGISTRY_HOST}"
-              docker pull "${SANDBOX_BASE_IMAGE}"
-              docker pull "${SANDBOX_COMMON_IMAGE}"
+
+              pull_with_retry() {
+                _image="$1"
+                _attempt=0
+                _max={{ default 3 $openclaw.sandboxRuntime.preloadPullRetries }}
+                while true; do
+                  _attempt=$((_attempt + 1))
+                  if docker pull "$_image"; then
+                    log "pulled $_image (attempt $_attempt)"
+                    return 0
+                  fi
+                  if [ "$_attempt" -ge "$_max" ]; then
+                    log "FAILED to pull $_image after $_max attempts"
+                    return 1
+                  fi
+                  log "pull $_image failed (attempt $_attempt/$_max), retrying in 5s"
+                  sleep 5
+                done
+              }
+
+              log "pulling sandbox images (parallel)"
+              pull_with_retry "${SANDBOX_BASE_IMAGE}" &
+              _pid_base=$!
+              pull_with_retry "${SANDBOX_COMMON_IMAGE}" &
+              _pid_common=$!
+
+              _pull_ok=true
+              wait $_pid_base  || _pull_ok=false
+              wait $_pid_common || _pull_ok=false
+              if [ "$_pull_ok" = false ]; then
+                log "one or more sandbox image pulls failed — aborting"
+                exit 1
+              fi
+              log "all sandbox images ready, starting gateway"
+
               exec {{ include "persai.openclaw.shellJoin" $runtimeCommand }}
 {{- else if $openclaw.command }}
           command:

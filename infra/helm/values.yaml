@@ -320,6 +320,7 @@ openclaw:
     dockerSocketPath: /run/user/1000/docker.sock
     dockerHost: unix:///run/user/1000/docker.sock
     preloadSandboxImage: false
+    preloadPullRetries: 3
     startupProbe:
       failureThreshold: 180
       periodSeconds: 5

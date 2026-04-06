@@ -104,9 +104,11 @@ Do not combine in one deploy window by default:
 - storage/quota algorithm changes
 
 ## Active Program State
-- `Current active slice`: `SR2`
-- `Current phase`: GKE production baseline
-- `Next recommended slice after SR2`: `SR3`
+- `Current active slice`: `SR5` — Sandbox and dind capacity hardening
+- `Current phase`: Sandbox/dind startup and throughput hardening
+- `Next recommended slice after SR5`: `SR6` — Storage and workspace path hardening
+- `Last closed slice`: `SR4` — OpenClaw runtime throughput and multi-replica correctness (closed 2026-04-05)
+- `Post-SR4 baseline`: single_replica runtime contract per pool, Recreate rollout, multi-replica session mode explicitly unsupported, shared global active-turn lane is the known throughput ceiling
 
 ## Slice Template
 Each slice must use this shape:
@@ -324,9 +326,13 @@ In scope:
 - startup latency
 - dind contention
 - per-tier sandbox concurrency caps
+- bounded deploy-gap reduction for sandbox-capable runtime pools
+- predictable degradation under sandbox-heavy bursts
 
 Out of scope:
-- storage algorithm redesign
+- storage algorithm redesign (SR6)
+- multi-replica session ownership redesign
+- changing Recreate strategy to RollingUpdate (requires session handoff)
 
 Primary files / domains:
 - runtime pool Helm
@@ -341,6 +347,54 @@ Observation window:
 
 Exit criteria:
 - sandbox-heavy bursts degrade predictably and do not destabilize unrelated tiers
+
+#### SR5a — Sandbox startup path optimization and readiness budget baseline
+
+Outcome:
+- sandbox-capable runtime pools reach readiness faster by parallelizing image preload and adding operational resilience to the preload path
+
+In scope:
+- parallel docker pull for base + common sandbox images (was sequential)
+- bounded retry with configurable attempt count for pull failures (was immediate crash)
+- timestamped progress logging at each preload phase for operational visibility
+- configurable `preloadPullRetries` Helm value
+- documented startup path timeline and readiness budget
+
+Out of scope:
+- per-tier sandbox concurrency caps (later SR5 sub-slice)
+- dind contention under concurrent sandbox sessions (later SR5 sub-slice)
+- dind sidecar probe addition (later SR5 sub-slice — requires measuring dind startup variance)
+- startupProbe budget tightening (requires deploy-time measurement first)
+- Recreate→RollingUpdate change (out of SR5 entirely — requires session handoff)
+
+Primary files / domains:
+- `infra/helm/templates/openclaw-deployment.yaml` — preload shell script
+- `infra/helm/values.yaml` — `preloadPullRetries` default
+
+Evidence required:
+- Helm template renders cleanly for both `values.yaml` and `values-dev.yaml`
+- `runtime-pools:readiness:strict` gate passes
+- all three sandbox-capable pools render the parallel pull + retry script
+
+Verification:
+- `Tier 0`: `helm template` for both value files + `runtime-pools:readiness:strict`
+- `Tier 2`: deploy to dev, observe preload logs for `[sandbox-preload]` progress markers, verify readiness time improvement
+- `Tier 3`: observation window for pod restart behavior, image pull latency, retry behavior under transient GAR errors
+
+Rollback / safe fallback:
+- revert Helm template to sequential pulls (single-line change); `preloadPullRetries` is additive and non-breaking
+- no runtime code changes, no OpenClaw source changes
+
+Deploy window:
+- runtime pools only (sandbox-capable deployments)
+
+Observation window:
+- one deploy cycle with fresh pod rollout per sandbox pool
+
+Exit criteria:
+- preload logs show parallel pull completion
+- pod readiness time is measurably reduced compared to sequential baseline
+- retry path does not mask permanent pull failures (still exits after max attempts)
 
 ### SR6 — Storage And Workspace Path Hardening
 Outcome:
