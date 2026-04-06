@@ -74,8 +74,7 @@ async function run(): Promise<void> {
         return "free_shared_restricted";
       }
     } as never,
-    {} as never
-    ,
+    {} as never,
     metrics
   );
 
@@ -152,8 +151,7 @@ async function run(): Promise<void> {
         return "free_shared_restricted";
       }
     } as never,
-    {} as never
-    ,
+    {} as never,
     emptyMetrics
   );
 

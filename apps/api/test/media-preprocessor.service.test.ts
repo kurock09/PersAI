@@ -41,8 +41,18 @@ async function run(): Promise<void> {
     metrics
   );
 
-  const first = await service.process(Buffer.from("audio-one"), "audio/mpeg", "voice-1.mp3", "assistant-1");
-  const second = await service.process(Buffer.from("audio-two"), "audio/mpeg", "voice-2.mp3", "assistant-1");
+  const first = await service.process(
+    Buffer.from("audio-one"),
+    "audio/mpeg",
+    "voice-1.mp3",
+    "assistant-1"
+  );
+  const second = await service.process(
+    Buffer.from("audio-two"),
+    "audio/mpeg",
+    "voice-2.mp3",
+    "assistant-1"
+  );
 
   assert.equal(first.transcription, "hello from stt");
   assert.equal(second.transcription, "hello from stt");
