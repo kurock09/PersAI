@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
+import type { Route } from "next";
 import {
   MessageSquarePlus,
   Send,
@@ -229,7 +230,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => {
-            router.push("/app/chat");
+            router.push("/app/chat" as Route);
             onClose?.();
           }}
           className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-sm font-medium text-white shadow-sm shadow-accent-glow transition-colors hover:bg-accent-hover"
@@ -259,7 +260,7 @@ export function Sidebar({
                   item={item}
                   isActive={activeThread === item.chat.surfaceThreadKey}
                   onNavigate={() => {
-                    router.push(`/app/chat?thread=${item.chat.surfaceThreadKey}`);
+                    router.push(`/app/chat?thread=${item.chat.surfaceThreadKey}` as Route);
                     onClose?.();
                   }}
                   onChanged={data.reloadChats}
@@ -335,7 +336,7 @@ export function Sidebar({
             <button
               type="button"
               onClick={() => {
-                router.push("/admin");
+                router.push("/admin" as Route);
                 onClose?.();
               }}
               className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
@@ -415,7 +416,7 @@ function UserMenu() {
             type="button"
             onClick={() => {
               setOpen(false);
-              router.push("/app/profile");
+              router.push("/app/profile" as Route);
             }}
             className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >

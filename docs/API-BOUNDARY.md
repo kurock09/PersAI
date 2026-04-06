@@ -1650,4 +1650,6 @@ GKE Ingress routes `bot.persai.dev/telegram-webhook/*` to the PersAI API service
 
 Returns the upstream OpenClaw response unchanged. On permanent PersAI-side resolution failures (`misconfigured`, `unknown_assistant`), returns `200 { ok: false, error: "..." }` so Telegram does not keep retrying a non-recoverable route. On transient upstream proxy timeout/network failure, returns retry-worthy `504 { ok: false, error: "upstream_timeout" }` or `502 { ok: false, error: "upstream_error" }`.
 
+For the runtime-side `OpenClaw -> PersAI internal Telegram turn` seam, retry semantics are also explicit: when `POST /api/v1/internal/runtime/turns/telegram` returns transient transport/runtime failure (`runtime_timeout`, `runtime_degraded`, `runtime_unreachable`, or retry-worthy HTTP `408/425/429/5xx`), the OpenClaw Telegram bridge must rethrow instead of converting that failure into a user-facing fallback reply plus webhook `200`. This keeps Telegram webhook delivery retry-worthy for transient internal-turn failure rather than silently acknowledging a broken turn as success.
+
 This replaces the previous ingress rule that hardcoded all Telegram traffic to the `free_shared_restricted` OpenClaw pool regardless of assistant tier.

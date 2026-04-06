@@ -9,6 +9,7 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
  * and return 500. Proxy is implemented in `app/api/v1/[[...path]]/route.ts` via fetch.
  */
 const nextConfig: NextConfig = {
+  typedRoutes: true,
   transpilePackages: ["@persai/contracts"]
 };
 

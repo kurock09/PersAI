@@ -1,6 +1,7 @@
 "use client";
 
 import { useClerk, useSignIn, useSignUp } from "@clerk/nextjs";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
@@ -20,7 +21,7 @@ export default function SSOCallbackPage() {
       if (!clerk.loaded || hasRun.current) return;
       hasRun.current = true;
 
-      const navigateTo = async (path: string) => {
+      const navigateTo = async (path: Route) => {
         router.push(path);
       };
 
@@ -51,7 +52,7 @@ export default function SSOCallbackPage() {
           await finalizeSignIn();
           return;
         }
-        return navigateTo("/sign-in");
+        return navigateTo("/sign-in" as Route);
       }
 
       if (signIn.isTransferable) {
@@ -60,7 +61,7 @@ export default function SSOCallbackPage() {
           await finalizeSignUp();
           return;
         }
-        return navigateTo("/sign-in");
+        return navigateTo("/sign-in" as Route);
       }
 
       if (signUp.status === "complete") {
@@ -81,7 +82,7 @@ export default function SSOCallbackPage() {
         }
       }
 
-      return navigateTo("/sign-in");
+      return navigateTo("/sign-in" as Route);
     })();
   }, [clerk, signIn, signUp, router]);
 

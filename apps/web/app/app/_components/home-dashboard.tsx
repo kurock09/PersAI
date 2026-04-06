@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { MessageSquarePlus, Settings, Send, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
@@ -67,7 +68,7 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
             <button
               key={key}
               type="button"
-              onClick={() => router.push(`/app/chat?prompt=${encodeURIComponent(t(key))}`)}
+              onClick={() => router.push(`/app/chat?prompt=${encodeURIComponent(t(key))}` as Route)}
               className="cursor-pointer rounded-xl border border-border bg-surface px-3 py-2.5 text-left text-xs text-text-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-text"
             >
               {t(key)}
@@ -81,7 +82,7 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
             icon={<MessageSquarePlus className="h-4 w-4" />}
             label={t("newChat")}
             accent
-            onClick={() => router.push("/app/chat")}
+            onClick={() => router.push("/app/chat" as Route)}
           />
           <QuickAction
             icon={<Settings className="h-4 w-4" />}
@@ -106,7 +107,9 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
                 <button
                   key={item.chat.id}
                   type="button"
-                  onClick={() => router.push(`/app/chat?thread=${item.chat.surfaceThreadKey}`)}
+                  onClick={() =>
+                    router.push(`/app/chat?thread=${item.chat.surfaceThreadKey}` as Route)
+                  }
                   className="group flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-hover"
                 >
                   <div className="min-w-0 flex-1">

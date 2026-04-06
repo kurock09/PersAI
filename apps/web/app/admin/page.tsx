@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { Route } from "next";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import {
@@ -14,7 +15,8 @@ import {
   ShieldAlert,
   Wrench,
   Loader2,
-  ArrowRight
+  ArrowRight,
+  type LucideIcon
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import {
@@ -114,7 +116,7 @@ export default function AdminOverviewPage() {
     void load();
   }, [load]);
 
-  const NAV = [
+  const NAV: ReadonlyArray<{ href: Route; label: string; icon: LucideIcon }> = [
     { href: "/admin/runtime", label: "Runtime Settings", icon: Server },
     { href: "/admin/tools", label: "Tool Credentials", icon: Wrench },
     { href: "/admin/plans", label: "Plan Management", icon: CreditCard },

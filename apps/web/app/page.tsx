@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
+import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { LandingLocaleSwitcher } from "./_components/landing-locale-switcher";
@@ -15,7 +16,7 @@ function TelegramIcon({ className }: { className?: string }) {
 export default async function HomePage() {
   const { userId } = await auth();
   if (userId !== null) {
-    redirect("/app");
+    redirect("/app" as Route);
   }
 
   const t = await getTranslations("landing");
@@ -88,13 +89,13 @@ export default async function HomePage() {
 
           <div className="animate-fade-in-up-delay mt-7 flex flex-col items-center gap-3 sm:flex-row">
             <Link
-              href="/sign-up"
+              href={"/sign-up" as Route}
               className="cursor-pointer rounded-2xl bg-accent px-8 py-3.5 text-sm font-semibold text-white shadow-[0_0_48px_rgba(102,187,106,0.2)] transition-all duration-300 hover:bg-accent-hover hover:shadow-[0_0_70px_rgba(102,187,106,0.32)]"
             >
               {t("cta")}
             </Link>
             <Link
-              href="/sign-in"
+              href={"/sign-in" as Route}
               className="cursor-pointer text-sm font-medium text-text-muted transition-colors hover:text-text"
             >
               {t("ctaSecondary")} →

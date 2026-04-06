@@ -1027,6 +1027,7 @@ Required in CI:
   - successful completion advances the handled watermark and clears the in-flight claim
   - failed attempts release or age out the in-flight claim so the same update is not deadlocked forever after one broken run
 - transient Telegram proxy timeout/network failure returns a retry-worthy non-2xx response instead of silent `200` success
+- transient `OpenClaw -> PersAI internal Telegram turn` failures are treated as retry-worthy webhook failures instead of being rendered to the user and acknowledged as successful webhook completion
 - canonical docs reflect this Telegram ingress seam as the active `SR8` sub-slice instead of leaving `SR8` unbounded
 - Minimum verification for this sub-slice:
   - `corepack pnpm --filter @persai/api run typecheck`

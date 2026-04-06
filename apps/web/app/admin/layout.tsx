@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect, useState } from "react";
+import type { Route } from "next";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -68,7 +69,7 @@ function AdminSidebar({ onClose }: { onClose?: () => void }) {
               key={item.href}
               type="button"
               onClick={() => {
-                router.push(item.href);
+                router.push(item.href as Route);
                 onClose?.();
               }}
               className={cn(
@@ -90,7 +91,7 @@ function AdminSidebar({ onClose }: { onClose?: () => void }) {
         <button
           type="button"
           onClick={() => {
-            router.push("/app");
+            router.push("/app" as Route);
             onClose?.();
           }}
           className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs text-text-subtle transition-colors hover:bg-surface-hover hover:text-text-muted"
@@ -127,7 +128,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (authState === "denied") {
-      router.replace("/app");
+      router.replace("/app" as Route);
     }
   }, [authState, router]);
 

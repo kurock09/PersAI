@@ -38,12 +38,16 @@
 2. Replaced the old watermark-only Telegram replay suppression in `HandleInternalTelegramTurnService` with claim/release/complete handling around one `assistantId + updateId`.
 3. Added repository support in `PrismaAssistantChannelSurfaceBindingRepository` for atomic Telegram update claim, completion, and release against channel-binding metadata.
 4. Updated `telegram-webhook-proxy.controller.ts` so transient upstream timeout/network failures return retry-worthy `504 upstream_timeout` or `502 upstream_error`, while permanent route failures still deliberately return `200`.
-5. Added focused regression coverage in `apps/api/test/handle-internal-telegram-turn.service.test.ts` and `apps/api/test/telegram-webhook-proxy.controller.test.ts`.
-6. Updated `CHANGELOG.md` so the current `SR8a` package is recoverable from the normal startup reading pack.
+5. Updated the OpenClaw Telegram bridge so retry-worthy internal-turn failures (`runtime_timeout`, `runtime_degraded`, `runtime_unreachable`, plus retry-worthy HTTP `408/425/429/5xx`) rethrow through the webhook path instead of being rendered as a fallback user reply and acknowledged as successful webhook completion.
+6. Added focused regression coverage in `apps/api/test/handle-internal-telegram-turn.service.test.ts`, `apps/api/test/telegram-webhook-proxy.controller.test.ts`, and `openclaw/src/gateway/persai-runtime/persai-runtime-telegram.test.ts`.
+7. Fixed `apps/web/next-env.d.ts` drift by stabilizing the generated route-types path around the existing `typedRoutes` baseline, so the web app no longer keeps flipping back to the dev-only route-types reference.
+8. Updated `CHANGELOG.md` so the current `SR8a` package is recoverable from the normal startup reading pack.
 
 ### What remains
 
-- Deploy the API-only `SR8a` package and run one bounded live Telegram ingress check that covers both same-update replay suppression and transient webhook retry behavior in the target environment.
+- Deploy the current `SR8a` delivery unit and run one bounded live Telegram ingress check that covers same-update replay suppression plus transient retry behavior across both seams:
+  - PersAI webhook proxy transient upstream failure
+  - OpenClaw runtime-side internal-turn transient failure
 - After that live proof, choose the next `SR8` seam from evidence between web SSE retry/idempotency and internal callback/reminder replay.
 - Keep `SR8` active until there is measured and bounded evidence for the broader webhook/realtime burst surface.
 
@@ -64,6 +68,8 @@
 - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
 - `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-turn.controller.test.ts`
 - `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/gateway/persai-runtime/persai-runtime-telegram.test.ts`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
 
 ### Why the next SR is still blocked or can be opened
 
@@ -71,7 +77,7 @@
 
 ### Next recommended step
 
-- Deploy this API-only `SR8a` package and run one bounded live Telegram ingress repro: first force a duplicate/same-`updateId` retry, then force a transient upstream failure and confirm Telegram retries instead of the proxy silently acknowledging it. After that, choose the next `SR8` sub-slice from evidence.
+- Deploy the current `SR8a` delivery unit and run one bounded live Telegram ingress repro: first confirm same-`updateId` retries stay single-turn, then force one transient upstream/proxy failure and one transient internal-turn/runtime failure, and confirm both stay retry-worthy instead of collapsing into false-success webhook acknowledgements. After that, choose the next `SR8` sub-slice from evidence.
 
 ## 2026-04-06 - SR7 operational closure after bounded live media burst
 

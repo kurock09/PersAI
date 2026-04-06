@@ -985,6 +985,7 @@ Evidence required:
 - the replay guard is acquired before quota usage and runtime execution, not only after success is written back
 - failed attempts release or age out the in-flight claim so the same update is not deadlocked forever after one broken attempt
 - Telegram proxy timeout/network failures return a retry-worthy non-2xx response instead of a false success acknowledgement
+- transient `OpenClaw -> PersAI internal Telegram turn` failures are not converted into a successful webhook acknowledgment with fallback user text; retry-worthy internal-turn failures remain retry-worthy at the webhook boundary
 - docs do not overclaim that broader webhook/stream burst hardening is closed by this Telegram ingress package
 
 Verification:
@@ -1009,6 +1010,7 @@ Exit criteria:
 - same-update Telegram retries no longer create duplicate concurrent inbound turns on the PersAI side
 - duplicate suppression is bounded and recoverable after failure
 - Telegram transient upstream failures are no longer silently acknowledged as successful webhook deliveries at the proxy layer
+- transient internal-turn failures no longer collapse into a false-success Telegram webhook completion on the runtime side
 - canon reflects this Telegram ingress package as the truthful active `SR8` sub-slice instead of leaving `SR8` unbounded
 
 ### SR9 — Billing And Quota Correctness Under Concurrency

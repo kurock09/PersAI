@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef } from "react";
+import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
 import { ChatArea } from "../_components/chat-area";
@@ -64,7 +65,7 @@ function ChatPageInner() {
       welcomeTriggeredRef.current = true;
       void chat.sendWelcome(locale).then(() => {
         void appData.reloadChats();
-        router.replace(`/app/chat?thread=${WELCOME_THREAD_KEY}`);
+        router.replace(`/app/chat?thread=${WELCOME_THREAD_KEY}` as Route);
       });
     }
   }, [appData.isLoading, appData.assistantStatus, appData.chats, threadFromUrl]); // eslint-disable-line

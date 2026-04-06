@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, Suspense, createContext, useContext, useEffect, useState } from "react";
+import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Menu } from "lucide-react";
@@ -51,7 +52,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!appData.isLoading && appData.assistantResolved && needsSetup && !isSetup) {
-      router.replace("/app/setup");
+      router.replace("/app/setup" as Route);
     }
   }, [appData.isLoading, appData.assistantResolved, needsSetup, isSetup, router]);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useUser, useClerk } from "@clerk/nextjs";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { ArrowLeft, LogOut, Mail, Shield, User } from "lucide-react";
@@ -25,7 +26,7 @@ export default function ProfilePage() {
       {/* Back button */}
       <button
         type="button"
-        onClick={() => router.push("/app")}
+        onClick={() => router.push("/app" as Route)}
         className="mb-6 flex cursor-pointer items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-text"
       >
         <ArrowLeft className="h-4 w-4" />

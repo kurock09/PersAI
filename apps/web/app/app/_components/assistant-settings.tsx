@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -426,7 +427,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     setResetFb(null);
     try {
       await postAssistantReset(token);
-      router.replace("/app/setup");
+      router.replace("/app/setup" as Route);
     } catch (e) {
       setResetFb({ type: "err", text: e instanceof Error ? e.message : t("resetFailed") });
       setResetting(false);
