@@ -1,5 +1,63 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR6f embedded quota exec failures stay visible in UI replies
+
+### Current active slice
+
+- `SR6` — Storage and workspace path hardening
+
+### Current active sub-slice
+
+- `SR6f` — One-shot oversized write runtime stop closure
+
+### What stale program state was fixed
+
+1. The runtime-side `exec` result had already been hardened, but the embedded/UI payload layer still suppressed ordinary `exec` tool failures when verbose mode was off, which could make quota-triggered exec failures look like a silent or apparently successful turn to the user.
+
+### What subagents were launched and why
+
+None for this pass. The remaining seam was identified directly from code and from the mismatch between the intended runtime failure and the user-facing live behavior.
+
+### What evidence they returned
+
+- `bash-tools.exec.ts` already contained the new post-command quota hard-fail path for non-cleanup commands.
+- `pi-embedded-runner/run/payloads.ts` still suppressed `exec`/`bash` tool errors when verbose mode was off, unless a separate mutating-tool policy forced a warning.
+- `payloads.test.ts` explicitly encoded that old suppression behavior for generic `exec` failures.
+
+### What was completed
+
+1. `openclaw/src/agents/pi-embedded-runner/run/payloads.ts` now keeps workspace-quota `exec` failures visible even when verbose mode is off.
+2. Added focused regression coverage in `openclaw/src/agents/pi-embedded-runner/run/payloads.test.ts`.
+3. Updated the OpenClaw pin in `PersAI` again so the next deploy carries the embedded/UI-facing fix too.
+
+### What remains
+
+- One final live repro after deploy is still required.
+- The closure question is now very narrow: confirm the same oversized write no longer appears as a clean success and that the quota failure is actually visible to the user in the target environment.
+
+### Confirmed risks
+
+1. This pass fixes user-visible surfacing of quota-triggered exec failure, but it still does not prove the process is always interrupted early enough to minimize overshoot.
+2. Cleanup remains intentionally allowed under quota exceedance and should stay that way.
+
+### Unresolved hypotheses
+
+1. This may be the final missing seam needed for an honest `SR6` close if the next live repro now reports the failure clearly.
+2. If live still shows apparent success, the remaining issue is deeper than post-check semantics plus payload surfacing and will need one more bounded runtime investigation.
+
+### Verification run
+
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec tsc --noEmit`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" exec vitest run src/agents/bash-tools.exec.workspace-quota-cleanup.test.ts src/agents/bash-tools.exec.workspace-quota-watch.test.ts src/agents/workspace-quota-guard.test.ts src/agents/sandbox/fs-bridge.workspace-quota-cache.test.ts src/agents/pi-embedded-runner/run/payloads.test.ts src/agents/pi-embedded-runner/run/payloads.errors.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR7` is still blocked until the same oversized-write live repro is rerun after this user-facing fix deploy.
+
+### Next recommended step
+
+- Let this deploy finish, run the same oversized-write repro again without relying on prior context, and then decide whether `SR6` can finally close.
+
 ## 2026-04-06 - SR6f one-shot oversized write still completes past quota
 
 ### Current active slice
