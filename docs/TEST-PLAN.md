@@ -869,3 +869,17 @@ Required in CI:
   - what the optimal dind CPU limit should be per tier (cost/capacity tradeoff, not SR5b)
   - sandbox session GC/TTL behavior under sustained contention
   - behavior under IO-bound sandbox workloads (only CPU-bound tested)
+
+## SR5 cross-pool isolation and closure baseline
+
+- Cross-pool isolation test: sustained 4× CPU stress on `free_shared` while `paid_shared` and `paid_isolated` idle:
+  - `free_shared` dind: 712m CPU (saturating as expected)
+  - `paid_shared` dind: 3m CPU (unaffected)
+  - `paid_isolated` dind: 2m CPU (unaffected)
+  - all pods Ready, 0 restarts
+- SR5 exit criteria "sandbox-heavy bursts degrade predictably and do not destabilize unrelated tiers" is confirmed
+- Accepted known risks for later slices:
+  - dind CPU limits are product/cost decisions (not SR5)
+  - sandbox GC/TTL not stress-tested
+  - IO-bound sandbox workloads not tested
+  - node co-location bandwidth contention during pulls (~2.5 min extra)

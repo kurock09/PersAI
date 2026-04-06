@@ -7,9 +7,9 @@ Step 15 — Tiered OpenClaw runtime and production hardening
 Scaling-readiness control layer is now tracked by:
 - `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
 - `docs/SCALING-READINESS-PLAN.md`
-- current active slice: `SR5` (Sandbox and dind capacity hardening)
-- next recommended slice after `SR5`: `SR6` (Storage and workspace path hardening)
-- last closed slice: `SR4` (OpenClaw runtime throughput and multi-replica correctness, closed 2026-04-05)
+- current active slice: `SR6` (Storage and workspace path hardening)
+- next recommended slice after `SR6`: `SR7` (Media pipeline capacity hardening)
+- last closed slice: `SR5` (Sandbox and dind capacity hardening, closed 2026-04-06)
 
 ## Step 1
 
@@ -455,10 +455,11 @@ Scaling-readiness control layer is now tracked by:
 - [x] SR4 — OpenClaw runtime throughput and multi-replica correctness
   - closed with: explicit single-replica production runtime contract for OpenClaw (`single_replica`, one pod per runtime pool, `Recreate` rollout only), explicit prohibition of multi-replica session mode, and honest identification of the shared global active-turn lane as the current throughput ceiling
   - `SR4a`: runtime readiness now treats PersAI `multi_replica` session mode as not yet supported by code: Redis-backed apply/spec storage is necessary metadata sharing, but session store continuity, workspace continuity, execution ordering, and restart handoff remain unproven across replicas
-- [ ] SR5 — Sandbox and dind capacity hardening ← **active slice**
-  - [x] `SR5a`: sandbox startup path optimization — parallel docker pulls with retry, progress logging, configurable `preloadPullRetries` (Tier 2 closed: ~5-7 min deploy-gap reduction confirmed)
-  - [x] `SR5b`: dind contention baseline — measured 4× concurrent sandbox CPU saturation on all tiers, confirmed linear degradation, pod stability proven (Tier 2 closed)
-- [ ] SR6 — Storage and workspace path hardening
+- [x] SR5 — Sandbox and dind capacity hardening
+  - closed with: parallel sandbox image preload (SR5a), per-tier dind contention evidence (SR5b), cross-pool isolation confirmation, predictable linear degradation under sandbox-heavy bursts
+  - `SR5a`: sandbox startup path optimization — parallel docker pulls with retry, progress logging, ~5-7 min deploy-gap reduction
+  - `SR5b`: dind contention baseline — 4× concurrent sandbox CPU saturation measured on all tiers, linear degradation confirmed, pod stability proven, cross-pool isolation verified
+- [ ] SR6 — Storage and workspace path hardening ← **active slice**
 - [ ] SR7 — Media pipeline capacity hardening
 - [ ] SR8 — Webhook and realtime burst hardening
 - [ ] SR9 — Billing and quota correctness under concurrency

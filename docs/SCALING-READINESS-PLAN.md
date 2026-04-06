@@ -104,11 +104,11 @@ Do not combine in one deploy window by default:
 - storage/quota algorithm changes
 
 ## Active Program State
-- `Current active slice`: `SR5` — Sandbox and dind capacity hardening
-- `Current phase`: Sandbox/dind startup and throughput hardening
-- `Next recommended slice after SR5`: `SR6` — Storage and workspace path hardening
-- `Last closed slice`: `SR4` — OpenClaw runtime throughput and multi-replica correctness (closed 2026-04-05)
-- `Post-SR4 baseline`: single_replica runtime contract per pool, Recreate rollout, multi-replica session mode explicitly unsupported, shared global active-turn lane is the known throughput ceiling
+- `Current active slice`: `SR6` — Storage and workspace path hardening
+- `Current phase`: Storage/workspace hardening
+- `Next recommended slice after SR6`: `SR7` — Media pipeline capacity hardening
+- `Last closed slice`: `SR5` — Sandbox and dind capacity hardening (closed 2026-04-06)
+- `Post-SR5 baseline`: parallel sandbox image preload with retry, per-tier dind contention measured and documented, cross-pool isolation confirmed, predictable linear degradation under sandbox-heavy bursts
 
 ## Slice Template
 Each slice must use this shape:
@@ -441,6 +441,23 @@ Exit criteria:
 - per-tier sandbox CPU ceiling is measured and documented as confirmed evidence
 - degradation behavior is linear, not catastrophic
 - pod stability under sustained dind saturation is proven
+
+#### SR5 closure evidence (2026-04-06)
+
+SR5 exit criteria: "sandbox-heavy bursts degrade predictably and do not destabilize unrelated tiers"
+
+Confirmed:
+- sandbox-heavy bursts (4× concurrent CPU-bound exec) degrade linearly with core count, not catastrophically
+- dind CPU is the binding constraint; RAM has 70-90% headroom
+- pod readiness never lost during sustained saturation on any tier
+- cross-pool isolation confirmed: stress on free pool does not affect paid pools (separate nodes, separate dind, separate cgroup limits)
+- `docker stats` unreliable in rootless dind; `kubectl top` and dind-internal `top` are honest signals
+
+Accepted known risks:
+- dind CPU limits are product/cost decisions, not technical blockers — current limits may need adjustment for higher concurrency targets
+- sandbox session GC/TTL not stress-tested (HOT_CONTAINER_WINDOW_MS = 5 min keeps idle containers alive)
+- IO-bound sandbox workloads not tested (only CPU-bound)
+- node co-location of multiple sandbox pools re-introduces bandwidth contention during image pulls (observed ~2.5 min extra)
 
 ### SR6 — Storage And Workspace Path Hardening
 Outcome:

@@ -4,8 +4,8 @@
 
 ### Active slice after this session
 
-- `SR5` — Sandbox and dind capacity hardening
-- `SR5a` sub-slice: sandbox startup path optimization and readiness budget baseline — **Tier 2 closed**
+- `SR6` — Storage and workspace path hardening
+- `SR5` closed: sandbox startup optimized (SR5a), dind contention measured (SR5b), cross-pool isolation confirmed
 
 ### What stale program state was fixed
 
@@ -99,14 +99,32 @@ Results:
 - pod readiness never lost during sustained saturation, 0 restarts across all pools
 - `docker stats` CPU% inside rootless dind is unreliable — use `kubectl top` for honest metrics
 
+### Cross-pool isolation test (completed same session)
+
+Stressed free pool with 4× concurrent CPU-bound sandbox exec while paid pools idle:
+- `free_shared` dind: 712m CPU (saturating) — working as expected
+- `paid_shared` dind: 3m CPU — completely unaffected
+- `paid_isolated` dind: 2m CPU — completely unaffected
+- All pods Ready, 0 restarts throughout
+- Isolation confirmed: separate nodes, separate dind sidecars, separate cgroup limits
+
+### SR5 closure verdict
+
+SR5 exit criteria met: "sandbox-heavy bursts degrade predictably and do not destabilize unrelated tiers"
+- SR5a: startup path optimized, ~5-7 min deploy-gap reduction confirmed
+- SR5b: per-tier dind contention measured, linear degradation proven, pod stability confirmed
+- Cross-pool isolation verified under sustained single-pool stress
+
+Accepted known risks carried forward:
+- dind CPU limits are product/cost decisions — current limits adequate for current user count
+- sandbox session GC/TTL not stress-tested (5 min hot container window)
+- IO-bound sandbox workloads not tested (CPU-bound only)
+- node co-location re-introduces bandwidth contention during pulls (~2.5 min extra)
+
 ### Next recommended step
 
-- SR5a and SR5b are closed with Tier 2 evidence.
-- Remaining SR5 sub-slices:
-  - SR5c: document per-tier capacity assumptions and degradation expectations for ops/product
-  - SR5d: decide if dind CPU limits need adjustment (cost/capacity tradeoff, not code change)
-  - SR5e: startupProbe budget tightening after measuring actual startup variance
-- Consider node placement: shared sandbox pools on the same node cause ~2.5 min extra pull time from bandwidth contention.
+- `SR5` is closed. `SR6` — Storage and workspace path hardening is now the active slice.
+- SR6 scope: GCS FUSE pressure, many-small-files behavior, cleanup cost, workspace quota cost, session/transcript FS behavior.
 
 ---
 
