@@ -188,7 +188,8 @@ export class ManageChatMediaService {
         );
       }
 
-      const quotaCheck = await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
+      const quotaCheck =
+        await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
       if (!quotaCheck.allowed) {
         throw new BadRequestException("Media storage quota exceeded for this workspace.");
       }
