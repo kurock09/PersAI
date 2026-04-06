@@ -378,7 +378,7 @@ openclaw:
 
 
     tag: 7cb2c4b360a57b4523d775b67b11a11189fbe9bb
-    digest: sha256:e3c7478ab5962d92419b98bc676554686ac07ba68f326db0f9741a0cd2041a19
+    digest: sha256:165b58dd1beb6626efa9e03d48373171445b7dec60977a1726196726e39901b8
 
     pullPolicy: IfNotPresent
   resources:
