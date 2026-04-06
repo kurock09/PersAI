@@ -1,5 +1,44 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR8 operational closure after bounded live replay validation
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- none yet; next session should choose one bounded `SR9` concurrency seam from evidence
+
+### What stale program state was fixed
+
+1. Canon still treated `SR8` as active even after the combined `SR8b` deploy completed and live checks were run.
+2. Active-state markers did not yet reflect that `web`, `reminder`, and `Telegram` replay behavior had already been validated in the deployed environment.
+3. No top-level handoff note yet recorded the accepted residual honestly: one problematic Telegram assistant only resumed normal behavior after a manual rebind, and the exact historical cause of that stale binding state was not isolated.
+
+### What evidence was observed live
+
+- Web chat was exercised in the deployed UI and stayed healthy without duplicate assistant replies.
+- Reminder delivery was exercised live and reminders arrived without duplicate fanout.
+- Telegram remained healthy on a working assistant, and the previously problematic assistant resumed normal behavior immediately after Telegram rebind instead of requiring another code change or another deploy.
+- The deployed `SR8b` package plus one bounded live window therefore proved the touched replay seams operationally enough to close `SR8`, while not proving the historical root cause of the stale broken Telegram binding.
+
+### What was completed
+
+1. Closed `SR8` operationally after one deploy and one bounded live validation window across web, reminders, and Telegram.
+2. Opened `SR9` as the next truthful active scaling-readiness slice.
+3. Recorded the accepted residual honestly: the replay-hardening package is treated as successful for the live seams that were observed, but it is not claimed to have automatically repaired or fully explained the old stale Telegram binding state that required manual rebind.
+
+### Confirmed risks
+
+1. `SR8` is closed operationally, not as a proof that every historical Telegram binding corruption path is now impossible.
+2. The exact root cause of the stale binding state on the problematic assistant remains unknown; if it recurs, it needs a fresh evidence-first investigation on that specific binding state.
+3. `SR9` and `SR10` remain untouched by this closure and are still separate work.
+
+### Why the next SR can now be opened
+
+- The bounded `SR8` goal was replay/burst hardening across touched webhook and realtime seams. That bar is now met by deployed code plus live checks, so the next honest blocker is `SR9`, not more speculative `SR8` work.
+
 ## 2026-04-06 - SR8b combined webhook/realtime replay closure package
 
 ### Current active slice

@@ -7,9 +7,9 @@ Step 15 — Tiered OpenClaw runtime and production hardening
 Scaling-readiness control layer is now tracked by:
 - `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
 - `docs/SCALING-READINESS-PLAN.md`
-- current active slice: `SR8` (Webhook and realtime burst hardening)
-- next recommended slice after `SR8`: `SR9` (Billing and quota correctness under concurrency)
-- last closed slice: `SR7` (Media pipeline capacity hardening, closed 2026-04-06 after bounded live media-burst observation with accepted residual on final capacity-envelope claims)
+- current active slice: `SR9` (Billing and quota correctness under concurrency)
+- next recommended slice after `SR9`: `SR10` (Capacity validation and production gate)
+- last closed slice: `SR8` (Webhook and realtime burst hardening, closed 2026-04-06 after bounded live replay validation across web, reminders, and Telegram with accepted residual on one stale Telegram binding state that required manual rebind and whose exact historical cause was not isolated)
 
 ## Step 1
 
@@ -469,9 +469,9 @@ Scaling-readiness control layer is now tracked by:
 - [x] SR7 — Media pipeline capacity hardening
   - [x] `SR7a` — PersAI-owned STT ingress paths now use per-request transient scratch directories instead of the shared `_stt_tmp` / `_voice_tmp` paths, and `/metrics` now exposes bounded stage-level signals for touched media-heavy paths so the first `SR7` deploy has an honest observation surface
   - [x] `SR7b` — web staged uploads now emit the same bounded media-stage visibility model through `web_stage_attachment`, so web image/file upload observation is no longer outside the shared `SR7` metrics surface
-- [ ] SR8 — Webhook and realtime burst hardening ← **active slice**
-  - [ ] `SR8b` — combined Telegram/web/reminder replay closure package
-- [ ] SR9 — Billing and quota correctness under concurrency
+- [x] SR8 — Webhook and realtime burst hardening
+  - [x] `SR8b` — combined Telegram/web/reminder replay closure package
+- [ ] SR9 — Billing and quota correctness under concurrency ← **active slice**
 - [ ] SR10 — Capacity validation and production gate
 - [ ] H16 — Autonomous workspace heartbeat deeper isolation
   - note: the immediate hygiene slice above is complete; the remaining H16 work is the deeper isolation/refactor track

@@ -104,16 +104,18 @@ Do not combine in one deploy window by default:
 - storage/quota algorithm changes
 
 ## Active Program State
-- `Current active slice`: `SR8` — Webhook and realtime burst hardening
-- `Current active sub-slice`: `SR8b` — Combined webhook/realtime replay closure package
-- `Current phase`: Webhook/realtime burst hardening
-- `Next recommended slice after SR8`: `SR9` — Billing and quota correctness under concurrency
-- `Last closed slice`: `SR7` — Media pipeline capacity hardening (closed 2026-04-06 after bounded live burst observation with accepted residual on final capacity-envelope claims)
+- `Current active slice`: `SR9` — Billing and quota correctness under concurrency
+- `Current active sub-slice`: none yet; next session should choose one bounded `SR9` concurrency seam from evidence
+- `Current phase`: Billing and quota correctness under concurrency
+- `Next recommended slice after SR9`: `SR10` — Capacity validation and production gate
+- `Last closed slice`: `SR8` — Webhook and realtime burst hardening (closed 2026-04-06 after bounded live replay validation across web, reminders, and Telegram)
 - `Post-SR5 baseline`: parallel sandbox image preload with retry, per-tier dind contention measured and documented, cross-pool isolation confirmed, predictable linear degradation under sandbox-heavy bursts
 - `Post-SR6 baseline`: workspace quota enforcement is fail-safe on active guarded paths, oversized writes are bounded near quota instead of running away, post-command non-cleanup `exec` failures are surfaced as failed tool outcomes, and cleanup remains allowed under exceedance so remediation does not deadlock
 - `Accepted residual (SR6)`: we do not claim that every one-shot oversized write always ends with ideal shell/`dd` exit-code semantics or zero overshoot before enforcement; remaining `dd`/exit-code presentation is accepted operational risk rather than an active blocker for opening `SR7`
 - `Post-SR7 baseline`: PersAI-owned STT ingress paths use per-request transient scratch directories, bounded media-stage metrics cover STT and web staged uploads, and a short live parallel media burst completed with both API replicas staying ready, zero new `5xx`, zero pod restarts, and visible per-stage metric growth on the active pods
 - `Accepted residual (SR7)`: this is an operational closure for bounded live media burst behavior and visibility, not a claim that the final throughput ceiling or full capacity envelope has been proven; that remains `SR10`
+- `Post-SR8 baseline`: Telegram webhook ingress, web chat retry/reconnect, and reminder callback replay paths are now bounded by durable replay guards, and live validation confirmed normal web chat plus reminder delivery without duplicate fanout, with Telegram returning to normal behavior after manual rebind of one stale broken assistant binding
+- `Accepted residual (SR8)`: we do not claim that the exact historical root cause of that stale Telegram binding state was isolated or automatically repaired by the replay-hardening package; `SR8` closes on the bounded replay/live behavior that was actually observed, while historical per-assistant binding corruption remains an accepted operational residual unless it recurs with fresh evidence
 
 ## Slice Template
 Each slice must use this shape:
