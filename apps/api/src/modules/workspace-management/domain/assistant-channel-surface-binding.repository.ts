@@ -29,6 +29,27 @@ export interface AssistantChannelSurfaceBindingRepository {
     surfaceType: AssistantIntegrationSurfaceType
   ): Promise<AssistantChannelSurfaceBinding | null>;
   upsert(input: UpsertAssistantChannelSurfaceBindingInput): Promise<AssistantChannelSurfaceBinding>;
+  claimTelegramUpdateProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    updateId: number,
+    claimedAt: Date,
+    staleAfterMs: number
+  ): Promise<"claimed" | "duplicate_handled" | "duplicate_inflight" | "missing_binding">;
+  completeTelegramUpdateProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    updateId: number,
+    completedAt: Date
+  ): Promise<void>;
+  releaseTelegramUpdateProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    updateId: number
+  ): Promise<void>;
   patchMetadata(
     assistantId: string,
     providerKey: AssistantIntegrationProviderKey,

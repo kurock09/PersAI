@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR8` — Webhook and realtime burst hardening
-- `Current active sub-slice`: none yet; the next session should choose one bounded `SR8` sub-slice from actual webhook/realtime burst evidence
+- `Current active sub-slice`: `SR8a` — Telegram webhook ingress retry/replay hardening
 - `Current phase`: Webhook/realtime burst hardening
 - `Next recommended slice after SR8`: `SR9` — Billing and quota correctness under concurrency
 - `Last closed slice`: `SR7` — Media pipeline capacity hardening (closed 2026-04-06 after bounded live burst observation with accepted residual on final capacity-envelope claims)
@@ -952,6 +952,64 @@ Observation window:
 
 Exit criteria:
 - burst behavior is measured and bounded
+
+#### SR8a — Telegram webhook ingress retry/replay hardening
+Outcome:
+- Telegram webhook ingress behaves predictably for duplicate deliveries and transient upstream failures before we move on to broader `SR8` fan-in seams
+
+In scope:
+- Telegram internal turn replay/idempotency before quota/runtime work begins
+- atomic claim/release/complete handling for one `assistantId + updateId` path on the PersAI side
+- bounded duplicate suppression for same-update retries while one attempt is already in flight
+- Telegram webhook proxy transient upstream timeout/error semantics so retry-worthy failures are not silently acknowledged as success
+- docs correction so `SR8` has an explicit first bounded sub-slice and truthful verification baseline
+
+Out of scope:
+- web stream client idempotency or SSE retry protocol redesign
+- quota/billing/accounting correctness under duplicated deliveries (`SR9`)
+- final burst-capacity envelope proof (`SR10`)
+- media preprocessing/offload changes (`SR7`)
+
+Primary files / domains:
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/telegram-webhook-proxy.controller.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-channel-surface-binding.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-channel-surface-binding.repository.ts`
+- focused API tests for Telegram internal turn replay handling and webhook proxy retry semantics
+- `docs/SCALING-READINESS-PLAN.md`
+- `docs/TEST-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+
+Evidence required:
+- concurrent or repeated delivery of the same Telegram `updateId` does not start more than one runtime turn from PersAI
+- the replay guard is acquired before quota usage and runtime execution, not only after success is written back
+- failed attempts release or age out the in-flight claim so the same update is not deadlocked forever after one broken attempt
+- Telegram proxy timeout/network failures return a retry-worthy non-2xx response instead of a false success acknowledgement
+- docs do not overclaim that broader webhook/stream burst hardening is closed by this Telegram ingress package
+
+Verification:
+- `Tier 0`: `corepack pnpm --filter @persai/api run typecheck`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-turn.controller.test.ts`
+- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+
+Rollback / safe fallback:
+- revert the Telegram update-claim logic and proxy transient-error response change, falling back to the previous watermark-only dedupe plus `200 upstream_error` proxy behavior
+
+Removal / cleanup obligations:
+- if a later `SR8` or post-`SR8` pass introduces a more general inbox/queue/idempotency architecture, remove this metadata-claim stop-gap and document the new baseline
+
+Deploy window:
+- API only
+
+Observation window:
+- required; this sub-slice alone does not close all of `SR8`
+
+Exit criteria:
+- same-update Telegram retries no longer create duplicate concurrent inbound turns on the PersAI side
+- duplicate suppression is bounded and recoverable after failure
+- Telegram transient upstream failures are no longer silently acknowledged as successful webhook deliveries at the proxy layer
+- canon reflects this Telegram ingress package as the truthful active `SR8` sub-slice instead of leaving `SR8` unbounded
 
 ### SR9 — Billing And Quota Correctness Under Concurrency
 Outcome:

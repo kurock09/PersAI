@@ -1017,6 +1017,28 @@ Required in CI:
   - that quota or billing correctness under concurrency is solved (`SR9`)
   - that the whole media pipeline is now capacity-safe under burst without further live observation
 
+## SR8a Telegram webhook ingress retry/replay baseline
+
+- This bounded `SR8a` pass covers one concrete webhook/realtime idempotency seam:
+  - the same Telegram `updateId` could still pass through PersAI more than once when duplicate or retried webhook deliveries overlapped before the old watermark-only dedupe was written back
+- the Telegram webhook proxy could still return `200` on transient upstream timeout/network failure, causing retry-worthy ingress failure to be acknowledged as success
+- Acceptance for this sub-slice:
+  - PersAI claims one `assistantId + updateId` before quota/runtime work starts, so concurrent retries of the same update do not fan out into duplicate inbound turns
+  - successful completion advances the handled watermark and clears the in-flight claim
+  - failed attempts release or age out the in-flight claim so the same update is not deadlocked forever after one broken run
+- transient Telegram proxy timeout/network failure returns a retry-worthy non-2xx response instead of silent `200` success
+- canonical docs reflect this Telegram ingress seam as the active `SR8` sub-slice instead of leaving `SR8` unbounded
+- Minimum verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-turn.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `SR8a` does NOT prove:
+  - that web stream retries or client reconnect behavior are fully idempotent across the whole SSE transport
+  - that internal callback/reminder delivery fan-in is fully bounded under burst
+  - that duplicated runtime work can no longer affect quota/billing correctness in every other path (`SR9`)
+  - that the final webhook/realtime burst envelope is proven (`SR10`)
+
 ## SR6c workspace quota measurement fail-safe baseline
 
 - This bounded `SR6c` pass covers one concrete quota-integrity gap:

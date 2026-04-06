@@ -16,10 +16,54 @@ import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.
 export class PrismaAssistantChannelSurfaceBindingRepository implements AssistantChannelSurfaceBindingRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
+  private static readonly TELEGRAM_ACTIVE_UPDATE_ID_KEY = "telegramActiveUpdateId";
+  private static readonly TELEGRAM_ACTIVE_UPDATE_CLAIMED_AT_KEY = "telegramActiveUpdateClaimedAt";
+  private static readonly TELEGRAM_LAST_HANDLED_UPDATE_ID_KEY = "telegramLastHandledUpdateId";
+  private static readonly TELEGRAM_LAST_HANDLED_UPDATE_AT_KEY = "telegramLastHandledUpdateAt";
+
   private toNullableJsonInput(
     value: Record<string, unknown> | null
   ): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
     return value === null ? Prisma.DbNull : (value as Prisma.InputJsonValue);
+  }
+
+  private toMetadataRecord(value: unknown): Record<string, unknown> {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  }
+
+  private readFiniteNumber(value: unknown): number | null {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
+  private readDate(value: unknown): Date | null {
+    if (typeof value !== "string" || value.length === 0) return null;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private async lockBindingRow(
+    tx: Prisma.TransactionClient,
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType
+  ): Promise<{ id: string; metadata: Record<string, unknown> } | null> {
+    const rows = await tx.$queryRaw<
+      Array<{ id: string; metadata: Prisma.JsonValue | null }>
+    >(Prisma.sql`
+      SELECT "id", "metadata"
+      FROM "assistant_channel_surface_bindings"
+      WHERE "assistant_id" = ${assistantId}
+        AND "provider_key" = ${providerKey}
+        AND "surface_type" = ${surfaceType}
+      FOR UPDATE
+    `);
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+    return { id: row.id, metadata: this.toMetadataRecord(row.metadata) };
   }
 
   async findByAssistantProviderSurface(
@@ -79,6 +123,136 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
     return this.toDomain(binding);
   }
 
+  async claimTelegramUpdateProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    updateId: number,
+    claimedAt: Date,
+    staleAfterMs: number
+  ): Promise<"claimed" | "duplicate_handled" | "duplicate_inflight" | "missing_binding"> {
+    return this.prisma.$transaction(async (tx) => {
+      const binding = await this.lockBindingRow(tx, assistantId, providerKey, surfaceType);
+      if (!binding) {
+        return "missing_binding";
+      }
+
+      const metadata = binding.metadata;
+      const lastHandled = this.readFiniteNumber(
+        metadata[PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_LAST_HANDLED_UPDATE_ID_KEY]
+      );
+      if (lastHandled !== null && updateId <= lastHandled) {
+        return "duplicate_handled";
+      }
+
+      const activeUpdateId = this.readFiniteNumber(
+        metadata[PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_ACTIVE_UPDATE_ID_KEY]
+      );
+      const activeClaimedAt = this.readDate(
+        metadata[
+          PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_ACTIVE_UPDATE_CLAIMED_AT_KEY
+        ]
+      );
+      const activeClaimIsFresh =
+        activeUpdateId === updateId &&
+        activeClaimedAt !== null &&
+        claimedAt.getTime() - activeClaimedAt.getTime() < staleAfterMs;
+      if (activeClaimIsFresh) {
+        return "duplicate_inflight";
+      }
+
+      await tx.assistantChannelSurfaceBinding.update({
+        where: { id: binding.id },
+        data: {
+          metadata: {
+            ...metadata,
+            [PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_ACTIVE_UPDATE_ID_KEY]:
+              updateId,
+            [PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_ACTIVE_UPDATE_CLAIMED_AT_KEY]:
+              claimedAt.toISOString()
+          } as Prisma.InputJsonValue
+        }
+      });
+      return "claimed";
+    });
+  }
+
+  async completeTelegramUpdateProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    updateId: number,
+    completedAt: Date
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const binding = await this.lockBindingRow(tx, assistantId, providerKey, surfaceType);
+      if (!binding) {
+        return;
+      }
+
+      const metadata = { ...binding.metadata };
+      const lastHandled = this.readFiniteNumber(
+        metadata[PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_LAST_HANDLED_UPDATE_ID_KEY]
+      );
+      if (lastHandled === null || updateId > lastHandled) {
+        metadata[
+          PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_LAST_HANDLED_UPDATE_ID_KEY
+        ] = updateId;
+        metadata[
+          PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_LAST_HANDLED_UPDATE_AT_KEY
+        ] = completedAt.toISOString();
+      }
+
+      const activeUpdateId = this.readFiniteNumber(
+        metadata[PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_ACTIVE_UPDATE_ID_KEY]
+      );
+      if (activeUpdateId === updateId) {
+        delete metadata[
+          PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_ACTIVE_UPDATE_ID_KEY
+        ];
+        delete metadata[
+          PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_ACTIVE_UPDATE_CLAIMED_AT_KEY
+        ];
+      }
+
+      await tx.assistantChannelSurfaceBinding.update({
+        where: { id: binding.id },
+        data: { metadata: metadata as Prisma.InputJsonValue }
+      });
+    });
+  }
+
+  async releaseTelegramUpdateProcessing(
+    assistantId: string,
+    providerKey: AssistantIntegrationProviderKey,
+    surfaceType: AssistantIntegrationSurfaceType,
+    updateId: number
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const binding = await this.lockBindingRow(tx, assistantId, providerKey, surfaceType);
+      if (!binding) {
+        return;
+      }
+
+      const metadata = { ...binding.metadata };
+      const activeUpdateId = this.readFiniteNumber(
+        metadata[PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_ACTIVE_UPDATE_ID_KEY]
+      );
+      if (activeUpdateId !== updateId) {
+        return;
+      }
+
+      delete metadata[PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_ACTIVE_UPDATE_ID_KEY];
+      delete metadata[
+        PrismaAssistantChannelSurfaceBindingRepository.TELEGRAM_ACTIVE_UPDATE_CLAIMED_AT_KEY
+      ];
+      await tx.assistantChannelSurfaceBinding.update({
+        where: { id: binding.id },
+        data: { metadata: metadata as Prisma.InputJsonValue }
+      });
+    });
+  }
+
   async patchMetadata(
     assistantId: string,
     providerKey: AssistantIntegrationProviderKey,
@@ -91,12 +265,7 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
       surfaceType
     );
     if (!existing) return;
-    const current =
-      existing.metadata !== null &&
-      typeof existing.metadata === "object" &&
-      !Array.isArray(existing.metadata)
-        ? (existing.metadata as Record<string, unknown>)
-        : {};
+    const current = this.toMetadataRecord(existing.metadata);
     const merged = { ...current, ...patch };
     await this.prisma.assistantChannelSurfaceBinding.update({
       where: {

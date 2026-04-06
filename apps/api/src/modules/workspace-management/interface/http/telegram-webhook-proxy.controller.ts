@@ -36,6 +36,16 @@ export class TelegramWebhookProxyController {
 
   constructor(private readonly resolveRuntimeTier: ResolveAssistantRuntimeTierService) {}
 
+  private classifyTransientProxyError(error: unknown): {
+    status: number;
+    code: "upstream_timeout" | "upstream_error";
+  } {
+    if (error instanceof Error && error.name === "AbortError") {
+      return { status: 504, code: "upstream_timeout" };
+    }
+    return { status: 502, code: "upstream_error" };
+  }
+
   @All(":assistantId")
   async proxy(
     @Param("assistantId") assistantId: string,
@@ -109,7 +119,8 @@ export class TelegramWebhookProxyController {
       res.send(body);
     } catch (err) {
       this.logger.error(`Upstream proxy error for ${assistantId}: ${err}`);
-      res.status(200).json({ ok: false, error: "upstream_error" });
+      const classified = this.classifyTransientProxyError(err);
+      res.status(classified.status).json({ ok: false, error: classified.code });
     } finally {
       clearTimeout(timeoutId);
     }

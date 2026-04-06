@@ -86,6 +86,7 @@ export class HandleInternalTelegramTurnService {
   private readonly logger = new Logger(HandleInternalTelegramTurnService.name);
   private static readonly TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS = 6;
   private static readonly TELEGRAM_MEDIA_DOWNLOAD_DELAY_MS = 400;
+  private static readonly TELEGRAM_UPDATE_CLAIM_STALE_MS = 120_000;
 
   constructor(
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
@@ -122,142 +123,171 @@ export class HandleInternalTelegramTurnService {
     const resolved = await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
       input.assistantId
     );
-    if (input.updateId !== null && input.updateId !== undefined) {
-      const dedupe = await this.tryHandleDuplicateTelegramUpdate(
-        resolved.assistantId,
-        input.updateId
+    const updateClaim = await this.claimTelegramUpdateIfNeeded(
+      resolved.assistantId,
+      input.updateId
+    );
+    if (updateClaim !== null && typeof updateClaim === "object") {
+      return updateClaim;
+    }
+    const claimedUpdateId = updateClaim;
+
+    try {
+      const quotaDecision = await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn(
+        {
+          assistant: resolved.assistant,
+          surface: "telegram",
+          isNewThread: false,
+          activeSurfaceChatsCount: 0
+        }
       );
-      if (dedupe !== null) {
-        return dedupe;
-      }
-    }
-
-    const quotaDecision = await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn({
-      assistant: resolved.assistant,
-      surface: "telegram",
-      isNewThread: false,
-      activeSurfaceChatsCount: 0
-    });
-    await this.enforceAbuseRateLimitService.enforceAndRegisterAttempt({
-      assistant: resolved.assistant,
-      surface: "telegram",
-      peerKey: input.threadId
-    });
-
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: resolved.workspaceId },
-      select: { timezone: true }
-    });
-    if (workspace === null) {
-      throw new NotFoundException("Workspace does not exist for this assistant.");
-    }
-
-    let enrichedMessage = input.message;
-
-    if (input.attachments && input.attachments.length > 0) {
-      const chat = await this.chatRepository.findOrCreateChatBySurfaceThread({
-        assistantId: resolved.assistantId,
-        userId: resolved.userId,
-        workspaceId: resolved.workspaceId,
+      await this.enforceAbuseRateLimitService.enforceAndRegisterAttempt({
+        assistant: resolved.assistant,
         surface: "telegram",
-        surfaceThreadKey: input.threadId,
-        title: null
+        peerKey: input.threadId
       });
 
-      const userMessage = await this.chatRepository.createMessage({
-        chatId: chat.id,
+      const workspace = await this.prisma.workspace.findUnique({
+        where: { id: resolved.workspaceId },
+        select: { timezone: true }
+      });
+      if (workspace === null) {
+        throw new NotFoundException("Workspace does not exist for this assistant.");
+      }
+
+      let enrichedMessage = input.message;
+
+      if (input.attachments && input.attachments.length > 0) {
+        const chat = await this.chatRepository.findOrCreateChatBySurfaceThread({
+          assistantId: resolved.assistantId,
+          userId: resolved.userId,
+          workspaceId: resolved.workspaceId,
+          surface: "telegram",
+          surfaceThreadKey: input.threadId,
+          title: null
+        });
+
+        const userMessage = await this.chatRepository.createMessage({
+          chatId: chat.id,
+          assistantId: resolved.assistantId,
+          author: "user",
+          content: input.message
+        });
+
+        const rawAttachments: RawInboundAttachment[] = await this.downloadTelegramAttachments(
+          input.attachments,
+          resolved.assistantId
+        );
+
+        const resolved2 = await this.inboundMediaService.resolve({
+          channel: "telegram",
+          assistantId: resolved.assistantId,
+          userId: resolved.userId,
+          chatId: chat.id,
+          messageId: userMessage.id,
+          workspaceId: resolved.workspaceId,
+          userMessage: input.message,
+          rawAttachments
+        });
+        enrichedMessage = resolved2.enrichedMessage;
+      } else {
+        enrichedMessage = input.message;
+      }
+
+      const runtimeResponse = await this.assistantRuntimeAdapter.sendChannelTurn({
         assistantId: resolved.assistantId,
-        author: "user",
-        content: input.message
+        publishedVersionId: resolved.publishedVersionId,
+        runtimeTier: resolved.runtimeTier,
+        ...(quotaDecision.mode === "degrade_allowed" && resolved.quotaDegradeModelOverride
+          ? {
+              providerOverride: resolved.quotaDegradeModelOverride.provider,
+              modelOverride: resolved.quotaDegradeModelOverride.model
+            }
+          : {}),
+        surface: "telegram",
+        threadId: input.threadId,
+        userMessage: enrichedMessage,
+        userTimezone: workspace.timezone,
+        currentTimeIso: new Date().toISOString()
       });
 
-      const rawAttachments: RawInboundAttachment[] = await this.downloadTelegramAttachments(
-        input.attachments,
-        resolved.assistantId
-      );
-
-      const resolved2 = await this.inboundMediaService.resolve({
-        channel: "telegram",
-        assistantId: resolved.assistantId,
-        userId: resolved.userId,
-        chatId: chat.id,
-        messageId: userMessage.id,
-        workspaceId: resolved.workspaceId,
-        userMessage: input.message,
-        rawAttachments
+      await this.trackWorkspaceQuotaUsageService.recordInboundTurnUsage({
+        assistant: resolved.assistant,
+        userContent: input.message,
+        assistantContent: runtimeResponse.assistantMessage,
+        source: "telegram_turn_sync"
       });
-      enrichedMessage = resolved2.enrichedMessage;
-    } else {
-      enrichedMessage = input.message;
+      if (claimedUpdateId !== null) {
+        await this.bindingRepository.completeTelegramUpdateProcessing(
+          resolved.assistantId,
+          "telegram",
+          "telegram_bot",
+          claimedUpdateId,
+          new Date()
+        );
+      }
+      await this.consumeBootstrapBestEffort(resolved.assistantId);
+
+      return runtimeResponse;
+    } catch (error) {
+      if (claimedUpdateId !== null) {
+        await this.releaseTelegramUpdateClaimBestEffort(resolved.assistantId, claimedUpdateId);
+      }
+      throw error;
     }
-
-    const runtimeResponse = await this.assistantRuntimeAdapter.sendChannelTurn({
-      assistantId: resolved.assistantId,
-      publishedVersionId: resolved.publishedVersionId,
-      runtimeTier: resolved.runtimeTier,
-      ...(quotaDecision.mode === "degrade_allowed" && resolved.quotaDegradeModelOverride
-        ? {
-            providerOverride: resolved.quotaDegradeModelOverride.provider,
-            modelOverride: resolved.quotaDegradeModelOverride.model
-          }
-        : {}),
-      surface: "telegram",
-      threadId: input.threadId,
-      userMessage: enrichedMessage,
-      userTimezone: workspace.timezone,
-      currentTimeIso: new Date().toISOString()
-    });
-
-    await this.trackWorkspaceQuotaUsageService.recordInboundTurnUsage({
-      assistant: resolved.assistant,
-      userContent: input.message,
-      assistantContent: runtimeResponse.assistantMessage,
-      source: "telegram_turn_sync"
-    });
-    if (input.updateId !== null && input.updateId !== undefined) {
-      await this.bindingRepository.patchMetadata(resolved.assistantId, "telegram", "telegram_bot", {
-        telegramLastHandledUpdateId: input.updateId,
-        telegramLastHandledUpdateAt: new Date().toISOString()
-      });
-    }
-    await this.consumeBootstrapBestEffort(resolved.assistantId);
-
-    return runtimeResponse;
   }
 
-  private async tryHandleDuplicateTelegramUpdate(
+  private async claimTelegramUpdateIfNeeded(
     assistantId: string,
-    updateId: number
-  ): Promise<InternalTelegramTurnResult | null> {
-    const binding = await this.bindingRepository.findByAssistantProviderSurface(
-      assistantId,
-      "telegram",
-      "telegram_bot"
-    );
-    const metadata =
-      binding !== null &&
-      binding.metadata !== null &&
-      typeof binding.metadata === "object" &&
-      !Array.isArray(binding.metadata)
-        ? (binding.metadata as Record<string, unknown>)
-        : null;
-    const lastHandled =
-      typeof metadata?.telegramLastHandledUpdateId === "number" &&
-      Number.isFinite(metadata.telegramLastHandledUpdateId)
-        ? metadata.telegramLastHandledUpdateId
-        : null;
-    if (lastHandled === null || updateId > lastHandled) {
+    updateId: number | null | undefined
+  ): Promise<number | InternalTelegramTurnResult | null> {
+    if (updateId === null || updateId === undefined) {
       return null;
     }
-    this.logger.warn(
-      `[telegram-turn] Dropped duplicate Telegram update ${updateId} for assistant ${assistantId}`
+    const claim = await this.bindingRepository.claimTelegramUpdateProcessing(
+      assistantId,
+      "telegram",
+      "telegram_bot",
+      updateId,
+      new Date(),
+      HandleInternalTelegramTurnService.TELEGRAM_UPDATE_CLAIM_STALE_MS
     );
+    if (claim === "claimed" || claim === "missing_binding") {
+      return claim === "claimed" ? updateId : null;
+    }
+    this.logger.warn(
+      `[telegram-turn] Dropped duplicate Telegram update ${updateId} for assistant ${assistantId} (${claim})`
+    );
+    return this.buildDeduplicatedResult();
+  }
+
+  private buildDeduplicatedResult(): InternalTelegramTurnResult {
     return {
       assistantMessage: "",
       respondedAt: new Date().toISOString(),
       media: [],
       deduplicated: true
     };
+  }
+
+  private async releaseTelegramUpdateClaimBestEffort(
+    assistantId: string,
+    updateId: number
+  ): Promise<void> {
+    try {
+      await this.bindingRepository.releaseTelegramUpdateProcessing(
+        assistantId,
+        "telegram",
+        "telegram_bot",
+        updateId
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[telegram-turn] Non-fatal: failed to release Telegram update claim ${updateId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   private async downloadTelegramAttachments(

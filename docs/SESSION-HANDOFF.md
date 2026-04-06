@@ -1,5 +1,78 @@
 # SESSION-HANDOFF
 
+## 2026-04-06 - SR8a Telegram webhook ingress retry/replay hardening
+
+### Current active slice
+
+- `SR8` — Webhook and realtime burst hardening
+
+### Current active sub-slice
+
+- `SR8a` — Telegram webhook ingress retry/replay hardening
+
+### What stale program state was fixed
+
+1. `SR8` was already the active slice in canon, but it first had no named bounded sub-slice, and then the first wording became too narrow for one deploy-sized Telegram ingress package.
+2. `TEST-PLAN.md` and `API-BOUNDARY.md` did not yet describe the combined `SR8a` acceptance shape for both same-update replay suppression and transient proxy retry semantics.
+3. `ROADMAP.md` and `API-BOUNDARY.md` still reflected an older/narrower view of `SR8a` instead of the current deploy-sized Telegram ingress package.
+
+### What subagents were launched and why
+
+1. A readonly fan-in mapping subagent to map Telegram webhook, web stream, and internal callback ingress into shared PersAI/OpenClaw pressure points.
+2. A readonly retry/idempotency inventory subagent to identify existing replay safety, timeout, and retry seams and to find the narrowest real duplication gap.
+3. A readonly boundary subagent to keep the chosen work inside `SR8` and out of `SR7`, `SR9`, and `SR10`.
+4. A readonly Telegram webhook proxy subagent to isolate the narrowest overload/retry seam at the public proxy layer.
+5. A readonly web SSE subagent to compare stream-idempotency cost/risk against the Telegram proxy seam.
+6. A readonly callback replay subagent to check whether internal reminder replay should be next or should stay behind the Telegram ingress work.
+
+### What evidence they returned
+
+- Fan-in mapping showed that Telegram webhook ingress, web SSE streaming, and internal callback paths converge through shared runtime routing and adapter seams, but the narrowest first `SR8` candidate was the Telegram ingress path rather than the full SSE or callback surface.
+- Retry/idempotency inventory showed the old Telegram dedupe was only a watermark written after success, so overlapping retries of the same `updateId` could both pass before the watermark advanced and could duplicate runtime work plus usage recording.
+- Proxy-specific evidence showed `telegram-webhook-proxy.controller.ts` still returned `200` on transient upstream timeout/network failure, which would silently acknowledge a retry-worthy ingress failure.
+- Boundary review confirmed this combined package is honest `SR8` work because it hardens webhook/realtime ingress behavior without redesigning media pressure (`SR7`), quota/billing correctness (`SR9`), or the final burst envelope (`SR10`).
+
+### What was completed
+
+1. Re-scoped `SR8a` in canon as one deploy-sized Telegram ingress package and updated `SCALING-READINESS-PLAN.md`, `ROADMAP.md`, `TEST-PLAN.md`, and `API-BOUNDARY.md` accordingly.
+2. Replaced the old watermark-only Telegram replay suppression in `HandleInternalTelegramTurnService` with claim/release/complete handling around one `assistantId + updateId`.
+3. Added repository support in `PrismaAssistantChannelSurfaceBindingRepository` for atomic Telegram update claim, completion, and release against channel-binding metadata.
+4. Updated `telegram-webhook-proxy.controller.ts` so transient upstream timeout/network failures return retry-worthy `504 upstream_timeout` or `502 upstream_error`, while permanent route failures still deliberately return `200`.
+5. Added focused regression coverage in `apps/api/test/handle-internal-telegram-turn.service.test.ts` and `apps/api/test/telegram-webhook-proxy.controller.test.ts`.
+6. Updated `CHANGELOG.md` so the current `SR8a` package is recoverable from the normal startup reading pack.
+
+### What remains
+
+- Deploy the API-only `SR8a` package and run one bounded live Telegram ingress check that covers both same-update replay suppression and transient webhook retry behavior in the target environment.
+- After that live proof, choose the next `SR8` seam from evidence between web SSE retry/idempotency and internal callback/reminder replay.
+- Keep `SR8` active until there is measured and bounded evidence for the broader webhook/realtime burst surface.
+
+### Confirmed risks
+
+1. This pass hardens only the Telegram ingress package; it does not yet make the whole webhook/realtime burst surface bounded.
+2. Web stream retries/client reconnect semantics remain outside this sub-slice and may still duplicate work until a later `SR8` pass proves otherwise.
+3. Duplicate-runtime side effects in other paths can still influence quota/billing correctness, but fixing those semantics globally belongs to `SR9`, not to this bounded replay pass.
+
+### Unresolved hypotheses
+
+1. After this Telegram ingress package is deployed, the next dominant `SR8` bottleneck may move to web SSE retries rather than to Telegram ingress itself.
+2. Internal callback/reminder delivery may still need its own bounded replay/idempotency pass once Telegram ingress behavior is observed live.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-turn.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+
+### Why the next SR is still blocked or can be opened
+
+- `SR9` is still blocked because `SR8` is not honestly closed yet: this session assembled one bounded Telegram ingress package, but there is still no deploy-time and observation-window evidence that webhook/realtime burst behavior as a whole is measured and bounded.
+
+### Next recommended step
+
+- Deploy this API-only `SR8a` package and run one bounded live Telegram ingress repro: first force a duplicate/same-`updateId` retry, then force a transient upstream failure and confirm Telegram retries instead of the proxy silently acknowledging it. After that, choose the next `SR8` sub-slice from evidence.
+
 ## 2026-04-06 - SR7 operational closure after bounded live media burst
 
 ### Current active slice

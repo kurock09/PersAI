@@ -1648,6 +1648,6 @@ Public endpoint. No Clerk auth. Not under `/api/v1/` prefix.
 
 GKE Ingress routes `bot.persai.dev/telegram-webhook/*` to the PersAI API service on port 3001. The `TelegramWebhookProxyController` extracts `assistantId` from the path, resolves the assistant's effective runtime tier via materialized spec, and forwards the complete Telegram update (re-serialized JSON body) to the matching tier-specific OpenClaw pool's `/telegram-webhook/:assistantId` endpoint.
 
-Returns the upstream OpenClaw response unchanged. On resolution failure or upstream error, returns `200 { ok: false, error: "..." }` to prevent Telegram from retrying.
+Returns the upstream OpenClaw response unchanged. On permanent PersAI-side resolution failures (`misconfigured`, `unknown_assistant`), returns `200 { ok: false, error: "..." }` so Telegram does not keep retrying a non-recoverable route. On transient upstream proxy timeout/network failure, returns retry-worthy `504 { ok: false, error: "upstream_timeout" }` or `502 { ok: false, error: "upstream_error" }`.
 
 This replaces the previous ingress rule that hardcoded all Telegram traffic to the `free_shared_restricted` OpenClaw pool regardless of assistant tier.
