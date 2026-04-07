@@ -169,9 +169,7 @@ export default function AdminBusinessPage() {
               <p className="text-xl font-bold tabular-nums text-text">
                 {platform.planCatalog.activePlans}
               </p>
-              <p className="text-[11px] text-text-muted">
-                {platform.planCatalog.totalPlans} total
-              </p>
+              <p className="text-[11px] text-text-muted">{platform.planCatalog.totalPlans} total</p>
             </div>
             <div className="rounded-lg border border-border bg-surface-raised p-3">
               <div className="mb-1 flex items-center gap-1.5">
@@ -215,10 +213,7 @@ export default function AdminBusinessPage() {
               ) : (
                 <div className="divide-y divide-border">
                   {platform.planDistribution.map((entry) => (
-                    <div
-                      key={entry.planCode}
-                      className="flex items-center gap-3 px-3 py-2.5"
-                    >
+                    <div key={entry.planCode} className="flex items-center gap-3 px-3 py-2.5">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-medium text-text">
@@ -239,9 +234,7 @@ export default function AdminBusinessPage() {
                         <span className="text-sm font-bold tabular-nums text-text">
                           {entry.userCount}
                         </span>
-                        <span className="ml-1 text-[10px] text-text-muted">
-                          ({entry.percent}%)
-                        </span>
+                        <span className="ml-1 text-[10px] text-text-muted">({entry.percent}%)</span>
                       </div>
                     </div>
                   ))}

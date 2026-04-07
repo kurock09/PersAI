@@ -116,6 +116,8 @@ Do not combine in one deploy window by default:
 - `Accepted residual (SR7)`: this is an operational closure for bounded live media burst behavior and visibility, not a claim that the final throughput ceiling or full capacity envelope has been proven; that remains `SR10`
 - `Post-SR8 baseline`: Telegram webhook ingress, web chat retry/reconnect, and reminder callback replay paths are now bounded by durable replay guards, and live validation confirmed normal web chat plus reminder delivery without duplicate fanout, with Telegram returning to normal behavior after manual rebind of one stale broken assistant binding
 - `Accepted residual (SR8)`: we do not claim that the exact historical root cause of that stale Telegram binding state was isolated or automatically repaired by the replay-hardening package; `SR8` closes on the bounded replay/live behavior that was actually observed, while historical per-assistant binding corruption remains an accepted operational residual unless it recurs with fresh evidence
+- `Post-SR9 baseline`: all six billing/quota sub-slices (SR9a–SR9f) live-validated: plan override propagation, token budget atomic accounting, dual media/workspace quota pre-check, active web chats cap, workspace subscription sync, and tool daily quota check-vs-consume are now correct under concurrency. Token budget exhaustion surfaces a dedicated `token_budget_exhausted` error code with user-facing banner (web + Telegram) instead of generic rate-limit. Admin ops auth middleware bug (missing route registrations) fixed and deployed
+- `Accepted residual (SR9)`: none — all sub-slices closed cleanly with live validation; auth middleware bug was a registration omission, not a design flaw
 
 ## Slice Template
 Each slice must use this shape:

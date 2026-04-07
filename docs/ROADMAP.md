@@ -7,9 +7,10 @@ Step 15 — Tiered OpenClaw runtime and production hardening
 Scaling-readiness control layer is now tracked by:
 - `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
 - `docs/SCALING-READINESS-PLAN.md`
-- current active slice: `SR9` (Billing and quota correctness under concurrency)
-- next recommended slice after `SR9`: `SR10` (Capacity validation and production gate)
-- last closed slice: `SR8` (Webhook and realtime burst hardening, closed 2026-04-06 after bounded live replay validation across web, reminders, and Telegram with accepted residual on one stale Telegram binding state that required manual rebind and whose exact historical cause was not isolated)
+- current active slice: `SR10` (Capacity validation and production gate)
+- current active sub-slice: `SR10-pre-ui` (Admin observability dashboard restructuring)
+- next recommended slice after `SR10`: TBD
+- last closed slice: `SR9` (Billing and quota correctness under concurrency, closed 2026-04-07 after full live validation of all sub-slices SR9a–SR9f)
 
 ## Step 1
 
@@ -427,18 +428,7 @@ Scaling-readiness control layer is now tracked by:
     - [x] ADR-069: workspace storage quota enforcement (write + exec guard with cached du, default 500 MB). dind privileged canary attempted then reverted (GKE COS doesn't support rootless dind without privileged). Admin UI workspace storage field per plan.
     - [x] Cross-assistant file isolation (Wave 2): workspace media path no longer falls back to global root.
     - [x] GKE autoscaling enabled for runtime node pool.
-- [ ] H11 — WhatsApp/MAX follow-through: extend the current readiness model with Telegram-parity managed `secret_refs`, rotation/revoke flow, and runtime materialization when those channels ship
-- [ ] Channel media adapters: WhatsApp, VK, Matrix — add one `*MediaAdapter` plus module registration when each channel ships, and align channel enum/contracts with Matrix if it remains in scope
-- [ ] TTS admin advanced settings UI: expose provider-specific voice/model controls in PersAI admin (OpenAI first); current runtime behavior uses provider defaults and gender-based mapping, not the old `[[tts:voice=...]]` directive path
-- [ ] H14 — Fork-diff reduction (tech debt follow-up inside Step 15 runtime program)
-  - [ ] H14a — migrate secret refs and tool credential injection away from native `source: "persai"` plumbing toward a generated `exec` provider + PersAI API bridge, reducing dedicated PersAI secret-provider fork surface in OpenClaw core
-  - [ ] H14b — remove duplicate explicit spec-store wiring from `server-runtime-state.ts` and update the fork verification scripts that currently assert that patch
-  - [ ] H14c — stop deepening PersAI-specific native secret configuration UX; prefer PersAI-owned admin/config generation paths
-  - [ ] H14d — prefer plugin-sdk/helper seams and PersAI-owned bridge tools before adding new native runtime patches
-- [ ] H15 — GKE runtime tuning for 5 000+ users (execution follow-up inside Step 15 runtime program)
-  - [x] H15a — tune sandbox-capable pool startup budget from measured preload/warmup behavior; API/web probes already live in Helm values, while broader OpenClaw readiness/liveness parity remains follow-up work
-  - [ ] H15b — validate rollout safety and cold-start/recovery latency for `api`, `web`, and tiered `openclaw` pools with repeatable operational checks
-- [ ] SR0 — Scaling readiness documentation/control baseline
+- [x] SR0 — Scaling readiness documentation/control baseline
   - [x] ADR-070 accepted as umbrella governance for scaling-readiness, evidence-first delivery, and clean-delivery rules
   - [x] `docs/SCALING-READINESS-PLAN.md` created as central execution-plan source-of-truth for Cursor-agent slices
   - [x] roadmap/test-plan/changelog/session-handoff aligned to the new program baseline
@@ -480,10 +470,34 @@ Scaling-readiness control layer is now tracked by:
   - [x] `SR9f` — tool daily quota check-vs-consume (closed: live-validated 2026-04-07)
 - [ ] SR10 — Capacity validation and production gate ← **active slice**
   - [ ] `SR10-pre-ui` — admin observability dashboard restructuring ← **active sub-slice**
+
+---
+
+## Backlog — requires re-approval (many items may be outdated)
+
+Items below were moved from the active roadmap on 2026-04-07. All are still technically relevant but not blocking SR10 or near-term product goals. Re-prioritize when the corresponding product need arises.
+
+- [ ] H11 — WhatsApp/MAX channel follow-through (includes channel media adapters)
+  - status: DB schema, binding projections, entitlements, and "Coming soon" UI exist; no runtime integration, no media adapter, no secret lifecycle, no delivery path
+  - scope: Telegram-parity managed `secret_refs` with rotation/revoke, runtime materialization, `ChannelMediaAdapter` for each channel, chat surface persistence, reminder outbound
+  - note: "Channel media adapters (WhatsApp, VK, Matrix)" merged here — separate adapter work only makes sense after H11 runtime plumbing
+- [ ] TTS admin advanced settings UI
+  - status: admin has provider selector + API key only; no voice/model/speed controls
+  - scope: expose provider-specific voice/model settings in admin when product requires fine-grained TTS configuration
+  - note: low priority — runtime uses defaults + gender-based mapping, works for current product
+- [ ] H14 — Fork-diff reduction (tech debt, 19 files in `persai-runtime/`, `source: "persai"` in secrets, 100+ verification checks)
+  - [ ] H14a — migrate secret refs away from native `source: "persai"` toward PersAI API bridge
+  - [ ] H14b — consolidate spec-store wiring (singleton fallback path in `server-http.ts` vs explicit injection)
+  - [ ] H14c — stop deepening PersAI-specific native secret configuration UX
+  - [ ] H14d — prefer plugin-sdk/helper seams and PersAI-owned bridge tools before adding new native patches
+- [ ] H15b — GKE rollout validation automation
+  - status: probes, PDB, rolling update, startupProbe all configured in Helm; manual runbook checks exist
+  - scope: automate repeatable rollout safety and cold-start/recovery latency checks for `api`, `web`, and tiered `openclaw` pools
+  - note: H15a (startup budget tuning) already closed
 - [ ] H16 — Autonomous workspace heartbeat deeper isolation
-  - note: the immediate hygiene slice above is complete; the remaining H16 work is the deeper isolation/refactor track
-  - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated
-  - [ ] H16a — verify which heartbeat/autonomous paths still read `HEARTBEAT.md` via the default agent workspace (`resolveAgentWorkspaceDir`) instead of the PersAI assistant-scoped `workspaceDir`
-  - [ ] H16b — bind heartbeat polling and related autonomous file checks to the correct assistant/user workspace where product behavior is expected per assistant
-  - [ ] H16c — document the role of the main/default workspace vs assistant-scoped workspaces so background agent behavior is understandable and debuggable
-  - [ ] H16d — route low-value background polling / heartbeat reads to a dedicated cheaper model tier, separate from user-facing turn models
+  - status: hygiene slice closed (bootstrap consume, dedicated heartbeat session, default model from admin settings)
+  - scope: bind heartbeat/autonomous paths to correct per-assistant workspace for multi-user correctness
+  - [ ] H16a — verify which paths still use `resolveAgentWorkspaceDir` default instead of assistant-scoped `workspaceDir`
+  - [ ] H16b — bind heartbeat polling to the correct assistant/user workspace
+  - [ ] H16c — document main vs assistant-scoped workspace roles
+  - [ ] H16d — route background polling to a dedicated cheaper model tier

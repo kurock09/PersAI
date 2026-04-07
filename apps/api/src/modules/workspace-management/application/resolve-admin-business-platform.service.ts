@@ -167,11 +167,8 @@ export class ResolveAdminBusinessPlatformService {
     };
   }
 
-  private async computeQuotaPressure(
-    workspaceId: string
-  ): Promise<QuotaPressureDistribution> {
-    const quotaState =
-      await this.workspaceQuotaAccountingRepository.findByWorkspaceId(workspaceId);
+  private async computeQuotaPressure(workspaceId: string): Promise<QuotaPressureDistribution> {
+    const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(workspaceId);
     if (quotaState === null) {
       return { low: 0, elevated: 0, high: 0 };
     }

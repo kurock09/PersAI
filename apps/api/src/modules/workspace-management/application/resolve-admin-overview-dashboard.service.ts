@@ -39,13 +39,9 @@ export class ResolveAdminOverviewDashboardService {
     const runtimeTier = assistant
       ? await this.resolveAssistantRuntimeTierService.resolveByAssistantId(assistant.id)
       : null;
-    const preflight = await this.assistantRuntimePreflightService.execute(
-      runtimeTier ?? undefined
-    );
+    const preflight = await this.assistantRuntimePreflightService.execute(runtimeTier ?? undefined);
 
-    const activeUsersWindow = new Date(
-      Date.now() - ACTIVE_USERS_WINDOW_MINUTES * 60 * 1000
-    );
+    const activeUsersWindow = new Date(Date.now() - ACTIVE_USERS_WINDOW_MINUTES * 60 * 1000);
     const activeUsersResult = await this.prisma.assistantChat.groupBy({
       by: ["userId"],
       where: { updatedAt: { gte: activeUsersWindow } }

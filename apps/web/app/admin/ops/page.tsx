@@ -259,12 +259,7 @@ function QuotaBar({
   formatValue: (v: number) => string;
 }) {
   const percent = limit !== null && limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
-  const barColor =
-    percent >= 90
-      ? "bg-destructive"
-      : percent >= 70
-        ? "bg-warning"
-        : "bg-accent";
+  const barColor = percent >= 90 ? "bg-destructive" : percent >= 70 ? "bg-warning" : "bg-accent";
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-[11px]">

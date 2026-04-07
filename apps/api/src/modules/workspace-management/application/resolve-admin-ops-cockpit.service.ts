@@ -229,7 +229,9 @@ export class ResolveAdminOpsCockpitService {
 
   private async resolveQuotaUsage(
     workspaceId: string,
-    assistant: Parameters<typeof this.trackWorkspaceQuotaUsageService.resolveEffectiveLimitsForAssistant>[0]
+    assistant: Parameters<
+      typeof this.trackWorkspaceQuotaUsageService.resolveEffectiveLimitsForAssistant
+    >[0]
   ): Promise<AdminOpsCockpitQuotaUsage | null> {
     const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(workspaceId);
     if (quotaState === null) return null;
