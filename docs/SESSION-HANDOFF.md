@@ -1,5 +1,33 @@
 # SESSION-HANDOFF
 
+## 2026-04-07 - SR9c closed (live-validated)
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- `SR9b`-`SR9f` live validation wave — all code passes deployed, each needs bounded live proof
+
+### What was completed
+
+- SR9c dual quota pre-check (Variant B) deployed and live-validated by user. Both media upload budget check and workspace disk check confirmed working. Web banner and Telegram system notices fire correctly.
+- SR9c is now **closed**.
+
+### What remains
+
+- `SR9b` (token budget atomic accounting) — needs live proof of concurrent token budget enforcement
+- `SR9d` (active web chats cap) — needs live proof of race-safe chat creation under cap
+- `SR9e` (workspace subscription sync) — needs live proof of subscription change propagation
+- `SR9f` (tool daily quota check-vs-consume) — needs live proof of stale policy rejection
+
+### Next recommended step
+
+- Run bounded live validation for each remaining SR9 sub-slice, or batch them if user confirms they are working.
+
+---
+
 ## 2026-04-07 - SR9c dual quota pre-check decision (Variant B)
 
 ### Current active slice

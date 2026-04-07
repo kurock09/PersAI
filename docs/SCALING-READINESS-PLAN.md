@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR9` — Billing and quota correctness under concurrency
-- `Current active sub-slice`: `SR9c` — media storage quota atomicity under concurrency (UX pass completed; extending scope: dual quota pre-check for uploads — check both media storage budget AND workspace storage availability before accepting user uploads; Admin UI rename for clarity: "Workspace storage (MB)" = total sandbox disk, "Media upload budget (MB)" = user upload allowance within that disk)
+- `Current active sub-slice`: `SR9b`-`SR9f` live validation wave — code passes deployed, awaiting bounded live proof per sub-slice
 - `Current phase`: Billing and quota correctness under concurrency
 - `Next recommended slice after SR9`: `SR10` — Capacity validation and production gate
 - `Last closed slice`: `SR8` — Webhook and realtime burst hardening (closed 2026-04-06 after bounded live replay validation across web, reminders, and Telegram)
@@ -1237,7 +1237,7 @@ Deploy window:
 - API only
 
 Observation window:
-- required before calling `SR9c` fully closed; this code pass still needs deploy/live evidence on shared-state behavior
+- **SR9c closed** — live-validated 2026-04-07: dual quota pre-check (media budget + workspace disk) confirmed working in both web and Telegram
 
 Exit criteria:
 - touched upload paths no longer retain media blobs above the workspace media-storage limit purely because concurrent uploads raced through the same ledger
