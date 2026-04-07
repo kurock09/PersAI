@@ -1,6 +1,6 @@
 # SESSION-HANDOFF
 
-## 2026-04-07 - SR9c closed (live-validated)
+## 2026-04-07 - SR9 live validation wave + auth middleware bug fix
 
 ### Current active slice
 
@@ -8,23 +8,29 @@
 
 ### Current active sub-slice
 
-- `SR9b`-`SR9f` live validation wave — all code passes deployed, each needs bounded live proof
+- `SR9a` + `SR9e` — pending auth fix deploy + re-test
 
 ### What was completed
 
-- SR9c dual quota pre-check (Variant B) deployed and live-validated by user. Both media upload budget check and workspace disk check confirmed working. Web banner and Telegram system notices fire correctly.
-- SR9c is now **closed**.
+- **SR9b** — live-validated: token budget enforcement confirmed under normal usage. **Closed.**
+- **SR9c** — live-validated: dual quota pre-check (Variant B) confirmed working in web + Telegram. **Closed.**
+- **SR9d** — live-validated: active web chats cap enforcement confirmed. **Closed.**
+- **SR9f** — live-validated: tool daily limit enforcement confirmed from server-side policy. **Closed.**
+- **Auth middleware bug found and fixed**: `plan-override` (POST/DELETE) and `workspace-subscription` (POST/DELETE) routes were missing from `ClerkAuthMiddleware.forRoutes()` in `identity-access.module.ts`. Requests to these endpoints arrived without Clerk user context → API returned 401 → frontend showed "Session expired". Fix: added 4 missing route registrations. This bug blocked live verification of SR9a (Apply test plan) and SR9e (Apply workspace subscription).
 
 ### What remains
 
-- `SR9b` (token budget atomic accounting) — needs live proof of concurrent token budget enforcement
-- `SR9d` (active web chats cap) — needs live proof of race-safe chat creation under cap
-- `SR9e` (workspace subscription sync) — needs live proof of subscription change propagation
-- `SR9f` (tool daily quota check-vs-consume) — needs live proof of stale policy rejection
+- `SR9a` — deploy auth fix → re-test Apply test plan → verify plan override propagates to materialized runtime
+- `SR9e` — deploy auth fix → re-test Apply workspace subscription → verify subscription change dirties `configDirtyAt`
+- After SR9a + SR9e close → SR9 is fully closed → SR10 can open
+
+### Confirmed risks
+
+- None new. Auth middleware bug was a registration omission, not a design flaw.
 
 ### Next recommended step
 
-- Run bounded live validation for each remaining SR9 sub-slice, or batch them if user confirms they are working.
+- Wait for deploy of auth middleware fix. Then test "Apply test plan" and "Apply workspace subscription" in admin ops page. If both work, close SR9a, SR9e, and the entire SR9.
 
 ---
 

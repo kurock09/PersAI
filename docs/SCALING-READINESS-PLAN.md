@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR9` — Billing and quota correctness under concurrency
-- `Current active sub-slice`: `SR9b`-`SR9f` live validation wave — code passes deployed, awaiting bounded live proof per sub-slice
+- `Current active sub-slice`: `SR9a` + `SR9e` — blocked on auth middleware fix deploy; `SR9b`, `SR9d`, `SR9f` live-validated and closed
 - `Current phase`: Billing and quota correctness under concurrency
 - `Next recommended slice after SR9`: `SR10` — Capacity validation and production gate
 - `Last closed slice`: `SR8` — Webhook and realtime burst hardening (closed 2026-04-06 after bounded live replay validation across web, reminders, and Telegram)
@@ -1110,7 +1110,7 @@ Deploy window:
 - API only
 
 Observation window:
-- not sufficient to close all of `SR9`; later `SR9` passes still need shared-state evidence for atomic quota enforcement under concurrency
+- **SR9a pending** — admin plan-override routes were missing from Clerk auth middleware (returned 401); fix committed, awaiting deploy + re-test
 
 Exit criteria:
 - assistant override changes are no longer indefinitely stale on the runtime/materialized path
@@ -1162,7 +1162,7 @@ Deploy window:
 - API only
 
 Observation window:
-- required before calling `SR9b` fully closed; this code pass still needs deploy/live evidence on shared-state behavior
+- **SR9b closed** — live-validated 2026-04-07: token budget enforcement confirmed under normal usage
 
 Exit criteria:
 - concurrent post-turn token-budget accounting can no longer push the shared ledger above the configured token limit on the touched path
@@ -1295,7 +1295,7 @@ Deploy window:
 - API only
 
 Observation window:
-- required before calling `SR9d` fully closed; this code pass still needs deploy/live evidence on shared-state behavior
+- **SR9d closed** — live-validated 2026-04-07: active web chats cap enforcement confirmed
 
 Exit criteria:
 - touched web chat creation paths can no longer overshoot the configured active-chat cap purely because concurrent requests raced between stale count and row creation
@@ -1349,7 +1349,7 @@ Deploy window:
 - API only
 
 Observation window:
-- required before calling `SR9e` fully closed; this code pass still needs deploy/live evidence that touched subscription changes trigger the expected lazy refresh behavior on real runtime freshness paths
+- **SR9e pending** — admin workspace-subscription routes were missing from Clerk auth middleware (same bug as SR9a); fix committed, awaiting deploy + re-test
 
 Exit criteria:
 - touched workspace subscription sync writes can no longer change API-side commercial truth without also dirtying the corresponding assistants for runtime rematerialization
@@ -1404,7 +1404,7 @@ Deploy window:
 - API only
 
 Observation window:
-- required before calling `SR9f` fully closed; this code pass still needs deploy/live evidence that stale runtime tool policies cannot over-consume beyond the current control-plane daily limit
+- **SR9f closed** — live-validated 2026-04-07: tool daily limit enforcement confirmed from server-side policy
 
 Exit criteria:
 - touched tool daily quota enforcement can no longer allow extra consumes purely because runtime sent an older higher `dailyCallLimit` than the current effective plan
