@@ -15,7 +15,9 @@ export type AdminBusinessPlatformState = {
   totalUsers: number;
   totalAssistants: number;
   activeAssistants: number;
-  totalWebChats: number;
+  totalConversations: number;
+  totalMessages: number;
+  activeWebChats: number;
   planDistribution: PlanDistributionEntry[];
   quotaPressureDistribution: QuotaPressureDistribution;
   channelAdoption: {

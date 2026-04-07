@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   BarChart3,
@@ -11,24 +11,31 @@ import {
   Users,
   CheckCircle,
   AlertTriangle,
-  XCircle
+  XCircle,
+  ChevronDown
 } from "lucide-react";
 import { getAdminBusinessPlatform } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
-type PlanDistributionEntry = {
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+type PlanEntry = {
   planCode: string;
   planDisplayName: string | null;
   userCount: number;
   percent: number;
 };
 
-type PlatformState = {
+type Platform = {
   totalUsers: number;
   totalAssistants: number;
   activeAssistants: number;
-  totalWebChats: number;
-  planDistribution: PlanDistributionEntry[];
+  totalConversations: number;
+  totalMessages: number;
+  activeWebChats: number;
+  planDistribution: PlanEntry[];
   quotaPressureDistribution: { low: number; elevated: number; high: number };
   channelAdoption: {
     webChat: number;
@@ -53,358 +60,331 @@ type PlatformState = {
   updatedAt: string;
 };
 
-function Section({
-  title,
-  children,
-  className
+/* ------------------------------------------------------------------ */
+/*  Atoms                                                              */
+/* ------------------------------------------------------------------ */
+
+function Fold({
+  t,
+  open: init = false,
+  children
 }: {
-  title: string;
-  children: ReactNode;
-  className?: string;
+  t: string;
+  open?: boolean;
+  children: React.ReactNode;
 }) {
+  const [o, setO] = useState(init);
   return (
-    <section className={cn("space-y-2", className)}>
-      <h2 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">{title}</h2>
-      {children}
+    <section>
+      <button
+        type="button"
+        onClick={() => setO((v) => !v)}
+        className="flex w-full cursor-pointer items-center gap-1.5 py-0.5"
+      >
+        <ChevronDown
+          className={cn("h-3 w-3 text-text-subtle transition-transform", !o && "-rotate-90")}
+        />
+        <span className="text-[9px] font-bold uppercase tracking-widest text-text-muted">{t}</span>
+      </button>
+      {o && <div className="mt-1">{children}</div>}
     </section>
   );
 }
 
-function formatChannelLabel(key: string): string {
-  const labels: Record<string, string> = {
-    webChat: "Web Chat",
-    telegram: "Telegram",
-    whatsapp: "WhatsApp",
-    max: "Max"
-  };
-  return labels[key] ?? key;
-}
+const CH_LABELS: Record<string, string> = {
+  webChat: "Web Chat",
+  telegram: "Telegram",
+  whatsapp: "WhatsApp",
+  max: "Max"
+};
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function AdminBusinessPage() {
   const { getToken } = useAuth();
-  const [platform, setPlatform] = useState<PlatformState | null>(null);
+  const [p, setP] = useState<Platform | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(
-    async (isRefresh: boolean) => {
-      const token = await getToken();
-      if (!token) {
-        setError("Not signed in.");
+    async (refresh: boolean) => {
+      const tk = await getToken();
+      if (!tk) {
+        setErr("Not signed in.");
         setLoading(false);
         return;
       }
-      if (isRefresh) setRefreshing(true);
+      if (refresh) setBusy(true);
       else setLoading(true);
-      setError(null);
+      setErr(null);
       try {
-        const data = (await getAdminBusinessPlatform(token)) as unknown as PlatformState;
-        setPlatform(data);
+        setP((await getAdminBusinessPlatform(tk)) as unknown as Platform);
       } catch {
-        setPlatform(null);
-        setError("Unable to load business metrics.");
+        setP(null);
+        setErr("Unable to load business metrics.");
       }
       setLoading(false);
-      setRefreshing(false);
+      setBusy(false);
     },
     [getToken]
   );
 
-  useEffect(() => {
-    void load(false);
-  }, [load]);
+  useEffect(() => void load(false), [load]);
 
-  if (loading) {
+  if (loading)
     return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
+      <div className="flex justify-center py-16">
+        <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
       </div>
     );
-  }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-accent" />
-          <h1 className="text-lg font-bold text-text">Business Metrics</h1>
+    <div className="mx-auto max-w-5xl space-y-2.5 px-1">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <TrendingUp className="h-4 w-4 text-accent" />
+          <h1 className="text-sm font-bold tracking-tight text-text">Business Metrics</h1>
         </div>
         <button
           type="button"
-          disabled={refreshing}
+          disabled={busy}
           onClick={() => void load(true)}
           className={cn(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-text transition-colors",
+            "inline-flex cursor-pointer items-center gap-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] font-medium text-text-muted transition-colors",
             "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
           )}
         >
-          <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+          <RefreshCw className={cn("h-3 w-3", busy && "animate-spin")} />
           Refresh
         </button>
       </div>
 
-      {error && (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {error}
+      {err && (
+        <p className="rounded border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-[11px] text-destructive">
+          {err}
         </p>
       )}
 
-      {platform && (
+      {p && (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            <div className="rounded-lg border border-border bg-surface-raised p-3">
-              <div className="mb-1 flex items-center gap-1.5">
-                <Users className="h-3 w-3 text-text-subtle" />
-                <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                  Users
-                </p>
-              </div>
-              <p className="text-xl font-bold tabular-nums text-text">{platform.totalUsers}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-surface-raised p-3">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                Assistants
-              </p>
-              <p className="text-xl font-bold tabular-nums text-text">
-                {platform.activeAssistants}
-              </p>
-              <p className="text-[11px] text-text-muted">{platform.totalAssistants} total</p>
-            </div>
-            <div className="rounded-lg border border-border bg-surface-raised p-3">
-              <div className="mb-1 flex items-center gap-1.5">
-                <MessageSquare className="h-3 w-3 text-text-subtle" />
-                <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                  Web Chats
-                </p>
-              </div>
-              <p className="text-xl font-bold tabular-nums text-text">{platform.totalWebChats}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-surface-raised p-3">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                Channels
-              </p>
-              <p className="text-xl font-bold tabular-nums text-text">
-                {platform.channelAdoption.total}
-              </p>
-              <p className="text-[11px] text-text-muted">Active connections</p>
-            </div>
-            <div className="rounded-lg border border-border bg-surface-raised p-3">
-              <div className="mb-1 flex items-center gap-1.5">
-                <BarChart3 className="h-3 w-3 text-text-subtle" />
-                <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                  Plans
-                </p>
-              </div>
-              <p className="text-xl font-bold tabular-nums text-text">
-                {platform.planCatalog.activePlans}
-              </p>
-              <p className="text-[11px] text-text-muted">{platform.planCatalog.totalPlans} total</p>
-            </div>
-            <div className="rounded-lg border border-border bg-surface-raised p-3">
-              <div className="mb-1 flex items-center gap-1.5">
-                <CheckCircle className="h-3 w-3 text-text-subtle" />
-                <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                  Apply Success
-                </p>
-              </div>
-              <p
-                className={cn(
-                  "text-xl font-bold tabular-nums",
-                  platform.publishApplyHealth.applySuccessPercent >= 90
-                    ? "text-success"
-                    : "text-warning"
-                )}
-              >
-                {platform.publishApplyHealth.applySuccessPercent}%
-              </p>
-              <p className="text-[11px] text-text-muted">Last 7 days</p>
-            </div>
-          </div>
-
-          <Section title="Users by Plan">
-            <div className="rounded-lg border border-border bg-surface-raised">
-              {platform.planDistribution.length === 0 ? (
-                <p className="px-3 py-4 text-center text-xs text-text-muted">
-                  No plan data available.
-                </p>
-              ) : (
-                <div className="divide-y divide-border">
-                  {platform.planDistribution.map((entry) => (
-                    <div key={entry.planCode} className="flex items-center gap-3 px-3 py-2.5">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-text">
-                            {entry.planDisplayName ?? entry.planCode}
-                          </span>
-                          <span className="rounded bg-border px-1.5 py-0.5 text-[9px] font-mono text-text-muted">
-                            {entry.planCode}
-                          </span>
-                        </div>
-                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-border">
-                          <div
-                            className="h-full rounded-full bg-accent transition-[width] duration-300"
-                            style={{ width: `${entry.percent}%` }}
-                          />
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-sm font-bold tabular-nums text-text">
-                          {entry.userCount}
-                        </span>
-                        <span className="ml-1 text-[10px] text-text-muted">({entry.percent}%)</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </Section>
-
-          <Section title="Quota Pressure Distribution">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-center">
-                <p className="text-[10px] font-medium uppercase text-emerald-400">Low</p>
-                <p className="text-2xl font-bold tabular-nums text-emerald-400">
-                  {platform.quotaPressureDistribution.low}
-                </p>
-              </div>
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-center">
-                <p className="text-[10px] font-medium uppercase text-amber-400">Elevated</p>
-                <p className="text-2xl font-bold tabular-nums text-amber-400">
-                  {platform.quotaPressureDistribution.elevated}
-                </p>
-              </div>
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-center">
-                <p className="text-[10px] font-medium uppercase text-red-400">High</p>
-                <p className="text-2xl font-bold tabular-nums text-red-400">
-                  {platform.quotaPressureDistribution.high}
-                </p>
-              </div>
-            </div>
-          </Section>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Section title="Channel Adoption">
-              <div className="rounded-lg border border-border bg-surface-raised">
-                <div className="divide-y divide-border">
-                  {(["webChat", "telegram", "whatsapp", "max"] as const).map((key) => {
-                    const value =
-                      platform.channelAdoption[key as keyof typeof platform.channelAdoption];
-                    const total = platform.channelAdoption.total;
-                    const percent = total > 0 ? Math.round(((value as number) / total) * 100) : 0;
-                    return (
-                      <div
-                        key={key}
-                        className="flex items-center justify-between px-3 py-2 text-xs"
-                      >
-                        <span className="font-medium text-text">{formatChannelLabel(key)}</span>
-                        <span className="flex items-center gap-2 tabular-nums text-text-muted">
-                          <span className="text-text">{value as number}</span>
-                          <span className="text-[10px]">({percent}%)</span>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </Section>
-
-            <Section title="Publish / Apply Health (7 days)">
-              <div className="rounded-lg border border-border bg-surface-raised p-3">
-                <div className="mb-3 text-center">
-                  <span
+          {/* KPI strip */}
+          <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+            {(
+              [
+                { l: "Users", v: p.totalUsers, icon: Users },
+                {
+                  l: "Assistants",
+                  v: p.activeAssistants,
+                  s: `${p.totalAssistants} total`
+                },
+                {
+                  l: "Messages",
+                  v: p.totalMessages,
+                  s: `${p.totalConversations} threads`,
+                  icon: MessageSquare
+                },
+                { l: "Channels", v: p.channelAdoption.total, s: "Active" },
+                {
+                  l: "Plans Used",
+                  v: p.planDistribution.length,
+                  s: `of ${p.planCatalog.totalPlans}`,
+                  icon: BarChart3
+                },
+                {
+                  l: "Apply OK",
+                  v: `${p.publishApplyHealth.applySuccessPercent}%`,
+                  s: "7 days",
+                  c:
+                    p.publishApplyHealth.applySuccessPercent >= 90
+                      ? "text-success"
+                      : "text-warning",
+                  icon: CheckCircle
+                }
+              ] as const
+            ).map((k) => {
+              const Icon = "icon" in k ? k.icon : undefined;
+              return (
+                <div
+                  key={k.l}
+                  className="min-w-0 rounded-md border border-border/50 bg-surface-raised px-2.5 py-2"
+                >
+                  <div className="flex items-center gap-1">
+                    {Icon && <Icon className="h-2.5 w-2.5 shrink-0 text-text-subtle" />}
+                    <p className="truncate text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                      {k.l}
+                    </p>
+                  </div>
+                  <p
                     className={cn(
-                      "text-2xl font-bold tabular-nums",
-                      platform.publishApplyHealth.applySuccessPercent >= 90
-                        ? "text-accent"
-                        : "text-warning"
+                      "mt-0.5 text-lg font-bold tabular-nums leading-tight",
+                      "c" in k && k.c ? k.c : "text-text"
                     )}
                   >
-                    {platform.publishApplyHealth.applySuccessPercent}%
-                  </span>
-                  <span className="ml-1 text-[10px] text-text-subtle">success rate</span>
+                    {k.v}
+                  </p>
+                  {"s" in k && k.s && (
+                    <p className="text-[10px] leading-tight text-text-muted">{k.s}</p>
+                  )}
                 </div>
-                <div className="grid grid-cols-3 gap-1 text-center text-[10px]">
-                  <div className="rounded bg-emerald-500/10 py-1.5">
-                    <div className="flex items-center justify-center gap-1 text-text-subtle">
-                      <CheckCircle className="h-2.5 w-2.5" />
-                      OK
-                    </div>
-                    <p className="font-semibold tabular-nums text-emerald-400">
-                      {platform.publishApplyHealth.applySucceeded}
-                    </p>
-                  </div>
-                  <div className="rounded bg-amber-500/10 py-1.5">
-                    <div className="flex items-center justify-center gap-1 text-text-subtle">
-                      <AlertTriangle className="h-2.5 w-2.5" />
-                      Degraded
-                    </div>
-                    <p className="font-semibold tabular-nums text-amber-400">
-                      {platform.publishApplyHealth.applyDegraded}
-                    </p>
-                  </div>
-                  <div className="rounded bg-red-500/10 py-1.5">
-                    <div className="flex items-center justify-center gap-1 text-text-subtle">
-                      <XCircle className="h-2.5 w-2.5" />
-                      Failed
-                    </div>
-                    <p className="font-semibold tabular-nums text-red-400">
-                      {platform.publishApplyHealth.applyFailed}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </Section>
+              );
+            })}
           </div>
 
-          <Section title="Plan Catalog">
-            <div className="rounded-lg border border-border bg-surface-raised p-3 text-xs">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
-                    Default Registration Plan
-                  </p>
-                  <p className="mt-0.5 font-mono text-text">
-                    {platform.planCatalog.defaultRegistrationPlanCode ?? "—"}
+          {/* Plan distribution */}
+          <Fold t="Users by Plan" open>
+            {p.planDistribution.length === 0 ? (
+              <p className="py-2 text-center text-[11px] text-text-muted">No plan data.</p>
+            ) : (
+              <div className="divide-y divide-border/40 rounded border border-border/40 bg-surface">
+                {p.planDistribution.map((e) => (
+                  <div key={e.planCode} className="flex items-center gap-2 px-2.5 py-1.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-medium text-text">
+                          {e.planDisplayName ?? e.planCode}
+                        </span>
+                        <span className="rounded bg-border/60 px-1 py-px text-[8px] font-mono text-text-subtle">
+                          {e.planCode}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 h-0.5 overflow-hidden rounded-full bg-border/40">
+                        <div
+                          className="h-full rounded-full bg-accent transition-all"
+                          style={{ width: `${e.percent}%` }}
+                        />
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-[11px] font-bold tabular-nums text-text">
+                      {e.userCount}
+                      <span className="ml-0.5 font-normal text-text-muted">({e.percent}%)</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Fold>
+
+          {/* Quota pressure + Channels side by side */}
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {/* Quota Pressure */}
+            <Fold t="Quota Pressure" open>
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    { k: "low", c: "text-success border-success/20 bg-success/5" },
+                    { k: "elevated", c: "text-warning border-warning/20 bg-warning/5" },
+                    { k: "high", c: "text-destructive border-destructive/20 bg-destructive/5" }
+                  ] as const
+                ).map(({ k, c }) => (
+                  <div key={k} className={cn("rounded border px-2 py-1.5 text-center", c)}>
+                    <p className="text-[9px] font-bold uppercase">{k}</p>
+                    <p className="text-xl font-bold tabular-nums">
+                      {p.quotaPressureDistribution[k]}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Fold>
+
+            {/* Channel Adoption */}
+            <Fold t="Channel Adoption" open>
+              <div className="divide-y divide-border/30 rounded border border-border/40 bg-surface">
+                {(["webChat", "telegram", "whatsapp", "max"] as const).map((k) => {
+                  const v = p.channelAdoption[k];
+                  const pct =
+                    p.channelAdoption.total > 0
+                      ? Math.round((v / p.channelAdoption.total) * 100)
+                      : 0;
+                  return (
+                    <div
+                      key={k}
+                      className="flex items-center justify-between px-2.5 py-1 text-[11px]"
+                    >
+                      <span className="font-medium text-text">{CH_LABELS[k] ?? k}</span>
+                      <span className="tabular-nums">
+                        <span className="text-text">{v}</span>
+                        <span className="ml-1 text-text-muted">({pct}%)</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </Fold>
+          </div>
+
+          {/* Apply Health */}
+          <Fold t="Publish / Apply Health · 7 days" open>
+            <div className="flex items-center gap-3 rounded border border-border/40 bg-surface px-3 py-2">
+              <div className="text-center">
+                <p
+                  className={cn(
+                    "text-2xl font-bold tabular-nums",
+                    p.publishApplyHealth.applySuccessPercent >= 90 ? "text-accent" : "text-warning"
+                  )}
+                >
+                  {p.publishApplyHealth.applySuccessPercent}%
+                </p>
+                <p className="text-[9px] text-text-subtle">success</p>
+              </div>
+              <div className="flex flex-1 gap-1 text-center text-[10px]">
+                <div className="flex-1 rounded bg-success/10 py-1">
+                  <CheckCircle className="mx-auto h-2.5 w-2.5 text-success" />
+                  <p className="font-bold tabular-nums text-success">
+                    {p.publishApplyHealth.applySucceeded}
                   </p>
                 </div>
-                <dl className="grid grid-cols-3 gap-2 text-center">
-                  <div>
-                    <dt className="text-[10px] text-text-subtle">Total</dt>
-                    <dd className="text-sm font-semibold tabular-nums text-text">
-                      {platform.planCatalog.totalPlans}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[10px] text-text-subtle">Active</dt>
-                    <dd className="text-sm font-semibold tabular-nums text-emerald-400">
-                      {platform.planCatalog.activePlans}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[10px] text-text-subtle">Inactive</dt>
-                    <dd className="text-sm font-semibold tabular-nums text-text-muted">
-                      {platform.planCatalog.inactivePlans}
-                    </dd>
-                  </div>
-                </dl>
+                <div className="flex-1 rounded bg-warning/10 py-1">
+                  <AlertTriangle className="mx-auto h-2.5 w-2.5 text-warning" />
+                  <p className="font-bold tabular-nums text-warning">
+                    {p.publishApplyHealth.applyDegraded}
+                  </p>
+                </div>
+                <div className="flex-1 rounded bg-destructive/10 py-1">
+                  <XCircle className="mx-auto h-2.5 w-2.5 text-destructive" />
+                  <p className="font-bold tabular-nums text-destructive">
+                    {p.publishApplyHealth.applyFailed}
+                  </p>
+                </div>
               </div>
             </div>
-          </Section>
+          </Fold>
 
-          <p className="text-center text-[10px] text-text-subtle">
-            Updated{" "}
-            {new Date(platform.updatedAt).toLocaleString(undefined, {
+          {/* Plan Catalog (admin config, collapsed) */}
+          <Fold t="Plan Catalog Config">
+            <div className="flex items-center gap-4 rounded border border-border/40 bg-surface px-2.5 py-2 text-[10px]">
+              <div>
+                <span className="text-text-subtle">Default plan </span>
+                <span className="font-mono font-medium text-text">
+                  {p.planCatalog.defaultRegistrationPlanCode ?? "—"}
+                </span>
+              </div>
+              <div>
+                <span className="text-text-subtle">Active </span>
+                <span className="font-bold tabular-nums text-success">
+                  {p.planCatalog.activePlans}
+                </span>
+              </div>
+              <div>
+                <span className="text-text-subtle">Inactive </span>
+                <span className="font-bold tabular-nums text-text-muted">
+                  {p.planCatalog.inactivePlans}
+                </span>
+              </div>
+            </div>
+          </Fold>
+
+          {/* Footer */}
+          <p className="pt-0.5 text-center text-[9px] tabular-nums text-text-subtle/50">
+            {new Date(p.updatedAt).toLocaleString(undefined, {
               dateStyle: "short",
               timeStyle: "medium"
             })}
           </p>
         </>
-      )}
-
-      {!platform && !error && (
-        <p className="text-sm text-text-subtle">Unable to load business data.</p>
       )}
     </div>
   );

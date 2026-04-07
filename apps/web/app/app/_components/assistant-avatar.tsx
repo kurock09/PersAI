@@ -72,7 +72,12 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
   }, [avatarUrl, getToken]);
 
   const fallbackContent = avatarEmoji ? (
-    <span className="leading-none select-none">{avatarEmoji}</span>
+    <span
+      role="img"
+      className="inline-flex h-full w-full items-center justify-center leading-[1] select-none"
+    >
+      {avatarEmoji}
+    </span>
   ) : (
     <Sparkles className={s.icon} />
   );

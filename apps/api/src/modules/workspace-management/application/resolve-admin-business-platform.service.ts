@@ -40,24 +40,32 @@ export class ResolveAdminBusinessPlatformService {
     const windowStart = new Date(now);
     windowStart.setDate(windowStart.getDate() - BUSINESS_WINDOW_DAYS);
 
+    const totalUsers = await this.prisma.appUser.count();
+
     const allPlans = await this.assistantPlanCatalogRepository.listAll();
     const defaultPlan = allPlans.find((p) => p.isDefaultFirstRegistrationPlan) ?? null;
     const activePlans = allPlans.filter((p) => p.status === "active");
-    const inactivePlans = allPlans.filter((p) => p.status !== "active");
 
     const assistants = await this.prisma.assistant.findMany({
       where: { workspaceId },
       select: { id: true, userId: true, applyStatus: true }
     });
-    const totalUsers = new Set(assistants.map((a) => a.userId)).size;
     const totalAssistants = assistants.length;
     const activeAssistants = assistants.filter(
       (a) => a.applyStatus === "succeeded" || a.applyStatus === "in_progress"
     ).length;
+    const usersWithAssistant = new Set(assistants.map((a) => a.userId)).size;
+    const usersWithoutAssistant = totalUsers - usersWithAssistant;
 
-    const totalWebChats = await this.prisma.assistantChat.count({
-      where: { workspaceId }
-    });
+    const [totalConversations, totalMessages, activeWebChats] = await Promise.all([
+      this.prisma.assistantChat.count({ where: { workspaceId } }),
+      this.prisma.assistantChatMessage.count({
+        where: { assistant: { workspaceId } }
+      }),
+      this.prisma.assistantChat.count({
+        where: { workspaceId, surface: "web", archivedAt: null }
+      })
+    ]);
 
     const governanceRows = await this.prisma.assistantGovernance.findMany({
       where: { assistantId: { in: assistants.map((a) => a.id) } },
@@ -82,6 +90,10 @@ export class ResolveAdminBusinessPlatformService {
         "unknown";
       planCounts.set(effectivePlan, (planCounts.get(effectivePlan) ?? 0) + 1);
     }
+    if (usersWithoutAssistant > 0) {
+      const fallbackPlan = workspacePlanCode ?? defaultPlan?.code ?? "no_assistant";
+      planCounts.set(fallbackPlan, (planCounts.get(fallbackPlan) ?? 0) + usersWithoutAssistant);
+    }
 
     const planDistribution: PlanDistributionEntry[] = Array.from(planCounts.entries())
       .sort((a, b) => b[1] - a[1])
@@ -89,7 +101,7 @@ export class ResolveAdminBusinessPlatformService {
         planCode: code,
         planDisplayName: allPlans.find((p) => p.code === code)?.displayName ?? null,
         userCount: count,
-        percent: toPercent(count, totalUsers > 0 ? totalUsers : assistants.length)
+        percent: toPercent(count, totalUsers)
       }));
 
     const quotaPressureDistribution = await this.computeQuotaPressure(workspaceId);
@@ -144,14 +156,15 @@ export class ResolveAdminBusinessPlatformService {
       }
     });
     const applyTotal = applySucceeded + applyDegraded + applyFailed;
-
     const channelTotal = webChats + telegramBindings + whatsappBindings + maxBindings;
 
     return {
       totalUsers,
       totalAssistants,
       activeAssistants,
-      totalWebChats,
+      totalConversations,
+      totalMessages,
+      activeWebChats,
       planDistribution,
       quotaPressureDistribution,
       channelAdoption: {
@@ -171,7 +184,7 @@ export class ResolveAdminBusinessPlatformService {
       planCatalog: {
         totalPlans: allPlans.length,
         activePlans: activePlans.length,
-        inactivePlans: inactivePlans.length,
+        inactivePlans: allPlans.length - activePlans.length,
         defaultRegistrationPlanCode: defaultPlan?.code ?? null
       },
       updatedAt: now.toISOString()
@@ -180,9 +193,7 @@ export class ResolveAdminBusinessPlatformService {
 
   private async computeQuotaPressure(workspaceId: string): Promise<QuotaPressureDistribution> {
     const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(workspaceId);
-    if (quotaState === null) {
-      return { low: 0, elevated: 0, high: 0 };
-    }
+    if (quotaState === null) return { low: 0, elevated: 0, high: 0 };
 
     const tokenLimit = quotaState.tokenBudgetLimit;
     const tokenPercent =
@@ -190,12 +201,8 @@ export class ResolveAdminBusinessPlatformService {
         ? Number((quotaState.tokenBudgetUsed * BigInt(100)) / tokenLimit)
         : 0;
 
-    if (tokenPercent >= 90) {
-      return { low: 0, elevated: 0, high: 1 };
-    }
-    if (tokenPercent >= 60) {
-      return { low: 0, elevated: 1, high: 0 };
-    }
+    if (tokenPercent >= 90) return { low: 0, elevated: 0, high: 1 };
+    if (tokenPercent >= 60) return { low: 0, elevated: 1, high: 0 };
     return { low: 1, elevated: 0, high: 0 };
   }
 }

@@ -1,13 +1,21 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { RUNTIME_TIER_VALUES, type RuntimeTier } from "./runtime-assignment";
+import {
+  WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
+  type WorkspaceQuotaAccountingRepository
+} from "../domain/workspace-quota-accounting.repository";
 import type {
   AdminOverviewDashboardState,
+  LatencyPercentiles,
+  OverviewChannelLatency,
   OverviewLatencySnapshot,
+  OverviewQueuePressure,
+  OverviewStoragePressure,
   OverviewSystemWarning,
   RuntimeTierPreflight
 } from "./overview-dashboard.types";
@@ -16,95 +24,188 @@ const ACTIVE_USERS_WINDOW_MINUTES = 15;
 const HIGH_MEMORY_THRESHOLD_BYTES = 512 * 1024 * 1024;
 const HIGH_LATENCY_THRESHOLD_MS = 3000;
 const HIGH_ERROR_RATE_THRESHOLD = 0.05;
+const HIGH_STORAGE_PERCENT = 85;
+
+type Bucket = { le: number; value: number };
+
+function estimatePercentileFromBuckets(buckets: Bucket[], total: number): LatencyPercentiles {
+  if (total === 0) return { p50Ms: 0, p95Ms: 0, p99Ms: 0 };
+  const sorted = [...buckets].sort((a, b) => a.le - b.le);
+  function pctl(target: number): number {
+    const threshold = Math.ceil(target * total);
+    for (const b of sorted) {
+      if (b.value >= threshold) return b.le;
+    }
+    return sorted.length > 0 ? sorted[sorted.length - 1]!.le : 0;
+  }
+  return { p50Ms: pctl(0.5), p95Ms: pctl(0.95), p99Ms: pctl(0.99) };
+}
+
+function mergeBuckets(target: Bucket[], source: Bucket[]): void {
+  for (let i = 0; i < target.length && i < source.length; i++) {
+    target[i]!.value += source[i]!.value;
+  }
+}
+
+type TierFlapState = { wasHealthy: boolean; flapCount: number; lastFlapAt: string | null };
 
 @Injectable()
 export class ResolveAdminOverviewDashboardService {
+  private readonly tierFlapState = new Map<string, TierFlapState>();
+
   constructor(
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
+    private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository
   ) {}
 
   async execute(callerUserId: string): Promise<AdminOverviewDashboardState> {
-    await this.adminAuthorizationService.assertCanReadAdminSurface(callerUserId);
+    const context = await this.adminAuthorizationService.assertCanReadAdminSurface(callerUserId);
     const config = loadApiConfig(process.env);
-
     const httpSnapshot = this.platformHttpMetricsService.getSnapshot();
 
-    const tiers = await this.resolveAllTierPreflights();
-
-    const activeUsersWindow = new Date(Date.now() - ACTIVE_USERS_WINDOW_MINUTES * 60 * 1000);
-    const activeUsersResult = await this.prisma.assistantChat.groupBy({
-      by: ["userId"],
-      where: { updatedAt: { gte: activeUsersWindow } }
-    });
-
-    const activeWebChats = await this.prisma.assistantChat.count({
-      where: { surface: "web", archivedAt: null }
-    });
+    const [tiers, activeUsersResult, activeWebChats, storagePressure] = await Promise.all([
+      this.resolveAllTierPreflights(),
+      this.prisma.assistantChat.groupBy({
+        by: ["userId"],
+        where: { updatedAt: { gte: new Date(Date.now() - ACTIVE_USERS_WINDOW_MINUTES * 60_000) } }
+      }),
+      this.prisma.assistantChat.count({ where: { surface: "web", archivedAt: null } }),
+      this.resolveStoragePressure(context.workspaceId)
+    ]);
 
     const latency = this.computeLatency(httpSnapshot);
     const memoryUsage = process.memoryUsage();
+    const cpuUsage = process.cpuUsage();
+    const uptimeSeconds = Math.round(process.uptime());
     const totalRequests = httpSnapshot.requestsTotal;
     const totalErrors = httpSnapshot.errorRequestsTotal;
     const errorRate = totalRequests > 0 ? totalErrors / totalRequests : 0;
 
     const health = {
-      uptimeSeconds: Math.round(process.uptime()),
+      uptimeSeconds,
+      processStartedAt: httpSnapshot.processStartedAt,
       rssBytes: memoryUsage.rss,
       heapUsedBytes: memoryUsage.heapUsed,
       heapTotalBytes: memoryUsage.heapTotal,
-      inFlightRequests: httpSnapshot.inFlightRequests,
+      externalBytes: memoryUsage.external,
+      arrayBuffersBytes: memoryUsage.arrayBuffers,
       totalRequests,
       totalErrors,
-      errorRate: Math.round(errorRate * 10000) / 10000
+      errorRate: Math.round(errorRate * 10000) / 10000,
+      cpuUserMs: Math.round(cpuUsage.user / 1000),
+      cpuSystemMs: Math.round(cpuUsage.system / 1000)
+    };
+
+    const queuePressure: OverviewQueuePressure = {
+      inFlight: httpSnapshot.inFlightRequests,
+      peakInFlight: httpSnapshot.peakInFlightRequests,
+      requestsPerSecond:
+        uptimeSeconds > 0 ? Math.round((totalRequests / uptimeSeconds) * 100) / 100 : 0
     };
 
     const anyUnhealthy = tiers.some((t) => !t.live || !t.ready);
-    const warnings = this.deriveWarnings(latency, health, anyUnhealthy ? tiers : []);
+    const warnings = this.deriveWarnings(
+      latency,
+      health,
+      anyUnhealthy ? tiers : [],
+      storagePressure,
+      queuePressure
+    );
 
     return {
       latency,
       activeUsers: activeUsersResult.length,
       activeWebChats,
-      runtime: {
-        adapterEnabled: config.OPENCLAW_ADAPTER_ENABLED,
-        tiers
-      },
+      runtime: { adapterEnabled: config.OPENCLAW_ADAPTER_ENABLED, tiers },
       health,
+      queuePressure,
+      storagePressure,
       warnings,
       updatedAt: new Date().toISOString()
     };
   }
 
   private async resolveAllTierPreflights(): Promise<RuntimeTierPreflight[]> {
-    const results = await Promise.all(
+    return Promise.all(
       RUNTIME_TIER_VALUES.map(async (tier: RuntimeTier) => {
         const result = await this.assistantRuntimePreflightService.execute(tier);
-        return { tier, ...result };
+        const healthy = result.live && result.ready;
+        const prev = this.tierFlapState.get(tier);
+
+        let flapCount = prev?.flapCount ?? 0;
+        let lastFlapAt = prev?.lastFlapAt ?? null;
+
+        if (prev !== undefined && prev.wasHealthy !== healthy) {
+          flapCount += 1;
+          lastFlapAt = new Date().toISOString();
+        }
+
+        this.tierFlapState.set(tier, { wasHealthy: healthy, flapCount, lastFlapAt });
+
+        return {
+          tier,
+          live: result.live,
+          ready: result.ready,
+          checkedAt: result.checkedAt,
+          flapCount,
+          lastFlapAt
+        };
       })
     );
-    return results;
+  }
+
+  private async resolveStoragePressure(
+    workspaceId: string
+  ): Promise<OverviewStoragePressure | null> {
+    const state = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(workspaceId);
+    if (!state) return null;
+
+    const tokenUsed = Number(state.tokenBudgetUsed);
+    const tokenLimit = state.tokenBudgetLimit !== null ? Number(state.tokenBudgetLimit) : null;
+    const mediaUsed = Number(state.mediaStorageBytesUsed);
+    const mediaLimit =
+      state.mediaStorageBytesLimit !== null ? Number(state.mediaStorageBytesLimit) : null;
+
+    return {
+      tokenBudgetUsedPercent:
+        tokenLimit !== null && tokenLimit > 0 ? Math.round((tokenUsed / tokenLimit) * 100) : 0,
+      mediaStorageUsedPercent:
+        mediaLimit !== null && mediaLimit > 0 ? Math.round((mediaUsed / mediaLimit) * 100) : 0,
+      tokenBudgetUsed: tokenUsed,
+      tokenBudgetLimit: tokenLimit,
+      mediaStorageBytesUsed: mediaUsed,
+      mediaStorageBytesLimit: mediaLimit
+    };
   }
 
   private computeLatency(
     snapshot: ReturnType<PlatformHttpMetricsService["getSnapshot"]>
   ): OverviewLatencySnapshot {
-    let allCount = 0;
-    let allDurationMs = 0;
-    let allMaxMs = 0;
-    let webCount = 0;
-    let webDurationMs = 0;
-    let webMaxMs = 0;
-    let tgCount = 0;
-    let tgDurationMs = 0;
-    let tgMaxMs = 0;
+    const makeBuckets = (): Bucket[] =>
+      [50, 100, 250, 500, 1000, 2500, 5000].map((le) => ({ le, value: 0 }));
+
+    let allCount = 0,
+      allDurationMs = 0,
+      allMaxMs = 0;
+    const allBuckets = makeBuckets();
+    let webCount = 0,
+      webDurationMs = 0,
+      webMaxMs = 0;
+    const webBuckets = makeBuckets();
+    let tgCount = 0,
+      tgDurationMs = 0,
+      tgMaxMs = 0;
+    const tgBuckets = makeBuckets();
 
     for (const series of snapshot.series) {
       allCount += series.count;
       allDurationMs += series.durationMsTotal;
       allMaxMs = Math.max(allMaxMs, series.maxDurationMs);
+      mergeBuckets(allBuckets, series.buckets);
 
       const route = series.key.route.toLowerCase();
       if (
@@ -116,6 +217,7 @@ export class ResolveAdminOverviewDashboardService {
         webCount += series.count;
         webDurationMs += series.durationMsTotal;
         webMaxMs = Math.max(webMaxMs, series.maxDurationMs);
+        mergeBuckets(webBuckets, series.buckets);
       } else if (
         route.includes("telegram-webhook") ||
         route.includes("turns/telegram") ||
@@ -124,30 +226,33 @@ export class ResolveAdminOverviewDashboardService {
         tgCount += series.count;
         tgDurationMs += series.durationMsTotal;
         tgMaxMs = Math.max(tgMaxMs, series.maxDurationMs);
+        mergeBuckets(tgBuckets, series.buckets);
       }
     }
 
+    const build = (
+      count: number,
+      dur: number,
+      max: number,
+      buckets: Bucket[]
+    ): OverviewChannelLatency | null =>
+      count > 0
+        ? {
+            avgMs: Math.round(dur / count),
+            maxMs: Math.round(max),
+            count,
+            percentiles: estimatePercentileFromBuckets(buckets, count)
+          }
+        : null;
+
     return {
-      webChatTurns:
-        webCount > 0
-          ? {
-              avgMs: Math.round(webDurationMs / webCount),
-              maxMs: Math.round(webMaxMs),
-              count: webCount
-            }
-          : null,
-      telegramTurns:
-        tgCount > 0
-          ? {
-              avgMs: Math.round(tgDurationMs / tgCount),
-              maxMs: Math.round(tgMaxMs),
-              count: tgCount
-            }
-          : null,
-      allRoutes: {
-        avgMs: allCount > 0 ? Math.round(allDurationMs / allCount) : 0,
-        maxMs: Math.round(allMaxMs),
-        count: allCount
+      webChatTurns: build(webCount, webDurationMs, webMaxMs, webBuckets),
+      telegramTurns: build(tgCount, tgDurationMs, tgMaxMs, tgBuckets),
+      allRoutes: build(allCount, allDurationMs, allMaxMs, allBuckets) ?? {
+        avgMs: 0,
+        maxMs: 0,
+        count: 0,
+        percentiles: { p50Ms: 0, p95Ms: 0, p99Ms: 0 }
       }
     };
   }
@@ -155,7 +260,9 @@ export class ResolveAdminOverviewDashboardService {
   private deriveWarnings(
     latency: OverviewLatencySnapshot,
     health: AdminOverviewDashboardState["health"],
-    unhealthyTiers: RuntimeTierPreflight[]
+    unhealthyTiers: RuntimeTierPreflight[],
+    storagePressure: OverviewStoragePressure | null,
+    queuePressure: OverviewQueuePressure
   ): OverviewSystemWarning[] {
     const warnings: OverviewSystemWarning[] = [];
 
@@ -169,12 +276,21 @@ export class ResolveAdminOverviewDashboardService {
       }
     }
 
+    const flappingTiers = [...this.tierFlapState.entries()].filter(([, s]) => s.flapCount >= 3);
+    for (const [tier, s] of flappingTiers) {
+      warnings.push({
+        code: "runtime_flapping",
+        severity: "warning",
+        message: `${tier}: ${s.flapCount} readiness flaps since process start`
+      });
+    }
+
     if (health.rssBytes > HIGH_MEMORY_THRESHOLD_BYTES) {
       const rssMb = Math.round(health.rssBytes / 1048576);
       warnings.push({
         code: "high_memory",
         severity: "warning",
-        message: `RSS memory is ${rssMb} MB (threshold: ${Math.round(HIGH_MEMORY_THRESHOLD_BYTES / 1048576)} MB)`
+        message: `RSS ${rssMb} MB > ${Math.round(HIGH_MEMORY_THRESHOLD_BYTES / 1048576)} MB threshold`
       });
     }
 
@@ -182,18 +298,43 @@ export class ResolveAdminOverviewDashboardService {
       warnings.push({
         code: "high_error_rate",
         severity: "warning",
-        message: `Error rate is ${(health.errorRate * 100).toFixed(1)}% (threshold: ${HIGH_ERROR_RATE_THRESHOLD * 100}%)`
+        message: `Error rate ${(health.errorRate * 100).toFixed(1)}% > ${HIGH_ERROR_RATE_THRESHOLD * 100}% threshold`
       });
     }
 
-    const webAvg = latency.webChatTurns?.avgMs ?? 0;
-    const tgAvg = latency.telegramTurns?.avgMs ?? 0;
-    if (webAvg > HIGH_LATENCY_THRESHOLD_MS || tgAvg > HIGH_LATENCY_THRESHOLD_MS) {
+    const webP95 = latency.webChatTurns?.percentiles.p95Ms ?? 0;
+    const tgP95 = latency.telegramTurns?.percentiles.p95Ms ?? 0;
+    if (webP95 > HIGH_LATENCY_THRESHOLD_MS || tgP95 > HIGH_LATENCY_THRESHOLD_MS) {
       warnings.push({
-        code: "high_latency",
+        code: "high_p95_latency",
         severity: "warning",
-        message: `High average latency detected: web=${webAvg}ms, TG=${tgAvg}ms (threshold: ${HIGH_LATENCY_THRESHOLD_MS}ms)`
+        message: `p95 latency: web=${webP95}ms, TG=${tgP95}ms (threshold: ${HIGH_LATENCY_THRESHOLD_MS}ms)`
       });
+    }
+
+    if (queuePressure.peakInFlight >= 20) {
+      warnings.push({
+        code: "high_queue_pressure",
+        severity: queuePressure.peakInFlight >= 50 ? "critical" : "warning",
+        message: `Peak in-flight requests: ${queuePressure.peakInFlight}`
+      });
+    }
+
+    if (storagePressure) {
+      if (storagePressure.tokenBudgetUsedPercent >= HIGH_STORAGE_PERCENT) {
+        warnings.push({
+          code: "token_budget_pressure",
+          severity: storagePressure.tokenBudgetUsedPercent >= 95 ? "critical" : "warning",
+          message: `Token budget ${storagePressure.tokenBudgetUsedPercent}% used`
+        });
+      }
+      if (storagePressure.mediaStorageUsedPercent >= HIGH_STORAGE_PERCENT) {
+        warnings.push({
+          code: "media_storage_pressure",
+          severity: storagePressure.mediaStorageUsedPercent >= 95 ? "critical" : "warning",
+          message: `Media storage ${storagePressure.mediaStorageUsedPercent}% used`
+        });
+      }
     }
 
     return warnings;

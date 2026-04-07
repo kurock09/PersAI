@@ -38,6 +38,8 @@ export type PlatformHttpMetricsSnapshot = {
   requestsTotal: number;
   errorRequestsTotal: number;
   inFlightRequests: number;
+  peakInFlightRequests: number;
+  processStartedAt: string;
   series: RequestMetricSeries[];
   mediaStageSeries: MediaStageMetricSeries[];
 };
@@ -126,13 +128,18 @@ function mediaSeriesKeyOf(key: MediaStageMetricKey): string {
 @Injectable()
 export class PlatformHttpMetricsService {
   private inFlightRequests = 0;
+  private peakInFlightRequests = 0;
   private requestsTotal = 0;
   private errorRequestsTotal = 0;
+  private readonly processStartedAt = new Date().toISOString();
   private readonly series = new Map<string, RequestMetricSeries>();
   private readonly mediaStageSeries = new Map<string, MediaStageMetricSeries>();
 
   beginRequest(): void {
     this.inFlightRequests += 1;
+    if (this.inFlightRequests > this.peakInFlightRequests) {
+      this.peakInFlightRequests = this.inFlightRequests;
+    }
   }
 
   endInFlightRequest(): void {
@@ -220,6 +227,8 @@ export class PlatformHttpMetricsService {
       requestsTotal: this.requestsTotal,
       errorRequestsTotal: this.errorRequestsTotal,
       inFlightRequests: this.inFlightRequests,
+      peakInFlightRequests: this.peakInFlightRequests,
+      processStartedAt: this.processStartedAt,
       series: Array.from(this.series.values()).sort((left, right) => {
         return seriesKeyOf(left.key).localeCompare(seriesKeyOf(right.key));
       }),

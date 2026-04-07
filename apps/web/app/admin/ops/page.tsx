@@ -155,16 +155,16 @@ function incidentSeverityTone(severity: AdminOpsIncidentSignal["severity"]): str
 
 function PreflightDot({ ok, label }: { ok: boolean; label: string }) {
   return (
-    <div className="flex items-center gap-1.5 text-xs">
+    <div className="flex items-center gap-1 text-[11px]">
       <span
         className={cn(
-          "h-2 w-2 shrink-0 rounded-full",
-          ok ? "bg-success shadow-[0_0_6px_rgba(34,197,94,0.45)]" : "bg-destructive"
+          "h-1.5 w-1.5 shrink-0 rounded-full",
+          ok ? "bg-success shadow-[0_0_4px_rgba(34,197,94,.5)]" : "bg-destructive"
         )}
         aria-hidden
       />
       <span className="text-text-muted">{label}</span>
-      <span className={cn("font-medium", ok ? "text-success" : "text-destructive")}>
+      <span className={cn("font-semibold", ok ? "text-success" : "text-destructive")}>
         {ok ? "Yes" : "No"}
       </span>
     </div>
@@ -181,20 +181,20 @@ function CardShell({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-surface-raised p-3.5">
-      <div className="mb-3 flex items-center gap-2 border-b border-border pb-2">
-        <Icon className="h-3.5 w-3.5 text-accent" />
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-text">{title}</h2>
+    <section className="rounded border border-border/50 bg-surface p-2.5">
+      <div className="mb-2 flex items-center gap-1.5">
+        <Icon className="h-3 w-3 text-accent" />
+        <h2 className="text-[10px] font-bold uppercase tracking-widest text-text-muted">{title}</h2>
       </div>
-      <div className="flex flex-col gap-2.5">{children}</div>
+      <div className="flex flex-col gap-2">{children}</div>
     </section>
   );
 }
 
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-x-2 gap-y-0.5 text-xs">
-      <span className="text-text-muted">{label}</span>
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-x-2 gap-y-px text-[11px]">
+      <span className="text-text-subtle">{label}</span>
       <span className="min-w-0 break-all text-right font-mono text-text">{value}</span>
     </div>
   );
@@ -259,24 +259,29 @@ function QuotaBar({
   formatValue: (v: number) => string;
 }) {
   const percent = limit !== null && limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
-  const barColor = percent >= 90 ? "bg-destructive" : percent >= 70 ? "bg-warning" : "bg-accent";
+  const barColor = percent >= 90 ? "bg-destructive" : percent >= 70 ? "bg-warning" : "bg-success";
+  const pctColor =
+    percent >= 95 ? "text-destructive" : percent >= 75 ? "text-warning" : "text-success";
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-[11px]">
-        <span className="font-medium text-text">{label}</span>
-        <span className="tabular-nums text-text-muted">
-          {formatValue(used)}
-          {limit !== null ? ` / ${formatValue(limit)}` : ""}
-        </span>
+    <div className="space-y-px">
+      <div className="flex items-baseline justify-between text-[10px]">
+        <span className="text-text-muted">{label}</span>
+        {limit !== null && (
+          <span className={cn("font-bold tabular-nums", pctColor)}>{Math.round(percent)}%</span>
+        )}
       </div>
       {limit !== null && (
-        <div className="h-1.5 overflow-hidden rounded-full bg-border">
+        <div className="h-1 overflow-hidden rounded-full bg-border/40">
           <div
-            className={cn("h-full rounded-full transition-[width] duration-300", barColor)}
+            className={cn("h-full rounded-full transition-all", barColor)}
             style={{ width: `${percent}%` }}
           />
         </div>
       )}
+      <p className="text-[9px] tabular-nums text-text-subtle">
+        {formatValue(used)}
+        {limit !== null ? ` / ${formatValue(limit)}` : ""}
+      </p>
     </div>
   );
 }
@@ -410,14 +415,14 @@ function UsersDirectory({
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
   return (
-    <section className="rounded-lg border border-border bg-surface-raised p-3.5">
-      <div className="mb-3 flex items-center justify-between gap-2 border-b border-border pb-2">
-        <div className="flex items-center gap-2">
-          <Users className="h-3.5 w-3.5 text-accent" />
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-text">
+    <section className="rounded border border-border/50 bg-surface p-2.5">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <Users className="h-3 w-3 text-accent" />
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-text-muted">
             User Directory
           </h2>
-          <span className="text-[10px] text-text-subtle">{total} total</span>
+          <span className="text-[9px] text-text-subtle">{total}</span>
         </div>
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-text-subtle" />
@@ -425,8 +430,8 @@ function UsersDirectory({
             type="text"
             value={search}
             onChange={(e) => onSearch(e.target.value)}
-            placeholder="Search email or name…"
-            className="h-7 w-48 rounded border border-border bg-bg pl-6 pr-2 text-[11px] text-text placeholder:text-text-subtle focus:border-accent/50 focus:outline-none"
+            placeholder="Search…"
+            className="h-6 w-40 rounded border border-border/50 bg-surface-raised pl-6 pr-2 text-[10px] text-text placeholder:text-text-subtle focus:border-accent/50 focus:outline-none"
           />
         </div>
       </div>
@@ -827,18 +832,18 @@ export default function AdminOpsPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Activity className="h-5 w-5 text-accent" />
-          <h1 className="text-lg font-bold tracking-tight text-text">Ops Cockpit</h1>
+    <div className="mx-auto max-w-5xl space-y-2.5 px-1">
+      <header className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Activity className="h-4 w-4 text-accent" />
+          <h1 className="text-sm font-bold tracking-tight text-text">Ops Cockpit</h1>
           {selectedUserLabel && (
-            <span className="rounded bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">
+            <span className="rounded bg-accent/15 px-1.5 py-px text-[9px] font-semibold text-accent">
               {selectedUserLabel}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {selectedUserId && (
             <button
               type="button"
@@ -849,7 +854,7 @@ export default function AdminOpsPage() {
                 setPlanSelectionDirty(false);
                 void load(undefined);
               }}
-              className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-surface px-2 py-1.5 text-[10px] font-medium text-text-muted transition-colors hover:bg-surface-hover"
+              className="inline-flex cursor-pointer items-center gap-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] font-medium text-text-muted transition-colors hover:bg-surface-hover"
             >
               Show self
             </button>
@@ -859,18 +864,18 @@ export default function AdminOpsPage() {
             onClick={() => void load()}
             disabled={refreshing || loading}
             className={cn(
-              "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-text transition-colors",
+              "inline-flex cursor-pointer items-center gap-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] font-medium text-text-muted transition-colors",
               "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
             )}
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+            <RefreshCw className={cn("h-3 w-3", refreshing && "animate-spin")} />
             Refresh
           </button>
         </div>
       </header>
 
       {loadError && (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <p className="rounded border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-[11px] text-destructive">
           {loadError}
         </p>
       )}
@@ -884,8 +889,8 @@ export default function AdminOpsPage() {
 
       {cockpit && (
         <>
-          {/* --- Row 1: three balanced columns --- */}
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
+          {/* --- Row 1: four balanced columns --- */}
+          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-4">
             {/* Col 1: Assistant identity */}
             <CardShell title="Assistant" icon={Bot}>
               <div className="flex items-center justify-between gap-2">
@@ -1092,13 +1097,8 @@ export default function AdminOpsPage() {
                 </button>
               </div>
               <div className="border-t border-border pt-2">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                  Workspace subscription snapshot
-                </p>
-                <p className="mb-2 text-[11px] leading-relaxed text-text-muted">
-                  Use only for `SR9e` propagation/live verification. This updates the workspace
-                  subscription row and should force runtime rematerialization through
-                  `configDirtyAt`.
+                <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+                  Workspace subscription
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -1183,7 +1183,7 @@ export default function AdminOpsPage() {
               | undefined;
             if (!cs && (!ch || ch.length === 0)) return null;
             return (
-              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-2">
                 {cs && (
                   <CardShell title="Chat Stats" icon={Activity}>
                     <div className="grid grid-cols-3 gap-2 text-center">
@@ -1240,9 +1240,9 @@ export default function AdminOpsPage() {
           })()}
 
           {/* --- Row 2: Controls + Incidents side by side --- */}
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-            <section className="rounded-lg border border-border bg-surface-raised p-3">
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text">
+          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+            <section className="rounded border border-border/50 bg-surface p-2.5">
+              <h2 className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-text-muted">
                 Controls
               </h2>
               <div className="flex flex-wrap gap-2">
@@ -1277,13 +1277,13 @@ export default function AdminOpsPage() {
               </div>
             </section>
 
-            <section className="rounded-lg border border-border bg-surface-raised p-3">
-              <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text">
-                <AlertTriangle className="h-3.5 w-3.5 text-text-muted" />
+            <section className="rounded border border-border/50 bg-surface p-2.5">
+              <h2 className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-text-muted">
+                <AlertTriangle className="h-3 w-3" />
                 Incidents
               </h2>
               {cockpit.incidentSignals.length === 0 ? (
-                <p className="text-xs text-text-muted">No active signals.</p>
+                <p className="text-[11px] text-text-muted">No active signals.</p>
               ) : (
                 <ul className="space-y-1.5">
                   {cockpit.incidentSignals.map((signal, i) => (
@@ -1312,8 +1312,8 @@ export default function AdminOpsPage() {
             </section>
           </div>
 
-          <p className="text-center text-[10px] text-text-subtle">
-            Updated {formatTs(cockpit.updatedAt)}
+          <p className="pt-0.5 text-center text-[9px] tabular-nums text-text-subtle/50">
+            {formatTs(cockpit.updatedAt)}
           </p>
         </>
       )}
