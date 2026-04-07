@@ -5,10 +5,6 @@ import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository
 } from "../domain/assistant-plan-catalog.repository";
-import {
-  WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
-  type WorkspaceQuotaAccountingRepository
-} from "../domain/workspace-quota-accounting.repository";
 import type {
   AdminBusinessPlatformState,
   PlanDistributionEntry,
@@ -28,14 +24,11 @@ export class ResolveAdminBusinessPlatformService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly prisma: WorkspaceManagementPrismaService,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
-    private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository,
-    @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
-    private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository
+    private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository
   ) {}
 
   async execute(userId: string): Promise<AdminBusinessPlatformState> {
-    const context = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
-    const workspaceId = context.workspaceId;
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const now = new Date();
     const windowStart = new Date(now);
     windowStart.setDate(windowStart.getDate() - BUSINESS_WINDOW_DAYS);
@@ -47,8 +40,7 @@ export class ResolveAdminBusinessPlatformService {
     const activePlans = allPlans.filter((p) => p.status === "active");
 
     const assistants = await this.prisma.assistant.findMany({
-      where: { workspaceId },
-      select: { id: true, userId: true, applyStatus: true }
+      select: { id: true, userId: true, workspaceId: true, applyStatus: true }
     });
     const totalAssistants = assistants.length;
     const activeAssistants = assistants.filter(
@@ -58,12 +50,10 @@ export class ResolveAdminBusinessPlatformService {
     const usersWithoutAssistant = totalUsers - usersWithAssistant;
 
     const [totalConversations, totalMessages, activeWebChats] = await Promise.all([
-      this.prisma.assistantChat.count({ where: { workspaceId } }),
-      this.prisma.assistantChatMessage.count({
-        where: { assistant: { workspaceId } }
-      }),
+      this.prisma.assistantChat.count(),
+      this.prisma.assistantChatMessage.count(),
       this.prisma.assistantChat.count({
-        where: { workspaceId, surface: "web", archivedAt: null }
+        where: { surface: "web", archivedAt: null }
       })
     ]);
 
@@ -74,24 +64,30 @@ export class ResolveAdminBusinessPlatformService {
     const governanceByAssistant = new Map(governanceRows.map((g) => [g.assistantId, g]));
 
     const subscriptions = await this.prisma.workspaceSubscription.findMany({
-      where: { workspaceId },
-      select: { planCode: true }
+      where: {
+        workspaceId: {
+          in: Array.from(new Set(assistants.map((assistant) => assistant.workspaceId)))
+        }
+      },
+      select: { workspaceId: true, planCode: true }
     });
-    const workspacePlanCode = subscriptions.length > 0 ? subscriptions[0]!.planCode : null;
+    const workspacePlanCodeByWorkspaceId = new Map(
+      subscriptions.map((subscription) => [subscription.workspaceId, subscription.planCode])
+    );
 
     const planCounts = new Map<string, number>();
     for (const assistant of assistants) {
       const gov = governanceByAssistant.get(assistant.id);
       const effectivePlan =
         gov?.assistantPlanOverrideCode ??
-        workspacePlanCode ??
+        workspacePlanCodeByWorkspaceId.get(assistant.workspaceId) ??
         gov?.quotaPlanCode ??
         defaultPlan?.code ??
         "unknown";
       planCounts.set(effectivePlan, (planCounts.get(effectivePlan) ?? 0) + 1);
     }
     if (usersWithoutAssistant > 0) {
-      const fallbackPlan = workspacePlanCode ?? defaultPlan?.code ?? "no_assistant";
+      const fallbackPlan = defaultPlan?.code ?? "no_assistant";
       planCounts.set(fallbackPlan, (planCounts.get(fallbackPlan) ?? 0) + usersWithoutAssistant);
     }
 
@@ -104,14 +100,13 @@ export class ResolveAdminBusinessPlatformService {
         percent: toPercent(count, totalUsers)
       }));
 
-    const quotaPressureDistribution = await this.computeQuotaPressure(workspaceId);
+    const quotaPressureDistribution = await this.computeQuotaPressure();
 
     const webChats = await this.prisma.assistantChat.count({
-      where: { workspaceId, surface: "web", archivedAt: null }
+      where: { surface: "web", archivedAt: null }
     });
     const telegramBindings = await this.prisma.assistantChannelSurfaceBinding.count({
       where: {
-        assistant: { workspaceId },
         providerKey: "telegram",
         surfaceType: "telegram_bot",
         bindingState: "active"
@@ -119,7 +114,6 @@ export class ResolveAdminBusinessPlatformService {
     });
     const whatsappBindings = await this.prisma.assistantChannelSurfaceBinding.count({
       where: {
-        assistant: { workspaceId },
         providerKey: "whatsapp",
         surfaceType: "whatsapp_business",
         bindingState: "active"
@@ -127,7 +121,6 @@ export class ResolveAdminBusinessPlatformService {
     });
     const maxBindings = await this.prisma.assistantChannelSurfaceBinding.count({
       where: {
-        assistant: { workspaceId },
         providerKey: "max",
         surfaceType: { in: ["max_bot", "max_mini_app"] },
         bindingState: "active"
@@ -136,21 +129,18 @@ export class ResolveAdminBusinessPlatformService {
 
     const applySucceeded = await this.prisma.assistantAuditEvent.count({
       where: {
-        workspaceId,
         createdAt: { gte: windowStart },
         eventCode: "assistant.runtime.apply_succeeded"
       }
     });
     const applyDegraded = await this.prisma.assistantAuditEvent.count({
       where: {
-        workspaceId,
         createdAt: { gte: windowStart },
         eventCode: "assistant.runtime.apply_degraded"
       }
     });
     const applyFailed = await this.prisma.assistantAuditEvent.count({
       where: {
-        workspaceId,
         createdAt: { gte: windowStart },
         eventCode: "assistant.runtime.apply_failed"
       }
@@ -191,18 +181,31 @@ export class ResolveAdminBusinessPlatformService {
     };
   }
 
-  private async computeQuotaPressure(workspaceId: string): Promise<QuotaPressureDistribution> {
-    const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(workspaceId);
-    if (quotaState === null) return { low: 0, elevated: 0, high: 0 };
+  private async computeQuotaPressure(): Promise<QuotaPressureDistribution> {
+    const quotaStates = await this.prisma.workspaceQuotaAccountingState.findMany({
+      select: {
+        tokenBudgetUsed: true,
+        tokenBudgetLimit: true
+      }
+    });
 
-    const tokenLimit = quotaState.tokenBudgetLimit;
-    const tokenPercent =
-      tokenLimit !== null && tokenLimit > BigInt(0)
-        ? Number((quotaState.tokenBudgetUsed * BigInt(100)) / tokenLimit)
-        : 0;
+    const distribution: QuotaPressureDistribution = { low: 0, elevated: 0, high: 0 };
+    for (const quotaState of quotaStates) {
+      const tokenLimit = quotaState.tokenBudgetLimit;
+      const tokenPercent =
+        tokenLimit !== null && tokenLimit > BigInt(0)
+          ? Number((quotaState.tokenBudgetUsed * BigInt(100)) / tokenLimit)
+          : 0;
 
-    if (tokenPercent >= 90) return { low: 0, elevated: 0, high: 1 };
-    if (tokenPercent >= 60) return { low: 0, elevated: 1, high: 0 };
-    return { low: 1, elevated: 0, high: 0 };
+      if (tokenPercent >= 90) {
+        distribution.high += 1;
+      } else if (tokenPercent >= 60) {
+        distribution.elevated += 1;
+      } else {
+        distribution.low += 1;
+      }
+    }
+
+    return distribution;
   }
 }

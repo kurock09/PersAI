@@ -147,7 +147,7 @@ export default function AdminBusinessPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <TrendingUp className="h-4 w-4 text-accent" />
-          <h1 className="text-sm font-bold tracking-tight text-text">Business Metrics</h1>
+          <h1 className="text-sm font-bold tracking-tight text-text">Global Business Metrics</h1>
         </div>
         <button
           type="button"
@@ -197,7 +197,7 @@ export default function AdminBusinessPage() {
                 {
                   l: "Apply OK",
                   v: `${p.publishApplyHealth.applySuccessPercent}%`,
-                  s: "7 days",
+                  s: "Global · 7 days",
                   c:
                     p.publishApplyHealth.applySuccessPercent >= 90
                       ? "text-success"
@@ -271,7 +271,7 @@ export default function AdminBusinessPage() {
           {/* Quota pressure + Channels side by side */}
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {/* Quota Pressure */}
-            <Fold t="Quota Pressure" open>
+            <Fold t="Workspace Token Pressure" open>
               <div className="grid grid-cols-3 gap-1">
                 {(
                   [
@@ -285,13 +285,14 @@ export default function AdminBusinessPage() {
                     <p className="text-xl font-bold tabular-nums">
                       {p.quotaPressureDistribution[k]}
                     </p>
+                    <p className="text-[8px] text-text-subtle">workspaces</p>
                   </div>
                 ))}
               </div>
             </Fold>
 
             {/* Channel Adoption */}
-            <Fold t="Channel Adoption" open>
+            <Fold t="Channel Adoption · Global" open>
               <div className="divide-y divide-border/30 rounded border border-border/40 bg-surface">
                 {(["webChat", "telegram", "whatsapp", "max"] as const).map((k) => {
                   const v = p.channelAdoption[k];
@@ -317,7 +318,7 @@ export default function AdminBusinessPage() {
           </div>
 
           {/* Apply Health */}
-          <Fold t="Publish / Apply Health · 7 days" open>
+          <Fold t="Publish / Apply Health · Global · 7 days" open>
             <div className="flex items-center gap-3 rounded border border-border/40 bg-surface px-3 py-2">
               <div className="text-center">
                 <p

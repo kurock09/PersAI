@@ -35,14 +35,6 @@ type Tier = {
   flapCount: number;
   lastFlapAt: string | null;
 };
-type StorePressure = {
-  tokenBudgetUsedPercent: number;
-  mediaStorageUsedPercent: number;
-  tokenBudgetUsed: number;
-  tokenBudgetLimit: number | null;
-  mediaStorageBytesUsed: number;
-  mediaStorageBytesLimit: number | null;
-};
 type QueuePressure = { inFlight: number; peakInFlight: number; requestsPerSecond: number };
 type Health = {
   uptimeSeconds: number;
@@ -65,7 +57,6 @@ type Dash = {
   runtime: { adapterEnabled: boolean; tiers: Tier[] };
   health: Health;
   queuePressure: QueuePressure;
-  storagePressure: StorePressure | null;
   warnings: Warning[];
   updatedAt: string;
 };
@@ -339,9 +330,9 @@ export default function AdminOverviewPage() {
               icon={Activity}
             />
             <KPI
-              label="Peak queue"
+              label="Peak in-flight"
               value={String(d.queuePressure.peakInFlight)}
-              sub={`${d.queuePressure.requestsPerSecond} req/s`}
+              sub={`${d.queuePressure.requestsPerSecond} avg req/s`}
             />
             <KPI
               label="Error rate"
@@ -414,45 +405,10 @@ export default function AdminOverviewPage() {
             </div>
           </Fold>
 
-          {/* Capacity Pressure */}
-          <Fold t="Capacity Pressure" open>
-            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-              {/* Quota / Storage */}
-              <div className="space-y-2 rounded border border-border/40 bg-surface px-2.5 py-2">
-                <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
-                  Quota &amp; Storage
-                </p>
-                {d.storagePressure ? (
-                  <>
-                    <Bar
-                      pct={d.storagePressure.tokenBudgetUsedPercent}
-                      label="Token budget"
-                      sub={
-                        d.storagePressure.tokenBudgetLimit !== null
-                          ? `${d.storagePressure.tokenBudgetUsed.toLocaleString()} / ${d.storagePressure.tokenBudgetLimit.toLocaleString()}`
-                          : "No limit"
-                      }
-                    />
-                    <Bar
-                      pct={d.storagePressure.mediaStorageUsedPercent}
-                      label="Media storage"
-                      sub={
-                        d.storagePressure.mediaStorageBytesLimit !== null
-                          ? `${fB(d.storagePressure.mediaStorageBytesUsed)} / ${fB(d.storagePressure.mediaStorageBytesLimit)}`
-                          : "No limit"
-                      }
-                    />
-                  </>
-                ) : (
-                  <p className="text-[11px] text-text-muted">No data</p>
-                )}
-              </div>
-
-              {/* Sandbox */}
-              <div className="space-y-2 rounded border border-border/40 bg-surface px-2.5 py-2">
-                <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
-                  Sandbox
-                </p>
+          {/* Process pressure */}
+          <Fold t="Process Pressure" open>
+            <div className="rounded border border-border/40 bg-surface px-2.5 py-2">
+              <div className="space-y-2">
                 <Bar
                   pct={
                     d.health.heapTotalBytes > 0

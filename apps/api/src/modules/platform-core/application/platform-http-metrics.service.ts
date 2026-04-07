@@ -44,7 +44,7 @@ export type PlatformHttpMetricsSnapshot = {
   mediaStageSeries: MediaStageMetricSeries[];
 };
 
-const LATENCY_BUCKETS_MS = [50, 100, 250, 500, 1_000, 2_500, 5_000];
+const LATENCY_BUCKETS_MS = [50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000];
 
 function createBuckets(): HistogramBucket[] {
   return LATENCY_BUCKETS_MS.map((bucket) => ({ le: bucket, value: 0 }));

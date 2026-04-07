@@ -32,15 +32,6 @@ export type RuntimeTierPreflight = {
   lastFlapAt: string | null;
 };
 
-export type OverviewStoragePressure = {
-  tokenBudgetUsedPercent: number;
-  mediaStorageUsedPercent: number;
-  tokenBudgetUsed: number;
-  tokenBudgetLimit: number | null;
-  mediaStorageBytesUsed: number;
-  mediaStorageBytesLimit: number | null;
-};
-
 export type OverviewQueuePressure = {
   inFlight: number;
   peakInFlight: number;
@@ -70,7 +61,6 @@ export type AdminOverviewDashboardState = {
     cpuSystemMs: number;
   };
   queuePressure: OverviewQueuePressure;
-  storagePressure: OverviewStoragePressure | null;
   warnings: OverviewSystemWarning[];
   updatedAt: string;
 };

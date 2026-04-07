@@ -1,21 +1,16 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { RUNTIME_TIER_VALUES, type RuntimeTier } from "./runtime-assignment";
-import {
-  WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
-  type WorkspaceQuotaAccountingRepository
-} from "../domain/workspace-quota-accounting.repository";
 import type {
   AdminOverviewDashboardState,
   LatencyPercentiles,
   OverviewChannelLatency,
   OverviewLatencySnapshot,
   OverviewQueuePressure,
-  OverviewStoragePressure,
   OverviewSystemWarning,
   RuntimeTierPreflight
 } from "./overview-dashboard.types";
@@ -24,11 +19,14 @@ const ACTIVE_USERS_WINDOW_MINUTES = 15;
 const HIGH_MEMORY_THRESHOLD_BYTES = 512 * 1024 * 1024;
 const HIGH_LATENCY_THRESHOLD_MS = 3000;
 const HIGH_ERROR_RATE_THRESHOLD = 0.05;
-const HIGH_STORAGE_PERCENT = 85;
 
 type Bucket = { le: number; value: number };
 
-function estimatePercentileFromBuckets(buckets: Bucket[], total: number): LatencyPercentiles {
+function estimatePercentileFromBuckets(
+  buckets: Bucket[],
+  total: number,
+  maxMs: number
+): LatencyPercentiles {
   if (total === 0) return { p50Ms: 0, p95Ms: 0, p99Ms: 0 };
   const sorted = [...buckets].sort((a, b) => a.le - b.le);
   function pctl(target: number): number {
@@ -36,7 +34,7 @@ function estimatePercentileFromBuckets(buckets: Bucket[], total: number): Latenc
     for (const b of sorted) {
       if (b.value >= threshold) return b.le;
     }
-    return sorted.length > 0 ? sorted[sorted.length - 1]!.le : 0;
+    return Math.round(maxMs);
   }
   return { p50Ms: pctl(0.5), p95Ms: pctl(0.95), p99Ms: pctl(0.99) };
 }
@@ -57,24 +55,21 @@ export class ResolveAdminOverviewDashboardService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
-    private readonly prisma: WorkspaceManagementPrismaService,
-    @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
-    private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   async execute(callerUserId: string): Promise<AdminOverviewDashboardState> {
-    const context = await this.adminAuthorizationService.assertCanReadAdminSurface(callerUserId);
+    await this.adminAuthorizationService.assertCanReadAdminSurface(callerUserId);
     const config = loadApiConfig(process.env);
     const httpSnapshot = this.platformHttpMetricsService.getSnapshot();
 
-    const [tiers, activeUsersResult, activeWebChats, storagePressure] = await Promise.all([
+    const [tiers, activeUsersResult, activeWebChats] = await Promise.all([
       this.resolveAllTierPreflights(),
       this.prisma.assistantChat.groupBy({
         by: ["userId"],
         where: { updatedAt: { gte: new Date(Date.now() - ACTIVE_USERS_WINDOW_MINUTES * 60_000) } }
       }),
-      this.prisma.assistantChat.count({ where: { surface: "web", archivedAt: null } }),
-      this.resolveStoragePressure(context.workspaceId)
+      this.prisma.assistantChat.count({ where: { surface: "web", archivedAt: null } })
     ]);
 
     const latency = this.computeLatency(httpSnapshot);
@@ -108,13 +103,7 @@ export class ResolveAdminOverviewDashboardService {
     };
 
     const anyUnhealthy = tiers.some((t) => !t.live || !t.ready);
-    const warnings = this.deriveWarnings(
-      latency,
-      health,
-      anyUnhealthy ? tiers : [],
-      storagePressure,
-      queuePressure
-    );
+    const warnings = this.deriveWarnings(latency, health, anyUnhealthy ? tiers : [], queuePressure);
 
     return {
       latency,
@@ -123,7 +112,6 @@ export class ResolveAdminOverviewDashboardService {
       runtime: { adapterEnabled: config.OPENCLAW_ADAPTER_ENABLED, tiers },
       health,
       queuePressure,
-      storagePressure,
       warnings,
       updatedAt: new Date().toISOString()
     };
@@ -156,30 +144,6 @@ export class ResolveAdminOverviewDashboardService {
         };
       })
     );
-  }
-
-  private async resolveStoragePressure(
-    workspaceId: string
-  ): Promise<OverviewStoragePressure | null> {
-    const state = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(workspaceId);
-    if (!state) return null;
-
-    const tokenUsed = Number(state.tokenBudgetUsed);
-    const tokenLimit = state.tokenBudgetLimit !== null ? Number(state.tokenBudgetLimit) : null;
-    const mediaUsed = Number(state.mediaStorageBytesUsed);
-    const mediaLimit =
-      state.mediaStorageBytesLimit !== null ? Number(state.mediaStorageBytesLimit) : null;
-
-    return {
-      tokenBudgetUsedPercent:
-        tokenLimit !== null && tokenLimit > 0 ? Math.round((tokenUsed / tokenLimit) * 100) : 0,
-      mediaStorageUsedPercent:
-        mediaLimit !== null && mediaLimit > 0 ? Math.round((mediaUsed / mediaLimit) * 100) : 0,
-      tokenBudgetUsed: tokenUsed,
-      tokenBudgetLimit: tokenLimit,
-      mediaStorageBytesUsed: mediaUsed,
-      mediaStorageBytesLimit: mediaLimit
-    };
   }
 
   private computeLatency(
@@ -241,7 +205,7 @@ export class ResolveAdminOverviewDashboardService {
             avgMs: Math.round(dur / count),
             maxMs: Math.round(max),
             count,
-            percentiles: estimatePercentileFromBuckets(buckets, count)
+            percentiles: estimatePercentileFromBuckets(buckets, count, max)
           }
         : null;
 
@@ -261,7 +225,6 @@ export class ResolveAdminOverviewDashboardService {
     latency: OverviewLatencySnapshot,
     health: AdminOverviewDashboardState["health"],
     unhealthyTiers: RuntimeTierPreflight[],
-    storagePressure: OverviewStoragePressure | null,
     queuePressure: OverviewQueuePressure
   ): OverviewSystemWarning[] {
     const warnings: OverviewSystemWarning[] = [];
@@ -318,23 +281,6 @@ export class ResolveAdminOverviewDashboardService {
         severity: queuePressure.peakInFlight >= 50 ? "critical" : "warning",
         message: `Peak in-flight requests: ${queuePressure.peakInFlight}`
       });
-    }
-
-    if (storagePressure) {
-      if (storagePressure.tokenBudgetUsedPercent >= HIGH_STORAGE_PERCENT) {
-        warnings.push({
-          code: "token_budget_pressure",
-          severity: storagePressure.tokenBudgetUsedPercent >= 95 ? "critical" : "warning",
-          message: `Token budget ${storagePressure.tokenBudgetUsedPercent}% used`
-        });
-      }
-      if (storagePressure.mediaStorageUsedPercent >= HIGH_STORAGE_PERCENT) {
-        warnings.push({
-          code: "media_storage_pressure",
-          severity: storagePressure.mediaStorageUsedPercent >= 95 ? "critical" : "warning",
-          message: `Media storage ${storagePressure.mediaStorageUsedPercent}% used`
-        });
-      }
     }
 
     return warnings;
