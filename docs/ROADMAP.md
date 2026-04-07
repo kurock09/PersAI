@@ -471,14 +471,14 @@ Scaling-readiness control layer is now tracked by:
   - [x] `SR7b` — web staged uploads now emit the same bounded media-stage visibility model through `web_stage_attachment`, so web image/file upload observation is no longer outside the shared `SR7` metrics surface
 - [x] SR8 — Webhook and realtime burst hardening
   - [x] `SR8b` — combined Telegram/web/reminder replay closure package
-- [ ] SR9 — Billing and quota correctness under concurrency ← **active slice**
-  - [ ] `SR9a` — assistant plan override propagation ← pending auth fix deploy + re-test
+- [x] SR9 — Billing and quota correctness under concurrency (closed: all sub-slices live-validated 2026-04-07)
+  - [x] `SR9a` — assistant plan override propagation (closed: live-validated 2026-04-07)
   - [x] `SR9b` — token budget atomic accounting (closed: live-validated 2026-04-07)
   - [x] `SR9c` — media storage quota atomicity + dual quota pre-check (closed: live-validated 2026-04-07)
   - [x] `SR9d` — active web chats cap race-safe creation (closed: live-validated 2026-04-07)
-  - [ ] `SR9e` — workspace subscription sync propagation ← pending auth fix deploy + re-test
+  - [x] `SR9e` — workspace subscription sync propagation (closed: live-validated 2026-04-07)
   - [x] `SR9f` — tool daily quota check-vs-consume (closed: live-validated 2026-04-07)
-- [ ] SR10 — Capacity validation and production gate
+- [ ] SR10 — Capacity validation and production gate ← **active slice**
 - [ ] H16 — Autonomous workspace heartbeat deeper isolation
   - note: the immediate hygiene slice above is complete; the remaining H16 work is the deeper isolation/refactor track
   - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated

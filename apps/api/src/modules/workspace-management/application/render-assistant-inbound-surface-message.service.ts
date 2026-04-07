@@ -45,6 +45,8 @@ export class RenderAssistantInboundSurfaceMessageService {
         return "Workspace disk is full. Delete old chats or ask the assistant to clean up files to free space.";
       case "quota_limit_reached":
         return "Usage limit reached for the current plan. Please try again later.";
+      case "token_budget_exhausted":
+        return "Monthly token budget has been exhausted. Wait for the next billing cycle or upgrade the plan.";
       case "tool_daily_limit_reached":
         return "Daily tool usage limit reached. Please try again later.";
       case "rate_limited":

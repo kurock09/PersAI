@@ -355,6 +355,15 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
     };
   }
 
+  if (code === "token_budget_exhausted") {
+    return {
+      classId: "quota_limit_reached",
+      message: "Monthly token budget has been exhausted.",
+      guidance:
+        "Wait for the next billing cycle or upgrade the plan to continue using the assistant."
+    };
+  }
+
   if (code === "tool_daily_limit_reached") {
     return {
       classId: "quota_limit_reached",

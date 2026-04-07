@@ -104,11 +104,11 @@ Do not combine in one deploy window by default:
 - storage/quota algorithm changes
 
 ## Active Program State
-- `Current active slice`: `SR9` — Billing and quota correctness under concurrency
-- `Current active sub-slice`: `SR9a` + `SR9e` — blocked on auth middleware fix deploy; `SR9b`, `SR9d`, `SR9f` live-validated and closed
-- `Current phase`: Billing and quota correctness under concurrency
-- `Next recommended slice after SR9`: `SR10` — Capacity validation and production gate
-- `Last closed slice`: `SR8` — Webhook and realtime burst hardening (closed 2026-04-06 after bounded live replay validation across web, reminders, and Telegram)
+- `Current active slice`: `SR10` — Capacity validation and production gate
+- `Current active sub-slice`: TBD (pending SR10 scope)
+- `Current phase`: Capacity validation and production gate
+- `Next recommended slice after SR10`: TBD
+- `Last closed slice`: `SR9` — Billing and quota correctness under concurrency (closed 2026-04-07 after full live validation of all sub-slices SR9a–SR9f)
 - `Post-SR5 baseline`: parallel sandbox image preload with retry, per-tier dind contention measured and documented, cross-pool isolation confirmed, predictable linear degradation under sandbox-heavy bursts
 - `Post-SR6 baseline`: workspace quota enforcement is fail-safe on active guarded paths, oversized writes are bounded near quota instead of running away, post-command non-cleanup `exec` failures are surfaced as failed tool outcomes, and cleanup remains allowed under exceedance so remediation does not deadlock
 - `Accepted residual (SR6)`: we do not claim that every one-shot oversized write always ends with ideal shell/`dd` exit-code semantics or zero overshoot before enforcement; remaining `dd`/exit-code presentation is accepted operational risk rather than an active blocker for opening `SR7`
@@ -1110,7 +1110,7 @@ Deploy window:
 - API only
 
 Observation window:
-- **SR9a pending** — admin plan-override routes were missing from Clerk auth middleware (returned 401); fix committed, awaiting deploy + re-test
+- **SR9a closed** — live-validated 2026-04-07: plan override apply/delete confirmed working after auth middleware fix deploy; token budget enforcement confirmed with dedicated `token_budget_exhausted` error banner
 
 Exit criteria:
 - assistant override changes are no longer indefinitely stale on the runtime/materialized path
@@ -1349,7 +1349,7 @@ Deploy window:
 - API only
 
 Observation window:
-- **SR9e pending** — admin workspace-subscription routes were missing from Clerk auth middleware (same bug as SR9a); fix committed, awaiting deploy + re-test
+- **SR9e closed** — live-validated 2026-04-07: workspace subscription sync confirmed working after auth middleware fix deploy
 
 Exit criteria:
 - touched workspace subscription sync writes can no longer change API-side commercial truth without also dirtying the corresponding assistants for runtime rematerialization

@@ -11,7 +11,10 @@ import {
   WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
   type WorkspaceQuotaAccountingRepository
 } from "../domain/workspace-quota-accounting.repository";
-import { createAssistantInboundRateLimitError } from "./assistant-inbound-error";
+import {
+  createAssistantInboundRateLimitError,
+  createAssistantInboundConflict
+} from "./assistant-inbound-error";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
 const WINDOW_MS = 60_000;
@@ -65,16 +68,30 @@ export class EnforceAbuseRateLimitService {
       slowdownSeconds: config.ABUSE_SLOWDOWN_SECONDS
     });
 
+    const isQuotaPressure = quotaDecision.reason === "quota_pressure_temporary_block";
+
     if (
       registered.finalBlockedUntil != null &&
       registered.finalBlockedUntil.getTime() > now.getTime()
     ) {
+      if (isQuotaPressure) {
+        throw createAssistantInboundConflict(
+          "token_budget_exhausted",
+          "Monthly token budget has been exhausted. Wait for the next billing cycle or upgrade the plan."
+        );
+      }
       throwTooManyRequests("Requests temporarily blocked due to abuse/rate-limit protection.");
     }
     if (
       registered.finalSlowedUntil != null &&
       registered.finalSlowedUntil.getTime() > now.getTime()
     ) {
+      if (isQuotaPressure) {
+        throw createAssistantInboundConflict(
+          "token_budget_exhausted",
+          "Monthly token budget has been exhausted. Wait for the next billing cycle or upgrade the plan."
+        );
+      }
       throwTooManyRequests(
         "Requests temporarily slowed due to abuse/rate-limit and quota pressure protection."
       );

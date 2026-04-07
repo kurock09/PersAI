@@ -341,6 +341,20 @@ describe("toWebChatUxIssue", () => {
     });
   });
 
+  it("maps token budget exhausted to billing-cycle guidance", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "token_budget_exhausted",
+        message: "Monthly token budget has been exhausted."
+      })
+    ).toEqual({
+      classId: "quota_limit_reached",
+      message: "Monthly token budget has been exhausted.",
+      guidance:
+        "Wait for the next billing cycle or upgrade the plan to continue using the assistant."
+    });
+  });
+
   it("maps quota hard-stop to fallback-aware guidance", () => {
     expect(
       toWebChatUxIssue({

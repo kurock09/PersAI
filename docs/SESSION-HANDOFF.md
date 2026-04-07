@@ -1,36 +1,38 @@
 # SESSION-HANDOFF
 
-## 2026-04-07 - SR9 live validation wave + auth middleware bug fix
+## 2026-04-07 - SR9 fully closed
 
 ### Current active slice
 
-- `SR9` — Billing and quota correctness under concurrency
+- `SR10` — Capacity validation and production gate
 
 ### Current active sub-slice
 
-- `SR9a` + `SR9e` — pending auth fix deploy + re-test
+- TBD (pending SR10 scope)
 
 ### What was completed
 
+- **SR9a** — live-validated after auth middleware fix deploy: plan override apply/delete confirmed working. Token budget enforcement now shows a dedicated "Monthly token budget has been exhausted" banner (`token_budget_exhausted` error code) instead of the generic "Requests are temporarily limited" message. **Closed.**
 - **SR9b** — live-validated: token budget enforcement confirmed under normal usage. **Closed.**
 - **SR9c** — live-validated: dual quota pre-check (Variant B) confirmed working in web + Telegram. **Closed.**
 - **SR9d** — live-validated: active web chats cap enforcement confirmed. **Closed.**
+- **SR9e** — live-validated after auth middleware fix deploy: workspace subscription sync confirmed working. **Closed.**
 - **SR9f** — live-validated: tool daily limit enforcement confirmed from server-side policy. **Closed.**
-- **Auth middleware bug found and fixed**: `plan-override` (POST/DELETE) and `workspace-subscription` (POST/DELETE) routes were missing from `ClerkAuthMiddleware.forRoutes()` in `identity-access.module.ts`. Requests to these endpoints arrived without Clerk user context → API returned 401 → frontend showed "Session expired". Fix: added 4 missing route registrations. This bug blocked live verification of SR9a (Apply test plan) and SR9e (Apply workspace subscription).
+- **Mini-fix**: token budget exhausted error was surfaced as generic `rate_limited` (from abuse limiter quota-pressure path). Replaced with specific `token_budget_exhausted` conflict code + dedicated frontend/Telegram messages matching the tool daily limit style.
+- **Auth middleware bug found and fixed**: `plan-override` (POST/DELETE) and `workspace-subscription` (POST/DELETE) routes were missing from `ClerkAuthMiddleware.forRoutes()` in `identity-access.module.ts`. Deployed and verified.
+- **SR9 is fully closed.** All 6 sub-slices (SR9a–SR9f) live-validated 2026-04-07.
 
 ### What remains
 
-- `SR9a` — deploy auth fix → re-test Apply test plan → verify plan override propagates to materialized runtime
-- `SR9e` — deploy auth fix → re-test Apply workspace subscription → verify subscription change dirties `configDirtyAt`
-- After SR9a + SR9e close → SR9 is fully closed → SR10 can open
+- SR10 scope to be defined.
 
 ### Confirmed risks
 
-- None new. Auth middleware bug was a registration omission, not a design flaw.
+- None. Auth middleware bug was a registration omission, not a design flaw.
 
 ### Next recommended step
 
-- Wait for deploy of auth middleware fix. Then test "Apply test plan" and "Apply workspace subscription" in admin ops page. If both work, close SR9a, SR9e, and the entire SR9.
+- Open SR10 and define sub-slices for capacity validation and production gate.
 
 ---
 
