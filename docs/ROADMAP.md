@@ -479,6 +479,7 @@ Scaling-readiness control layer is now tracked by:
   - [x] `SR9e` — workspace subscription sync propagation (closed: live-validated 2026-04-07)
   - [x] `SR9f` — tool daily quota check-vs-consume (closed: live-validated 2026-04-07)
 - [ ] SR10 — Capacity validation and production gate ← **active slice**
+  - [ ] `SR10-pre-ui` — admin observability dashboard restructuring ← **active sub-slice**
 - [ ] H16 — Autonomous workspace heartbeat deeper isolation
   - note: the immediate hygiene slice above is complete; the remaining H16 work is the deeper isolation/refactor track
   - scope note: separate main-workspace orchestration from assistant/user-scoped autonomous loops so background polling behavior is explicit and isolated

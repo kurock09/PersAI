@@ -9,6 +9,7 @@ import { AdminAbuseControlsController } from "./interface/http/admin-abuse-contr
 import { AdminAssistantOwnershipController } from "./interface/http/admin-assistant-ownership.controller";
 import { AdminOpsController } from "./interface/http/admin-ops.controller";
 import { AdminBusinessController } from "./interface/http/admin-business.controller";
+import { AdminOverviewDashboardController } from "./interface/http/admin-overview-dashboard.controller";
 import { AdminNotificationsController } from "./interface/http/admin-notifications.controller";
 import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
@@ -40,6 +41,8 @@ import { ResolveAdminOpsCockpitService } from "./application/resolve-admin-ops-c
 import { AdminOpsUserDirectoryService } from "./application/admin-ops-user-directory.service";
 import { AdminDeleteUserService } from "./application/admin-delete-user.service";
 import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-business-cockpit.service";
+import { ResolveAdminBusinessPlatformService } from "./application/resolve-admin-business-platform.service";
+import { ResolveAdminOverviewDashboardService } from "./application/resolve-admin-overview-dashboard.service";
 import { ManageAdminNotificationChannelsService } from "./application/manage-admin-notification-channels.service";
 import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
 import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
@@ -154,6 +157,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminAssistantOwnershipController,
     AdminOpsController,
     AdminBusinessController,
+    AdminOverviewDashboardController,
     AdminNotificationsController,
     AdminPlatformRolloutsController,
     AdminRuntimeProviderSettingsController,
@@ -180,6 +184,8 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     AdminOpsUserDirectoryService,
     AdminDeleteUserService,
     ResolveAdminBusinessCockpitService,
+    ResolveAdminBusinessPlatformService,
+    ResolveAdminOverviewDashboardService,
     ManageAdminNotificationChannelsService,
     DeliverAdminSystemNotificationService,
     ManagePlatformRolloutsService,

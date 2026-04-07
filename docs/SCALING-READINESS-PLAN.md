@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR10` — Capacity validation and production gate
-- `Current active sub-slice`: TBD (pending SR10 scope)
+- `Current active sub-slice`: `SR10-pre-ui` — Admin observability dashboard restructuring
 - `Current phase`: Capacity validation and production gate
 - `Next recommended slice after SR10`: TBD
 - `Last closed slice`: `SR9` — Billing and quota correctness under concurrency (closed 2026-04-07 after full live validation of all sub-slices SR9a–SR9f)
@@ -1419,6 +1419,7 @@ In scope:
 - SLO thresholds
 - capacity budgets
 - known-risk register
+- admin observability UI for pre-test monitoring
 
 Out of scope:
 - new architecture changes unless validation disproves assumptions
@@ -1427,6 +1428,8 @@ Primary files / domains:
 - `docs/TEST-PLAN.md`
 - runtime/load-test docs
 - runbooks
+- admin UI pages (`apps/web/app/admin/`)
+- admin API controllers and services
 
 Deploy window:
 - none by default; validation and controlled experiments
@@ -1436,3 +1439,41 @@ Observation window:
 
 Exit criteria:
 - documented capacity envelope with evidence for each target tier
+
+#### SR10-pre-ui — Admin observability dashboard restructuring
+Outcome:
+- admin can observe system-wide runtime load before and during capacity tests
+- per-user operational state and quota usage visible in one unified view
+- platform-wide business metrics visible without per-user drill-down
+
+In scope:
+- Admin Overview → system-wide runtime dashboard (latency, active users, health, warnings)
+- Ops Cockpit → merged per-user view (5 users/page, search, ops cards + quota/usage card)
+- Business → platform-wide aggregates (users per plan, quota pressure distribution, channel adoption)
+- New backend endpoints for system dashboard and platform business aggregates
+- Extension of ops cockpit endpoint with per-user quota/usage data
+- Remove legacy Quick Access buttons from Overview (sidebar already provides navigation)
+
+Out of scope:
+- real-time WebSocket updates (manual Refresh is sufficient for MVP)
+- historical time-series charts or persistent metrics storage
+- changes to enforcement, billing, or quota logic (read-only observability only)
+
+Primary files / domains:
+- `apps/web/app/admin/page.tsx` (Overview)
+- `apps/web/app/admin/ops/page.tsx` (Ops Cockpit)
+- `apps/web/app/admin/business/page.tsx` (Business)
+- `apps/api/src/modules/workspace-management/interface/http/admin-overview-dashboard.controller.ts` (new)
+- `apps/api/src/modules/workspace-management/application/resolve-admin-overview-dashboard.service.ts` (new)
+- `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts` (extend)
+- `apps/api/src/modules/workspace-management/application/resolve-admin-business-cockpit.service.ts` (extend)
+- `apps/api/src/modules/platform-core/application/platform-http-metrics.service.ts` (read-only consumer)
+
+Observation window:
+- deploy + visual verification that all three pages render correctly with real data
+
+Exit criteria:
+- Admin Overview shows system-wide latency (web/TG), active users, active chats, runtime status, health, and auto-derived warnings
+- Ops Cockpit shows 5-per-page user table with search; selecting a user shows ops cards + quota/usage card with progress bars
+- Business page shows users-per-plan distribution, quota pressure distribution, channel adoption, publish/apply health
+- zero turn-latency impact: all metrics from in-memory counters or lightweight COUNT/GROUP BY queries

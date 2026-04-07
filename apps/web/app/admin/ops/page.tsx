@@ -24,7 +24,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
-  Users
+  Users,
+  Gauge
 } from "lucide-react";
 import {
   type AdminOpsCockpitState,
@@ -62,6 +63,15 @@ interface OpsUserRow {
     lastPublishedAt: string | null;
   } | null;
 }
+
+type QuotaUsageData = {
+  tokenBudgetUsed: number;
+  tokenBudgetLimit: number | null;
+  mediaStorageBytesUsed: number;
+  mediaStorageBytesLimit: number | null;
+  activeWebChats: number;
+  activeWebChatsLimit: number | null;
+};
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -234,10 +244,63 @@ function CopyableDetailRow({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Quota Usage Card                                                   */
+/* ------------------------------------------------------------------ */
+
+function QuotaBar({
+  label,
+  used,
+  limit,
+  formatValue
+}: {
+  label: string;
+  used: number;
+  limit: number | null;
+  formatValue: (v: number) => string;
+}) {
+  const percent = limit !== null && limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+  const barColor =
+    percent >= 90
+      ? "bg-destructive"
+      : percent >= 70
+        ? "bg-warning"
+        : "bg-accent";
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="font-medium text-text">{label}</span>
+        <span className="tabular-nums text-text-muted">
+          {formatValue(used)}
+          {limit !== null ? ` / ${formatValue(limit)}` : ""}
+        </span>
+      </div>
+      {limit !== null && (
+        <div className="h-1.5 overflow-hidden rounded-full bg-border">
+          <div
+            className={cn("h-full rounded-full transition-[width] duration-300", barColor)}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(0)}K`;
+  return String(tokens);
+}
+
+function formatStorageMb(bytes: number): string {
+  return `${(bytes / 1_048_576).toFixed(1)} MB`;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Users Directory                                                    */
 /* ------------------------------------------------------------------ */
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 5;
 
 function UsersDirectory({
   getToken,
@@ -1080,6 +1143,37 @@ export default function AdminOpsPage() {
               )}
             </CardShell>
           </div>
+
+          {/* --- Row 1.5: Quota & Usage --- */}
+          {(() => {
+            const raw = cockpit as unknown as Record<string, unknown>;
+            const qu = raw.quotaUsage as QuotaUsageData | null | undefined;
+            if (!qu) return null;
+            return (
+              <CardShell title="Quota & Usage" icon={Gauge}>
+                <div className="space-y-3">
+                  <QuotaBar
+                    label="Token Budget"
+                    used={qu.tokenBudgetUsed}
+                    limit={qu.tokenBudgetLimit}
+                    formatValue={formatTokens}
+                  />
+                  <QuotaBar
+                    label="Media Storage"
+                    used={qu.mediaStorageBytesUsed}
+                    limit={qu.mediaStorageBytesLimit}
+                    formatValue={formatStorageMb}
+                  />
+                  <QuotaBar
+                    label="Active Web Chats"
+                    used={qu.activeWebChats}
+                    limit={qu.activeWebChatsLimit}
+                    formatValue={String}
+                  />
+                </div>
+              </CardShell>
+            );
+          })()}
 
           {/* --- Row 2: Controls + Incidents side by side --- */}
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">

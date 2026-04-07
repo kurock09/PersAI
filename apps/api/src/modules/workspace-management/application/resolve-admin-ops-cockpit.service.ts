@@ -7,7 +7,7 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
-import type { AdminOpsCockpitState } from "./ops-cockpit.types";
+import type { AdminOpsCockpitState, AdminOpsCockpitQuotaUsage } from "./ops-cockpit.types";
 import { resolveRuntimeBaseUrl } from "./runtime-endpoint-routing";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import {
@@ -15,6 +15,12 @@ import {
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
+import {
+  WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
+  type WorkspaceQuotaAccountingRepository
+} from "../domain/workspace-quota-accounting.repository";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 function asIso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
@@ -29,10 +35,14 @@ export class ResolveAdminOpsCockpitService {
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
+    @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
+    private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
-    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   async execute(callerUserId: string, targetUserId?: string): Promise<AdminOpsCockpitState> {
@@ -90,6 +100,7 @@ export class ResolveAdminOpsCockpitService {
         });
       }
       return {
+        quotaUsage: null,
         assistant: {
           exists: false,
           assistantId: null,
@@ -164,7 +175,10 @@ export class ResolveAdminOpsCockpitService {
       });
     }
 
+    const quotaUsage = await this.resolveQuotaUsage(assistant.workspaceId, assistant);
+
     return {
+      quotaUsage,
       assistant: {
         exists: true,
         assistantId: assistant.id,
@@ -210,6 +224,36 @@ export class ResolveAdminOpsCockpitService {
       },
       incidentSignals,
       updatedAt: new Date().toISOString()
+    };
+  }
+
+  private async resolveQuotaUsage(
+    workspaceId: string,
+    assistant: Parameters<typeof this.trackWorkspaceQuotaUsageService.resolveEffectiveLimitsForAssistant>[0]
+  ): Promise<AdminOpsCockpitQuotaUsage | null> {
+    const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(workspaceId);
+    if (quotaState === null) return null;
+
+    const limits =
+      await this.trackWorkspaceQuotaUsageService.resolveEffectiveLimitsForAssistant(assistant);
+
+    const activeWebChats = await this.prisma.assistantChat.count({
+      where: { workspaceId, surface: "web", archivedAt: null }
+    });
+
+    return {
+      tokenBudgetUsed: Number(quotaState.tokenBudgetUsed),
+      tokenBudgetLimit: limits.tokenBudgetLimit !== null ? Number(limits.tokenBudgetLimit) : null,
+      mediaStorageBytesUsed: Number(quotaState.mediaStorageBytesUsed),
+      mediaStorageBytesLimit:
+        quotaState.mediaStorageBytesLimit !== null
+          ? Number(quotaState.mediaStorageBytesLimit)
+          : null,
+      activeWebChats,
+      activeWebChatsLimit:
+        limits.activeWebChatsLimit !== null && limits.activeWebChatsLimit !== undefined
+          ? limits.activeWebChatsLimit
+          : null
     };
   }
 }

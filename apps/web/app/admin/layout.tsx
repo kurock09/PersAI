@@ -24,7 +24,7 @@ import { cn } from "@/app/lib/utils";
 import { getAdminPlanVisibility } from "@/app/app/assistant-api-client";
 
 const NAV_ITEMS = [
-  { href: "/admin", label: "Overview", icon: Shield },
+  { href: "/admin", label: "System Overview", icon: Shield },
   { href: "/admin/runtime", label: "Runtime", icon: Server },
   { href: "/admin/tools", label: "Tools", icon: Wrench },
   { href: "/admin/presets", label: "Bootstrap Presets", icon: FileText },

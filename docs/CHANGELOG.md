@@ -19,6 +19,11 @@
 
 ### Changed
 
+- **SR10-pre-ui admin dashboard restructuring:**
+  - **Admin Overview** (`/admin`): removed Quick Access buttons and per-user stat cards. Replaced with system-wide runtime dashboard: response latency (web/TG/all), active users (15min window), active web chats, runtime preflight status, process health (uptime, RSS, heap, in-flight, error rate), and auto-derived system warnings (high memory, high latency, high error rate, runtime unhealthy).
+  - **Ops Cockpit** (`/admin/ops`): reduced user table from 20 to 5 per page. Added new "Quota & Usage" card showing token budget, media storage, and active web chats with progress bars and limits when a user is selected.
+  - **Business** (`/admin/business`): replaced single-user business cockpit with platform-wide aggregates: users per plan distribution with progress bars, quota pressure distribution (low/elevated/high), channel adoption (web/TG/WhatsApp/Max), publish/apply health (7-day window), and plan catalog summary.
+  - New backend endpoints: `GET /admin/overview/dashboard` (system metrics from in-memory counters, zero turn-latency impact), `GET /admin/business/platform` (platform aggregates from lightweight COUNT/GROUP BY queries). Extended `GET /admin/ops/cockpit` with per-user `quotaUsage` data.
 - **SR9c dual quota pre-check for uploads (Variant B):** uploads now check BOTH media upload budget (`mediaStorageBytesUsed`) AND workspace disk availability (sandbox `du -sb` via OpenClaw) before accepting user files. OpenClaw fork adds `GET /api/v1/runtime/workspace/storage-usage` endpoint; PersAI adapter calls it before upload. Web shows localized banner (`workspace_storage_full`), Telegram sends guaranteed system notice. Admin UI labels renamed: "Media upload budget (MB)" / "Workspace disk (MB)" with tooltips. Both quotas remain independently configurable per plan.
 
 ### Fixed

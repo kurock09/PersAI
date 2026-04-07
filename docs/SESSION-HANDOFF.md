@@ -1,6 +1,6 @@
 # SESSION-HANDOFF
 
-## 2026-04-07 - SR9 fully closed
+## 2026-04-07 - SR10-pre-ui: Admin observability dashboard restructuring
 
 ### Current active slice
 
@@ -8,31 +8,46 @@
 
 ### Current active sub-slice
 
-- TBD (pending SR10 scope)
+- `SR10-pre-ui` — admin observability dashboard restructuring
+
+### Scope
+
+Three admin pages are being restructured to enable load observation before SR10 capacity tests:
+
+1. **Admin Overview** (`/admin`) — becomes system-wide runtime dashboard: avg latency (web/TG), active users, active chats, runtime status, system health, auto-derived warnings. Quick Access buttons removed (sidebar covers navigation).
+2. **Ops Cockpit** (`/admin/ops`) — merged per-user view: 5 users/page (was 20), search, existing ops cards + new Quota & Usage card (token budget, media storage, workspace disk, active chats vs limits with progress bars).
+3. **Business** (`/admin/business`) — platform-wide aggregates: users per plan distribution, quota pressure distribution, channel adoption, publish/apply health.
 
 ### What was completed
 
-- **SR9a** — live-validated after auth middleware fix deploy: plan override apply/delete confirmed working. Token budget enforcement now shows a dedicated "Monthly token budget has been exhausted" banner (`token_budget_exhausted` error code) instead of the generic "Requests are temporarily limited" message. **Closed.**
-- **SR9b** — live-validated: token budget enforcement confirmed under normal usage. **Closed.**
-- **SR9c** — live-validated: dual quota pre-check (Variant B) confirmed working in web + Telegram. **Closed.**
-- **SR9d** — live-validated: active web chats cap enforcement confirmed. **Closed.**
-- **SR9e** — live-validated after auth middleware fix deploy: workspace subscription sync confirmed working. **Closed.**
-- **SR9f** — live-validated: tool daily limit enforcement confirmed from server-side policy. **Closed.**
-- **Mini-fix**: token budget exhausted error was surfaced as generic `rate_limited` (from abuse limiter quota-pressure path). Replaced with specific `token_budget_exhausted` conflict code + dedicated frontend/Telegram messages matching the tool daily limit style.
-- **Auth middleware bug found and fixed**: `plan-override` (POST/DELETE) and `workspace-subscription` (POST/DELETE) routes were missing from `ClerkAuthMiddleware.forRoutes()` in `identity-access.module.ts`. Deployed and verified.
-- **SR9 is fully closed.** All 6 sub-slices (SR9a–SR9f) live-validated 2026-04-07.
+- **Backend**: Created `GET /admin/overview/dashboard` endpoint (system-wide metrics from in-memory HTTP counters + lightweight DB queries). Extended `GET /admin/ops/cockpit` with per-user `quotaUsage` (token budget, media storage, active chats vs limits). Created `GET /admin/business/platform` endpoint (platform-wide aggregates: users per plan, quota pressure distribution, channel adoption, apply health).
+- **Frontend**: Rewrote Admin Overview as system runtime dashboard (latency, active users, runtime status, process health, warnings). Refactored Ops Cockpit (5 users/page, new Quota & Usage card with progress bars). Rewrote Business page as platform-wide metrics dashboard.
+- **Auth**: Registered new routes in `ClerkAuthMiddleware`.
+- **CI**: TypeScript compiles clean (both API and web). Existing tests pass (12/12).
+- **Cleanup**: Removed Quick Access buttons from Overview (sidebar covers navigation). Removed old per-user stat cards. No legacy code left behind.
 
 ### What remains
 
-- SR10 scope to be defined.
+- Deploy and visually verify all three pages render correctly with real data.
+- Close SR10-pre-ui after visual verification.
 
 ### Confirmed risks
 
-- None. Auth middleware bug was a registration omission, not a design flaw.
+- None. All new endpoints are read-only, use in-memory metrics or lightweight DB queries, and have zero impact on turn latency.
 
 ### Next recommended step
 
-- Open SR10 and define sub-slices for capacity validation and production gate.
+- Deploy, visually verify the three admin pages, then close SR10-pre-ui and define the next SR10 sub-slice (load testing).
+
+---
+
+## 2026-04-07 - SR9 fully closed
+
+### What was completed
+
+- **SR9 is fully closed.** All 6 sub-slices (SR9a–SR9f) live-validated 2026-04-07.
+- **Mini-fix**: token budget exhausted error now shows dedicated `token_budget_exhausted` banner.
+- **Auth middleware bug** fixed and deployed.
 
 ---
 

@@ -1489,6 +1489,24 @@ export async function getAdminBusinessCockpit(token: string): Promise<AdminBusin
   }
 }
 
+export async function getAdminOverviewDashboard(token: string): Promise<Record<string, unknown>> {
+  const res = await fetch(`/api/v1/admin/overview/dashboard`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  const data = (await res.json()) as { dashboard: Record<string, unknown> };
+  return data.dashboard;
+}
+
+export async function getAdminBusinessPlatform(token: string): Promise<Record<string, unknown>> {
+  const res = await fetch(`/api/v1/admin/business/platform`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  const data = (await res.json()) as { platform: Record<string, unknown> };
+  return data.platform;
+}
+
 export async function getAdminNotificationChannels(
   token: string
 ): Promise<AdminNotificationChannelState[]> {

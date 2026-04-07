@@ -1,6 +1,16 @@
 export type OpsIncidentSeverity = "info" | "elevated" | "high";
 
+export type AdminOpsCockpitQuotaUsage = {
+  tokenBudgetUsed: number;
+  tokenBudgetLimit: number | null;
+  mediaStorageBytesUsed: number;
+  mediaStorageBytesLimit: number | null;
+  activeWebChats: number;
+  activeWebChatsLimit: number | null;
+};
+
 export type AdminOpsCockpitState = {
+  quotaUsage: AdminOpsCockpitQuotaUsage | null;
   assistant: {
     exists: boolean;
     assistantId: string | null;
