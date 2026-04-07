@@ -32,6 +32,7 @@ Three admin pages restructured to enable load observation before SR10 capacity t
 ### Next recommended step
 
 - Define the next SR10 sub-slice (load testing matrix, SLO thresholds, capacity budgets).
+- Repo-local SR10 execution harness now exists in `scripts/loadtest/` for the practical `100 / 500 / 1000` ladder, but no real load evidence is recorded yet. The next honest step is to prepare a local untracked config with real tokens/assistant ids and run the `100` profile first, then decide by evidence whether `500` can open.
 
 ---
 

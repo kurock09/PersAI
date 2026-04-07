@@ -6,6 +6,7 @@
     "contracts:generate": "corepack pnpm --filter @persai/contracts run generate",
     "prisma:generate": "corepack pnpm --filter @persai/api run prisma:generate",
     "prisma:migrate:check": "corepack pnpm --filter @persai/api run prisma:migrate:check",
+    "sr10:load": "node scripts/loadtest/run-sr10.cjs",
     "openclaw:fork:audit": "node scripts/openclaw-fork-audit.cjs",
     "openclaw:fork:audit:strict": "node scripts/openclaw-fork-audit.cjs --strict",
     "openclaw:fork:update-gate": "node scripts/openclaw-fork-update-gate.cjs",

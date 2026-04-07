@@ -1,0 +1,98 @@
+{
+  "apiBaseUrl": "https://api.persai.dev/api/v1",
+  "reportDir": "artifacts/sr10-loadtest",
+  "requestTimeoutMs": 90000,
+  "thinkTimeMs": {
+    "min": 300,
+    "max": 1500
+  },
+  "gates": {
+    "maxErrorRate": 0.01,
+    "maxP95Ms": 4000,
+    "maxP99Ms": 8000,
+    "maxAdminErrorRate": 0.02,
+    "maxAdminWarningCount": 0,
+    "requireHealthyRuntimeTiers": true,
+    "failOnProcessRestart": true
+  },
+  "trafficMix": [
+    { "kind": "web_sync", "weight": 35 },
+    { "kind": "web_stream", "weight": 25 },
+    { "kind": "tool_prompt", "weight": 10 },
+    { "kind": "telegram_turn", "weight": 15 },
+    { "kind": "web_stage_attachment", "weight": 10 },
+    { "kind": "voice_transcribe", "weight": 5 }
+  ],
+  "profiles": {
+    "100": {
+      "step": { "users": 100, "rampSeconds": 300, "holdSeconds": 600 },
+      "burst": { "users": 100, "rampSeconds": 20, "holdSeconds": 120 },
+      "soak": { "users": 100, "rampSeconds": 300, "holdSeconds": 1800 }
+    },
+    "500": {
+      "step": { "users": 500, "rampSeconds": 600, "holdSeconds": 900 },
+      "burst": { "users": 500, "rampSeconds": 30, "holdSeconds": 180 },
+      "soak": { "users": 500, "rampSeconds": 600, "holdSeconds": 2700 }
+    },
+    "1000": {
+      "step": { "users": 1000, "rampSeconds": 900, "holdSeconds": 1200 },
+      "burst": { "users": 1000, "rampSeconds": 45, "holdSeconds": 180 },
+      "soak": { "users": 1000, "rampSeconds": 900, "holdSeconds": 3600 }
+    }
+  },
+  "admin": {
+    "tokenEnv": "SR10_ADMIN_TOKEN"
+  },
+  "web": {
+    "surfaceThreadPrefix": "sr10-web",
+    "surfaceThreadPoolSize": 4,
+    "users": [
+      { "label": "user-1", "tokenEnv": "SR10_USER_TOKEN_1" },
+      { "label": "user-2", "tokenEnv": "SR10_USER_TOKEN_2" },
+      { "label": "user-3", "tokenEnv": "SR10_USER_TOKEN_3" }
+    ],
+    "messageTemplates": [
+      "Reply in 2 short sentences about planning a small business launch.",
+      "Give a concise answer about how to organize a daily routine.",
+      "Summarize one useful marketing idea for a local service.",
+      "Help me think through a simple product onboarding flow."
+    ],
+    "toolPromptTemplates": [
+      "If any allowed tool helps, use one tool and then answer briefly about a competitor research step.",
+      "Use one allowed tool if available, then answer in 3 bullet points about customer support workflow."
+    ]
+  },
+  "telegram": {
+    "internalApiTokenEnv": "PERSAI_INTERNAL_API_TOKEN",
+    "threadPoolSize": 4,
+    "assistants": [
+      {
+        "label": "assistant-1",
+        "assistantId": "replace-with-real-assistant-id-1",
+        "threadPrefix": "sr10-tg-a1"
+      }
+    ],
+    "messageTemplates": [
+      "Telegram load-test turn. Respond briefly.",
+      "Telegram scenario: give one actionable suggestion."
+    ]
+  },
+  "media": {
+    "surfaceThreadPrefix": "sr10-media",
+    "surfaceThreadPoolSize": 3,
+    "users": [
+      { "label": "media-user-1", "tokenEnv": "SR10_USER_TOKEN_1" }
+    ],
+    "attachment": {
+      "kind": "text",
+      "filename": "sr10-note.txt",
+      "mimeType": "text/plain",
+      "text": "SR10 generated attachment payload"
+    },
+    "voice": {
+      "filePath": "scripts/loadtest/fixtures/sample-voice.webm",
+      "mimeType": "audio/webm",
+      "filename": "sample-voice.webm"
+    }
+  }
+}

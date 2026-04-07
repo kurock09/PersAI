@@ -9,3 +9,5 @@ coverage/
 .env.*
 !.env.example
 !.env.*.example
+scripts/loadtest/*.local.json
+artifacts/sr10-loadtest/
