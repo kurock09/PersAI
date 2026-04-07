@@ -8,7 +8,7 @@ Scaling-readiness control layer is now tracked by:
 - `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
 - `docs/SCALING-READINESS-PLAN.md`
 - current active slice: `SR10` (Capacity validation and production gate)
-- current active sub-slice: `SR10-pre-ui` (Admin observability dashboard restructuring)
+- last closed sub-slice: `SR10-pre-ui` (Admin observability dashboard restructuring, closed 2026-04-07)
 - next recommended slice after `SR10`: TBD
 - last closed slice: `SR9` (Billing and quota correctness under concurrency, closed 2026-04-07 after full live validation of all sub-slices SR9a–SR9f)
 
@@ -469,7 +469,7 @@ Scaling-readiness control layer is now tracked by:
   - [x] `SR9e` — workspace subscription sync propagation (closed: live-validated 2026-04-07)
   - [x] `SR9f` — tool daily quota check-vs-consume (closed: live-validated 2026-04-07)
 - [ ] SR10 — Capacity validation and production gate ← **active slice**
-  - [ ] `SR10-pre-ui` — admin observability dashboard restructuring ← **active sub-slice**
+  - [x] `SR10-pre-ui` — admin observability dashboard restructuring (closed 2026-04-07: deployed, visually verified, data accuracy fixes applied)
 
 ---
 

@@ -19,11 +19,12 @@
 
 ### Changed
 
-- **SR10-pre-ui admin dashboard restructuring:**
-  - **Admin Overview** (`/admin`): removed Quick Access buttons and per-user stat cards. Replaced with system-wide runtime dashboard: response latency (web/TG/all), active users (15min window), active web chats, runtime preflight status, process health (uptime, RSS, heap, in-flight, error rate), and auto-derived system warnings (high memory, high latency, high error rate, runtime unhealthy).
-  - **Ops Cockpit** (`/admin/ops`): reduced user table from 20 to 5 per page. Added new "Quota & Usage" card showing token budget, media storage, and active web chats with progress bars and limits when a user is selected.
-  - **Business** (`/admin/business`): replaced single-user business cockpit with platform-wide aggregates: users per plan distribution with progress bars, quota pressure distribution (low/elevated/high), channel adoption (web/TG/WhatsApp/Max), publish/apply health (7-day window), and plan catalog summary.
-  - New backend endpoints: `GET /admin/overview/dashboard` (system metrics from in-memory counters, zero turn-latency impact), `GET /admin/business/platform` (platform aggregates from lightweight COUNT/GROUP BY queries). Extended `GET /admin/ops/cockpit` with per-user `quotaUsage` data.
+- **SR10-pre-ui admin dashboard restructuring (closed 2026-04-07):**
+  - **Admin Overview** (`/admin`): system-wide runtime dashboard with p50/p95/p99/max latency (web/TG/all routes), active users (15min window), active web chats, all three runtime tier preflight status with flap tracking, queue pressure (in-flight/peak/rps), storage pressure (token budget + media), sandbox health (RSS/heap/external/arrayBuffers/CPU), process uptime, auto-derived warnings. Minimalist collapsible UI.
+  - **Ops Cockpit** (`/admin/ops`): 5 users/page with search. Per-user Quota & Usage card (token budget, media storage, active web chats with progress bars), chat stats (total/active/archived), channel bindings (provider/surface/state).
+  - **Business** (`/admin/business`): platform-wide aggregates from `appUser.count()` (all registered users). KPI strip: Users, Assistants, Messages + threads, Channels, Plans Used, Apply OK%. Users-by-plan distribution (includes users without assistants). Quota pressure, channel adoption, publish/apply health, plan catalog config.
+  - New backend endpoints: `GET /admin/overview/dashboard`, `GET /admin/business/platform`. Extended `GET /admin/ops/cockpit` with `quotaUsage`, `chatStats`, `channels`. Extended `PlatformHttpMetricsService` with peak in-flight requests and process start time.
+  - **Avatar fix**: assistant emoji avatar centering in chat bubbles.
 - **SR9c dual quota pre-check for uploads (Variant B):** uploads now check BOTH media upload budget (`mediaStorageBytesUsed`) AND workspace disk availability (sandbox `du -sb` via OpenClaw) before accepting user files. OpenClaw fork adds `GET /api/v1/runtime/workspace/storage-usage` endpoint; PersAI adapter calls it before upload. Web shows localized banner (`workspace_storage_full`), Telegram sends guaranteed system notice. Admin UI labels renamed: "Media upload budget (MB)" / "Workspace disk (MB)" with tooltips. Both quotas remain independently configurable per plan.
 
 ### Fixed

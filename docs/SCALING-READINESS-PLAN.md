@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR10` — Capacity validation and production gate
-- `Current active sub-slice`: `SR10-pre-ui` — Admin observability dashboard restructuring
+- `Current active sub-slice`: none (SR10-pre-ui closed 2026-04-07)
 - `Current phase`: Capacity validation and production gate
 - `Next recommended slice after SR10`: TBD
 - `Last closed slice`: `SR9` — Billing and quota correctness under concurrency (closed 2026-04-07 after full live validation of all sub-slices SR9a–SR9f)
@@ -1472,10 +1472,11 @@ Primary files / domains:
 - `apps/api/src/modules/platform-core/application/platform-http-metrics.service.ts` (read-only consumer)
 
 Observation window:
-- deploy + visual verification that all three pages render correctly with real data
+- **SR10-pre-ui closed** — deployed and visually verified 2026-04-07. All three admin pages render correctly with real production data. Iterative data accuracy and UX fixes were applied during visual verification.
 
-Exit criteria:
-- Admin Overview shows system-wide latency (web/TG), active users, active chats, runtime status, health, and auto-derived warnings
-- Ops Cockpit shows 5-per-page user table with search; selecting a user shows ops cards + quota/usage card with progress bars
-- Business page shows users-per-plan distribution, quota pressure distribution, channel adoption, publish/apply health
-- zero turn-latency impact: all metrics from in-memory counters or lightweight COUNT/GROUP BY queries
+Exit criteria (all met):
+- Admin Overview shows system-wide latency (web/TG, p50/p95/p99/max), active users, active chats, all runtime tiers with flap tracking, queue pressure (in-flight/peak/rps), storage pressure (token budget + media), sandbox health (RSS/heap/external/CPU), process uptime, and auto-derived warnings — ✅
+- Ops Cockpit shows 5-per-page user table with search; selecting a user shows ops cards + quota/usage card with progress bars + chat stats + channel bindings — ✅
+- Business page shows platform-wide users-per-plan distribution (from appUser table, not assistant-only), total messages + conversation threads, quota pressure distribution, channel adoption, publish/apply health, plan catalog config — ✅
+- zero turn-latency impact: all metrics from in-memory counters or lightweight COUNT/GROUP BY queries — ✅
+- assistant emoji avatar centering fix applied as a cosmetic pass — ✅

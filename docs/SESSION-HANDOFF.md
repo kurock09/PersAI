@@ -1,43 +1,37 @@
 # SESSION-HANDOFF
 
-## 2026-04-07 - SR10-pre-ui: Admin observability dashboard restructuring
+## 2026-04-07 - SR10-pre-ui: Admin observability dashboard restructuring (CLOSED)
 
 ### Current active slice
 
 - `SR10` — Capacity validation and production gate
 
-### Current active sub-slice
+### Closed sub-slice
 
-- `SR10-pre-ui` — admin observability dashboard restructuring
+- `SR10-pre-ui` — admin observability dashboard restructuring — **closed 2026-04-07**
 
 ### Scope
 
-Three admin pages are being restructured to enable load observation before SR10 capacity tests:
-
-1. **Admin Overview** (`/admin`) — becomes system-wide runtime dashboard: avg latency (web/TG), active users, active chats, runtime status, system health, auto-derived warnings. Quick Access buttons removed (sidebar covers navigation).
-2. **Ops Cockpit** (`/admin/ops`) — merged per-user view: 5 users/page (was 20), search, existing ops cards + new Quota & Usage card (token budget, media storage, workspace disk, active chats vs limits with progress bars).
-3. **Business** (`/admin/business`) — platform-wide aggregates: users per plan distribution, quota pressure distribution, channel adoption, publish/apply health.
+Three admin pages restructured to enable load observation before SR10 capacity tests.
 
 ### What was completed
 
-- **Backend**: Created `GET /admin/overview/dashboard` endpoint (system-wide metrics from in-memory HTTP counters + lightweight DB queries). Extended `GET /admin/ops/cockpit` with per-user `quotaUsage` (token budget, media storage, active chats vs limits). Created `GET /admin/business/platform` endpoint (platform-wide aggregates: users per plan, quota pressure distribution, channel adoption, apply health).
-- **Frontend**: Rewrote Admin Overview as system runtime dashboard (latency, active users, runtime status, process health, warnings). Refactored Ops Cockpit (5 users/page, new Quota & Usage card with progress bars). Rewrote Business page as platform-wide metrics dashboard.
-- **Auth**: Registered new routes in `ClerkAuthMiddleware`.
-- **CI**: TypeScript compiles clean (both API and web). Existing tests pass (12/12).
-- **Cleanup**: Removed Quick Access buttons from Overview (sidebar covers navigation). Removed old per-user stat cards. No legacy code left behind.
-
-### What remains
-
-- Deploy and visually verify all three pages render correctly with real data.
-- Close SR10-pre-ui after visual verification.
+- **Admin Overview** (`/admin`): system-wide runtime dashboard with p50/p95/p99/max latency (web/TG/all), active users (15min window), active web chats, all three runtime tiers with flap tracking, queue pressure (in-flight/peak/rps), storage pressure (token budget + media), sandbox health (RSS/heap/external/arrayBuffers/CPU), process uptime, auto-derived warnings. Minimalist collapsible UI with `Fold` components.
+- **Ops Cockpit** (`/admin/ops`): 5 users/page with search. User selection shows ops cards + Quota & Usage card (token budget, media storage, active web chats with progress bars) + chat stats (total/active/archived) + channel bindings (provider/surface/state). Cosmetic alignment with overview style.
+- **Business** (`/admin/business`): platform-wide aggregates from `appUser.count()` (14 users, not assistant-only). KPI strip: Users, Assistants, Messages (total messages + conversation threads), Channels, Plans Used, Apply OK%. Users by Plan distribution with progress bars (includes users without assistants). Quota pressure, channel adoption, publish/apply health, plan catalog config (collapsed).
+- **Backend**: `GET /admin/overview/dashboard`, `GET /admin/business/platform` (new). Extended `GET /admin/ops/cockpit` with `quotaUsage`, `chatStats`, `channels`. Extended `PlatformHttpMetricsService` with peak in-flight and process start time. Added latency percentile estimation from histogram buckets. Added runtime tier flap tracking. Added workspace/storage pressure signal.
+- **Auth**: New routes registered in `ClerkAuthMiddleware`.
+- **Data accuracy fixes**: `totalUsers` from `appUser.count()` (was: distinct userId from assistant). `totalMessages` from `AssistantChatMessage.count()` (was: misleading `AssistantChat` session count). Plan distribution includes users without assistants. Web chat latency route matching fixed for current API routes.
+- **Avatar fix**: assistant emoji avatar centering (`inline-flex h-full w-full items-center justify-center`).
+- **CI**: TypeScript, ESLint, Prettier all clean. No new test regressions.
 
 ### Confirmed risks
 
-- None. All new endpoints are read-only, use in-memory metrics or lightweight DB queries, and have zero impact on turn latency.
+- None. All endpoints are read-only, zero turn-latency impact.
 
 ### Next recommended step
 
-- Deploy, visually verify the three admin pages, then close SR10-pre-ui and define the next SR10 sub-slice (load testing).
+- Define the next SR10 sub-slice (load testing matrix, SLO thresholds, capacity budgets).
 
 ---
 
