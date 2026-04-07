@@ -87,7 +87,10 @@
     "prompt4": "Summarize what we talked about",
     "mediaStorageFull": "Media storage full: {used} MB used out of {limit} MB.",
     "mediaStorageFullNoLimit": "Media storage limit reached.",
-    "mediaStorageFullGuidance": "Delete old chats or files to free up space, then try uploading again."
+    "mediaStorageFullGuidance": "Delete old chats or files to free up space, then try uploading again.",
+    "workspaceStorageFull": "Workspace disk full: {used} MB used out of {limit} MB.",
+    "workspaceStorageFullNoLimit": "Workspace disk is full.",
+    "workspaceStorageFullGuidance": "The assistant's workspace is out of space. Delete old chats or ask the assistant to clean up files."
   },
   "sidebar": {
     "defaultAssistant": "Your Assistant",

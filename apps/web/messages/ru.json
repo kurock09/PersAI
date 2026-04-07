@@ -85,9 +85,12 @@
     "prompt2": "Расскажи что-нибудь интересное",
     "prompt3": "Помоги спланировать день",
     "prompt4": "Расскажи, о чём мы говорили",
-    "mediaStorageFull": "Хранилище заполнено: {used} МБ из {limit} МБ занято.",
-    "mediaStorageFullNoLimit": "Лимит хранилища достигнут.",
-    "mediaStorageFullGuidance": "Удали старые чаты или файлы, чтобы освободить место, и попробуй снова."
+    "mediaStorageFull": "Хранилище загрузок заполнено: {used} МБ из {limit} МБ занято.",
+    "mediaStorageFullNoLimit": "Лимит загрузок достигнут.",
+    "mediaStorageFullGuidance": "Удали старые чаты или файлы, чтобы освободить место, и попробуй снова.",
+    "workspaceStorageFull": "Диск ассистента заполнен: {used} МБ из {limit} МБ занято.",
+    "workspaceStorageFullNoLimit": "Диск ассистента заполнен.",
+    "workspaceStorageFullGuidance": "Рабочее пространство ассистента переполнено. Удали старые чаты или попроси ассистента очистить файлы."
   },
   "sidebar": {
     "defaultAssistant": "Твой ассистент",

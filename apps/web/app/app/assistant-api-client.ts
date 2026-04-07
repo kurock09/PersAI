@@ -203,6 +203,7 @@ export type WebChatUxIssueClass =
   | "active_chat_cap"
   | "quota_limit_reached"
   | "media_storage_full"
+  | "workspace_storage_full"
   | "feature_unavailable"
   | "runtime_unreachable"
   | "runtime_timeout"
@@ -329,6 +330,26 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
         limitMb !== null
           ? `Media storage full: ${usedMb ?? "?"} MB used out of ${limitMb} MB.`
           : "Media storage limit reached.",
+      guidance: "Delete old chats or files to free up space, then try uploading again.",
+      data: { usedMb, limitMb }
+    };
+  }
+
+  if (code === "workspace_storage_full") {
+    const usedMb =
+      error instanceof ApiStructuredError && typeof error.details?.usedMb === "number"
+        ? error.details.usedMb
+        : null;
+    const limitMb =
+      error instanceof ApiStructuredError && typeof error.details?.limitMb === "number"
+        ? error.details.limitMb
+        : null;
+    return {
+      classId: "workspace_storage_full",
+      message:
+        limitMb !== null
+          ? `Workspace disk full: ${usedMb ?? "?"} MB used out of ${limitMb} MB.`
+          : "Workspace disk is full.",
       guidance: "Delete old chats or files to free up space, then try uploading again.",
       data: { usedMb, limitMb }
     };

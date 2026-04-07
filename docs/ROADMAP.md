@@ -474,7 +474,7 @@ Scaling-readiness control layer is now tracked by:
 - [ ] SR9 — Billing and quota correctness under concurrency ← **active slice**
   - [x] `SR9a` — assistant plan override propagation invalidation and docs alignment
   - [ ] `SR9b` — token budget atomic accounting under concurrency
-  - [ ] `SR9c` — media storage quota atomicity under concurrency ← **active sub-slice** (UX pass done, deploy/live pending)
+  - [ ] `SR9c` — media storage quota atomicity under concurrency ← **active sub-slice** (UX pass done; extending: dual quota pre-check — uploads check both media budget + workspace disk; admin UI rename for clarity)
   - [ ] `SR9d` — active web chats cap race-safe creation
   - [ ] `SR9e` — workspace subscription sync propagation correctness
   - [ ] `SR9f` — tool daily quota check-vs-consume concurrency contract

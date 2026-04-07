@@ -23,7 +23,8 @@ import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.s
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import {
   createAssistantInboundConflict,
-  createMediaStorageQuotaExceededError
+  createMediaStorageQuotaExceededError,
+  createWorkspaceStorageFullError
 } from "./assistant-inbound-error";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
@@ -216,6 +217,18 @@ export class ManageChatMediaService {
       const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
         assistant.id
       );
+
+      const wsLimits =
+        await this.trackWorkspaceQuotaUsageService.resolveWorkspaceStorageLimit(assistant);
+      if (wsLimits.limitBytes !== null) {
+        const wsUsage = await this.runtimeAdapter.getWorkspaceStorageUsage(
+          assistant.id,
+          runtimeTier
+        );
+        if (wsUsage.usedBytes >= Number(wsLimits.limitBytes)) {
+          throw createWorkspaceStorageFullError(wsUsage.usedBytes, wsLimits.limitBytes);
+        }
+      }
 
       const uploadResult = await this.runtimeAdapter.uploadChatMedia({
         assistantId: assistant.id,

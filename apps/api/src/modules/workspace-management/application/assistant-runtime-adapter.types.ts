@@ -136,6 +136,10 @@ export interface AssistantRuntimeTranscribeResult {
   text: string;
 }
 
+export interface AssistantRuntimeWorkspaceStorageUsageResult {
+  usedBytes: number;
+}
+
 export interface AssistantRuntimeAdapter {
   preflight(runtimeTier?: RuntimeTier): Promise<AssistantRuntimePreflightResult>;
   applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void>;
@@ -194,6 +198,10 @@ export interface AssistantRuntimeAdapter {
     runtimeTier?: RuntimeTier
   ): Promise<unknown>;
   searchMemory(assistantId: string, query: string, runtimeTier?: RuntimeTier): Promise<unknown>;
+  getWorkspaceStorageUsage(
+    assistantId: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<AssistantRuntimeWorkspaceStorageUsageResult>;
 }
 
 export const ASSISTANT_RUNTIME_ADAPTER = Symbol("ASSISTANT_RUNTIME_ADAPTER");

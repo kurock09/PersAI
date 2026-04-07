@@ -970,6 +970,30 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     return { text };
   }
 
+  async getWorkspaceStorageUsage(
+    assistantId: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<{ usedBytes: number }> {
+    const config = toOpenClawAdapterConfig(runtimeTier);
+    if (!config.enabled) {
+      return { usedBytes: 0 };
+    }
+
+    const qs = new URLSearchParams({ assistantId });
+    const payload = await this.requestWithRetries(
+      "GET",
+      `/api/v1/runtime/workspace/storage-usage?${qs.toString()}`,
+      undefined,
+      config
+    );
+
+    if (!isObject(payload) || typeof payload.usedBytes !== "number") {
+      return { usedBytes: 0 };
+    }
+
+    return { usedBytes: payload.usedBytes };
+  }
+
   private async requestWithPatch(
     path: string,
     body: unknown,

@@ -60,6 +60,34 @@ export class InboundMediaService {
       params.assistantId
     );
 
+    const wsLimits = await this.trackWorkspaceQuotaUsageService.resolveWorkspaceStorageLimit({
+      id: params.assistantId,
+      userId: params.userId,
+      workspaceId: params.workspaceId
+    } as Parameters<typeof this.trackWorkspaceQuotaUsageService.resolveWorkspaceStorageLimit>[0]);
+    if (wsLimits.limitBytes !== null) {
+      const wsUsage = await this.runtimeAdapter.getWorkspaceStorageUsage(
+        params.assistantId,
+        runtimeTier
+      );
+      if (wsUsage.usedBytes >= Number(wsLimits.limitBytes)) {
+        const usedMb = Math.round((wsUsage.usedBytes / 1_048_576) * 10) / 10;
+        const limitMb = Math.round((Number(wsLimits.limitBytes) / 1_048_576) * 10) / 10;
+        const sysNotice = `⚠ Workspace disk is full (${usedMb} MB / ${limitMb} MB). Delete old chats or files to free space.`;
+        systemNotices.push(sysNotice);
+        failureNotices.push(
+          `[System: The workspace disk is full (${usedMb} MB / ${limitMb} MB). The user's file "${params.rawAttachments[0]?.originalFilename ?? "attachment"}" could not be saved. Please tell the user that the workspace storage is full and suggest deleting old files or chats to free space.]`
+        );
+        const enrichedMessage = this.buildEnrichedMessage(
+          params.userMessage,
+          contextLines,
+          false,
+          failureNotices
+        );
+        return { attachments, enrichedMessage, systemNotices };
+      }
+    }
+
     for (const raw of params.rawAttachments) {
       const startedAt = process.hrtime.bigint();
       let outcome: "success" | "failure" = "failure";

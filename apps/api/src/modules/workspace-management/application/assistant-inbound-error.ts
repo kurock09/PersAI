@@ -129,6 +129,24 @@ export function toAssistantInboundHttpException(error: unknown): ApiErrorHttpExc
   );
 }
 
+export function createWorkspaceStorageFullError(
+  usedBytes: number,
+  limitBytes: bigint | null
+): ApiErrorHttpException {
+  const usedMb = Math.round((usedBytes / 1_048_576) * 10) / 10;
+  const limitMb =
+    limitBytes !== null ? Math.round((Number(limitBytes) / 1_048_576) * 10) / 10 : null;
+  return createApiError(
+    HttpStatus.CONFLICT,
+    "workspace_storage_full",
+    "conflict",
+    limitMb !== null
+      ? `Workspace disk is full: ${usedMb} MB used out of ${limitMb} MB. Delete old chats or files to free space.`
+      : "Workspace disk is full. Delete old chats or files to free space.",
+    { usedMb, limitMb }
+  );
+}
+
 export function createMediaStorageQuotaExceededError(
   usedBytes: bigint,
   limitBytes: bigint | null

@@ -28,6 +28,7 @@ type PlanQuotaHints = {
   tokenBudgetLimit: bigint | null;
   costOrTokenDrivingToolClassUnitsLimit: number | null;
   mediaStorageBytesLimit: bigint | null;
+  workspaceStorageBytesLimit: bigint | null;
 };
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -85,10 +86,16 @@ function parsePlanQuotaHints(
     asPositiveInteger(quotaHints?.mediaStorageBytesLimit) ??
     readQuotaHintFromLimitsPermissions(limitsPermissions, "media_storage_bytes_limit");
 
+  const workspaceStorageLimit =
+    asPositiveInteger(quotaHints?.workspaceStorageBytesLimit) ??
+    readQuotaHintFromLimitsPermissions(limitsPermissions, "workspace_storage_bytes_limit");
+
   return {
     tokenBudgetLimit: tokenBudgetLimit === null ? null : BigInt(tokenBudgetLimit),
     costOrTokenDrivingToolClassUnitsLimit: toolClassLimit,
-    mediaStorageBytesLimit: mediaStorageLimit === null ? null : BigInt(mediaStorageLimit)
+    mediaStorageBytesLimit: mediaStorageLimit === null ? null : BigInt(mediaStorageLimit),
+    workspaceStorageBytesLimit:
+      workspaceStorageLimit === null ? null : BigInt(workspaceStorageLimit)
   };
 }
 
@@ -349,6 +356,29 @@ export class TrackWorkspaceQuotaUsageService {
   ): Promise<WorkspaceQuotaLimitsInput> {
     const governance = await this.resolveGovernance(assistant.id);
     return this.resolveLimits(assistant, governance);
+  }
+
+  async resolveWorkspaceStorageLimit(assistant: Assistant): Promise<{ limitBytes: bigint | null }> {
+    const governance = await this.resolveGovernance(assistant.id);
+    const effectiveSubscription = await this.resolveEffectiveSubscriptionStateService.execute({
+      userId: assistant.userId,
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
+      assistantQuotaPlanCode: governance.quotaPlanCode
+    });
+    const plan =
+      effectiveSubscription.planCode === null
+        ? null
+        : await this.assistantPlanCatalogRepository.findByCode(effectiveSubscription.planCode);
+    const hints = parsePlanQuotaHints(
+      plan?.billingProviderHints ?? null,
+      plan?.entitlementModel?.limitsPermissions
+    );
+    const config = loadApiConfig(process.env);
+    const limitBytes =
+      hints.workspaceStorageBytesLimit ?? BigInt(config.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT);
+    return { limitBytes };
   }
 
   private async resolveLimits(

@@ -19,6 +19,9 @@ async function run(): Promise<void> {
       },
       async deleteChatMedia(_assistantId: string, storagePath: string) {
         deletedStoragePaths.push(storagePath);
+      },
+      async getWorkspaceStorageUsage() {
+        return { usedBytes: 1000 };
       }
     } as never,
     {
@@ -88,6 +91,9 @@ async function run(): Promise<void> {
             updatedAt: new Date()
           }
         };
+      },
+      async resolveWorkspaceStorageLimit() {
+        return { limitBytes: BigInt(524_288_000) };
       }
     } as never,
     metrics

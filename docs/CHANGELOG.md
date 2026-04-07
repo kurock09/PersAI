@@ -17,6 +17,10 @@
 - **SR4 session continuity ceiling baseline:** OpenClaw readiness now treats PersAI runtime `multi_replica` session mode as not yet supported by code, not as an operator-declarable healthy state. The runtime code confirms that Redis-backed apply/spec storage shares only apply metadata; session store continuity, workspace continuity, execution ordering, and restart handoff for a single runtime session are still process-local or per-host concerns, so `/ready` remains `not ready` for that mode.
 - **SR4 delivery pin update:** PersAI dev gitops now pins the approved OpenClaw fork to `7cb2c4b360a57b4523d775b67b11a11189fbe9bb`, matching the committed single-replica runtime contract, queue backpressure signal, and stricter workspace cleanup bypass guard.
 
+### Changed
+
+- **SR9c dual quota pre-check for uploads (Variant B):** uploads now check BOTH media upload budget (`mediaStorageBytesUsed`) AND workspace disk availability (sandbox `du -sb` via OpenClaw) before accepting user files. OpenClaw fork adds `GET /api/v1/runtime/workspace/storage-usage` endpoint; PersAI adapter calls it before upload. Web shows localized banner (`workspace_storage_full`), Telegram sends guaranteed system notice. Admin UI labels renamed: "Media upload budget (MB)" / "Workspace disk (MB)" with tooltips. Both quotas remain independently configurable per plan.
+
 ### Fixed
 
 - **SR9c media storage quota user-facing UX:** media storage quota errors now return structured HTTP 409 responses with `media_storage_quota_exceeded` code and `usedMb`/`limitMb` details instead of generic `BadRequestException`. Web chat displays a localized banner (EN/RU) showing exact storage usage and guidance. Telegram inbound media errors now include usage figures in the LLM prompt so the agent can explain the situation to the user. Removed dead legacy fallback code in `inbound-media.service.ts` and fixed `uploadChatAttachment` to use structured error parsing. Verified that voice recording and assistant-generated image paths handle quota correctly without crashes.

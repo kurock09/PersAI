@@ -124,6 +124,9 @@ async function run(): Promise<void> {
       },
       async deleteChatMedia(_assistantId: string, storagePath: string) {
         deletedStoragePaths.push(storagePath);
+      },
+      async getWorkspaceStorageUsage() {
+        return { usedBytes: 1000 };
       }
     } as never,
     {
@@ -148,6 +151,9 @@ async function run(): Promise<void> {
     {
       async checkMediaStorageQuota() {
         return { allowed: true };
+      },
+      async resolveWorkspaceStorageLimit() {
+        return { limitBytes: BigInt(524_288_000) };
       },
       async recordMediaUpload(input: { sizeBytes: bigint }) {
         return {
@@ -274,6 +280,9 @@ async function run(): Promise<void> {
       },
       async deleteChatMedia(_assistantId: string, storagePath: string) {
         cappedDeletes.push(storagePath);
+      },
+      async getWorkspaceStorageUsage() {
+        return { usedBytes: 1000 };
       }
     } as never,
     {
@@ -298,6 +307,9 @@ async function run(): Promise<void> {
     {
       async checkMediaStorageQuota() {
         return { allowed: true };
+      },
+      async resolveWorkspaceStorageLimit() {
+        return { limitBytes: BigInt(524_288_000) };
       },
       async recordMediaUpload() {
         return {

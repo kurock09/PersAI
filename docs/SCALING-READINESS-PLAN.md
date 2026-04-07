@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR9` — Billing and quota correctness under concurrency
-- `Current active sub-slice`: `SR9c` — media storage quota atomicity under concurrency (UX pass completed, pending deploy/live validation)
+- `Current active sub-slice`: `SR9c` — media storage quota atomicity under concurrency (UX pass completed; extending scope: dual quota pre-check for uploads — check both media storage budget AND workspace storage availability before accepting user uploads; Admin UI rename for clarity: "Workspace storage (MB)" = total sandbox disk, "Media upload budget (MB)" = user upload allowance within that disk)
 - `Current phase`: Billing and quota correctness under concurrency
 - `Next recommended slice after SR9`: `SR10` — Capacity validation and production gate
 - `Last closed slice`: `SR8` — Webhook and realtime burst hardening (closed 2026-04-06 after bounded live replay validation across web, reminders, and Telegram)
@@ -1172,18 +1172,25 @@ Exit criteria:
 Outcome:
 - concurrent media uploads no longer retain quota-violating stored bytes just because multiple upload paths race through the same workspace media ledger
 - touched cleanup/delete paths no longer leave the workspace logically full after quota-capped uploads or explicit media cleanup on the PersAI side
+- user uploads are blocked when the workspace disk is physically full, even if the media upload budget has headroom — preventing uploads that would fail at the sandbox layer
+- admin UI clearly separates "total sandbox disk" from "user upload budget" so operators understand the relationship between the two quotas
 
 In scope:
 - `media_storage_bytes` shared-state accounting on the PersAI API side
 - atomic capped media-byte apply semantics plus rollback of the newly uploaded blob when the full object no longer fits
 - bounded release/reconciliation of `media_storage_bytes` on the touched PersAI delete/cleanup paths needed to restore honest workspace headroom after cleanup
 - alignment of docs that previously overstated inbound media pre-check coverage
+- **dual quota pre-check for uploads (Variant B):** before accepting a user upload (web stage-attachment, Telegram inbound media), the API checks BOTH (a) media upload budget (`mediaStorageBytesUsed < mediaStorageBytesLimit`) AND (b) workspace storage availability (current sandbox disk usage from OpenClaw < `workspaceStorageBytesLimit`). If either check fails, the upload is rejected with an appropriate user-facing error
+- **admin UI rename for clarity:** "Workspace storage (MB)" = total sandbox disk limit (enforced by OpenClaw via `du -sb`, covers everything: agent files, downloads, user uploads). "Media upload budget (MB)" / "Media storage (MB)" = user upload allowance within that disk (enforced by PersAI API, tracks only user-uploaded content). Both quotas remain independently configurable per plan
+- **workspace storage pre-check implementation:** the PersAI API queries OpenClaw for the current sandbox disk usage before accepting uploads, using the existing runtime adapter pattern
 
 Out of scope:
 - media preprocessing throughput redesign (`SR7`)
 - full cross-system media lifecycle reconciliation beyond the touched PersAI-owned cleanup/delete seams
 - token-budget or active-chat-cap atomicity (`SR9b` / `SR9d`)
 - final capacity proof (`SR10`)
+- replacing OpenClaw's workspace storage enforcement (`du -sb`) with a different mechanism
+- removing or merging the two quotas into one — they serve different enforcement layers
 
 Primary files / domains:
 - `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-quota-accounting.repository.ts`
@@ -1191,6 +1198,10 @@ Primary files / domains:
 - `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
 - `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
 - `apps/api/src/modules/workspace-management/application/media/inbound-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media.types.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/web/app/admin/plans/page.tsx` (admin UI label rename)
+- `apps/web/app/app/_components/chat-area.tsx` (web chat error rendering)
 - focused API media/quota tests
 - `docs/SCALING-READINESS-PLAN.md`
 - `docs/ROADMAP.md`
@@ -1202,6 +1213,9 @@ Evidence required:
 - media-byte usage writes use one serializable capped shared-state path instead of a blind increment
 - when the uploaded object no longer fully fits, the newly uploaded blob is deleted and no attachment row is retained on the touched path
 - touched PersAI cleanup/delete paths release `media_storage_bytes` through one bounded shared-state seam so cleanup restores upload headroom instead of leaving stale ledger usage
+- **upload pre-check blocks when workspace disk is full**, even if media upload budget has headroom — preventing "media OK but disk full" uploads that would fail silently at the sandbox layer
+- **upload pre-check blocks when media budget is exceeded**, even if workspace disk has headroom — keeping the per-user upload allowance enforced
+- **admin UI clearly separates the two quotas** with labels that explain each one's role
 - docs stay honest that this pass hardens touched PersAI-owned retain/release correctness, not the whole long-term cross-system media reconciliation story
 
 Verification:
@@ -1228,6 +1242,9 @@ Observation window:
 Exit criteria:
 - touched upload paths no longer retain media blobs above the workspace media-storage limit purely because concurrent uploads raced through the same ledger
 - touched PersAI cleanup/delete paths no longer leave stale `media_storage_bytes` usage that blocks later uploads after cleanup
+- user uploads are rejected with a clear error when workspace disk is physically full, regardless of media budget headroom
+- user uploads are rejected with a clear error when media upload budget is exceeded, regardless of workspace disk headroom
+- admin UI labels clearly communicate the relationship between workspace storage (total disk) and media upload budget (user upload allowance)
 - docs remain explicit that full media-byte reconciliation across every possible external/runtime lifecycle is not yet claimed here
 
 #### SR9d — Active web chats cap race-safe creation

@@ -1,5 +1,93 @@
 # SESSION-HANDOFF
 
+## 2026-04-07 - SR9c dual quota pre-check decision (Variant B)
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- `SR9c` — media storage quota atomicity under concurrency (extending scope with dual quota pre-check)
+
+### What stale program state was fixed
+
+1. Live deploy testing revealed that "Media storage (MB)" limit (100 MB, tracked in PersAI DB) and "Workspace storage (MB)" limit (150 MB, enforced by OpenClaw `du -sb`) are two separate quotas covering the same physical sandbox disk. The user's workspace was at 164 MB / 150 MB workspace storage (from agent-created files), but only 21 MB / 100 MB media storage (user uploads). Uploads passed the media check but the workspace was physically full. Canon did not describe this dual-quota relationship clearly.
+
+### What subagents were launched and why
+
+- None in this session. Evidence gathered via direct kubectl + DB queries:
+  - Confirmed user's workspace `d7a26ffe` has `mediaStorageBytesUsed = 22,450,094` (~21 MB) with limit 104,857,600 (100 MB) — well under limit, explaining why uploads returned 201.
+  - Confirmed plan `starter_trial` has `mediaStorageBytesLimit: 104857600` (100 MB) and `workspaceStorageBytesLimit: 157286400` (150 MB) correctly stored in `billingProviderHints.quotaAccounting`.
+  - Confirmed admin UI correctly converts MB ↔ bytes (×1048576) in both save and load paths.
+  - API logs showed all `stage-attachment` calls returning HTTP 201 — media quota never triggered.
+
+### What evidence they returned
+
+- **Root cause**: The two quotas serve different layers:
+  - **Workspace storage** = total sandbox disk (agent files + user uploads + tools output). Enforced by OpenClaw at OS level.
+  - **Media storage** = user upload budget only (images, voice, docs through chat). Enforced by PersAI API at upload boundary.
+- Agent-created files (164 MB) count toward workspace but NOT toward media storage.
+- User uploads (21 MB) count toward BOTH.
+- The media pre-check was working correctly (21 < 100 → allowed). The problem was that it didn't also check whether the workspace disk had physical room.
+
+### Decision: Variant B — keep both quotas, check both at upload time, rename for clarity
+
+**Architecture**:
+1. Keep "Workspace storage" as the master limit on total sandbox disk (enforced by OpenClaw)
+2. Keep "Media storage" as user upload budget (enforced by PersAI API, tracked in DB)
+3. Before accepting any user upload, check BOTH:
+   - Is media upload budget exceeded? → "Your upload budget is full (X MB / Y MB)"
+   - Is workspace disk full? → "Workspace disk is full, delete files to free space"
+4. Rename in Admin UI for clarity:
+   - "Workspace storage (MB)" = total sandbox disk limit (everything: bot + user)
+   - "Media storage (MB)" → clarify as user upload allowance within the workspace
+
+**Rejected alternatives**:
+- Variant A (remove media, keep only workspace): would require HTTP to OpenClaw on every upload, lose granular upload-vs-bot control, and waste SR9c work.
+- Variant C (media = workspace limit, no HTTP): doesn't solve the problem — agent files still invisible to media counter.
+
+### What was completed
+
+1. **OpenClaw**: added `GET /api/v1/runtime/workspace/storage-usage?assistantId=...` endpoint returning `{ usedBytes }` via `du -sb` (with 30s cache) in `persai-runtime-http.ts`, registered in `server-http.ts`.
+2. **PersAI adapter**: added `getWorkspaceStorageUsage(assistantId, runtimeTier)` to `AssistantRuntimeAdapter` interface and `OpenClawRuntimeAdapter` implementation.
+3. **Quota resolution**: added `resolveWorkspaceStorageLimit(assistant)` to `TrackWorkspaceQuotaUsageService`; `parsePlanQuotaHints` now parses `workspaceStorageBytesLimit`.
+4. **Error factory**: added `createWorkspaceStorageFullError(usedBytes, limitBytes)` — HTTP 409, code `workspace_storage_full`.
+5. **Web uploads** (`manage-chat-media.service.ts`): dual pre-check — after media budget check, before upload to OpenClaw, checks workspace disk usage against limit.
+6. **Telegram uploads** (`inbound-media.service.ts`): workspace pre-check before processing loop; guaranteed system notice + LLM instruction on workspace full.
+7. **Web frontend**: `toWebChatUxIssue` handles `workspace_storage_full` with `usedMb`/`limitMb` details; `chat-area.tsx` banner shows localized messages; i18n keys added (en + ru).
+8. **Admin UI**: labels renamed to "Media upload budget (MB)" and "Workspace disk (MB)" with explanatory tooltips.
+9. **Surface messages**: `render-assistant-inbound-surface-message.service.ts` handles `workspace_storage_full` for messenger channels.
+10. **Tests**: mocks updated for `resolveWorkspaceStorageLimit` and `getWorkspaceStorageUsage` in both `manage-chat-media.stage-web-thread.test.ts` and `inbound-media.service.test.ts`.
+11. **Docs**: `SCALING-READINESS-PLAN.md`, `ROADMAP.md`, `SESSION-HANDOFF.md`, `CHANGELOG.md` updated.
+12. **OpenClaw SHA**: `openclaw-approved-sha.txt` updated to `0155ead54ba48ae9eb7ab909ce1c73e7535a4026`.
+
+### What remains
+
+1. **Deploy + live validation**: verify both checks work end-to-end in web and Telegram with a workspace that is over the disk limit.
+
+### Confirmed risks
+
+1. The workspace storage pre-check requires an HTTP call to OpenClaw per upload — adds ~100-200ms latency. Acceptable for upload path. OpenClaw caches `du -sb` results for 30s.
+
+### Unresolved hypotheses
+
+None — all hypotheses from the decision session have been resolved by implementation.
+
+### Verification run
+
+- CI gate passed: ESLint (0 warnings), Prettier, API typecheck, Web typecheck, OpenClaw typecheck, Web build, all relevant unit tests.
+
+### Why the next SR is still blocked or can be opened
+
+- `SR10` is still blocked until the SR9c dual quota pre-check is deployed and live-validated. After one successful deploy + live test confirming both quota paths fire correctly, SR9c can close.
+
+### Next recommended step
+
+- Push OpenClaw first, then PersAI. Wait for deploy. Live-test: upload a file to a workspace that is over the workspace disk limit — verify web banner and Telegram notice appear.
+
+---
+
 ## 2026-04-07 - SR9c media storage quota user-facing UX pass
 
 ### Current active slice

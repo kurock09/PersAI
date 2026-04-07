@@ -678,7 +678,9 @@ function PlanForm({
                 />
               </label>
               <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                Media storage (MB)
+                <span title="User upload budget — max MB users can upload through chat (images, voice, docs). Tracked by PersAI API.">
+                  Media upload budget (MB)
+                </span>
                 <input
                   type="number"
                   min={0}
@@ -689,7 +691,9 @@ function PlanForm({
                 />
               </label>
               <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                Workspace storage (MB)
+                <span title="Total sandbox disk — max MB for everything (agent files, downloads, user uploads). Enforced by OpenClaw.">
+                  Workspace disk (MB)
+                </span>
                 <input
                   type="number"
                   min={0}
@@ -871,13 +875,13 @@ function PlanCardReadOnly({
                 <div className="space-y-0.5 text-[10px] text-text-subtle">
                   <div>Token budget: {plan.quotaLimits?.tokenBudgetLimit ?? "default"}</div>
                   <div>
-                    Media storage:{" "}
+                    Media upload budget:{" "}
                     {plan.quotaLimits?.mediaStorageBytesLimit != null
                       ? `${String(Math.round(plan.quotaLimits.mediaStorageBytesLimit / 1048576))} MB`
                       : "default"}
                   </div>
                   <div>
-                    Workspace storage:{" "}
+                    Workspace disk:{" "}
                     {plan.quotaLimits?.workspaceStorageBytesLimit != null
                       ? `${String(Math.round(plan.quotaLimits.workspaceStorageBytesLimit / 1048576))} MB`
                       : "500 MB"}

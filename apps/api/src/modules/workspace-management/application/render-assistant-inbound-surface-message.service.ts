@@ -41,6 +41,8 @@ export class RenderAssistantInboundSurfaceMessageService {
         return "This channel is not available on the current plan.";
       case "media_storage_quota_exceeded":
         return "Media storage is full. Delete old chats or files to free up space before sending new files.";
+      case "workspace_storage_full":
+        return "Workspace disk is full. Delete old chats or ask the assistant to clean up files to free space.";
       case "quota_limit_reached":
         return "Usage limit reached for the current plan. Please try again later.";
       case "tool_daily_limit_reached":
