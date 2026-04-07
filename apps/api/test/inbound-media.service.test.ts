@@ -113,8 +113,10 @@ async function run(): Promise<void> {
 
   assert.deepEqual(result.attachments, []);
   assert.match(result.enrichedMessage, /Attachment processing notes:/);
-  assert.match(result.enrichedMessage, /workspace media storage limit was reached/i);
+  assert.match(result.enrichedMessage, /media storage limit was reached/i);
   assert.match(result.enrichedMessage, /hello/);
+  assert.equal(result.systemNotices.length, 1);
+  assert.match(result.systemNotices[0]!, /Media storage/i);
   assert.equal(attachmentCreated, false);
   assert.deepEqual(deletedStoragePaths, ["chat-1/msg-1/photo.jpg"]);
   assert.deepEqual(releasedBytes, [BigInt(5)]);

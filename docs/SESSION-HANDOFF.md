@@ -1,5 +1,76 @@
 # SESSION-HANDOFF
 
+## 2026-04-07 - SR9c media storage quota user-facing UX pass
+
+### Current active slice
+
+- `SR9` — Billing and quota correctness under concurrency
+
+### Current active sub-slice
+
+- `SR9c` — media storage quota atomicity under concurrency
+
+### What stale program state was fixed
+
+1. Canon active sub-slice marker in `SCALING-READINESS-PLAN.md` and `ROADMAP.md` still pointed at `SR9f`, but the truthful active sub-slice was `SR9c` due to the reopened live residual from the previous session.
+
+### What subagents were launched and why
+
+1. A readonly subagent to trace how assistant-generated files/images are persisted and whether they hit media storage quota (they don't — they go through `MediaDeliveryService` which is bounded by workspace storage, not media storage).
+2. A readonly subagent to trace the complete voice recording upload flow from web client through transcription and staging, confirming that media quota is checked only at staging time (not at STT transcription time, which uses transient scratch storage).
+
+### What evidence they returned
+
+- **Assistant-generated images**: `MediaDeliveryService.deliver()` does not call `recordMediaUpload` or `checkMediaStorageQuota`. If persistence fails, it logs a warning and continues silently. No crash risk from media quota on this path.
+- **Voice recording (web)**: transcription (`/assistant/voice/transcribe`) uses transient storage, no quota check. The voice file is staged for chat via `stageWebChatAttachment` which goes through the full quota check (`checkMediaStorageQuota` + `ensureMediaStorageQuotaApplied`). Quota errors are properly caught in `use-chat.send()` and mapped to the `media_storage_full` banner.
+- **Voice recording (Telegram)**: goes through `inbound-media.service.ts` with `MediaStorageQuotaExceededError`, LLM gets a prompt with `usedMb`/`limitMb`.
+
+### What was completed
+
+1. **API structured error**: replaced `BadRequestException` throws with `createMediaStorageQuotaExceededError` (HTTP 409, code `media_storage_quota_exceeded`, details `{ usedMb, limitMb }`) in `manage-chat-media.service.ts` and `assistant-inbound-error.ts`.
+2. **Web client structured error parsing**: added `readApiErrorEnvelope` and `ApiStructuredError` class to `assistant-api-client.ts`. Both `stageWebChatAttachment` and `uploadChatAttachment` now parse structured API error envelopes.
+3. **Web UI localized banner**: `chat-area.tsx` renders a dedicated `media_storage_full` banner using `next-intl` with i18n keys in EN and RU (`mediaStorageFull`, `mediaStorageFullNoLimit`, `mediaStorageFullGuidance`), showing exact MB usage.
+4. **Telegram inbound enrichment**: `inbound-media.service.ts` local `MediaStorageQuotaExceededError` carries `usedMb`/`limitMb`; `renderInboundAttachmentFailureNotice` embeds usage into the LLM prompt instructing it to politely explain storage usage.
+5. **Telegram surface message**: `render-assistant-inbound-surface-message.service.ts` added `media_storage_quota_exceeded` case for top-level error rendering.
+6. **Legacy cleanup**: removed dead string-matching fallback in `inbound-media.service.ts` (unreachable after `instanceof` check). Fixed `uploadChatAttachment` to use `readApiErrorEnvelope` instead of old `readJsonErrorMessage`.
+7. **i18n**: added 3 keys each to `en.json` and `ru.json` under `chat` namespace.
+8. **Tests**: updated `manage-chat-media.stage-web-thread.test.ts` (expects `ApiErrorHttpException`), `inbound-media.service.test.ts` (updated regex), `assistant-api-client.test.ts` (expects `media_storage_full` classId).
+9. **Verified all secondary paths**: voice recording (web + Telegram) and assistant-generated images/files are properly handled — no crash or silent failure on media quota hit.
+
+### What remains
+
+1. Deploy the current `SR9` package (including this UX pass) to `persai-dev`.
+2. Live validation: exceed media cap → verify friendly message in web chat and Telegram → clean up → verify upload works again.
+3. Complete the live validation wave for `SR9b`-`SR9f` before deciding whether `SR9` is honestly closed.
+
+### Confirmed risks
+
+1. `MediaDeliveryService` (assistant-generated files) does not track media storage quota — files are bounded by workspace storage (`workspaceStorageBytesLimit`) instead. This is by design, not a gap.
+2. No deploy/live evidence exists yet for this UX pass; closure still depends on real shared-state validation after rollout.
+
+### Unresolved hypotheses
+
+1. The combined SR9c package (atomicity + reconciliation + UX) should be sufficient to close `SR9c` once live validation confirms: (a) friendly error messages appear on quota hit, (b) cleanup restores upload headroom, (c) subsequent uploads succeed after cleanup.
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck` — passed
+- `corepack pnpm --filter @persai/web run typecheck` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts` — passed
+- `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts` — passed
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts` — passed (11/11)
+- `corepack pnpm run format:check` — passed
+
+### Why the next SR is still blocked or can be opened
+
+- `SR10` is still blocked because `SR9` still lacks deploy/live shared-state proof across `SR9b`-`SR9f`; the truthful next step is deploy plus live validation, not opening the next slice.
+
+### Next recommended step
+
+- Deploy the current `SR9` package to `persai-dev` and run the live media quota UX validation: trigger quota exceeded in web chat (verify friendly banner with MB) and Telegram (verify agent explains usage), then clean up and verify the restriction resets.
+
+---
+
 ## 2026-04-07 - SR9c media storage reconciliation follow-up code pass
 
 ### Current active slice

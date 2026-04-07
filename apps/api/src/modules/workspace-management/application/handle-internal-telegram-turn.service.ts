@@ -156,6 +156,7 @@ export class HandleInternalTelegramTurnService {
       }
 
       let enrichedMessage = input.message;
+      let mediaSystemNotices: string[] = [];
 
       if (input.attachments && input.attachments.length > 0) {
         const chat = await this.chatRepository.findOrCreateChatBySurfaceThread({
@@ -190,6 +191,7 @@ export class HandleInternalTelegramTurnService {
           rawAttachments
         });
         enrichedMessage = resolved2.enrichedMessage;
+        mediaSystemNotices = resolved2.systemNotices;
       } else {
         enrichedMessage = input.message;
       }
@@ -228,6 +230,13 @@ export class HandleInternalTelegramTurnService {
       }
       await this.consumeBootstrapBestEffort(resolved.assistantId);
 
+      if (mediaSystemNotices.length > 0) {
+        const prefix = mediaSystemNotices.join("\n");
+        return {
+          ...runtimeResponse,
+          assistantMessage: `${prefix}\n\n${runtimeResponse.assistantMessage}`
+        };
+      }
       return runtimeResponse;
     } catch (error) {
       if (claimedUpdateId !== null) {

@@ -355,13 +355,12 @@ describe("toWebChatUxIssue", () => {
     });
   });
 
-  it("maps media storage quota errors to quota-style guidance", () => {
+  it("maps media storage quota errors to storage-specific guidance", () => {
     expect(toWebChatUxIssue(new Error("Media storage quota exceeded for this workspace."))).toEqual(
       {
-        classId: "quota_limit_reached",
-        message: "You've reached your plan's usage limit.",
-        guidance:
-          "Your message quota or tool usage limit has been exceeded. Wait for the next billing cycle or upgrade your plan."
+        classId: "media_storage_full",
+        message: "Media storage limit reached.",
+        guidance: "Delete old chats or files to free up space, then try uploading again."
       }
     );
   });

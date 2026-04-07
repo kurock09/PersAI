@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { BadRequestException } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../src/modules/platform-core/application/platform-http-metrics.service";
+import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { ManageChatMediaService } from "../src/modules/workspace-management/application/manage-chat-media.service";
 import type { Assistant } from "../src/modules/workspace-management/domain/assistant.entity";
 
@@ -357,8 +357,8 @@ async function run(): Promise<void> {
         }
       }),
     (error) =>
-      error instanceof BadRequestException &&
-      error.message === "Media storage quota exceeded for this workspace."
+      error instanceof ApiErrorHttpException &&
+      error.errorObject.code === "media_storage_quota_exceeded"
   );
   assert.deepEqual(cappedDeletes, ["chat-1/msg-1/image.png"]);
   assert.deepEqual(cappedReleases, [BigInt(5)]);

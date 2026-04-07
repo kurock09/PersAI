@@ -19,6 +19,19 @@ import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime
 import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media-security-policy";
 
+class MediaStorageQuotaExceededError extends Error {
+  constructor(
+    public readonly usedMb: number,
+    public readonly limitMb: number | null
+  ) {
+    super(
+      limitMb !== null
+        ? `Media storage full: ${usedMb} MB used out of ${limitMb} MB.`
+        : "Media storage quota exceeded."
+    );
+  }
+}
+
 @Injectable()
 export class InboundMediaService {
   private readonly logger = new Logger(InboundMediaService.name);
@@ -36,12 +49,13 @@ export class InboundMediaService {
 
   async resolve(params: InboundMediaResolveParams): Promise<ResolvedInboundMedia> {
     if (params.rawAttachments.length === 0) {
-      return { attachments: [], enrichedMessage: params.userMessage };
+      return { attachments: [], enrichedMessage: params.userMessage, systemNotices: [] };
     }
 
     const attachments: AssistantChatMessageAttachment[] = [];
     const contextLines: string[] = [];
     const failureNotices: string[] = [];
+    const systemNotices: string[] = [];
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       params.assistantId
     );
@@ -90,7 +104,7 @@ export class InboundMediaService {
             uploadResult.storagePath,
             runtimeTier
           );
-          await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
+          const released = await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
             assistant: {
               id: params.assistantId,
               userId: params.userId,
@@ -101,7 +115,13 @@ export class InboundMediaService {
             sizeBytes: applied.appliedDelta,
             source: `channel_inbound_${params.channel}_rollback`
           });
-          throw new Error("Media storage quota exceeded for this workspace.");
+          const usedMb =
+            Math.round((Number(released.state.mediaStorageBytesUsed) / 1_048_576) * 10) / 10;
+          const limitMb =
+            released.state.mediaStorageBytesLimit !== null
+              ? Math.round((Number(released.state.mediaStorageBytesLimit) / 1_048_576) * 10) / 10
+              : null;
+          throw new MediaStorageQuotaExceededError(usedMb, limitMb);
         }
 
         const attachmentType = inferAttachmentTypeFromMime(processed.normalizedMime);
@@ -145,6 +165,13 @@ export class InboundMediaService {
         if (notice !== null) {
           failureNotices.push(notice);
         }
+        if (err instanceof MediaStorageQuotaExceededError) {
+          const sysNotice =
+            err.limitMb !== null
+              ? `⚠ Media storage is full (${err.usedMb} MB / ${err.limitMb} MB). Delete old chats or files to free space.`
+              : "⚠ Media storage limit reached. Delete old chats or files to free space.";
+          systemNotices.push(sysNotice);
+        }
       } finally {
         const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
         this.platformHttpMetricsService.recordMediaStage({
@@ -163,7 +190,7 @@ export class InboundMediaService {
       failureNotices
     );
 
-    return { attachments, enrichedMessage };
+    return { attachments, enrichedMessage, systemNotices };
   }
 
   /**
@@ -275,12 +302,15 @@ export class InboundMediaService {
       return null;
     }
 
-    const message = error instanceof Error ? error.message : String(error);
-    const normalized = message.toLowerCase();
     const filename = originalFilename.trim().length > 0 ? `"${originalFilename}"` : "The file";
 
-    if (normalized.includes("media storage quota exceeded")) {
-      return `- ${filename} was not uploaded because the workspace media storage limit was reached.`;
+    if (error instanceof MediaStorageQuotaExceededError) {
+      const usage =
+        error.limitMb !== null ? ` (${error.usedMb} MB used out of ${error.limitMb} MB)` : "";
+      return (
+        `- ${filename} was not uploaded because the media storage limit was reached${usage}. ` +
+        "Politely tell the user how much storage is used and that they need to delete old chats or files to free up space before uploading again."
+      );
     }
 
     return `- ${filename} could not be processed, so continue without that attachment and tell the user it was not accepted.`;

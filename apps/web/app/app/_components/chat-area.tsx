@@ -235,8 +235,30 @@ export function ChatArea({
         <div className="mx-4 mb-2 flex items-start gap-3 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-destructive">{chat.issue.message}</p>
-            <p className="mt-0.5 text-xs text-text-muted">{chat.issue.guidance}</p>
+            {chat.issue.classId === "media_storage_full" &&
+            typeof chat.issue.data?.limitMb === "number" ? (
+              <>
+                <p className="text-sm font-medium text-destructive">
+                  {t("mediaStorageFull", {
+                    used: String(chat.issue.data?.usedMb ?? "?"),
+                    limit: String(chat.issue.data.limitMb)
+                  })}
+                </p>
+                <p className="mt-0.5 text-xs text-text-muted">{t("mediaStorageFullGuidance")}</p>
+              </>
+            ) : chat.issue.classId === "media_storage_full" ? (
+              <>
+                <p className="text-sm font-medium text-destructive">
+                  {t("mediaStorageFullNoLimit")}
+                </p>
+                <p className="mt-0.5 text-xs text-text-muted">{t("mediaStorageFullGuidance")}</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-destructive">{chat.issue.message}</p>
+                <p className="mt-0.5 text-xs text-text-muted">{chat.issue.guidance}</p>
+              </>
+            )}
           </div>
           <button
             type="button"

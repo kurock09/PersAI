@@ -202,6 +202,7 @@ export type WebChatUxIssueClass =
   | "assistant_not_live"
   | "active_chat_cap"
   | "quota_limit_reached"
+  | "media_storage_full"
   | "feature_unavailable"
   | "runtime_unreachable"
   | "runtime_timeout"
@@ -217,6 +218,42 @@ export interface WebChatUxIssue {
   classId: WebChatUxIssueClass;
   message: string;
   guidance: string;
+  data?: Record<string, unknown>;
+}
+
+async function readApiErrorEnvelope(
+  response: Response
+): Promise<{ code: string; message: string; details?: Record<string, unknown> } | null> {
+  const ct = response.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return null;
+  try {
+    const payload = (await response.json()) as unknown;
+    if (typeof payload !== "object" || payload === null) return null;
+    const env = payload as { error?: { code?: unknown; message?: unknown; details?: unknown } };
+    const err = env.error;
+    if (!err || typeof err.code !== "string" || typeof err.message !== "string") return null;
+    const details =
+      typeof err.details === "object" && err.details !== null && !Array.isArray(err.details)
+        ? (err.details as Record<string, unknown>)
+        : null;
+    return {
+      code: err.code,
+      message: err.message,
+      ...(details !== null ? { details } : {})
+    };
+  } catch {
+    return null;
+  }
+}
+
+class ApiStructuredError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly details?: Record<string, unknown>
+  ) {
+    super(message);
+  }
 }
 
 function normalizeRawErrorMessage(source: string): string {
@@ -274,6 +311,26 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
       message: "This turn cannot continue on the current plan limits.",
       guidance:
         "No safe fallback route is available for this request right now. Wait for quota refresh, simplify the request, or upgrade the plan."
+    };
+  }
+
+  if (code === "media_storage_quota_exceeded") {
+    const usedMb =
+      error instanceof ApiStructuredError && typeof error.details?.usedMb === "number"
+        ? error.details.usedMb
+        : null;
+    const limitMb =
+      error instanceof ApiStructuredError && typeof error.details?.limitMb === "number"
+        ? error.details.limitMb
+        : null;
+    return {
+      classId: "media_storage_full",
+      message:
+        limitMb !== null
+          ? `Media storage full: ${usedMb ?? "?"} MB used out of ${limitMb} MB.`
+          : "Media storage limit reached.",
+      guidance: "Delete old chats or files to free up space, then try uploading again.",
+      data: { usedMb, limitMb }
     };
   }
 
@@ -370,10 +427,20 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   }
 
   if (
+    normalized.includes("media storage quota exceeded") ||
+    normalized.includes("media storage full")
+  ) {
+    return {
+      classId: "media_storage_full",
+      message: "Media storage limit reached.",
+      guidance: "Delete old chats or files to free up space, then try uploading again."
+    };
+  }
+
+  if (
     normalized.includes("quota limit reached") ||
     normalized.includes("budget limit reached") ||
-    normalized.includes("quota refresh") ||
-    normalized.includes("media storage quota exceeded")
+    normalized.includes("quota refresh")
   ) {
     return {
       classId: "quota_limit_reached",
@@ -1929,7 +1996,11 @@ export async function stageWebChatAttachment(
     body: formData
   });
   if (!res.ok) {
-    throw new Error(await readJsonErrorMessage(res, "Failed to stage attachment."));
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) {
+      throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    }
+    throw new Error("Failed to stage attachment.");
   }
   const data = (await res.json()) as StagedAttachmentResult;
   return data;
@@ -1953,7 +2024,11 @@ export async function uploadChatAttachment(
     }
   );
   if (!res.ok) {
-    throw new Error(await readJsonErrorMessage(res, "Failed to upload attachment."));
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) {
+      throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    }
+    throw new Error("Failed to upload attachment.");
   }
   const data = (await res.json()) as { attachment: UploadedAttachment };
   return data.attachment;

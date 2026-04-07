@@ -21,7 +21,10 @@ import { MediaPreprocessorService } from "./media/media-preprocessor.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
-import { createAssistantInboundConflict } from "./assistant-inbound-error";
+import {
+  createAssistantInboundConflict,
+  createMediaStorageQuotaExceededError
+} from "./assistant-inbound-error";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -88,7 +91,7 @@ export class ManageChatMediaService {
     }
     const quotaCheck = await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
     if (!quotaCheck.allowed) {
-      throw new BadRequestException("Media storage quota exceeded for this workspace.");
+      throw createMediaStorageQuotaExceededError(quotaCheck.usedBytes, quotaCheck.limitBytes);
     }
 
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
@@ -205,7 +208,7 @@ export class ManageChatMediaService {
       const quotaCheck =
         await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
       if (!quotaCheck.allowed) {
-        throw new BadRequestException("Media storage quota exceeded for this workspace.");
+        throw createMediaStorageQuotaExceededError(quotaCheck.usedBytes, quotaCheck.limitBytes);
       }
 
       const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
@@ -383,12 +386,15 @@ export class ManageChatMediaService {
         params.storagePath,
         params.runtimeTier
       );
-      await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
+      const released = await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
         assistant: params.assistant,
         sizeBytes: applied.appliedDelta,
         source: `${params.source}_rollback`
       });
-      throw new BadRequestException("Media storage quota exceeded for this workspace.");
+      throw createMediaStorageQuotaExceededError(
+        released.state.mediaStorageBytesUsed,
+        released.state.mediaStorageBytesLimit
+      );
     }
   }
 

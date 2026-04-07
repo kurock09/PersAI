@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR9` — Billing and quota correctness under concurrency
-- `Current active sub-slice`: `SR9f` — tool daily quota check-vs-consume concurrency contract
+- `Current active sub-slice`: `SR9c` — media storage quota atomicity under concurrency (UX pass completed, pending deploy/live validation)
 - `Current phase`: Billing and quota correctness under concurrency
 - `Next recommended slice after SR9`: `SR10` — Capacity validation and production gate
 - `Last closed slice`: `SR8` — Webhook and realtime burst hardening (closed 2026-04-06 after bounded live replay validation across web, reminders, and Telegram)

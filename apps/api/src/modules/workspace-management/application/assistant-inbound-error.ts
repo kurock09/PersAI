@@ -129,6 +129,24 @@ export function toAssistantInboundHttpException(error: unknown): ApiErrorHttpExc
   );
 }
 
+export function createMediaStorageQuotaExceededError(
+  usedBytes: bigint,
+  limitBytes: bigint | null
+): ApiErrorHttpException {
+  const usedMb = Math.round((Number(usedBytes) / 1_048_576) * 10) / 10;
+  const limitMb =
+    limitBytes !== null ? Math.round((Number(limitBytes) / 1_048_576) * 10) / 10 : null;
+  return createApiError(
+    HttpStatus.CONFLICT,
+    "media_storage_quota_exceeded",
+    "conflict",
+    limitMb !== null
+      ? `Media storage full: ${usedMb} MB used out of ${limitMb} MB.`
+      : "Media storage quota exceeded.",
+    { usedMb, limitMb }
+  );
+}
+
 export function toAssistantInboundFailurePayload(error: unknown): AssistantInboundFailurePayload {
   const normalized = toAssistantInboundHttpException(error);
   return {
