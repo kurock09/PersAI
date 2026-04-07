@@ -31,14 +31,20 @@ type SystemWarning = {
   message: string;
 };
 
+type TierPreflight = {
+  tier: string;
+  live: boolean;
+  ready: boolean;
+  checkedAt: string;
+};
+
 type DashboardState = {
   latency: LatencySnapshot;
   activeUsers: number;
   activeWebChats: number;
   runtime: {
     adapterEnabled: boolean;
-    runtimeTier: string | null;
-    preflight: { live: boolean; ready: boolean; checkedAt: string };
+    tiers: TierPreflight[];
   };
   health: {
     uptimeSeconds: number;
@@ -282,50 +288,51 @@ export default function AdminOverviewPage() {
 
           <section>
             <h2 className="mb-2 text-[11px] font-bold uppercase tracking-wide text-text-muted">
-              Runtime
+              Runtime Tiers
             </h2>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <div className="rounded-lg border border-border bg-surface-raised p-3">
-                <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                  Preflight
-                </p>
-                <div className="mt-1 flex items-center gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className={cn(
-                        "h-2 w-2 rounded-full",
-                        dashboard.runtime.preflight.live
-                          ? "bg-success shadow-[0_0_6px_rgba(34,197,94,0.45)]"
-                          : "bg-destructive"
-                      )}
-                    />
-                    <span className="text-xs text-text-muted">Live</span>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {dashboard.runtime.tiers.map((t) => {
+                const healthy = t.live && t.ready;
+                return (
+                  <div
+                    key={t.tier}
+                    className={cn(
+                      "rounded-lg border p-3",
+                      healthy
+                        ? "border-border bg-surface-raised"
+                        : "border-destructive/30 bg-destructive/5"
+                    )}
+                  >
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
+                      {t.tier.replace(/_/g, " ")}
+                    </p>
+                    <div className="mt-1.5 flex items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "h-2 w-2 rounded-full",
+                            t.live
+                              ? "bg-success shadow-[0_0_6px_rgba(34,197,94,0.45)]"
+                              : "bg-destructive"
+                          )}
+                        />
+                        <span className="text-xs text-text-muted">Live</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "h-2 w-2 rounded-full",
+                            t.ready
+                              ? "bg-success shadow-[0_0_6px_rgba(34,197,94,0.45)]"
+                              : "bg-destructive"
+                          )}
+                        />
+                        <span className="text-xs text-text-muted">Ready</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className={cn(
-                        "h-2 w-2 rounded-full",
-                        dashboard.runtime.preflight.ready
-                          ? "bg-success shadow-[0_0_6px_rgba(34,197,94,0.45)]"
-                          : "bg-destructive"
-                      )}
-                    />
-                    <span className="text-xs text-text-muted">Ready</span>
-                  </div>
-                </div>
-              </div>
-              <MetricCard
-                title="Runtime Tier"
-                icon={Server}
-                value={dashboard.runtime.runtimeTier ?? "N/A"}
-                sub={dashboard.runtime.adapterEnabled ? "Adapter enabled" : "Adapter disabled"}
-              />
-              <MetricCard
-                title="Adapter"
-                icon={Server}
-                value={dashboard.runtime.adapterEnabled ? "On" : "Off"}
-                color={dashboard.runtime.adapterEnabled ? "text-success" : "text-text-muted"}
-              />
+                );
+              })}
             </div>
           </section>
 

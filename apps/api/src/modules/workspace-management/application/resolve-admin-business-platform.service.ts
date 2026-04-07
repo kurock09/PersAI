@@ -47,9 +47,17 @@ export class ResolveAdminBusinessPlatformService {
 
     const assistants = await this.prisma.assistant.findMany({
       where: { workspaceId },
-      select: { id: true, userId: true }
+      select: { id: true, userId: true, applyStatus: true }
     });
     const totalUsers = new Set(assistants.map((a) => a.userId)).size;
+    const totalAssistants = assistants.length;
+    const activeAssistants = assistants.filter(
+      (a) => a.applyStatus === "succeeded" || a.applyStatus === "in_progress"
+    ).length;
+
+    const totalWebChats = await this.prisma.assistantChat.count({
+      where: { workspaceId }
+    });
 
     const governanceRows = await this.prisma.assistantGovernance.findMany({
       where: { assistantId: { in: assistants.map((a) => a.id) } },
@@ -141,6 +149,9 @@ export class ResolveAdminBusinessPlatformService {
 
     return {
       totalUsers,
+      totalAssistants,
+      activeAssistants,
+      totalWebChats,
       planDistribution,
       quotaPressureDistribution,
       channelAdoption: {

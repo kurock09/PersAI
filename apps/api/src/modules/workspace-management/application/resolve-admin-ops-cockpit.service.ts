@@ -7,7 +7,12 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
-import type { AdminOpsCockpitState, AdminOpsCockpitQuotaUsage } from "./ops-cockpit.types";
+import type {
+  AdminOpsCockpitState,
+  AdminOpsCockpitQuotaUsage,
+  AdminOpsCockpitChannelBinding,
+  AdminOpsCockpitChatStats
+} from "./ops-cockpit.types";
 import { resolveRuntimeBaseUrl } from "./runtime-endpoint-routing";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import {
@@ -101,6 +106,8 @@ export class ResolveAdminOpsCockpitService {
       }
       return {
         quotaUsage: null,
+        chatStats: null,
+        channels: [],
         assistant: {
           exists: false,
           assistantId: null,
@@ -176,9 +183,13 @@ export class ResolveAdminOpsCockpitService {
     }
 
     const quotaUsage = await this.resolveQuotaUsage(assistant.workspaceId, assistant);
+    const chatStats = await this.resolveChatStats(assistant.workspaceId, assistant.id);
+    const channels = await this.resolveChannelBindings(assistant.id);
 
     return {
       quotaUsage,
+      chatStats,
+      channels,
       assistant: {
         exists: true,
         assistantId: assistant.id,
@@ -257,5 +268,37 @@ export class ResolveAdminOpsCockpitService {
           ? limits.activeWebChatsLimit
           : null
     };
+  }
+
+  private async resolveChatStats(
+    workspaceId: string,
+    assistantId: string
+  ): Promise<AdminOpsCockpitChatStats> {
+    const [totalChats, activeWebChats, archivedWebChats] = await Promise.all([
+      this.prisma.assistantChat.count({
+        where: { assistantId }
+      }),
+      this.prisma.assistantChat.count({
+        where: { workspaceId, surface: "web", archivedAt: null }
+      }),
+      this.prisma.assistantChat.count({
+        where: { workspaceId, surface: "web", archivedAt: { not: null } }
+      })
+    ]);
+    return { totalChats, activeWebChats, archivedWebChats };
+  }
+
+  private async resolveChannelBindings(
+    assistantId: string
+  ): Promise<AdminOpsCockpitChannelBinding[]> {
+    const bindings = await this.prisma.assistantChannelSurfaceBinding.findMany({
+      where: { assistantId },
+      select: { providerKey: true, surfaceType: true, bindingState: true }
+    });
+    return bindings.map((b) => ({
+      provider: b.providerKey,
+      surface: b.surfaceType,
+      state: b.bindingState
+    }));
   }
 }

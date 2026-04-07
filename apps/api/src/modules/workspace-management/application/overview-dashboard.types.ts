@@ -10,18 +10,20 @@ export type OverviewSystemWarning = {
   message: string;
 };
 
+export type RuntimeTierPreflight = {
+  tier: string;
+  live: boolean;
+  ready: boolean;
+  checkedAt: string;
+};
+
 export type AdminOverviewDashboardState = {
   latency: OverviewLatencySnapshot;
   activeUsers: number;
   activeWebChats: number;
   runtime: {
     adapterEnabled: boolean;
-    runtimeTier: string | null;
-    preflight: {
-      live: boolean;
-      ready: boolean;
-      checkedAt: string;
-    };
+    tiers: RuntimeTierPreflight[];
   };
   health: {
     uptimeSeconds: number;

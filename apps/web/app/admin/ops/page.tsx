@@ -1170,6 +1170,75 @@ export default function AdminOpsPage() {
             );
           })()}
 
+          {/* --- Row 1.6: Chat Stats + Channels --- */}
+          {(() => {
+            const raw = cockpit as unknown as Record<string, unknown>;
+            const cs = raw.chatStats as
+              | { totalChats: number; activeWebChats: number; archivedWebChats: number }
+              | null
+              | undefined;
+            const ch = raw.channels as
+              | Array<{ provider: string; surface: string; state: string }>
+              | null
+              | undefined;
+            if (!cs && (!ch || ch.length === 0)) return null;
+            return (
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {cs && (
+                  <CardShell title="Chat Stats" icon={Activity}>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <p className="text-lg font-bold tabular-nums text-text">{cs.totalChats}</p>
+                        <p className="text-[10px] text-text-muted">Total</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold tabular-nums text-text">
+                          {cs.activeWebChats}
+                        </p>
+                        <p className="text-[10px] text-text-muted">Active Web</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold tabular-nums text-text">
+                          {cs.archivedWebChats}
+                        </p>
+                        <p className="text-[10px] text-text-muted">Archived</p>
+                      </div>
+                    </div>
+                  </CardShell>
+                )}
+
+                {ch && ch.length > 0 && (
+                  <CardShell title="Channels" icon={Server}>
+                    <div className="space-y-1.5">
+                      {ch.map((c, i) => (
+                        <div
+                          key={`${c.provider}-${c.surface}-${i}`}
+                          className="flex items-center justify-between rounded-md border border-border bg-surface px-2.5 py-1.5"
+                        >
+                          <span className="text-xs font-medium text-text">
+                            {c.provider} / {c.surface}
+                          </span>
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                              c.state === "active"
+                                ? "bg-success/15 text-success"
+                                : c.state === "inactive"
+                                  ? "bg-warning/15 text-warning"
+                                  : "bg-muted/15 text-text-muted"
+                            )}
+                          >
+                            {c.state}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardShell>
+                )}
+              </div>
+            );
+          })()}
+
           {/* --- Row 2: Controls + Incidents side by side --- */}
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
             <section className="rounded-lg border border-border bg-surface-raised p-3">

@@ -13,6 +13,9 @@ export type QuotaPressureDistribution = {
 
 export type AdminBusinessPlatformState = {
   totalUsers: number;
+  totalAssistants: number;
+  activeAssistants: number;
+  totalWebChats: number;
   planDistribution: PlanDistributionEntry[];
   quotaPressureDistribution: QuotaPressureDistribution;
   channelAdoption: {

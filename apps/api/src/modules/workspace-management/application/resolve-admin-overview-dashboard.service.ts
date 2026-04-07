@@ -3,12 +3,13 @@ import { loadApiConfig } from "@persai/config";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
-import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { RUNTIME_TIER_VALUES, type RuntimeTier } from "./runtime-assignment";
 import type {
   AdminOverviewDashboardState,
   OverviewLatencySnapshot,
-  OverviewSystemWarning
+  OverviewSystemWarning,
+  RuntimeTierPreflight
 } from "./overview-dashboard.types";
 
 const ACTIVE_USERS_WINDOW_MINUTES = 15;
@@ -22,7 +23,6 @@ export class ResolveAdminOverviewDashboardService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -32,14 +32,7 @@ export class ResolveAdminOverviewDashboardService {
 
     const httpSnapshot = this.platformHttpMetricsService.getSnapshot();
 
-    const assistant = await this.prisma.assistant.findFirst({
-      where: { userId: callerUserId },
-      select: { id: true }
-    });
-    const runtimeTier = assistant
-      ? await this.resolveAssistantRuntimeTierService.resolveByAssistantId(assistant.id)
-      : null;
-    const preflight = await this.assistantRuntimePreflightService.execute(runtimeTier ?? undefined);
+    const tiers = await this.resolveAllTierPreflights();
 
     const activeUsersWindow = new Date(Date.now() - ACTIVE_USERS_WINDOW_MINUTES * 60 * 1000);
     const activeUsersResult = await this.prisma.assistantChat.groupBy({
@@ -68,7 +61,8 @@ export class ResolveAdminOverviewDashboardService {
       errorRate: Math.round(errorRate * 10000) / 10000
     };
 
-    const warnings = this.deriveWarnings(latency, health, preflight);
+    const anyUnhealthy = tiers.some((t) => !t.live || !t.ready);
+    const warnings = this.deriveWarnings(latency, health, anyUnhealthy ? tiers : []);
 
     return {
       latency,
@@ -76,13 +70,22 @@ export class ResolveAdminOverviewDashboardService {
       activeWebChats,
       runtime: {
         adapterEnabled: config.OPENCLAW_ADAPTER_ENABLED,
-        runtimeTier,
-        preflight
+        tiers
       },
       health,
       warnings,
       updatedAt: new Date().toISOString()
     };
+  }
+
+  private async resolveAllTierPreflights(): Promise<RuntimeTierPreflight[]> {
+    const results = await Promise.all(
+      RUNTIME_TIER_VALUES.map(async (tier: RuntimeTier) => {
+        const result = await this.assistantRuntimePreflightService.execute(tier);
+        return { tier, ...result };
+      })
+    );
+    return results;
   }
 
   private computeLatency(
@@ -104,11 +107,20 @@ export class ResolveAdminOverviewDashboardService {
       allMaxMs = Math.max(allMaxMs, series.maxDurationMs);
 
       const route = series.key.route.toLowerCase();
-      if (route.includes("turns/web-chat") || route.includes("turns/send")) {
+      if (
+        route.includes("chat/web/stream") ||
+        route.includes("chat/web") ||
+        route.includes("turns/web-chat") ||
+        route.includes("turns/send")
+      ) {
         webCount += series.count;
         webDurationMs += series.durationMsTotal;
         webMaxMs = Math.max(webMaxMs, series.maxDurationMs);
-      } else if (route.includes("turns/telegram") || route.includes("telegram")) {
+      } else if (
+        route.includes("telegram-webhook") ||
+        route.includes("turns/telegram") ||
+        route.includes("telegram/turn")
+      ) {
         tgCount += series.count;
         tgDurationMs += series.durationMsTotal;
         tgMaxMs = Math.max(tgMaxMs, series.maxDurationMs);
@@ -143,16 +155,18 @@ export class ResolveAdminOverviewDashboardService {
   private deriveWarnings(
     latency: OverviewLatencySnapshot,
     health: AdminOverviewDashboardState["health"],
-    preflight: { live: boolean; ready: boolean }
+    unhealthyTiers: RuntimeTierPreflight[]
   ): OverviewSystemWarning[] {
     const warnings: OverviewSystemWarning[] = [];
 
-    if (!preflight.live || !preflight.ready) {
-      warnings.push({
-        code: "runtime_unhealthy",
-        severity: "critical",
-        message: `Runtime preflight failed: live=${preflight.live}, ready=${preflight.ready}`
-      });
+    for (const t of unhealthyTiers) {
+      if (!t.live || !t.ready) {
+        warnings.push({
+          code: "runtime_unhealthy",
+          severity: "critical",
+          message: `${t.tier}: preflight failed (live=${t.live}, ready=${t.ready})`
+        });
+      }
     }
 
     if (health.rssBytes > HIGH_MEMORY_THRESHOLD_BYTES) {

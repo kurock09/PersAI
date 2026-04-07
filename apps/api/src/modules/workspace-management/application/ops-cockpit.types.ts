@@ -9,8 +9,22 @@ export type AdminOpsCockpitQuotaUsage = {
   activeWebChatsLimit: number | null;
 };
 
+export type AdminOpsCockpitChannelBinding = {
+  provider: string;
+  surface: string;
+  state: string;
+};
+
+export type AdminOpsCockpitChatStats = {
+  totalChats: number;
+  activeWebChats: number;
+  archivedWebChats: number;
+};
+
 export type AdminOpsCockpitState = {
   quotaUsage: AdminOpsCockpitQuotaUsage | null;
+  chatStats: AdminOpsCockpitChatStats | null;
+  channels: AdminOpsCockpitChannelBinding[];
   assistant: {
     exists: boolean;
     assistantId: string | null;

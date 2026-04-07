@@ -25,6 +25,9 @@ type PlanDistributionEntry = {
 
 type PlatformState = {
   totalUsers: number;
+  totalAssistants: number;
+  activeAssistants: number;
+  totalWebChats: number;
   planDistribution: PlanDistributionEntry[];
   quotaPressureDistribution: { low: number; elevated: number; high: number };
   channelAdoption: {
@@ -149,39 +152,54 @@ export default function AdminBusinessPage() {
 
       {platform && (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             <div className="rounded-lg border border-border bg-surface-raised p-3">
               <div className="mb-1 flex items-center gap-1.5">
                 <Users className="h-3 w-3 text-text-subtle" />
                 <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                  Total Users
+                  Users
                 </p>
               </div>
               <p className="text-xl font-bold tabular-nums text-text">{platform.totalUsers}</p>
             </div>
             <div className="rounded-lg border border-border bg-surface-raised p-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
+                Assistants
+              </p>
+              <p className="text-xl font-bold tabular-nums text-text">
+                {platform.activeAssistants}
+              </p>
+              <p className="text-[11px] text-text-muted">{platform.totalAssistants} total</p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface-raised p-3">
+              <div className="mb-1 flex items-center gap-1.5">
+                <MessageSquare className="h-3 w-3 text-text-subtle" />
+                <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
+                  Web Chats
+                </p>
+              </div>
+              <p className="text-xl font-bold tabular-nums text-text">{platform.totalWebChats}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface-raised p-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
+                Channels
+              </p>
+              <p className="text-xl font-bold tabular-nums text-text">
+                {platform.channelAdoption.total}
+              </p>
+              <p className="text-[11px] text-text-muted">Active connections</p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface-raised p-3">
               <div className="mb-1 flex items-center gap-1.5">
                 <BarChart3 className="h-3 w-3 text-text-subtle" />
                 <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                  Active Plans
+                  Plans
                 </p>
               </div>
               <p className="text-xl font-bold tabular-nums text-text">
                 {platform.planCatalog.activePlans}
               </p>
               <p className="text-[11px] text-text-muted">{platform.planCatalog.totalPlans} total</p>
-            </div>
-            <div className="rounded-lg border border-border bg-surface-raised p-3">
-              <div className="mb-1 flex items-center gap-1.5">
-                <MessageSquare className="h-3 w-3 text-text-subtle" />
-                <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                  Channels
-                </p>
-              </div>
-              <p className="text-xl font-bold tabular-nums text-text">
-                {platform.channelAdoption.total}
-              </p>
-              <p className="text-[11px] text-text-muted">Active connections</p>
             </div>
             <div className="rounded-lg border border-border bg-surface-raised p-3">
               <div className="mb-1 flex items-center gap-1.5">
