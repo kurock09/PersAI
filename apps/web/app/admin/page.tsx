@@ -13,7 +13,10 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
-import { getAdminOverviewDashboard } from "@/app/app/assistant-api-client";
+import {
+  getAdminOverviewDashboard,
+  setAdminOverviewLatencyTrace
+} from "@/app/app/assistant-api-client";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -50,8 +53,28 @@ type Health = {
   cpuUserMs: number;
   cpuSystemMs: number;
 };
+type TraceStage = { key: string; durationMs: number };
+type TraceEntry = {
+  traceId: string;
+  surface: "telegram" | "web_chat_sync" | "web_chat_stream";
+  status: "completed" | "failed" | "interrupted" | "replayed" | "deduplicated";
+  assistantId: string | null;
+  threadKey: string | null;
+  startedAt: string;
+  finishedAt: string;
+  totalMs: number;
+  outputPreview: string | null;
+  stages: TraceStage[];
+};
+type TraceState = {
+  enabled: boolean;
+  sampleLimit: number;
+  updatedAt: string | null;
+  recent: TraceEntry[];
+};
 type Dash = {
   latency: LatencySnap;
+  latencyTrace: TraceState;
   activeUsers: number;
   activeWebChats: number;
   runtime: { adapterEnabled: boolean; tiers: Tier[] };
@@ -102,6 +125,30 @@ function sevDot(s: string) {
   if (s === "critical") return "bg-destructive";
   if (s === "warning") return "bg-warning";
   return "bg-blue-400";
+}
+function surfaceLabel(v: TraceEntry["surface"]) {
+  if (v === "telegram") return "Telegram";
+  if (v === "web_chat_sync") return "Web sync";
+  return "Web stream";
+}
+function statusTone(v: TraceEntry["status"]) {
+  if (v === "completed" || v === "replayed" || v === "deduplicated") {
+    return "text-success";
+  }
+  if (v === "interrupted") {
+    return "text-warning";
+  }
+  return "text-destructive";
+}
+function isRuntimeStage(stage: TraceStage) {
+  return stage.key.startsWith("runtime_");
+}
+function getBottleneckStage(stages: TraceStage[]) {
+  return stages.reduce<TraceStage | null>(
+    (longest, stage) =>
+      longest === null || stage.durationMs > longest.durationMs ? stage : longest,
+    null
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -234,6 +281,7 @@ export default function AdminOverviewPage() {
   const { getToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [traceBusy, setTraceBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [d, setD] = useState<Dash | null>(null);
 
@@ -258,6 +306,24 @@ export default function AdminOverviewPage() {
 
   useEffect(() => void load(false), [load]);
 
+  const toggleTrace = useCallback(async () => {
+    const tk = await getToken();
+    if (!tk || !d) return;
+    setTraceBusy(true);
+    setErr(null);
+    try {
+      const latencyTrace = (await setAdminOverviewLatencyTrace(
+        tk,
+        !d.latencyTrace.enabled
+      )) as unknown as TraceState;
+      setD((prev) => (prev ? { ...prev, latencyTrace } : prev));
+    } catch {
+      setErr("Unable to change latency trace mode.");
+    } finally {
+      setTraceBusy(false);
+    }
+  }, [d, getToken]);
+
   if (loading)
     return (
       <div className="flex justify-center py-16">
@@ -268,23 +334,42 @@ export default function AdminOverviewPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-2.5 px-1">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <Shield className="h-4 w-4 text-accent" />
           <h1 className="text-sm font-bold tracking-tight text-text">System Overview</h1>
         </div>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void load(true)}
-          className={cn(
-            "inline-flex cursor-pointer items-center gap-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] font-medium text-text-muted transition-colors",
-            "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+        <div className="flex items-center gap-1.5">
+          {d && (
+            <button
+              type="button"
+              disabled={traceBusy}
+              onClick={() => void toggleTrace()}
+              className={cn(
+                "inline-flex cursor-pointer items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium transition-colors",
+                d.latencyTrace.enabled
+                  ? "border-warning/40 bg-warning/10 text-warning hover:bg-warning/15"
+                  : "border-border bg-surface text-text-muted hover:bg-surface-hover",
+                "disabled:cursor-not-allowed disabled:opacity-50"
+              )}
+            >
+              {traceBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+              Trace {d.latencyTrace.enabled ? "ON" : "OFF"}
+            </button>
           )}
-        >
-          <RefreshCw className={cn("h-3 w-3", busy && "animate-spin")} />
-          Refresh
-        </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void load(true)}
+            className={cn(
+              "inline-flex cursor-pointer items-center gap-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] font-medium text-text-muted transition-colors",
+              "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+            )}
+          >
+            <RefreshCw className={cn("h-3 w-3", busy && "animate-spin")} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {err && (
@@ -355,6 +440,142 @@ export default function AdminOverviewPage() {
               <Lat label="Web Chat" d={d.latency.webChatTurns} />
               <Lat label="Telegram" d={d.latency.telegramTurns} />
               <Lat label="All Routes" d={d.latency.allRoutes} />
+            </div>
+          </Fold>
+
+          <Fold t="Latency Trace Debug" open>
+            <div className="space-y-1.5 rounded border border-border/40 bg-surface px-2.5 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
+                    Trace capture
+                  </p>
+                  <p className="text-[10px] text-text-muted">
+                    {d.latencyTrace.enabled
+                      ? "Enabled only while investigating delays."
+                      : "Disabled. No stage timings are collected."}
+                  </p>
+                </div>
+                <div className="text-right text-[10px] text-text-subtle">
+                  <p>
+                    Samples: {d.latencyTrace.recent.length}/{d.latencyTrace.sampleLimit}
+                  </p>
+                  <p>
+                    Updated:{" "}
+                    {d.latencyTrace.updatedAt
+                      ? new Date(d.latencyTrace.updatedAt).toLocaleTimeString()
+                      : "—"}
+                  </p>
+                </div>
+              </div>
+              {d.latencyTrace.recent.length === 0 ? (
+                <p className="text-[10px] text-text-muted">
+                  No captured traces yet. Turn trace on, reproduce the slow Telegram/Web turn, then
+                  refresh.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {d.latencyTrace.recent.map((item) =>
+                    (() => {
+                      const runtimeStages = item.stages.filter(isRuntimeStage);
+                      const persaiStages = item.stages.filter((stage) => !isRuntimeStage(stage));
+                      const bottleneck = getBottleneckStage(item.stages);
+                      return (
+                        <div
+                          key={item.traceId}
+                          className="rounded border border-border/40 bg-surface-raised px-2 py-2"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
+                                {surfaceLabel(item.surface)}
+                              </p>
+                              <p
+                                className={cn("text-[11px] font-semibold", statusTone(item.status))}
+                              >
+                                {item.status} · {fMs(item.totalMs)}
+                              </p>
+                            </div>
+                            <div className="text-right text-[9px] text-text-subtle">
+                              <p>{new Date(item.finishedAt).toLocaleTimeString()}</p>
+                              <p>{item.threadKey ?? "no-thread"}</p>
+                            </div>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-text-subtle">
+                            <span>PersAI stages: {persaiStages.length}</span>
+                            <span>Runtime stages: {runtimeStages.length}</span>
+                            <span>
+                              Bottleneck:{" "}
+                              {bottleneck
+                                ? `${bottleneck.key} (${fMs(bottleneck.durationMs)})`
+                                : "—"}
+                            </span>
+                          </div>
+                          {item.outputPreview && (
+                            <p className="mt-1 rounded bg-background/40 px-1.5 py-1 text-[10px] text-text-muted">
+                              {item.outputPreview}
+                            </p>
+                          )}
+                          {persaiStages.length > 0 && (
+                            <div className="mt-1.5">
+                              <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+                                PersAI
+                              </p>
+                              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                                {persaiStages.map((stage) => (
+                                  <div
+                                    key={`${item.traceId}-persai-${stage.key}`}
+                                    className="flex items-center justify-between rounded border border-border/30 px-1.5 py-1 text-[10px]"
+                                  >
+                                    <span className="truncate pr-2 text-text-muted">
+                                      {stage.key}
+                                    </span>
+                                    <span
+                                      className={cn(
+                                        "shrink-0 font-semibold tabular-nums",
+                                        cMs(stage.durationMs)
+                                      )}
+                                    >
+                                      {fMs(stage.durationMs)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {runtimeStages.length > 0 && (
+                            <div className="mt-1.5">
+                              <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+                                OpenClaw runtime
+                              </p>
+                              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                                {runtimeStages.map((stage) => (
+                                  <div
+                                    key={`${item.traceId}-runtime-${stage.key}`}
+                                    className="flex items-center justify-between rounded border border-border/30 px-1.5 py-1 text-[10px]"
+                                  >
+                                    <span className="truncate pr-2 text-text-muted">
+                                      {stage.key}
+                                    </span>
+                                    <span
+                                      className={cn(
+                                        "shrink-0 font-semibold tabular-nums",
+                                        cMs(stage.durationMs)
+                                      )}
+                                    >
+                                      {fMs(stage.durationMs)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+              )}
             </div>
           </Fold>
 

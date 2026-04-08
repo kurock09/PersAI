@@ -1498,6 +1498,23 @@ export async function getAdminOverviewDashboard(token: string): Promise<Record<s
   return data.dashboard;
 }
 
+export async function setAdminOverviewLatencyTrace(
+  token: string,
+  enabled: boolean
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`/api/v1/admin/overview/latency-trace`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ enabled })
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  const data = (await res.json()) as { latencyTrace: Record<string, unknown> };
+  return data.latencyTrace;
+}
+
 export async function getAdminBusinessPlatform(token: string): Promise<Record<string, unknown>> {
   const res = await fetch(`/api/v1/admin/business/platform`, {
     headers: { Authorization: `Bearer ${token}` }

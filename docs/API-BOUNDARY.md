@@ -523,6 +523,21 @@ Behavior baseline:
 - Credential injection is session-scoped (set before agent turn, cleaned up in `finally`).
 - Tool deny list is session-scoped via `PERSAI_TOOL_DENY` env var (restored after agent turn).
 
+## SR10 latency trace boundary
+
+- `GET /api/v1/admin/overview/dashboard` now returns `latencyTrace` state alongside the existing overview snapshot.
+- `POST /api/v1/admin/overview/latency-trace` is the single admin control-plane toggle for bounded delay investigation.
+- The trace toggle is intentionally off by default; when disabled, PersAI and OpenClaw do not collect per-stage timing samples for this surface.
+- When enabled, PersAI creates one in-memory trace per touched turn surface:
+  - `POST /api/v1/assistant/chat/web`
+  - `POST /api/v1/assistant/chat/web/stream`
+  - `POST /api/v1/internal/runtime/turns/telegram`
+- PersAI forwards the active trace context to OpenClaw through `X-Persai-Overview-Trace-Id`.
+- OpenClaw treats that header as the only runtime-side trace enablement signal for the PersAI bridge; there is no separate runtime env flag for this slice.
+- Sync runtime responses may include `runtimeTrace` in the JSON payload; stream runtime responses may include `runtimeTrace` in the final `done` NDJSON event.
+- PersAI merges returned OpenClaw stages into the same admin overview trace sample so operators can inspect PersAI-side stages and OpenClaw runtime stages in one place.
+- Scope rule: this trace path is bounded operational diagnostics for `SR10`, not a general distributed tracing platform or long-term persistent telemetry store.
+
 ## Step 7 P3 subscription + billing boundary baseline
 
 - P3 introduces backend subscription modeling (`workspace_subscriptions`) and billing abstraction port/hooks only.

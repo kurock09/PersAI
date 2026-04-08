@@ -38,8 +38,36 @@ export type OverviewQueuePressure = {
   requestsPerSecond: number;
 };
 
+export type OverviewLatencyTraceSurface = "telegram" | "web_chat_sync" | "web_chat_stream";
+
+export type OverviewLatencyTraceStage = {
+  key: string;
+  durationMs: number;
+};
+
+export type OverviewLatencyTraceEntry = {
+  traceId: string;
+  surface: OverviewLatencyTraceSurface;
+  status: "completed" | "failed" | "interrupted" | "replayed" | "deduplicated";
+  assistantId: string | null;
+  threadKey: string | null;
+  startedAt: string;
+  finishedAt: string;
+  totalMs: number;
+  outputPreview: string | null;
+  stages: OverviewLatencyTraceStage[];
+};
+
+export type OverviewLatencyTraceState = {
+  enabled: boolean;
+  sampleLimit: number;
+  updatedAt: string | null;
+  recent: OverviewLatencyTraceEntry[];
+};
+
 export type AdminOverviewDashboardState = {
   latency: OverviewLatencySnapshot;
+  latencyTrace: OverviewLatencyTraceState;
   activeUsers: number;
   activeWebChats: number;
   runtime: {

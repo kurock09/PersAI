@@ -45,6 +45,7 @@ export interface AssistantRuntimeWebChatTurnInput {
   userMessage: string;
   userTimezone?: string;
   currentTimeIso?: string;
+  overviewTraceId?: string;
 }
 
 export interface AssistantRuntimeChannelTurnInput {
@@ -58,6 +59,7 @@ export interface AssistantRuntimeChannelTurnInput {
   userMessage: string;
   userTimezone?: string;
   currentTimeIso?: string;
+  overviewTraceId?: string;
 }
 
 export interface RuntimeMediaArtifact {
@@ -70,6 +72,12 @@ export interface AssistantRuntimeWebChatTurnResult {
   assistantMessage: string;
   respondedAt: string;
   media: RuntimeMediaArtifact[];
+  runtimeTrace?: {
+    scope: string;
+    status: string;
+    totalMs: number;
+    stages: Array<{ key: string; durationMs: number }>;
+  };
 }
 
 export interface AssistantRuntimeSetupPreviewTurnInput {
@@ -96,6 +104,12 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   code?: string;
   message?: string;
   media?: RuntimeMediaArtifact[];
+  runtimeTrace?: {
+    scope: string;
+    status: string;
+    totalMs: number;
+    stages: Array<{ key: string; durationMs: number }>;
+  };
 }
 
 export interface AssistantRuntimeCronControlInput {

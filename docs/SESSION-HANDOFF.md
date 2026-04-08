@@ -1,5 +1,62 @@
 # SESSION-HANDOFF
 
+## 2026-04-07 - SR10a end-to-end latency trace baseline
+
+### Current active slice
+
+- `SR10` — Capacity validation and production gate
+
+### Current active sub-slice
+
+- `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
+
+### What stale program state was fixed
+
+1. The first delay-investigation pass stopped at the PersAI runtime call boundary, which was not enough to prove whether the long Telegram turn was sitting in PersAI glue code or inside the OpenClaw runtime path.
+2. An intermediate runtime-side env toggle would have created split-brain observability (`UI toggle` on the PersAI side, separate runtime flag on the OpenClaw side). This was explicitly rejected in favor of one admin-controlled end-to-end trace path.
+
+### What was completed
+
+1. **Admin Overview trace control**: `POST /api/v1/admin/overview/latency-trace` now controls one bounded in-memory trace mode in PersAI, and `GET /api/v1/admin/overview/dashboard` returns the current trace state plus recent samples.
+2. **PersAI stage capture**: Telegram, web sync, and web stream turn services now record stage timings around the touched orchestration path and store recent samples in `OverviewLatencyTraceService`.
+3. **OpenClaw correlation**: PersAI forwards `X-Persai-Overview-Trace-Id` to OpenClaw only when trace is enabled.
+4. **OpenClaw runtime stages**: the PersAI bridge in `openclaw/src/gateway/persai-runtime/` now records handler and agent-turn stages and returns a structured `runtimeTrace` payload in sync responses and stream `done` payloads. The approved fork SHA advanced to `63bebfddcb4e6d41e67500226735aa64bf443efd`.
+5. **Unified UI output**: Admin Overview now shows one merged trace sample, separates PersAI stages from OpenClaw runtime stages, and highlights the slowest stage (`bottleneck`) for quicker diagnosis.
+6. **Cleanup / no-trash pass**: removed the separate runtime env-toggle idea, fixed the stream trace final status, fixed the web sync trace header timing, removed preview-path trace leftovers, and re-ran the touched lint/format/typecheck gates.
+
+### What remains
+
+1. Deploy this package and reproduce at least one real slow Telegram turn and one real slow web turn with trace enabled.
+2. Use the merged trace evidence to choose the next honest optimization slice inside the slowest measured stage, instead of pre-guessing where the delay is.
+
+### Confirmed risks
+
+1. Trace samples are in-memory and intentionally short-lived; this slice is for bounded live investigation, not historical telemetry.
+2. The trace path adds some overhead while enabled, so operators should keep it off outside active diagnosis windows.
+
+### Unresolved hypotheses
+
+1. The dominant Telegram delay is likely now measurable inside the OpenClaw bridge path, but this session did not yet produce the live post-deploy trace evidence needed to claim the exact culprit stage.
+
+### Verification run
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" run lint -- src/gateway/persai-runtime/persai-runtime-http.ts src/gateway/persai-runtime/persai-runtime-agent-turn.ts src/gateway/persai-runtime/persai-runtime-trace.ts`
+- `node --import tsx -e "await import('./src/gateway/persai-runtime/persai-runtime-trace.ts'); await import('./src/gateway/persai-runtime/persai-runtime-agent-turn.ts'); await import('./src/gateway/persai-runtime/persai-runtime-http.ts'); console.log('ok')"` (in `openclaw`)
+
+### Why the next SR is still blocked or can be opened
+
+- `SR10` remains active. This session added the operator tool needed to isolate runtime bottlenecks honestly, but it did not yet produce the deploy-time/live evidence required to close `SR10a` or claim any optimization win.
+
+### Next recommended step
+
+- Push OpenClaw first, then PersAI. Let PersAI CI rebuild/re-pin the OpenClaw image from the new approved SHA, deploy, turn trace on in `/admin`, reproduce one slow Telegram turn, and use the merged bottleneck stage to define the next runtime optimization slice.
+
+---
+
 ## 2026-04-07 - SR10-pre-ui: Admin observability dashboard restructuring (CLOSED)
 
 ### Current active slice

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -34,6 +35,7 @@ import { resolveWelcomeTurnInstruction } from "./send-web-chat-turn.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import type { RuntimeTier } from "./runtime-assignment";
+import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -135,7 +137,8 @@ export class StreamWebChatTurnService {
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly inboundMediaService: InboundMediaService,
-    private readonly mediaDeliveryService: MediaDeliveryService
+    private readonly mediaDeliveryService: MediaDeliveryService,
+    private readonly overviewLatencyTraceService: OverviewLatencyTraceService
   ) {}
 
   async prepare(
@@ -177,11 +180,18 @@ export class StreamWebChatTurnService {
     let accumulated = "";
     let respondedAt: string | null = null;
     const collectedMedia: RuntimeMediaArtifact[] = [];
+    const trace = this.overviewLatencyTraceService.start({
+      traceId: randomUUID(),
+      surface: "web_chat_stream",
+      assistantId: prepared.assistantId,
+      threadKey: prepared.chat.surfaceThreadKey
+    });
 
     const attachmentContext =
       await this.inboundMediaService.buildContextForCurrentMessageAttachments(
         prepared.userMessage.id
       );
+    trace.stage("attachment_context");
     const baseMessage = prepared.welcomeTurn
       ? resolveWelcomeTurnInstruction(prepared.welcomeLocale)
       : prepared.userMessage.content;
@@ -200,6 +210,7 @@ export class StreamWebChatTurnService {
               modelOverride: prepared.quotaDegradeModelOverride.model
             }
           : {}),
+        ...(trace.isEnabled() ? { overviewTraceId: trace.getTraceId() } : {}),
         chatId: prepared.chat.id,
         surfaceThreadKey: prepared.chat.surfaceThreadKey,
         userMessageId: prepared.userMessage.id,
@@ -216,10 +227,17 @@ export class StreamWebChatTurnService {
               prepared.clientTurnId
             );
           }
+          trace.finish({
+            status: "interrupted",
+            outputPreview: accumulated
+          });
           return this.persistInterruptedOutcome(prepared, accumulated, respondedAt);
         }
 
         if (chunk.type === "delta" && typeof chunk.delta === "string") {
+          if (accumulated.length === 0) {
+            trace.stage("first_delta");
+          }
           accumulated += chunk.delta;
           callbacks.onDelta(chunk.delta, accumulated);
         }
@@ -238,6 +256,10 @@ export class StreamWebChatTurnService {
 
         if (chunk.type === "done" && typeof chunk.respondedAt === "string") {
           respondedAt = chunk.respondedAt;
+          if (chunk.runtimeTrace) {
+            trace.attachExternalTrace(chunk.runtimeTrace);
+          }
+          trace.stage("runtime_done");
           callbacks.onDone(chunk.respondedAt);
         }
       }
@@ -252,6 +274,7 @@ export class StreamWebChatTurnService {
             prepared.clientTurnId
           );
         }
+        trace.finish({ status: "failed" });
         return {
           status: "failed",
           transport: null,
@@ -266,6 +289,7 @@ export class StreamWebChatTurnService {
         author: "assistant",
         content: cleanedAccumulated
       });
+      trace.stage("assistant_message_saved");
 
       const delivered = await this.mediaDeliveryService.deliver({
         artifacts: collectedMedia.map((m) => ({
@@ -280,6 +304,7 @@ export class StreamWebChatTurnService {
         workspaceId: prepared.workspaceId
       });
       const attachmentStates = delivered.attachments;
+      trace.stage("media_delivered");
 
       await this.recordWebChatMemoryTurnService.execute({
         assistantId: prepared.assistantId,
@@ -294,13 +319,16 @@ export class StreamWebChatTurnService {
         assistantContent: cleanedAccumulated,
         memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
       });
+      trace.stage("memory_recorded");
       await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
         assistant: prepared.assistant,
         userContent: prepared.userMessage.content,
         assistantContent: cleanedAccumulated,
         source: "web_chat_turn_stream_completed"
       });
+      trace.stage("quota_recorded");
       await this.consumeBootstrapBestEffort(prepared.assistantId);
+      trace.stage("bootstrap_consumed");
       if (prepared.clientTurnId !== undefined) {
         await this.bindingRepository.completeWebTurnProcessing(
           prepared.assistantId,
@@ -318,12 +346,17 @@ export class StreamWebChatTurnService {
             completedAt: new Date().toISOString()
           }
         );
+        trace.stage("replay_completed");
       }
       const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
       if (refreshedChat === null) {
         throw new NotFoundException("Chat does not exist for this assistant.");
       }
 
+      trace.finish({
+        status: "completed",
+        outputPreview: cleanedAccumulated
+      });
       return {
         status: "completed",
         transport: {
@@ -371,6 +404,10 @@ export class StreamWebChatTurnService {
         accumulated,
         respondedAt
       );
+      trace.finish({
+        status: "failed",
+        outputPreview: accumulated
+      });
       return {
         status: "failed",
         transport: interruptedOutcome.transport,

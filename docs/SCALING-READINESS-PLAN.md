@@ -105,7 +105,7 @@ Do not combine in one deploy window by default:
 
 ## Active Program State
 - `Current active slice`: `SR10` — Capacity validation and production gate
-- `Current active sub-slice`: none (SR10-pre-ui closed 2026-04-07)
+- `Current active sub-slice`: `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
 - `Current phase`: Capacity validation and production gate
 - `Next recommended slice after SR10`: TBD
 - `Last closed slice`: `SR9` — Billing and quota correctness under concurrency (closed 2026-04-07 after full live validation of all sub-slices SR9a–SR9f)
@@ -1480,3 +1480,48 @@ Exit criteria (all met):
 - Business page shows platform-wide users-per-plan distribution (from appUser table, not assistant-only), total messages + conversation threads, quota pressure distribution, channel adoption, publish/apply health, plan catalog config — ✅
 - zero turn-latency impact: all metrics from in-memory counters or lightweight COUNT/GROUP BY queries — ✅
 - assistant emoji avatar centering fix applied as a cosmetic pass — ✅
+
+#### SR10a — Bounded end-to-end latency trace and runtime bottleneck isolation
+Outcome:
+- admin overview can temporarily capture one unified latency trace sample that spans PersAI request stages and OpenClaw runtime stages
+- operators can reproduce one slow Telegram or web turn and see the dominant stage instead of guessing whether the delay sits in PersAI glue code or deeper runtime execution
+
+In scope:
+- admin Overview trace toggle and bounded in-memory sample buffer
+- PersAI stage timing around Telegram, web sync, and web stream turn paths
+- OpenClaw runtime stage timing for PersAI bridge handlers and agent-turn execution
+- one merged UI presentation surface for the combined trace
+
+Out of scope:
+- persistent traces, time-series storage, or external tracing vendors
+- broad OpenClaw native refactors unrelated to timing visibility
+- automatic latency optimization claims without evidence from captured traces
+
+Primary files / domains:
+- `apps/web/app/admin/page.tsx`
+- `apps/api/src/modules/workspace-management/application/overview-latency-trace.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-overview-latency-trace.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `openclaw/src/gateway/persai-runtime/persai-runtime-trace.ts`
+- `openclaw/src/gateway/persai-runtime/persai-runtime-http.ts`
+- `openclaw/src/gateway/persai-runtime/persai-runtime-agent-turn.ts`
+
+Verification:
+- `Tier 0`: PersAI lint/format/typecheck gates, OpenClaw touched-file lint/module-parse gates
+- `Tier 1`: manual admin trace toggle + reproduce one slow turn + confirm merged PersAI/OpenClaw stages appear in Overview
+
+Rollback / safe fallback:
+- turn trace off in admin Overview; no per-stage capture remains active for the touched surfaces
+
+Removal / cleanup obligations:
+- no separate runtime-side env toggle is allowed for this slice
+- no duplicate PersAI-vs-OpenClaw trace UI is allowed; Overview remains the single operator surface
+
+Deploy window:
+- bounded runtime/UI observability deploy only
+
+Observation window:
+- required after deploy because this slice is only useful if the merged trace actually surfaces the real bottleneck on live slow turns
+
+Exit criteria:
+- one real slow-turn reproduction shows a merged trace in admin Overview with enough stage detail to choose the next optimization target honestly

@@ -5,6 +5,7 @@ import { AdminAuthorizationService } from "./admin-authorization.service";
 import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { RUNTIME_TIER_VALUES, type RuntimeTier } from "./runtime-assignment";
+import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
 import type {
   AdminOverviewDashboardState,
   LatencyPercentiles,
@@ -55,7 +56,8 @@ export class ResolveAdminOverviewDashboardService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly overviewLatencyTraceService: OverviewLatencyTraceService
   ) {}
 
   async execute(callerUserId: string): Promise<AdminOverviewDashboardState> {
@@ -107,6 +109,7 @@ export class ResolveAdminOverviewDashboardService {
 
     return {
       latency,
+      latencyTrace: this.overviewLatencyTraceService.getState(),
       activeUsers: activeUsersResult.length,
       activeWebChats,
       runtime: { adapterEnabled: config.OPENCLAW_ADAPTER_ENABLED, tiers },

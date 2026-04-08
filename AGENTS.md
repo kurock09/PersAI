@@ -54,6 +54,7 @@ Pushing code that fails CI is treated as a bug introduced by the agent.
   - do **not** manually update `infra/helm/values-dev.yaml` for OpenClaw-only fork bumps; `openclaw-dev-image-publish.yml` owns `openclaw.image.tag` / `digest` after the approved SHA changes
   - update `docs/CHANGELOG.md` and `docs/SESSION-HANDOFF.md`
   - if the runtime contract / deploy semantics changed, update the relevant docs/ADR first (`docs/API-BOUNDARY.md`, `docs/ADR/048-*`, runbooks)
+  - if `PersAI` remote advanced meanwhile (for example by CI bot pin commits), finish local gates first, then `fetch`/`rebase` safely before push; never overwrite or hand-edit bot-owned OpenClaw image pin commits
 - before handoff, the agent must explicitly tell the user:
   - what was committed in `openclaw`
   - what was committed in `PersAI`

@@ -692,6 +692,27 @@ Required in CI:
   - `Tier 3`: observation window with metrics/log review
   - `Tier 4`: targeted load/burst validation for scale-path slices
 
+## SR10a bounded latency trace baseline
+
+- Admin Overview trace toggle is the only supported operator control for the bounded latency-investigation path.
+- When trace is disabled, no per-stage timing samples should be collected for the touched PersAI/OpenClaw turn surfaces.
+- When trace is enabled and one slow turn is reproduced, `GET /api/v1/admin/overview/dashboard` should surface a merged trace sample containing:
+  - PersAI stages around the chosen request path
+  - OpenClaw runtime stages from the same logical turn
+  - one shared `traceId`
+  - final status and total duration
+- Minimum `Tier 0` verification for this slice:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+  - `corepack pnpm --dir "C:\Users\alex\Documents\openclaw" run lint -- src/gateway/persai-runtime/persai-runtime-http.ts src/gateway/persai-runtime/persai-runtime-agent-turn.ts src/gateway/persai-runtime/persai-runtime-trace.ts`
+- Minimum `Tier 1` verification for this slice:
+  - turn trace on in `/admin`
+  - reproduce one slow Telegram turn and one slow web turn when available
+  - confirm the trace sample shows both PersAI and OpenClaw runtime stage groups in the same admin UI block
+  - confirm turning trace back off stops new captures
+
 ## SR1 operational baseline
 
 - Canonical runbook/checklist doc:

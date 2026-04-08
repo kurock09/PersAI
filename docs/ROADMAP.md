@@ -470,6 +470,7 @@ Scaling-readiness control layer is now tracked by:
   - [x] `SR9f` — tool daily quota check-vs-consume (closed: live-validated 2026-04-07)
 - [ ] SR10 — Capacity validation and production gate ← **active slice**
   - [x] `SR10-pre-ui` — admin observability dashboard restructuring (closed 2026-04-07: deployed, visually verified, data accuracy fixes applied)
+  - [ ] `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
 
 ---
 

@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter,
@@ -19,6 +20,7 @@ import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
 } from "../domain/assistant-channel-surface-binding.repository";
+import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
 
 export interface InternalTelegramAttachmentInput {
   type: "image" | "audio" | "voice" | "video" | "document";
@@ -100,7 +102,8 @@ export class HandleInternalTelegramTurnService {
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly inboundMediaService: InboundMediaService
+    private readonly inboundMediaService: InboundMediaService,
+    private readonly overviewLatencyTraceService: OverviewLatencyTraceService
   ) {}
 
   parseInput(payload: unknown): InternalTelegramTurnRequest {
@@ -120,14 +123,26 @@ export class HandleInternalTelegramTurnService {
   }
 
   async execute(input: InternalTelegramTurnRequest): Promise<InternalTelegramTurnResult> {
+    const trace = this.overviewLatencyTraceService.start({
+      traceId: randomUUID(),
+      surface: "telegram",
+      assistantId: input.assistantId,
+      threadKey: input.threadId
+    });
     const resolved = await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
       input.assistantId
     );
+    trace.stage("resolved_context");
     const updateClaim = await this.claimTelegramUpdateIfNeeded(
       resolved.assistantId,
       input.updateId
     );
+    trace.stage("update_claimed");
     if (updateClaim !== null && typeof updateClaim === "object") {
+      trace.finish({
+        status: "deduplicated",
+        outputPreview: updateClaim.assistantMessage
+      });
       return updateClaim;
     }
     const claimedUpdateId = updateClaim;
@@ -141,11 +156,13 @@ export class HandleInternalTelegramTurnService {
           activeSurfaceChatsCount: 0
         }
       );
+      trace.stage("quota_checked");
       await this.enforceAbuseRateLimitService.enforceAndRegisterAttempt({
         assistant: resolved.assistant,
         surface: "telegram",
         peerKey: input.threadId
       });
+      trace.stage("abuse_checked");
 
       const workspace = await this.prisma.workspace.findUnique({
         where: { id: resolved.workspaceId },
@@ -154,6 +171,7 @@ export class HandleInternalTelegramTurnService {
       if (workspace === null) {
         throw new NotFoundException("Workspace does not exist for this assistant.");
       }
+      trace.stage("workspace_loaded");
 
       let enrichedMessage = input.message;
       let mediaSystemNotices: string[] = [];
@@ -174,11 +192,13 @@ export class HandleInternalTelegramTurnService {
           author: "user",
           content: input.message
         });
+        trace.stage("attachment_message_saved");
 
         const rawAttachments: RawInboundAttachment[] = await this.downloadTelegramAttachments(
           input.attachments,
           resolved.assistantId
         );
+        trace.stage("attachments_downloaded");
 
         const resolved2 = await this.inboundMediaService.resolve({
           channel: "telegram",
@@ -192,6 +212,7 @@ export class HandleInternalTelegramTurnService {
         });
         enrichedMessage = resolved2.enrichedMessage;
         mediaSystemNotices = resolved2.systemNotices;
+        trace.stage("attachments_resolved");
       } else {
         enrichedMessage = input.message;
       }
@@ -206,12 +227,17 @@ export class HandleInternalTelegramTurnService {
               modelOverride: resolved.quotaDegradeModelOverride.model
             }
           : {}),
+        ...(trace.isEnabled() ? { overviewTraceId: trace.getTraceId() } : {}),
         surface: "telegram",
         threadId: input.threadId,
         userMessage: enrichedMessage,
         userTimezone: workspace.timezone,
         currentTimeIso: new Date().toISOString()
       });
+      if (runtimeResponse.runtimeTrace) {
+        trace.attachExternalTrace(runtimeResponse.runtimeTrace);
+      }
+      trace.stage("runtime_done");
 
       await this.trackWorkspaceQuotaUsageService.recordInboundTurnUsage({
         assistant: resolved.assistant,
@@ -219,6 +245,7 @@ export class HandleInternalTelegramTurnService {
         assistantContent: runtimeResponse.assistantMessage,
         source: "telegram_turn_sync"
       });
+      trace.stage("quota_recorded");
       if (claimedUpdateId !== null) {
         await this.bindingRepository.completeTelegramUpdateProcessing(
           resolved.assistantId,
@@ -227,21 +254,32 @@ export class HandleInternalTelegramTurnService {
           claimedUpdateId,
           new Date()
         );
+        trace.stage("update_completed");
       }
       await this.consumeBootstrapBestEffort(resolved.assistantId);
+      trace.stage("bootstrap_consumed");
 
       if (mediaSystemNotices.length > 0) {
         const prefix = mediaSystemNotices.join("\n");
+        trace.finish({
+          status: "completed",
+          outputPreview: `${prefix}\n\n${runtimeResponse.assistantMessage}`
+        });
         return {
           ...runtimeResponse,
           assistantMessage: `${prefix}\n\n${runtimeResponse.assistantMessage}`
         };
       }
+      trace.finish({
+        status: "completed",
+        outputPreview: runtimeResponse.assistantMessage
+      });
       return runtimeResponse;
     } catch (error) {
       if (claimedUpdateId !== null) {
         await this.releaseTelegramUpdateClaimBestEffort(resolved.assistantId, claimedUpdateId);
       }
+      trace.finish({ status: "failed" });
       throw error;
     }
   }

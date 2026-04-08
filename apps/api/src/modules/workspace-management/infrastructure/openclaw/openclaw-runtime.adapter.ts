@@ -44,6 +44,7 @@ interface OpenClawAdapterConfig {
 
 interface OpenClawRequestOptions {
   acceptedErrorStatuses?: number[];
+  overviewTraceId?: string;
 }
 
 type CachedPreflight = {
@@ -384,7 +385,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         ...(input.userTimezone ? { userTimezone: input.userTimezone } : {}),
         ...(input.currentTimeIso ? { currentTimeIso: input.currentTimeIso } : {})
       },
-      config
+      config,
+      input.overviewTraceId ? { overviewTraceId: input.overviewTraceId } : undefined
     );
 
     if (!isObject(payload)) {
@@ -413,10 +415,14 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     }
 
+    const runtimeTrace = isObject(payload.runtimeTrace)
+      ? (payload.runtimeTrace as AssistantRuntimeWebChatTurnResult["runtimeTrace"])
+      : undefined;
     return {
       assistantMessage: assistantMessage.trim(),
       respondedAt: respondedAt.trim(),
-      media
+      media,
+      ...(runtimeTrace ? { runtimeTrace } : {})
     };
   }
 
@@ -517,7 +523,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         ...(input.userTimezone ? { userTimezone: input.userTimezone } : {}),
         ...(input.currentTimeIso ? { currentTimeIso: input.currentTimeIso } : {})
       },
-      config
+      config,
+      input.overviewTraceId ? { overviewTraceId: input.overviewTraceId } : undefined
     );
 
     if (!isObject(payload)) {
@@ -546,10 +553,14 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
       );
     }
 
+    const runtimeTrace = isObject(payload.runtimeTrace)
+      ? (payload.runtimeTrace as AssistantRuntimeWebChatTurnResult["runtimeTrace"])
+      : undefined;
     return {
       assistantMessage: assistantMessage.trim(),
       respondedAt: respondedAt.trim(),
-      media
+      media,
+      ...(runtimeTrace ? { runtimeTrace } : {})
     };
   }
 
@@ -586,7 +597,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         ...(input.userTimezone ? { userTimezone: input.userTimezone } : {}),
         ...(input.currentTimeIso ? { currentTimeIso: input.currentTimeIso } : {})
       },
-      config
+      config,
+      input.overviewTraceId ? { overviewTraceId: input.overviewTraceId } : undefined
     );
 
     let hasDone = false;
@@ -633,7 +645,14 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
           );
         }
         hasDone = true;
-        yield { type: "done", respondedAt: respondedAt.trim() };
+        const runtimeTrace = isObject(payload.runtimeTrace)
+          ? (payload.runtimeTrace as AssistantRuntimeWebChatTurnStreamChunk["runtimeTrace"])
+          : undefined;
+        yield {
+          type: "done",
+          respondedAt: respondedAt.trim(),
+          ...(runtimeTrace ? { runtimeTrace } : {})
+        };
         break;
       }
 
@@ -1096,7 +1115,10 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         method,
         headers: {
           ...(config.token.length > 0 ? { Authorization: `Bearer ${config.token}` } : {}),
-          ...(body !== undefined ? { "Content-Type": "application/json" } : {})
+          ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+          ...(options.overviewTraceId
+            ? { "X-Persai-Overview-Trace-Id": options.overviewTraceId }
+            : {})
         },
         signal: controller.signal
       };
@@ -1178,14 +1200,15 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   private async requestStreamWithRetries(
     path: string,
     body: unknown,
-    config: OpenClawAdapterConfig
+    config: OpenClawAdapterConfig,
+    options: OpenClawRequestOptions = {}
   ): Promise<Response> {
     let attempt = 0;
     let lastError: AssistantRuntimeAdapterError | null = null;
 
     while (attempt <= config.maxRetries) {
       try {
-        return await this.requestStream(path, body, config);
+        return await this.requestStream(path, body, config, options);
       } catch (error) {
         if (!(error instanceof AssistantRuntimeAdapterError)) {
           throw error;
@@ -1224,7 +1247,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   private async requestStream(
     path: string,
     body: unknown,
-    config: OpenClawAdapterConfig
+    config: OpenClawAdapterConfig,
+    options: OpenClawRequestOptions = {}
   ): Promise<Response> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -1241,7 +1265,10 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         headers: {
           ...(config.token.length > 0 ? { Authorization: `Bearer ${config.token}` } : {}),
           "Content-Type": "application/json",
-          Accept: "application/x-ndjson"
+          Accept: "application/x-ndjson",
+          ...(options.overviewTraceId
+            ? { "X-Persai-Overview-Trace-Id": options.overviewTraceId }
+            : {})
         },
         body: JSON.stringify(body),
         signal: controller.signal

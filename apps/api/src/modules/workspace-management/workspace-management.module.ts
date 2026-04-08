@@ -43,6 +43,8 @@ import { AdminDeleteUserService } from "./application/admin-delete-user.service"
 import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-business-cockpit.service";
 import { ResolveAdminBusinessPlatformService } from "./application/resolve-admin-business-platform.service";
 import { ResolveAdminOverviewDashboardService } from "./application/resolve-admin-overview-dashboard.service";
+import { OverviewLatencyTraceService } from "./application/overview-latency-trace.service";
+import { ManageAdminOverviewLatencyTraceService } from "./application/manage-admin-overview-latency-trace.service";
 import { ManageAdminNotificationChannelsService } from "./application/manage-admin-notification-channels.service";
 import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
 import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
@@ -186,6 +188,8 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ResolveAdminBusinessCockpitService,
     ResolveAdminBusinessPlatformService,
     ResolveAdminOverviewDashboardService,
+    OverviewLatencyTraceService,
+    ManageAdminOverviewLatencyTraceService,
     ManageAdminNotificationChannelsService,
     DeliverAdminSystemNotificationService,
     ManagePlatformRolloutsService,
