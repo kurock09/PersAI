@@ -841,8 +841,13 @@ export class AssistantController {
     res.setHeader("X-Accel-Buffering", "no");
 
     let clientClosed = false;
-    req.on("close", () => {
+    req.on("aborted", () => {
       clientClosed = true;
+    });
+    res.on("close", () => {
+      if (!res.writableEnded) {
+        clientClosed = true;
+      }
     });
 
     const sendSse = (event: string, payload: unknown): void => {

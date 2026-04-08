@@ -68,6 +68,9 @@ export class OverviewLatencyTraceService {
 
   setEnabled(enabled: boolean): OverviewLatencyTraceState {
     this.enabled = enabled;
+    if (!enabled) {
+      this.recent.length = 0;
+    }
     this.updatedAt = new Date().toISOString();
     return this.getState();
   }
