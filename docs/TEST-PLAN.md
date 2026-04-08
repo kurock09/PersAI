@@ -701,6 +701,8 @@ Required in CI:
   - OpenClaw runtime stages from the same logical turn
   - one shared `traceId`
   - final status and total duration
+- With more than one `api` pod behind the service, `/admin` must show which `api` instance produced the currently displayed overview/trace block and must label pod-local telemetry honestly instead of pretending the panel is cluster-aggregated.
+- The web proxy should keep `/admin/overview/*` sticky to one reachable `api` pod when possible so `Trace ON/OFF` and subsequent refreshes observe the same in-memory trace state.
 - Minimum `Tier 0` verification for this slice:
   - `corepack pnpm -r --if-present run lint`
   - `corepack pnpm run format:check`
@@ -712,6 +714,7 @@ Required in CI:
   - reproduce one slow Telegram turn and one slow web turn when available
   - confirm the trace sample shows both PersAI and OpenClaw runtime stage groups in the same admin UI block
   - confirm turning trace back off stops new captures
+  - with 2 `api` pods, confirm refresh/toggle can show the serving instance and warn when the UI switches between pods
 
 ## SR1 operational baseline
 

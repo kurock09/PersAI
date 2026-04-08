@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
+import { resolveAdminOverviewDataSource } from "./admin-overview-data-source";
 import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { RUNTIME_TIER_VALUES, type RuntimeTier } from "./runtime-assignment";
@@ -108,6 +109,7 @@ export class ResolveAdminOverviewDashboardService {
     const warnings = this.deriveWarnings(latency, health, anyUnhealthy ? tiers : [], queuePressure);
 
     return {
+      dataSource: resolveAdminOverviewDataSource(),
       latency,
       latencyTrace: this.overviewLatencyTraceService.getState(),
       activeUsers: activeUsersResult.length,

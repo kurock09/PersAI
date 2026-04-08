@@ -38,6 +38,14 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
 {{- end }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
 {{- range $name, $ref := .Values.api.secretEnv }}
             - name: {{ $name }}
               valueFrom:

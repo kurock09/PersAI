@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   Shield,
@@ -72,7 +72,13 @@ type TraceState = {
   updatedAt: string | null;
   recent: TraceEntry[];
 };
+type DataSource = {
+  scope: "api_instance_local";
+  instanceId: string;
+  podIp: string | null;
+};
 type Dash = {
+  dataSource: DataSource;
   latency: LatencySnap;
   latencyTrace: TraceState;
   activeUsers: number;
@@ -149,6 +155,12 @@ function getBottleneckStage(stages: TraceStage[]) {
       longest === null || stage.durationMs > longest.durationMs ? stage : longest,
     null
   );
+}
+function sourceLabel(source: DataSource) {
+  return source.instanceId;
+}
+function buildSourceSwitchMessage(previous: DataSource, next: DataSource) {
+  return `Overview source switched from ${sourceLabel(previous)} to ${sourceLabel(next)}. Pod-local metrics and trace state can differ between api pods.`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -279,10 +291,12 @@ function Lat({ label, d }: { label: string; d: ChLatency | null }) {
 
 export default function AdminOverviewPage() {
   const { getToken } = useAuth();
+  const sourceRef = useRef<DataSource | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [traceBusy, setTraceBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [sourceNotice, setSourceNotice] = useState<string | null>(null);
   const [d, setD] = useState<Dash | null>(null);
 
   const load = useCallback(
@@ -293,7 +307,13 @@ export default function AdminOverviewPage() {
       else setLoading(true);
       setErr(null);
       try {
-        setD((await getAdminOverviewDashboard(tk)) as unknown as Dash);
+        const next = (await getAdminOverviewDashboard(tk)) as unknown as Dash;
+        const previousSource = sourceRef.current;
+        if (previousSource !== null && previousSource.instanceId !== next.dataSource.instanceId) {
+          setSourceNotice(buildSourceSwitchMessage(previousSource, next.dataSource));
+        }
+        sourceRef.current = next.dataSource;
+        setD(next);
       } catch {
         setD(null);
         setErr("Unable to load dashboard.");
@@ -312,11 +332,23 @@ export default function AdminOverviewPage() {
     setTraceBusy(true);
     setErr(null);
     try {
-      const latencyTrace = (await setAdminOverviewLatencyTrace(
-        tk,
-        !d.latencyTrace.enabled
-      )) as unknown as TraceState;
-      setD((prev) => (prev ? { ...prev, latencyTrace } : prev));
+      const next = await setAdminOverviewLatencyTrace(tk, !d.latencyTrace.enabled);
+      const latencyTrace = next.latencyTrace as TraceState;
+      const nextSource = (next.dataSource as DataSource | undefined) ?? d.dataSource;
+      const previousSource = sourceRef.current;
+      if (previousSource !== null && previousSource.instanceId !== nextSource.instanceId) {
+        setSourceNotice(buildSourceSwitchMessage(previousSource, nextSource));
+      }
+      sourceRef.current = nextSource;
+      setD((prev) =>
+        prev
+          ? {
+              ...prev,
+              dataSource: nextSource,
+              latencyTrace
+            }
+          : prev
+      );
     } catch {
       setErr("Unable to change latency trace mode.");
     } finally {
@@ -378,8 +410,32 @@ export default function AdminOverviewPage() {
         </p>
       )}
 
+      {sourceNotice && (
+        <p className="rounded border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-[10px] text-warning">
+          {sourceNotice}
+        </p>
+      )}
+
       {d && (
         <>
+          <div className="flex flex-wrap items-center gap-1.5 rounded border border-border/40 bg-surface px-2.5 py-1.5 text-[10px] text-text-muted">
+            <span className="rounded border border-warning/30 bg-warning/10 px-1.5 py-0.5 font-semibold text-warning">
+              Pod-local
+            </span>
+            <span>
+              Source: <span className="font-mono text-text">{sourceLabel(d.dataSource)}</span>
+            </span>
+            <span>
+              Latency, trace, in-flight, peak, process pressure, and flap counters are local to the
+              current `api` pod.
+            </span>
+            <span>
+              Admin overview requests are kept sticky to one pod when possible so refresh and trace
+              toggle stay aligned.
+            </span>
+            <span>Active users and active web chats come from shared backend state.</span>
+          </div>
+
           {/* Alerts */}
           {d.warnings.length > 0 && (
             <div className="space-y-0.5">
@@ -454,6 +510,10 @@ export default function AdminOverviewPage() {
                     {d.latencyTrace.enabled
                       ? "Enabled only while investigating delays."
                       : "Disabled. No stage timings are collected."}
+                  </p>
+                  <p className="text-[10px] text-text-subtle">
+                    This toggle and trace history apply only to{" "}
+                    <span className="font-mono">{sourceLabel(d.dataSource)}</span>.
                   </p>
                 </div>
                 <div className="text-right text-[10px] text-text-subtle">

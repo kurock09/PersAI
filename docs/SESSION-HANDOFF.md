@@ -1,5 +1,52 @@
 # SESSION-HANDOFF
 
+## 2026-04-08 - SR10a admin overview multi-pod honesty follow-up
+
+### Current active slice
+
+- `SR10` — Capacity validation and production gate
+
+### Current active sub-slice
+
+- `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
+
+### What stale program state was fixed
+
+1. Admin Overview latency/trace diagnostics were still backed by pod-local in-memory state, but once `api` ran with multiple replicas the UI could bounce between pods on refresh and falsely imply one shared global view.
+2. That made trace investigation noisy: `Trace ON/OFF`, recent samples, and queue/latency counters could appear to change arbitrarily depending on which `api` pod served the latest request.
+
+### What was completed
+
+1. **Backend data-source disclosure**: admin overview responses now include explicit serving-instance metadata (`scope`, `instanceId`, `podIp`) resolved from runtime pod identity so the API tells the UI honestly when data is pod-local.
+2. **Response headers for sticky routing**: admin overview endpoints now emit pod identity headers so the web proxy can keep later overview requests on the same reachable `api` pod.
+3. **Web proxy sticky follow-up**: the Next.js `/api/v1` proxy now treats `/admin/overview/*` specially, preferring a previously observed pod IP first and falling back safely to the normal service when that pod is unreachable.
+4. **Admin UI honesty pass**: `/admin` now labels the overview as pod-local, shows the current serving instance, and warns when the source pod changes so operators do not confuse per-pod memory with cluster-wide aggregation.
+5. **Deploy wiring**: the `api` deployment now exposes `POD_NAME` and `POD_IP` via the Kubernetes Downward API so the serving instance can be identified consistently in live environments.
+
+### What remains
+
+1. Commit this slice and push only after the already-passed local gates stay green on the committed tree.
+2. After deploy, do one live `/admin` verification pass with two `api` pods to confirm sticky behavior, source labeling, and correct `Trace OFF` sample clearing from the same serving pod.
+3. Continue honest live-debug on any remaining web chat instability separately from this multi-pod admin-overview correctness slice.
+
+### Confirmed risks
+
+1. This slice intentionally improves honesty and session consistency for pod-local telemetry; it does **not** implement cluster-wide aggregation for trace samples, queue counters, or request histograms.
+2. Sticky routing prefers continuity for one admin session, but if a pod restarts or direct pod access is unavailable the proxy will fall back to the service and the UI may legitimately switch source with a warning.
+
+### Verification run
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+- After local gates pass and the branch is pushed safely, deploy and run one live `/admin` two-pod verification pass before treating the overview diagnostics as settled.
+
+---
+
 ## 2026-04-08 - SR10a post-trace stabilization follow-up
 
 ### Current active slice

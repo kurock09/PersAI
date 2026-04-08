@@ -1,7 +1,9 @@
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const OVERVIEW_STICKY_COOKIE = "persai-admin-overview-pod-ip";
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -22,14 +24,51 @@ function apiUpstreamBase(): string | null {
   return raw.replace(/\/$/, "");
 }
 
+function normalizeOrigin(value: string): string {
+  return value.replace(/\/$/, "");
+}
+
+function isAdminOverviewPath(pathSegments: string[] | undefined): boolean {
+  return (
+    Array.isArray(pathSegments) &&
+    pathSegments.length >= 2 &&
+    pathSegments[0] === "admin" &&
+    pathSegments[1] === "overview"
+  );
+}
+
+function buildUpstreamCandidates(req: NextRequest, pathSegments: string[] | undefined): string[] {
+  const base = apiUpstreamBase();
+  if (!base) {
+    return [];
+  }
+
+  const normalizedBase = normalizeOrigin(base);
+  if (!isAdminOverviewPath(pathSegments)) {
+    return [normalizedBase];
+  }
+
+  const stickyPodIp = req.cookies.get(OVERVIEW_STICKY_COOKIE)?.value?.trim();
+  if (!stickyPodIp) {
+    return [normalizedBase];
+  }
+
+  const podDirectBase = normalizedBase.replace(/\/\/api(?::3001)?$/i, `//${stickyPodIp}:3001`);
+  if (podDirectBase === normalizedBase) {
+    return [normalizedBase];
+  }
+
+  return [podDirectBase, normalizedBase];
+}
+
 function isEventStream(headers: Headers): boolean {
   const contentType = headers.get("content-type") ?? "";
   return contentType.toLowerCase().includes("text/event-stream");
 }
 
 async function proxy(req: NextRequest, pathSegments: string[] | undefined): Promise<Response> {
-  const base = apiUpstreamBase();
-  if (!base) {
+  const upstreamCandidates = buildUpstreamCandidates(req, pathSegments);
+  if (upstreamCandidates.length === 0) {
     return Response.json(
       { error: "PERSAI_WEB_API_PROXY_TARGET is not configured" },
       { status: 503 }
@@ -39,8 +78,6 @@ async function proxy(req: NextRequest, pathSegments: string[] | undefined): Prom
   const segments = pathSegments ?? [];
   const suffix = segments.length > 0 ? `/${segments.join("/")}` : "";
   const url = new URL(req.url);
-  const target = `${base}/api/v1${suffix}${url.search}`;
-
   const headers = new Headers();
   req.headers.forEach((value, key) => {
     if (!HOP_BY_HOP.has(key.toLowerCase())) {
@@ -59,12 +96,23 @@ async function proxy(req: NextRequest, pathSegments: string[] | undefined): Prom
     init.duplex = "half";
   }
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(target, init);
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "fetch failed";
-    return Response.json({ error: "Upstream API unreachable", detail: message }, { status: 502 });
+  let upstream: Response | null = null;
+  let lastError: string | null = null;
+  for (const base of upstreamCandidates) {
+    const target = `${base}/api/v1${suffix}${url.search}`;
+    try {
+      upstream = await fetch(target, init);
+      break;
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : "fetch failed";
+    }
+  }
+
+  if (upstream === null) {
+    return Response.json(
+      { error: "Upstream API unreachable", detail: lastError ?? "fetch failed" },
+      { status: 502 }
+    );
   }
 
   const out = new Headers(upstream.headers);
@@ -76,11 +124,27 @@ async function proxy(req: NextRequest, pathSegments: string[] | undefined): Prom
     out.set("X-Accel-Buffering", "no");
   }
 
-  return new Response(upstream.body, {
+  const response = new NextResponse(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: out
   });
+
+  if (isAdminOverviewPath(pathSegments)) {
+    const stickyPodIp = upstream.headers.get("X-Persai-Api-Pod-Ip")?.trim();
+    if (stickyPodIp) {
+      response.cookies.set(OVERVIEW_STICKY_COOKIE, stickyPodIp, {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 30
+      });
+    } else {
+      response.cookies.delete(OVERVIEW_STICKY_COOKIE);
+    }
+  }
+
+  return response;
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ path?: string[] }> }) {

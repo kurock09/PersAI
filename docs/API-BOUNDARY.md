@@ -526,6 +526,7 @@ Behavior baseline:
 ## SR10 latency trace boundary
 
 - `GET /api/v1/admin/overview/dashboard` now returns `latencyTrace` state alongside the existing overview snapshot.
+- The dashboard response also includes `dataSource` metadata for the currently serving PersAI API instance so admin UI can label pod-local telemetry honestly when multiple `api` pods are behind one service.
 - `POST /api/v1/admin/overview/latency-trace` is the single admin control-plane toggle for bounded delay investigation.
 - The trace toggle is intentionally off by default; when disabled, PersAI and OpenClaw do not collect per-stage timing samples for this surface.
 - When enabled, PersAI creates one in-memory trace per touched turn surface:
@@ -536,6 +537,8 @@ Behavior baseline:
 - OpenClaw treats that header as the only runtime-side trace enablement signal for the PersAI bridge; there is no separate runtime env flag for this slice.
 - Sync runtime responses may include `runtimeTrace` in the JSON payload; stream runtime responses may include `runtimeTrace` in the final `done` NDJSON event.
 - PersAI merges returned OpenClaw stages into the same admin overview trace sample so operators can inspect PersAI-side stages and OpenClaw runtime stages in one place.
+- Current semantics stay intentionally explicit: trace memory, request histograms, queue pressure, process health, and flap counters are **API-instance-local** (`scope = api_instance_local`), not cluster-aggregated.
+- The web `/api/v1` proxy may keep `/admin/overview/*` requests sticky to one reported API pod while that pod remains reachable, so refresh/toggle flows stay aligned with the same in-memory trace state instead of round-robining across pods on every request.
 - Scope rule: this trace path is bounded operational diagnostics for `SR10`, not a general distributed tracing platform or long-term persistent telemetry store.
 
 ## Step 7 P3 subscription + billing boundary baseline

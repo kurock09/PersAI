@@ -65,7 +65,14 @@ export type OverviewLatencyTraceState = {
   recent: OverviewLatencyTraceEntry[];
 };
 
+export type AdminOverviewDataSource = {
+  scope: "api_instance_local";
+  instanceId: string;
+  podIp: string | null;
+};
+
 export type AdminOverviewDashboardState = {
+  dataSource: AdminOverviewDataSource;
   latency: OverviewLatencySnapshot;
   latencyTrace: OverviewLatencyTraceState;
   activeUsers: number;
