@@ -2,6 +2,30 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { SendWebChatTurnService } from "../src/modules/workspace-management/application/send-web-chat-turn.service";
 
+function createOverviewLatencyTraceServiceMock() {
+  return {
+    start() {
+      return {
+        stage() {
+          return undefined;
+        },
+        isEnabled() {
+          return false;
+        },
+        getTraceId() {
+          return "trace-test";
+        },
+        attachExternalTrace() {
+          return undefined;
+        },
+        finish() {
+          return undefined;
+        }
+      };
+    }
+  };
+}
+
 describe("SendWebChatTurnService", () => {
   test("replays duplicate clientTurnId without starting a second sync runtime turn", async () => {
     let runtimeCalls = 0;
@@ -69,7 +93,8 @@ describe("SendWebChatTurnService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      createOverviewLatencyTraceServiceMock() as never
     );
 
     const result = await service.execute("user-1", {

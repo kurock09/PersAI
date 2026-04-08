@@ -109,6 +109,30 @@ function createResolvedAssistant() {
   };
 }
 
+function createOverviewLatencyTraceServiceMock() {
+  return {
+    start() {
+      return {
+        stage() {
+          return undefined;
+        },
+        isEnabled() {
+          return false;
+        },
+        getTraceId() {
+          return "trace-test";
+        },
+        attachExternalTrace() {
+          return undefined;
+        },
+        finish() {
+          return undefined;
+        }
+      };
+    }
+  };
+}
+
 async function run(): Promise<void> {
   let resolveFirstRuntime: (() => void) | null = null;
   const firstRuntimeStarted = new Promise<void>((resolve) => {
@@ -122,6 +146,7 @@ async function run(): Promise<void> {
   const concurrentBindingRepository = createBindingRepository();
   let concurrentRuntimeCalls = 0;
   let concurrentUsageCalls = 0;
+  const traceService = createOverviewLatencyTraceServiceMock();
   const concurrentService = new HandleInternalTelegramTurnService(
     {
       async sendChannelTurn() {
@@ -174,9 +199,9 @@ async function run(): Promise<void> {
       async resolve() {
         throw new Error("attachments not expected");
       }
-    } as never
+    } as never,
+    traceService as never
   );
-
   const first = concurrentService.execute({
     assistantId: "assistant-1",
     threadId: "chat-1",
@@ -204,7 +229,7 @@ async function run(): Promise<void> {
 
   const releasedBindingRepository = createBindingRepository();
   let releaseRuntimeCalls = 0;
-  const releaseService = new HandleInternalTelegramTurnService(
+  const fixedReleaseService = new HandleInternalTelegramTurnService(
     {
       async sendChannelTurn() {
         releaseRuntimeCalls += 1;
@@ -257,11 +282,12 @@ async function run(): Promise<void> {
       async resolve() {
         throw new Error("attachments not expected");
       }
-    } as never
+    } as never,
+    traceService as never
   );
 
   await assert.rejects(() =>
-    releaseService.execute({
+    fixedReleaseService.execute({
       assistantId: "assistant-1",
       threadId: "chat-1",
       message: "retry me",
@@ -270,7 +296,7 @@ async function run(): Promise<void> {
   );
   assert.equal(releasedBindingRepository.state.telegramActiveUpdateId, undefined);
 
-  const recovered = await releaseService.execute({
+  const recovered = await fixedReleaseService.execute({
     assistantId: "assistant-1",
     threadId: "chat-1",
     message: "retry me",

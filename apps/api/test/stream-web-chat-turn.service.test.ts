@@ -3,6 +3,30 @@ import { describe, test } from "node:test";
 import { StreamWebChatTurnService } from "../src/modules/workspace-management/application/stream-web-chat-turn.service";
 import { PrismaAssistantChatRepository } from "../src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository";
 
+function createOverviewLatencyTraceServiceMock() {
+  return {
+    start() {
+      return {
+        stage() {
+          return undefined;
+        },
+        isEnabled() {
+          return false;
+        },
+        getTraceId() {
+          return "trace-test";
+        },
+        attachExternalTrace() {
+          return undefined;
+        },
+        finish() {
+          return undefined;
+        }
+      };
+    }
+  };
+}
+
 describe("StreamWebChatTurnService", () => {
   test("findOrCreateChatBySurfaceThread falls back to existing chat on unique race", async () => {
     const existingChat = {
@@ -130,7 +154,8 @@ describe("StreamWebChatTurnService", () => {
             }
           ]
         })
-      } as never
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -257,7 +282,8 @@ describe("StreamWebChatTurnService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      createOverviewLatencyTraceServiceMock() as never
     );
 
     const preparation = await service.prepare("user-1", {

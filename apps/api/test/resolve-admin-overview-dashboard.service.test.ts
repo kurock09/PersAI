@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { PlatformHttpMetricsService } from "../src/modules/platform-core/application/platform-http-metrics.service";
+import { OverviewLatencyTraceService } from "../src/modules/workspace-management/application/overview-latency-trace.service";
 import { ResolveAdminOverviewDashboardService } from "../src/modules/workspace-management/application/resolve-admin-overview-dashboard.service";
 import type { AdminAuthorizationService } from "../src/modules/workspace-management/application/admin-authorization.service";
 import type { AssistantRuntimePreflightService } from "../src/modules/workspace-management/application/assistant-runtime-preflight.service";
@@ -78,7 +79,8 @@ async function run(): Promise<void> {
             return 5;
           }
         }
-      } as unknown as WorkspaceManagementPrismaService
+      } as unknown as WorkspaceManagementPrismaService,
+      new OverviewLatencyTraceService()
     );
 
     const dashboard = await service.execute("admin-1");
@@ -88,6 +90,7 @@ async function run(): Promise<void> {
     assert.equal(dashboard.latency.webChatTurns?.percentiles.p50Ms, 100);
     assert.equal(dashboard.latency.webChatTurns?.percentiles.p95Ms, 90_000);
     assert.equal(dashboard.latency.webChatTurns?.percentiles.p99Ms, 90_000);
+    assert.equal(dashboard.latencyTrace.enabled, false);
     assert.equal("storagePressure" in dashboard, false);
   } finally {
     process.env.APP_ENV = prevEnv.APP_ENV;
