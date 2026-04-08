@@ -21,12 +21,13 @@
 2. **Response headers for sticky routing**: admin overview endpoints now emit pod identity headers so the web proxy can keep later overview requests on the same reachable `api` pod.
 3. **Web proxy sticky follow-up**: the Next.js `/api/v1` proxy now treats `/admin/overview/*` specially, preferring a previously observed pod IP first and falling back safely to the normal service when that pod is unreachable.
 4. **Admin UI honesty pass**: `/admin` now labels the overview as pod-local, shows the current serving instance, and warns when the source pod changes so operators do not confuse per-pod memory with cluster-wide aggregation.
-5. **Deploy wiring**: the `api` deployment now exposes `POD_NAME` and `POD_IP` via the Kubernetes Downward API so the serving instance can be identified consistently in live environments.
+5. **Admin pod debug routing**: `/admin` keeps `Auto (sticky)` as the default route mode, but now also supports one-shot service probing plus manual pinning to a discovered `api` pod so operators can compare pod-local stats/trace state deliberately without replacing the default sticky behavior.
+6. **Deploy wiring**: the `api` deployment now exposes `POD_NAME` and `POD_IP` via the Kubernetes Downward API so the serving instance can be identified consistently in live environments.
 
 ### What remains
 
 1. Commit this slice and push only after the already-passed local gates stay green on the committed tree.
-2. After deploy, do one live `/admin` verification pass with two `api` pods to confirm sticky behavior, source labeling, and correct `Trace OFF` sample clearing from the same serving pod.
+2. After deploy, do one live `/admin` verification pass with two `api` pods to confirm sticky behavior, source labeling, manual pod pin behavior, and correct `Trace OFF` sample clearing from the same serving pod.
 3. Continue honest live-debug on any remaining web chat instability separately from this multi-pod admin-overview correctness slice.
 
 ### Confirmed risks

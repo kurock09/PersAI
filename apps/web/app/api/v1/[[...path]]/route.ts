@@ -4,6 +4,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const OVERVIEW_STICKY_COOKIE = "persai-admin-overview-pod-ip";
+const OVERVIEW_PINNED_COOKIE = "persai-admin-overview-pinned-pod-ip";
+const OVERVIEW_ROUTE_HEADER = "x-persai-admin-overview-route";
+const OVERVIEW_PINNED_POD_IP_HEADER = "x-persai-admin-overview-pod-ip";
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -48,14 +51,26 @@ function buildUpstreamCandidates(req: NextRequest, pathSegments: string[] | unde
     return [normalizedBase];
   }
 
-  const stickyPodIp = req.cookies.get(OVERVIEW_STICKY_COOKIE)?.value?.trim();
-  if (!stickyPodIp) {
+  const routeMode = req.headers.get(OVERVIEW_ROUTE_HEADER)?.trim().toLowerCase();
+  const requestedPinnedPodIp = req.headers.get(OVERVIEW_PINNED_POD_IP_HEADER)?.trim();
+  const pinnedPodIp =
+    routeMode === "pinned"
+      ? requestedPinnedPodIp || req.cookies.get(OVERVIEW_PINNED_COOKIE)?.value?.trim() || null
+      : null;
+  const stickyPodIp =
+    routeMode === "probe" ? null : req.cookies.get(OVERVIEW_STICKY_COOKIE)?.value?.trim() || null;
+  const preferredPodIp = pinnedPodIp ?? stickyPodIp;
+  if (!preferredPodIp) {
     return [normalizedBase];
   }
 
-  const podDirectBase = normalizedBase.replace(/\/\/api(?::3001)?$/i, `//${stickyPodIp}:3001`);
+  const podDirectBase = normalizedBase.replace(/\/\/api(?::3001)?$/i, `//${preferredPodIp}:3001`);
   if (podDirectBase === normalizedBase) {
     return [normalizedBase];
+  }
+
+  if (routeMode === "pinned") {
+    return [podDirectBase, normalizedBase];
   }
 
   return [podDirectBase, normalizedBase];
@@ -131,6 +146,8 @@ async function proxy(req: NextRequest, pathSegments: string[] | undefined): Prom
   });
 
   if (isAdminOverviewPath(pathSegments)) {
+    const routeMode = req.headers.get(OVERVIEW_ROUTE_HEADER)?.trim().toLowerCase();
+    const requestedPinnedPodIp = req.headers.get(OVERVIEW_PINNED_POD_IP_HEADER)?.trim();
     const stickyPodIp = upstream.headers.get("X-Persai-Api-Pod-Ip")?.trim();
     if (stickyPodIp) {
       response.cookies.set(OVERVIEW_STICKY_COOKIE, stickyPodIp, {
@@ -141,6 +158,17 @@ async function proxy(req: NextRequest, pathSegments: string[] | undefined): Prom
       });
     } else {
       response.cookies.delete(OVERVIEW_STICKY_COOKIE);
+    }
+
+    if (routeMode === "pinned" && requestedPinnedPodIp) {
+      response.cookies.set(OVERVIEW_PINNED_COOKIE, requestedPinnedPodIp, {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 30
+      });
+    } else if (routeMode === "auto" || routeMode === "probe" || !requestedPinnedPodIp) {
+      response.cookies.delete(OVERVIEW_PINNED_COOKIE);
     }
   }
 

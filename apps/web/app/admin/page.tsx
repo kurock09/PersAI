@@ -15,7 +15,8 @@ import {
 import { cn } from "@/app/lib/utils";
 import {
   getAdminOverviewDashboard,
-  setAdminOverviewLatencyTrace
+  setAdminOverviewLatencyTrace,
+  type AdminOverviewRouteHint
 } from "@/app/app/assistant-api-client";
 
 /* ------------------------------------------------------------------ */
@@ -89,6 +90,8 @@ type Dash = {
   warnings: Warning[];
   updatedAt: string;
 };
+type SourceRegistry = Record<string, DataSource>;
+type RouteMode = "auto" | "probe" | "pinned";
 
 /* ------------------------------------------------------------------ */
 /*  Formatters                                                         */
@@ -161,6 +164,20 @@ function sourceLabel(source: DataSource) {
 }
 function buildSourceSwitchMessage(previous: DataSource, next: DataSource) {
   return `Overview source switched from ${sourceLabel(previous)} to ${sourceLabel(next)}. Pod-local metrics and trace state can differ between api pods.`;
+}
+function buildRouteHint(mode: RouteMode, pinnedPodIp: string | null): AdminOverviewRouteHint {
+  if (mode === "probe") {
+    return { mode: "probe" };
+  }
+  if (mode === "pinned" && pinnedPodIp) {
+    return { mode: "pinned", podIp: pinnedPodIp };
+  }
+  return { mode: "auto" };
+}
+function routeModeLabel(mode: RouteMode) {
+  if (mode === "probe") return "Probe service";
+  if (mode === "pinned") return "Pinned pod";
+  return "Auto (sticky)";
 }
 
 /* ------------------------------------------------------------------ */
@@ -292,6 +309,9 @@ function Lat({ label, d }: { label: string; d: ChLatency | null }) {
 export default function AdminOverviewPage() {
   const { getToken } = useAuth();
   const sourceRef = useRef<DataSource | null>(null);
+  const [routeMode, setRouteMode] = useState<RouteMode>("auto");
+  const [pinnedPodIp, setPinnedPodIp] = useState<string | null>(null);
+  const [knownSources, setKnownSources] = useState<SourceRegistry>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [traceBusy, setTraceBusy] = useState(false);
@@ -307,12 +327,23 @@ export default function AdminOverviewPage() {
       else setLoading(true);
       setErr(null);
       try {
-        const next = (await getAdminOverviewDashboard(tk)) as unknown as Dash;
+        const next = (await getAdminOverviewDashboard(
+          tk,
+          buildRouteHint(routeMode, pinnedPodIp)
+        )) as unknown as Dash;
         const previousSource = sourceRef.current;
         if (previousSource !== null && previousSource.instanceId !== next.dataSource.instanceId) {
           setSourceNotice(buildSourceSwitchMessage(previousSource, next.dataSource));
         }
         sourceRef.current = next.dataSource;
+        setKnownSources((prev) => ({
+          ...prev,
+          [next.dataSource.instanceId]: next.dataSource
+        }));
+        if (routeMode === "probe" && next.dataSource.podIp) {
+          setPinnedPodIp(next.dataSource.podIp);
+          setRouteMode("pinned");
+        }
         setD(next);
       } catch {
         setD(null);
@@ -321,7 +352,7 @@ export default function AdminOverviewPage() {
       setLoading(false);
       setBusy(false);
     },
-    [getToken]
+    [getToken, pinnedPodIp, routeMode]
   );
 
   useEffect(() => void load(false), [load]);
@@ -332,7 +363,11 @@ export default function AdminOverviewPage() {
     setTraceBusy(true);
     setErr(null);
     try {
-      const next = await setAdminOverviewLatencyTrace(tk, !d.latencyTrace.enabled);
+      const next = await setAdminOverviewLatencyTrace(
+        tk,
+        !d.latencyTrace.enabled,
+        buildRouteHint(routeMode, pinnedPodIp)
+      );
       const latencyTrace = next.latencyTrace as TraceState;
       const nextSource = (next.dataSource as DataSource | undefined) ?? d.dataSource;
       const previousSource = sourceRef.current;
@@ -340,6 +375,10 @@ export default function AdminOverviewPage() {
         setSourceNotice(buildSourceSwitchMessage(previousSource, nextSource));
       }
       sourceRef.current = nextSource;
+      setKnownSources((prev) => ({
+        ...prev,
+        [nextSource.instanceId]: nextSource
+      }));
       setD((prev) =>
         prev
           ? {
@@ -354,7 +393,7 @@ export default function AdminOverviewPage() {
     } finally {
       setTraceBusy(false);
     }
-  }, [d, getToken]);
+  }, [d, getToken, pinnedPodIp, routeMode]);
 
   if (loading)
     return (
@@ -372,6 +411,54 @@ export default function AdminOverviewPage() {
           <h1 className="text-sm font-bold tracking-tight text-text">System Overview</h1>
         </div>
         <div className="flex items-center gap-1.5">
+          {d && (
+            <div className="flex items-center gap-1 rounded border border-border/60 bg-surface px-1.5 py-0.5 text-[10px] text-text-muted">
+              <span className="font-medium text-text-subtle">Route</span>
+              <select
+                value={
+                  routeMode === "pinned" && pinnedPodIp
+                    ? `pinned:${pinnedPodIp}`
+                    : routeMode === "probe"
+                      ? "probe"
+                      : "auto"
+                }
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setSourceNotice(null);
+                  if (nextValue === "auto") {
+                    setRouteMode("auto");
+                    setPinnedPodIp(null);
+                    void load(true);
+                    return;
+                  }
+                  if (nextValue === "probe") {
+                    setRouteMode("probe");
+                    setPinnedPodIp(null);
+                    void load(true);
+                    return;
+                  }
+                  if (nextValue.startsWith("pinned:")) {
+                    const nextPodIp = nextValue.slice("pinned:".length);
+                    setRouteMode("pinned");
+                    setPinnedPodIp(nextPodIp);
+                    void load(true);
+                  }
+                }}
+                className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-text"
+              >
+                <option value="auto">Auto (sticky)</option>
+                <option value="probe">Probe service</option>
+                {Object.values(knownSources)
+                  .filter((source) => source.podIp !== null)
+                  .sort((a, b) => a.instanceId.localeCompare(b.instanceId))
+                  .map((source) => (
+                    <option key={source.instanceId} value={`pinned:${source.podIp}`}>
+                      Pin {source.instanceId}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
           {d && (
             <button
               type="button"
@@ -432,6 +519,10 @@ export default function AdminOverviewPage() {
             <span>
               Admin overview requests are kept sticky to one pod when possible so refresh and trace
               toggle stay aligned.
+            </span>
+            <span>
+              Route mode: <span className="font-medium text-text">{routeModeLabel(routeMode)}</span>
+              {routeMode === "pinned" && d.dataSource.podIp ? ` (${d.dataSource.podIp})` : ""}
             </span>
             <span>Active users and active web chats come from shared backend state.</span>
           </div>

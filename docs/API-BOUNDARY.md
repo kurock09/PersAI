@@ -539,6 +539,7 @@ Behavior baseline:
 - PersAI merges returned OpenClaw stages into the same admin overview trace sample so operators can inspect PersAI-side stages and OpenClaw runtime stages in one place.
 - Current semantics stay intentionally explicit: trace memory, request histograms, queue pressure, process health, and flap counters are **API-instance-local** (`scope = api_instance_local`), not cluster-aggregated.
 - The web `/api/v1` proxy may keep `/admin/overview/*` requests sticky to one reported API pod while that pod remains reachable, so refresh/toggle flows stay aligned with the same in-memory trace state instead of round-robining across pods on every request.
+- `/admin` may also expose an explicit debug routing choice for overview requests: default `Auto (sticky)`, one-shot `Probe service` to discover another serving pod, and manual pinning to a previously discovered pod-local source. This is a diagnostics aid only and does not change the non-aggregated semantics of the underlying metrics/trace state.
 - Scope rule: this trace path is bounded operational diagnostics for `SR10`, not a general distributed tracing platform or long-term persistent telemetry store.
 
 ## Step 7 P3 subscription + billing boundary baseline

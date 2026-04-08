@@ -1489,9 +1489,33 @@ export async function getAdminBusinessCockpit(token: string): Promise<AdminBusin
   }
 }
 
-export async function getAdminOverviewDashboard(token: string): Promise<Record<string, unknown>> {
+export type AdminOverviewRouteHint =
+  | { mode: "auto" }
+  | { mode: "probe" }
+  | { mode: "pinned"; podIp: string };
+
+function getAdminOverviewHeaders(
+  token: string,
+  routeHint: AdminOverviewRouteHint = { mode: "auto" }
+): HeadersInit {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`
+  };
+  if (routeHint.mode === "probe") {
+    headers["X-Persai-Admin-Overview-Route"] = "probe";
+  } else if (routeHint.mode === "pinned") {
+    headers["X-Persai-Admin-Overview-Route"] = "pinned";
+    headers["X-Persai-Admin-Overview-Pod-Ip"] = routeHint.podIp;
+  }
+  return headers;
+}
+
+export async function getAdminOverviewDashboard(
+  token: string,
+  routeHint: AdminOverviewRouteHint = { mode: "auto" }
+): Promise<Record<string, unknown>> {
   const res = await fetch(`/api/v1/admin/overview/dashboard`, {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: getAdminOverviewHeaders(token, routeHint)
   });
   if (!res.ok) throw new Error(`${res.status}`);
   const data = (await res.json()) as { dashboard: Record<string, unknown> };
@@ -1500,12 +1524,13 @@ export async function getAdminOverviewDashboard(token: string): Promise<Record<s
 
 export async function setAdminOverviewLatencyTrace(
   token: string,
-  enabled: boolean
+  enabled: boolean,
+  routeHint: AdminOverviewRouteHint = { mode: "auto" }
 ): Promise<{ latencyTrace: Record<string, unknown>; dataSource?: Record<string, unknown> }> {
   const res = await fetch(`/api/v1/admin/overview/latency-trace`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...getAdminOverviewHeaders(token, routeHint),
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ enabled })

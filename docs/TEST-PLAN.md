@@ -703,6 +703,7 @@ Required in CI:
   - final status and total duration
 - With more than one `api` pod behind the service, `/admin` must show which `api` instance produced the currently displayed overview/trace block and must label pod-local telemetry honestly instead of pretending the panel is cluster-aggregated.
 - The web proxy should keep `/admin/overview/*` sticky to one reachable `api` pod when possible so `Trace ON/OFF` and subsequent refreshes observe the same in-memory trace state.
+- If the admin debug routing control is used, `Auto (sticky)` must remain the default behavior, `Probe service` must be able to discover another serving pod without breaking the current page flow, and manual pod pinning must keep trace toggles/refreshes aligned with the selected pod-local source.
 - Minimum `Tier 0` verification for this slice:
   - `corepack pnpm -r --if-present run lint`
   - `corepack pnpm run format:check`
