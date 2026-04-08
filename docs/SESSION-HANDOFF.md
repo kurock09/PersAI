@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-04-08 - SR10a post-trace stabilization follow-up
+
+### Current active slice
+
+- `SR10` — Capacity validation and production gate
+
+### Current active sub-slice
+
+- `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
+
+### What stale program state was fixed
+
+1. The first live use of the new trace tooling uncovered two regressions while reproducing slow turns: web chat streaming still failed user-visible completion even when the API accepted and sometimes persisted the turn, and the paid shared Telegram runtime could restart when a retryable PersAI timeout escaped as an unhandled rejection.
+
+### What was completed
+
+1. **OpenClaw runtime crash guard**: the approved OpenClaw fork now returns retryable PersAI Telegram timeout/degraded/unreachable outcomes as bounded fallback replies instead of rethrowing them into the global `unhandledRejection` exit path. The same follow-up also restores the missing `runtimeTraceRequest` binding in the web-stream runtime handler so the fork passes `tsc` again.
+2. **Web SSE proxy stabilization**: the Next.js `/api/v1` proxy route now runs explicitly on `nodejs`, forces dynamic execution, and preserves `text/event-stream` response semantics with `no-cache/no-transform` plus `X-Accel-Buffering: no` so terminal SSE events are less likely to be buffered away on the path back to the browser.
+3. **Gitops pin advance**: `infra/dev/gitops/openclaw-approved-sha.txt` now points to `c735051385f8bb5d1cc8b14b559edff75ff4ac33` so PersAI CI can rebuild and repin the dev OpenClaw image from the fixed fork commit.
+
+### What remains
+
+1. Push OpenClaw first, then PersAI, let CI rebuild/repin, and re-run one live web chat and one live Telegram turn with trace toggled as needed.
+2. Confirm in live evidence that web chat terminal completion is now visible in the UI and that retryable Telegram timeouts no longer restart the paid shared OpenClaw worker.
+
+### Confirmed risks
+
+1. The OpenClaw Telegram follow-up intentionally prefers bounded fallback continuity over crashing the worker, but it does not yet redesign the broader retry UX contract for Telegram users.
+2. The web proxy stabilization is scoped to SSE transport semantics only; if any remaining browser-side failure still exists, it will need one more live evidence pass after deploy.
+
+### Verification run
+
+- `corepack pnpm exec vitest run src/gateway/persai-runtime/persai-runtime-telegram.test.ts src/infra/unhandled-rejections.fatal-detection.test.ts` (in `openclaw`)
+- `corepack pnpm exec tsc --noEmit` (in `openclaw`)
+- `corepack pnpm run lint -- src/gateway/persai-runtime/persai-runtime-http.ts src/gateway/persai-runtime/persai-runtime-telegram.ts src/gateway/persai-runtime/persai-runtime-telegram.test.ts` (in `openclaw`)
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts`
+- `corepack pnpm --filter @persai/web exec tsc --noEmit`
+
+### Next recommended step
+
+- Push OpenClaw first, then PersAI. Let PersAI CI rebuild/re-pin the OpenClaw image from `c735051385f8bb5d1cc8b14b559edff75ff4ac33`, wait for deploy, then run one honest live verification pass for both the web chat terminal SSE path and the paid-shared Telegram timeout path.
+
+---
+
 ## 2026-04-07 - SR10a end-to-end latency trace baseline
 
 ### Current active slice

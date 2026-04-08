@@ -1,5 +1,8 @@
 import type { NextRequest } from "next/server";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const HOP_BY_HOP = new Set([
   "connection",
   "keep-alive",
@@ -17,6 +20,11 @@ function apiUpstreamBase(): string | null {
     return null;
   }
   return raw.replace(/\/$/, "");
+}
+
+function isEventStream(headers: Headers): boolean {
+  const contentType = headers.get("content-type") ?? "";
+  return contentType.toLowerCase().includes("text/event-stream");
 }
 
 async function proxy(req: NextRequest, pathSegments: string[] | undefined): Promise<Response> {
@@ -63,6 +71,10 @@ async function proxy(req: NextRequest, pathSegments: string[] | undefined): Prom
   out.delete("transfer-encoding");
   out.delete("content-encoding");
   out.delete("content-length");
+  if (isEventStream(upstream.headers)) {
+    out.set("Cache-Control", "no-cache, no-transform");
+    out.set("X-Accel-Buffering", "no");
+  }
 
   return new Response(upstream.body, {
     status: upstream.status,
