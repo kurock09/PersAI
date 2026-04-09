@@ -162,6 +162,22 @@ async function run(): Promise<void> {
       async downloadChatMedia() {
         return null;
       },
+      async getChannelSessionState() {
+        return {
+          sessionKey: "agent:assistant-1:telegram:chat-1",
+          found: false,
+          currentTokens: null,
+          totalTokensFresh: true,
+          compactionCount: 0,
+          compactionHintTokens: null,
+          updatedAt: null,
+          provider: null,
+          model: null
+        };
+      },
+      async markChannelCompactionHintShown() {
+        return undefined;
+      },
       async consumeBootstrapWorkspace() {
         return undefined;
       }
@@ -186,6 +202,18 @@ async function run(): Promise<void> {
     {
       async recordInboundTurnUsage() {
         concurrentUsageCalls += 1;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          optimizationPolicy: {
+            compaction: {
+              reserveTokens: 24000,
+              keepRecentTokens: 16000
+            }
+          }
+        };
       }
     } as never,
     {
@@ -245,6 +273,22 @@ async function run(): Promise<void> {
       async downloadChatMedia() {
         return null;
       },
+      async getChannelSessionState() {
+        return {
+          sessionKey: "agent:assistant-1:telegram:chat-1",
+          found: false,
+          currentTokens: null,
+          totalTokensFresh: true,
+          compactionCount: 0,
+          compactionHintTokens: null,
+          updatedAt: null,
+          provider: null,
+          model: null
+        };
+      },
+      async markChannelCompactionHintShown() {
+        return undefined;
+      },
       async consumeBootstrapWorkspace() {
         return undefined;
       }
@@ -269,6 +313,18 @@ async function run(): Promise<void> {
     {
       async recordInboundTurnUsage() {
         return undefined;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          optimizationPolicy: {
+            compaction: {
+              reserveTokens: 24000,
+              keepRecentTokens: 16000
+            }
+          }
+        };
       }
     } as never,
     {
