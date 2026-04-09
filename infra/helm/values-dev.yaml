@@ -464,7 +464,7 @@ openclaw:
 
 
 
-    tag: 8b6377bab8ec8c98348c08b350b1e1f90023e4db
+    tag: 8b6377bab8be3923e8b41a5d939d42920012da6b
     digest: ""
 
     pullPolicy: IfNotPresent
