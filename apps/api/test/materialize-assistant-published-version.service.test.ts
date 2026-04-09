@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  resolveAllowedPlanPrimaryModelKey
-} from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
+import { resolveAllowedPlanPrimaryModelKey } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
 
 async function run(): Promise<void> {
   const adminManagedProfile = {

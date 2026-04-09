@@ -100,8 +100,9 @@ export function resolveAllowedPlanPrimaryModelKey(params: {
     return planPrimaryModelKey;
   }
   const providerCatalog =
-    params.runtimeProviderProfile.availableModelsByProvider[params.runtimeProviderProfile.primary.provider] ??
-    [];
+    params.runtimeProviderProfile.availableModelsByProvider[
+      params.runtimeProviderProfile.primary.provider
+    ] ?? [];
   return providerCatalog.includes(planPrimaryModelKey) ? planPrimaryModelKey : null;
 }
 
