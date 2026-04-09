@@ -19,7 +19,47 @@ async function run(): Promise<void> {
     },
     availableModelsByProvider: {
       openai: ["gpt-5.4"],
-      anthropic: []
+      anthropic: ["claude-sonnet-4-5"]
+    },
+    optimizationPolicy: {
+      heartbeat: {
+        every: "0m",
+        target: "none",
+        lightContext: true,
+        isolatedSession: true
+      },
+      contextPruning: {
+        mode: "cache-ttl",
+        ttl: "5m",
+        keepLastAssistants: 3,
+        softTrimRatio: 0.3,
+        hardClearRatio: 0.5,
+        minPrunableToolChars: 12000,
+        softTrim: {
+          maxChars: 3000,
+          headChars: 1000,
+          tailChars: 1000
+        },
+        hardClear: {
+          enabled: true,
+          placeholder: "[Old tool result content cleared]"
+        }
+      },
+      compaction: {
+        mode: "safeguard",
+        reserveTokens: 24000,
+        keepRecentTokens: 16000,
+        recentTurnsPreserve: 4,
+        identifierPolicy: "strict",
+        postIndexSync: "async",
+        truncateAfterCompaction: true
+      },
+      openai: {
+        fastMode: false,
+        serviceTier: "default",
+        responsesServerCompaction: true,
+        openaiWsWarmup: true
+      }
     },
     providerKeys: {
       openai: " sk-openai-new ",
@@ -67,16 +107,22 @@ async function run(): Promise<void> {
       fallbackModel: "claude-sonnet-4-5",
       availableModelsByProvider: {
         openai: ["gpt-5.4"],
-        anthropic: []
-      }
+        anthropic: ["claude-sonnet-4-5"]
+      },
+      optimizationPolicy: null
     },
     providerKeys
   });
   assert.equal(settings.mode, "global_settings");
   assert.deepEqual(settings.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
+  assert.equal(settings.optimizationPolicy.openai.openaiWsWarmup, true);
 
   const profile = buildPlatformRuntimeProviderProfileState(settings);
   assert.equal(profile.mode, "admin_managed");
+  assert.deepEqual(profile.availableModelsByProvider, {
+    openai: ["gpt-5.4"],
+    anthropic: ["claude-sonnet-4-5"]
+  });
   assert.equal(profile.primary.provider, "openai");
   assert.equal(profile.primary.credentialRef.secretRef.source, "persai");
   assert.equal(profile.primary.credentialRef.secretRef.provider, "persai-runtime");

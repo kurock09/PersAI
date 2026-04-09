@@ -1083,6 +1083,94 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chats/web/{chatId}/compaction:
+    get:
+      operationId: getAssistantWebChatCompaction
+      summary: Get web chat compaction state
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: chatId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Web chat compaction state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantWebChatCompactionResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or web chat not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chats/web/{chatId}/compact:
+    post:
+      operationId: postAssistantWebChatCompact
+      summary: Compact a web chat runtime session
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: chatId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantWebChatCompactRequest"
+      responses:
+        "200":
+          description: Web chat compaction result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantWebChatCompactResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or web chat not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Web chat has no active runtime session to compact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/memory/items:
     get:
       operationId: getAssistantMemoryItems
@@ -3566,6 +3654,75 @@ components:
           $ref: "#/components/schemas/AssistantWebChatMessageState"
         runtime:
           $ref: "#/components/schemas/AssistantWebChatRuntimeState"
+    AssistantWebChatCompactionState:
+      type: object
+      required:
+        - available
+        - suggested
+        - suggestionReason
+        - messageCount
+        - assistantMessageCount
+        - currentTokens
+        - sessionKey
+        - compactionCount
+        - lastCompactedAt
+        - reserveTokens
+        - keepRecentTokens
+      properties:
+        available:
+          type: boolean
+        suggested:
+          type: boolean
+        suggestionReason:
+          type: string
+          nullable: true
+          enum:
+            - token_threshold
+            - history_threshold
+        messageCount:
+          type: integer
+        assistantMessageCount:
+          type: integer
+        currentTokens:
+          type: integer
+          nullable: true
+        sessionKey:
+          type: string
+          nullable: true
+        compactionCount:
+          type: integer
+        lastCompactedAt:
+          type: string
+          format: date-time
+          nullable: true
+        reserveTokens:
+          type: integer
+        keepRecentTokens:
+          type: integer
+    AssistantWebChatCompactionResult:
+      type: object
+      required:
+        - compacted
+        - reason
+        - tokensBefore
+        - tokensAfter
+      properties:
+        compacted:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+        tokensBefore:
+          type: integer
+          nullable: true
+        tokensAfter:
+          type: integer
+          nullable: true
+    AssistantWebChatCompactRequest:
+      type: object
+      properties:
+        instructions:
+          type: string
     AssistantWebChatListItemState:
       type: object
       required:
@@ -3668,6 +3825,29 @@ components:
           nullable: true
         chat:
           $ref: "#/components/schemas/AssistantWebChatListItemState"
+    GetAssistantWebChatCompactionResponse:
+      type: object
+      required:
+        - state
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        state:
+          $ref: "#/components/schemas/AssistantWebChatCompactionState"
+    PostAssistantWebChatCompactResponse:
+      type: object
+      required:
+        - state
+        - result
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        state:
+          $ref: "#/components/schemas/AssistantWebChatCompactionState"
+        result:
+          $ref: "#/components/schemas/AssistantWebChatCompactionResult"
     DeleteAssistantWebChatResponse:
       type: object
       required:
@@ -4356,6 +4536,152 @@ components:
           type: array
           items:
             type: string
+    RuntimeHeartbeatPolicyState:
+      type: object
+      required:
+        - every
+        - target
+        - lightContext
+        - isolatedSession
+      properties:
+        every:
+          type: string
+        target:
+          type: string
+          enum:
+            - last
+            - none
+        lightContext:
+          type: boolean
+        isolatedSession:
+          type: boolean
+    RuntimeContextPruningSoftTrimState:
+      type: object
+      required:
+        - maxChars
+        - headChars
+        - tailChars
+      properties:
+        maxChars:
+          type: integer
+        headChars:
+          type: integer
+        tailChars:
+          type: integer
+    RuntimeContextPruningHardClearState:
+      type: object
+      required:
+        - enabled
+        - placeholder
+      properties:
+        enabled:
+          type: boolean
+        placeholder:
+          type: string
+    RuntimeContextPruningPolicyState:
+      type: object
+      required:
+        - mode
+        - ttl
+        - keepLastAssistants
+        - softTrimRatio
+        - hardClearRatio
+        - minPrunableToolChars
+        - softTrim
+        - hardClear
+      properties:
+        mode:
+          type: string
+          enum:
+            - off
+            - cache-ttl
+        ttl:
+          type: string
+        keepLastAssistants:
+          type: integer
+        softTrimRatio:
+          type: number
+        hardClearRatio:
+          type: number
+        minPrunableToolChars:
+          type: integer
+        softTrim:
+          $ref: "#/components/schemas/RuntimeContextPruningSoftTrimState"
+        hardClear:
+          $ref: "#/components/schemas/RuntimeContextPruningHardClearState"
+    RuntimeCompactionPolicyState:
+      type: object
+      required:
+        - mode
+        - reserveTokens
+        - keepRecentTokens
+        - recentTurnsPreserve
+        - identifierPolicy
+        - postIndexSync
+        - truncateAfterCompaction
+      properties:
+        mode:
+          type: string
+          enum:
+            - default
+            - safeguard
+        reserveTokens:
+          type: integer
+        keepRecentTokens:
+          type: integer
+        recentTurnsPreserve:
+          type: integer
+        identifierPolicy:
+          type: string
+          enum:
+            - strict
+            - off
+            - custom
+        postIndexSync:
+          type: string
+          enum:
+            - off
+            - async
+            - await
+        truncateAfterCompaction:
+          type: boolean
+    RuntimeOpenAITuningPolicyState:
+      type: object
+      required:
+        - fastMode
+        - serviceTier
+        - responsesServerCompaction
+        - openaiWsWarmup
+      properties:
+        fastMode:
+          type: boolean
+        serviceTier:
+          type: string
+          enum:
+            - auto
+            - default
+            - flex
+            - priority
+        responsesServerCompaction:
+          type: boolean
+        openaiWsWarmup:
+          type: boolean
+    RuntimeOptimizationPolicyState:
+      type: object
+      required:
+        - heartbeat
+        - contextPruning
+        - compaction
+        - openai
+      properties:
+        heartbeat:
+          $ref: "#/components/schemas/RuntimeHeartbeatPolicyState"
+        contextPruning:
+          $ref: "#/components/schemas/RuntimeContextPruningPolicyState"
+        compaction:
+          $ref: "#/components/schemas/RuntimeCompactionPolicyState"
+        openai:
+          $ref: "#/components/schemas/RuntimeOpenAITuningPolicyState"
     AdminRuntimeProviderSettingsMode:
       type: string
       enum:
@@ -4508,6 +4834,7 @@ components:
         - primary
         - fallback
         - availableModelsByProvider
+        - optimizationPolicy
         - providerKeys
         - tierSecurityPolicies
         - notes
@@ -4526,6 +4853,8 @@ components:
           nullable: true
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
+        optimizationPolicy:
+          $ref: "#/components/schemas/RuntimeOptimizationPolicyState"
         providerKeys:
           type: object
           required:
@@ -4556,6 +4885,7 @@ components:
       required:
         - primary
         - availableModelsByProvider
+        - optimizationPolicy
       properties:
         primary:
           $ref: "#/components/schemas/RuntimeProviderSelection"
@@ -4565,6 +4895,8 @@ components:
           nullable: true
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
+        optimizationPolicy:
+          $ref: "#/components/schemas/RuntimeOptimizationPolicyState"
         providerKeys:
           $ref: "#/components/schemas/AdminRuntimeProviderSettingsProviderKeysInput"
     GetAdminRuntimeProviderSettingsResponse:

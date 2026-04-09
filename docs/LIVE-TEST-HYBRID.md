@@ -118,7 +118,7 @@ For sandbox-capable tiers, also verify the corresponding runtime Deployment/Serv
 Current dev chart state in `infra/helm/values-dev.yaml`:
 
 - OpenClaw apply-store runs in `redis` mode via `PERSAI_RUNTIME_SPEC_STORE=redis`
-- OpenClaw default model is `openai/gpt-5.4` via `agents.defaults.model.primary`
+- OpenClaw runtime model/policy authority comes from PersAI admin-managed runtime settings materialized into bootstrap/profile, not from `agents.defaults.model.primary`
 - OpenClaw receives `OPENAI_API_KEY` from `persai-openclaw-secrets`
 - PersAI API uses `OPENCLAW_ADAPTER_TIMEOUT_MS=90000` in dev (and the same default in `loadApiConfig` when unset) to avoid premature stream aborts on long OpenClaw turns
 

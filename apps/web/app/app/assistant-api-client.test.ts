@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  compactChat,
+  getChatCompactionState,
   getAdminRuntimeProviderSettings,
   postAdminPlatformRollout,
   postAdminPlatformRolloutRollback,
@@ -13,8 +15,10 @@ const contractMocks = vi.hoisted(() => {
   return {
     postAdminStepUpChallenge: vi.fn(),
     getAdminRuntimeProviderSettings: vi.fn(),
+    getAssistantWebChatCompaction: vi.fn(),
     postAdminPlatformRollout: vi.fn(),
     postAdminPlatformRolloutRollback: vi.fn(),
+    postAssistantWebChatCompact: vi.fn(),
     putAdminRuntimeProviderSettings: vi.fn(),
     postAssistantTelegramRevoke: vi.fn()
   };
@@ -26,8 +30,10 @@ vi.mock("@persai/contracts", async () => {
     ...actual,
     postAdminStepUpChallenge: contractMocks.postAdminStepUpChallenge,
     getAdminRuntimeProviderSettings: contractMocks.getAdminRuntimeProviderSettings,
+    getAssistantWebChatCompaction: contractMocks.getAssistantWebChatCompaction,
     postAdminPlatformRollout: contractMocks.postAdminPlatformRollout,
     postAdminPlatformRolloutRollback: contractMocks.postAdminPlatformRolloutRollback,
+    postAssistantWebChatCompact: contractMocks.postAssistantWebChatCompact,
     putAdminRuntimeProviderSettings: contractMocks.putAdminRuntimeProviderSettings,
     postAssistantTelegramRevoke: contractMocks.postAssistantTelegramRevoke
   };
@@ -79,6 +85,46 @@ describe("admin rollout client", () => {
             openai: ["gpt-5.4"],
             anthropic: ["claude-sonnet-4-5"]
           },
+          optimizationPolicy: {
+            heartbeat: {
+              every: "0m",
+              target: "none",
+              lightContext: true,
+              isolatedSession: true
+            },
+            contextPruning: {
+              mode: "cache-ttl",
+              ttl: "5m",
+              keepLastAssistants: 3,
+              softTrimRatio: 0.3,
+              hardClearRatio: 0.5,
+              minPrunableToolChars: 12000,
+              softTrim: {
+                maxChars: 3000,
+                headChars: 1000,
+                tailChars: 1000
+              },
+              hardClear: {
+                enabled: true,
+                placeholder: "[Old tool result content cleared]"
+              }
+            },
+            compaction: {
+              mode: "safeguard",
+              reserveTokens: 24000,
+              keepRecentTokens: 16000,
+              recentTurnsPreserve: 4,
+              identifierPolicy: "strict",
+              postIndexSync: "async",
+              truncateAfterCompaction: true
+            },
+            openai: {
+              fastMode: false,
+              serviceTier: "default",
+              responsesServerCompaction: true,
+              openaiWsWarmup: true
+            }
+          },
           providerKeys: {
             openai: {
               configured: true,
@@ -129,6 +175,46 @@ describe("admin rollout client", () => {
             openai: ["gpt-5.4"],
             anthropic: []
           },
+          optimizationPolicy: {
+            heartbeat: {
+              every: "0m",
+              target: "none",
+              lightContext: true,
+              isolatedSession: true
+            },
+            contextPruning: {
+              mode: "cache-ttl",
+              ttl: "5m",
+              keepLastAssistants: 3,
+              softTrimRatio: 0.3,
+              hardClearRatio: 0.5,
+              minPrunableToolChars: 12000,
+              softTrim: {
+                maxChars: 3000,
+                headChars: 1000,
+                tailChars: 1000
+              },
+              hardClear: {
+                enabled: true,
+                placeholder: "[Old tool result content cleared]"
+              }
+            },
+            compaction: {
+              mode: "safeguard",
+              reserveTokens: 24000,
+              keepRecentTokens: 16000,
+              recentTurnsPreserve: 4,
+              identifierPolicy: "strict",
+              postIndexSync: "async",
+              truncateAfterCompaction: true
+            },
+            openai: {
+              fastMode: false,
+              serviceTier: "default",
+              responsesServerCompaction: true,
+              openaiWsWarmup: true
+            }
+          },
           providerKeys: {
             openai: {
               configured: true,
@@ -157,6 +243,46 @@ describe("admin rollout client", () => {
         availableModelsByProvider: {
           openai: ["gpt-5.4"],
           anthropic: []
+        },
+        optimizationPolicy: {
+          heartbeat: {
+            every: "0m",
+            target: "none",
+            lightContext: true,
+            isolatedSession: true
+          },
+          contextPruning: {
+            mode: "cache-ttl",
+            ttl: "5m",
+            keepLastAssistants: 3,
+            softTrimRatio: 0.3,
+            hardClearRatio: 0.5,
+            minPrunableToolChars: 12000,
+            softTrim: {
+              maxChars: 3000,
+              headChars: 1000,
+              tailChars: 1000
+            },
+            hardClear: {
+              enabled: true,
+              placeholder: "[Old tool result content cleared]"
+            }
+          },
+          compaction: {
+            mode: "safeguard",
+            reserveTokens: 24000,
+            keepRecentTokens: 16000,
+            recentTurnsPreserve: 4,
+            identifierPolicy: "strict",
+            postIndexSync: "async",
+            truncateAfterCompaction: true
+          },
+          openai: {
+            fastMode: false,
+            serviceTier: "default",
+            responsesServerCompaction: true,
+            openaiWsWarmup: true
+          }
         },
         providerKeys: {
           openai: "sk-openai-new"
@@ -261,6 +387,85 @@ describe("admin rollout client", () => {
   });
 });
 
+describe("chat compaction client", () => {
+  it("loads compaction state through the generated contract", async () => {
+    contractMocks.getAssistantWebChatCompaction.mockResolvedValue({
+      status: 200,
+      data: {
+        state: {
+          available: true,
+          suggested: true,
+          suggestionReason: "token_threshold",
+          messageCount: 24,
+          assistantMessageCount: 12,
+          currentTokens: 18250,
+          sessionKey: "agent:persai:a:web:c:t",
+          compactionCount: 0,
+          lastCompactedAt: null,
+          reserveTokens: 24000,
+          keepRecentTokens: 16000
+        }
+      }
+    });
+
+    await expect(getChatCompactionState("token-1", "chat-1")).resolves.toMatchObject({
+      available: true,
+      suggested: true,
+      suggestionReason: "token_threshold"
+    });
+    expect(contractMocks.getAssistantWebChatCompaction).toHaveBeenCalledWith("chat-1", {
+      headers: { Authorization: "Bearer token-1" }
+    });
+  });
+
+  it("runs manual compaction through the generated contract", async () => {
+    contractMocks.postAssistantWebChatCompact.mockResolvedValue({
+      status: 200,
+      data: {
+        state: {
+          available: true,
+          suggested: false,
+          suggestionReason: null,
+          messageCount: 24,
+          assistantMessageCount: 12,
+          currentTokens: 9900,
+          sessionKey: "agent:persai:a:web:c:t",
+          compactionCount: 1,
+          lastCompactedAt: "2026-04-09T12:00:00.000Z",
+          reserveTokens: 24000,
+          keepRecentTokens: 16000
+        },
+        result: {
+          compacted: true,
+          reason: null,
+          tokensBefore: 18250,
+          tokensAfter: 9900
+        }
+      }
+    });
+
+    await expect(compactChat("token-1", "chat-1", "keep project decisions")).resolves.toEqual({
+      state: expect.objectContaining({
+        suggested: false,
+        compactionCount: 1
+      }),
+      result: {
+        compacted: true,
+        reason: null,
+        tokensBefore: 18250,
+        tokensAfter: 9900
+      }
+    });
+    expect(contractMocks.postAssistantWebChatCompact).toHaveBeenCalledWith(
+      "chat-1",
+      { instructions: "keep project decisions" },
+      {
+        headers: { Authorization: "Bearer token-1" }
+      }
+    );
+  });
+});
+
 describe("streamAssistantWebChatTurn", () => {
   it("sends clientTurnId in the streaming request body", async () => {
     global.fetch = vi
@@ -324,6 +529,36 @@ describe("streamAssistantWebChatTurn", () => {
     ).resolves.toBeUndefined();
 
     expect(onCompleted).toHaveBeenCalledWith({ transport: { mode: "sse" } });
+  });
+
+  it("forwards compaction lifecycle events from the stream", async () => {
+    const onCompaction = vi.fn();
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          `event: compaction\ndata: ${JSON.stringify({ phase: "start", completed: false, willRetry: false })}\n\n`,
+          `event: compaction\ndata: ${JSON.stringify({ phase: "end", completed: true, willRetry: false })}\n\n`,
+          `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}\n\n`
+        ])
+      ) as typeof fetch;
+
+    await streamAssistantWebChatTurn(
+      "token-1",
+      { surfaceThreadKey: "thread-1", message: "Hello" },
+      { onCompaction }
+    );
+
+    expect(onCompaction).toHaveBeenNthCalledWith(1, {
+      phase: "start",
+      completed: false,
+      willRetry: false
+    });
+    expect(onCompaction).toHaveBeenNthCalledWith(2, {
+      phase: "end",
+      completed: true,
+      willRetry: false
+    });
   });
 });
 

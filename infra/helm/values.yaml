@@ -296,7 +296,44 @@ openclaw:
     # Supported PersAI/OpenClaw runtime contract remains one pod per runtime pool.
     PERSAI_RUNTIME_READINESS_MODE: "single_replica"
   agentDefaults:
-    modelPrimary: openai/gpt-5.4
+    models:
+      openai/gpt-5.4:
+        params:
+          # Keep the default shared baseline conservative: enable server-side
+          # context help and explicit warm-up, but do not globally force
+          # low-latency / higher-cost priority processing.
+          openaiWsWarmup: true
+          responsesServerCompaction: true
+    heartbeat:
+      # Shared SaaS runtime should not run one implicit pool-level `agent:main`
+      # heartbeat across all users/workspaces by default. Per-assistant/task-aware
+      # heartbeat can be reintroduced later through explicit policy slices.
+      every: "0m"
+      target: "none"
+      lightContext: true
+      isolatedSession: true
+    contextPruning:
+      mode: "cache-ttl"
+      ttl: "5m"
+      keepLastAssistants: 3
+      softTrimRatio: 0.3
+      hardClearRatio: 0.5
+      minPrunableToolChars: 12000
+      softTrim:
+        maxChars: 3000
+        headChars: 1000
+        tailChars: 1000
+      hardClear:
+        enabled: true
+        placeholder: "[Old tool result content cleared]"
+    compaction:
+      mode: "safeguard"
+      reserveTokens: 24000
+      keepRecentTokens: 16000
+      recentTurnsPreserve: 4
+      identifierPolicy: "strict"
+      postIndexSync: "async"
+      truncateAfterCompaction: true
     sandbox:
       # Shared non-sandbox pools keep sandbox disabled by default.
       # Separate sandbox-capable pools override this with a real Docker-backed path.

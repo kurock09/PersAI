@@ -19,6 +19,9 @@ import {
   type AssistantTelegramConfigUpdateRequest,
   type TelegramIntegrationState,
   type AssistantWebChatDeleteRequest,
+  type AssistantWebChatCompactRequest,
+  type AssistantWebChatCompactionResult,
+  type AssistantWebChatCompactionState,
   type AssistantWebChatListItemState,
   type AssistantWebChatRenameRequest,
   type AssistantDraftUpdateRequest,
@@ -44,7 +47,9 @@ import {
   postAssistantReset as postAssistantResetContract,
   postAssistantRollback as postAssistantRollbackContract,
   postAssistantWebChatArchive as postAssistantWebChatArchiveContract,
+  getAssistantWebChatCompaction as getAssistantWebChatCompactionContract,
   postAssistantCreate as postAssistantCreateContract,
+  postAssistantWebChatCompact as postAssistantWebChatCompactContract,
   postAdminPlanCreate as postAdminPlanCreateContract,
   postAdminStepUpChallenge as postAdminStepUpChallengeContract,
   postAssistantMemoryDoNotRemember as postAssistantMemoryDoNotRememberContract,
@@ -169,6 +174,10 @@ type WebChatStreamEvent =
   | { event: "started"; data: { chat: unknown; userMessage: unknown } }
   | { event: "thinking"; data: { delta: string; accumulated: string } }
   | { event: "delta"; data: { delta: string } }
+  | {
+      event: "compaction";
+      data: { phase: "start" | "end"; completed: boolean; willRetry: boolean };
+    }
   | { event: "runtime_done"; data: { respondedAt: string } }
   | { event: "completed"; data: { transport: unknown } }
   | { event: "interrupted"; data: { transport: unknown } }
@@ -190,6 +199,11 @@ export interface AssistantWebChatStreamHandlers {
   onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
   onThinking?: (payload: { delta: string; accumulated: string }) => void;
   onDelta?: (payload: { delta: string }) => void;
+  onCompaction?: (payload: {
+    phase: "start" | "end";
+    completed: boolean;
+    willRetry: boolean;
+  }) => void;
   onRuntimeDone?: (payload: { respondedAt: string }) => void;
   onCompleted?: (payload: { transport: unknown }) => void;
   onInterrupted?: (payload: { transport: unknown }) => void;
@@ -623,6 +637,23 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
     }
     return { event: "runtime_done", data: { respondedAt: body.respondedAt } };
   }
+  if (eventName === "compaction") {
+    if (
+      (body.phase !== "start" && body.phase !== "end") ||
+      typeof body.completed !== "boolean" ||
+      typeof body.willRetry !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      event: "compaction",
+      data: {
+        phase: body.phase,
+        completed: body.completed,
+        willRetry: body.willRetry
+      }
+    };
+  }
   if (eventName === "completed") {
     return { event: "completed", data: { transport: body.transport } };
   }
@@ -748,6 +779,8 @@ export async function streamAssistantWebChatTurn(
       handlers.onThinking?.(streamEvent.data);
     } else if (streamEvent.event === "delta") {
       handlers.onDelta?.(streamEvent.data);
+    } else if (streamEvent.event === "compaction") {
+      handlers.onCompaction?.(streamEvent.data);
     } else if (streamEvent.event === "runtime_done") {
       handlers.onRuntimeDone?.(streamEvent.data);
     } else if (streamEvent.event === "completed") {
@@ -1323,6 +1356,10 @@ export type ChatHistoryMessage = {
   createdAt: string;
 };
 
+export type ChatCompactionState = AssistantWebChatCompactionState;
+
+export type ChatCompactionResult = AssistantWebChatCompactionResult;
+
 export async function getChatMessages(
   token: string,
   chatId: string,
@@ -1338,6 +1375,49 @@ export async function getChatMessages(
   const res = await fetch(url, { headers: getAuthHeaders(token) });
   if (!res.ok) throw new Error("Failed to load chat messages.");
   return (await res.json()) as { messages: ChatHistoryMessage[]; nextCursor: string | null };
+}
+
+export async function getChatCompactionState(
+  token: string,
+  chatId: string
+): Promise<ChatCompactionState> {
+  try {
+    const response = await getAssistantWebChatCompactionContract(chatId, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200 || !response.data?.state) {
+      throw new Error(
+        "Unexpected non-success response for GET /assistant/chats/web/{chatId}/compaction."
+      );
+    }
+    return response.data.state;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function compactChat(
+  token: string,
+  chatId: string,
+  instructions?: string
+): Promise<{ state: ChatCompactionState; result: ChatCompactionResult }> {
+  const body: AssistantWebChatCompactRequest = instructions ? { instructions } : {};
+  try {
+    const response = await postAssistantWebChatCompactContract(chatId, body, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200 || !response.data?.state || !response.data?.result) {
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/chats/web/{chatId}/compact."
+      );
+    }
+    return {
+      state: response.data.state,
+      result: response.data.result
+    };
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
 }
 
 export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };

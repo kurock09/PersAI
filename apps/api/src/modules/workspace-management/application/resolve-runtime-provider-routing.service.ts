@@ -81,13 +81,17 @@ export class ResolveRuntimeProviderRoutingService {
     const primaryProviderKey = managedPrimary?.provider ?? "openclaw_managed_default";
     const planModelKey = params.planPrimaryModelKey?.trim() || null;
     const primaryModelKey =
-      planModelKey ?? managedPrimary?.model ?? override.primaryModelKey ?? "text_standard_v1";
+      planModelKey ?? managedPrimary?.model ?? override.primaryModelKey ?? null;
     const fallbackProviderKey = managedFallback?.provider ?? primaryProviderKey;
     const fallbackModelKey =
-      managedFallback?.model ?? override.fallbackModelKey ?? "text_fast_fallback_v1";
+      managedFallback?.model ?? override.fallbackModelKey ?? managedPrimary?.model ?? null;
     const degradeProviderKey = managedFallback?.provider ?? primaryProviderKey;
     const degradeModelKey =
-      managedFallback?.model ?? override.degradeModelKey ?? "text_safe_minimal_v1";
+      managedFallback?.model ??
+      override.degradeModelKey ??
+      primaryModelKey ??
+      managedPrimary?.model ??
+      null;
     const blockedByCommon: Array<
       "fallback_disabled_by_policy" | "no_interactive_surface_allowed" | "text_media_not_allowed"
     > = [];

@@ -62,6 +62,25 @@ export interface AssistantRuntimeChannelTurnInput {
   overviewTraceId?: string;
 }
 
+export interface AssistantRuntimeChannelSessionStateInput {
+  assistantId: string;
+  runtimeTier?: RuntimeTier;
+  surface: "telegram";
+  threadId: string;
+}
+
+export interface AssistantRuntimeChannelSessionStateResult {
+  sessionKey: string;
+  found: boolean;
+  currentTokens: number | null;
+  totalTokensFresh: boolean;
+  compactionCount: number;
+  compactionHintTokens: number | null;
+  updatedAt: string | null;
+  provider: string | null;
+  model: string | null;
+}
+
 export interface RuntimeMediaArtifact {
   url: string;
   type: "image" | "audio" | "video" | "document";
@@ -78,6 +97,40 @@ export interface AssistantRuntimeWebChatTurnResult {
     totalMs: number;
     stages: Array<{ key: string; durationMs: number }>;
   };
+}
+
+export interface AssistantRuntimeWebChatSessionStateInput {
+  assistantId: string;
+  runtimeTier?: RuntimeTier;
+  chatId: string;
+  surfaceThreadKey: string;
+}
+
+export interface AssistantRuntimeWebChatSessionStateResult {
+  sessionKey: string;
+  found: boolean;
+  currentTokens: number | null;
+  totalTokensFresh: boolean;
+  compactionCount: number;
+  updatedAt: string | null;
+  provider: string | null;
+  model: string | null;
+}
+
+export interface AssistantRuntimeWebChatCompactInput {
+  assistantId: string;
+  runtimeTier?: RuntimeTier;
+  chatId: string;
+  surfaceThreadKey: string;
+  instructions?: string;
+}
+
+export interface AssistantRuntimeWebChatCompactResult {
+  compacted: boolean;
+  reason: string | null;
+  tokensBefore: number | null;
+  tokensAfter: number | null;
+  state: AssistantRuntimeWebChatSessionStateResult;
 }
 
 export interface AssistantRuntimeSetupPreviewTurnInput {
@@ -97,13 +150,16 @@ export interface AssistantRuntimeSetupPreviewTurnResult {
 }
 
 export interface AssistantRuntimeWebChatTurnStreamChunk {
-  type: "delta" | "thinking" | "done" | "failed" | "media";
+  type: "delta" | "thinking" | "done" | "failed" | "media" | "compaction";
   delta?: string;
   accumulated?: string;
   respondedAt?: string;
   code?: string;
   message?: string;
   media?: RuntimeMediaArtifact[];
+  phase?: "start" | "end";
+  completed?: boolean;
+  willRetry?: boolean;
   runtimeTrace?: {
     scope: string;
     status: string;
@@ -162,6 +218,18 @@ export interface AssistantRuntimeAdapter {
   resetWorkspace(assistantId: string): Promise<void>;
   resetMemoryWorkspace(assistantId: string): Promise<void>;
   deleteWebChatSession(input: AssistantRuntimeWebChatSessionDeleteInput): Promise<void>;
+  getWebChatSessionState(
+    input: AssistantRuntimeWebChatSessionStateInput
+  ): Promise<AssistantRuntimeWebChatSessionStateResult>;
+  getChannelSessionState(
+    input: AssistantRuntimeChannelSessionStateInput
+  ): Promise<AssistantRuntimeChannelSessionStateResult>;
+  markChannelCompactionHintShown(
+    input: AssistantRuntimeChannelSessionStateInput & { tokens: number }
+  ): Promise<void>;
+  compactWebChatSession(
+    input: AssistantRuntimeWebChatCompactInput
+  ): Promise<AssistantRuntimeWebChatCompactResult>;
   sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;

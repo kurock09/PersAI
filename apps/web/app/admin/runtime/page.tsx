@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { ChevronDown, ChevronRight, Loader2, Save, Server, Shield } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Save, Server } from "lucide-react";
 import type {
   AdminRuntimeProviderSettingsState,
   AdminRuntimeProviderSettingsRequest,
   ManagedRuntimeProvider,
+  RuntimeOptimizationPolicyState,
   RuntimeProviderAvailableModelsByProviderState,
   RuntimeTierSecurityPolicyState
 } from "@persai/contracts";
@@ -30,6 +31,23 @@ function tierLabel(tier: string): string {
   return TIER_LABELS[tier] ?? tier;
 }
 
+function parseModelCatalogInput(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\r\n,]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function cloneOptimizationPolicy(
+  policy: RuntimeOptimizationPolicyState
+): RuntimeOptimizationPolicyState {
+  return JSON.parse(JSON.stringify(policy)) as RuntimeOptimizationPolicyState;
+}
+
 export default function AdminRuntimePage() {
   const { getToken } = useAuth();
   const [settings, setSettings] = useState<AdminRuntimeProviderSettingsState | null>(null);
@@ -38,16 +56,19 @@ export default function AdminRuntimePage() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const [primaryProvider, setPrimaryProvider] = useState<ManagedRuntimeProvider>("openai");
-  const [primaryModel, setPrimaryModel] = useState("gpt-4o");
+  const [primaryModel, setPrimaryModel] = useState("");
   const [fallbackProvider, setFallbackProvider] = useState<ManagedRuntimeProvider>("openai");
   const [fallbackModel, setFallbackModel] = useState("");
   const [fallbackEnabled, setFallbackEnabled] = useState(false);
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
-  const [, setAvailableModels] = useState<RuntimeProviderAvailableModelsByProviderState>({
-    openai: [],
-    anthropic: []
-  });
+  const [availableModels, setAvailableModels] =
+    useState<RuntimeProviderAvailableModelsByProviderState>({
+      openai: [],
+      anthropic: []
+    });
+  const [optimizationPolicy, setOptimizationPolicy] =
+    useState<RuntimeOptimizationPolicyState | null>(null);
   const [openaiModelsText, setOpenaiModelsText] = useState("");
   const [anthropicModelsText, setAnthropicModelsText] = useState("");
 
@@ -68,8 +89,10 @@ export default function AdminRuntimePage() {
         setFallbackModel(res.fallback.model);
       } else {
         setFallbackEnabled(false);
+        setFallbackModel("");
       }
       setAvailableModels(res.availableModelsByProvider);
+      setOptimizationPolicy(cloneOptimizationPolicy(res.optimizationPolicy));
       setOpenaiModelsText(res.availableModelsByProvider.openai.join(", "));
       setAnthropicModelsText(res.availableModelsByProvider.anthropic.join(", "));
     } catch (e) {
@@ -84,28 +107,35 @@ export default function AdminRuntimePage() {
 
   const handleSave = useCallback(async () => {
     const token = await getToken();
-    if (!token || !settings) return;
+    if (!token || !settings || !optimizationPolicy) return;
     setSaving(true);
     setFeedback(null);
     try {
-      const parsedOpenai = openaiModelsText
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const parsedAnthropic = anthropicModelsText
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const parsedOpenai = parseModelCatalogInput(openaiModelsText);
+      const parsedAnthropic = parseModelCatalogInput(anthropicModelsText);
+      const parsedCatalog = {
+        openai: parsedOpenai,
+        anthropic: parsedAnthropic
+      } satisfies RuntimeProviderAvailableModelsByProviderState;
+
+      if (!parsedCatalog[primaryProvider].includes(primaryModel.trim())) {
+        throw new Error("System primary model must be selected from the available catalog.");
+      }
+      if (
+        fallbackEnabled &&
+        fallbackModel.trim().length > 0 &&
+        !parsedCatalog[fallbackProvider].includes(fallbackModel.trim())
+      ) {
+        throw new Error("Fallback model must be selected from the available catalog.");
+      }
 
       const request: AdminRuntimeProviderSettingsRequest = {
         primary: { provider: primaryProvider, model: primaryModel },
         ...(fallbackEnabled && fallbackModel.trim()
           ? { fallback: { provider: fallbackProvider, model: fallbackModel.trim() } }
           : { fallback: null }),
-        availableModelsByProvider: {
-          openai: parsedOpenai,
-          anthropic: parsedAnthropic
-        },
+        availableModelsByProvider: parsedCatalog,
+        optimizationPolicy,
         providerKeys: {
           ...(openaiKey ? { openai: openaiKey } : {}),
           ...(anthropicKey ? { anthropic: anthropicKey } : {})
@@ -130,6 +160,7 @@ export default function AdminRuntimePage() {
     fallbackModel,
     openaiKey,
     anthropicKey,
+    optimizationPolicy,
     openaiModelsText,
     anthropicModelsText,
     load
@@ -144,41 +175,56 @@ export default function AdminRuntimePage() {
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <div className="flex items-center gap-2 mb-1">
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
           <Server className="h-5 w-5 text-accent" />
           <h1 className="text-lg font-bold text-text">Runtime Settings</h1>
         </div>
         {settings && (
-          <div className="space-y-1">
-            <p className="text-xs text-text-muted">
-              Mode: <span className="font-medium text-text">{settings.mode}</span>
-            </p>
-            {settings.notes.length > 0 && (
-              <ul className="list-disc pl-4 text-xs text-text-subtle">
-                {settings.notes.map((n, i) => (
-                  <li key={i}>{n}</li>
-                ))}
-              </ul>
-            )}
-            <p className="text-xs text-text-subtle">
-              Model routing, provider keys, and per-tier sandbox security policy.
-            </p>
+          <div className="grid gap-3 lg:grid-cols-[1.8fr_1fr]">
+            <div className="rounded-lg border border-border bg-surface p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-text-subtle">
+                Runtime policy surface
+              </div>
+              <p className="mt-2 text-sm text-text">
+                System model, runtime fallback, heartbeat, context economy, OpenAI tuning, and
+                read-only sandbox policy.
+              </p>
+              <p className="mt-2 text-xs text-text-subtle">
+                Plan tariff model selection still lives in `Admin &gt; Plans`.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-text-subtle">
+                Current mode
+              </div>
+              <div className="mt-2 text-sm font-medium text-text">{settings.mode}</div>
+              {settings.notes.length > 0 ? (
+                <div className="mt-2 space-y-1">
+                  {settings.notes.map((n, i) => (
+                    <p key={i} className="text-xs text-text-subtle">
+                      {n}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         )}
       </div>
 
-      <div className="space-y-4">
-        <SectionHeading>Model routing</SectionHeading>
+      <div className="space-y-3">
+        <SectionHeading>Model authority</SectionHeading>
         <div className="grid gap-4 sm:grid-cols-2">
           <Card title="Primary">
             <ProviderSelect value={primaryProvider} onChange={setPrimaryProvider} />
-            <Field
+            <ModelSelect
               label="Model"
               value={primaryModel}
               onChange={setPrimaryModel}
-              placeholder="gpt-4o"
+              options={availableModels[primaryProvider]}
+              emptyLabel="Select from available models"
             />
           </Card>
 
@@ -199,45 +245,460 @@ export default function AdminRuntimePage() {
             {fallbackEnabled ? (
               <>
                 <ProviderSelect value={fallbackProvider} onChange={setFallbackProvider} />
-                <Field
+                <ModelSelect
                   label="Model"
                   value={fallbackModel}
                   onChange={setFallbackModel}
-                  placeholder="gpt-4o-mini"
+                  options={availableModels[fallbackProvider]}
+                  emptyLabel="Select from available models"
                 />
               </>
             ) : (
               <p className="text-xs text-text-subtle py-1">
-                Enable to set a cheaper fallback model for degraded or quota-limited turns.
+                Use this only for runtime failure/degraded fallback. Plan-level tariff model
+                selection still lives in Plans.
               </p>
             )}
           </Card>
         </div>
       </div>
 
-      <div className="space-y-4">
+      {optimizationPolicy ? (
+        <>
+          <div className="space-y-3">
+            <SectionHeading>Optimization policy</SectionHeading>
+            <div className="grid gap-4 xl:grid-cols-2">
+              <CompactPolicyCard
+                title="Heartbeat"
+                summary={`every ${optimizationPolicy.heartbeat.every} · target ${optimizationPolicy.heartbeat.target}`}
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field
+                    label="Interval"
+                    value={optimizationPolicy.heartbeat.every}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              heartbeat: { ...current.heartbeat, every: value }
+                            }
+                          : current
+                      )
+                    }
+                    placeholder="0m"
+                  />
+                  <SelectField
+                    label="Target"
+                    value={optimizationPolicy.heartbeat.target}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              heartbeat: {
+                                ...current.heartbeat,
+                                target:
+                                  value as RuntimeOptimizationPolicyState["heartbeat"]["target"]
+                              }
+                            }
+                          : current
+                      )
+                    }
+                    options={[
+                      { value: "none", label: "none" },
+                      { value: "last", label: "last active chat" }
+                    ]}
+                  />
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <ToggleField
+                    label="Light context"
+                    checked={optimizationPolicy.heartbeat.lightContext}
+                    onChange={(checked) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              heartbeat: { ...current.heartbeat, lightContext: checked }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <ToggleField
+                    label="Isolated session"
+                    checked={optimizationPolicy.heartbeat.isolatedSession}
+                    onChange={(checked) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              heartbeat: { ...current.heartbeat, isolatedSession: checked }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                </div>
+              </CompactPolicyCard>
+
+              <CompactPolicyCard
+                title="Context pruning"
+                summary={`${optimizationPolicy.contextPruning.mode} · ttl ${optimizationPolicy.contextPruning.ttl}`}
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <SelectField
+                    label="Mode"
+                    value={optimizationPolicy.contextPruning.mode}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              contextPruning: {
+                                ...current.contextPruning,
+                                mode: value as RuntimeOptimizationPolicyState["contextPruning"]["mode"]
+                              }
+                            }
+                          : current
+                      )
+                    }
+                    options={[
+                      { value: "off", label: "off" },
+                      { value: "cache-ttl", label: "cache-ttl" }
+                    ]}
+                  />
+                  <Field
+                    label="TTL"
+                    value={optimizationPolicy.contextPruning.ttl}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              contextPruning: { ...current.contextPruning, ttl: value }
+                            }
+                          : current
+                      )
+                    }
+                    placeholder="5m"
+                  />
+                  <NumberField
+                    label="Keep assistants"
+                    value={optimizationPolicy.contextPruning.keepLastAssistants}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              contextPruning: {
+                                ...current.contextPruning,
+                                keepLastAssistants: value
+                              }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <NumberField
+                    label="Min tool chars"
+                    value={optimizationPolicy.contextPruning.minPrunableToolChars}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              contextPruning: {
+                                ...current.contextPruning,
+                                minPrunableToolChars: value
+                              }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <NumberField
+                    label="Soft trim ratio"
+                    value={optimizationPolicy.contextPruning.softTrimRatio}
+                    step="0.05"
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              contextPruning: { ...current.contextPruning, softTrimRatio: value }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <NumberField
+                    label="Hard clear ratio"
+                    value={optimizationPolicy.contextPruning.hardClearRatio}
+                    step="0.05"
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              contextPruning: { ...current.contextPruning, hardClearRatio: value }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <ToggleField
+                    label="Hard clear enabled"
+                    checked={optimizationPolicy.contextPruning.hardClear.enabled}
+                    onChange={(checked) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              contextPruning: {
+                                ...current.contextPruning,
+                                hardClear: { ...current.contextPruning.hardClear, enabled: checked }
+                              }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <StatPill
+                    label="Soft trim max chars"
+                    value={String(optimizationPolicy.contextPruning.softTrim.maxChars)}
+                  />
+                </div>
+              </CompactPolicyCard>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="grid gap-4 xl:grid-cols-2">
+              <CompactPolicyCard
+                title="Compaction"
+                summary={`${optimizationPolicy.compaction.mode} · reserve ${optimizationPolicy.compaction.reserveTokens}`}
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <SelectField
+                    label="Mode"
+                    value={optimizationPolicy.compaction.mode}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              compaction: {
+                                ...current.compaction,
+                                mode: value as RuntimeOptimizationPolicyState["compaction"]["mode"]
+                              }
+                            }
+                          : current
+                      )
+                    }
+                    options={[
+                      { value: "default", label: "default" },
+                      { value: "safeguard", label: "safeguard" }
+                    ]}
+                  />
+                  <SelectField
+                    label="Identifier policy"
+                    value={optimizationPolicy.compaction.identifierPolicy}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              compaction: {
+                                ...current.compaction,
+                                identifierPolicy:
+                                  value as RuntimeOptimizationPolicyState["compaction"]["identifierPolicy"]
+                              }
+                            }
+                          : current
+                      )
+                    }
+                    options={[
+                      { value: "strict", label: "strict" },
+                      { value: "off", label: "off" },
+                      { value: "custom", label: "custom" }
+                    ]}
+                  />
+                  <SelectField
+                    label="Post-index sync"
+                    value={optimizationPolicy.compaction.postIndexSync}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              compaction: {
+                                ...current.compaction,
+                                postIndexSync:
+                                  value as RuntimeOptimizationPolicyState["compaction"]["postIndexSync"]
+                              }
+                            }
+                          : current
+                      )
+                    }
+                    options={[
+                      { value: "off", label: "off" },
+                      { value: "async", label: "async" },
+                      { value: "await", label: "await" }
+                    ]}
+                  />
+                  <ToggleField
+                    label="Truncate after compaction"
+                    checked={optimizationPolicy.compaction.truncateAfterCompaction}
+                    onChange={(checked) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              compaction: {
+                                ...current.compaction,
+                                truncateAfterCompaction: checked
+                              }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <NumberField
+                    label="Reserve tokens"
+                    value={optimizationPolicy.compaction.reserveTokens}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              compaction: { ...current.compaction, reserveTokens: value }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <NumberField
+                    label="Keep recent tokens"
+                    value={optimizationPolicy.compaction.keepRecentTokens}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              compaction: { ...current.compaction, keepRecentTokens: value }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                </div>
+              </CompactPolicyCard>
+
+              <CompactPolicyCard
+                title="OpenAI tuning"
+                summary={`${optimizationPolicy.openai.serviceTier} tier · fast ${optimizationPolicy.openai.fastMode ? "on" : "off"}`}
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ToggleField
+                    label="Fast mode"
+                    checked={optimizationPolicy.openai.fastMode}
+                    onChange={(checked) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              openai: { ...current.openai, fastMode: checked }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <SelectField
+                    label="Service tier"
+                    value={optimizationPolicy.openai.serviceTier}
+                    onChange={(value) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              openai: {
+                                ...current.openai,
+                                serviceTier:
+                                  value as RuntimeOptimizationPolicyState["openai"]["serviceTier"]
+                              }
+                            }
+                          : current
+                      )
+                    }
+                    options={[
+                      { value: "auto", label: "auto" },
+                      { value: "default", label: "default" },
+                      { value: "flex", label: "flex" },
+                      { value: "priority", label: "priority" }
+                    ]}
+                  />
+                  <ToggleField
+                    label="Responses server compaction"
+                    checked={optimizationPolicy.openai.responsesServerCompaction}
+                    onChange={(checked) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              openai: { ...current.openai, responsesServerCompaction: checked }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <ToggleField
+                    label="OpenAI websocket warmup"
+                    checked={optimizationPolicy.openai.openaiWsWarmup}
+                    onChange={(checked) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              openai: { ...current.openai, openaiWsWarmup: checked }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                </div>
+              </CompactPolicyCard>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      <div className="space-y-3">
         <SectionHeading>Available models</SectionHeading>
         <div className="grid gap-4 sm:grid-cols-2">
           <Card title="OpenAI">
             <Field
-              label="Models (comma-separated)"
+              label="Models (comma or newline separated)"
               value={openaiModelsText}
               onChange={setOpenaiModelsText}
-              placeholder="gpt-4o, gpt-4o-mini"
+              placeholder="gpt-5.4, gpt-4.1"
             />
           </Card>
           <Card title="Anthropic">
             <Field
-              label="Models (comma-separated)"
+              label="Models (comma or newline separated)"
               value={anthropicModelsText}
               onChange={setAnthropicModelsText}
-              placeholder="claude-sonnet-4-20250514"
+              placeholder="claude-sonnet-4-5"
             />
           </Card>
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         <SectionHeading>API keys</SectionHeading>
         <div className="grid gap-4 sm:grid-cols-2">
           <Card title="OpenAI">
@@ -269,40 +730,43 @@ export default function AdminRuntimePage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          disabled={saving}
-          onClick={() => void handleSave()}
-          className="flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-        >
-          {saving ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Save className="h-3.5 w-3.5" />
-          )}
-          Save settings
-        </button>
-        {feedback && <p className="text-xs text-text-muted">{feedback}</p>}
+      <div className="sticky bottom-0 z-10 -mx-2 rounded-xl border border-border/70 bg-surface/95 px-4 py-3 backdrop-blur">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-text-subtle">
+            Runtime settings are global platform policy. Changes propagate lazily after save.
+          </p>
+          <div className="flex items-center gap-3">
+            {feedback && <p className="text-xs text-text-muted">{feedback}</p>}
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void handleSave()}
+              className="flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            >
+              {saving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save settings
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <SectionHeading>Sandbox security</SectionHeading>
+        <p className="text-xs text-text-subtle">
+          Read-only. This page shows effective tier security shape but does not expose infra
+          topology as editable product state.
+        </p>
       </div>
 
       {settings?.tierSecurityPolicies?.length ? (
-        <div className="space-y-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Shield className="h-4 w-4 text-text-subtle" />
-              <SectionHeading>Sandbox security per tier</SectionHeading>
-            </div>
-            <p className="text-xs text-text-subtle">
-              Read-only. Resource limits are set in Helm values, policy flags in code.
-            </p>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            {settings.tierSecurityPolicies.map((policy) => (
-              <TierSecurityCard key={policy.tier} policy={policy} />
-            ))}
-          </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {settings.tierSecurityPolicies.map((policy) => (
+            <TierSecurityCard key={policy.tier} policy={policy} />
+          ))}
         </div>
       ) : null}
     </div>
@@ -447,6 +911,37 @@ function Card({
   );
 }
 
+function CompactPolicyCard({
+  title,
+  summary,
+  children
+}: {
+  title: string;
+  summary: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-text">{title}</h3>
+          <p className="mt-1 text-xs text-text-subtle">{summary}</p>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function StatPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-surface-raised px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-text-subtle">{label}</div>
+      <div className="mt-1 text-sm font-medium text-text">{value}</div>
+    </div>
+  );
+}
+
 function ProviderSelect({
   value,
   onChange
@@ -465,6 +960,117 @@ function ProviderSelect({
         <option value="openai">OpenAI</option>
         <option value="anthropic">Anthropic</option>
       </select>
+    </div>
+  );
+}
+
+function ModelSelect({
+  label,
+  value,
+  onChange,
+  options,
+  emptyLabel
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  emptyLabel: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-text-muted">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+      >
+        <option value="">{emptyLabel}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-text-muted">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function ToggleField({
+  label,
+  checked,
+  onChange
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2">
+      <span className="text-sm text-text">{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 rounded border-border accent-accent"
+      />
+    </label>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+  step,
+  disabled = false
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  step?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-text-muted">{label}</label>
+      <input
+        type="number"
+        value={String(value)}
+        step={step}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
+      />
     </div>
   );
 }

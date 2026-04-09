@@ -46,6 +46,27 @@ export interface AssistantWebChatTurnState {
   };
 }
 
+export interface AssistantWebChatCompactionState {
+  available: boolean;
+  suggested: boolean;
+  suggestionReason: "token_threshold" | "history_threshold" | null;
+  messageCount: number;
+  assistantMessageCount: number;
+  currentTokens: number | null;
+  sessionKey: string | null;
+  compactionCount: number;
+  lastCompactedAt: string | null;
+  reserveTokens: number;
+  keepRecentTokens: number;
+}
+
+export interface AssistantWebChatCompactionResult {
+  compacted: boolean;
+  reason: string | null;
+  tokensBefore: number | null;
+  tokensAfter: number | null;
+}
+
 export interface AssistantWebChatListItemState {
   chat: AssistantWebChatState;
   messageCount: number;

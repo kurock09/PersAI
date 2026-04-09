@@ -12,9 +12,12 @@ import {
   ASSISTANT_RUNTIME_ADAPTER,
   type AssistantRuntimeAdapter
 } from "./assistant-runtime-adapter.types";
+import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type {
+  AssistantWebChatCompactionResult,
+  AssistantWebChatCompactionState,
   AssistantWebChatListItemState,
   AssistantWebChatMessageAttachmentState,
   AssistantWebChatMessageState
@@ -64,7 +67,8 @@ export class ManageWebChatListService {
     @Inject(ASSISTANT_RUNTIME_ADAPTER)
     private readonly runtimeAdapter: AssistantRuntimeAdapter,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
   ) {}
 
   parseRenameInput(payload: unknown): RenameWebChatRequest {
@@ -251,6 +255,82 @@ export class ManageWebChatListService {
     return { messages: page, nextCursor };
   }
 
+  async getChatCompactionState(
+    userId: string,
+    chatId: string
+  ): Promise<AssistantWebChatCompactionState> {
+    const { assistant, chat, messageCount, assistantMessageCount } =
+      await this.resolveOwnedWebChatWithStats(userId, chatId);
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
+    const [runtimeSessionState, platformSettings] = await Promise.all([
+      this.runtimeAdapter.getWebChatSessionState({
+        assistantId: assistant.id,
+        runtimeTier,
+        chatId: chat.id,
+        surfaceThreadKey: chat.surfaceThreadKey
+      }),
+      this.resolvePlatformRuntimeProviderSettingsService.execute()
+    ]);
+    const compactionPolicy = platformSettings.optimizationPolicy.compaction;
+    const currentTokens = runtimeSessionState.currentTokens;
+    const tokenSuggested =
+      currentTokens !== null &&
+      currentTokens >=
+        Math.max(1, compactionPolicy.reserveTokens - compactionPolicy.keepRecentTokens);
+    const historySuggested =
+      messageCount >= Math.max(compactionPolicy.recentTurnsPreserve * 4, 16) ||
+      assistantMessageCount >= Math.max(compactionPolicy.recentTurnsPreserve * 2, 8);
+    const suggestionReason = tokenSuggested
+      ? "token_threshold"
+      : historySuggested
+        ? "history_threshold"
+        : null;
+    return {
+      available: runtimeSessionState.found,
+      suggested: suggestionReason !== null,
+      suggestionReason,
+      messageCount,
+      assistantMessageCount,
+      currentTokens,
+      sessionKey: runtimeSessionState.found ? runtimeSessionState.sessionKey : null,
+      compactionCount: runtimeSessionState.compactionCount,
+      lastCompactedAt:
+        runtimeSessionState.compactionCount > 0 ? runtimeSessionState.updatedAt : null,
+      reserveTokens: compactionPolicy.reserveTokens,
+      keepRecentTokens: compactionPolicy.keepRecentTokens
+    };
+  }
+
+  async compactChat(
+    userId: string,
+    chatId: string,
+    instructions?: string
+  ): Promise<{ state: AssistantWebChatCompactionState; result: AssistantWebChatCompactionResult }> {
+    const { assistant, chat } = await this.resolveOwnedWebChatWithStats(userId, chatId);
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
+    const result = await this.runtimeAdapter.compactWebChatSession({
+      assistantId: assistant.id,
+      runtimeTier,
+      chatId: chat.id,
+      surfaceThreadKey: chat.surfaceThreadKey,
+      ...(instructions ? { instructions } : {})
+    });
+    const state = await this.getChatCompactionState(userId, chatId);
+    return {
+      state,
+      result: {
+        compacted: result.compacted,
+        reason: result.reason,
+        tokensBefore: result.tokensBefore,
+        tokensAfter: result.tokensAfter
+      }
+    };
+  }
+
   async hardDeleteChat(
     userId: string,
     chatId: string,
@@ -307,5 +387,33 @@ export class ManageWebChatListService {
       activeWebChatsCurrent,
       source: "web_chat_hard_delete"
     });
+  }
+
+  private async resolveOwnedWebChatWithStats(
+    userId: string,
+    chatId: string
+  ): Promise<{
+    assistant: NonNullable<Awaited<ReturnType<AssistantRepository["findByUserId"]>>>;
+    chat: NonNullable<Awaited<ReturnType<AssistantChatRepository["findChatById"]>>>;
+    messageCount: number;
+    assistantMessageCount: number;
+  }> {
+    const assistant = await this.assistantRepository.findByUserId(userId);
+    if (assistant === null) {
+      throw new NotFoundException("Assistant does not exist for this user.");
+    }
+
+    const chat = await this.assistantChatRepository.findChatById(chatId);
+    if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
+      throw new NotFoundException("Web chat does not exist for this assistant.");
+    }
+
+    const messages = await this.assistantChatRepository.listMessagesByChatId(chatId);
+    return {
+      assistant,
+      chat,
+      messageCount: messages.length,
+      assistantMessageCount: messages.filter((message) => message.author === "assistant").length
+    };
   }
 }

@@ -236,6 +236,7 @@ export class MaterializeAssistantPublishedVersionService {
           toolAvailability,
           openclawCapabilityEnvelope,
           runtimeProviderProfile,
+          platformRuntimeProviderSettings.optimizationPolicy,
           runtimeAssignment,
           effectivePlanCode
         ),
@@ -280,6 +281,7 @@ export class MaterializeAssistantPublishedVersionService {
         openclawCapabilityEnvelope,
         runtimeAssignment,
         runtimeProviderProfile,
+        optimizationPolicy: platformRuntimeProviderSettings.optimizationPolicy,
         toolCredentialRefs,
         toolQuotaPolicy,
         workspaceQuotaBytes,
@@ -871,9 +873,9 @@ export class MaterializeAssistantPublishedVersionService {
   private generateHeartbeatMd(tasksControl: unknown): string {
     const tc = tasksControl as Record<string, unknown> | null;
     if (!tc) {
-      return "# HEARTBEAT.md\n\nNo tasks configured.\n";
+      return "# HEARTBEAT.md\n";
     }
-    return "# HEARTBEAT.md\n\nCheck in periodically. Review pending tasks and reminders.\n";
+    return "# HEARTBEAT.md\n";
   }
 
   private generateBootstrapMd(
@@ -1019,6 +1021,7 @@ export class MaterializeAssistantPublishedVersionService {
     toolAvailability: Record<string, unknown>,
     openclawCapabilityEnvelope: Record<string, unknown>,
     runtimeProviderProfile: unknown,
+    optimizationPolicy: unknown,
     runtimeAssignment: unknown,
     effectivePlanCode: string | null
   ): Record<string, unknown> {
@@ -1028,6 +1031,7 @@ export class MaterializeAssistantPublishedVersionService {
       policyEnvelope: governance.policyEnvelope,
       runtimeAssignment,
       runtimeProviderProfile,
+      optimizationPolicy,
       effectiveCapabilities,
       toolAvailability,
       openclawCapabilityEnvelope,

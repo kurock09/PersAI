@@ -9,8 +9,9 @@ Scaling-readiness control layer is now tracked by:
 - `docs/SCALING-READINESS-PLAN.md`
 - current active slice: `SR10` (Capacity validation and production gate)
 - last closed sub-slice: `SR10-pre-ui` (Admin observability dashboard restructuring, closed 2026-04-07)
-- next recommended slice after `SR10`: TBD
+- next recommended slice after `SR10`: docs-first OpenClaw SaaS optimization package aligned to `ADR-071`
 - last closed slice: `SR9` (Billing and quota correctness under concurrency, closed 2026-04-07 after full live validation of all sub-slices SR9a–SR9f)
+- queued optimization order after `SR10`: heartbeat hygiene -> context economy -> OpenAI tuning -> admin runtime controls -> compaction UX -> bootstrap budget pass
 
 ## Step 1
 

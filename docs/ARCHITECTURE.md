@@ -59,6 +59,30 @@ It is not part of backend domain logic.
 - GKE topology evolution (tier-specific deployments/services/config/network policy) is part of the same boundary and must not leak into end-user product semantics
 - current implementation remains a single-runtime deployment until Step 15 slices land; new docs and future slices must not deepen that assumption as the long-term architecture
 
+## Runtime optimization policy boundary
+
+- `ADR-071` defines the optimization-policy boundary for heartbeat, context economy, OpenAI tuning, admin/runtime controls, compaction UX, and deferred bootstrap budgeting
+- PersAI owns:
+  - heartbeat/materialization policy
+  - generated runtime defaults in Helm/config
+  - tier-aware optimization defaults
+  - admin/runtime optimization controls
+  - user-facing compaction suggestion UX
+- OpenClaw owns:
+  - runtime execution behavior once configured
+  - heartbeat/session/tool execution semantics
+  - pruning/compaction/provider transport behavior inside the runtime
+- optimization must preserve assistant humanity:
+  - do not treat persona/bootstrap tone as the first cost-reduction target
+  - remove unnecessary background work and long-context waste before trimming bootstrap/persona content
+- native OpenClaw core changes remain the exception:
+  - prefer PersAI-only fixes when the change is policy, config generation, admin UI, or product behavior
+  - touch native OpenClaw only when existing PersAI-owned seams cannot express the needed runtime behavior or observability
+- current audited repo status for `ADR-071` slices 1-5:
+  - slices 1-4 are mostly wired through the intended control-plane path (`admin runtime settings -> config generation/materialization -> OpenClaw runtime override`)
+  - rendered Helm/runtime-pool defaults are still a transitional infra baseline for optimization policy and must not be treated as the only runtime source-of-truth
+  - slice 5 is materially wired through the intended product/control-plane path: web compaction suggestion/manual compact is contract-backed, Telegram hinting is policy-driven, and the touched UX copy paths now have localization parity
+
 ## Chat boundary (Step 5 C1)
 
 - backend stores canonical user-facing chat records:

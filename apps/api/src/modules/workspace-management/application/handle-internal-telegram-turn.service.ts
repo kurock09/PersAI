@@ -13,6 +13,7 @@ import { EnforceAbuseRateLimitService } from "./enforce-abuse-rate-limit.service
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { InboundMediaService } from "./media/inbound-media.service";
 import type { RawInboundAttachment } from "./media/media.types";
@@ -44,6 +45,13 @@ export interface InternalTelegramTurnResult {
   respondedAt: string;
   media: RuntimeMediaArtifact[];
   deduplicated?: boolean;
+  compactionHint?: string;
+}
+
+function buildTelegramCompactionHintCopy(locale: string): string {
+  return locale === "ru"
+    ? "Если этот чат начнёт отвечать медленнее, отправьте /compact, чтобы сжать старый контекст и сохранить быстрые ответы."
+    : "If this chat starts slowing down, send /compact to compress older context and keep replies fast.";
 }
 
 function normalizeRequiredString(value: unknown, fieldName: string): string {
@@ -101,6 +109,7 @@ export class HandleInternalTelegramTurnService {
     private readonly enforceAbuseRateLimitService: EnforceAbuseRateLimitService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly inboundMediaService: InboundMediaService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService
@@ -238,6 +247,12 @@ export class HandleInternalTelegramTurnService {
         trace.attachExternalTrace(runtimeResponse.runtimeTrace);
       }
       trace.stage("runtime_done");
+      const compactionHint = await this.buildTelegramCompactionHint({
+        assistantId: resolved.assistantId,
+        runtimeTier: resolved.runtimeTier,
+        threadId: input.threadId,
+        workspaceId: resolved.workspaceId
+      });
 
       await this.trackWorkspaceQuotaUsageService.recordInboundTurnUsage({
         assistant: resolved.assistant,
@@ -267,14 +282,18 @@ export class HandleInternalTelegramTurnService {
         });
         return {
           ...runtimeResponse,
-          assistantMessage: `${prefix}\n\n${runtimeResponse.assistantMessage}`
+          assistantMessage: `${prefix}\n\n${runtimeResponse.assistantMessage}`,
+          ...(compactionHint ? { compactionHint } : {})
         };
       }
       trace.finish({
         status: "completed",
         outputPreview: runtimeResponse.assistantMessage
       });
-      return runtimeResponse;
+      return {
+        ...runtimeResponse,
+        ...(compactionHint ? { compactionHint } : {})
+      };
     } catch (error) {
       if (claimedUpdateId !== null) {
         await this.releaseTelegramUpdateClaimBestEffort(resolved.assistantId, claimedUpdateId);
@@ -400,5 +419,54 @@ export class HandleInternalTelegramTurnService {
         }`
       );
     }
+  }
+
+  private async buildTelegramCompactionHint(params: {
+    assistantId: string;
+    runtimeTier: import("./runtime-assignment").RuntimeTier;
+    threadId: string;
+    workspaceId: string;
+  }): Promise<string | null> {
+    const [runtimeSessionState, platformSettings] = await Promise.all([
+      this.assistantRuntimeAdapter.getChannelSessionState({
+        assistantId: params.assistantId,
+        runtimeTier: params.runtimeTier,
+        surface: "telegram",
+        threadId: params.threadId
+      }),
+      this.resolvePlatformRuntimeProviderSettingsService.execute()
+    ]);
+    if (!runtimeSessionState.found) {
+      return null;
+    }
+    const policy = platformSettings.optimizationPolicy.compaction;
+    const currentTokens = runtimeSessionState.currentTokens;
+    const threshold = Math.max(1, policy.reserveTokens - policy.keepRecentTokens);
+    const previousHintTokens = runtimeSessionState.compactionHintTokens;
+    const rehintDelta = Math.max(1000, Math.floor(policy.keepRecentTokens * 0.2));
+    const shouldSuggest =
+      currentTokens !== null &&
+      currentTokens >= threshold &&
+      runtimeSessionState.compactionCount <= 0 &&
+      (previousHintTokens === null || currentTokens >= previousHintTokens + rehintDelta);
+    if (!shouldSuggest) {
+      return null;
+    }
+    await this.assistantRuntimeAdapter.markChannelCompactionHintShown({
+      assistantId: params.assistantId,
+      runtimeTier: params.runtimeTier,
+      surface: "telegram",
+      threadId: params.threadId,
+      tokens: currentTokens
+    });
+    return buildTelegramCompactionHintCopy(await this.resolveWorkspaceLocale(params.workspaceId));
+  }
+
+  private async resolveWorkspaceLocale(workspaceId: string): Promise<string> {
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { locale: true }
+    });
+    return workspace?.locale === "ru" ? "ru" : "en";
   }
 }

@@ -3,7 +3,13 @@ import { BadRequestException } from "@nestjs/common";
 import { ManageAdminPlansService } from "../src/modules/workspace-management/application/manage-admin-plans.service";
 
 function createService(): ManageAdminPlansService {
-  return new ManageAdminPlansService({} as never, {} as never, {} as never, {} as never);
+  return new ManageAdminPlansService(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never
+  );
 }
 
 async function run(): Promise<void> {

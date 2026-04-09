@@ -8,7 +8,7 @@ Accepted.
 
 **Remaining:** **P2 depth** — map full `openclawWorkspace` / bootstrap into session store and tool policy (beyond `extraSystemPrompt`). **Ops:** before OpenClaw **>1 replica**, run the fork with a **Redis-backed** apply store (`PERSAI_RUNTIME_SPEC_STORE=redis`) instead of process memory (see P0).
 
-**Current dev profile in PersAI chart:** `infra/helm/values-dev.yaml` now runs OpenClaw with `PERSAI_RUNTIME_SPEC_STORE=redis`, default model `openai/gpt-5.4` (via `agents.defaults.model.primary` in `openclaw-config`), `OPENAI_API_KEY` from `persai-openclaw-secrets`, and PersAI API adapter timeout `OPENCLAW_ADAPTER_TIMEOUT_MS=90000` for web streaming (aligned with `loadApiConfig` default in `packages/config/src/api-config.ts`).
+**Current dev profile in PersAI chart:** `infra/helm/values-dev.yaml` now runs OpenClaw with `PERSAI_RUNTIME_SPEC_STORE=redis`, runtime model/policy authority coming from PersAI admin-managed runtime settings materialized into bootstrap/profile, `OPENAI_API_KEY` from `persai-openclaw-secrets`, and PersAI API adapter timeout `OPENCLAW_ADAPTER_TIMEOUT_MS=90000` for web streaming (aligned with `loadApiConfig` default in `packages/config/src/api-config.ts`).
 
 ## Context
 

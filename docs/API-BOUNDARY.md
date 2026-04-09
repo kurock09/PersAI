@@ -1486,6 +1486,26 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 
 Implementation reference: [openclaw-runtime.adapter.ts](../apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts).
 
+## Admin runtime optimization settings boundary
+
+- the existing admin runtime control-plane surface remains the canonical write/read boundary for runtime optimization policy:
+  - `GET /api/v1/admin/runtime/provider-settings`
+  - `PUT /api/v1/admin/runtime/provider-settings`
+- `ADR-071` extends the intended scope of that surface beyond provider/model routing so it can also carry bounded optimization policy for:
+  - heartbeat defaults
+  - context pruning / compaction defaults
+  - OpenAI tuning policy (`fastMode`, `serviceTier`, `responsesServerCompaction`, `openaiWsWarmup`)
+  - advanced bootstrap budgets only when later slices prove they are needed
+- this surface must stay policy-oriented:
+  - expose tier/default behavior and operator intent
+  - do not expose pod names, service names, or raw Kubernetes topology as product settings
+- persisted or generated optimization state must continue to flow through the current PersAI control-plane path:
+  - admin request -> validated settings state -> config generation / materialization -> runtime pool config and assistant runtime consumption
+- if a future slice needs a separate endpoint for optimization controls, the contract must still preserve one canonical admin/runtime policy surface rather than creating multiple competing configuration paths
+- audit note for `ADR-071` slice 5:
+  - the web compaction endpoints implemented in the assistant HTTP surface (`GET /api/v1/assistant/chats/web/:chatId/compaction` and `POST /api/v1/assistant/chats/web/:chatId/compact`) are part of the live product boundary
+  - those endpoints are represented in `packages/contracts/openapi.yaml` and consumed through generated client contracts, so client/runtime parity for this slice no longer depends on ad hoc fetch wiring
+
 ## H3: Runtime hydration depth — memory workspace proxy + chat history
 
 ### Proxy pattern (PersAI → OpenClaw)

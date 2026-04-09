@@ -107,7 +107,7 @@ Do not combine in one deploy window by default:
 - `Current active slice`: `SR10` — Capacity validation and production gate
 - `Current active sub-slice`: `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
 - `Current phase`: Capacity validation and production gate
-- `Next recommended slice after SR10`: TBD
+- `Next recommended slice after SR10`: docs-first OpenClaw SaaS optimization package aligned to `ADR-071`, starting with heartbeat hygiene and context economy policy
 - `Last closed slice`: `SR9` — Billing and quota correctness under concurrency (closed 2026-04-07 after full live validation of all sub-slices SR9a–SR9f)
 - `Post-SR5 baseline`: parallel sandbox image preload with retry, per-tier dind contention measured and documented, cross-pool isolation confirmed, predictable linear degradation under sandbox-heavy bursts
 - `Post-SR6 baseline`: workspace quota enforcement is fail-safe on active guarded paths, oversized writes are bounded near quota instead of running away, post-command non-cleanup `exec` failures are surfaced as failed tool outcomes, and cleanup remains allowed under exceedance so remediation does not deadlock
@@ -118,6 +118,23 @@ Do not combine in one deploy window by default:
 - `Accepted residual (SR8)`: we do not claim that the exact historical root cause of that stale Telegram binding state was isolated or automatically repaired by the replay-hardening package; `SR8` closes on the bounded replay/live behavior that was actually observed, while historical per-assistant binding corruption remains an accepted operational residual unless it recurs with fresh evidence
 - `Post-SR9 baseline`: all six billing/quota sub-slices (SR9a–SR9f) live-validated: plan override propagation, token budget atomic accounting, dual media/workspace quota pre-check, active web chats cap, workspace subscription sync, and tool daily quota check-vs-consume are now correct under concurrency. Token budget exhaustion surfaces a dedicated `token_budget_exhausted` error code with user-facing banner (web + Telegram) instead of generic rate-limit. Admin ops auth middleware bug (missing route registrations) fixed and deployed
 - `Accepted residual (SR9)`: none — all sub-slices closed cleanly with live validation; auth middleware bug was a registration omission, not a design flaw
+
+## Queued post-SR10 optimization track
+
+The next queued program after the active `SR10` gate is the docs-first OpenClaw SaaS optimization line defined by `ADR-071`.
+
+This queued track is intentionally ordered as:
+
+1. heartbeat hygiene
+2. context economy baseline
+3. OpenAI tuning policy
+4. admin/runtime optimization controls
+5. compaction suggestion UX
+6. bootstrap budget pass
+
+This order exists to protect assistant humanity by targeting unnecessary background work and long-context waste before trimming persona/bootstrap content.
+
+Until `SR10a` produces its bounded bottleneck evidence, this optimization track remains queued rather than active.
 
 ## Slice Template
 Each slice must use this shape:

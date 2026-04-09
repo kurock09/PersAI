@@ -53,6 +53,8 @@ import { DisableAssistantTaskRegistryItemService } from "../../application/disab
 import { EnableAssistantTaskRegistryItemService } from "../../application/enable-assistant-task-registry-item.service";
 import { CancelAssistantTaskRegistryItemService } from "../../application/cancel-assistant-task-registry-item.service";
 import type {
+  AssistantWebChatCompactionResult,
+  AssistantWebChatCompactionState,
   AssistantWebChatListItemState,
   AssistantWebChatMessageState,
   AssistantWebChatTurnState
@@ -767,6 +769,48 @@ export class AssistantController {
       requestId: req.requestId ?? null,
       messages: result.messages,
       nextCursor: result.nextCursor
+    };
+  }
+
+  @Get("assistant/chats/web/:chatId/compaction")
+  async getWebChatCompactionState(
+    @Req() req: RequestWithPlatformContext,
+    @Param("chatId") chatId: string
+  ): Promise<{
+    requestId: string | null;
+    state: AssistantWebChatCompactionState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const state = await this.manageWebChatListService.getChatCompactionState(userId, chatId);
+    return {
+      requestId: req.requestId ?? null,
+      state
+    };
+  }
+
+  @Post("assistant/chats/web/:chatId/compact")
+  async compactWebChat(
+    @Req() req: RequestWithPlatformContext,
+    @Param("chatId") chatId: string,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    state: AssistantWebChatCompactionState;
+    result: AssistantWebChatCompactionResult;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const instructions =
+      typeof body === "object" &&
+      body !== null &&
+      "instructions" in body &&
+      typeof (body as { instructions?: unknown }).instructions === "string"
+        ? (body as { instructions: string }).instructions.trim() || undefined
+        : undefined;
+    const response = await this.manageWebChatListService.compactChat(userId, chatId, instructions);
+    return {
+      requestId: req.requestId ?? null,
+      state: response.state,
+      result: response.result
     };
   }
 

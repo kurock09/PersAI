@@ -274,6 +274,35 @@ openclaw:
             highWaterBytes: 200mb
             rotateBytes: 10mb
           agentDefaults:
+            models:
+              openai/gpt-5.4:
+                params:
+                  openaiWsWarmup: true
+                  responsesServerCompaction: true
+                  fastMode: true
+                  serviceTier: "default"
+            contextPruning:
+              mode: "cache-ttl"
+              ttl: "3m"
+              keepLastAssistants: 2
+              softTrimRatio: 0.25
+              hardClearRatio: 0.45
+              minPrunableToolChars: 8000
+              softTrim:
+                maxChars: 2200
+                headChars: 800
+                tailChars: 800
+              hardClear:
+                enabled: true
+                placeholder: "[Old tool result content cleared]"
+            compaction:
+              mode: "safeguard"
+              reserveTokens: 18000
+              keepRecentTokens: 12000
+              recentTurnsPreserve: 3
+              identifierPolicy: "strict"
+              postIndexSync: "async"
+              truncateAfterCompaction: true
             sandbox:
               mode: "all"
               backend: docker
@@ -313,6 +342,35 @@ openclaw:
             maxDiskBytes: 1gb
             highWaterBytes: 800mb
           agentDefaults:
+            models:
+              openai/gpt-5.4:
+                params:
+                  openaiWsWarmup: true
+                  responsesServerCompaction: true
+                  fastMode: false
+                  serviceTier: "default"
+            contextPruning:
+              mode: "cache-ttl"
+              ttl: "5m"
+              keepLastAssistants: 3
+              softTrimRatio: 0.3
+              hardClearRatio: 0.5
+              minPrunableToolChars: 12000
+              softTrim:
+                maxChars: 3000
+                headChars: 1000
+                tailChars: 1000
+              hardClear:
+                enabled: true
+                placeholder: "[Old tool result content cleared]"
+            compaction:
+              mode: "safeguard"
+              reserveTokens: 24000
+              keepRecentTokens: 16000
+              recentTurnsPreserve: 4
+              identifierPolicy: "strict"
+              postIndexSync: "async"
+              truncateAfterCompaction: true
             sandbox:
               mode: "all"
               backend: docker
@@ -349,6 +407,35 @@ openclaw:
             maxDiskBytes: 2gb
             highWaterBytes: 1600mb
           agentDefaults:
+            models:
+              openai/gpt-5.4:
+                params:
+                  openaiWsWarmup: true
+                  responsesServerCompaction: true
+                  fastMode: false
+                  serviceTier: "flex"
+            contextPruning:
+              mode: "cache-ttl"
+              ttl: "8m"
+              keepLastAssistants: 4
+              softTrimRatio: 0.35
+              hardClearRatio: 0.55
+              minPrunableToolChars: 18000
+              softTrim:
+                maxChars: 4000
+                headChars: 1400
+                tailChars: 1400
+              hardClear:
+                enabled: true
+                placeholder: "[Old tool result content cleared]"
+            compaction:
+              mode: "safeguard"
+              reserveTokens: 32000
+              keepRecentTokens: 22000
+              recentTurnsPreserve: 5
+              identifierPolicy: "strict"
+              postIndexSync: "async"
+              truncateAfterCompaction: true
             sandbox:
               mode: "all"
               backend: docker
@@ -377,8 +464,8 @@ openclaw:
 
 
 
-    tag: c735051385f8bb5d1cc8b14b559edff75ff4ac33
-    digest: sha256:9169f4c74439f1dfd14d5a077f31194fa38ded919158fea42baebeeeae7e49c3
+    tag: dfa95c5eb83a27d5679e599f2fb390bf8671c00d
+    digest: ""
 
     pullPolicy: IfNotPresent
   resources:
@@ -464,7 +551,41 @@ openclaw:
     auto: "off"
     mode: final
   agentDefaults:
-    modelPrimary: openai/gpt-5.4
+    models:
+      openai/gpt-5.4:
+        params:
+          openaiWsWarmup: true
+          responsesServerCompaction: true
+    heartbeat:
+      # Disable the implicit shared `agent:main` heartbeat in SaaS pools. This
+      # avoids one pool-level workspace/session driving background turns for many
+      # users while PersAI still materializes per-assistant workspaces.
+      every: "0m"
+      target: "none"
+      lightContext: true
+      isolatedSession: true
+    contextPruning:
+      mode: "cache-ttl"
+      ttl: "5m"
+      keepLastAssistants: 3
+      softTrimRatio: 0.3
+      hardClearRatio: 0.5
+      minPrunableToolChars: 12000
+      softTrim:
+        maxChars: 3000
+        headChars: 1000
+        tailChars: 1000
+      hardClear:
+        enabled: true
+        placeholder: "[Old tool result content cleared]"
+    compaction:
+      mode: "safeguard"
+      reserveTokens: 24000
+      keepRecentTokens: 16000
+      recentTurnsPreserve: 4
+      identifierPolicy: "strict"
+      postIndexSync: "async"
+      truncateAfterCompaction: true
     sandbox:
       # Shared non-sandbox baseline. The *_sandbox pools override this with a
       # Docker-backed sandbox path and separate rollout surface.

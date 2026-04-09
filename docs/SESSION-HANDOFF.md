@@ -1,5 +1,313 @@
 # SESSION-HANDOFF
 
+## 2026-04-09 - ADR-071 slices 1-5 audit status correction
+
+### Current active slice
+
+- `SR10` — Capacity validation and production gate
+
+### Current active sub-slice
+
+- `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
+
+### What was verified
+
+1. Slices 1-4 are materially implemented, not just planned:
+   - PersAI persists `optimizationPolicy`
+   - admin runtime settings expose heartbeat, context pruning, compaction, and OpenAI tuning controls
+   - materialization/bootstrap payloads carry that policy into OpenClaw
+   - OpenClaw applies request-scoped/runtime overrides for chat, preview, heartbeat, and isolated background execution
+2. Slice 5 is materially implemented through the intended PersAI/OpenClaw seam:
+   - web chat compaction suggestion state and manual compact actions exist and are now covered by generated public contracts
+   - Telegram compaction hinting exists, records `compactionHintTokens`, and derives thresholds from the admin-managed compaction policy
+   - touched web/runtime user-facing compaction copy now has EN/RU localization parity instead of hardcoded English strings
+
+### What remains unclosed
+
+1. Helm/runtime-pool optimization defaults still exist as a transitional infra baseline, so the repo is not yet at a perfectly clean single-authority state for runtime optimization.
+2. The cheaper dedicated compaction-model path mentioned in `ADR-071` is not part of the current PersAI optimization policy surface, so that promise should not be treated as delivered.
+3. The approved OpenClaw fork pin for this delivery unit is now `dfa95c5eb83a27d5679e599f2fb390bf8671c00d`; PersAI CI still needs to rebuild/re-pin the corresponding dev image before cluster behavior can be treated as freshly deployed truth.
+
+### Recommended next step
+
+- Treat slices 1-5 as materially landed, let PersAI CI rebuild/re-pin the OpenClaw image from `dfa95c5eb83a27d5679e599f2fb390bf8671c00d`, then keep only the final source-of-truth cleanup and any future cheaper-compaction-model follow-up open.
+
+---
+
+## 2026-04-09 - Slice 4 admin runtime polish controls
+
+### Current active slice
+
+- `SR10` — Capacity validation and production gate
+
+### Current active sub-slice
+
+- `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
+
+### What stale runtime state was fixed
+
+1. After slices 1-3, the repo still treated `Admin > Runtime` as mostly provider/model routing while the actual SaaS optimization knobs for heartbeat, context economy, and OpenAI tuning remained Helm-only hidden state.
+2. The old UI also risked misleading operators about `fallback`: it looked like a generic model choice control instead of a bounded runtime-failure fallback, and it did not reflect the planned separation between system runtime model authority and plan-level tariff model choice.
+
+### What was completed
+
+1. **Persisted admin optimization policy state**: global runtime settings now persist one `optimizationPolicy` object alongside provider/model/catalog state in `platform_runtime_provider_settings`.
+2. **Canonical admin/runtime contract**: `GET/PUT /api/v1/admin/runtime/provider-settings` now carry:
+   - `heartbeat`
+   - `contextPruning`
+   - `compaction`
+   - `openai` tuning policy
+3. **Honest Runtime UI**: `Admin > Runtime` now surfaces:
+   - system provider/model
+   - runtime fallback provider/model
+   - heartbeat policy
+   - context pruning policy
+   - compaction policy
+   - OpenAI tuning policy
+   - read-only sandbox security per tier
+4. **Model-authority cleanup**:
+   - runtime admin system model must be selected from the admin-managed available model catalog
+   - plan tariff model must also be selected from that catalog
+   - backend no longer auto-injects selected models into the catalog
+   - runtime provider routing no longer invents code-level `text_*` fallback model keys
+5. **UI honesty improvement**: the fallback section now explicitly describes itself as runtime-failure/degraded fallback, while plan-level tariff model choice remains in Plans.
+
+### What remains
+
+1. Helm/runtime-pool defaults still exist as transitional infra baseline and are not yet fully replaced by admin-managed runtime-pool materialization.
+2. The next optimization slice after this remains `Compaction suggestion UX`, not more hidden Helm knobs.
+3. The final live verification pass still needs one combined deploy/runtime check to confirm the admin-managed policy produces the expected runtime behavior in cluster.
+
+### Confirmed risks
+
+1. This slice establishes the honest admin control-plane surface, but runtime pool config generation still has transitional baseline values until the final infra source-of-truth cleanup lands.
+2. The current admin optimization policy is global, not yet tier-specific inside the UI surface itself; tier-aware defaults still exist in the rendered runtime pool layer.
+
+### Verification run
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/runtime-provider-settings-admin.test.ts app/app/assistant-api-client.test.ts`
+
+### Next recommended step
+
+- Keep the admin Runtime page as the canonical product policy surface, then open the compaction-suggestion/chat-UX slice and the final infra cleanup that removes the remaining Helm-side model authority.
+
+---
+
+## 2026-04-08 - Slice 3 OpenAI tuning baseline
+
+### Current active slice
+
+- `SR10` — Capacity validation and production gate
+
+### Current active sub-slice
+
+- `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
+
+### What stale runtime state was fixed
+
+1. After the heartbeat and context-economy slices, PersAI still had no explicit rendered policy for the OpenAI-specific runtime knobs that matter most for SaaS cost/latency tuning.
+2. Those knobs (`fastMode`, `serviceTier`, `responsesServerCompaction`, `openaiWsWarmup`) also needed to be expressed in a way that can later be lifted directly into the existing admin Runtime page instead of becoming Helm-only hidden state.
+
+### What was completed
+
+1. **Rendered model-catalog support**: Helm `openclaw.json` generation now emits `agents.defaults.models` when present in PersAI runtime pool config.
+2. **Global baseline**: the root runtime baseline now defines `openai/gpt-5.4` model params with:
+   - `openaiWsWarmup: true`
+   - `responsesServerCompaction: true`
+3. **Tier-aware dev policy**:
+   - `free_shared_restricted_sandbox`: `fastMode: true`, `serviceTier: "default"`
+   - `paid_shared_restricted_sandbox`: `fastMode: false`, `serviceTier: "default"`
+   - `paid_isolated`: `fastMode: false`, `serviceTier: "flex"`
+4. **Policy intent**:
+   - server-side compaction is enabled everywhere as the safe long-thread OpenAI baseline
+   - websocket warm-up stays enabled everywhere for lower first-turn latency
+   - low-latency `fastMode` is restricted to the free shared lane for now
+   - higher-cost service-tier elevation is reserved for the isolated paid lane only
+5. **Admin UI seam preserved**: the chosen knobs are now explicit in config generation and ready to become fields in `Admin > Runtime` instead of remaining an implicit runtime default.
+
+### What remains
+
+1. The next bounded slice should expose the most important optimization knobs in the existing admin Runtime UI:
+   - `fastMode`
+   - `serviceTier`
+   - `responsesServerCompaction`
+   - `openaiWsWarmup`
+2. The final combined deploy/live verification pass should confirm that the chosen free/paid lane policy actually improves latency/cost without over-degrading response quality.
+3. If live evidence shows `serviceTier: "flex"` is not the right isolated-lane tradeoff, adjust it in the future UI/policy slice rather than hardcoding more per-tier drift in docs only.
+
+### Confirmed risks
+
+1. This slice configures OpenAI policy in rendered runtime config but does not yet add the admin API/UI controls to edit it live.
+2. `fastMode` remains intentionally off for paid shared and paid isolated until live evidence proves it should become a broader default; this slice avoids aggressive quality-risk assumptions.
+
+### Verification run
+
+- `helm template persai-dev .\\infra\\helm -f .\\infra\\helm\\values-dev.yaml`
+- `node .\\scripts\\runtime-pools-readiness.cjs --strict`
+- `corepack pnpm --filter @persai/api run typecheck`
+- rendered config proof:
+  - free shared sandbox renders `fastMode: true`, `responsesServerCompaction: true`, `openaiWsWarmup: true`, `serviceTier: "default"`
+  - paid shared sandbox renders `fastMode: false`, `responsesServerCompaction: true`, `openaiWsWarmup: true`, `serviceTier: "default"`
+  - paid isolated renders `fastMode: false`, `responsesServerCompaction: true`, `openaiWsWarmup: true`, `serviceTier: "flex"`
+
+### Next recommended step
+
+- Open the admin Runtime UI slice next, and surface the OpenAI tuning knobs plus the earlier heartbeat/context knobs through one policy-oriented control-plane page instead of leaving them Helm-only.
+
+---
+
+## 2026-04-08 - Slice 2 context economy baseline
+
+### Current active slice
+
+- `SR10` — Capacity validation and production gate
+
+### Current active sub-slice
+
+- `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
+
+### What stale runtime state was fixed
+
+1. The SaaS runtime pools still relied on OpenClaw defaults for long-thread context behavior, so PersAI had no explicit tier-aware baseline for pruning old tool-result weight or for safeguard compaction before moving on to provider-specific tuning.
+2. That meant token/latency optimization risked jumping straight to OpenAI knobs or bootstrap trimming before the cheaper context-economy layer was even configured.
+
+### What was completed
+
+1. **Rendered config support**: Helm `openclaw.json` generation now emits `agents.defaults.contextPruning` and `agents.defaults.compaction` when present in PersAI runtime pool config.
+2. **Global baseline**: root `agentDefaults` now define:
+   - `contextPruning.mode: "cache-ttl"`
+   - `compaction.mode: "safeguard"`
+   - `truncateAfterCompaction: true`
+3. **Tier-aware dev pool defaults**:
+   - `free_shared_restricted_sandbox`: most aggressive pruning and smallest recent-context budget
+   - `paid_shared_restricted_sandbox`: balanced middle baseline
+   - `paid_isolated`: higher recent-context budget and less aggressive pruning
+4. **Verification**: `helm template` confirmed all active dev pools now render explicit `contextPruning` and `compaction` blocks, and existing runtime-pool readiness plus API typecheck still pass.
+
+### What remains
+
+1. Keep provider-specific tuning (`fastMode`, `serviceTier`, `responsesServerCompaction`, `openaiWsWarmup`) for the next slice instead of mixing it into the context-economy baseline.
+2. During the final combined deploy/live pass, verify that long chats now compact/prune as expected and that the chosen budgets do not over-trim recent context on paid lanes.
+3. If the free shared lane still burns too many tokens after deploy, tune pruning/compaction thresholds before touching bootstrap/persona budgets.
+
+### Confirmed risks
+
+1. This slice configures the runtime behavior but does not yet provide a new PersAI admin UI for changing the values.
+2. The compaction baseline intentionally does not yet set a cheaper dedicated compaction model; that remains a later tuning slice so this pass stays focused on config surfacing and safe defaults.
+
+### Verification run
+
+- `helm template persai-dev .\\infra\\helm -f .\\infra\\helm\\values-dev.yaml`
+- `node .\\scripts\\runtime-pools-readiness.cjs --strict`
+- `corepack pnpm --filter @persai/api run typecheck`
+- rendered config proof:
+  - free shared sandbox renders `contextPruning.mode: "cache-ttl"` + `compaction.mode: "safeguard"`
+  - paid shared sandbox renders `contextPruning.mode: "cache-ttl"` + `compaction.mode: "safeguard"`
+  - paid isolated renders `contextPruning.mode: "cache-ttl"` + `compaction.mode: "safeguard"`
+
+### Next recommended step
+
+- Open the next bounded slice for OpenAI-specific runtime tuning so `fastMode`, `serviceTier`, `responsesServerCompaction`, and `openaiWsWarmup` become explicit policy by tier/use case before the final combined deploy/live verification pass.
+
+---
+
+## 2026-04-08 - Slice 1 heartbeat hygiene baseline
+
+### Current active slice
+
+- `SR10` — Capacity validation and production gate
+
+### Current active sub-slice
+
+- `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
+
+### What stale runtime state was fixed
+
+1. The SaaS runtime pools were still inheriting an implicit OpenClaw default heartbeat path for the shared `agent:main` lane, even though PersAI materializes per-assistant workspaces and the product no longer wants one global shared-workspace heartbeat loop as the default runtime behavior.
+2. PersAI also materialized a contentful default `HEARTBEAT.md` (`Check in periodically...`) for every assistant because `tasksControl` exists by default, which made the file look actionable even when there were no real reminder/task rows to process.
+
+### What was completed
+
+1. **Heartbeat document hygiene**: `MaterializeAssistantPublishedVersionService` now materializes `HEARTBEAT.md` as header-only (`# HEARTBEAT.md`) instead of writing a default periodic-work instruction. This makes the file effectively empty for OpenClaw's heartbeat gate when no assistant-specific task content has been added.
+2. **Shared-pool heartbeat disable baseline**: Helm/runtime config generation now renders `agents.defaults.heartbeat` into each runtime pool `openclaw.json`, and the shared SaaS baseline explicitly disables the implicit pool-level heartbeat with:
+   - `every: "0m"`
+   - `target: "none"`
+   - `lightContext: true`
+   - `isolatedSession: true`
+3. **Rendered config verification**: `helm template` confirmed the disabled heartbeat block is present in all currently active dev runtime pool configs.
+
+### What remains
+
+1. Deploy this PersAI-only slice and verify in the live cluster that the old shared `agent:main` heartbeat activity disappears or drops sharply.
+2. If heartbeat still appears after deploy, the next honest step is to inspect whether the remaining runs come from explicit `wake` / `hook` / `exec-event` / `cron` reasons tied to real runtime events rather than the removed shared default.
+3. A later follow-up slice can reintroduce assistant-aware heartbeat only when it is driven from real reminder/task registry truth instead of default `tasksControl` presence.
+
+### Confirmed risks
+
+1. This slice intentionally prefers safety over convenience: it disables the implicit shared default heartbeat, so any future product use of heartbeat must come back through an explicit assistant-aware policy path.
+2. This slice does not yet add new heartbeat counters/metrics in PersAI; live verification still depends on runtime logs and behavior after deploy.
+
+### Verification run
+
+- `helm template persai-dev .\\infra\\helm -f .\\infra\\helm\\values-dev.yaml`
+- `corepack pnpm --filter @persai/api run typecheck`
+- rendered config proof: all three dev runtime pool configs include `"heartbeat": {"every":"0m","isolatedSession":true,"lightContext":true,"target":"none"}`
+
+### Next recommended step
+
+- Deploy this PersAI-only slice, then verify live whether the suspicious shared-workspace heartbeat disappears. If it does, open the next bounded slice for heartbeat observability and assistant-aware reintroduction only where real reminder/task rows exist.
+
+---
+
+## 2026-04-08 - docs-first OpenClaw SaaS optimization baseline
+
+### Current active slice
+
+- `SR10` — Capacity validation and production gate
+
+### Current active sub-slice
+
+- `SR10a` — bounded end-to-end latency trace and runtime bottleneck isolation
+
+### What stale program state was fixed
+
+1. The repo had a detailed OpenClaw SaaS optimization audit, but it still lacked one explicit architecture decision and one synchronized post-`SR10` execution line for heartbeat hygiene, context economy, OpenAI tuning, admin/runtime controls, compaction UX, and deferred bootstrap budgeting.
+2. That left the optimization work at risk of becoming a set of good ideas spread across chat history instead of canon docs.
+
+### What was completed
+
+1. Added `docs/ADR/071-openclaw-saas-context-and-runtime-optimization.md` to make the optimization ordering and ownership boundary explicit.
+2. Updated `docs/OPENCLAW-SAAS-RUNTIME-PLAN.md` with one queued optimization track aligned to `ADR-071`.
+3. Updated `docs/SCALING-READINESS-PLAN.md` and `docs/ROADMAP.md` so the next queued post-`SR10` track is now explicit instead of `TBD`.
+4. Updated `docs/TEST-PLAN.md` with verification expectations for the queued heartbeat/context/OpenAI/UI/bootstrap optimization sequence.
+5. Updated `docs/ARCHITECTURE.md` and `docs/API-BOUNDARY.md` so PersAI vs OpenClaw optimization ownership is now documented as an explicit boundary.
+6. Updated `docs/CHANGELOG.md` so the docs-first baseline is recorded in `Unreleased`.
+
+### What remains
+
+1. Keep `SR10a` active until the bounded latency-trace work produces enough live evidence to choose the first implementation slice honestly.
+2. Once the current `SR10a` follow-up is complete, start the first optimization implementation slice as `heartbeat hygiene`, not bootstrap trimming.
+3. Only after heartbeat/context policy lands should the runtime settings UI and compaction UX slices open.
+
+### Confirmed risks
+
+1. This session changed canon docs only; it does **not** yet reduce token cost or latency by itself.
+2. The optimization track is intentionally queued behind the current `SR10a` evidence work so the repo does not pre-commit to implementation order without live bottleneck confirmation.
+
+### Verification run
+
+- docs consistency review across `ADR-071`, `OPENCLAW-SAAS-RUNTIME-PLAN.md`, `SCALING-READINESS-PLAN.md`, `ROADMAP.md`, `TEST-PLAN.md`, `ARCHITECTURE.md`, `API-BOUNDARY.md`, `CHANGELOG.md`, and `SESSION-HANDOFF.md`
+
+### Next recommended step
+
+- Finish the active `SR10a` live evidence pass, then open the first bounded implementation slice for heartbeat hygiene and runtime-policy propagation.
+
+---
+
 ## 2026-04-08 - SR10a admin overview multi-pod honesty follow-up
 
 ### Current active slice
@@ -6495,11 +6803,12 @@ OpenClaw commit: `6bcff3d2f4b13483b03fac259462c01b9a0ccec0`
 
 - `fix(dev): raise openclaw adapter timeout for web streaming`
 
-## 2026-03-25 - Dev OpenClaw default model switched to OpenAI
+## 2026-03-25 - Historical note: old dev OpenClaw model default
 
 ### What changed
 
-- `infra/helm/templates/openclaw-configmap.yaml` now writes `agents.defaults.model.primary` from Helm values, and `infra/helm/values-dev.yaml` sets that dev default to `openai/gpt-5.4`.
+- This was the historical pre-Slice-4 bridge where dev relied on `agents.defaults.model.primary`.
+- Current runtime source of truth is different: system runtime model/policy now comes from PersAI admin-managed runtime settings materialized into bootstrap/profile and consumed by OpenClaw runtime overlays.
 
 ### Why changed
 

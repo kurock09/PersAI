@@ -21,7 +21,14 @@ export class InternalRuntimeTurnController {
     @Req() req: InternalRequestLike,
     @Body() body: unknown
   ): Promise<
-    | { ok: true; assistantMessage: string; respondedAt: string; media?: unknown[] }
+    | {
+        ok: true;
+        assistantMessage: string;
+        respondedAt: string;
+        media?: unknown[];
+        deduplicated?: boolean;
+        compactionHint?: string;
+      }
     | { ok: false; code: string; message: string; renderedMessage: string }
   > {
     this.assertAuthorized(req);
@@ -34,6 +41,7 @@ export class InternalRuntimeTurnController {
         assistantMessage: result.assistantMessage,
         respondedAt: result.respondedAt,
         ...(result.deduplicated === true ? { deduplicated: true } : {}),
+        ...(result.compactionHint ? { compactionHint: result.compactionHint } : {}),
         ...(result.media ? { media: result.media } : {})
       };
     } catch (error) {

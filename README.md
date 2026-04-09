@@ -91,7 +91,7 @@ OpenClaw dev deploy baseline (O3):
 - auth token is injected from `persai-openclaw-secrets`
 - current dev runtime profile also sets:
   - `PERSAI_RUNTIME_SPEC_STORE=redis`
-  - OpenClaw default model `openai/gpt-5.4`
+  - OpenClaw runtime model/policy authority comes from admin-managed PersAI runtime settings and materialized bootstrap/profile
   - `OPENAI_API_KEY` from `persai-openclaw-secrets`
   - API adapter timeout `OPENCLAW_ADAPTER_TIMEOUT_MS=90000` (matches Zod default in `packages/config` and local `.env*.example`)
 

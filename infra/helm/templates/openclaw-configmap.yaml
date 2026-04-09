@@ -19,9 +19,15 @@ data:
     {
       "agents": {
         "defaults": {
-          "model": {
-            "primary": {{ $openclaw.agentDefaults.modelPrimary | toJson }}
-          }{{- if $openclaw.agentDefaults.sandbox }},
+          {{- if $openclaw.agentDefaults.heartbeat }}
+          "heartbeat": {{ $openclaw.agentDefaults.heartbeat | toJson }}
+          {{- end }}{{- if $openclaw.agentDefaults.models }},
+          "models": {{ $openclaw.agentDefaults.models | toJson }}
+          {{- end }}{{- if $openclaw.agentDefaults.contextPruning }},
+          "contextPruning": {{ $openclaw.agentDefaults.contextPruning | toJson }}
+          {{- end }}{{- if $openclaw.agentDefaults.compaction }},
+          "compaction": {{ $openclaw.agentDefaults.compaction | toJson }}
+          {{- end }}{{- if $openclaw.agentDefaults.sandbox }},
           "sandbox": {{ mergeOverwrite (deepCopy $openclaw.agentDefaults.sandbox) (dict "docker" (mergeOverwrite (deepCopy ($openclaw.agentDefaults.sandbox.docker | default dict)) (dict "image" (default $sandboxImage $openclaw.agentDefaults.sandbox.docker.image)))) | toJson }}
           {{- end }}
         }

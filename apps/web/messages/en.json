@@ -90,7 +90,20 @@
     "mediaStorageFullGuidance": "Delete old chats or files to free up space, then try uploading again.",
     "workspaceStorageFull": "Workspace disk full: {used} MB used out of {limit} MB.",
     "workspaceStorageFullNoLimit": "Workspace disk is full.",
-    "workspaceStorageFullGuidance": "The assistant's workspace is out of space. Delete old chats or ask the assistant to clean up files."
+    "workspaceStorageFullGuidance": "The assistant's workspace is out of space. Delete old chats or ask the assistant to clean up files.",
+    "sessionExpired": "Your session has expired. Please sign in again.",
+    "compactionHint": "Context is getting heavy{tokens, select, none {} other { ({tokens})}}. Compacting keeps recent context and helps replies stay fast.",
+    "compactionAction": "Compact now",
+    "compactionRunning": "Compacting...",
+    "compactionTokensValue": "{count} tokens",
+    "compactionTokensNone": "none",
+    "compactionManualSuccess": "Context compacted",
+    "compactionManualSkipped": "Compaction skipped",
+    "compactionDetailTokens": "{before} -> {after} tokens",
+    "compactionPhaseStart": "Compacting context",
+    "compactionPhaseDone": "Context compaction finished",
+    "compactionPhaseEnded": "Compaction pass ended",
+    "compactionWillRetry": "Retrying reply with smaller context"
   },
   "sidebar": {
     "defaultAssistant": "Your Assistant",

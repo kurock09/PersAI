@@ -717,6 +717,38 @@ Required in CI:
   - confirm turning trace back off stops new captures
   - with 2 `api` pods, confirm refresh/toggle can show the serving instance and warn when the UI switches between pods
 
+## Queued post-SR10 OpenClaw SaaS optimization baseline
+
+- `ADR-071`, `OPENCLAW-SAAS-RUNTIME-PLAN.md`, `SCALING-READINESS-PLAN.md`, `ROADMAP.md`, `ARCHITECTURE.md`, and `API-BOUNDARY.md` must stay aligned before implementation slices begin.
+- Optimization slices must verify in this order unless evidence forces a different order:
+  - heartbeat hygiene
+  - context economy baseline
+  - OpenAI tuning policy
+  - admin/runtime optimization controls
+  - compaction suggestion UX
+  - bootstrap budget pass
+- Heartbeat optimization must prove:
+  - no active default `HEARTBEAT.md` prompt is materialized when tasks/reminders policy is not actually enabled
+  - rendered runtime config carries explicit heartbeat policy (`every`, `lightContext`, `isolatedSession`, optional model override)
+  - heartbeat reasons are observable enough to distinguish `interval`, `wake`, `hook`, `exec-event`, and `cron`
+- Context economy optimization must prove:
+  - rendered runtime config carries explicit `contextPruning` and compaction defaults by tier
+  - long-thread optimization is enabled before bootstrap/persona reduction is claimed
+- OpenAI tuning optimization must prove:
+  - `fastMode`, `serviceTier`, `responsesServerCompaction`, and `openaiWsWarmup` policy is explicit by tier or use case
+  - `serviceTier` priority processing is not silently enabled for all traffic without product-policy justification
+- Admin/runtime optimization UI must prove:
+  - the current runtime settings surface can load and save the new optimization controls through typed contracts
+  - the UI remains policy-oriented and does not expose pod/service topology as product settings
+- Compaction suggestion UX must prove:
+  - web chat suggestion state and manual compact actions are covered by the public assistant API contract, not only by ad hoc client calls
+  - threshold behavior comes from the admin-managed optimization policy rather than a second product-side source
+  - web and Telegram surfaces are both reviewed for user-facing copy, localization, and repeated-hint suppression behavior before the slice is called complete
+- Bootstrap budget optimization must prove:
+  - prompt/token reduction is measured
+  - persona/humanity regressions were reviewed explicitly
+  - bootstrap cuts were not the first optimization lever used
+
 ## SR1 operational baseline
 
 - Canonical runbook/checklist doc:

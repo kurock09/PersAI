@@ -290,9 +290,48 @@ Outcome:
 - for auto-healing sandbox pods, the runtime GSA (`openclaw-runtime`) must also have `Artifact Registry reader` on the GAR repository used by `openclaw-sandbox*`; otherwise a fresh pod can boot but fail the preload gate on image pull
 - cold-start rollout budgets for sandbox-capable pools must be tuned from measured preload/warmup behavior; the startup probe now has an explicit higher budget in Helm values instead of a one-off hardcoded threshold in the deployment template
 
+## Next queued optimization track
+
+This runtime program now also carries one queued SaaS optimization track aligned with `ADR-071`.
+
+This track does **not** replace the active `SR10a` work. It defines the next bounded docs-first/runtime-policy follow-up once the current latency-trace investigation produces enough evidence to choose the right implementation order honestly.
+
+### Optimization goals
+
+- reduce unnecessary token burn
+- improve median and long-thread response latency
+- preserve assistant humanity/persona quality
+- keep most changes in PersAI control-plane/config/UI seams
+- minimize new native OpenClaw core drift
+
+### Ordered slices
+
+1. **Heartbeat hygiene**
+   - stop treating default `HEARTBEAT.md` text as an always-on background-work prompt
+   - make pool heartbeat defaults explicit (`every`, `lightContext`, `isolatedSession`, optional model override)
+   - add reason-level observability before broad tuning claims
+2. **Context economy baseline**
+   - define tier-aware `contextPruning` and compaction defaults
+   - prefer long-thread optimization before bootstrap/persona cuts
+3. **OpenAI tuning policy**
+   - define per-tier/per-use-case policy for `fastMode`, `serviceTier`, `responsesServerCompaction`, and `openaiWsWarmup`
+4. **Admin runtime polish controls**
+   - extend the existing runtime settings surface with optimization policy controls
+5. **Compaction suggestion UX**
+   - add a product-facing suggestion/button path for long chats instead of hidden compaction behavior
+6. **Bootstrap budget pass**
+   - only after the earlier slices land and are measured
+
+### Ownership rule
+
+- PersAI owns optimization policy, materialization, generated runtime defaults, admin/runtime UI, and rollout verification.
+- OpenClaw owns runtime execution semantics once configured.
+- Native OpenClaw changes are allowed only when PersAI-owned seams cannot express the required behavior or observability.
+
 ## Relation to other docs
 
 - `ADR-063` is the architecture decision
+- `ADR-071` is the optimization-policy decision for heartbeat/context/OpenAI/UI ordering and ownership
 - `ROADMAP.md` is the slice tracker
 - this document is the detailed working execution plan
 - `OPENCLAW-SHARED-RUNTIME-HARDENING.md` is the shared-pool hardening baseline

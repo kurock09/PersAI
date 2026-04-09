@@ -2,14 +2,19 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 import {
+  compactChat,
   getChatMessages,
+  getChatCompactionState,
   stageWebChatAttachment,
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
   WELCOME_THREAD_KEY,
   WELCOME_TURN_SENTINEL,
   type ChatHistoryAttachment,
+  type ChatCompactionResult,
+  type ChatCompactionState,
   type WebChatUxIssue
 } from "../assistant-api-client";
 import type { ActivityEvent } from "./activity-badge";
@@ -51,8 +56,11 @@ export interface UseChatReturn {
   hasOlderMessages: boolean;
   olderMessagesLoading: boolean;
   issue: WebChatUxIssue | null;
+  compaction: ChatCompactionState | null;
+  compactionRunning: boolean;
   send: (text: string, files?: File[]) => Promise<void>;
   sendWelcome: (locale: string) => Promise<void>;
+  compactNow: (instructions?: string) => Promise<ChatCompactionResult | null>;
   stop: () => void;
   clearIssue: () => void;
   reportIssue: (error: unknown) => void;
@@ -94,6 +102,7 @@ function appendQuotaFallbackActivity(params: {
 
 export function useChat(threadKey: string): UseChatReturn {
   const { getToken } = useAuth();
+  const t = useTranslations("chat");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
@@ -102,6 +111,8 @@ export function useChat(threadKey: string): UseChatReturn {
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [issue, setIssue] = useState<WebChatUxIssue | null>(null);
+  const [compaction, setCompaction] = useState<ChatCompactionState | null>(null);
+  const [compactionRunning, setCompactionRunning] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const historyLoadedRef = useRef<Set<string>>(new Set());
   const olderCursorRef = useRef<string | null>(null);
@@ -114,6 +125,8 @@ export function useChat(threadKey: string): UseChatReturn {
     setActivities([]);
     setChatId(null);
     setIssue(null);
+    setCompaction(null);
+    setCompactionRunning(false);
     setHasOlderMessages(false);
     historyLoadedRef.current = new Set();
     olderCursorRef.current = null;
@@ -130,6 +143,64 @@ export function useChat(threadKey: string): UseChatReturn {
     setIssue(toWebChatUxIssue(error));
   }, []);
 
+  const refreshCompactionState = useCallback(
+    async (targetChatId: string) => {
+      const token = await getToken();
+      if (!token) return;
+      try {
+        const next = await getChatCompactionState(token, targetChatId);
+        setCompaction(next);
+      } catch {
+        /* non-critical */
+      }
+    },
+    [getToken]
+  );
+
+  const compactNow = useCallback(
+    async (instructions?: string): Promise<ChatCompactionResult | null> => {
+      const targetChatId = activeChatIdRef.current ?? chatId;
+      if (!targetChatId || compactionRunning || isStreaming) {
+        return null;
+      }
+      const token = await getToken();
+      if (!token) {
+        setIssue(toWebChatUxIssue(t("sessionExpired")));
+        return null;
+      }
+      setCompactionRunning(true);
+      try {
+        const response = await compactChat(token, targetChatId, instructions);
+        setCompaction(response.state);
+        const compactDetail =
+          response.result.tokensBefore !== null && response.result.tokensAfter !== null
+            ? t("compactionDetailTokens", {
+                before: response.result.tokensBefore,
+                after: response.result.tokensAfter
+              })
+            : (response.result.reason ?? null);
+        setActivities((prev) => [
+          ...prev,
+          {
+            id: `activity-compaction-manual-${Date.now()}`,
+            type: "system",
+            label: response.result.compacted
+              ? t("compactionManualSuccess")
+              : t("compactionManualSkipped"),
+            ...(compactDetail ? { detail: compactDetail } : {})
+          }
+        ]);
+        return response.result;
+      } catch (error) {
+        setIssue(toWebChatUxIssue(error));
+        return null;
+      } finally {
+        setCompactionRunning(false);
+      }
+    },
+    [chatId, compactionRunning, getToken, isStreaming, t]
+  );
+
   const send = useCallback(
     async (text: string, files?: File[]) => {
       const trimmed = text.trim();
@@ -137,7 +208,7 @@ export function useChat(threadKey: string): UseChatReturn {
 
       const token = await getToken();
       if (token === null) {
-        setIssue(toWebChatUxIssue("Your session has expired. Please sign in again."));
+        setIssue(toWebChatUxIssue(t("sessionExpired")));
         return;
       }
 
@@ -280,6 +351,25 @@ export function useChat(threadKey: string): UseChatReturn {
                 pendingDelta.raf = requestAnimationFrame(flushDelta);
               }
             },
+            onCompaction: ({ phase, completed, willRetry }) => {
+              setCompactionRunning(phase === "start" || willRetry);
+              const activityDetail = willRetry ? t("compactionWillRetry") : null;
+              setActivities((prev) => [
+                ...prev,
+                {
+                  id: `activity-compaction-stream-${Date.now()}-${phase}`,
+                  type: "system",
+                  label:
+                    phase === "start"
+                      ? t("compactionPhaseStart")
+                      : completed
+                        ? t("compactionPhaseDone")
+                        : t("compactionPhaseEnded"),
+                  ...(activityDetail ? { detail: activityDetail } : {}),
+                  afterMessageId: assistantMsgId
+                }
+              ]);
+            },
             onRuntimeDone: ({ respondedAt }) => {
               if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
               flushDelta();
@@ -383,6 +473,13 @@ export function useChat(threadKey: string): UseChatReturn {
                 runtime: t?.runtime,
                 assistantMessageId: newAssistantId ?? assistantMsgId
               });
+              const resolvedChatId =
+                typeof t?.userMessage?.chatId === "string"
+                  ? t.userMessage.chatId
+                  : activeChatIdRef.current;
+              if (resolvedChatId) {
+                void refreshCompactionState(resolvedChatId);
+              }
 
               // Files are already staged before the stream — no post-stream upload needed
             },
@@ -446,7 +543,7 @@ export function useChat(threadKey: string): UseChatReturn {
         abortRef.current = null;
       }
     },
-    [getToken, isStreaming, threadKey]
+    [getToken, isStreaming, t, threadKey]
   );
 
   const sendWelcome = useCallback(
@@ -454,7 +551,7 @@ export function useChat(threadKey: string): UseChatReturn {
       if (isStreaming) return;
       const token = await getToken();
       if (token === null) {
-        setIssue(toWebChatUxIssue("Your session has expired. Please sign in again."));
+        setIssue(toWebChatUxIssue(t("sessionExpired")));
         return;
       }
 
@@ -624,6 +721,7 @@ export function useChat(threadKey: string): UseChatReturn {
         activeChatIdRef.current = targetChatId;
         setHasOlderMessages(page.nextCursor !== null);
         setChatId(targetChatId);
+        void refreshCompactionState(targetChatId);
         historyLoadedRef.current.add(targetChatId);
       } catch {
         /* non-critical */
@@ -694,8 +792,11 @@ export function useChat(threadKey: string): UseChatReturn {
     hasOlderMessages,
     olderMessagesLoading,
     issue,
+    compaction,
+    compactionRunning,
     send,
     sendWelcome,
+    compactNow,
     stop,
     clearIssue,
     reportIssue,

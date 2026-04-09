@@ -98,6 +98,8 @@ export class InternalRuntimeConfigGenerationController {
     generation: number;
     mode: "legacy_openclaw_default" | "global_settings";
     primary: { provider: "openai" | "anthropic"; model: string } | null;
+    availableModelsByProvider: Record<"openai" | "anthropic", string[]>;
+    optimizationPolicy: unknown;
   }> {
     this.assertAuthorized(req);
     const [generation, settings] = await Promise.all([
@@ -107,7 +109,9 @@ export class InternalRuntimeConfigGenerationController {
     return {
       generation,
       mode: settings.mode,
-      primary: settings.primary
+      primary: settings.primary,
+      availableModelsByProvider: settings.availableModelsByProvider,
+      optimizationPolicy: settings.optimizationPolicy
     };
   }
 

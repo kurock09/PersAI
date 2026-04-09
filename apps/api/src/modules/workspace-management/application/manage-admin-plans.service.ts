@@ -24,6 +24,7 @@ import {
   AdminAuthorizationService,
   type DangerousAdminActionCode
 } from "./admin-authorization.service";
+import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { isPlanManagedTool } from "../../../../prisma/tool-catalog-data";
 
 function toBoolean(value: unknown): boolean {
@@ -130,7 +131,8 @@ export class ManageAdminPlansService {
     private readonly planCatalogRepository: AssistantPlanCatalogRepository,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    private readonly bumpConfigGenerationService: BumpConfigGenerationService
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
   ) {}
 
   async listPlans(userId: string): Promise<AdminPlanState[]> {
@@ -175,6 +177,7 @@ export class ManageAdminPlansService {
     if (existing !== null) {
       throw new ConflictException("Plan code already exists.");
     }
+    await this.assertPrimaryModelKeyAvailable(input.primaryModelKey);
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
     await this.bumpConfigGenerationService.execute();
@@ -218,6 +221,7 @@ export class ManageAdminPlansService {
     if (updated === null) {
       throw new NotFoundException("Plan not found.");
     }
+    await this.assertPrimaryModelKeyAvailable(input.primaryModelKey);
     await this.bumpConfigGenerationService.execute();
     await this.appendAssistantAuditEventService.execute({
       workspaceId: access.workspaceId,
@@ -408,6 +412,22 @@ export class ManageAdminPlansService {
         dailyCallLimit: ta.dailyCallLimit
       }))
     };
+  }
+
+  private async assertPrimaryModelKeyAvailable(primaryModelKey: string | null): Promise<void> {
+    if (primaryModelKey === null) {
+      return;
+    }
+    const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    const catalog = [
+      ...settings.availableModelsByProvider.openai,
+      ...settings.availableModelsByProvider.anthropic
+    ];
+    if (!catalog.includes(primaryModelKey)) {
+      throw new BadRequestException(
+        "primaryModelKey must be selected from Runtime Admin available models."
+      );
+    }
   }
 
   private toAdminPlanState(plan: AssistantPlanCatalog): AdminPlanState {

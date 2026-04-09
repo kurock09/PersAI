@@ -1,7 +1,8 @@
 import type {
   AdminRuntimeProviderSettingsRequest,
   AdminRuntimeProviderSettingsState,
-  ManagedRuntimeProvider
+  ManagedRuntimeProvider,
+  RuntimeOptimizationPolicyState
 } from "@persai/contracts";
 
 export const MANAGED_RUNTIME_PROVIDERS: ManagedRuntimeProvider[] = ["openai", "anthropic"];
@@ -30,8 +31,52 @@ export type RuntimeProviderSettingsAdminFormState = {
   mode: AdminRuntimeProviderSettingsState["mode"];
   notes: string[];
   draft: RuntimeProviderSettingsAdminDraft;
+  optimizationPolicy: RuntimeOptimizationPolicyState | null;
   providerKeyState: RuntimeProviderProviderKeyState;
 };
+
+function createDefaultOptimizationPolicy(): RuntimeOptimizationPolicyState {
+  return {
+    heartbeat: {
+      every: "0m",
+      target: "none",
+      lightContext: true,
+      isolatedSession: true
+    },
+    contextPruning: {
+      mode: "cache-ttl",
+      ttl: "5m",
+      keepLastAssistants: 3,
+      softTrimRatio: 0.3,
+      hardClearRatio: 0.5,
+      minPrunableToolChars: 12000,
+      softTrim: {
+        maxChars: 3000,
+        headChars: 1000,
+        tailChars: 1000
+      },
+      hardClear: {
+        enabled: true,
+        placeholder: "[Old tool result content cleared]"
+      }
+    },
+    compaction: {
+      mode: "safeguard",
+      reserveTokens: 24000,
+      keepRecentTokens: 16000,
+      recentTurnsPreserve: 4,
+      identifierPolicy: "strict",
+      postIndexSync: "async",
+      truncateAfterCompaction: true
+    },
+    openai: {
+      fastMode: false,
+      serviceTier: "default",
+      responsesServerCompaction: true,
+      openaiWsWarmup: true
+    }
+  };
+}
 
 function createEmptyProviderKeyState(): RuntimeProviderProviderKeyState {
   return {
@@ -89,16 +134,17 @@ function parseModelCatalogText(value: string): string[] {
   return Array.from(deduped);
 }
 
-function ensureModelListed(models: string[], model: string): string[] {
-  const trimmed = model.trim();
-  if (trimmed.length === 0 || models.includes(trimmed)) {
-    return models;
-  }
-  return [...models, trimmed];
-}
-
 function providerLabel(provider: ManagedRuntimeProvider): string {
   return provider === "openai" ? "OpenAI" : "Anthropic";
+}
+
+function hasListedModel(params: {
+  provider: ManagedRuntimeProvider;
+  model: string;
+  availableModelsByProvider: RuntimeProviderAvailableModelsTextDraft;
+}): boolean {
+  const listedModels = parseModelCatalogText(params.availableModelsByProvider[params.provider]);
+  return listedModels.includes(params.model.trim());
 }
 
 export function resolveRuntimeProviderSettingsAdminFormState(
@@ -110,6 +156,7 @@ export function resolveRuntimeProviderSettingsAdminFormState(
       mode: "legacy_openclaw_default",
       notes: [],
       draft,
+      optimizationPolicy: createDefaultOptimizationPolicy(),
       providerKeyState: createEmptyProviderKeyState()
     };
   }
@@ -132,6 +179,7 @@ export function resolveRuntimeProviderSettingsAdminFormState(
     mode: settings.mode,
     notes: settings.notes,
     draft,
+    optimizationPolicy: settings.optimizationPolicy,
     providerKeyState: settings.providerKeys
   };
 }
@@ -142,14 +190,34 @@ export function validateRuntimeProviderSettingsAdminDraft(
   if (draft.primary.model.trim().length === 0) {
     return "Primary model is required.";
   }
+  if (
+    !hasListedModel({
+      provider: draft.primary.provider,
+      model: draft.primary.model,
+      availableModelsByProvider: draft.availableModelsTextByProvider
+    })
+  ) {
+    return `Primary model must be listed under ${providerLabel(draft.primary.provider)} available models.`;
+  }
   if (draft.fallbackEnabled && draft.fallback.model.trim().length === 0) {
     return "Fallback model is required when fallback is enabled.";
+  }
+  if (
+    draft.fallbackEnabled &&
+    !hasListedModel({
+      provider: draft.fallback.provider,
+      model: draft.fallback.model,
+      availableModelsByProvider: draft.availableModelsTextByProvider
+    })
+  ) {
+    return `Fallback model must be listed under ${providerLabel(draft.fallback.provider)} available models.`;
   }
   return null;
 }
 
 export function buildRuntimeProviderSettingsRequest(params: {
   draft: RuntimeProviderSettingsAdminDraft;
+  optimizationPolicy: RuntimeOptimizationPolicyState;
   providerKeyState: RuntimeProviderProviderKeyState;
 }): AdminRuntimeProviderSettingsRequest {
   const validationError = validateRuntimeProviderSettingsAdminDraft(params.draft);
@@ -172,16 +240,6 @@ export function buildRuntimeProviderSettingsRequest(params: {
     openai: parseModelCatalogText(params.draft.availableModelsTextByProvider.openai),
     anthropic: parseModelCatalogText(params.draft.availableModelsTextByProvider.anthropic)
   };
-  availableModelsByProvider[primary.provider] = ensureModelListed(
-    availableModelsByProvider[primary.provider],
-    primary.model
-  );
-  if (fallback !== null) {
-    availableModelsByProvider[fallback.provider] = ensureModelListed(
-      availableModelsByProvider[fallback.provider],
-      fallback.model
-    );
-  }
 
   const providerKeys: Partial<Record<ManagedRuntimeProvider, string>> = {};
   for (const provider of MANAGED_RUNTIME_PROVIDERS) {
@@ -204,6 +262,7 @@ export function buildRuntimeProviderSettingsRequest(params: {
   const request: AdminRuntimeProviderSettingsRequest = {
     primary,
     availableModelsByProvider,
+    optimizationPolicy: params.optimizationPolicy,
     fallback
   };
   if (Object.keys(providerKeys).length > 0) {

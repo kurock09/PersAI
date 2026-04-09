@@ -8,7 +8,7 @@ export type RuntimeProviderRoutingState = {
   userFacingProviderPickerEnabled: false;
   primaryPath: {
     providerKey: string;
-    modelKey: string;
+    modelKey: string | null;
     active: boolean;
     inactiveReason: null | "no_interactive_surface_allowed" | "text_media_not_allowed";
   };
@@ -17,7 +17,7 @@ export type RuntimeProviderRoutingState = {
     strategy: "fallback_model" | "degrade_to_safe_mode";
     target: {
       providerKey: string;
-      modelKey: string;
+      modelKey: string | null;
     };
     eligible: boolean;
     blockedBy: Array<

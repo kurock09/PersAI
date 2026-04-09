@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertCircle, X, Pencil, Check, Loader2 } from "lucide-react";
+import { AlertCircle, X, Pencil, Check, Loader2, Scissors } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { ChatMessageBubble } from "./chat-message";
 import { ChatInput } from "./chat-input";
@@ -294,6 +294,27 @@ export function ChatArea({
       )}
 
       {/* Input */}
+      {chat.compaction?.suggested && (
+        <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-surface px-3 py-2 text-xs text-text-muted">
+          <Scissors className="h-3.5 w-3.5 shrink-0 text-text-subtle" />
+          <p className="min-w-0 flex-1 truncate">
+            {t("compactionHint", {
+              tokens:
+                typeof chat.compaction.currentTokens === "number"
+                  ? t("compactionTokensValue", { count: chat.compaction.currentTokens })
+                  : t("compactionTokensNone")
+            })}
+          </p>
+          <button
+            type="button"
+            onClick={() => void chat.compactNow()}
+            disabled={chat.compactionRunning || chat.isStreaming}
+            className="shrink-0 cursor-pointer text-xs font-medium text-text transition-colors hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {chat.compactionRunning ? t("compactionRunning") : t("compactionAction")}
+          </button>
+        </div>
+      )}
       <ChatInput
         onSend={(text, files) => void chat.send(text, files)}
         onTranscribeVoice={async (blob, filename) => {

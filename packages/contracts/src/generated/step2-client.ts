@@ -19,6 +19,7 @@ import type {
   AssistantTelegramConnectRequest,
   AssistantTelegramRotateRequest,
   AssistantTelegramSecretRevokeRequest,
+  AssistantWebChatCompactRequest,
   AssistantWebChatDeleteRequest,
   AssistantWebChatRenameRequest,
   AssistantWebChatTurnRequest,
@@ -37,6 +38,7 @@ import type {
   GetAssistantRuntimePreflightResponse,
   GetAssistantTaskItemsResponse,
   GetAssistantTelegramIntegrationResponse,
+  GetAssistantWebChatCompactionResponse,
   GetAssistantWebChatListItemResponse,
   GetAssistantWebChatListResponse,
   GetAssistantWebChatTransportResponse,
@@ -58,6 +60,7 @@ import type {
   PostAssistantTaskItemCancelResponse,
   PostAssistantTaskItemDisableResponse,
   PostAssistantTaskItemEnableResponse,
+  PostAssistantWebChatCompactResponse,
   PutAdminRuntimeProviderSettingsResponse,
   SuccessResponse
 } from "./model";
@@ -1589,6 +1592,126 @@ export const postAssistantWebChatArchive = async (
     {
       ...options,
       method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary Get web chat compaction state
+ */
+export type getAssistantWebChatCompactionResponse200 = {
+  data: GetAssistantWebChatCompactionResponse;
+  status: 200;
+};
+
+export type getAssistantWebChatCompactionResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantWebChatCompactionResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantWebChatCompactionResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantWebChatCompactionResponseSuccess =
+  getAssistantWebChatCompactionResponse200 & {
+    headers: Headers;
+  };
+export type getAssistantWebChatCompactionResponseError = (
+  | getAssistantWebChatCompactionResponse401
+  | getAssistantWebChatCompactionResponse404
+  | getAssistantWebChatCompactionResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantWebChatCompactionResponse =
+  | getAssistantWebChatCompactionResponseSuccess
+  | getAssistantWebChatCompactionResponseError;
+
+export const getGetAssistantWebChatCompactionUrl = (chatId: string) => {
+  return `/assistant/chats/web/${chatId}/compaction`;
+};
+
+export const getAssistantWebChatCompaction = async (
+  chatId: string,
+  options?: RequestInit
+): Promise<getAssistantWebChatCompactionResponse> => {
+  return customFetch<getAssistantWebChatCompactionResponse>(
+    getGetAssistantWebChatCompactionUrl(chatId),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Compact a web chat runtime session
+ */
+export type postAssistantWebChatCompactResponse200 = {
+  data: PostAssistantWebChatCompactResponse;
+  status: 200;
+};
+
+export type postAssistantWebChatCompactResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantWebChatCompactResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantWebChatCompactResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAssistantWebChatCompactResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantWebChatCompactResponseSuccess = postAssistantWebChatCompactResponse200 & {
+  headers: Headers;
+};
+export type postAssistantWebChatCompactResponseError = (
+  | postAssistantWebChatCompactResponse401
+  | postAssistantWebChatCompactResponse404
+  | postAssistantWebChatCompactResponse409
+  | postAssistantWebChatCompactResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantWebChatCompactResponse =
+  | postAssistantWebChatCompactResponseSuccess
+  | postAssistantWebChatCompactResponseError;
+
+export const getPostAssistantWebChatCompactUrl = (chatId: string) => {
+  return `/assistant/chats/web/${chatId}/compact`;
+};
+
+export const postAssistantWebChatCompact = async (
+  chatId: string,
+  assistantWebChatCompactRequest?: AssistantWebChatCompactRequest,
+  options?: RequestInit
+): Promise<postAssistantWebChatCompactResponse> => {
+  return customFetch<postAssistantWebChatCompactResponse>(
+    getPostAssistantWebChatCompactUrl(chatId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(assistantWebChatCompactRequest)
     }
   );
 };
