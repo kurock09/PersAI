@@ -26,7 +26,10 @@ import { ResolveOpenClawCapabilityEnvelopeService } from "./resolve-openclaw-cap
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { ResolveRuntimeProviderRoutingService } from "./resolve-runtime-provider-routing.service";
 import { buildPlatformRuntimeProviderProfileState } from "./platform-runtime-provider-settings";
-import { resolveRuntimeProviderProfileState } from "./runtime-provider-profile";
+import {
+  resolveRuntimeProviderProfileState,
+  type RuntimeProviderProfileState
+} from "./runtime-provider-profile";
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
   TOOL_CODE_BY_CREDENTIAL_KEY,
@@ -80,6 +83,26 @@ function sortKeysDeep(value: unknown): unknown {
 
 function toDeterministicDocument(value: unknown): string {
   return JSON.stringify(sortKeysDeep(value), null, 2);
+}
+
+export function resolveAllowedPlanPrimaryModelKey(params: {
+  runtimeProviderProfile: RuntimeProviderProfileState;
+  planPrimaryModelKey: string | null;
+}): string | null {
+  const planPrimaryModelKey = params.planPrimaryModelKey?.trim() || null;
+  if (planPrimaryModelKey === null) {
+    return null;
+  }
+  if (
+    params.runtimeProviderProfile.mode !== "admin_managed" ||
+    params.runtimeProviderProfile.primary === null
+  ) {
+    return planPrimaryModelKey;
+  }
+  const providerCatalog =
+    params.runtimeProviderProfile.availableModelsByProvider[params.runtimeProviderProfile.primary.provider] ??
+    [];
+  return providerCatalog.includes(planPrimaryModelKey) ? planPrimaryModelKey : null;
 }
 
 @Injectable()
@@ -176,9 +199,18 @@ export class MaterializeAssistantPublishedVersionService {
         planRuntimeTierDefault === null ? null : { runtimeTierDefault: planRuntimeTierDefault },
       policyEnvelope: governance.policyEnvelope
     });
-    const planPrimaryModelKey = await this.resolvePlanPrimaryModelKey(
+    const rawPlanPrimaryModelKey = await this.resolvePlanPrimaryModelKey(
       effectiveCapabilities.derivedFrom.planCode
     );
+    const planPrimaryModelKey = resolveAllowedPlanPrimaryModelKey({
+      runtimeProviderProfile,
+      planPrimaryModelKey: rawPlanPrimaryModelKey
+    });
+    if (rawPlanPrimaryModelKey !== null && planPrimaryModelKey === null) {
+      this.logger.warn(
+        `Skipping stale plan primary model "${rawPlanPrimaryModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
+      );
+    }
     if (
       planPrimaryModelKey &&
       runtimeProviderProfile.mode === "admin_managed" &&
