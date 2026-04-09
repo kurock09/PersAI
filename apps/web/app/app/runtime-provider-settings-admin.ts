@@ -67,7 +67,8 @@ function createDefaultOptimizationPolicy(): RuntimeOptimizationPolicyState {
       recentTurnsPreserve: 4,
       identifierPolicy: "strict",
       postIndexSync: "async",
-      truncateAfterCompaction: true
+      truncateAfterCompaction: true,
+      suggestCompactionByMessageCount: false
     },
     openai: {
       fastMode: false,

@@ -116,7 +116,8 @@ describe("admin rollout client", () => {
               recentTurnsPreserve: 4,
               identifierPolicy: "strict",
               postIndexSync: "async",
-              truncateAfterCompaction: true
+              truncateAfterCompaction: true,
+              suggestCompactionByMessageCount: false
             },
             openai: {
               fastMode: false,
@@ -206,7 +207,8 @@ describe("admin rollout client", () => {
               recentTurnsPreserve: 4,
               identifierPolicy: "strict",
               postIndexSync: "async",
-              truncateAfterCompaction: true
+              truncateAfterCompaction: true,
+              suggestCompactionByMessageCount: false
             },
             openai: {
               fastMode: false,
@@ -275,7 +277,8 @@ describe("admin rollout client", () => {
             recentTurnsPreserve: 4,
             identifierPolicy: "strict",
             postIndexSync: "async",
-            truncateAfterCompaction: true
+            truncateAfterCompaction: true,
+            suggestCompactionByMessageCount: false
           },
           openai: {
             fastMode: false,

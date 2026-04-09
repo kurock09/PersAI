@@ -4619,6 +4619,7 @@ components:
         - identifierPolicy
         - postIndexSync
         - truncateAfterCompaction
+        - suggestCompactionByMessageCount
       properties:
         mode:
           type: string
@@ -4645,6 +4646,12 @@ components:
             - await
         truncateAfterCompaction:
           type: boolean
+        suggestCompactionByMessageCount:
+          type: boolean
+          description: >
+            When true, the web chat may show the manual compaction banner based on message counts
+            (long threads with short messages). When false (default), the banner uses estimated
+            session tokens only.
     RuntimeOpenAITuningPolicyState:
       type: object
       required:

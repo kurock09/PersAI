@@ -275,16 +275,22 @@ export class ManageWebChatListService {
     ]);
     const compactionPolicy = platformSettings.optimizationPolicy.compaction;
     const currentTokens = runtimeSessionState.currentTokens;
-    const tokenSuggested =
-      currentTokens !== null &&
-      currentTokens >=
-        Math.max(1, compactionPolicy.reserveTokens - compactionPolicy.keepRecentTokens);
+    const tokenThreshold = Math.max(
+      1,
+      compactionPolicy.reserveTokens - compactionPolicy.keepRecentTokens
+    );
+    const tokenSuggested = currentTokens !== null && currentTokens >= tokenThreshold;
     const historySuggested =
-      messageCount >= Math.max(compactionPolicy.recentTurnsPreserve * 4, 16) ||
-      assistantMessageCount >= Math.max(compactionPolicy.recentTurnsPreserve * 2, 8);
+      compactionPolicy.suggestCompactionByMessageCount &&
+      (messageCount >= Math.max(compactionPolicy.recentTurnsPreserve * 4, 16) ||
+        assistantMessageCount >= Math.max(compactionPolicy.recentTurnsPreserve * 2, 8));
+    // When message-count hints are enabled, do not nag on history alone after token compaction
+    // brought usage below the threshold.
+    const historyCountsAsSuggestion =
+      historySuggested && (currentTokens === null || currentTokens >= tokenThreshold);
     const suggestionReason = tokenSuggested
       ? "token_threshold"
-      : historySuggested
+      : historyCountsAsSuggestion
         ? "history_threshold"
         : null;
     return {

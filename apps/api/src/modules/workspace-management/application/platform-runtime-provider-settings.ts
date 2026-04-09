@@ -69,6 +69,8 @@ export type RuntimeCompactionPolicyState = {
   identifierPolicy: "strict" | "off" | "custom";
   postIndexSync: "off" | "async" | "await";
   truncateAfterCompaction: boolean;
+  /** Web compaction banner: message-count heuristic (off by default; use token estimate only). */
+  suggestCompactionByMessageCount: boolean;
 };
 
 export type RuntimeOpenAITuningPolicyState = {
@@ -116,7 +118,8 @@ const DEFAULT_RUNTIME_OPTIMIZATION_POLICY: RuntimeOptimizationPolicyState = {
     recentTurnsPreserve: 4,
     identifierPolicy: "strict",
     postIndexSync: "async",
-    truncateAfterCompaction: true
+    truncateAfterCompaction: true,
+    suggestCompactionByMessageCount: false
   },
   openai: {
     fastMode: false,
@@ -487,6 +490,10 @@ function normalizeOptimizationPolicy(
       truncateAfterCompaction: normalizeBoolean(
         compaction?.truncateAfterCompaction,
         DEFAULT_RUNTIME_OPTIMIZATION_POLICY.compaction.truncateAfterCompaction
+      ),
+      suggestCompactionByMessageCount: normalizeBoolean(
+        compaction?.suggestCompactionByMessageCount,
+        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.compaction.suggestCompactionByMessageCount
       )
     },
     openai: {

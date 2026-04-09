@@ -52,7 +52,8 @@ async function run(): Promise<void> {
         recentTurnsPreserve: 4,
         identifierPolicy: "strict",
         postIndexSync: "async",
-        truncateAfterCompaction: true
+        truncateAfterCompaction: true,
+        suggestCompactionByMessageCount: false
       },
       openai: {
         fastMode: false,
@@ -69,6 +70,7 @@ async function run(): Promise<void> {
 
   assert.equal(parsed.primary.provider, "openai");
   assert.equal(parsed.fallback?.provider, "anthropic");
+  assert.equal(parsed.optimizationPolicy.compaction.suggestCompactionByMessageCount, false);
   assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4"]);
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.equal(parsed.providerKeys.openai, "sk-openai-new");

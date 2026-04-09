@@ -1,5 +1,23 @@
 # SESSION-HANDOFF
 
+## 2026-04-09 - Web compaction banner (token-first) + manual compact UX
+
+### What changed
+
+1. **PersAI web:** manual “Compress now” clears a stale chat turn error banner on success; compaction result activities render in the thread (including `afterMessageId` on the last message and fallback for orphan activities).
+2. **PersAI API:** web compaction **suggestion** defaults to **token threshold only**; the message-count heuristic runs only when `optimizationPolicy.compaction.suggestCompactionByMessageCount` is true (admin **Runtime → Compaction** checkbox).
+3. **OpenClaw fork:** strict `agents.defaults.compaction` schema and PersAI runtime policy parse accept optional `suggestCompactionByMessageCount` so materialized bootstrap does not fail validation when PersAI sends the new flag.
+
+### Pin / deploy
+
+- `infra/dev/gitops/openclaw-approved-sha.txt` → `c4be65eef08e23a7128e032625214811abe2c741` (includes strict-schema compatibility for the new compaction flag). Do not hand-edit `values-dev.yaml` for the image digest; let `openclaw-dev-image-publish` repin after merge.
+
+### Push order
+
+- Push **OpenClaw** `main` first, then **PersAI** `main`. PersAI CI rebuilds the OpenClaw image from the approved SHA.
+
+---
+
 ## 2026-04-10 - Telegram manual `/compact` wired to OpenClaw channel compact
 
 ### What changed

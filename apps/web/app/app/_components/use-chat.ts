@@ -171,6 +171,7 @@ export function useChat(threadKey: string): UseChatReturn {
       setCompactionRunning(true);
       try {
         const response = await compactChat(token, targetChatId, instructions);
+        setIssue(null);
         setCompaction(response.state);
         const compactDetail =
           response.result.tokensBefore !== null && response.result.tokensAfter !== null
@@ -179,6 +180,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 after: response.result.tokensAfter
               })
             : (response.result.reason ?? null);
+        const anchorId = messages[messages.length - 1]?.id;
         setActivities((prev) => [
           ...prev,
           {
@@ -187,7 +189,8 @@ export function useChat(threadKey: string): UseChatReturn {
             label: response.result.compacted
               ? t("compactionManualSuccess")
               : t("compactionManualSkipped"),
-            ...(compactDetail ? { detail: compactDetail } : {})
+            ...(compactDetail ? { detail: compactDetail } : {}),
+            ...(anchorId ? { afterMessageId: anchorId } : {})
           }
         ]);
         return response.result;
@@ -198,7 +201,7 @@ export function useChat(threadKey: string): UseChatReturn {
         setCompactionRunning(false);
       }
     },
-    [chatId, compactionRunning, getToken, isStreaming, t]
+    [chatId, compactionRunning, getToken, isStreaming, messages, t]
   );
 
   const send = useCallback(
@@ -768,11 +771,14 @@ export function useChat(threadKey: string): UseChatReturn {
 
   const entries: ChatEntry[] = [];
   const activityByMsg = new Map<string, ActivityEvent[]>();
+  const orphanActivities: ActivityEvent[] = [];
   for (const a of activities) {
     if (a.afterMessageId) {
       const list = activityByMsg.get(a.afterMessageId) ?? [];
       list.push(a);
       activityByMsg.set(a.afterMessageId, list);
+    } else {
+      orphanActivities.push(a);
     }
   }
   for (const m of messages) {
@@ -781,6 +787,9 @@ export function useChat(threadKey: string): UseChatReturn {
     if (linked) {
       for (const ev of linked) entries.push({ kind: "activity", event: ev });
     }
+  }
+  for (const ev of orphanActivities) {
+    entries.push({ kind: "activity", event: ev });
   }
 
   return {

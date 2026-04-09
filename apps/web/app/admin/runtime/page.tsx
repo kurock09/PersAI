@@ -567,6 +567,28 @@ export default function AdminRuntimePage() {
                       )
                     }
                   />
+                  <ToggleField
+                    label="Compaction banner: use message count"
+                    checked={optimizationPolicy.compaction.suggestCompactionByMessageCount}
+                    onChange={(checked) =>
+                      setOptimizationPolicy((current) =>
+                        current
+                          ? {
+                              ...current,
+                              compaction: {
+                                ...current.compaction,
+                                suggestCompactionByMessageCount: checked
+                              }
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  <p className="col-span-full text-[11px] leading-snug text-text-muted sm:col-span-2">
+                    Off by default: the web hint follows session token estimates only. Enable if you
+                    want long threads with many short messages to surface the banner even when token
+                    estimates are unavailable or below the threshold.
+                  </p>
                   <NumberField
                     label="Reserve tokens"
                     value={optimizationPolicy.compaction.reserveTokens}

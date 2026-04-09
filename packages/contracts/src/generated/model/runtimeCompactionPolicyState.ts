@@ -16,4 +16,7 @@ export interface RuntimeCompactionPolicyState {
   identifierPolicy: RuntimeCompactionPolicyStateIdentifierPolicy;
   postIndexSync: RuntimeCompactionPolicyStatePostIndexSync;
   truncateAfterCompaction: boolean;
+  /** When true, the web chat may show the manual compaction banner based on message counts (long threads with short messages). When false (default), the banner uses estimated session tokens only.
+   */
+  suggestCompactionByMessageCount: boolean;
 }
