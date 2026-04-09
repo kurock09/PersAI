@@ -81,6 +81,22 @@ export interface AssistantRuntimeChannelSessionStateResult {
   model: string | null;
 }
 
+export interface AssistantRuntimeChannelCompactInput {
+  assistantId: string;
+  runtimeTier?: RuntimeTier;
+  surface: "telegram";
+  threadId: string;
+  instructions?: string;
+}
+
+export interface AssistantRuntimeChannelCompactResult {
+  compacted: boolean;
+  reason: string | null;
+  tokensBefore: number | null;
+  tokensAfter: number | null;
+  state: AssistantRuntimeChannelSessionStateResult;
+}
+
 export interface RuntimeMediaArtifact {
   url: string;
   type: "image" | "audio" | "video" | "document";
@@ -230,6 +246,9 @@ export interface AssistantRuntimeAdapter {
   compactWebChatSession(
     input: AssistantRuntimeWebChatCompactInput
   ): Promise<AssistantRuntimeWebChatCompactResult>;
+  compactTelegramChannelSession(
+    input: AssistantRuntimeChannelCompactInput
+  ): Promise<AssistantRuntimeChannelCompactResult>;
   sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;

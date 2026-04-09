@@ -21,7 +21,11 @@ import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
 } from "../domain/assistant-channel-surface-binding.repository";
-import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
+import {
+  OverviewLatencyTraceService,
+  type OverviewLatencyTraceHandle
+} from "./overview-latency-trace.service";
+import { AssistantRuntimeAdapterError } from "./assistant-runtime-adapter.types";
 
 export interface InternalTelegramAttachmentInput {
   type: "image" | "audio" | "voice" | "video" | "document";
@@ -52,6 +56,12 @@ function buildTelegramCompactionHintCopy(locale: string): string {
   return locale === "ru"
     ? "Если этот чат начнёт отвечать медленнее, отправьте /compact, чтобы сжать старый контекст и сохранить быстрые ответы."
     : "If this chat starts slowing down, send /compact to compress older context and keep replies fast.";
+}
+
+const TELEGRAM_COMPACT_COMMAND_RE = /^\/compact(?:@[A-Za-z0-9_]+)?\s*$/;
+
+function isTelegramCompactSlashCommand(message: string): boolean {
+  return TELEGRAM_COMPACT_COMMAND_RE.test(message.trim());
 }
 
 function normalizeRequiredString(value: unknown, fieldName: string): string {
@@ -181,6 +191,18 @@ export class HandleInternalTelegramTurnService {
         throw new NotFoundException("Workspace does not exist for this assistant.");
       }
       trace.stage("workspace_loaded");
+
+      if (
+        (!input.attachments || input.attachments.length === 0) &&
+        isTelegramCompactSlashCommand(input.message)
+      ) {
+        return await this.executeTelegramCompactCommand({
+          resolved,
+          threadId: input.threadId,
+          claimedUpdateId,
+          trace
+        });
+      }
 
       let enrichedMessage = input.message;
       let mediaSystemNotices: string[] = [];
@@ -407,6 +429,102 @@ export class HandleInternalTelegramTurnService {
       `TG attachment unavailable after ${HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS} attempts: ${storagePath}`
     );
     return null;
+  }
+
+  private async executeTelegramCompactCommand(params: {
+    resolved: {
+      assistantId: string;
+      runtimeTier: import("./runtime-assignment").RuntimeTier;
+      workspaceId: string;
+    };
+    threadId: string;
+    claimedUpdateId: number | null;
+    trace: OverviewLatencyTraceHandle;
+  }): Promise<InternalTelegramTurnResult> {
+    const locale = await this.resolveWorkspaceLocale(params.resolved.workspaceId);
+    params.trace.stage("telegram_compact_command");
+    try {
+      const outcome = await this.assistantRuntimeAdapter.compactTelegramChannelSession({
+        assistantId: params.resolved.assistantId,
+        runtimeTier: params.resolved.runtimeTier,
+        surface: "telegram",
+        threadId: params.threadId
+      });
+      const respondedAt = new Date().toISOString();
+      let assistantMessage: string;
+      if (locale === "ru") {
+        if (outcome.compacted) {
+          if (outcome.tokensBefore !== null && outcome.tokensAfter !== null) {
+            assistantMessage = `Сжатие выполнено. Оценка токенов: ~${outcome.tokensBefore} → ~${outcome.tokensAfter}.`;
+          } else {
+            assistantMessage = "Сжатие выполнено.";
+          }
+        } else {
+          assistantMessage =
+            outcome.reason && outcome.reason.trim().length > 0
+              ? `Сжатие не потребовалось: ${outcome.reason.trim()}`
+              : "Сжатие не потребовалось.";
+        }
+      } else if (outcome.compacted) {
+        if (outcome.tokensBefore !== null && outcome.tokensAfter !== null) {
+          assistantMessage = `Compaction done. Estimated tokens: ~${outcome.tokensBefore} → ~${outcome.tokensAfter}.`;
+        } else {
+          assistantMessage = "Compaction done.";
+        }
+      } else {
+        assistantMessage =
+          outcome.reason && outcome.reason.trim().length > 0
+            ? `Compaction skipped: ${outcome.reason.trim()}`
+            : "Compaction was not needed.";
+      }
+
+      if (params.claimedUpdateId !== null) {
+        await this.bindingRepository.completeTelegramUpdateProcessing(
+          params.resolved.assistantId,
+          "telegram",
+          "telegram_bot",
+          params.claimedUpdateId,
+          new Date()
+        );
+        params.trace.stage("update_completed");
+      }
+      await this.consumeBootstrapBestEffort(params.resolved.assistantId);
+      params.trace.finish({ status: "completed", outputPreview: assistantMessage });
+      return {
+        assistantMessage,
+        respondedAt,
+        media: []
+      };
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const sessionMissing =
+        error instanceof AssistantRuntimeAdapterError &&
+        (errMsg.includes("active runtime session") || errMsg.includes("Compaction is unavailable"));
+      const assistantMessage =
+        locale === "ru"
+          ? sessionMissing
+            ? "Активная сессия для этого чата ещё не создана. Отправьте обычное сообщение боту, затем снова /compact."
+            : `Не удалось сжать контекст: ${errMsg}`
+          : sessionMissing
+            ? "No active runtime session for this chat yet. Send a normal message first, then try /compact again."
+            : `Could not compact context: ${errMsg}`;
+
+      if (params.claimedUpdateId !== null) {
+        await this.bindingRepository.completeTelegramUpdateProcessing(
+          params.resolved.assistantId,
+          "telegram",
+          "telegram_bot",
+          params.claimedUpdateId,
+          new Date()
+        );
+      }
+      params.trace.finish({ status: "completed", outputPreview: assistantMessage });
+      return {
+        assistantMessage,
+        respondedAt: new Date().toISOString(),
+        media: []
+      };
+    }
   }
 
   private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {

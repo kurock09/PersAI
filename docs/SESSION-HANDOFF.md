@@ -1,5 +1,20 @@
 # SESSION-HANDOFF
 
+## 2026-04-10 - Telegram manual `/compact` wired to OpenClaw channel compact
+
+### What changed
+
+1. PersAI `HandleInternalTelegramTurnService` intercepts a bare `/compact` command (Telegram bot suffix allowed) and calls `OpenClawRuntimeAdapter.compactTelegramChannelSession`, which posts to OpenClaw `POST /api/v1/runtime/chat/channel/compact`.
+2. Users get an explicit assistant reply describing compaction result or a clear error (e.g. no active runtime session yet).
+3. `infra/dev/gitops/openclaw-approved-sha.txt` advances to `8bbc9e222edbf5a642bba8004a2486cd4076c078` (fork commit that exposes the channel compact route). Do not hand-edit `values-dev.yaml` for this pin bump; let `openclaw-dev-image-publish` repin digest after merge.
+
+### Push / deploy order
+
+- OpenClaw `main` must already contain `8bbc9e222e` (channel compact) before PersAI CI clones the approved SHA.
+- Push PersAI after OpenClaw is on GitHub; CI rebuilds OpenClaw image from the updated approved SHA.
+
+---
+
 ## 2026-04-09 - ADR-071 slices 1-5 audit status correction
 
 ### Current active slice

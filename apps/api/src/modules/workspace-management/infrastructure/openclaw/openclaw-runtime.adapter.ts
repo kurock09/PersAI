@@ -13,6 +13,8 @@ import type {
   AssistantRuntimeApplyInput,
   AssistantRuntimeChannelSessionStateInput,
   AssistantRuntimeChannelSessionStateResult,
+  AssistantRuntimeChannelCompactInput,
+  AssistantRuntimeChannelCompactResult,
   AssistantRuntimeChannelTurnInput,
   AssistantRuntimeCronControlInput,
   AssistantRuntimeWebChatCompactInput,
@@ -495,6 +497,58 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
         currentTokens: typeof state.currentTokens === "number" ? state.currentTokens : null,
         totalTokensFresh: state.totalTokensFresh === true,
         compactionCount: typeof state.compactionCount === "number" ? state.compactionCount : 0,
+        updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : null,
+        provider: typeof state.provider === "string" ? state.provider : null,
+        model: typeof state.model === "string" ? state.model : null
+      }
+    };
+  }
+
+  async compactTelegramChannelSession(
+    input: AssistantRuntimeChannelCompactInput
+  ): Promise<AssistantRuntimeChannelCompactResult> {
+    const config = toOpenClawAdapterConfig(input.runtimeTier);
+    if (!config.enabled) {
+      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
+    }
+    const payload = await this.requestWithRetries(
+      "POST",
+      "/api/v1/runtime/chat/channel/compact",
+      {
+        assistantId: input.assistantId,
+        surface: input.surface,
+        threadId: input.threadId,
+        ...(input.instructions ? { instructions: input.instructions } : {})
+      },
+      config,
+      { acceptedErrorStatuses: [409] }
+    );
+    if (!isObject(payload)) {
+      throw new AssistantRuntimeAdapterError(
+        "invalid_response",
+        "OpenClaw Telegram channel compaction response is invalid."
+      );
+    }
+    if (payload.ok !== true) {
+      const errorMessage =
+        typeof payload.error === "string" ? payload.error : "Telegram channel compaction failed.";
+      throw new AssistantRuntimeAdapterError("invalid_response", errorMessage);
+    }
+    const result = isObject(payload.result) ? payload.result : {};
+    const state = isObject(payload.state) ? payload.state : {};
+    return {
+      compacted: result.compacted === true,
+      reason: typeof result.reason === "string" ? result.reason : null,
+      tokensBefore: typeof result.tokensBefore === "number" ? result.tokensBefore : null,
+      tokensAfter: typeof result.tokensAfter === "number" ? result.tokensAfter : null,
+      state: {
+        sessionKey: typeof state.sessionKey === "string" ? state.sessionKey : "",
+        found: state.found === true,
+        currentTokens: typeof state.currentTokens === "number" ? state.currentTokens : null,
+        totalTokensFresh: state.totalTokensFresh === true,
+        compactionCount: typeof state.compactionCount === "number" ? state.compactionCount : 0,
+        compactionHintTokens:
+          typeof state.compactionHintTokens === "number" ? state.compactionHintTokens : null,
         updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : null,
         provider: typeof state.provider === "string" ? state.provider : null,
         model: typeof state.model === "string" ? state.model : null
