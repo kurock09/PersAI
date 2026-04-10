@@ -1,5 +1,27 @@
 # SESSION-HANDOFF
 
+## 2026-04-10 - SR10a sandboxSessionKey propagation hotfix
+
+### What changed
+
+1. **OpenClaw fork:** the embedded runner now carries `sandboxSessionKey` through the actual attempt execution path and the compaction runtime context instead of dropping it before native runtime code uses it.
+2. **PersAI pin advance:** dev GitOps now approves the follow-up OpenClaw SHA that contains this hotfix so the rebuilt image can be measured honestly against the prior failed live probe.
+
+### Why
+
+1. Fresh-vs-warm live probes after the earlier deploy still showed one new Docker sandbox container per new chat, which proved the original reuse fix was only partially effective in production.
+2. Reading the running code and comparing it with the live registry isolated the gap to field propagation inside the embedded runner layer rather than image rollout, Kubernetes saturation, or OpenAI latency.
+
+### Pin / deploy
+
+- `infra/dev/gitops/openclaw-approved-sha.txt` → `c94e6d55d83a864640b4065fb9b8af49e9e728b4` (completes `sandboxSessionKey` propagation through attempt + compaction paths). Do not hand-edit `values-dev.yaml`; let `openclaw-dev-image-publish` rebuild and repin the image after merge.
+
+### Push order
+
+- Push **OpenClaw** `main` first, then **PersAI** `main`. PersAI CI is expected to rebuild/re-pin the OpenClaw dev image from the approved SHA.
+
+---
+
 ## 2026-04-10 - SR10a web sandbox reuse + runtime tail visibility
 
 ### What changed
