@@ -790,6 +790,7 @@ export class AssistantController {
   }
 
   @Post("assistant/chats/web/:chatId/compact")
+  @HttpCode(200)
   async compactWebChat(
     @Req() req: RequestWithPlatformContext,
     @Param("chatId") chatId: string,
