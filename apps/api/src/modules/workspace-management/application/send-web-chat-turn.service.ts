@@ -274,7 +274,7 @@ export class SendWebChatTurnService {
         source: "web_chat_turn_sync"
       });
       trace.stage("quota_recorded");
-      await this.consumeBootstrapBestEffort(prepared.assistantId);
+      await this.consumeBootstrapBestEffort(prepared.assistantId, prepared.runtimeTier);
       trace.stage("bootstrap_consumed");
 
       if (request.clientTurnId !== undefined) {
@@ -449,9 +449,12 @@ export class SendWebChatTurnService {
     };
   }
 
-  private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {
+  private async consumeBootstrapBestEffort(
+    assistantId: string,
+    runtimeTier: import("./runtime-assignment").RuntimeTier
+  ): Promise<void> {
     try {
-      await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId);
+      await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId, runtimeTier);
     } catch (error) {
       console.warn("[web-chat] Non-fatal: failed to consume BOOTSTRAP.md:", error);
     }

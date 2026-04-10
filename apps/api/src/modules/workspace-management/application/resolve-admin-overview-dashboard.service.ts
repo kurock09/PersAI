@@ -155,7 +155,10 @@ export class ResolveAdminOverviewDashboardService {
     snapshot: ReturnType<PlatformHttpMetricsService["getSnapshot"]>
   ): OverviewLatencySnapshot {
     const makeBuckets = (): Bucket[] =>
-      [50, 100, 250, 500, 1000, 2500, 5000].map((le) => ({ le, value: 0 }));
+      [50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000].map((le) => ({
+        le,
+        value: 0
+      }));
 
     let allCount = 0,
       allDurationMs = 0,

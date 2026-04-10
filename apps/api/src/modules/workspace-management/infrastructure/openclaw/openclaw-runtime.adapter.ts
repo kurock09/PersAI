@@ -299,8 +299,8 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     );
   }
 
-  async consumeBootstrapWorkspace(assistantId: string): Promise<void> {
-    const config = toOpenClawAdapterConfig();
+  async consumeBootstrapWorkspace(assistantId: string, runtimeTier?: RuntimeTier): Promise<void> {
+    const config = toOpenClawAdapterConfig(runtimeTier);
     if (!config.enabled) {
       return;
     }

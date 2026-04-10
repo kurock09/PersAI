@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-04-10 - SR10a web sandbox reuse + runtime tail visibility
+
+### What changed
+
+1. **OpenClaw fork:** web turns now pass a stable assistant-scoped `sandboxSessionKey` into native runtime while keeping the normal per-chat session key for chat/session state. This removes the confirmed cold-path regression where every new web chat forced a distinct Docker sandbox/container identity.
+2. **OpenClaw runtime trace detail:** native sandbox resolution now emits sub-stages (`sandbox.prune_done`, workspace/docker-user/backend/registry/container lifecycle steps, optional browser readiness), and the OpenAI WebSocket transport now emits connect/warmup/payload/send/first-upstream-delta stages.
+3. **PersAI validation surface:** admin overview percentile aggregation now keeps the `10s/30s/60s` latency buckets instead of effectively capping p95/p99 at `5s`, and bootstrap consume calls now use the real `runtimeTier` in the web/Telegram follow-up path.
+
+### Why
+
+1. Live traces already proved the largest reproducible cold-path cost was per-chat sandbox allocation, not raw OpenAI latency or generic pod saturation.
+2. We still need fine-grained evidence for the remaining `prompt_enter -> first_assistant_delta` tail after the sandbox fix lands.
+3. The old admin percentile rollup and bootstrap-consume routing bug both made post-deploy validation less honest than the live runtime actually was.
+
+### Pin / deploy
+
+- `infra/dev/gitops/openclaw-approved-sha.txt` → `2451e5c40426ef04b9323dbd76fa6ddc9a146ada` (stable web sandbox reuse + deeper sandbox/OpenAI transport tracing). Do not hand-edit `values-dev.yaml`; let `openclaw-dev-image-publish` rebuild and repin the image after merge.
+
+### Push order
+
+- Push **OpenClaw** `main` first, then **PersAI** `main`. PersAI CI is expected to rebuild/re-pin the OpenClaw dev image from the approved SHA.
+
+---
+
 ## 2026-04-10 - SR10a OpenClaw pre-first-delta trace instrumentation
 
 ### What changed

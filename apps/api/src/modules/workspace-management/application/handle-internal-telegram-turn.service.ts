@@ -300,7 +300,7 @@ export class HandleInternalTelegramTurnService {
         );
         trace.stage("update_completed");
       }
-      await this.consumeBootstrapBestEffort(resolved.assistantId);
+      await this.consumeBootstrapBestEffort(resolved.assistantId, resolved.runtimeTier);
       trace.stage("bootstrap_consumed");
 
       if (mediaSystemNotices.length > 0) {
@@ -508,7 +508,10 @@ export class HandleInternalTelegramTurnService {
         );
         params.trace.stage("update_completed");
       }
-      await this.consumeBootstrapBestEffort(params.resolved.assistantId);
+      await this.consumeBootstrapBestEffort(
+        params.resolved.assistantId,
+        params.resolved.runtimeTier
+      );
       params.trace.finish({ status: "completed", outputPreview: assistantMessage });
       return {
         assistantMessage,
@@ -549,9 +552,12 @@ export class HandleInternalTelegramTurnService {
     }
   }
 
-  private async consumeBootstrapBestEffort(assistantId: string): Promise<void> {
+  private async consumeBootstrapBestEffort(
+    assistantId: string,
+    runtimeTier: import("./runtime-assignment").RuntimeTier
+  ): Promise<void> {
     try {
-      await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId);
+      await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId, runtimeTier);
     } catch (error) {
       this.logger.warn(
         `[telegram-turn] Non-fatal: failed to consume BOOTSTRAP.md: ${
