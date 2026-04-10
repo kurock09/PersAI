@@ -5,11 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { TelegramIntegrationConfigSettingsDefaultParseMode } from "./telegramIntegrationConfigSettingsDefaultParseMode";
+import type { TelegramIntegrationConfigSettingsGroupReplyMode } from "./telegramIntegrationConfigSettingsGroupReplyMode";
 
 export interface TelegramIntegrationConfigSettings {
+  autoCompactionEnabled: boolean;
   defaultParseMode: TelegramIntegrationConfigSettingsDefaultParseMode;
   inboundUserMessagesEnabled: boolean;
   outboundAssistantMessagesEnabled: boolean;
+  groupReplyMode: TelegramIntegrationConfigSettingsGroupReplyMode;
   /** @nullable */
   notes: string | null;
 }

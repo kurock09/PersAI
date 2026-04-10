@@ -1,5 +1,24 @@
 # SESSION-HANDOFF
 
+## 2026-04-10 - Web manual-only compaction + Telegram auto-compaction toggle
+
+### What changed
+
+1. **PersAI web/runtime:** web turns now force `autoCompactionEnabled: false` in the OpenClaw runtime override, so web chat stays manual-only and the “Compact now” action is no longer racing with background threshold compaction.
+2. **PersAI Telegram settings:** Telegram integration config now stores/materializes a user-facing `autoCompactionEnabled` flag that defaults to **on** in the existing Telegram assistant settings panel.
+3. **Telegram hints:** `/compact` hints are now suppressed while Telegram auto-compaction is enabled, and remain available when the user explicitly turns auto-compaction off.
+4. **OpenClaw fork:** runtime config/schema/docs/tests now support `agents.defaults.compaction.autoCompactionEnabled`, disable paired threshold-time memory flush when that flag is off, and let PersAI set the policy per surface.
+
+### Pin / deploy
+
+- `infra/dev/gitops/openclaw-approved-sha.txt` → `ca3f4408485aba842d53c74ec447748606fed0df` (surface-level auto-compaction policy support). Do not hand-edit `values-dev.yaml`; let `openclaw-dev-image-publish` repin the image after merge.
+
+### Push order
+
+- Push **OpenClaw** `main` first, then **PersAI** `main`. PersAI CI is expected to rebuild/re-pin the OpenClaw dev image from the approved SHA.
+
+---
+
 ## 2026-04-10 - Compaction 409 + Telegram RU for skip reasons
 
 - OpenClaw `ok: false` on manual web/channel compact is no longer misclassified as generic `invalid_response` / HTTP 500; API returns **409** `compaction_unavailable`, web shows localized compaction banner (not “chat turn failed”).

@@ -277,11 +277,12 @@ function ConnectedView({
           : { dot: "bg-text-subtle", text: "text-text-subtle", label: t("notConnectedLabel") };
 
   const [configOpen, setConfigOpen] = useState(false);
+  const [autoCompactionEnabled, setAutoCompactionEnabled] = useState(config.autoCompactionEnabled);
   const [parseMode, setParseMode] = useState(config.defaultParseMode);
   const [inbound, setInbound] = useState(config.inboundUserMessagesEnabled);
   const [outbound, setOutbound] = useState(config.outboundAssistantMessagesEnabled);
-  const [groupReplyMode, setGroupReplyMode] = useState<string>(
-    ((config as unknown as Record<string, unknown>).groupReplyMode as string) ?? "mention_reply"
+  const [groupReplyMode, setGroupReplyMode] = useState<"mention_reply" | "all_messages">(
+    config.groupReplyMode
   );
   const [notes, setNotes] = useState(config.notes ?? "");
   const [saving, setSaving] = useState(false);
@@ -314,6 +315,22 @@ function ConnectedView({
   }, [getToken]);
 
   useEffect(() => {
+    setAutoCompactionEnabled(config.autoCompactionEnabled);
+    setParseMode(config.defaultParseMode);
+    setInbound(config.inboundUserMessagesEnabled);
+    setOutbound(config.outboundAssistantMessagesEnabled);
+    setGroupReplyMode(config.groupReplyMode);
+    setNotes(config.notes ?? "");
+  }, [
+    config.autoCompactionEnabled,
+    config.defaultParseMode,
+    config.groupReplyMode,
+    config.inboundUserMessagesEnabled,
+    config.notes,
+    config.outboundAssistantMessagesEnabled
+  ]);
+
+  useEffect(() => {
     if (
       integration.connectionStatus !== "claim_required" ||
       !integration.ownerClaim.claimExpiresAt
@@ -339,12 +356,13 @@ function ConnectedView({
     setFeedback(null);
     try {
       const payload: AssistantTelegramConfigUpdateRequest = {
+        autoCompactionEnabled,
         defaultParseMode: parseMode,
         inboundUserMessagesEnabled: inbound,
         outboundAssistantMessagesEnabled: outbound,
         notes: notes.trim() || null,
         groupReplyMode
-      } as AssistantTelegramConfigUpdateRequest;
+      };
       await patchAssistantTelegramConfig(token, payload);
       setFeedback({ type: "ok", text: t("configSaved") });
       onUpdated();
@@ -356,7 +374,16 @@ function ConnectedView({
     } finally {
       setSaving(false);
     }
-  }, [getToken, parseMode, inbound, outbound, groupReplyMode, notes, onUpdated]);
+  }, [
+    autoCompactionEnabled,
+    getToken,
+    groupReplyMode,
+    inbound,
+    notes,
+    onUpdated,
+    outbound,
+    parseMode
+  ]);
 
   const handleDisconnect = useCallback(async () => {
     const token = await getToken();
@@ -599,6 +626,12 @@ function ConnectedView({
               </div>
 
               {/* Toggles */}
+              <Toggle
+                label={t("autoCompaction")}
+                checked={autoCompactionEnabled}
+                onChange={setAutoCompactionEnabled}
+                description={t("autoCompactionDesc")}
+              />
               <Toggle label={t("inboundMessages")} checked={inbound} onChange={setInbound} />
               <Toggle label={t("outboundMessages")} checked={outbound} onChange={setOutbound} />
 
@@ -855,15 +888,22 @@ function Step({
 function Toggle({
   label,
   checked,
-  onChange
+  onChange,
+  description
 }: {
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  description?: string;
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between">
-      <span className="text-xs text-text-muted">{label}</span>
+    <label className="flex cursor-pointer items-start justify-between gap-3">
+      <span className="min-w-0">
+        <span className="block text-xs text-text-muted">{label}</span>
+        {description ? (
+          <span className="mt-1 block text-[11px] text-text-subtle">{description}</span>
+        ) : null}
+      </span>
       <button
         type="button"
         role="switch"

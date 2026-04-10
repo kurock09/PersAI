@@ -85,6 +85,7 @@ async function run(): Promise<void> {
     configPanel: {
       available: true,
       settings: {
+        autoCompactionEnabled: true,
         defaultParseMode: "plain_text" as const,
         inboundUserMessagesEnabled: true,
         outboundAssistantMessagesEnabled: true,

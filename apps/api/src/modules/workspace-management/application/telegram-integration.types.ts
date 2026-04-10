@@ -47,6 +47,7 @@ export type TelegramIntegrationState = {
   configPanel: {
     available: boolean;
     settings: {
+      autoCompactionEnabled: boolean;
       defaultParseMode: "plain_text" | "markdown";
       inboundUserMessagesEnabled: boolean;
       outboundAssistantMessagesEnabled: boolean;
@@ -67,6 +68,7 @@ export type TelegramSecretRevokeInput = {
 };
 
 export type TelegramConfigUpdateInput = {
+  autoCompactionEnabled?: boolean;
   defaultParseMode?: "plain_text" | "markdown";
   inboundUserMessagesEnabled?: boolean;
   outboundAssistantMessagesEnabled?: boolean;

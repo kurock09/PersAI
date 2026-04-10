@@ -949,6 +949,7 @@ export class MaterializeAssistantPublishedVersionService {
     botToken: string | null;
     webhookUrl: string | null;
     webhookSecret: string | null;
+    autoCompactionEnabled: boolean;
     dmPolicy: string;
     groupReplyMode: string;
     parseMode: string;
@@ -977,6 +978,7 @@ export class MaterializeAssistantPublishedVersionService {
         botToken: null,
         webhookUrl: null,
         webhookSecret: null,
+        autoCompactionEnabled: true,
         dmPolicy: "open",
         groupReplyMode: "mention_reply",
         parseMode: "plain_text",
@@ -1026,6 +1028,7 @@ export class MaterializeAssistantPublishedVersionService {
       botToken,
       webhookUrl,
       webhookSecret,
+      autoCompactionEnabled: bindingConfig.autoCompactionEnabled !== false,
       dmPolicy: "owner_only",
       groupReplyMode:
         typeof bindingConfig.groupReplyMode === "string"

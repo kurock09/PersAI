@@ -5,11 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantTelegramConfigUpdateRequestDefaultParseMode } from "./assistantTelegramConfigUpdateRequestDefaultParseMode";
+import type { AssistantTelegramConfigUpdateRequestGroupReplyMode } from "./assistantTelegramConfigUpdateRequestGroupReplyMode";
 
 export interface AssistantTelegramConfigUpdateRequest {
+  autoCompactionEnabled?: boolean;
   defaultParseMode?: AssistantTelegramConfigUpdateRequestDefaultParseMode;
   inboundUserMessagesEnabled?: boolean;
   outboundAssistantMessagesEnabled?: boolean;
+  groupReplyMode?: AssistantTelegramConfigUpdateRequestGroupReplyMode;
   /** @nullable */
   notes?: string | null;
 }

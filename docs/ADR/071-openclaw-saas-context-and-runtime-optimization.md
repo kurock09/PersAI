@@ -94,6 +94,11 @@ The baseline direction is:
 - cheaper compaction model path where supported
 - explicit user/admin-facing policy for when compaction is automatic, suggested, or manual
 
+Current product policy clarification:
+
+- web chat should prefer **manual** compaction UX over background threshold auto-compaction
+- Telegram should default to **automatic** compaction, but the assistant owner may disable it in Telegram settings and fall back to hints + manual `/compact`
+
 ### 6. OpenAI tuning rule
 OpenAI-specific knobs are policy-controlled by tier and use case, not globally enabled without distinction.
 

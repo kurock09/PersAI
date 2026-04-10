@@ -236,6 +236,7 @@ async function run(): Promise<void> {
     assert.equal(connected.bot.displayName, "PersAI Bot");
     assert.equal(connected.bot.username, "persai_bot");
     assert.equal(connected.configPanel.available, true);
+    assert.equal(connected.configPanel.settings.autoCompactionEnabled, true);
     assert.equal(connected.ownerClaim.required, true);
     assert.equal(connected.ownerClaim.status, "pending");
     assert.match(connected.ownerClaim.code ?? "", /^\d{6}$/);
@@ -243,12 +244,14 @@ async function run(): Promise<void> {
 
     applyCallCount = 0;
     const updated = await updateConfigService.execute("user-1", {
+      autoCompactionEnabled: false,
       defaultParseMode: "markdown",
       inboundUserMessagesEnabled: true,
       outboundAssistantMessagesEnabled: false,
       groupReplyMode: "mention_reply",
       notes: "Only outbound notifications for now"
     });
+    assert.equal(updated.configPanel.settings.autoCompactionEnabled, false);
     assert.equal(updated.configPanel.settings.defaultParseMode, "markdown");
     assert.equal(updated.configPanel.settings.outboundAssistantMessagesEnabled, false);
     assert.equal(updated.configPanel.settings.groupReplyMode, "mention_reply");

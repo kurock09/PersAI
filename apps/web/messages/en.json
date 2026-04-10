@@ -312,6 +312,8 @@
     "afterNote2": "Conversations sync with the web chat memory",
     "afterNote3": "You can configure parse mode and message routing",
     "configuration": "Configuration",
+    "autoCompaction": "Auto-compact context",
+    "autoCompactionDesc": "Enabled by default for Telegram. Turn this off if you want to manage context manually with /compact and receive reminders instead.",
     "defaultParseMode": "Default parse mode",
     "plainText": "Plain text",
     "markdown": "Markdown",

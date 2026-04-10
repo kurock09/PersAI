@@ -58,6 +58,13 @@ function buildTelegramCompactionHintCopy(locale: string): string {
     : "If this chat starts slowing down, send /compact to compress older context and keep replies fast.";
 }
 
+function isTelegramAutoCompactionEnabled(config: unknown): boolean {
+  if (config === null || typeof config !== "object" || Array.isArray(config)) {
+    return true;
+  }
+  return (config as Record<string, unknown>).autoCompactionEnabled !== false;
+}
+
 const TELEGRAM_COMPACT_COMMAND_RE = /^\/compact(?:@[A-Za-z0-9_]+)?\s*$/;
 
 function isTelegramCompactSlashCommand(message: string): boolean {
@@ -560,16 +567,24 @@ export class HandleInternalTelegramTurnService {
     threadId: string;
     workspaceId: string;
   }): Promise<string | null> {
-    const [runtimeSessionState, platformSettings] = await Promise.all([
+    const [runtimeSessionState, platformSettings, binding] = await Promise.all([
       this.assistantRuntimeAdapter.getChannelSessionState({
         assistantId: params.assistantId,
         runtimeTier: params.runtimeTier,
         surface: "telegram",
         threadId: params.threadId
       }),
-      this.resolvePlatformRuntimeProviderSettingsService.execute()
+      this.resolvePlatformRuntimeProviderSettingsService.execute(),
+      this.bindingRepository.findByAssistantProviderSurface(
+        params.assistantId,
+        "telegram",
+        "telegram_bot"
+      )
     ]);
     if (!runtimeSessionState.found) {
+      return null;
+    }
+    if (isTelegramAutoCompactionEnabled(binding?.config ?? null)) {
       return null;
     }
     const policy = platformSettings.optimizationPolicy.compaction;

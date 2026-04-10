@@ -129,6 +129,7 @@ export class ConnectTelegramIntegrationService {
         outboundAssistantMessages: true
       },
       config: {
+        autoCompactionEnabled: true,
         defaultParseMode: "plain_text",
         groupReplyMode: "mention_reply",
         notes: null

@@ -2990,11 +2990,15 @@ components:
     TelegramIntegrationConfigSettings:
       type: object
       required:
+        - autoCompactionEnabled
         - defaultParseMode
         - inboundUserMessagesEnabled
         - outboundAssistantMessagesEnabled
+        - groupReplyMode
         - notes
       properties:
+        autoCompactionEnabled:
+          type: boolean
         defaultParseMode:
           type: string
           enum:
@@ -3004,6 +3008,11 @@ components:
           type: boolean
         outboundAssistantMessagesEnabled:
           type: boolean
+        groupReplyMode:
+          type: string
+          enum:
+            - mention_reply
+            - all_messages
         notes:
           type: string
           nullable: true
@@ -3159,6 +3168,8 @@ components:
       type: object
       minProperties: 1
       properties:
+        autoCompactionEnabled:
+          type: boolean
         defaultParseMode:
           type: string
           enum:
@@ -3168,6 +3179,11 @@ components:
           type: boolean
         outboundAssistantMessagesEnabled:
           type: boolean
+        groupReplyMode:
+          type: string
+          enum:
+            - mention_reply
+            - all_messages
         notes:
           type: string
           nullable: true

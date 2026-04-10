@@ -54,6 +54,12 @@ export class UpdateTelegramIntegrationConfigService {
     const source = body as Record<string, unknown>;
     const output: TelegramConfigUpdateInput = {};
 
+    if ("autoCompactionEnabled" in source) {
+      if (typeof source.autoCompactionEnabled !== "boolean") {
+        throw new BadRequestException("autoCompactionEnabled must be boolean.");
+      }
+      output.autoCompactionEnabled = source.autoCompactionEnabled;
+    }
     if ("defaultParseMode" in source) {
       if (source.defaultParseMode !== "plain_text" && source.defaultParseMode !== "markdown") {
         throw new BadRequestException("defaultParseMode must be plain_text or markdown.");
@@ -119,6 +125,9 @@ export class UpdateTelegramIntegrationConfigService {
 
     const nextPolicy = asObject(binding.policy);
     const nextConfig = asObject(binding.config);
+    if (input.autoCompactionEnabled !== undefined) {
+      nextConfig.autoCompactionEnabled = input.autoCompactionEnabled;
+    }
     if (input.inboundUserMessagesEnabled !== undefined) {
       nextPolicy.inboundUserMessages = input.inboundUserMessagesEnabled;
     }
@@ -159,6 +168,7 @@ export class UpdateTelegramIntegrationConfigService {
         providerKey: "telegram",
         surfaceType: "telegram_bot",
         changedFields: {
+          autoCompactionEnabled: input.autoCompactionEnabled !== undefined,
           defaultParseMode: input.defaultParseMode !== undefined,
           inboundUserMessagesEnabled: input.inboundUserMessagesEnabled !== undefined,
           outboundAssistantMessagesEnabled: input.outboundAssistantMessagesEnabled !== undefined,
