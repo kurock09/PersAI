@@ -482,7 +482,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     if (payload.ok !== true) {
       const errorMessage =
         typeof payload.error === "string" ? payload.error : "Web chat compaction failed.";
-      throw new AssistantRuntimeAdapterError("invalid_response", errorMessage);
+      throw new AssistantRuntimeAdapterError("compaction_unavailable", errorMessage);
     }
     const result = isObject(payload.result) ? payload.result : {};
     const state = isObject(payload.state) ? payload.state : {};
@@ -532,7 +532,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     if (payload.ok !== true) {
       const errorMessage =
         typeof payload.error === "string" ? payload.error : "Telegram channel compaction failed.";
-      throw new AssistantRuntimeAdapterError("invalid_response", errorMessage);
+      throw new AssistantRuntimeAdapterError("compaction_unavailable", errorMessage);
     }
     const result = isObject(payload.result) ? payload.result : {};
     const state = isObject(payload.state) ? payload.state : {};

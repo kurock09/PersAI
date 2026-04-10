@@ -103,7 +103,9 @@
     "compactionPhaseStart": "Compacting context",
     "compactionPhaseDone": "Context compaction finished",
     "compactionPhaseEnded": "Compaction pass ended",
-    "compactionWillRetry": "Retrying reply with smaller context"
+    "compactionWillRetry": "Retrying reply with smaller context",
+    "issueCompactionUnavailable": "Context compaction did not complete.",
+    "issueCompactionUnavailableGuidance": "Send a normal message in this thread, wait for a reply, then try “Compact now” again."
   },
   "sidebar": {
     "defaultAssistant": "Your Assistant",

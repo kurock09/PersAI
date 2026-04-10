@@ -276,6 +276,15 @@ export function ChatArea({
                   )}
                 </p>
               </>
+            ) : chat.issue.classId === "compaction_unavailable" ? (
+              <>
+                <p className="text-sm font-medium text-destructive">
+                  {t("issueCompactionUnavailable")}
+                </p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  {t("issueCompactionUnavailableGuidance")}
+                </p>
+              </>
             ) : (
               <>
                 <p className="text-sm font-medium text-destructive">{chat.issue.message}</p>

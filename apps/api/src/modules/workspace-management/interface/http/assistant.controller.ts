@@ -60,6 +60,7 @@ import type {
   AssistantWebChatTurnState
 } from "../../application/web-chat.types";
 import type { TelegramIntegrationState } from "../../application/telegram-integration.types";
+import { toAssistantInboundHttpException } from "../../application/assistant-inbound-error";
 import { OpenClawRuntimeAdapter } from "../../infrastructure/openclaw/openclaw-runtime.adapter";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
@@ -806,12 +807,20 @@ export class AssistantController {
       typeof (body as { instructions?: unknown }).instructions === "string"
         ? (body as { instructions: string }).instructions.trim() || undefined
         : undefined;
-    const response = await this.manageWebChatListService.compactChat(userId, chatId, instructions);
-    return {
-      requestId: req.requestId ?? null,
-      state: response.state,
-      result: response.result
-    };
+    try {
+      const response = await this.manageWebChatListService.compactChat(
+        userId,
+        chatId,
+        instructions
+      );
+      return {
+        requestId: req.requestId ?? null,
+        state: response.state,
+        result: response.result
+      };
+    } catch (error) {
+      throw toAssistantInboundHttpException(error);
+    }
   }
 
   @Patch("assistant/chats/web/:chatId")

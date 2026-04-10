@@ -227,6 +227,7 @@ export type WebChatUxIssueClass =
   | "tool_failure"
   | "channel_failure"
   | "stream_incomplete"
+  | "compaction_unavailable"
   | "unknown";
 
 export interface WebChatUxIssue {
@@ -399,6 +400,15 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
       classId: "quota_limit_reached",
       message: "Requests are temporarily limited right now.",
       guidance: "Wait a moment, then retry the same thread."
+    };
+  }
+
+  if (code === "compaction_unavailable") {
+    return {
+      classId: "compaction_unavailable",
+      message: rawMessage,
+      guidance:
+        "If the runtime session is not ready yet, send a normal message in this thread and try again."
     };
   }
 
@@ -580,6 +590,19 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
       classId: "stream_incomplete",
       message: "Streaming ended before a full answer was completed.",
       guidance: "Use the partial response as context and retry in the same thread."
+    };
+  }
+
+  if (
+    normalized.includes("compaction") ||
+    normalized.includes("compact") ||
+    normalized.includes("active runtime session")
+  ) {
+    return {
+      classId: "compaction_unavailable",
+      message: typeof error === "string" ? error : rawMessage,
+      guidance:
+        "Context compaction could not finish. Send a normal message in this thread, wait for a reply, then try “Compress now” again."
     };
   }
 

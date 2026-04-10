@@ -103,7 +103,9 @@
     "compactionPhaseStart": "Сжимаем контекст",
     "compactionPhaseDone": "Сжатие контекста завершено",
     "compactionPhaseEnded": "Проход сжатия завершён",
-    "compactionWillRetry": "Повторяем ответ с меньшим контекстом"
+    "compactionWillRetry": "Повторяем ответ с меньшим контекстом",
+    "issueCompactionUnavailable": "Не удалось сжать контекст.",
+    "issueCompactionUnavailableGuidance": "Отправь обычное сообщение в этом чате, дождись ответа и снова нажми «Сжать сейчас»."
   },
   "sidebar": {
     "defaultAssistant": "Твой ассистент",

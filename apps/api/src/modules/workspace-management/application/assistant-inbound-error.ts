@@ -99,6 +99,15 @@ function normalizeRuntimeAdapterError(error: AssistantRuntimeAdapterError): {
           message: "Runtime returned an invalid response."
         }
       };
+    case "compaction_unavailable":
+      return {
+        status: HttpStatus.CONFLICT,
+        error: {
+          code: "compaction_unavailable",
+          category: "conflict",
+          message: error.message
+        }
+      };
     case "runtime_unreachable":
     default:
       return {

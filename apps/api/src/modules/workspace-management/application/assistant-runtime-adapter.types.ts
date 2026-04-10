@@ -5,7 +5,8 @@ export type AssistantRuntimeErrorCode =
   | "auth_failure"
   | "timeout"
   | "invalid_response"
-  | "runtime_degraded";
+  | "runtime_degraded"
+  | "compaction_unavailable";
 
 export class AssistantRuntimeAdapterError extends Error {
   constructor(

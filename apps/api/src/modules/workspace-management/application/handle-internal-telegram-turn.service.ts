@@ -431,6 +431,18 @@ export class HandleInternalTelegramTurnService {
     return null;
   }
 
+  private localizeOpenClawCompactionReason(locale: "ru" | "en", reason: string | null): string {
+    const r = (reason ?? "").trim();
+    if (locale !== "ru" || r.length === 0) {
+      return r;
+    }
+    const lower = r.toLowerCase();
+    if (lower.includes("already compacted")) {
+      return "контекст уже был сжат";
+    }
+    return r;
+  }
+
   private async executeTelegramCompactCommand(params: {
     resolved: {
       assistantId: string;
@@ -452,6 +464,7 @@ export class HandleInternalTelegramTurnService {
       });
       const respondedAt = new Date().toISOString();
       let assistantMessage: string;
+      const localizedReason = this.localizeOpenClawCompactionReason(locale, outcome.reason);
       if (locale === "ru") {
         if (outcome.compacted) {
           if (outcome.tokensBefore !== null && outcome.tokensAfter !== null) {
@@ -461,8 +474,8 @@ export class HandleInternalTelegramTurnService {
           }
         } else {
           assistantMessage =
-            outcome.reason && outcome.reason.trim().length > 0
-              ? `Сжатие не потребовалось: ${outcome.reason.trim()}`
+            localizedReason.length > 0
+              ? `Сжатие не потребовалось: ${localizedReason}.`
               : "Сжатие не потребовалось.";
         }
       } else if (outcome.compacted) {
@@ -473,8 +486,8 @@ export class HandleInternalTelegramTurnService {
         }
       } else {
         assistantMessage =
-          outcome.reason && outcome.reason.trim().length > 0
-            ? `Compaction skipped: ${outcome.reason.trim()}`
+          localizedReason.length > 0
+            ? `Compaction skipped: ${localizedReason}.`
             : "Compaction was not needed.";
       }
 
@@ -499,7 +512,9 @@ export class HandleInternalTelegramTurnService {
       const errMsg = error instanceof Error ? error.message : String(error);
       const sessionMissing =
         error instanceof AssistantRuntimeAdapterError &&
-        (errMsg.includes("active runtime session") || errMsg.includes("Compaction is unavailable"));
+        (error.code === "compaction_unavailable" ||
+          errMsg.includes("active runtime session") ||
+          errMsg.includes("Compaction is unavailable"));
       const assistantMessage =
         locale === "ru"
           ? sessionMissing
@@ -580,11 +595,19 @@ export class HandleInternalTelegramTurnService {
     return buildTelegramCompactionHintCopy(await this.resolveWorkspaceLocale(params.workspaceId));
   }
 
-  private async resolveWorkspaceLocale(workspaceId: string): Promise<string> {
+  private async resolveWorkspaceLocale(workspaceId: string): Promise<"ru" | "en"> {
     const workspace = await this.prisma.workspace.findUnique({
       where: { id: workspaceId },
       select: { locale: true }
     });
-    return workspace?.locale === "ru" ? "ru" : "en";
+    const raw = workspace?.locale;
+    if (typeof raw !== "string") {
+      return "en";
+    }
+    const norm = raw.trim().toLowerCase();
+    if (norm === "ru" || norm.startsWith("ru-")) {
+      return "ru";
+    }
+    return "en";
   }
 }
