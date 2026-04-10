@@ -1,5 +1,12 @@
 # SESSION-HANDOFF
 
+## 2026-04-10 - Compaction 409 + Telegram RU for skip reasons
+
+- OpenClaw `ok: false` on manual web/channel compact is no longer misclassified as generic `invalid_response` / HTTP 500; API returns **409** `compaction_unavailable`, web shows localized compaction banner (not “chat turn failed”).
+- Telegram `/compact`: `workspace.locale` normalized for `ru` / `ru-*`; Russian replies localize common skip text such as “Already compacted”.
+
+---
+
 ## 2026-04-09 - Web compaction banner (token-first) + manual compact UX
 
 ### What changed
