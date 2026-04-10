@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-04-10 - SR10a OpenClaw pre-first-delta trace instrumentation
+
+### What changed
+
+1. **OpenClaw fork:** `runEmbeddedAttempt()` now emits internal runtime trace stages around the exact pre-first-delta path we isolated during live investigation: sandbox resolution, skills prompt resolution, bootstrap context build, tool/runtime construction, system prompt build, session-manager open, context-engine ready, and `prompt_enter`.
+2. **PersAI-visible runtime trace:** the PersAI runtime bridge now maps those `internal_stage` events into `runtimeTrace` stage keys under `agent_turn.*`, so `/admin` trace samples can separate native OpenClaw setup time from the actual OpenAI stream.
+3. **Fork maintenance guard:** `openclaw/scripts/verify-persai-patches.mjs` and `openclaw/docs/PERSAI-FORK-PATCHES.md` were updated so this new higher-risk native trace seam is documented and survives future upstream sync/review passes.
+
+### Why
+
+1. Live evidence already ruled out OpenAI transport, workspace I/O, MCP/LSP startup, and Docker daemon latency as the main cause of the multi-second `attachment_context -> first_delta` gap.
+2. The remaining blind spot sat inside native OpenClaw execution between PersAI entering the runtime request context and `activeSession.prompt(...)`.
+3. Without native internal stages, the dominant latency bucket stayed opaque and further mitigation would have been guesswork.
+
+### Pin / deploy
+
+- `infra/dev/gitops/openclaw-approved-sha.txt` → `0c8099ce7c7075a8ac811ab4a4c1c6abb7924f89` (internal pre-first-delta trace instrumentation). Do not hand-edit `values-dev.yaml`; let `openclaw-dev-image-publish` rebuild and repin the image after merge.
+
+### Push order
+
+- Push **OpenClaw** `main` first, then **PersAI** `main`. PersAI CI is expected to rebuild/re-pin the OpenClaw dev image from the approved SHA.
+
+---
+
 ## 2026-04-10 - Web manual-only compaction + Telegram auto-compaction toggle
 
 ### What changed
