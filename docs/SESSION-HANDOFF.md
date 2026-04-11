@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-04-11 - ADR-072 Step 9 dev GitOps rollout and bounded live sync smoke
+
+### What changed
+
+1. Completed the normal `main -> CI -> Dev Image Publish -> Argo CD` rollout for the current Step 9 baseline. Dev now runs `apps/api`, `apps/runtime`, and `apps/provider-gateway` together on the pinned native-runtime image set, and Argo CD reports the app `Synced` / `Healthy`.
+2. Verified the live dev migration seams in cluster: `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`, `PERSAI_RUNTIME_BASE_URL=http://runtime:3012`, `PERSAI_RUNTIME_TURN_TIMEOUT_MS=90000`, and `PERSAI_PROVIDER_GATEWAY_BASE_URL=http://provider-gateway:3011`; `api`, `runtime`, and `provider-gateway` all returned healthy `/ready` responses.
+3. Ran a bounded authenticated live smoke against `POST /api/v1/assistant/chat/web` using a fresh Clerk-backed user: onboarding, assistant create/draft/publish, runtime preflight, one real sync web turn, then replay of the same payload with the same `clientTurnId`.
+4. The first sync turn returned exactly `native sync smoke ok`, `publish.assistant.runtimeApply.status` was `succeeded`, and `assistant/runtime/preflight` returned `live: true, ready: true`.
+5. The replay request returned the same `chatId` and the same `assistantMessageId` as the first call. Follow-up `GET /api/v1/assistant/chats/web/:chatId/messages` showed exactly one user message and one assistant message, so replay semantics held without duplicate persistence.
+6. Confirmed the enabled sync branch is honest: when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`, `SendWebChatTurnService.executeSyncRuntimeTurn(...)` goes directly to `SendNativeWebChatTurnService.execute(...)`, which posts to native runtime `POST /api/v1/turns/create`; the enabled sync path does not silently fall back to legacy OpenClaw request-time execution.
+7. Pushed the previously missing `.cursor/rules/adr072-runtime-continuity.mdc` docs-only commit on top of the auto-generated GitOps revision so remote `main` is again the source of truth for the current ADR-072 state.
+
+### Why
+
+1. Step 9 needed one honest dev-GKE proof point before the next session starts stream-path work; manifests and focused tests were no longer enough on their own.
+2. The successful bounded smoke proves the current sync native path, apply/warm flow, runtime/provider-gateway readiness, and replay persistence all work together on real dev infrastructure.
+3. Keeping this validation limited to the sync endpoint preserves scope: Step 9 can now move to `streamTurn` without pretending the default web UX has already cut over.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 9 — Implement native web createTurn and streamTurn`
+
+### Files touched
+
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+
+### Tests run
+
+- `gh run list --branch main --limit 12`
+- `kubectl wait --for=condition=complete --timeout=600s job/api-migrate -n persai-dev`
+- `kubectl rollout status deployment/api -n persai-dev --timeout=600s`
+- `kubectl rollout status deployment/runtime -n persai-dev --timeout=600s`
+- `kubectl rollout status deployment/provider-gateway -n persai-dev --timeout=600s`
+- `kubectl exec -n persai-dev deployment/api -- node -e "...fetch('http://provider-gateway:3011/ready')...fetch('http://runtime:3012/ready')..."`
+- `kubectl exec -n persai-dev deployment/web -- node -e "...fetch('http://api:3001/ready')...fetch('http://api:3001/health')..."`
+- `Invoke-WebRequest -UseBasicParsing https://api.persai.dev/ready | Select-Object -ExpandProperty Content`
+- `node C:\\Users\\alex\\AppData\\Local\\Temp\\clerk-playwright-smoke\\persai_step9_smoke.cjs`
+- `node C:\\Users\\alex\\AppData\\Local\\Temp\\clerk-playwright-smoke\\fetch_chat_messages.cjs`
+
+### Risks
+
+1. Step 9 is still partial: the validated native path is only sync `POST /api/v1/assistant/chat/web`; ordinary web UI still sends `POST /api/v1/assistant/chat/web/stream`, so the default web UX remains on the legacy path.
+2. The successful smoke is text-only and attachment-free. Native stream, native attachment refs, runtime media artifacts on the sync path, and Step 10 web cutover are still unfinished.
+3. The explicit migration seams (`PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`, `PERSAI_RUNTIME_BASE_URL`, `PERSAI_PROVIDER_GATEWAY_BASE_URL`, and timeout settings) still exist and must be deleted once Step 9/10 closes.
+
+### Next recommended step
+
+- Implement the native `streamTurn` API path and the matching bounded dev validation: add the Step 9 native `POST /api/v1/assistant/chat/web/stream` route over the same API-owned persistence/replay model, then move the default web UX off legacy stream execution only after that stream path is proven on dev.
+
+### Ready commit message
+
+- `docs: record adr-072 step 9 dev rollout smoke`
+
+---
+
 ## 2026-04-11 - ADR-072 Step 9 API sync native cutover flag
 
 ### What changed
