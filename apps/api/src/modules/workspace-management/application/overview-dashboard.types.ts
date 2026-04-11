@@ -65,6 +65,38 @@ export type OverviewLatencyTraceState = {
   recent: OverviewLatencyTraceEntry[];
 };
 
+export type WebRuntimeShadowComparisonRoute = "sync" | "stream";
+
+export type WebRuntimeShadowExecutionSummary = {
+  status: "completed" | "failed";
+  runtimeMs: number;
+  firstDeltaMs: number | null;
+  deltaCount: number | null;
+  code: string | null;
+  preview: string | null;
+};
+
+export type WebRuntimeShadowComparisonEntry = {
+  comparisonId: string;
+  route: WebRuntimeShadowComparisonRoute;
+  verdict: "match" | "mismatch";
+  assistantId: string;
+  threadKey: string;
+  clientTurnId: string | null;
+  comparedAt: string;
+  contentMatch: boolean;
+  errorClassMatch: boolean;
+  terminalMatch: boolean;
+  primary: WebRuntimeShadowExecutionSummary;
+  shadow: WebRuntimeShadowExecutionSummary;
+};
+
+export type WebRuntimeShadowComparisonState = {
+  sampleLimit: number;
+  updatedAt: string | null;
+  recent: WebRuntimeShadowComparisonEntry[];
+};
+
 export type AdminOverviewDataSource = {
   scope: "api_instance_local";
   instanceId: string;
@@ -75,6 +107,7 @@ export type AdminOverviewDashboardState = {
   dataSource: AdminOverviewDataSource;
   latency: OverviewLatencySnapshot;
   latencyTrace: OverviewLatencyTraceState;
+  webRuntimeShadowComparisons: WebRuntimeShadowComparisonState;
   activeUsers: number;
   activeWebChats: number;
   runtime: {

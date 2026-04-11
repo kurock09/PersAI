@@ -15,6 +15,7 @@ import {
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
 import type { RuntimeTier } from "./runtime-assignment";
+import { getWebChatSyncRuntimeMode, type WebChatRuntimeMode } from "./web-runtime-mode";
 
 export interface SendNativeWebChatTurnInput {
   assistantId: string;
@@ -44,8 +45,8 @@ export class SendNativeWebChatTurnService {
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository
   ) {}
 
-  isEnabled(): boolean {
-    return loadApiConfig(process.env).PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED;
+  getMode(): WebChatRuntimeMode {
+    return getWebChatSyncRuntimeMode();
   }
 
   async execute(input: SendNativeWebChatTurnInput): Promise<AssistantRuntimeWebChatTurnResult> {

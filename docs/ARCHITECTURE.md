@@ -51,7 +51,7 @@ It is not part of backend domain logic.
 - `assistant_materialized_specs` now dual-writes a PersAI-native `runtimeBundle` beside the legacy `openclawBootstrap` / `openclawWorkspace` artifacts.
 - the native bundle is the future runtime artifact for the PersAI-native execution plane
 - the legacy OpenClaw artifacts remain only as a migration boundary while request-time execution still routes through the existing adapter
-- active request-time apply, preview, web chat, Telegram, media, and session paths are still legacy until later ADR-072 slices cut traffic over
+- active request-time apply, preview, Telegram, media, and session paths are still legacy; web chat is now the first boundary in partial Step 10 migration with explicit `legacy|shadow|native` route modes while full cutover remains in progress
 
 ## ADR-072 execution-plane bootstrap boundary
 
@@ -158,16 +158,19 @@ It is not part of backend domain logic.
   - runtime readiness/metrics now treat provider gateway as an active dependency through `RUNTIME_PROVIDER_GATEWAY_BASE_URL`
 - Step 9 now also has its first API-side native consumer:
   - `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts` builds native `RuntimeTurnRequest` payloads and calls `POST /api/v1/turns/create`
-  - `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts` routes sync web turns to that native path when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`
-  - the API boundary keeps canonical replay/message persistence and quota/media ownership, and skips legacy bootstrap consumption on native success
+  - `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts` now uses the Step 10 route mode seam `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=legacy|shadow|native`
+  - `shadow` keeps OpenClaw as the user-visible primary sync path while queueing a native comparison run and logging `web_runtime_shadow_compare`
+  - `native` keeps canonical replay/message persistence and quota/media ownership while skipping legacy bootstrap consumption on successful native execution
   - optional quota degrade provider/model overrides are now carried through the native runtime request instead of being dropped at the cutover boundary
 - Step 9 now also has the first native streaming chain:
   - `apps/provider-gateway/src/modules/providers/interface/http/provider-text-generation.controller.ts` exposes `POST /api/v1/providers/stream-text`
   - `apps/runtime/src/modules/turns/interface/http/turns.controller.ts` now also exposes `POST /api/v1/turns/stream`
   - `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts` maps native NDJSON stream events back into the existing API-owned `delta` / `done` web stream contract
-  - `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` routes `POST /api/v1/assistant/chat/web/stream` to that native path when `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`
-  - the API stream boundary still owns canonical replay/message persistence, SSE shaping, media delivery, and honest interruption handling; successful native stream completion also skips legacy bootstrap consumption
-- the remaining Step 9/10 work is now bounded to live validation of the new stream path, attachment execution, default-path cutover cleanup, and removal of the temporary Step 7 API activation seams.
+  - `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` now uses the Step 10 route mode seam `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=legacy|shadow|native`
+  - `shadow` keeps OpenClaw as the user-visible primary stream path while queueing a native comparison run and logging `web_runtime_shadow_compare`
+  - the API stream boundary still owns canonical replay/message persistence, SSE shaping, media delivery, and honest interruption handling; successful native stream completion skips legacy bootstrap consumption only when native is the primary path
+- Step 9 native sync and native stream web paths have now both passed bounded dev-GKE live validation, including stream replay/idempotency and disconnect persistence checks.
+- the remaining Step 10+ work is now bounded to dev shadow-parity inspection, default-path cutover to native web execution, removal of the temporary route modes plus the remaining Step 7 API activation seams, and later attachment execution.
 - Postgres is the durable authority for session summaries and turn receipts; stale or missing Redis pointers/markers may be rebuilt from Postgres instead of introducing filesystem or OpenClaw-era session truth.
 
 ## Planned runtime segmentation boundary (Step 15)
@@ -225,9 +228,11 @@ It is not part of backend domain logic.
   - `POST /api/v1/assistant/chat/web`
 - default legacy transport still targets the OpenClaw runtime bridge:
   - `POST /api/v1/runtime/chat/web`
-- ADR-072 Step 9 adds a flagged native alternative for the same API boundary:
-  - `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true` routes sync turns to `apps/runtime` `POST /api/v1/turns/create`
-  - when that flag is on there is no silent per-request fallback to OpenClaw inside the sync path
+- ADR-072 Step 10 now carries the sync web boundary through explicit route modes:
+  - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=legacy` keeps sync turns on the OpenClaw bridge
+  - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=shadow` keeps OpenClaw primary and queues a native comparison run
+  - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=native` routes sync turns to `apps/runtime` `POST /api/v1/turns/create`
+  - in `native` mode there is no silent per-request fallback to OpenClaw inside the sync path
 - backend persists canonical chat/message records before/after runtime turn
 - transport is synchronous in C2 (no streaming)
 
@@ -238,10 +243,12 @@ It is not part of backend domain logic.
 - backend streams transport events to web UI and keeps canonical record ownership
 - adapter boundary remains explicit for runtime stream:
   - `POST /api/v1/runtime/chat/web/stream`
-- ADR-072 Step 9 now adds a flagged native alternative for the same API boundary:
-  - `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true` routes web stream turns to `apps/runtime` `POST /api/v1/turns/stream`
+- ADR-072 Step 10 now carries the stream web boundary through explicit route modes:
+  - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=legacy` keeps web stream turns on the OpenClaw bridge
+  - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=shadow` keeps OpenClaw primary and queues a native comparison run
+  - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=native` routes web stream turns to `apps/runtime` `POST /api/v1/turns/stream`
   - `apps/runtime` reaches `apps/provider-gateway` `POST /api/v1/providers/stream-text` for provider text streaming
-  - when the flag is on there is no silent per-request fallback to OpenClaw inside the API stream path
+  - in `native` mode there is no silent per-request fallback to OpenClaw inside the API stream path
 - external web SSE events remain API-owned (`started`, `delta`, `thinking`, `runtime_done`, `completed`, `interrupted`, `failed`) even when the underlying runtime execution is native
 - interruption/failure is represented honestly and partial output can be persisted with explicit marker records
 

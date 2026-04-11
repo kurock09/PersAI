@@ -526,6 +526,7 @@ Behavior baseline:
 ## SR10 latency trace boundary
 
 - `GET /api/v1/admin/overview/dashboard` now returns `latencyTrace` state alongside the existing overview snapshot.
+- The same dashboard response now also returns `webRuntimeShadowComparisons`, a bounded pod-local in-memory Step 10 read model for recent sync/stream `shadow` parity samples.
 - The dashboard response also includes `dataSource` metadata for the currently serving PersAI API instance so admin UI can label pod-local telemetry honestly when multiple `api` pods are behind one service.
 - `POST /api/v1/admin/overview/latency-trace` is the single admin control-plane toggle for bounded delay investigation.
 - The trace toggle is intentionally off by default; when disabled, PersAI and OpenClaw do not collect per-stage timing samples for this surface.
@@ -537,6 +538,10 @@ Behavior baseline:
 - OpenClaw treats that header as the only runtime-side trace enablement signal for the PersAI bridge; there is no separate runtime env flag for this slice.
 - Sync runtime responses may include `runtimeTrace` in the JSON payload; stream runtime responses may include `runtimeTrace` in the final `done` NDJSON event.
 - PersAI merges returned OpenClaw stages into the same admin overview trace sample so operators can inspect PersAI-side stages and OpenClaw runtime stages in one place.
+- Step 10 `shadow` comparison samples stay deliberately bounded and pod-local:
+  - source: `WebRuntimeShadowComparisonService` records the same sync/stream comparison result that is logged as `web_runtime_shadow_compare`
+  - scope: recent in-memory diagnostics only, not a durable telemetry store or cluster-wide aggregate
+  - intent: reduce log hunting before the later bounded dev `shadow` validation/cutover decision
 - Current semantics stay intentionally explicit: trace memory, request histograms, queue pressure, process health, and flap counters are **API-instance-local** (`scope = api_instance_local`), not cluster-aggregated.
 - The web `/api/v1` proxy may keep `/admin/overview/*` requests sticky to one reported API pod while that pod remains reachable, so refresh/toggle flows stay aligned with the same in-memory trace state instead of round-robining across pods on every request.
 - `/admin` may also expose an explicit debug routing choice for overview requests: default `Auto (sticky)`, one-shot `Probe service` to discover another serving pod, and manual pinning to a previously discovered pod-local source. This is a diagnostics aid only and does not change the non-aggregated semantics of the underlying metrics/trace state.
@@ -1269,7 +1274,7 @@ Behavior baseline:
   - Redis pointers and markers are hot-path accelerators that may be refreshed or rebuilt from Postgres when stale or missing
 - Step 8 itself still added no request-path controller/HTTP surface; the first Step 9 execution seams are documented below.
 
-## ADR-072 Step 9 native web runtime boundary (sync + stream sub-steps)
+## ADR-072 Step 9-10 native web runtime boundary
 
 - Step 9 now has both dark-service internal execution seams and flagged API sync/stream cutover consumers.
 - `apps/provider-gateway` now exposes `POST /api/v1/providers/generate-text`:
@@ -1302,28 +1307,32 @@ Behavior baseline:
   - runtime execution order matches sync up to acceptance and bundle/provider resolution, then yields provider-gateway stream deltas before terminal finalization
   - replayed completed receipts return a terminal `completed` event from the stored `RuntimeTurnResult`
   - replayed failed/interrupted/accepted states and active busy/in-flight states currently surface as conflicts in this Step 9 sub-step
-- authenticated `POST /api/v1/assistant/chat/web` now has an explicit Step 9 migration mode:
-  - when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=false`, sync web turns still use the legacy OpenClaw runtime bridge
-  - when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`, sync web turns call `apps/runtime` `POST /api/v1/turns/create` through `SendNativeWebChatTurnService`
-  - on the flagged native path, `apps/api` still owns replay claim, canonical user/assistant message persistence, quota accounting, and media delivery
-  - on the flagged native path there is no silent per-request fallback back to OpenClaw; missing runtime config or runtime failure surfaces as an honest error
-  - on the flagged native path, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
-  - current Step 9 sync cutover still sends attachment context as enriched text and does not yet pass object-storage attachment refs into native runtime
-- authenticated `POST /api/v1/assistant/chat/web/stream` now also has an explicit Step 9 migration mode:
-  - when `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=false`, web stream turns still use the legacy OpenClaw runtime bridge
-  - when `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`, web stream turns call `apps/runtime` `POST /api/v1/turns/stream` through `StreamNativeWebChatTurnService`
-  - on the flagged native stream path, `apps/api` still owns replay claim, canonical user/assistant message persistence, quota accounting, media delivery, SSE event shaping, and interruption handling
-  - on the flagged native stream path there is no silent per-request fallback back to OpenClaw; missing runtime config, invalid native stream payloads, or runtime/provider failures surface as honest errors
-  - on the flagged native stream path, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
-  - current Step 9 stream cutover still sends attachment context as enriched text and does not yet pass object-storage attachment refs into native runtime
+- authenticated `POST /api/v1/assistant/chat/web` now has the Step 10 sync route mode boundary:
+  - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=legacy` keeps sync web turns on the OpenClaw runtime bridge
+  - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=shadow` keeps OpenClaw as the user-visible primary path while queueing one native comparison run through `SendNativeWebChatTurnService`
+  - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=native` routes sync web turns to `apps/runtime` `POST /api/v1/turns/create` through `SendNativeWebChatTurnService`
+  - in both `shadow` and `native`, `apps/api` still owns replay claim, canonical user/assistant message persistence, quota accounting, and media delivery
+  - in `shadow`, API logs `web_runtime_shadow_compare` so content, latency, and error-class drift can be inspected without changing the user-visible reply source
+  - in `native`, there is no silent per-request fallback back to OpenClaw; missing runtime config or runtime failure surfaces as an honest error
+  - in `native`, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
+  - current native sync path still sends attachment context as enriched text and does not yet pass object-storage attachment refs into native runtime
+- authenticated `POST /api/v1/assistant/chat/web/stream` now has the Step 10 stream route mode boundary:
+  - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=legacy` keeps web stream turns on the OpenClaw runtime bridge
+  - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=shadow` keeps OpenClaw as the user-visible primary path while queueing one native comparison run through `StreamNativeWebChatTurnService`
+  - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=native` routes web stream turns to `apps/runtime` `POST /api/v1/turns/stream` through `StreamNativeWebChatTurnService`
+  - in both `shadow` and `native`, `apps/api` still owns replay claim, canonical user/assistant message persistence, quota accounting, media delivery, SSE event shaping, and interruption handling
+  - in `shadow`, API logs `web_runtime_shadow_compare` so stream completeness, latency, and error-class drift can be inspected without changing the user-visible reply source
+  - in `native`, there is no silent per-request fallback back to OpenClaw; missing runtime config, invalid native stream payloads, or runtime/provider failures surface as honest errors
+  - in `native`, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
+  - current native stream path still sends attachment context as enriched text and does not yet pass object-storage attachment refs into native runtime
 - runtime readiness/metrics are now execution-aware:
   - `executionEnabled` is `true`
   - `providerCacheReady` depends on provider-gateway `/ready`
   - runtime reaches provider gateway through `RUNTIME_PROVIDER_GATEWAY_BASE_URL`, `RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS`, and `RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS`
-- temporary Step 7/9 API activation seams still remain during this partial Step 9 state:
-  - why: sync and stream API cutovers are still explicitly flagged, and provider-gateway warmup remains a temporary Step 7 activation seam until native runtime/provider-gateway are mandatory defaults
-  - where: `PERSAI_RUNTIME_BASE_URL`, `PERSAI_RUNTIME_TURN_TIMEOUT_MS`, `PERSAI_RUNTIME_STREAM_TIMEOUT_MS`, `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`, `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED`, and `PERSAI_PROVIDER_GATEWAY_BASE_URL` in API config plus the existing Step 7 sync services
-  - removal/upgrade: later Step 9/10 work makes native runtime/provider-gateway mandatory for the default web path and deletes the remaining `unset => skip` / feature-flag behavior
+- temporary Step 7/10 API activation seams still remain during this partial Step 10 state:
+  - why: sync and stream web execution is still migrating from legacy bridge to native default, and provider-gateway warmup remains a temporary Step 7 activation seam until native runtime/provider-gateway are mandatory defaults
+  - where: `PERSAI_RUNTIME_BASE_URL`, `PERSAI_RUNTIME_TURN_TIMEOUT_MS`, `PERSAI_RUNTIME_STREAM_TIMEOUT_MS`, `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE`, `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE`, and `PERSAI_PROVIDER_GATEWAY_BASE_URL` in API config plus the existing Step 7 sync services
+  - removal/upgrade: later Step 10 cutover makes native runtime/provider-gateway mandatory for the default web path and deletes the remaining legacy/shadow route modes plus the `unset => skip` behavior
 - not included yet:
   - attachment/media execution inside native runtime
   - Step 10 shadow/primary traffic cutover

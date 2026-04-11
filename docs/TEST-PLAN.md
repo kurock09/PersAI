@@ -134,8 +134,8 @@ Required in CI:
   - lease acquisition and in-flight accepted-turn claim happen together
   - same-idempotency retries in that small window now surface as `in_flight` instead of generic `busy`
 - Step 8 is now complete as an internal runtime-state package, while Step 9 is now the first request-path consumer of these services:
-  - `apps/runtime` now owns native `createTurn` and `streamTurn` paths
-  - `apps/api` can route sync and stream web turns to those native paths behind `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED` / `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED`
+- `apps/runtime` now owns native `createTurn` and `streamTurn` paths
+- `apps/api` now carries those native web paths behind the temporary Step 10 route modes (`PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE`, `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE`)
   - Step 9 verification now must preserve API-owned replay/message persistence semantics while confirming the native runtime path honors optional provider/model override routing and honest stream interruption/failure behavior
 - Durable authority stays explicit:
   - Postgres remains the source of truth for session summaries and turn receipts
@@ -172,10 +172,46 @@ Required in CI:
   - `corepack pnpm --filter @persai/provider-gateway run test`
   - `corepack pnpm --filter @persai/runtime run test`
   - `corepack pnpm --filter @persai/api run test`
-- Still required after local verification:
-  - one bounded dev-GKE smoke with `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`
-  - replay/idempotency proof on `POST /api/v1/assistant/chat/web/stream`
-  - one disconnect/interruption proof for the native stream path
+- Step 9 live proof is complete:
+  - bounded dev-GKE sync and stream smokes already passed
+  - replay/idempotency proof already exists for both `POST /api/v1/assistant/chat/web` and `POST /api/v1/assistant/chat/web/stream`
+  - disconnect/interruption persistence proof already exists for the native stream path
+
+## Step 10 web shadow/cutover focus
+
+- API web routing is now mode-driven instead of boolean-flag-driven:
+  - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=legacy|shadow|native`
+  - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=legacy|shadow|native`
+- Current dev rollout target for the next bounded validation window:
+  - `infra/helm/values-dev.yaml` sets both web runtime modes to `shadow`
+- `shadow` mode keeps OpenClaw as the user-visible primary path while queueing a native comparison run that logs `web_runtime_shadow_compare` for content, latency, stream completeness, and error-class drift.
+- Admin Overview now also exposes a bounded pod-local Step 10 shadow read model:
+  - `GET /api/v1/admin/overview/dashboard` returns `webRuntimeShadowComparisons`
+  - `/admin` should render recent sync/stream parity samples from the same API pod that captured them
+- `native` mode keeps the Step 9 no-fallback rule:
+  - sync turns route to `apps/runtime` `POST /api/v1/turns/create`
+  - stream turns route to `apps/runtime` `POST /api/v1/turns/stream`
+- Focused Step 10 regressions for this sub-step:
+  - `apps/api/test/send-web-chat-turn.service.test.ts`
+  - `apps/api/test/stream-web-chat-turn.service.test.ts`
+  - `apps/api/test/resolve-admin-overview-dashboard.service.test.ts`
+  - `apps/api/test/web-runtime-shadow-comparison.service.test.ts`
+  - `apps/api/test/send-native-web-chat-turn.service.test.ts`
+  - `apps/api/test/stream-native-web-chat-turn.service.test.ts`
+- Minimum verification for this sub-step:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-overview-dashboard.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/web-runtime-shadow-comparison.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/send-native-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts`
+- Still required after this sub-step:
+  - deploy the current Step 10 package so dev actually picks up the `shadow` route-mode config
+  - inspect `web_runtime_shadow_compare`, `web_runtime_route`, and Admin Overview `webRuntimeShadowComparisons` for sync and stream parity
+  - decide the first honest default-path cutover target (`stream` first vs sync+stream together)
+  - remove the remaining temporary web route modes only after native web execution is the ordinary path
 
 ## Step 1 focus
 

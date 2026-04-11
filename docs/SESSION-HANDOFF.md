@@ -1,5 +1,250 @@
 # SESSION-HANDOFF
 
+## 2026-04-11 - ADR-072 Step 10 dev shadow window GitOps prep
+
+### What changed
+
+1. Checked the real `persai-dev` state before attempting Step 10 live validation: the deployed `api` still runs the old Step 9 booleans (`PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`, `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`) and does not yet expose the Step 10 route-mode seam in cluster.
+2. Updated `infra/helm/values-dev.yaml` so the next honest dev rollout will set both `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE` and `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE` to `shadow` instead of `native`.
+3. Refreshed `CHANGELOG`, `TEST-PLAN`, and `LIVE-TEST-HYBRID` so repo truth now says the next bounded dev rollout is a temporary `shadow` window inspected through logs plus Admin Overview `webRuntimeShadowComparisons`.
+4. Re-ran Helm render checks after the config flip so the pending dev GitOps package is locally render-clean before any commit/push/deploy action.
+
+### Why
+
+1. A real deploy attempt without checking cluster truth would have been misleading: dev is still on the pre-Step-10 runtime env shape, so `shadow` validation cannot start from the currently deployed baseline.
+2. Keeping `values-dev` on `native` would waste the next rollout because Step 10 needs one bounded `shadow` evidence window before choosing the first default-path native cutover.
+3. This preserves the “fewer deploys” requirement by making the next rollout do useful parity collection immediately instead of spending one deploy only to move dev from `native` to `shadow`.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 10 — Add web shadow comparison and cut over web`
+
+### Files touched
+
+- `infra/helm/values-dev.yaml`
+- `docs/CHANGELOG.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `kubectl config current-context`
+- `kubectl get deployment api -n persai-dev -o jsonpath="{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{'\n'}{end}"`
+- `kubectl get deployment api -n persai-dev -o jsonpath="{.spec.template.spec.containers[0].image}{'\n'}"`
+- `Invoke-WebRequest -UseBasicParsing https://api.persai.dev/ready | Select-Object -ExpandProperty Content`
+- `helm template persai .\infra\helm -f .\infra\helm\values.yaml`
+- `helm template persai-dev .\infra\helm -f .\infra\helm\values-dev.yaml`
+
+### Risks
+
+1. Nothing has been deployed yet in this session: `persai-dev` is still on the old Step 9 env/image baseline until a normal GitOps rollout happens.
+2. The requested Step 10 live validation is currently blocked on the standard repo deploy path (`commit -> push -> CI image publish -> Argo CD sync`); without that, the cluster cannot pick up the new `api`/`web` code or the `shadow` config.
+3. Even after rollout, `shadow` remains temporary duplicate execution and must stay bounded; it is validation scaffolding, not the target steady state.
+
+### Next recommended step
+
+- Create the local PersAI commit for the current Step 10 package, push it through the normal GitOps path, wait for `api`/`runtime`/`provider-gateway` rollout health, then run one bounded dev `shadow` window and inspect Admin Overview plus `web_runtime_shadow_compare` / `web_runtime_route`.
+
+### Ready commit message
+
+- `chore(dev): switch adr-072 web runtime modes to shadow`
+
+---
+
+## 2026-04-11 - ADR-072 Step 10 shadow comparison admin overview read model
+
+### What changed
+
+1. Extended `WebRuntimeShadowComparisonService` so the existing Step 10 sync/stream `shadow` comparisons now keep a bounded in-memory recent sample list in addition to emitting `web_runtime_shadow_compare` logs.
+2. `GET /api/v1/admin/overview/dashboard` now returns `webRuntimeShadowComparisons`, and the resolver wires that state beside the existing `latencyTrace` pod-local diagnostics payload.
+3. `/admin` now renders a dedicated `Web Runtime Shadow Compare` panel with recent sync/stream parity samples, including verdict, terminal/content/error-class drift, runtime timings, delta counts, and short primary/shadow previews.
+4. Added focused tests for the new bounded read model and refreshed Step 10 source-of-truth docs (`ADR-072`, `API-BOUNDARY`, `TEST-PLAN`, `CHANGELOG`) so this local sub-step is recorded honestly before any new deploy.
+
+### Why
+
+1. The previous Step 10 seam forced operators to inspect parity through logs only, which made the next bounded dev `shadow` window more deploy-heavy and less convenient than necessary.
+2. Reusing the existing pod-local Admin Overview pattern keeps this step bounded: no durable telemetry store, no cluster-wide aggregation, and no new execution-path authority.
+3. This batches one more tightly coupled local Step 10 sub-step before the next deploy, matching the requirement to avoid unnecessary rollouts.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 10 — Add web shadow comparison and cut over web`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/overview-dashboard.types.ts`
+- `apps/api/src/modules/workspace-management/application/web-runtime-shadow-comparison.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-overview-dashboard.service.ts`
+- `apps/api/test/resolve-admin-overview-dashboard.service.test.ts`
+- `apps/api/test/web-runtime-shadow-comparison.service.test.ts`
+- `apps/web/app/admin/page.tsx`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-native-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-overview-dashboard.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/web-runtime-shadow-comparison.service.test.ts`
+
+### Risks
+
+1. `webRuntimeShadowComparisons` is intentionally pod-local in-memory state; multi-pod views are still diagnostic, not a cluster-wide source of truth.
+2. The bounded read model improves inspection but does not replace the still-required dev `shadow` window; parity has not yet been validated on live Step 10 traffic after the mode seam landed.
+3. The ordinary default web path is still not cut over; until a later Step 10 session switches defaults to `native`, OpenClaw remains the user-visible primary path outside explicitly native deployments.
+
+### Next recommended step
+
+- Run one bounded dev shadow window with `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=shadow` and `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=shadow`, inspect both Admin Overview `webRuntimeShadowComparisons` and the underlying `web_runtime_shadow_compare` / `web_runtime_route` logs for sync and stream parity, then choose the honest first default-path cutover (`stream` first vs sync+stream together).
+
+### Ready commit message
+
+- `feat: surface adr-072 shadow comparisons in admin overview`
+
+---
+
+## 2026-04-11 - ADR-072 Step 10 web route modes and shadow comparison seam
+
+### What changed
+
+1. Replaced the Step 9 boolean web cutover flags with explicit sync/stream route modes in API config and Helm: `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE` and `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE`, each with `legacy|shadow|native`.
+2. `SendWebChatTurnService` and `StreamWebChatTurnService` now honor those modes. `legacy` keeps the OpenClaw bridge, `shadow` keeps OpenClaw as the user-visible primary path while queueing one native comparison run, and `native` preserves the Step 9 no-fallback native execution path.
+3. Added `WebRuntimeShadowComparisonService`, which logs bounded `web_runtime_shadow_compare` records for sync and stream parity checks, and added `web_runtime_route` logs so operators can see which Step 10 mode actually handled a real web turn.
+4. Kept current repo/runtime truth honest: base Helm values stay `legacy`, while dev keeps both web routes on `native` so this session does not silently change the already-validated dev behavior without a separate rollout.
+5. Updated ADR-072, architecture, API-boundary, test-plan, live-test guidance, and changelog docs so Step 10 is now recorded as in progress with the new temporary boundary seam.
+
+### Why
+
+1. Step 10 needs an explicit shadow/cutover boundary before the default web path can move fully off the legacy OpenClaw bridge.
+2. Replacing booleans with explicit route modes keeps migration truth cleaner: `legacy` for rollback, `shadow` for bounded parity evidence, and `native` for the honest no-fallback cutover path.
+3. Logging shadow comparison results now is the smallest safe Step 10 sub-step because it creates operator-visible parity evidence without pretending the default web UX is already cut over.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 10 — Add web shadow comparison and cut over web`
+
+### Files touched
+
+- `packages/config/src/api-config.ts`
+- `apps/api/src/modules/workspace-management/application/web-runtime-mode.ts`
+- `apps/api/src/modules/workspace-management/application/web-runtime-shadow-comparison.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/api/test/send-native-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-native-web-chat-turn.service.test.ts`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-native-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts`
+
+### Risks
+
+1. `shadow` mode currently records parity evidence through logs only; it does not yet surface the comparison data in an admin/dashboard read model.
+2. When enabled, `shadow` intentionally runs a duplicate native execution for the same logical web turn, so it must stay bounded and temporary rather than becoming a permanent operating mode.
+3. The ordinary default web path is still not cut over; until a later Step 10 session switches the default to `native`, OpenClaw remains the user-visible primary path outside explicitly native deployments.
+
+### Next recommended step
+
+- Run one bounded dev shadow window with `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=shadow` and `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=shadow`, inspect `web_runtime_shadow_compare` / `web_runtime_route` parity for sync and stream, then choose the honest first default-path cutover (stream first vs sync+stream together).
+
+### Ready commit message
+
+- `feat: add adr-072 web runtime shadow modes`
+
+---
+
+## 2026-04-11 - ADR-072 Step 9 bounded live native stream smoke and closure
+
+### What changed
+
+1. Verified the dev Step 9 cluster state for the native web path: `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`, `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`, `PERSAI_RUNTIME_BASE_URL=http://runtime:3012`, and `PERSAI_PROVIDER_GATEWAY_BASE_URL=http://provider-gateway:3011`. `api`, `runtime`, and legacy OpenClaw health/readiness checks were green, and authenticated `GET /api/v1/assistant/runtime/preflight` returned `live: true, ready: true`.
+2. Ran a bounded authenticated live smoke against `POST /api/v1/assistant/chat/web/stream` with a fresh Clerk-backed user: onboarding, assistant create/draft/publish, one real native stream turn, then replay of the same payload with the same `clientTurnId`.
+3. The first native stream returned HTTP `201` plus `started`, multiple `delta`, `runtime_done`, and terminal `completed`; the completed transport persisted `assistantMessage.content` exactly as `native stream smoke ok`.
+4. The replay request returned the same `chatId` and the same `assistantMessageId`, and follow-up `GET /api/v1/assistant/chats/web/:chatId/messages` still showed exactly one user message and one assistant message, so native replay stayed idempotent without duplicate persistence.
+5. A second bounded stream was aborted immediately after the first `delta`. The API persisted partial assistant output beginning with `native abort smoke` plus the expected system interruption marker (`Streaming ended before completion. Assistant partial output above is preserved as-is.`), proving honest disconnect/interruption behavior on the native stream path.
+6. Updated repo truth so Step 9 is recorded as complete and the next work moves to Step 10 web shadow/cutover instead of more dark Step 9 seams.
+
+### Why
+
+1. This closes the last Step 9 live-verification gap: both native sync and native stream web paths are now proven on dev GKE instead of only by local tests and code inspection.
+2. Replay/idempotency and disconnect persistence were the two stream-specific behaviors most likely to regress at the `apps/api` to `apps/runtime` boundary, so they needed explicit bounded live proof before calling Step 9 done.
+3. With both bounded smokes green, the next meaningful architectural step is Step 10 default-path shadow/cutover work, not more Step 9 execution-surface implementation.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 10 — Add web shadow comparison and cut over web`
+
+### Files touched
+
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+
+### Tests run
+
+- Bounded authenticated live smoke against `POST /api/v1/assistant/chat/web/stream`: publish -> preflight -> stream success (`native stream smoke ok`) -> replay with same `clientTurnId`
+- Bounded authenticated abort smoke against `POST /api/v1/assistant/chat/web/stream`: abort after first `delta`, then confirm partial assistant persistence plus system interruption marker
+
+### Risks
+
+1. Step 9 execution is now live-validated, but the default web UX is still not cut over by default; Step 10 shadow/cutover work remains.
+2. Temporary migration seams (`PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`, `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED`, explicit runtime/provider-gateway base URLs, and timeout envs) still exist and must disappear during Step 10/7 cleanup.
+3. Native attachments/object-storage refs, runtime media artifacts on the native web path, and later Step 11 media/STT work are still unfinished.
+
+### Next recommended step
+
+- Start Step 10 by adding the bounded web shadow/comparison seam and preparing the default-path cutover, then remove the temporary Step 7 API activation seams only after native web execution becomes the ordinary path.
+
+### Ready commit message
+
+- `docs: record successful native stream live smoke`
+
+---
+
 ## 2026-04-11 - ADR-072 Step 9 API stream native cutover flag
 
 ### What changed

@@ -73,6 +73,33 @@ type TraceState = {
   updatedAt: string | null;
   recent: TraceEntry[];
 };
+type ShadowExecution = {
+  status: "completed" | "failed";
+  runtimeMs: number;
+  firstDeltaMs: number | null;
+  deltaCount: number | null;
+  code: string | null;
+  preview: string | null;
+};
+type ShadowComparison = {
+  comparisonId: string;
+  route: "sync" | "stream";
+  verdict: "match" | "mismatch";
+  assistantId: string;
+  threadKey: string;
+  clientTurnId: string | null;
+  comparedAt: string;
+  contentMatch: boolean;
+  errorClassMatch: boolean;
+  terminalMatch: boolean;
+  primary: ShadowExecution;
+  shadow: ShadowExecution;
+};
+type ShadowState = {
+  sampleLimit: number;
+  updatedAt: string | null;
+  recent: ShadowComparison[];
+};
 type DataSource = {
   scope: "api_instance_local";
   instanceId: string;
@@ -82,6 +109,7 @@ type Dash = {
   dataSource: DataSource;
   latency: LatencySnap;
   latencyTrace: TraceState;
+  webRuntimeShadowComparisons: ShadowState;
   activeUsers: number;
   activeWebChats: number;
   runtime: { adapterEnabled: boolean; tiers: Tier[] };
@@ -148,6 +176,15 @@ function statusTone(v: TraceEntry["status"]) {
     return "text-warning";
   }
   return "text-destructive";
+}
+function shadowRouteLabel(route: ShadowComparison["route"]) {
+  return route === "sync" ? "Web sync" : "Web stream";
+}
+function shadowVerdictTone(verdict: ShadowComparison["verdict"]) {
+  return verdict === "match" ? "text-success" : "text-destructive";
+}
+function shadowStatusTone(status: ShadowExecution["status"]) {
+  return status === "completed" ? "text-success" : "text-destructive";
 }
 function isRuntimeStage(stage: TraceStage) {
   return stage.key.startsWith("runtime_");
@@ -725,6 +762,121 @@ export default function AdminOverviewPage() {
                       );
                     })()
                   )}
+                </div>
+              )}
+            </div>
+          </Fold>
+
+          <Fold t="Web Runtime Shadow Compare" open>
+            <div className="space-y-1.5 rounded border border-border/40 bg-surface px-2.5 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
+                    Shadow comparison samples
+                  </p>
+                  <p className="text-[10px] text-text-muted">
+                    Pod-local recent sync/stream parity checks captured when web runtime mode is
+                    `shadow`.
+                  </p>
+                  <p className="text-[10px] text-text-subtle">
+                    Samples apply only to{" "}
+                    <span className="font-mono">{sourceLabel(d.dataSource)}</span>.
+                  </p>
+                </div>
+                <div className="text-right text-[10px] text-text-subtle">
+                  <p>
+                    Samples: {d.webRuntimeShadowComparisons.recent.length}/
+                    {d.webRuntimeShadowComparisons.sampleLimit}
+                  </p>
+                  <p>
+                    Updated:{" "}
+                    {d.webRuntimeShadowComparisons.updatedAt
+                      ? new Date(d.webRuntimeShadowComparisons.updatedAt).toLocaleTimeString()
+                      : "—"}
+                  </p>
+                </div>
+              </div>
+              {d.webRuntimeShadowComparisons.recent.length === 0 ? (
+                <p className="text-[10px] text-text-muted">
+                  No shadow comparisons yet. Enable one bounded web `shadow` window, reproduce sync
+                  or stream traffic, then refresh.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {d.webRuntimeShadowComparisons.recent.map((item) => (
+                    <div
+                      key={item.comparisonId}
+                      className="rounded border border-border/40 bg-surface-raised px-2 py-2"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
+                            {shadowRouteLabel(item.route)}
+                          </p>
+                          <p
+                            className={cn(
+                              "text-[11px] font-semibold uppercase",
+                              shadowVerdictTone(item.verdict)
+                            )}
+                          >
+                            {item.verdict}
+                          </p>
+                        </div>
+                        <div className="text-right text-[9px] text-text-subtle">
+                          <p>{new Date(item.comparedAt).toLocaleTimeString()}</p>
+                          <p>{item.threadKey}</p>
+                        </div>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-text-subtle">
+                        <span>Assistant: {item.assistantId}</span>
+                        <span>Client turn: {item.clientTurnId ?? "n/a"}</span>
+                        <span>Terminal: {item.terminalMatch ? "match" : "drift"}</span>
+                        <span>Content: {item.contentMatch ? "match" : "drift"}</span>
+                        <span>Error class: {item.errorClassMatch ? "match" : "drift"}</span>
+                      </div>
+                      <div className="mt-1.5 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                        {(
+                          [
+                            ["Primary", item.primary],
+                            ["Shadow", item.shadow]
+                          ] as const
+                        ).map(([label, side]) => (
+                          <div
+                            key={`${item.comparisonId}-${label}`}
+                            className="rounded border border-border/30 bg-background/20 px-2 py-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+                                {label}
+                              </p>
+                              <span
+                                className={cn(
+                                  "text-[10px] font-semibold uppercase",
+                                  shadowStatusTone(side.status)
+                                )}
+                              >
+                                {side.status}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-text-subtle">
+                              <span>Runtime: {fMs(side.runtimeMs)}</span>
+                              <span>
+                                First delta:{" "}
+                                {side.firstDeltaMs === null ? "n/a" : fMs(side.firstDeltaMs)}
+                              </span>
+                              <span>Delta count: {side.deltaCount ?? "n/a"}</span>
+                              <span>Code: {side.code ?? "completed"}</span>
+                            </div>
+                            {side.preview ? (
+                              <p className="mt-1 rounded bg-background/40 px-1.5 py-1 text-[10px] text-text-muted">
+                                {side.preview}
+                              </p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

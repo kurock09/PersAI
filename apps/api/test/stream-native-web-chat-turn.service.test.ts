@@ -13,7 +13,7 @@ function setApiEnv(overrides?: Record<string, string | undefined>): void {
     DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public",
     CLERK_SECRET_KEY: "clerk-secret",
     PERSAI_INTERNAL_API_TOKEN: "persai-internal-token",
-    PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED: "true",
+    PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE: "native",
     PERSAI_RUNTIME_BASE_URL: "http://runtime.local",
     PERSAI_RUNTIME_STREAM_TIMEOUT_MS: "9000",
     ...overrides
@@ -115,7 +115,7 @@ describe("StreamNativeWebChatTurnService", () => {
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
-      assert.equal(service.isEnabled(), true);
+      assert.equal(service.getMode(), "native");
 
       const chunks = await collectChunks(
         service.execute({
@@ -207,7 +207,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }
   });
 
-  test("fails clearly when the runtime base url is missing while the stream flag is enabled", async () => {
+  test("fails clearly when the runtime base url is missing while native stream mode is enabled", async () => {
     setApiEnv({ PERSAI_RUNTIME_BASE_URL: "" });
     const service = new StreamNativeWebChatTurnService({
       findByPublishedVersionId: async () => {

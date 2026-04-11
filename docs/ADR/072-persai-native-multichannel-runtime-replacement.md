@@ -1020,9 +1020,9 @@ Move web request-time execution to the new runtime core.
 
 - start with a dark sync text-only `createTurn` sub-step before `streamTurn` and before any live web cutover
 - use boundary-level feature flag for shadow mode then primary mode
-- the first API sync cutover sub-step may use an explicit boundary flag (currently `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`) to switch authenticated `POST /api/v1/assistant/chat/web` traffic onto native runtime createTurn without silently falling back per request when the flag is on
+- the first API sync cutover sub-step may use an explicit boundary flag (initially `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`, later replaced in Step 10 by `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE`) to switch authenticated `POST /api/v1/assistant/chat/web` traffic onto native runtime createTurn without silently falling back per request when the native path is selected
 - the first API sync cutover sub-step may keep canonical message persistence and replay ownership in `apps/api` while runtime execution itself moves to `apps/runtime`
-- the first API stream cutover sub-step may use an explicit boundary flag (currently `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED`) to switch authenticated `POST /api/v1/assistant/chat/web/stream` traffic onto native runtime `streamTurn` without silently falling back per request when the flag is on
+- the first API stream cutover sub-step may use an explicit boundary flag (initially `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED`, later replaced in Step 10 by `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE`) to switch authenticated `POST /api/v1/assistant/chat/web/stream` traffic onto native runtime `streamTurn` without silently falling back per request when the native path is selected
 - the first API stream cutover sub-step may keep canonical replay/message persistence ownership, SSE event shaping, and partial-output handling in `apps/api` while runtime execution itself moves to `apps/runtime`
 - if API-side quota degrade routing already exists, native `createTurn` / `streamTurn` must preserve it explicitly instead of dropping provider/model override semantics at the cutover boundary
 - temporary Step 7 API activation seams are still allowed only during the first dark Step 9 sub-step:
@@ -1054,10 +1054,19 @@ Validate the new runtime with real traffic before making it primary.
 **Migration notes**
 
 - compare quality, latency, stream completeness, quota accounting, and error classes
+- the first Step 10 sub-step replaces the Step 9 booleans with explicit API boundary modes:
+  - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=legacy|shadow|native`
+  - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=legacy|shadow|native`
+- `shadow` is allowed only as temporary boundary scaffolding:
+  - why: validate native web behavior on real traffic before making it the ordinary user-visible path
+  - where: `packages/config/src/api-config.ts`, `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`, `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`, and `apps/api/src/modules/workspace-management/application/web-runtime-shadow-comparison.service.ts`
+  - removal: later Step 10 cutover sets native as the ordinary web mode and Step 17 deletes the remaining OpenClaw web path entirely
+- `shadow` comparison evidence may begin as logs only, but the current bounded operator surface also allows a pod-local Admin Overview read model (`webRuntimeShadowComparisons`) as long as it stays diagnostic-only and does not become a durable telemetry authority
+- `native` must keep the Step 9 no-fallback rule: once a web route is in native mode, missing native runtime config or runtime/provider failure must surface honestly instead of silently falling back to OpenClaw
 
 **Rollback notes**
 
-- flip the executor feature flag back to OpenClaw for web only
+- flip the sync/stream web runtime modes back to `legacy`
 
 ### Step 11 — Implement native attachment staging
 
@@ -1375,9 +1384,9 @@ Use only these statuses:
 | Item | Status | Notes |
 |---|---|---|
 | ADR-072 document | completed | Target architecture, slices, and step order are documented |
-| Runtime replacement implementation | in_progress | Steps 1-8 are complete, and Step 9 is now in progress: `apps/provider-gateway` now has both text generation and text streaming seams, `apps/runtime` now has native `createTurn` plus `streamTurn` request paths over the Step 8 session-state package, and `apps/api` can route sync and stream web turns to those native paths behind `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED` / `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED`. The sync path has already passed one bounded dev-GKE live smoke, but the new stream path has only local test verification so far, and final activation-seam removal / Step 10 cutover still remain |
+| Runtime replacement implementation | in_progress | Steps 1-9 are complete and Step 10 is now in progress: `apps/provider-gateway` exposes both text generation and text streaming seams, `apps/runtime` exposes native `createTurn` plus `streamTurn` over the Step 8 session-state package, and `apps/api` now carries sync/stream web routing through temporary `legacy|shadow|native` route modes. Both native web paths have already passed bounded dev-GKE live smokes, and the current Step 10 sub-steps add shadow-comparison logging plus a bounded Admin Overview read model while leaving the default-path cutover and later seam removal for follow-up work |
 | Current active slice | in_progress | `Slice 3 — Distributed session/state core and web runtime` is now active because Slice 2 exit criteria are complete |
-| Current active step | in_progress | Step 9 — Implement native web `createTurn` and `streamTurn` now has native sync and stream request paths plus flagged API sync/stream consumers; the sync path has already passed one bounded dev-GKE live smoke, while the new stream path is still awaiting its first bounded live validation before Step 9 can move on |
+| Current active step | in_progress | Step 10 — Add web shadow comparison and cut over web has now started with explicit sync/stream web route modes, bounded native shadow-comparison logging, and a pod-local Admin Overview read model for recent parity samples |
 
 ### Slice ledger
 
@@ -1403,8 +1412,8 @@ Use only these statuses:
 | Step 6 — Add Postgres runtime tables and Redis session keys | completed | Step 5 | Postgres runtime bundle/session/compaction/turn-receipt tables now exist, and `apps/runtime` owns concrete Prisma-backed persistence services plus Redis coordination services for conversation/session/receipt/bundle markers without changing active request-time execution yet |
 | Step 7 — Implement bundle warm/invalidate flow | completed | Steps 2, 4, 5, 6 | `apps/runtime` warm/invalidate endpoints now persist bundle-state metadata and Redis bundle markers with shared-state-first ordering and compensation around later local-cache mutation; `apps/api` apply/reapply invokes assistant-wide invalidate + current-bundle warm through a temporary explicit runtime-base-url boundary and also pushes provider-gateway warmup/catalog replacement through a temporary explicit provider-gateway-base-url boundary, so apply/materialization is now the real Step 7 control-plane warm trigger while both activation seams remain explicitly queued for Step 9 removal |
 | Step 8 — Implement runtime session resolve, lease, and idempotency | completed | Step 6 | `apps/runtime` now has `SessionStoreService`, `SessionLeaseService`, `IdempotencyService`, `TurnAcceptanceService`, `TurnFinalizationService`, and `TurnLeaseHeartbeatService` over `runtime_sessions`, Redis conversation-session pointers/lease keys, in-flight accepted-turn claims, and `runtime_turn_receipts`, so session ordering and replay safety are explicit before web cutover |
-| Step 9 — Implement native web `createTurn` and `streamTurn` | in_progress | Steps 4, 5, 6, 7, 8 | `apps/provider-gateway` now exposes both `generate-text` and `stream-text`, `apps/runtime` now exposes native `createTurn` and `streamTurn`, and `apps/api` can route sync and stream web turns to those native paths behind `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED` / `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED` while keeping canonical replay/message persistence ownership. The sync path has already passed a bounded dev-GKE live smoke plus replay/idempotency check; the new stream path is implemented and locally verified but still needs its first bounded dev validation before final Step 7 activation-seam removal or Step 10 cutover |
-| Step 10 — Add web shadow comparison and cut over web | planned | Step 9 | Web traffic moves to native runtime |
+| Step 9 — Implement native web `createTurn` and `streamTurn` | completed | Steps 4, 5, 6, 7, 8 | `apps/provider-gateway` now exposes both `generate-text` and `stream-text`, `apps/runtime` now exposes native `createTurn` and `streamTurn`, and `apps/api` delivered the first honest native web execution surfaces before Step 10 replaced the boolean cutover flags with route modes. Both native web paths already passed bounded dev-GKE live validation, including replay/idempotency checks and stream disconnect persistence |
+| Step 10 — Add web shadow comparison and cut over web | in_progress | Step 9 | `apps/api` now uses temporary `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE` / `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE` values (`legacy|shadow|native`) so shadow mode keeps OpenClaw primary while queueing native comparison logs, Admin Overview now exposes bounded recent shadow samples per API pod, and native mode preserves the no-fallback cutover rule. Next work is one bounded dev shadow-inspection pass, then the honest default-path cutover to native web execution |
 | Step 11 — Implement native attachment staging | planned | Steps 4, 5, 6 | Object-storage attachment path replaces legacy runtime storage |
 | Step 12 — Implement native STT | planned | Steps 4, 11 | STT no longer depends on OpenClaw |
 | Step 13 — Replace Telegram proxy with a native Telegram adapter | planned | Steps 8, 9, 11, 12 | Telegram ingress no longer loops through OpenClaw |

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace"] as const;
 const APP_ENVS = ["local", "dev"] as const;
+const WEB_CHAT_RUNTIME_MODES = ["legacy", "shadow", "native"] as const;
 const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
 const FALSE_VALUES = new Set(["0", "false", "no", "off", ""]);
 
@@ -34,8 +35,8 @@ const baseApiConfigSchema = z.object({
   CLERK_SECRET_KEY: z.string().min(1),
   ADMIN_STEP_UP_HMAC_SECRET: z.string().optional(),
   RUNTIME_PROVIDER_SECRETS_MASTER_KEY: z.string().min(16).optional(),
-  PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED: envBoolean.default(false),
-  PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED: envBoolean.default(false),
+  PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE: z.enum(WEB_CHAT_RUNTIME_MODES).default("legacy"),
+  PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE: z.enum(WEB_CHAT_RUNTIME_MODES).default("legacy"),
   PERSAI_RUNTIME_BASE_URL: optionalUrl,
   PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   PERSAI_RUNTIME_TURN_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),

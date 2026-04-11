@@ -84,6 +84,7 @@ import { SendNativeWebChatTurnService } from "./application/send-native-web-chat
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamNativeWebChatTurnService } from "./application/stream-native-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
+import { WebRuntimeShadowComparisonService } from "./application/web-runtime-shadow-comparison.service";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
@@ -248,6 +249,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     RecordWebChatMemoryTurnService,
     SendNativeWebChatTurnService,
     StreamNativeWebChatTurnService,
+    WebRuntimeShadowComparisonService,
     ListAssistantMemoryItemsService,
     ForgetAssistantMemoryItemService,
     DoNotRememberAssistantMemoryService,

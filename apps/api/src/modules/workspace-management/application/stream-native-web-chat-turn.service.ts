@@ -21,6 +21,7 @@ import {
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
 import type { RuntimeTier } from "./runtime-assignment";
+import { getWebChatStreamRuntimeMode, type WebChatRuntimeMode } from "./web-runtime-mode";
 
 export interface StreamNativeWebChatTurnInput {
   assistantId: string;
@@ -50,8 +51,8 @@ export class StreamNativeWebChatTurnService {
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository
   ) {}
 
-  isEnabled(): boolean {
-    return loadApiConfig(process.env).PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED;
+  getMode(): WebChatRuntimeMode {
+    return getWebChatStreamRuntimeMode();
   }
 
   async *execute(

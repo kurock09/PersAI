@@ -37,7 +37,12 @@ import { createAssistantInboundConflict } from "./assistant-inbound-error";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import type { RuntimeTier } from "./runtime-assignment";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
-import { StreamNativeWebChatTurnService } from "./stream-native-web-chat-turn.service";
+import {
+  StreamNativeWebChatTurnService,
+  type StreamNativeWebChatTurnInput
+} from "./stream-native-web-chat-turn.service";
+import { WebRuntimeShadowComparisonService } from "./web-runtime-shadow-comparison.service";
+import { type WebChatRuntimeMode } from "./web-runtime-mode";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -141,6 +146,7 @@ export class StreamWebChatTurnService {
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly inboundMediaService: InboundMediaService,
     private readonly mediaDeliveryService: MediaDeliveryService,
+    private readonly webRuntimeShadowComparisonService: WebRuntimeShadowComparisonService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService
   ) {}
 
@@ -202,12 +208,44 @@ export class StreamWebChatTurnService {
     const enrichedUserMessage = attachmentContext
       ? `${attachmentContext}\n${baseMessage}`
       : baseMessage;
-    const useNativeRuntimeStream = this.streamNativeWebChatTurnService.isEnabled();
+    const runtimeMode = this.streamNativeWebChatTurnService.getMode();
+    const currentTimeIso = new Date().toISOString();
+    const nativeTurnInput = this.buildNativeStreamTurnInput({
+      assistantId: prepared.assistantId,
+      publishedVersionId: prepared.publishedVersionId,
+      runtimeTier: prepared.runtimeTier,
+      surfaceThreadKey: prepared.chat.surfaceThreadKey,
+      userId: prepared.userId,
+      workspaceId: prepared.workspaceId,
+      userMessageId: prepared.userMessage.id,
+      userMessage: enrichedUserMessage,
+      userTimezone: prepared.workspaceTimezone,
+      currentTimeIso,
+      ...(prepared.quotaDegradeModelOverride
+        ? {
+            providerOverride: prepared.quotaDegradeModelOverride.provider,
+            modelOverride: prepared.quotaDegradeModelOverride.model
+          }
+        : {})
+    });
+    this.logWebRuntimeRoute({
+      route: "stream",
+      mode: runtimeMode,
+      assistantId: prepared.assistantId,
+      surfaceThreadKey: prepared.chat.surfaceThreadKey,
+      ...(prepared.clientTurnId === undefined ? {} : { clientTurnId: prepared.clientTurnId })
+    });
+    const primaryRuntimeStartedAt = Date.now();
+    let primaryFirstDeltaMs: number | null = null;
+    let primaryDeltaCount = 0;
 
     try {
       for await (const chunk of this.executeRuntimeStream({
+        runtimeMode,
+        nativeTurnInput,
         prepared,
         enrichedUserMessage,
+        currentTimeIso,
         ...(trace.isEnabled() ? { overviewTraceId: trace.getTraceId() } : {}),
         ...(callbacks.clientAbortSignal === undefined
           ? {}
@@ -233,6 +271,10 @@ export class StreamWebChatTurnService {
           if (accumulated.length === 0) {
             trace.stage("first_delta");
           }
+          if (primaryFirstDeltaMs === null) {
+            primaryFirstDeltaMs = Date.now() - primaryRuntimeStartedAt;
+          }
+          primaryDeltaCount += 1;
           accumulated += chunk.delta;
           callbacks.onDelta(chunk.delta, accumulated);
         }
@@ -284,6 +326,23 @@ export class StreamWebChatTurnService {
             WEB_TURN_SURFACE_TYPE,
             prepared.clientTurnId
           );
+        }
+        if (runtimeMode === "shadow") {
+          this.webRuntimeShadowComparisonService.queueStreamNativeComparison({
+            assistantId: prepared.assistantId,
+            surfaceThreadKey: prepared.chat.surfaceThreadKey,
+            ...(prepared.clientTurnId === undefined ? {} : { clientTurnId: prepared.clientTurnId }),
+            primary: {
+              status: "failed",
+              runtimeMs: Date.now() - primaryRuntimeStartedAt,
+              firstDeltaMs: primaryFirstDeltaMs,
+              deltaCount: primaryDeltaCount,
+              assistantText: accumulated,
+              errorCode: "runtime_invalid_response",
+              errorMessage: "Runtime stream finished without assistant output."
+            },
+            executeShadow: () => this.streamNativeWebChatTurnService.execute(nativeTurnInput)
+          });
         }
         trace.finish({ status: "failed" });
         return {
@@ -338,7 +397,7 @@ export class StreamWebChatTurnService {
         source: "web_chat_turn_stream_completed"
       });
       trace.stage("quota_recorded");
-      if (!useNativeRuntimeStream) {
+      if (runtimeMode === "legacy" || runtimeMode === "shadow") {
         await this.consumeBootstrapBestEffort(prepared.assistantId, prepared.runtimeTier);
         trace.stage("bootstrap_consumed");
       }
@@ -360,6 +419,23 @@ export class StreamWebChatTurnService {
           }
         );
         trace.stage("replay_completed");
+      }
+      if (runtimeMode === "shadow") {
+        this.webRuntimeShadowComparisonService.queueStreamNativeComparison({
+          assistantId: prepared.assistantId,
+          surfaceThreadKey: prepared.chat.surfaceThreadKey,
+          ...(prepared.clientTurnId === undefined ? {} : { clientTurnId: prepared.clientTurnId }),
+          primary: {
+            status: "completed",
+            runtimeMs: Date.now() - primaryRuntimeStartedAt,
+            firstDeltaMs: primaryFirstDeltaMs,
+            deltaCount: primaryDeltaCount,
+            assistantText: cleanedAccumulated,
+            errorCode: null,
+            errorMessage: null
+          },
+          executeShadow: () => this.streamNativeWebChatTurnService.execute(nativeTurnInput)
+        });
       }
       const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
       if (refreshedChat === null) {
@@ -417,6 +493,23 @@ export class StreamWebChatTurnService {
         accumulated,
         respondedAt
       );
+      if (runtimeMode === "shadow" && !callbacks.isClientAborted()) {
+        this.webRuntimeShadowComparisonService.queueStreamNativeComparison({
+          assistantId: prepared.assistantId,
+          surfaceThreadKey: prepared.chat.surfaceThreadKey,
+          ...(prepared.clientTurnId === undefined ? {} : { clientTurnId: prepared.clientTurnId }),
+          primary: {
+            status: "failed",
+            runtimeMs: Date.now() - primaryRuntimeStartedAt,
+            firstDeltaMs: primaryFirstDeltaMs,
+            deltaCount: primaryDeltaCount,
+            assistantText: accumulated,
+            errorCode: normalized.code,
+            errorMessage: normalized.message
+          },
+          executeShadow: () => this.streamNativeWebChatTurnService.execute(nativeTurnInput)
+        });
+      }
       trace.finish({
         status: "failed",
         outputPreview: accumulated
@@ -430,32 +523,68 @@ export class StreamWebChatTurnService {
     }
   }
 
+  private buildNativeStreamTurnInput(input: {
+    assistantId: string;
+    publishedVersionId: string;
+    runtimeTier: RuntimeTier;
+    surfaceThreadKey: string;
+    userId: string;
+    workspaceId: string;
+    userMessageId: string;
+    userMessage: string;
+    userTimezone: string;
+    currentTimeIso: string;
+    providerOverride?: "openai" | "anthropic";
+    modelOverride?: string;
+  }): StreamNativeWebChatTurnInput {
+    return {
+      assistantId: input.assistantId,
+      publishedVersionId: input.publishedVersionId,
+      runtimeTier: input.runtimeTier,
+      surfaceThreadKey: input.surfaceThreadKey,
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+      userMessageId: input.userMessageId,
+      userMessage: input.userMessage,
+      userTimezone: input.userTimezone,
+      currentTimeIso: input.currentTimeIso,
+      ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
+      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
+    };
+  }
+
+  private logWebRuntimeRoute(input: {
+    route: "stream";
+    mode: WebChatRuntimeMode;
+    assistantId: string;
+    surfaceThreadKey: string;
+    clientTurnId?: string;
+  }): void {
+    if (input.mode === "legacy") {
+      return;
+    }
+
+    this.logger.log(
+      `web_runtime_route route=${input.route} mode=${input.mode} primary=${
+        input.mode === "native" ? "native" : "legacy"
+      } shadow=${input.mode === "shadow" ? "native" : "none"} assistantId=${
+        input.assistantId
+      } threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId ?? "n/a"}`
+    );
+  }
+
   private executeRuntimeStream(input: {
+    runtimeMode: WebChatRuntimeMode;
+    nativeTurnInput: StreamNativeWebChatTurnInput;
     prepared: StreamWebChatTurnPrepared;
     enrichedUserMessage: string;
+    currentTimeIso: string;
     overviewTraceId?: string;
     signal?: AbortSignal;
   }): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk> {
-    if (this.streamNativeWebChatTurnService.isEnabled()) {
+    if (input.runtimeMode === "native") {
       return this.streamNativeWebChatTurnService.execute(
-        {
-          assistantId: input.prepared.assistantId,
-          publishedVersionId: input.prepared.publishedVersionId,
-          runtimeTier: input.prepared.runtimeTier,
-          surfaceThreadKey: input.prepared.chat.surfaceThreadKey,
-          userId: input.prepared.userId,
-          workspaceId: input.prepared.workspaceId,
-          userMessageId: input.prepared.userMessage.id,
-          userMessage: input.enrichedUserMessage,
-          userTimezone: input.prepared.workspaceTimezone,
-          currentTimeIso: new Date().toISOString(),
-          ...(input.prepared.quotaDegradeModelOverride
-            ? {
-                providerOverride: input.prepared.quotaDegradeModelOverride.provider,
-                modelOverride: input.prepared.quotaDegradeModelOverride.model
-              }
-            : {})
-        },
+        input.nativeTurnInput,
         input.signal === undefined ? undefined : { signal: input.signal }
       );
     }
@@ -476,7 +605,7 @@ export class StreamWebChatTurnService {
       userMessageId: input.prepared.userMessage.id,
       userMessage: input.enrichedUserMessage,
       userTimezone: input.prepared.workspaceTimezone,
-      currentTimeIso: new Date().toISOString()
+      currentTimeIso: input.currentTimeIso
     });
   }
 

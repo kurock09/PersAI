@@ -123,7 +123,7 @@ Current dev chart state in `infra/helm/values-dev.yaml`:
 
 Use this only after the API deploy has all of these:
 
-- `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`
+- `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=native`
 - `PERSAI_RUNTIME_BASE_URL` pointing at the Step 9 `apps/runtime` Service
 - `PERSAI_PROVIDER_GATEWAY_BASE_URL` still configured for the current Step 7/9 warm path
 
@@ -250,7 +250,7 @@ If the fork is running with `PERSAI_RUNTIME_SPEC_STORE=memory`, an OpenClaw proc
 
 Use this only after the API deploy has all of these:
 
-- `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`
+- `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=native`
 - `PERSAI_RUNTIME_BASE_URL` pointing at the Step 9 `apps/runtime` Service
 - `PERSAI_PROVIDER_GATEWAY_BASE_URL` still configured for the current Step 7/9 warm path
 
@@ -317,6 +317,32 @@ Expected:
 1. Immediately retry the same payload with the same `clientTurnId` and confirm the API replays the stored completion state instead of creating a second assistant reply.
 2. Fetch `GET /api/v1/assistant/chats/web/:chatId/messages` and confirm the chat still contains exactly one user message and one assistant message.
 3. Optional interruption proof: repeat the call with an `AbortController`, abort after the first `delta`, then verify the chat/history reflects an interrupted partial-output outcome rather than a silent full completion.
+
+## Phase E: ADR-072 bounded web shadow window
+
+Use this after the Step 10 package is deployed with:
+
+- `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=shadow`
+- `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=shadow`
+- `PERSAI_RUNTIME_BASE_URL` pointing at `apps/runtime`
+- `PERSAI_PROVIDER_GATEWAY_BASE_URL` still configured for the current warm path
+
+What this proves:
+
+- the user-visible web reply still comes from the legacy OpenClaw bridge
+- `apps/api` also runs one bounded native comparison in the background
+- Step 10 parity evidence is visible through logs and Admin Overview before default-path cutover
+
+What this does **not** prove yet:
+
+- native web is the ordinary default path
+- shadow drift is acceptably low enough for final cutover without inspection
+
+Recommended checks during the bounded window:
+
+1. In `/admin`, confirm recent samples appear under `Web Runtime Shadow Compare`.
+2. Confirm the same serving pod also reports `web_runtime_route` and `web_runtime_shadow_compare` for both sync and stream traffic.
+3. For stream traffic, check terminal status, content drift, error-class drift, runtime duration, first-delta timing, and delta counts before deciding the first honest cutover target.
 
 ### ADR-048 direct contract check (optional)
 
