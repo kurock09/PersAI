@@ -725,7 +725,7 @@ Postgres with Prisma.
 - G5 does not add new persistence tables; it hardens readiness usage of existing `assistant_channel_surface_bindings` so WhatsApp and MAX provider configured state can be resolved without redesign
 - G5 preserves explicit non-flat surface taxonomy for MAX (`max_bot` vs `max_mini_app`) and WhatsApp (`whatsapp_business`)
 - Step 5 C1 introduces canonical backend chat/message records only (web surface baseline)
-- runtime conversational/session context remains outside chat domain and is owned by OpenClaw
+- runtime conversational/session context remains outside chat domain and is owned by the active runtime path; current ADR-072 native web work may read `assistant_chats` / `assistant_chat_messages` for context hydration, but runtime does not become the owner/writer of those records
 - no streaming transport in C1
 - Telegram chat domain remains out of scope in C1
 - channels and integrations remain unsupported

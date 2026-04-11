@@ -9,6 +9,7 @@ import { runSessionLeaseServiceTest } from "./session-lease.service.test";
 import { runSessionStoreServiceTest } from "./session-store.service.test";
 import { runIdempotencyServiceTest } from "./idempotency.service.test";
 import { runTurnAcceptanceServiceTest } from "./turn-acceptance.service.test";
+import { runTurnContextHydrationServiceTest } from "./turn-context-hydration.service.test";
 import { runTurnExecutionServiceTest } from "./turn-execution.service.test";
 import { runTurnFinalizationServiceTest } from "./turn-finalization.service.test";
 import { runTurnLeaseHeartbeatServiceTest } from "./turn-lease-heartbeat.service.test";
@@ -25,6 +26,7 @@ async function run(): Promise<void> {
   await runSessionLeaseServiceTest();
   await runIdempotencyServiceTest();
   await runTurnAcceptanceServiceTest();
+  await runTurnContextHydrationServiceTest();
   await runTurnExecutionServiceTest();
   await runTurnFinalizationServiceTest();
   await runTurnLeaseHeartbeatServiceTest();

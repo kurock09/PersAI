@@ -218,7 +218,8 @@ It is not part of backend domain logic.
   - chat/thread identity
   - message history
   - ownership and retention-oriented record fields
-- OpenClaw stores runtime conversational/session context only
+- legacy OpenClaw stores runtime conversational/session context only
+- ADR-072 native web runtime may hydrate recent canonical web chat history during runtime context assembly, but it does not become the owner of chat/message records
 - backend chat domain must not include runtime session internals
 - surface-aware threading is explicit and record-level (`surface + surfaceThreadKey`)
 

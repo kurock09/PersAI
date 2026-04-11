@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
+  ProviderGatewayTextMessage,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextStreamEvent,
   RuntimeFailedEvent,
@@ -20,6 +21,7 @@ import type {
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
 import type { RuntimeTurnReceiptSummary } from "./idempotency.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 
@@ -48,6 +50,7 @@ export class TurnExecutionService {
   constructor(
     private readonly runtimeBundleRegistryService: RuntimeBundleRegistryService,
     private readonly providerGatewayClientService: ProviderGatewayClientService,
+    private readonly turnContextHydrationService: TurnContextHydrationService,
     private readonly turnAcceptanceService: TurnAcceptanceService,
     private readonly turnFinalizationService: TurnFinalizationService
   ) {}
@@ -98,7 +101,7 @@ export class TurnExecutionService {
       case "replayed":
         return this.replayStreamResult(acceptedTurn.receipt);
       case "accepted": {
-        const execution = this.prepareTurnExecution(input);
+        const execution = await this.prepareTurnExecution(input);
         const providerStream = await this.providerGatewayClientService.streamText(
           execution.providerRequest,
           options?.signal === undefined ? undefined : { signal: options.signal }
@@ -113,7 +116,7 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn
   ): Promise<RuntimeTurnResult> {
     try {
-      const execution = this.prepareTurnExecution(input);
+      const execution = await this.prepareTurnExecution(input);
       const providerResult = await this.providerGatewayClientService.generateText(
         execution.providerRequest
       );
@@ -125,7 +128,7 @@ export class TurnExecutionService {
     }
   }
 
-  private prepareTurnExecution(input: RuntimeTurnRequest): PreparedTurnExecution {
+  private async prepareTurnExecution(input: RuntimeTurnRequest): Promise<PreparedTurnExecution> {
     const bundleEntry = this.runtimeBundleRegistryService.getBundle(input.bundle.bundleId);
     if (bundleEntry === null) {
       throw new TurnExecutionError(
@@ -151,8 +154,13 @@ export class TurnExecutionService {
     }
 
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, input);
+    const hydratedMessages = await this.turnContextHydrationService.buildMessages(input);
     return {
-      providerRequest: this.buildProviderRequest(bundleEntry.parsedBundle, input, providerSelection)
+      providerRequest: this.buildProviderRequest(
+        bundleEntry.parsedBundle,
+        providerSelection,
+        hydratedMessages
+      )
     };
   }
 
@@ -330,19 +338,14 @@ export class TurnExecutionService {
 
   private buildProviderRequest(
     bundle: AssistantRuntimeBundle,
-    input: RuntimeTurnRequest,
-    providerSelection: ProviderSelection
+    providerSelection: ProviderSelection,
+    messages: ProviderGatewayTextMessage[]
   ): ProviderGatewayTextGenerateRequest {
     return {
       provider: providerSelection.provider,
       model: providerSelection.model,
       systemPrompt: this.buildSystemPrompt(bundle),
-      messages: [
-        {
-          role: "user",
-          content: input.message.text
-        }
-      ]
+      messages
     };
   }
 

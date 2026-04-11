@@ -1,5 +1,59 @@
 # SESSION-HANDOFF
 
+## 2026-04-11 - ADR-072 Step 10 native web history hydration
+
+### What changed
+
+1. Updated `apps/runtime` so native web turns now hydrate provider `messages[]` from recent canonical `assistant_chats` / `assistant_chat_messages` instead of always sending only the newest inbound text.
+2. Kept ownership boundaries honest: `apps/api` still owns canonical chat persistence and still sends the current inbound message as enriched text; runtime now reads canonical web history for context assembly but does not become the writer/owner of chat records.
+3. Added focused runtime coverage for both the new hydrator semantics and the `TurnExecutionService` wiring, then re-ran `@persai/runtime` typecheck and the runtime test suite cleanly.
+4. Refreshed ADR/API/data-model/test-plan docs so Step 10 truth now explicitly says native web parity depends on runtime context hydration depth, not just route-mode plumbing and shadow logging.
+
+### Why
+
+1. Live Step 10 shadow evidence showed persistent `content drift`, and the concrete runtime request inspection confirmed the native path was only sending the current user message without session/chat history.
+2. That meant Step 10 could not honestly close with only more shadow inspection or route flips; native web needed at least recent canonical chat history hydration before another bounded live parity pass.
+3. Reading canonical web chat records inside runtime is the smallest useful correction because it improves both sync and stream native turns without adding a new public API seam or shifting chat-record ownership away from `apps/api`.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 10 — Add web shadow comparison and cut over web`
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run test`
+
+### Risks
+
+1. This is still bounded recent-history hydration, not a final long-thread compaction-aware context policy; very long chats may still drift later until Step 10/Step 11 decide how canonical history and runtime summaries compact together.
+2. Historical attachment turns still rely on whatever text was persisted in canonical chat history at the time; only the current inbound user turn is guaranteed to use the API-enriched attachment context text on the native path.
+3. No new live dev parity evidence has been collected yet after this code landed, so Step 10 remains in progress until the next normal deploy and bounded `shadow` inspection window confirm the drift reduction on real traffic.
+
+### Next recommended step
+
+1. Push this Step 10 package through the normal GitOps path, wait for the updated `api` / `runtime` / `web` rollout, then run one bounded dev `shadow` window and compare `/admin` plus `web_runtime_shadow_compare` results again before deciding whether the first honest web cutover to `native` is safe.
+
 ## 2026-04-11 - ADR-072 Step 10 dev shadow window GitOps prep
 
 ### What changed

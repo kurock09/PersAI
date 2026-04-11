@@ -5,6 +5,7 @@ import { RuntimeStateModule } from "../runtime-state/runtime-state.module";
 import { TurnsController } from "./interface/http/turns.controller";
 import { IdempotencyService } from "./idempotency.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService } from "./turn-acceptance.service";
 import { TurnExecutionService } from "./turn-execution.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
@@ -16,6 +17,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
   providers: [
     ProviderGatewayClientService,
     IdempotencyService,
+    TurnContextHydrationService,
     TurnAcceptanceService,
     TurnExecutionService,
     TurnFinalizationService,
@@ -24,6 +26,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
   exports: [
     ProviderGatewayClientService,
     IdempotencyService,
+    TurnContextHydrationService,
     TurnAcceptanceService,
     TurnExecutionService,
     TurnFinalizationService,

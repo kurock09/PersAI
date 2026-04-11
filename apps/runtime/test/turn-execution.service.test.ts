@@ -12,6 +12,7 @@ import type {
 import type { RuntimeBundleCacheEntry } from "../src/modules/bundles/bundle.types";
 import type { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
 import type { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
+import type { TurnContextHydrationService } from "../src/modules/turns/turn-context-hydration.service";
 import type {
   AcceptedRuntimeTurn,
   ReplayedRuntimeTurn,
@@ -288,6 +289,19 @@ class FakeTurnAcceptanceService {
   }
 }
 
+class FakeTurnContextHydrationService {
+  messages: ProviderGatewayTextGenerateRequest["messages"] = [
+    {
+      role: "user",
+      content: "hello runtime"
+    }
+  ];
+
+  async buildMessages(): Promise<ProviderGatewayTextGenerateRequest["messages"]> {
+    return this.messages;
+  }
+}
+
 class FakeTurnFinalizationService {
   completed: Array<{ acceptedTurn: AcceptedRuntimeTurn; result: RuntimeTurnResult }> = [];
   failed: Array<{ acceptedTurn: AcceptedRuntimeTurn; code: string; message: string }> = [];
@@ -330,11 +344,13 @@ async function collectStreamEvents(
 export async function runTurnExecutionServiceTest(): Promise<void> {
   const bundleRegistry = new FakeRuntimeBundleRegistryService();
   const providerGatewayClient = new FakeProviderGatewayClientService();
+  const turnContextHydrationService = new FakeTurnContextHydrationService();
   const turnAcceptanceService = new FakeTurnAcceptanceService();
   const turnFinalizationService = new FakeTurnFinalizationService();
   const service = new TurnExecutionService(
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGatewayClient as unknown as ProviderGatewayClientService,
+    turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
     turnFinalizationService as unknown as TurnFinalizationService
   );
@@ -349,6 +365,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(providerGatewayClient.calls.length, 1);
   assert.equal(providerGatewayClient.calls[0]?.provider, "openai");
   assert.equal(providerGatewayClient.calls[0]?.model, "gpt-5.4");
+  assert.deepEqual(providerGatewayClient.calls[0]?.messages, turnContextHydrationService.messages);
   assert.equal(turnFinalizationService.completed.length, 1);
   assert.equal(turnFinalizationService.failed.length, 0);
 
@@ -414,6 +431,20 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
+  turnContextHydrationService.messages = [
+    {
+      role: "user",
+      content: "earlier user"
+    },
+    {
+      role: "assistant",
+      content: "earlier assistant"
+    },
+    {
+      role: "user",
+      content: "hello runtime"
+    }
+  ];
   const completedBeforeStream = turnFinalizationService.completed.length;
   const stream = await service.streamTurn(request);
   const streamEvents = await collectStreamEvents(stream);
@@ -422,6 +453,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ["started", "text_delta", "completed"]
   );
   assert.equal(providerGatewayClient.streamCalls.length, 1);
+  assert.deepEqual(
+    providerGatewayClient.streamCalls[0]?.messages,
+    turnContextHydrationService.messages
+  );
   assert.equal(turnFinalizationService.completed.length, completedBeforeStream + 1);
   const completedEvent = streamEvents[2];
   assert.equal(completedEvent?.type, "completed");

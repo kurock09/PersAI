@@ -1294,9 +1294,11 @@ Behavior baseline:
   - runtime execution order is:
     - accept/replay/busy resolution through `TurnAcceptanceService`
     - warmed bundle lookup from the runtime bundle registry
+    - recent web chat history hydration from canonical backend chat records (`assistant_chats` / `assistant_chat_messages`) when the conversation address resolves to a web thread
     - provider/model resolution from the native runtime bundle unless API passes an explicit Step 9 quota-degrade `providerOverride` / `modelOverride`
     - provider-gateway text generation request
     - terminal receipt/session finalization through `TurnFinalizationService`
+  - the current enriched inbound user message still comes from API-owned request preparation; history hydration does not move chat-record ownership into runtime
   - replayed completed receipts return the stored `RuntimeTurnResult`
   - replayed failed/accepted states and active busy/in-flight states currently surface as conflicts in this dark sub-step
 - `apps/runtime` now also exposes `POST /api/v1/turns/stream`:
@@ -1304,7 +1306,7 @@ Behavior baseline:
   - response body is NDJSON `RuntimeTurnStreamEvent`
   - current scope is text-only native `streamTurn`
   - attachments are rejected when sent as native attachment refs in this Step 9 sub-step
-  - runtime execution order matches sync up to acceptance and bundle/provider resolution, then yields provider-gateway stream deltas before terminal finalization
+  - runtime execution order matches sync up to acceptance, bundle/provider resolution, and recent canonical web chat history hydration, then yields provider-gateway stream deltas before terminal finalization
   - replayed completed receipts return a terminal `completed` event from the stored `RuntimeTurnResult`
   - replayed failed/interrupted/accepted states and active busy/in-flight states currently surface as conflicts in this Step 9 sub-step
 - authenticated `POST /api/v1/assistant/chat/web` now has the Step 10 sync route mode boundary:
@@ -1315,7 +1317,7 @@ Behavior baseline:
   - in `shadow`, API logs `web_runtime_shadow_compare` so content, latency, and error-class drift can be inspected without changing the user-visible reply source
   - in `native`, there is no silent per-request fallback back to OpenClaw; missing runtime config or runtime failure surfaces as an honest error
   - in `native`, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
-  - current native sync path still sends attachment context as enriched text and does not yet pass object-storage attachment refs into native runtime
+  - current native sync path still sends attachment context as enriched text, hydrates recent canonical web chat history inside runtime, and does not yet pass object-storage attachment refs into native runtime
 - authenticated `POST /api/v1/assistant/chat/web/stream` now has the Step 10 stream route mode boundary:
   - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=legacy` keeps web stream turns on the OpenClaw runtime bridge
   - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=shadow` keeps OpenClaw as the user-visible primary path while queueing one native comparison run through `StreamNativeWebChatTurnService`
@@ -1324,7 +1326,7 @@ Behavior baseline:
   - in `shadow`, API logs `web_runtime_shadow_compare` so stream completeness, latency, and error-class drift can be inspected without changing the user-visible reply source
   - in `native`, there is no silent per-request fallback back to OpenClaw; missing runtime config, invalid native stream payloads, or runtime/provider failures surface as honest errors
   - in `native`, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
-  - current native stream path still sends attachment context as enriched text and does not yet pass object-storage attachment refs into native runtime
+  - current native stream path still sends attachment context as enriched text, hydrates recent canonical web chat history inside runtime, and does not yet pass object-storage attachment refs into native runtime
 - runtime readiness/metrics are now execution-aware:
   - `executionEnabled` is `true`
   - `providerCacheReady` depends on provider-gateway `/ready`
