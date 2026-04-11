@@ -8,9 +8,12 @@ export type AssistantMaterializedSpec = {
   algorithmVersion: number;
   materializedAtConfigGeneration: number;
   layers: unknown;
+  runtimeBundle: unknown | null;
   openclawBootstrap: unknown;
   openclawWorkspace: unknown;
   layersDocument: string;
+  runtimeBundleDocument: string | null;
+  runtimeBundleHash: string | null;
   openclawBootstrapDocument: string;
   openclawWorkspaceDocument: string;
   contentHash: string;

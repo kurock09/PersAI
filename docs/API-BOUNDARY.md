@@ -1125,9 +1125,13 @@ Behavior baseline:
   - user-owned published version layer
   - platform governance layer
   - ownership/apply context layer
-- Materialization is projected into OpenClaw-native outputs:
+- Materialization now dual-writes both the future PersAI-native runtime artifact and the current migration-boundary OpenClaw artifacts:
+  - `runtime_bundle`
+  - `runtime_bundle_document`
+  - `runtime_bundle_hash`
   - `openclaw_bootstrap`
   - `openclaw_workspace`
+- active request-time apply/preview/runtime routing still consumes `openclaw_*` during ADR-072 Slice 1
 - H1 runtime provider profile baseline is materialized into:
   - `openclawBootstrap.governance.runtimeProviderProfile`
   - derived `runtimeProviderRouting` continues to surface routing truth for runtime/tool-policy alignment
@@ -1144,6 +1148,167 @@ Behavior baseline:
   - deterministic diff documents (`layers_document`, `openclaw_*_document`)
   - integrity hash (`content_hash`)
 - A8 consumes these materialized artifacts for runtime apply/reapply.
+
+## ADR-072 Step 5 runtime shell boundary
+
+- `apps/runtime` is a dark internal service only; no public product traffic or `apps/api` request path depends on it yet.
+- `GET /health`
+  - returns runtime liveness plus current readiness truth (`live`, `ready`, `checkedAt`)
+- `GET /ready`
+  - returns `200` when the dark-service shell is booted and its local bundle registry is initialized
+  - returns `503` otherwise
+  - includes bounded shell truth: `bundleCacheReady`, `providerCacheReady`, `darkService: true`, `executionEnabled: false`, and bundle-cache entry/limit counts
+- `GET /metrics`
+  - returns Prometheus text for process up/ready, execution-enabled status, bundle-cache size/limit, warm requests, replacements, invalidations, and evictions
+- `POST /api/v1/bundles/warm`
+  - accepts a PersAI-native bundle ref plus serialized bundle document
+  - validates that the document is valid JSON, the document hash matches `bundleHash`, and bundle metadata matches the provided assistant/workspace/published-version identity
+  - stores the warmed bundle only in the dark runtime service's bounded local cache
+- `POST /api/v1/bundles/invalidate`
+  - invalidates cached bundles by `assistantId` and optional `publishedVersionId`
+- the Step 5 bundle cache is temporary dark-service scaffolding only:
+  - why: Step 5 needs the runtime service boundary before Step 6 distributed runtime state and Step 7 control-plane bundle warm/invalidate wiring land
+  - where: `apps/runtime/src/modules/bundles/*`
+  - removal/upgrade: Step 7 replaces shell-only warming with the actual PersAI control-plane warm/invalidate flow
+
+## ADR-072 Step 6 distributed runtime-state boundary
+
+- Step 6 adds **no new public product API endpoints**.
+- Runtime state is now split intentionally across shared stores:
+  - Postgres tables: `runtime_bundle_states`, `runtime_sessions`, `runtime_session_compactions`, `runtime_turn_receipts`
+  - Redis keys: session leases, conversation-session pointers, turn-receipt/idempotency markers, bundle warm markers
+- `apps/runtime` now owns concrete dark-service write/read seams for that state:
+  - Prisma-backed runtime-state persistence services for the Postgres tables
+  - Redis coordination services over the deterministic keyspace model
+  - explicit runtime config validation for `DATABASE_URL` and `RUNTIME_STATE_REDIS_URL`
+- `assistant_materialized_specs.runtime_bundle*` remains the authoritative native bundle artifact in this slice.
+- `runtime_bundle_states` stores runtime-plane warm/invalidate metadata only, so the Step 6 schema does not create a second bundle document authority before Step 7 wires the real control-plane warm/invalidate flow.
+- This state model is additive only in Step 6:
+  - no active request path reads it yet
+  - no web or Telegram traffic is cut over yet
+  - Step 8 will consume the Redis/Postgres model for native session resolve, lease, and idempotency
+
+## ADR-072 Step 7 runtime and provider warm boundary
+
+- These are still dark-service internal runtime endpoints; no active chat request path depends on them yet.
+- `apps/api` control-plane apply/reapply now calls them **after** successful legacy OpenClaw apply when the explicit Step 7 base URLs are configured.
+- `POST /api/v1/bundles/warm`
+  - request body now requires:
+    - `bundle`
+    - `bundleDocument`
+    - `materializedSpecId`
+    - `runtimeTier`
+  - validates the native bundle document hash and bundle metadata identity
+  - warms the bounded local runtime cache
+  - upserts `runtime_bundle_states` with `lastWarmedAt` and clears `invalidatedAt`
+  - writes the Redis bundle warm marker for the bundle ref
+- `POST /api/v1/bundles/invalidate`
+  - request body remains `assistantId` plus optional `publishedVersionId`
+  - invalidates matching local cache entries
+  - marks matching `runtime_bundle_states.invalidated_at`
+  - removes matching Redis bundle markers
+- `POST /api/v1/providers/warmup`
+  - still supports an empty/manual warmup call for dark-service bootstrap checks
+  - now also accepts a Step 7 control-plane request body:
+    - `schema: "persai.providerGatewayWarmupRequest.v1"`
+    - `source: "control_plane_apply"`
+    - `availableModelsByProvider`
+  - when the control-plane body is provided:
+    - configured provider clients are warmed
+    - in-memory provider catalog state is replaced with the materialized control-plane model snapshot
+    - `GET /api/v1/providers/catalog` reports `source: "control_plane_apply"` instead of staying bootstrap-only
+  - when the request body is empty:
+    - existing in-memory catalog state is preserved
+    - the endpoint behaves like the original dark-service manual warmup seam
+- temporary API-side config seam is currently allowed:
+  - why: Step 7 needs real control-plane bundle/provider warm calls before the dark runtime and provider-gateway services are mandatory deployed dependencies, without breaking the still-legacy request path when either service is absent
+  - where: `packages/config/src/api-config.ts` (`PERSAI_RUNTIME_BASE_URL`, `PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS`, `PERSAI_PROVIDER_GATEWAY_BASE_URL`, `PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS`) plus `apps/api/src/modules/workspace-management/application/sync-native-runtime-bundle.service.ts` and `apps/api/src/modules/workspace-management/application/sync-provider-gateway-warmup.service.ts`
+  - removal/upgrade: Step 9 first makes runtime configuration mandatory for the flagged sync web cutover, then removes the remaining `unset => skip` seams entirely once native web sync/stream execution is the default path
+- when either configured Step 7 service call fails after legacy apply succeeds, apply state is marked `degraded` instead of silently succeeding.
+- Step 7 delivery status:
+  - runtime bundle warm/invalidate is now control-plane driven
+  - provider-gateway warmup/catalog is now control-plane driven after the first apply-triggered warmup
+  - the only remaining Step 7 migration boundaries are the explicit activation seams now being consumed and narrowed during Step 9 until full native web cutover removes them
+
+## ADR-072 Step 8 session/idempotency boundary
+
+- Step 8 currently adds **no new public product API endpoints**.
+- `apps/runtime` now owns the first internal session/idempotency service boundary over the Step 6 shared-state model:
+  - `SessionStoreService` resolves and ensures runtime sessions from durable `runtime_sessions` plus Redis conversation-session pointers
+  - `SessionLeaseService` acquires and releases Redis session-lease keys
+  - `IdempotencyService` claims or replays logical turns from durable `runtime_turn_receipts` plus Redis receipt markers
+- `TurnAcceptanceService` now composes those Step 8 services into one internal acceptance seam:
+  - ensure session
+  - check replay
+  - acquire lease
+  - create accepted receipt
+  - return one of `accepted`, `busy`, or `replayed`
+- accepted-receipt creation is now intentionally ordered **after** successful lease acquisition so Step 8 does not create a durable accepted turn that can never execute because the session was already busy.
+- `TurnFinalizationService` now provides the paired internal terminal seam:
+  - mark the accepted receipt `completed`, `interrupted`, or `failed`
+  - update `runtime_sessions` summary fields
+  - release the held session lease
+- finalization ordering is also explicit:
+  - terminal receipt persistence happens first
+  - session summary update happens next
+  - lease release happens only after terminal receipt persistence succeeds
+- if terminal receipt persistence fails, the lease is intentionally left for TTL cleanup rather than allowing a new turn to overtake an unresolved in-flight receipt.
+- `TurnLeaseHeartbeatService` now provides the paired Step 8 renewal seam for long-running accepted turns:
+  - renew the held session lease while the turn is still active
+  - return explicit `renewed` vs `lost` heartbeat results
+- Redis lease renewal is now compare-and-renew rather than blind TTL extension:
+  - renewal succeeds only when the current stored lease owner still matches the caller token
+  - if the owner no longer matches, the runtime sees `lost` instead of silently extending the wrong turn's lease
+- the Step 8 acceptance seam now also covers the remaining pre-receipt race:
+  - Redis keeps a bounded in-flight accepted-turn marker keyed by conversation + idempotency
+  - lease acquisition and in-flight marker claim now happen together
+  - same-idempotency retries in that window now resolve to `in_flight` instead of generic `busy`
+- Step 8 is now complete as an internal runtime-state package and still adds **no public product API endpoints**.
+- Durable authority is explicit:
+  - Postgres rows remain the truth for session summaries and turn receipts
+  - Redis pointers and markers are hot-path accelerators that may be refreshed or rebuilt from Postgres when stale or missing
+- Step 8 itself still added no request-path controller/HTTP surface; the first Step 9 execution seams are documented below.
+
+## ADR-072 Step 9 native web runtime boundary (dark sync createTurn sub-step)
+
+- Step 9 now has both dark-service internal execution seams and the first flagged API sync cutover consumer.
+- `apps/provider-gateway` now exposes `POST /api/v1/providers/generate-text`:
+  - request body matches `ProviderGatewayTextGenerateRequest`
+  - response body matches `ProviderGatewayTextGenerateResult`
+  - execution is allowed only when the target provider is warmed/ready
+  - the requested model must exist in the warmed provider catalog snapshot for that provider
+- `apps/runtime` now exposes `POST /api/v1/turns/create`:
+  - request body matches `RuntimeTurnRequest`
+  - current scope is text-only synchronous native `createTurn`
+  - attachments are rejected when sent as native attachment refs in this first Step 9 sub-step
+  - runtime execution order is:
+    - accept/replay/busy resolution through `TurnAcceptanceService`
+    - warmed bundle lookup from the runtime bundle registry
+    - provider/model resolution from the native runtime bundle unless API passes an explicit Step 9 quota-degrade `providerOverride` / `modelOverride`
+    - provider-gateway text generation request
+    - terminal receipt/session finalization through `TurnFinalizationService`
+  - replayed completed receipts return the stored `RuntimeTurnResult`
+  - replayed failed/accepted states and active busy/in-flight states currently surface as conflicts in this dark sub-step
+- authenticated `POST /api/v1/assistant/chat/web` now has an explicit Step 9 migration mode:
+  - when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=false`, sync web turns still use the legacy OpenClaw runtime bridge
+  - when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`, sync web turns call `apps/runtime` `POST /api/v1/turns/create` through `SendNativeWebChatTurnService`
+  - on the flagged native path, `apps/api` still owns replay claim, canonical user/assistant message persistence, quota accounting, and media delivery
+  - on the flagged native path there is no silent per-request fallback back to OpenClaw; missing runtime config or runtime failure surfaces as an honest error
+  - on the flagged native path, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
+  - current Step 9 sync cutover still sends attachment context as enriched text and does not yet pass object-storage attachment refs into native runtime
+- runtime readiness/metrics are now execution-aware:
+  - `executionEnabled` is `true`
+  - `providerCacheReady` depends on provider-gateway `/ready`
+  - runtime reaches provider gateway through `RUNTIME_PROVIDER_GATEWAY_BASE_URL` and `RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS`
+- temporary Step 7/9 API activation seams still remain during this partial Step 9 state:
+  - why: sync API cutover is now flagged, stream/default web UX is still legacy, and provider-gateway warmup remains a temporary Step 7 activation seam
+  - where: `PERSAI_RUNTIME_BASE_URL`, `PERSAI_RUNTIME_TURN_TIMEOUT_MS`, `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`, and `PERSAI_PROVIDER_GATEWAY_BASE_URL` in API config plus the existing Step 7 sync services
+  - removal/upgrade: later Step 9/10 work makes native runtime/provider-gateway mandatory for the default web path and deletes the remaining `unset => skip` / feature-flag behavior
+- not included yet:
+  - `streamTurn`
+  - native streaming/default web UX cutover
+  - attachment/media execution inside native runtime
+  - Step 10 shadow/primary traffic cutover
 
 ### GET /api/v1/me (slice 2 baseline response)
 
@@ -1354,7 +1519,8 @@ Loaded via `loadApiConfig` / [packages/config/src/api-config.ts](../packages/con
 **Request**
 
 - `Content-Type: application/json`
-- Body (JSON object), aligned with [assistant-runtime-adapter.types.ts](../apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts) `AssistantRuntimeApplyInput`:
+- PersAI application services now call the neutral [assistant-runtime.facade.ts](../apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts) `AssistantRuntimeFacade.applyMaterializedSpec()` seam with a native `runtimeBundle` plus a temporary `legacyBridge` payload.
+- The OpenClaw HTTP bridge payload remains a JSON object aligned with [assistant-runtime-adapter.types.ts](../apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts) `OpenClawRuntimeApplyInput`:
 
 | Field                | Type       | Required                                                     |
 | -------------------- | ---------- | ------------------------------------------------------------ |

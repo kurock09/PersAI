@@ -9,9 +9,9 @@ import {
 } from "../domain/assistant-chat.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter
-} from "./assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "./assistant-runtime.facade";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -64,8 +64,8 @@ export class ManageWebChatListService {
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
@@ -265,7 +265,7 @@ export class ManageWebChatListService {
       assistant.id
     );
     const [runtimeSessionState, platformSettings] = await Promise.all([
-      this.runtimeAdapter.getWebChatSessionState({
+      this.assistantRuntime.getWebChatSessionState({
         assistantId: assistant.id,
         runtimeTier,
         chatId: chat.id,
@@ -318,7 +318,7 @@ export class ManageWebChatListService {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
-    const result = await this.runtimeAdapter.compactWebChatSession({
+    const result = await this.assistantRuntime.compactWebChatSession({
       assistantId: assistant.id,
       runtimeTier,
       chatId: chat.id,
@@ -356,7 +356,7 @@ export class ManageWebChatListService {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
 
-    await this.runtimeAdapter.deleteWebChatSession({
+    await this.assistantRuntime.deleteWebChatSession({
       assistantId: assistant.id,
       chatId: chat.id,
       surfaceThreadKey: chat.surfaceThreadKey
@@ -370,7 +370,7 @@ export class ManageWebChatListService {
       (sum, attachment) => sum + attachment.sizeBytes,
       BigInt(0)
     );
-    await this.runtimeAdapter.deleteChatMediaBatch(assistant.id, chat.id, runtimeTier);
+    await this.assistantRuntime.deleteChatMediaBatch(assistant.id, chat.id, runtimeTier);
     await this.attachmentRepository.deleteByChatId(chat.id);
     await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
       assistant,

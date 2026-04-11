@@ -1,9 +1,9 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter
-} from "../assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "../assistant-runtime.facade";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -28,8 +28,8 @@ export class MediaDeliveryService {
   private readonly adapterMap: Map<string, ChannelMediaAdapter>;
 
   constructor(
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(CHANNEL_MEDIA_ADAPTERS)
@@ -91,7 +91,7 @@ export class MediaDeliveryService {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       params.assistantId
     );
-    const downloadResult = await this.runtimeAdapter.downloadChatMedia(
+    const downloadResult = await this.assistantRuntime.downloadChatMedia(
       params.assistantId,
       artifact.url,
       runtimeTier
@@ -110,7 +110,7 @@ export class MediaDeliveryService {
       originalFilename: artifact.url.split("/").pop() ?? "media",
       surface: "tool_output_persist"
     });
-    const uploadResult = await this.runtimeAdapter.uploadChatMedia({
+    const uploadResult = await this.assistantRuntime.uploadChatMedia({
       assistantId: params.assistantId,
       runtimeTier,
       chatId: params.chatId,

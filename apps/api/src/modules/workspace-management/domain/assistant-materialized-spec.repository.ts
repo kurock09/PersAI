@@ -14,9 +14,12 @@ export interface CreateAssistantMaterializedSpecInput {
   algorithmVersion: number;
   materializedAtConfigGeneration: number;
   layers: unknown;
+  runtimeBundle: unknown;
   openclawBootstrap: unknown;
   openclawWorkspace: unknown;
   layersDocument: string;
+  runtimeBundleDocument: string;
+  runtimeBundleHash: string;
   openclawBootstrapDocument: string;
   openclawWorkspaceDocument: string;
   contentHash: string;

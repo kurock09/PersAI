@@ -23,6 +23,133 @@ Required in CI:
 - prisma migrate check
 - build
 
+## ADR-072 Step 3 focus
+
+- `apps/api` application services and controllers now depend on `AssistantRuntimeFacade` instead of growing the OpenClaw-shaped adapter contract directly.
+- `assistant-runtime-adapter.types.ts` is now the temporary `OpenClawRuntimeBridge` boundary contract only; legacy payload translation must stay confined there.
+- Apply and preview flows carry the PersAI-native `runtimeBundle` into the facade while the boundary implementation maps only the temporary `legacyBridge` payload into OpenClaw HTTP inputs.
+- Focused facade/app-service regressions remain green:
+  - `apps/api/test/openclaw-assistant-runtime.facade.test.ts`
+  - `apps/api/test/preview-assistant-setup.service.test.ts`
+  - `apps/api/test/admin-delete-user.service.test.ts`
+  - `apps/api/test/assistant-lifecycle-runtime-assignment.test.ts`
+- Workspace-wide API typecheck remains green after the DI rewiring and error-type migration.
+
+## ADR-072 Step 4 focus
+
+- `apps/provider-gateway` exists as a dark internal service with:
+  - OpenAI and Anthropic provider modules
+  - bootstrap catalog projection
+  - explicit warmup boundary
+  - health, readiness, and metrics seams
+- bootstrap provider catalog/config is temporary and intentionally bounded to the gateway shell:
+  - it lives in `packages/config` provider-gateway env loading plus `apps/provider-gateway/src/modules/providers/*`
+  - Step 7 must replace it with PersAI control-plane warm/invalidate input instead of leaving a second long-term authority
+- Focused Step 4 regressions remain green:
+  - `apps/provider-gateway/test/provider-gateway-config.test.ts`
+  - `apps/provider-gateway/test/provider-warmup.service.test.ts`
+- Provider-gateway lint, typecheck, and build remain green after the new app scaffold lands.
+
+## ADR-072 Step 5 focus
+
+- `apps/runtime` exists as a dark internal service with:
+  - `/health`, `/ready`, and `/metrics`
+  - bounded native-bundle `/api/v1/bundles/warm` and `/api/v1/bundles/invalidate` seams
+  - explicit `executionEnabled: false` truth while no production turn execution exists yet
+- Step 5 bundle warming stays intentionally bounded:
+  - validates the native bundle document hash plus assistant/workspace/published-version metadata before caching
+  - uses a bounded local in-memory cache only inside `apps/runtime`
+  - does not claim distributed session state, request-time execution, or control-plane warm/invalidate wiring yet
+- Focused Step 5 regressions remain green:
+  - `apps/runtime/test/runtime-config.test.ts`
+  - `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- Runtime-shell lint, typecheck, build, and focused tests remain green after the new app scaffold lands.
+
+## ADR-072 Step 6 focus
+
+- Prisma schema/migration adds the first shared runtime-state model without cutting traffic over:
+  - `runtime_bundle_states`
+  - `runtime_sessions`
+  - `runtime_session_compactions`
+  - `runtime_turn_receipts`
+- The Step 6 bundle table remains metadata-only runtime-plane state:
+  - authoritative bundle document stays in `assistant_materialized_specs.runtime_bundle*`
+  - Step 6 must not introduce a second bundle-document authority
+- Runtime keyspace coverage stays deterministic and bounded:
+  - conversation keys hash the shared runtime conversation address deterministically
+  - Redis key model covers session lease keys, conversation-session pointers, turn-receipt/idempotency markers, and bundle warm markers
+  - TTL defaults remain explicit in runtime config
+- `apps/runtime` now owns concrete Step 6 persistence/coordination seams:
+  - Prisma-backed Postgres runtime-state services
+  - Redis coordination services over the deterministic keyspace
+  - runtime config validation for `DATABASE_URL` and `RUNTIME_STATE_REDIS_URL`
+- Focused Step 6 regressions remain green:
+  - `apps/runtime/test/runtime-config.test.ts`
+  - `apps/runtime/test/runtime-state-keyspace.service.test.ts`
+  - `apps/runtime/test/runtime-state-postgres.service.test.ts`
+  - `apps/runtime/test/runtime-state-redis.service.test.ts`
+- Prisma schema validation/generation remains green after the runtime-state additions land.
+
+## ADR-072 Step 7 focus
+
+- Runtime-side bundle warm/invalidate no longer stops at the Step 5 local cache shell:
+  - warm requires `materializedSpecId` and `runtimeTier`
+  - warm persists `runtime_bundle_states.last_warmed_at`
+  - warm writes Redis bundle markers
+  - invalidate clears local cache entries and invalidates Postgres/Redis bundle state
+- `apps/api` apply/reapply now also warms `apps/provider-gateway` from the materialized control-plane provider catalog snapshot:
+  - `POST /api/v1/providers/warmup` accepts `control_plane_apply` model-catalog input
+  - `GET /api/v1/providers/catalog` flips from bootstrap seed to control-plane snapshot after the first apply-triggered warmup
+- Step 7 is complete, with only explicit Step 9 activation seams remaining:
+  - temporary API `PERSAI_RUNTIME_BASE_URL` skip behavior remains until later runtime cutover removes it
+  - temporary API `PERSAI_PROVIDER_GATEWAY_BASE_URL` skip behavior remains until later runtime cutover removes it
+- Focused Step 7 regressions remain green:
+  - `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+  - `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+  - `apps/api/test/sync-native-runtime-bundle.service.test.ts`
+  - `apps/api/test/sync-provider-gateway-warmup.service.test.ts`
+  - `apps/api/test/apply-assistant-published-version.service.test.ts`
+  - `apps/provider-gateway/test/provider-warmup.service.test.ts`
+
+## ADR-072 Step 8 focus
+
+- `apps/runtime` now owns the first runtime-side session/idempotency service layer above the raw Step 6 Postgres/Redis stores:
+  - `SessionStoreService` resolves and ensures `runtime_sessions`
+  - `SessionLeaseService` acquires and releases Redis session leases
+  - `IdempotencyService` claims or replays logical turns from `runtime_turn_receipts`
+- `TurnAcceptanceService` now composes the Step 8 primitives in the intended order for one bounded native-turn acceptance lifecycle:
+  - replay lookup before lease when possible
+  - lease acquisition before durable accepted-receipt creation
+  - explicit `accepted`, `busy`, and `replayed` outcomes
+- `TurnFinalizationService` now provides the paired Step 8 terminal-state seam:
+  - terminal receipt persistence before lease release
+  - session summary updates through the runtime-owned session store
+  - explicit `completed`, `interrupted`, and `failed` terminal paths
+  - error-path coverage for `receipt write failed => keep lease` and `session update failed after receipt write => still release lease`
+- `TurnLeaseHeartbeatService` now provides the paired Step 8 renewal seam:
+  - compare-and-renew lease behavior is covered through the Redis/session-lease helpers
+  - explicit `renewed` vs `lost` outcomes are covered at the turn-heartbeat seam
+  - long-running accepted turns no longer depend only on one static TTL in the future Step 9 streaming path
+- Step 8 now also covers the remaining pre-receipt race:
+  - lease acquisition and in-flight accepted-turn claim happen together
+  - same-idempotency retries in that small window now surface as `in_flight` instead of generic `busy`
+- Step 8 is now complete as an internal runtime-state package, while Step 9 is now the first request-path consumer of these services:
+  - `apps/runtime` owns the dark sync text-only `createTurn` path
+  - `apps/api` can route sync web turns to that native path behind `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`
+  - Step 9 verification now must preserve API-owned replay/message persistence semantics while confirming the native runtime path honors optional provider/model override routing
+- Durable authority stays explicit:
+  - Postgres remains the source of truth for session summaries and turn receipts
+  - Redis conversation pointers and receipt markers are hot-path accelerators only and must be healable from Postgres
+- Focused Step 8 regressions remain green:
+  - `apps/runtime/test/session-store.service.test.ts`
+  - `apps/runtime/test/session-lease.service.test.ts`
+  - `apps/runtime/test/idempotency.service.test.ts`
+  - `apps/runtime/test/turn-acceptance.service.test.ts`
+  - `apps/runtime/test/turn-finalization.service.test.ts`
+  - `apps/runtime/test/turn-lease-heartbeat.service.test.ts`
+  - `apps/runtime/test/runtime-state-postgres.service.test.ts`
+  - `apps/runtime/test/runtime-state-redis.service.test.ts`
+
 ## Step 1 focus
 
 - app boot

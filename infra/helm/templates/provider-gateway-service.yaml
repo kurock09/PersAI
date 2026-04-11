@@ -1,0 +1,17 @@
+{{- if .Values.providerGateway.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: provider-gateway
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: provider-gateway
+spec:
+  type: {{ .Values.providerGateway.service.type }}
+  selector:
+    app.kubernetes.io/name: provider-gateway
+  ports:
+    - name: http
+      port: {{ .Values.providerGateway.service.port }}
+      targetPort: {{ .Values.providerGateway.service.port }}
+{{- end }}

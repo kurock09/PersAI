@@ -195,6 +195,30 @@ enum AbuseSurface {
   @@map("abuse_surface")
 }
 
+enum RuntimeTier {
+  free_shared_restricted
+  paid_shared_restricted
+  paid_isolated
+}
+
+enum RuntimeConversationChannel {
+  web
+  telegram
+  max_ru
+}
+
+enum RuntimeConversationMode {
+  direct
+  group
+}
+
+enum RuntimeTurnReceiptStatus {
+  accepted
+  completed
+  interrupted
+  failed
+}
+
 model AppUser {
   id                                     String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   clerkUserId                            String?                             @unique @map("clerk_user_id")
@@ -244,6 +268,10 @@ model Workspace {
   abuseGuardStates            AssistantAbuseGuardState[]
   toolUsageDailyCounters      WorkspaceToolUsageDailyCounter[]
   chatMessageAttachments      AssistantChatMessageAttachment[]
+  runtimeBundleStates         RuntimeBundleState[]
+  runtimeSessions             RuntimeSession[]
+  runtimeSessionCompactions   RuntimeSessionCompaction[]
+  runtimeTurnReceipts         RuntimeTurnReceipt[]
 
   @@map("workspaces")
 }
@@ -309,6 +337,10 @@ model Assistant {
   abusePeerStates              AssistantAbusePeerState[]
   telegramGroups               AssistantTelegramGroup[]
   chatMessageAttachments       AssistantChatMessageAttachment[]
+  runtimeBundleStates          RuntimeBundleState[]
+  runtimeSessions              RuntimeSession[]
+  runtimeSessionCompactions    RuntimeSessionCompaction[]
+  runtimeTurnReceipts          RuntimeTurnReceipt[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -354,6 +386,9 @@ model AssistantPublishedVersion {
   applyTargetAssistants  Assistant[]                @relation("AssistantApplyTargetVersion")
   applyAppliedAssistants Assistant[]                @relation("AssistantApplyAppliedVersion")
   materializedSpec       AssistantMaterializedSpec?
+  runtimeBundleState     RuntimeBundleState?
+  runtimeSessions        RuntimeSession[]
+  runtimeTurnReceipts    RuntimeTurnReceipt[]
 
   @@unique([assistantId, version])
   @@map("assistant_published_versions")
@@ -754,9 +789,12 @@ model AssistantMaterializedSpec {
   sourceAction                   AssistantMaterializationSourceAction @map("source_action")
   algorithmVersion               Int                                  @default(1) @map("algorithm_version")
   layers                         Json                                 @map("layers")
+  runtimeBundle                  Json?                                @map("runtime_bundle")
   openclawBootstrap              Json                                 @map("openclaw_bootstrap")
   openclawWorkspace              Json                                 @map("openclaw_workspace")
   layersDocument                 String                               @map("layers_document") @db.Text
+  runtimeBundleDocument          String?                              @map("runtime_bundle_document") @db.Text
+  runtimeBundleHash              String?                              @map("runtime_bundle_hash")
   openclawBootstrapDocument      String                               @map("openclaw_bootstrap_document") @db.Text
   openclawWorkspaceDocument      String                               @map("openclaw_workspace_document") @db.Text
   contentHash                    String                               @map("content_hash")
@@ -764,8 +802,119 @@ model AssistantMaterializedSpec {
   createdAt                      DateTime                             @default(now()) @map("created_at") @db.Timestamptz(6)
   assistant                      Assistant                            @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   publishedVersion               AssistantPublishedVersion            @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  runtimeBundleState             RuntimeBundleState?
 
   @@map("assistant_materialized_specs")
+}
+
+model RuntimeBundleState {
+  id               String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId      String                   @map("assistant_id") @db.Uuid
+  workspaceId      String                   @map("workspace_id") @db.Uuid
+  materializedSpecId String                 @unique @map("materialized_spec_id") @db.Uuid
+  publishedVersionId String                 @unique @map("published_version_id") @db.Uuid
+  runtimeTier      RuntimeTier              @map("runtime_tier")
+  bundleHash       String                   @map("bundle_hash") @db.VarChar(64)
+  lastWarmedAt     DateTime?                @map("last_warmed_at") @db.Timestamptz(6)
+  invalidatedAt    DateTime?                @map("invalidated_at") @db.Timestamptz(6)
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant        Assistant                @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace        Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  materializedSpec AssistantMaterializedSpec @relation(fields: [materializedSpecId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publishedVersion AssistantPublishedVersion @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([assistantId, updatedAt(sort: Desc)])
+  @@index([workspaceId, invalidatedAt])
+  @@map("runtime_bundle_states")
+}
+
+model RuntimeSession {
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId             String                    @map("assistant_id") @db.Uuid
+  workspaceId             String                    @map("workspace_id") @db.Uuid
+  currentPublishedVersionId String?                @map("current_published_version_id") @db.Uuid
+  runtimeTier             RuntimeTier               @map("runtime_tier")
+  conversationKey         String                    @unique @map("conversation_key") @db.VarChar(64)
+  channel                 RuntimeConversationChannel
+  externalThreadKey       String                    @map("external_thread_key") @db.VarChar(255)
+  externalUserKey         String?                   @map("external_user_key") @db.VarChar(255)
+  mode                    RuntimeConversationMode
+  currentBundleHash       String?                   @map("current_bundle_hash") @db.VarChar(64)
+  currentTokens           Int?                      @map("current_tokens")
+  totalTokensFresh        Boolean                   @default(true) @map("total_tokens_fresh")
+  compactionCount         Int                       @default(0) @map("compaction_count")
+  compactionHintTokens    Int?                      @map("compaction_hint_tokens")
+  providerKey             String?                   @map("provider_key") @db.VarChar(64)
+  modelKey                String?                   @map("model_key") @db.VarChar(256)
+  lastTurnAt              DateTime?                 @map("last_turn_at") @db.Timestamptz(6)
+  closedAt                DateTime?                 @map("closed_at") @db.Timestamptz(6)
+  createdAt               DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant               Assistant                 @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace               Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  currentPublishedVersion AssistantPublishedVersion? @relation(fields: [currentPublishedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  compactions             RuntimeSessionCompaction[]
+  turnReceipts            RuntimeTurnReceipt[]
+
+  @@index([assistantId, updatedAt(sort: Desc)])
+  @@index([workspaceId, updatedAt(sort: Desc)])
+  @@index([assistantId, channel, updatedAt(sort: Desc)])
+  @@map("runtime_sessions")
+}
+
+model RuntimeSessionCompaction {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runtimeSessionId String         @map("runtime_session_id") @db.Uuid
+  assistantId      String         @map("assistant_id") @db.Uuid
+  workspaceId      String         @map("workspace_id") @db.Uuid
+  requestId        String?        @map("request_id") @db.VarChar(128)
+  reason           String?        @db.VarChar(128)
+  instructions     String?        @db.Text
+  summaryPayload   Json?          @map("summary_payload") @db.JsonB
+  tokensBefore     Int?           @map("tokens_before")
+  tokensAfter      Int?           @map("tokens_after")
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  runtimeSession   RuntimeSession @relation(fields: [runtimeSessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  assistant        Assistant      @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([runtimeSessionId, createdAt(sort: Desc)])
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@map("runtime_session_compactions")
+}
+
+model RuntimeTurnReceipt {
+  id               String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId      String                    @map("assistant_id") @db.Uuid
+  workspaceId      String                    @map("workspace_id") @db.Uuid
+  runtimeSessionId String?                   @map("runtime_session_id") @db.Uuid
+  publishedVersionId String?                 @map("published_version_id") @db.Uuid
+  runtimeTier      RuntimeTier               @map("runtime_tier")
+  conversationKey  String                    @map("conversation_key") @db.VarChar(64)
+  channel          RuntimeConversationChannel
+  externalThreadKey String                   @map("external_thread_key") @db.VarChar(255)
+  externalUserKey  String?                   @map("external_user_key") @db.VarChar(255)
+  mode             RuntimeConversationMode
+  requestId        String                    @unique @map("request_id") @db.VarChar(128)
+  idempotencyKey   String                    @map("idempotency_key") @db.VarChar(128)
+  bundleHash       String?                   @map("bundle_hash") @db.VarChar(64)
+  status           RuntimeTurnReceiptStatus  @default(accepted)
+  resultPayload    Json?                     @map("result_payload") @db.JsonB
+  errorCode        String?                   @map("error_code") @db.VarChar(128)
+  errorMessage     String?                   @map("error_message") @db.Text
+  completedAt      DateTime?                 @map("completed_at") @db.Timestamptz(6)
+  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant        Assistant                 @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace        Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  runtimeSession   RuntimeSession?           @relation(fields: [runtimeSessionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  publishedVersion AssistantPublishedVersion? @relation(fields: [publishedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([conversationKey, idempotencyKey])
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@index([runtimeSessionId, createdAt(sort: Desc)])
+  @@map("runtime_turn_receipts")
 }
 
 model AssistantChat {

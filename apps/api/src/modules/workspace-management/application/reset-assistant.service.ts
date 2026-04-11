@@ -7,9 +7,9 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter
-} from "./assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "./assistant-runtime.facade";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
@@ -22,8 +22,8 @@ export class ResetAssistantService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
@@ -102,7 +102,7 @@ export class ResetAssistantService {
     }
 
     this.logger.log("Resetting runtime workspace to clean memory baseline");
-    await this.runtimeAdapter.resetWorkspace(aid);
+    await this.assistantRuntime.resetWorkspace(aid);
     await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
       assistant,
       sizeBytes: releasedBytes,

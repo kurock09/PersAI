@@ -28,6 +28,36 @@ spec:
       app.kubernetes.io/name: web
 ---
 {{- end }}
+{{- if and .Values.providerGateway.enabled .Values.providerGateway.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: provider-gateway
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: provider-gateway
+spec:
+  minAvailable: {{ .Values.providerGateway.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: provider-gateway
+---
+{{- end }}
+{{- if and .Values.runtime.enabled .Values.runtime.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: runtime
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: runtime
+spec:
+  minAvailable: {{ .Values.runtime.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: runtime
+---
+{{- end }}
 {{- if .Values.openclaw.enabled }}
 {{- range $poolKey, $pool := .Values.openclaw.runtimePools.pools }}
 {{- if $pool.enabled }}

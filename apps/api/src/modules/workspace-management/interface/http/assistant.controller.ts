@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Inject,
   NotFoundException,
   Param,
   Patch,
@@ -61,7 +62,10 @@ import type {
 } from "../../application/web-chat.types";
 import type { TelegramIntegrationState } from "../../application/telegram-integration.types";
 import { toAssistantInboundHttpException } from "../../application/assistant-inbound-error";
-import { OpenClawRuntimeAdapter } from "../../infrastructure/openclaw/openclaw-runtime.adapter";
+import {
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "../../application/assistant-runtime.facade";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
 @Controller("api/v1")
@@ -95,7 +99,8 @@ export class AssistantController {
     private readonly disableAssistantTaskRegistryItemService: DisableAssistantTaskRegistryItemService,
     private readonly enableAssistantTaskRegistryItemService: EnableAssistantTaskRegistryItemService,
     private readonly cancelAssistantTaskRegistryItemService: CancelAssistantTaskRegistryItemService,
-    private readonly openClawRuntimeAdapter: OpenClawRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -179,12 +184,12 @@ export class AssistantController {
     }
 
     const ext = file.originalname.split(".").pop()?.toLowerCase() ?? "png";
-    const result = await this.openClawRuntimeAdapter.uploadWorkspaceAvatar(
-      assistant.id,
-      file.buffer,
-      file.mimetype,
-      ext
-    );
+    const result = await this.assistantRuntime.uploadWorkspaceAvatar({
+      assistantId: assistant.id,
+      fileBuffer: file.buffer,
+      mimeType: file.mimetype,
+      extension: ext
+    });
 
     return { requestId: req.requestId ?? null, avatarUrl: result.avatarUrl };
   }
@@ -200,7 +205,7 @@ export class AssistantController {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
-    const result = await this.openClawRuntimeAdapter.downloadWorkspaceAvatar(assistant.id);
+    const result = await this.assistantRuntime.downloadWorkspaceAvatar(assistant.id);
     if (!result) {
       res.statusCode = 404;
       res.setHeader("Content-Type", "application/json");
@@ -670,7 +675,7 @@ export class AssistantController {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
-    return this.openClawRuntimeAdapter.listMemoryItems(assistant.id, runtimeTier);
+    return this.assistantRuntime.listMemoryItems(assistant.id, runtimeTier);
   }
 
   @Post("assistant/memory/workspace/add")
@@ -684,7 +689,7 @@ export class AssistantController {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
-    return this.openClawRuntimeAdapter.addMemoryItem(assistant.id, body.content, runtimeTier);
+    return this.assistantRuntime.addMemoryItem(assistant.id, body.content, runtimeTier);
   }
 
   @Patch("assistant/memory/workspace/edit")
@@ -698,7 +703,7 @@ export class AssistantController {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
-    return this.openClawRuntimeAdapter.editMemoryItem(
+    return this.assistantRuntime.editMemoryItem(
       assistant.id,
       body.itemId,
       body.content,
@@ -717,7 +722,7 @@ export class AssistantController {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
-    return this.openClawRuntimeAdapter.forgetMemoryItem(assistant.id, body.itemId, runtimeTier);
+    return this.assistantRuntime.forgetMemoryItem(assistant.id, body.itemId, runtimeTier);
   }
 
   @Get("assistant/memory/workspace/search")
@@ -731,7 +736,7 @@ export class AssistantController {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
-    return this.openClawRuntimeAdapter.searchMemory(assistant.id, query, runtimeTier);
+    return this.assistantRuntime.searchMemory(assistant.id, query, runtimeTier);
   }
 
   @Get("assistant/chats/web")

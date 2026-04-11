@@ -1,0 +1,16 @@
+{
+  "extends": "../../packages/tsconfig/nest.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "paths": {
+      "@persai/config": ["../../packages/config/src"],
+      "@persai/logger": ["../../packages/logger/src"],
+      "@persai/runtime-bundle": ["../../packages/runtime-bundle/src"],
+      "@persai/runtime-contract": ["../../packages/runtime-contract/src"]
+    },
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { PreviewAssistantSetupService } from "../src/modules/workspace-management/application/preview-assistant-setup.service";
 import type {
-  AssistantRuntimeAdapter,
+  AssistantRuntimeFacade,
   AssistantRuntimeSetupPreviewTurnInput
-} from "../src/modules/workspace-management/application/assistant-runtime-adapter.types";
+} from "../src/modules/workspace-management/application/assistant-runtime.facade";
 import type { AssistantPublishedVersionRepository } from "../src/modules/workspace-management/domain/assistant-published-version.repository";
 import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
 import type { Assistant } from "../src/modules/workspace-management/domain/assistant.entity";
@@ -70,7 +70,7 @@ async function run(): Promise<void> {
     findById: async () => latestVersion
   };
 
-  const runtimeAdapter: AssistantRuntimeAdapter = {
+  const assistantRuntime = {
     preflight: async () => ({ live: true, ready: true, checkedAt: new Date().toISOString() }),
     applyMaterializedSpec: async () => {
       throw new Error("preview should not apply a live runtime spec");
@@ -112,7 +112,26 @@ async function run(): Promise<void> {
     deleteChatMedia: async () => undefined,
     deleteChatMediaBatch: async () => undefined,
     transcribeMedia: async () => ({ text: "unused" })
-  };
+  } as Pick<
+    AssistantRuntimeFacade,
+    | "preflight"
+    | "applyMaterializedSpec"
+    | "cleanupWorkspace"
+    | "consumeBootstrapWorkspace"
+    | "resetWorkspace"
+    | "resetMemoryWorkspace"
+    | "deleteWebChatSession"
+    | "sendWebChatTurn"
+    | "previewSetupTurn"
+    | "sendChannelTurn"
+    | "streamWebChatTurn"
+    | "controlCronJob"
+    | "uploadChatMedia"
+    | "downloadChatMedia"
+    | "deleteChatMedia"
+    | "deleteChatMediaBatch"
+    | "transcribeMedia"
+  > as AssistantRuntimeFacade;
 
   const materializeService = {
     buildRuntimeArtifacts: async (
@@ -126,9 +145,14 @@ async function run(): Promise<void> {
       return {
         currentConfigGeneration: 1,
         layers: {},
+        runtimeBundle: {
+          schema: "persai.runtime.bundle.v1"
+        },
         openclawBootstrap: { bootstrap: true },
         openclawWorkspace: { workspace: true },
         layersDocument: "{}",
+        runtimeBundleDocument: "{}",
+        runtimeBundleHash: "bundle-hash-1",
         openclawBootstrapDocument: "{}",
         openclawWorkspaceDocument: "{}",
         contentHash: "hash-1"
@@ -148,7 +172,7 @@ async function run(): Promise<void> {
   const service = new PreviewAssistantSetupService(
     assistantRepository,
     publishedVersionRepository,
-    runtimeAdapter,
+    assistantRuntime,
     materializeService,
     prisma
   );
@@ -161,8 +185,11 @@ async function run(): Promise<void> {
   });
   assert.ok(previewInput);
   assert.equal(previewInput.assistantId, assistant.id);
-  assert.deepEqual(previewInput.openclawBootstrap, { bootstrap: true });
-  assert.deepEqual(previewInput.openclawWorkspace, { workspace: true });
+  assert.deepEqual(previewInput.legacyBridge.bootstrap, { bootstrap: true });
+  assert.deepEqual(previewInput.legacyBridge.workspace, { workspace: true });
+  assert.deepEqual(previewInput.runtimeBundle, {
+    schema: "persai.runtime.bundle.v1"
+  });
   assert.equal(previewInput.userTimezone, "Europe/Moscow");
   assert.match(previewInput.userMessage, /Introduce yourself to Alex/);
 }

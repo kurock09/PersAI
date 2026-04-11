@@ -58,6 +58,66 @@ spec:
           averageUtilization: {{ .Values.web.autoscaling.targetMemoryUtilizationPercentage }}
 ---
 {{- end }}
+{{- if and .Values.providerGateway.enabled .Values.providerGateway.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: provider-gateway
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: provider-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: provider-gateway
+  minReplicas: {{ .Values.providerGateway.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.providerGateway.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.providerGateway.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.providerGateway.autoscaling.targetMemoryUtilizationPercentage }}
+---
+{{- end }}
+{{- if and .Values.runtime.enabled .Values.runtime.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: runtime
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: runtime
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: runtime
+  minReplicas: {{ .Values.runtime.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.runtime.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.runtime.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.runtime.autoscaling.targetMemoryUtilizationPercentage }}
+---
+{{- end }}
 {{- if .Values.openclaw.enabled }}
 {{- range $poolKey, $pool := .Values.openclaw.runtimePools.pools }}
 {{- if $pool.enabled }}

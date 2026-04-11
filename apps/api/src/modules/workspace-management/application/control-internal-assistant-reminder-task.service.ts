@@ -1,9 +1,9 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  AssistantRuntimeAdapterError,
-  type AssistantRuntimeAdapter
-} from "./assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  AssistantRuntimeError,
+  type AssistantRuntimeFacade
+} from "./assistant-runtime.facade";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
@@ -315,8 +315,8 @@ export class ControlInternalAssistantReminderTaskService {
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
     @Inject(ASSISTANT_TASK_REGISTRY_REPOSITORY)
     private readonly assistantTaskRegistryRepository: AssistantTaskRegistryRepository,
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly syncAssistantTaskRegistryService: SyncAssistantTaskRegistryService,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
   ) {}
@@ -429,7 +429,7 @@ export class ControlInternalAssistantReminderTaskService {
 
     if (input.action === "cancel") {
       try {
-        await this.runtimeAdapter.controlCronJob({
+        await this.assistantRuntime.controlCronJob({
           runtimeTier,
           action: "remove",
           args: { id: task.externalRef }
@@ -450,7 +450,7 @@ export class ControlInternalAssistantReminderTaskService {
       };
     }
 
-    const updatedJob = await this.runtimeAdapter.controlCronJob({
+    const updatedJob = await this.assistantRuntime.controlCronJob({
       runtimeTier,
       action: "update",
       args: {
@@ -483,7 +483,7 @@ export class ControlInternalAssistantReminderTaskService {
     );
     let createdJob: unknown;
     try {
-      createdJob = await this.runtimeAdapter.controlCronJob({
+      createdJob = await this.assistantRuntime.controlCronJob({
         runtimeTier,
         action: "add",
         ...(input.contextSessionKey ? { contextSessionKey: input.contextSessionKey } : {}),
@@ -506,7 +506,7 @@ export class ControlInternalAssistantReminderTaskService {
       });
     } catch (error) {
       if (
-        error instanceof AssistantRuntimeAdapterError &&
+        error instanceof AssistantRuntimeError &&
         error.code === "invalid_response" &&
         error.message.toLowerCase().includes("schedule.at is in the past")
       ) {

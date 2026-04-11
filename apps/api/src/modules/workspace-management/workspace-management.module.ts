@@ -80,6 +80,7 @@ import { ReapplyAssistantService } from "./application/reapply-assistant.service
 import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
 import { PreviewAssistantSetupService } from "./application/preview-assistant-setup.service";
+import { SendNativeWebChatTurnService } from "./application/send-native-web-chat-turn.service";
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
@@ -112,7 +113,9 @@ import { ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY } from "./domain/assistant
 import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.repository";
 import { ASSISTANT_MATERIALIZED_SPEC_REPOSITORY } from "./domain/assistant-materialized-spec.repository";
 import { ASSISTANT_PUBLISHED_VERSION_REPOSITORY } from "./domain/assistant-published-version.repository";
-import { ASSISTANT_RUNTIME_ADAPTER } from "./application/assistant-runtime-adapter.types";
+import { OPENCLAW_RUNTIME_BRIDGE } from "./application/assistant-runtime-adapter.types";
+import { ASSISTANT_RUNTIME_FACADE } from "./application/assistant-runtime.facade";
+import { OpenClawAssistantRuntimeFacade } from "./application/openclaw-assistant-runtime.facade";
 import { ASSISTANT_REPOSITORY } from "./domain/assistant.repository";
 import { OpenClawRuntimeAdapter } from "./infrastructure/openclaw/openclaw-runtime.adapter";
 import { NullBillingProviderAdapter } from "./infrastructure/billing/null-billing-provider.adapter";
@@ -133,6 +136,8 @@ import { ManageBootstrapPresetsService } from "./application/manage-bootstrap-pr
 import { SeedToolCatalogService } from "./application/seed-tool-catalog.service";
 import { BumpConfigGenerationService } from "./application/bump-config-generation.service";
 import { ForceReapplyAllService } from "./application/force-reapply-all.service";
+import { SyncNativeRuntimeBundleService } from "./application/sync-native-runtime-bundle.service";
+import { SyncProviderGatewayWarmupService } from "./application/sync-provider-gateway-warmup.service";
 import { AdminForceReapplyController } from "./interface/http/admin-force-reapply.controller";
 import { MediaAttachmentController } from "./interface/http/media-attachment.controller";
 import { TelegramWebhookProxyController } from "./interface/http/telegram-webhook-proxy.controller";
@@ -240,6 +245,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ResetAssistantService,
     PreviewAssistantSetupService,
     RecordWebChatMemoryTurnService,
+    SendNativeWebChatTurnService,
     ListAssistantMemoryItemsService,
     ForgetAssistantMemoryItemService,
     DoNotRememberAssistantMemoryService,
@@ -316,11 +322,16 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
       provide: ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
       useClass: PrismaAssistantChannelSurfaceBindingRepository
     },
-    {
-      provide: ASSISTANT_RUNTIME_ADAPTER,
-      useClass: OpenClawRuntimeAdapter
-    },
     OpenClawRuntimeAdapter,
+    {
+      provide: OPENCLAW_RUNTIME_BRIDGE,
+      useExisting: OpenClawRuntimeAdapter
+    },
+    OpenClawAssistantRuntimeFacade,
+    {
+      provide: ASSISTANT_RUNTIME_FACADE,
+      useExisting: OpenClawAssistantRuntimeFacade
+    },
     {
       provide: ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
       useClass: PrismaAssistantMaterializedSpecRepository
@@ -343,7 +354,9 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ManageBootstrapPresetsService,
     SeedToolCatalogService,
     BumpConfigGenerationService,
-    ForceReapplyAllService
+    ForceReapplyAllService,
+    SyncNativeRuntimeBundleService,
+    SyncProviderGatewayWarmupService
   ],
   exports: [
     GetAssistantByUserIdService,

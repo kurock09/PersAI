@@ -9,8 +9,6 @@ import {
   resolveRuntimeBaseUrl
 } from "../../application/runtime-endpoint-routing";
 import type {
-  AssistantRuntimeAdapter,
-  AssistantRuntimeApplyInput,
   AssistantRuntimeChannelSessionStateInput,
   AssistantRuntimeChannelSessionStateResult,
   AssistantRuntimeChannelCompactInput,
@@ -23,15 +21,19 @@ import type {
   AssistantRuntimeMediaUploadInput,
   AssistantRuntimeMediaUploadResult,
   AssistantRuntimePreflightResult,
-  AssistantRuntimeSetupPreviewTurnInput,
   AssistantRuntimeSetupPreviewTurnResult,
   AssistantRuntimeTranscribeResult,
+  AssistantRuntimeAvatarUploadInput,
+  AssistantRuntimeAvatarUploadResult,
   AssistantRuntimeWebChatSessionStateInput,
   AssistantRuntimeWebChatSessionStateResult,
   AssistantRuntimeWebChatSessionDeleteInput,
   AssistantRuntimeWebChatTurnStreamChunk,
   AssistantRuntimeWebChatTurnInput,
   AssistantRuntimeWebChatTurnResult,
+  OpenClawRuntimeApplyInput,
+  OpenClawRuntimeBridge,
+  OpenClawRuntimeSetupPreviewTurnInput,
   RuntimeMediaArtifact
 } from "../../application/assistant-runtime-adapter.types";
 import { AssistantRuntimeAdapterError } from "../../application/assistant-runtime-adapter.types";
@@ -169,7 +171,7 @@ function toOpenClawAdapterConfig(runtimeTier?: RuntimeTier): OpenClawAdapterConf
 }
 
 @Injectable()
-export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
+export class OpenClawRuntimeAdapter implements OpenClawRuntimeBridge {
   private static readonly PREFLIGHT_CACHE_TTL_MS = 5_000;
   private readonly logger = new Logger(OpenClawRuntimeAdapter.name);
   private readonly preflightCache = new Map<RuntimeTier, CachedPreflight>();
@@ -251,7 +253,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
     this.inFlightPreflights.delete(runtimeTier);
   }
 
-  async applyMaterializedSpec(input: AssistantRuntimeApplyInput): Promise<void> {
+  async applyMaterializedSpec(input: OpenClawRuntimeApplyInput): Promise<void> {
     const config = toOpenClawAdapterConfig(input.runtimeTier);
     if (!config.enabled) {
       throw new AssistantRuntimeAdapterError(
@@ -632,7 +634,7 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   }
 
   async previewSetupTurn(
-    input: AssistantRuntimeSetupPreviewTurnInput
+    input: OpenClawRuntimeSetupPreviewTurnInput
   ): Promise<AssistantRuntimeSetupPreviewTurnResult> {
     const config = toOpenClawAdapterConfig(input.runtimeTier);
     if (!config.enabled) {
@@ -1558,25 +1560,22 @@ export class OpenClawRuntimeAdapter implements AssistantRuntimeAdapter {
   }
 
   async uploadWorkspaceAvatar(
-    assistantId: string,
-    fileBuffer: Buffer,
-    mimeType: string,
-    extension: string
-  ): Promise<{ avatarUrl: string }> {
+    input: AssistantRuntimeAvatarUploadInput
+  ): Promise<AssistantRuntimeAvatarUploadResult> {
     const config = toOpenClawAdapterConfig();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
 
     try {
       const response = await fetch(
-        `${config.baseUrl}/api/v1/runtime/workspace/avatar?assistantId=${encodeURIComponent(assistantId)}&ext=${encodeURIComponent(extension)}`,
+        `${config.baseUrl}/api/v1/runtime/workspace/avatar?assistantId=${encodeURIComponent(input.assistantId)}&ext=${encodeURIComponent(input.extension)}`,
         {
           method: "POST",
           headers: {
             ...(config.token.length > 0 ? { Authorization: `Bearer ${config.token}` } : {}),
-            "Content-Type": mimeType
+            "Content-Type": input.mimeType
           },
-          body: new Uint8Array(fileBuffer),
+          body: new Uint8Array(input.fileBuffer),
           signal: controller.signal
         }
       );

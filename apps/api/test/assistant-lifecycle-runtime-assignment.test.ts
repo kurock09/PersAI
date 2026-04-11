@@ -70,9 +70,12 @@ async function run(): Promise<void> {
         }
       }
     },
+    runtimeBundle: null,
     openclawBootstrap: {},
     openclawWorkspace: {},
     layersDocument: "{}",
+    runtimeBundleDocument: null,
+    runtimeBundleHash: null,
     openclawBootstrapDocument: "{}",
     openclawWorkspaceDocument: "{}",
     contentHash: "hash-1",

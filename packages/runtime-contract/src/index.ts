@@ -1,0 +1,253 @@
+export const PERSAI_RUNTIME_CONTRACT_SCHEMA = "persai.runtime.contract.v1" as const;
+
+export const PERSAI_RUNTIME_TIERS = [
+  "free_shared_restricted",
+  "paid_shared_restricted",
+  "paid_isolated"
+] as const;
+
+export type PersaiRuntimeTier = (typeof PERSAI_RUNTIME_TIERS)[number];
+
+export const PERSAI_RUNTIME_CHANNELS = ["web", "telegram", "max_ru"] as const;
+
+export type PersaiRuntimeChannel = (typeof PERSAI_RUNTIME_CHANNELS)[number];
+
+export const PERSAI_RUNTIME_CONVERSATION_MODES = ["direct", "group"] as const;
+
+export type PersaiRuntimeConversationMode = (typeof PERSAI_RUNTIME_CONVERSATION_MODES)[number];
+
+export const PERSAI_RUNTIME_ATTACHMENT_KINDS = ["image", "audio", "video", "file"] as const;
+
+export type PersaiRuntimeAttachmentKind = (typeof PERSAI_RUNTIME_ATTACHMENT_KINDS)[number];
+
+export const PERSAI_RUNTIME_TRACE_SCOPES = [
+  "create_turn",
+  "stream_turn",
+  "resolve_session",
+  "compact_session"
+] as const;
+
+export type PersaiRuntimeTraceScope = (typeof PERSAI_RUNTIME_TRACE_SCOPES)[number];
+
+export const PERSAI_RUNTIME_TRACE_STATUSES = [
+  "ok",
+  "degraded",
+  "failed",
+  "interrupted"
+] as const;
+
+export type PersaiRuntimeTraceStatus = (typeof PERSAI_RUNTIME_TRACE_STATUSES)[number];
+
+export type IsoTimestamp = string;
+
+export interface AssistantScope {
+  assistantId: string;
+  workspaceId: string;
+}
+
+export interface RuntimeTraceStage {
+  key: string;
+  durationMs: number;
+}
+
+export interface RuntimeTrace {
+  scope: PersaiRuntimeTraceScope;
+  status: PersaiRuntimeTraceStatus;
+  totalMs: number;
+  stages: RuntimeTraceStage[];
+}
+
+export interface RuntimeConversationAddress extends AssistantScope {
+  channel: PersaiRuntimeChannel;
+  externalThreadKey: string;
+  externalUserKey: string | null;
+  mode: PersaiRuntimeConversationMode;
+}
+
+export interface RuntimeBundleRef extends AssistantScope {
+  bundleId: string;
+  publishedVersionId: string;
+  bundleHash: string;
+  compiledAt: IsoTimestamp;
+}
+
+export interface RuntimeAttachmentRef {
+  attachmentId: string;
+  kind: PersaiRuntimeAttachmentKind;
+  objectKey: string;
+  mimeType: string;
+  filename: string | null;
+  sizeBytes: number;
+}
+
+export interface RuntimeOutputArtifact {
+  artifactId: string;
+  kind: PersaiRuntimeAttachmentKind;
+  objectKey: string;
+  mimeType: string;
+  filename: string | null;
+  sizeBytes: number | null;
+  voiceNote: boolean;
+}
+
+export interface RuntimeInboundMessage {
+  text: string;
+  attachments: RuntimeAttachmentRef[];
+  locale: string | null;
+  timezone: string | null;
+  receivedAt: IsoTimestamp;
+}
+
+export interface RuntimeUsageSnapshot {
+  providerKey: string | null;
+  modelKey: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}
+
+export interface RuntimeTurnRequest {
+  requestId: string;
+  idempotencyKey: string;
+  runtimeTier: PersaiRuntimeTier;
+  bundle: RuntimeBundleRef;
+  conversation: RuntimeConversationAddress;
+  message: RuntimeInboundMessage;
+  providerOverride?: "openai" | "anthropic";
+  modelOverride?: string;
+}
+
+export interface RuntimeTurnResult {
+  requestId: string;
+  sessionId: string;
+  assistantText: string;
+  artifacts: RuntimeOutputArtifact[];
+  respondedAt: IsoTimestamp;
+  usage: RuntimeUsageSnapshot | null;
+  trace?: RuntimeTrace;
+}
+
+export interface ProviderGatewayTextMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ProviderGatewayTextGenerateRequest {
+  provider: "openai" | "anthropic";
+  model: string;
+  systemPrompt: string | null;
+  messages: ProviderGatewayTextMessage[];
+  maxOutputTokens?: number;
+}
+
+export interface ProviderGatewayTextGenerateResult {
+  provider: "openai" | "anthropic";
+  model: string;
+  text: string;
+  respondedAt: IsoTimestamp;
+  usage: RuntimeUsageSnapshot | null;
+}
+
+export interface RuntimeStreamStartedEvent {
+  type: "started";
+  requestId: string;
+  sessionId: string;
+}
+
+export interface RuntimeTextDeltaEvent {
+  type: "text_delta";
+  requestId: string;
+  sessionId: string;
+  delta: string;
+  accumulatedText: string;
+}
+
+export interface RuntimeArtifactEvent {
+  type: "artifact";
+  requestId: string;
+  sessionId: string;
+  artifact: RuntimeOutputArtifact;
+}
+
+export interface RuntimeCompletedEvent {
+  type: "completed";
+  result: RuntimeTurnResult;
+}
+
+export interface RuntimeInterruptedEvent {
+  type: "interrupted";
+  requestId: string;
+  sessionId: string;
+  assistantText: string;
+  respondedAt: IsoTimestamp | null;
+  trace?: RuntimeTrace;
+}
+
+export interface RuntimeFailedEvent {
+  type: "failed";
+  requestId: string;
+  sessionId: string | null;
+  code: string;
+  message: string;
+  willRetry: boolean;
+  trace?: RuntimeTrace;
+}
+
+export type RuntimeTurnStreamEvent =
+  | RuntimeStreamStartedEvent
+  | RuntimeTextDeltaEvent
+  | RuntimeArtifactEvent
+  | RuntimeCompletedEvent
+  | RuntimeInterruptedEvent
+  | RuntimeFailedEvent;
+
+export interface RuntimeSessionResolveInput {
+  runtimeTier: PersaiRuntimeTier;
+  conversation: RuntimeConversationAddress;
+}
+
+export interface RuntimeSessionSummary {
+  sessionId: string;
+  conversation: RuntimeConversationAddress;
+  currentTokens: number | null;
+  totalTokensFresh: boolean;
+  compactionCount: number;
+  compactionHintTokens: number | null;
+  providerKey: string | null;
+  modelKey: string | null;
+  updatedAt: IsoTimestamp | null;
+}
+
+export interface RuntimeSessionResolveResult {
+  found: boolean;
+  session: RuntimeSessionSummary | null;
+  trace?: RuntimeTrace;
+}
+
+export interface RuntimeCompactionRequest {
+  runtimeTier: PersaiRuntimeTier;
+  conversation: RuntimeConversationAddress;
+  instructions: string | null;
+}
+
+export interface RuntimeCompactionResult {
+  compacted: boolean;
+  reason: string | null;
+  tokensBefore: number | null;
+  tokensAfter: number | null;
+  session: RuntimeSessionSummary | null;
+  trace?: RuntimeTrace;
+}
+
+export interface RuntimeHealthStatus {
+  checkedAt: IsoTimestamp;
+  live: boolean;
+  ready: boolean;
+}
+
+export interface RuntimeReadinessStatus {
+  checkedAt: IsoTimestamp;
+  ready: boolean;
+  bundleCacheReady: boolean;
+  providerCacheReady: boolean;
+}

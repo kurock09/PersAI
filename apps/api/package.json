@@ -41,6 +41,8 @@
     "@nestjs/platform-express": "^11.1.17",
     "@persai/config": "workspace:*",
     "@persai/logger": "workspace:*",
+    "@persai/runtime-bundle": "workspace:*",
+    "@persai/runtime-contract": "workspace:*",
     "@persai/types": "workspace:*",
     "@prisma/client": "^6.19.2",
     "file-type": "^21.3.2",

@@ -5,8 +5,8 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
 ## Scope in this phase
 
 - namespace skeleton
-- Helm chart baseline for `apps/api`, `apps/web`, and the separately built `openclaw` runtime image
-- Docker build baseline for `apps/api` and `apps/web`
+- Helm chart baseline for `apps/api`, `apps/runtime`, `apps/provider-gateway`, `apps/web`, and the separately built `openclaw` runtime image
+- Docker build baseline for `apps/api`, `apps/runtime`, `apps/provider-gateway`, and `apps/web`
 - CI image publish baseline to Artifact Registry
 - no direct cluster mutation from CI workflows
 - no cleanup/reset execution
@@ -25,6 +25,13 @@ This directory contains the Step 1 dev GKE infrastructure baseline.
 - API deployment requires secret `persai-api-secrets` in namespace `persai-dev` with keys:
   - `DATABASE_URL`
   - `CLERK_SECRET_KEY`
+- Runtime deployment in dev reuses:
+  - `persai-api-secrets.DATABASE_URL`
+  - `persai-openclaw-secrets.PERSAI_RUNTIME_SPEC_STORE_REDIS_URL` as `RUNTIME_STATE_REDIS_URL`
+  - the existing `api-sa` Workload Identity + Cloud SQL proxy baseline for bounded dev access to Cloud SQL
+- Provider-gateway deployment in dev reuses:
+  - `persai-openclaw-secrets.OPENAI_API_KEY` as `PROVIDER_GATEWAY_OPENAI_API_KEY`
+  - optional `persai-openclaw-secrets.ANTHROPIC_API_KEY` as `PROVIDER_GATEWAY_ANTHROPIC_API_KEY` when present
 - Web deployment requires:
   - `web.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `infra/helm/values-dev.yaml`
   - `web.secretEnv.CLERK_SECRET_KEY` mapped from `persai-api-secrets`

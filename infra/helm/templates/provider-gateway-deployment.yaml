@@ -1,0 +1,77 @@
+{{- if .Values.providerGateway.enabled }}
+{{- $providerGatewayTag := default .Values.global.images.tag .Values.providerGateway.image.tag }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-gateway
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: provider-gateway
+spec:
+  revisionHistoryLimit: {{ default 2 .Values.providerGateway.revisionHistoryLimit }}
+  minReadySeconds: {{ default 0 .Values.providerGateway.minReadySeconds }}
+{{- with .Values.providerGateway.strategy }}
+  strategy:
+{{ toYaml . | indent 4 }}
+{{- end }}
+  replicas: {{ .Values.providerGateway.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: provider-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: provider-gateway
+    spec:
+{{- if .Values.providerGateway.topologySpreadConstraints }}
+      topologySpreadConstraints:
+{{ include "persai.workloadTopologySpreadConstraints" (dict "constraints" .Values.providerGateway.topologySpreadConstraints "labels" (dict "app.kubernetes.io/name" "provider-gateway")) | indent 8 }}
+{{- end }}
+      containers:
+        - name: provider-gateway
+          image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.providerGateway.image.name }}:{{ $providerGatewayTag }}"
+          imagePullPolicy: {{ .Values.providerGateway.image.pullPolicy }}
+{{- if or .Values.providerGateway.env .Values.providerGateway.secretEnv }}
+          env:
+{{- range $name, $value := .Values.providerGateway.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+{{- end }}
+{{- range $name, $ref := .Values.providerGateway.secretEnv }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ref.secretName | quote }}
+                  key: {{ $ref.secretKey | quote }}
+{{- if hasKey $ref "optional" }}
+                  optional: {{ $ref.optional }}
+{{- end }}
+{{- end }}
+{{- end }}
+          ports:
+            - containerPort: {{ .Values.providerGateway.service.port }}
+{{- with .Values.providerGateway.resources }}
+          resources:
+{{ toYaml . | indent 12 }}
+{{- end }}
+{{- with .Values.providerGateway.probes.readiness }}
+          readinessProbe:
+            httpGet:
+              path: {{ .path | quote }}
+              port: {{ $.Values.providerGateway.service.port }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+{{- end }}
+{{- with .Values.providerGateway.probes.liveness }}
+          livenessProbe:
+            httpGet:
+              path: {{ .path | quote }}
+              port: {{ $.Values.providerGateway.service.port }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+{{- end }}
+{{- end }}

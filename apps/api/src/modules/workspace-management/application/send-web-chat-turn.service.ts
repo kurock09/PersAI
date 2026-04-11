@@ -14,9 +14,9 @@ import {
   type CompletedWebTurnReplayState
 } from "../domain/assistant-channel-surface-binding.repository";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter
-} from "./assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "./assistant-runtime.facade";
 import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -30,6 +30,7 @@ import { InboundMediaService } from "./media/inbound-media.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
+import { SendNativeWebChatTurnService } from "./send-native-web-chat-turn.service";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
@@ -119,8 +120,9 @@ export class SendWebChatTurnService {
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
+    private readonly sendNativeWebChatTurnService: SendNativeWebChatTurnService,
     private readonly prepareAssistantInboundTurnService: PrepareAssistantInboundTurnService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
@@ -205,26 +207,29 @@ export class SendWebChatTurnService {
       const enrichedUserMessage = attachmentContext
         ? `${attachmentContext}\n${prepared.userMessage.content}`
         : prepared.userMessage.content;
+      const useNativeRuntimeSync = this.sendNativeWebChatTurnService.isEnabled();
 
-      const runtimeResponse = await this.assistantRuntimeAdapter
-        .sendWebChatTurn({
-          assistantId: prepared.assistantId,
-          publishedVersionId: prepared.publishedVersionId,
-          runtimeTier: prepared.runtimeTier,
-          ...(prepared.quotaDegradeModelOverride
-            ? {
-                providerOverride: prepared.quotaDegradeModelOverride.provider,
-                modelOverride: prepared.quotaDegradeModelOverride.model
-              }
-            : {}),
-          ...(trace.isEnabled() ? { overviewTraceId: trace.getTraceId() } : {}),
-          chatId: prepared.chat.id,
-          surfaceThreadKey: prepared.chat.surfaceThreadKey,
-          userMessageId: prepared.userMessage.id,
-          userMessage: enrichedUserMessage,
-          userTimezone: prepared.workspaceTimezone,
-          currentTimeIso: new Date().toISOString()
-        })
+      const runtimeResponse = await this.executeSyncRuntimeTurn({
+        useNativeRuntimeSync,
+        assistantId: prepared.assistantId,
+        publishedVersionId: prepared.publishedVersionId,
+        runtimeTier: prepared.runtimeTier,
+        userId: prepared.userId,
+        workspaceId: prepared.workspaceId,
+        chatId: prepared.chat.id,
+        surfaceThreadKey: prepared.chat.surfaceThreadKey,
+        userMessageId: prepared.userMessage.id,
+        userMessage: enrichedUserMessage,
+        userTimezone: prepared.workspaceTimezone,
+        currentTimeIso: new Date().toISOString(),
+        ...(prepared.quotaDegradeModelOverride
+          ? {
+              providerOverride: prepared.quotaDegradeModelOverride.provider,
+              modelOverride: prepared.quotaDegradeModelOverride.model
+            }
+          : {}),
+        ...(trace.isEnabled() ? { overviewTraceId: trace.getTraceId() } : {})
+      })
         .catch((error: unknown) => {
           throw toAssistantInboundHttpException(error);
         });
@@ -274,8 +279,10 @@ export class SendWebChatTurnService {
         source: "web_chat_turn_sync"
       });
       trace.stage("quota_recorded");
-      await this.consumeBootstrapBestEffort(prepared.assistantId, prepared.runtimeTier);
-      trace.stage("bootstrap_consumed");
+      if (!useNativeRuntimeSync) {
+        await this.consumeBootstrapBestEffort(prepared.assistantId, prepared.runtimeTier);
+        trace.stage("bootstrap_consumed");
+      }
 
       if (request.clientTurnId !== undefined) {
         await this.bindingRepository.completeWebTurnProcessing(
@@ -454,9 +461,63 @@ export class SendWebChatTurnService {
     runtimeTier: import("./runtime-assignment").RuntimeTier
   ): Promise<void> {
     try {
-      await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId, runtimeTier);
+      await this.assistantRuntime.consumeBootstrapWorkspace(assistantId, runtimeTier);
     } catch (error) {
       console.warn("[web-chat] Non-fatal: failed to consume BOOTSTRAP.md:", error);
     }
+  }
+
+  private async executeSyncRuntimeTurn(input: {
+    useNativeRuntimeSync: boolean;
+    assistantId: string;
+    publishedVersionId: string;
+    runtimeTier: import("./runtime-assignment").RuntimeTier;
+    userId: string;
+    workspaceId: string;
+    chatId: string;
+    surfaceThreadKey: string;
+    userMessageId: string;
+    userMessage: string;
+    userTimezone: string;
+    currentTimeIso: string;
+    providerOverride?: "openai" | "anthropic";
+    modelOverride?: string;
+    overviewTraceId?: string;
+  }) {
+    if (input.useNativeRuntimeSync) {
+      return this.sendNativeWebChatTurnService.execute({
+        assistantId: input.assistantId,
+        publishedVersionId: input.publishedVersionId,
+        runtimeTier: input.runtimeTier,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        userMessageId: input.userMessageId,
+        userMessage: input.userMessage,
+        userTimezone: input.userTimezone,
+        currentTimeIso: input.currentTimeIso,
+        ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
+        ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
+      });
+    }
+
+    return this.assistantRuntime.sendWebChatTurn({
+      assistantId: input.assistantId,
+      publishedVersionId: input.publishedVersionId,
+      runtimeTier: input.runtimeTier,
+      ...(input.providerOverride
+        ? {
+            providerOverride: input.providerOverride,
+            modelOverride: input.modelOverride
+          }
+        : {}),
+      ...(input.overviewTraceId ? { overviewTraceId: input.overviewTraceId } : {}),
+      chatId: input.chatId,
+      surfaceThreadKey: input.surfaceThreadKey,
+      userMessageId: input.userMessageId,
+      userMessage: input.userMessage,
+      userTimezone: input.userTimezone,
+      currentTimeIso: input.currentTimeIso
+    });
   }
 }

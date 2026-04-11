@@ -14,9 +14,9 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import type { Assistant } from "../domain/assistant.entity";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter
-} from "./assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "./assistant-runtime.facade";
 import { MediaPreprocessorService } from "./media/media-preprocessor.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -52,8 +52,8 @@ export class ManageChatMediaService {
     private readonly chatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly preprocessor: MediaPreprocessorService,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
@@ -99,7 +99,7 @@ export class ManageChatMediaService {
       assistant.id
     );
 
-    const uploadResult = await this.runtimeAdapter.uploadChatMedia({
+    const uploadResult = await this.assistantRuntime.uploadChatMedia({
       assistantId: assistant.id,
       runtimeTier,
       chatId: chat.id,
@@ -221,7 +221,7 @@ export class ManageChatMediaService {
       const wsLimits =
         await this.trackWorkspaceQuotaUsageService.resolveWorkspaceStorageLimit(assistant);
       if (wsLimits.limitBytes !== null) {
-        const wsUsage = await this.runtimeAdapter.getWorkspaceStorageUsage(
+        const wsUsage = await this.assistantRuntime.getWorkspaceStorageUsage(
           assistant.id,
           runtimeTier
         );
@@ -230,7 +230,7 @@ export class ManageChatMediaService {
         }
       }
 
-      const uploadResult = await this.runtimeAdapter.uploadChatMedia({
+      const uploadResult = await this.assistantRuntime.uploadChatMedia({
         assistantId: assistant.id,
         runtimeTier,
         chatId: chat.id,
@@ -319,7 +319,7 @@ export class ManageChatMediaService {
       }
     }
 
-    const uploadResult = await this.runtimeAdapter.uploadChatMedia({
+    const uploadResult = await this.assistantRuntime.uploadChatMedia({
       assistantId: assistant.id,
       runtimeTier,
       chatId: transientChatId,
@@ -329,7 +329,7 @@ export class ManageChatMediaService {
     });
 
     try {
-      const result = await this.runtimeAdapter.transcribeMedia(
+      const result = await this.assistantRuntime.transcribeMedia(
         assistant.id,
         uploadResult.storagePath,
         runtimeTier
@@ -341,7 +341,7 @@ export class ManageChatMediaService {
       outcome = "success";
       return { text };
     } finally {
-      await this.runtimeAdapter.deleteChatMediaBatch(assistant.id, transientChatId, runtimeTier);
+      await this.assistantRuntime.deleteChatMediaBatch(assistant.id, transientChatId, runtimeTier);
       const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
       this.platformHttpMetricsService.recordMediaStage({
         stage: "stt_transcribe",
@@ -394,7 +394,7 @@ export class ManageChatMediaService {
       source: params.source
     });
     if (applied.capped) {
-      await this.runtimeAdapter.deleteChatMedia(
+      await this.assistantRuntime.deleteChatMedia(
         params.assistant.id,
         params.storagePath,
         params.runtimeTier
@@ -428,7 +428,7 @@ export class ManageChatMediaService {
       assistant.id
     );
 
-    const result = await this.runtimeAdapter.downloadChatMedia(
+    const result = await this.assistantRuntime.downloadChatMedia(
       assistant.id,
       attachment.storagePath,
       runtimeTier

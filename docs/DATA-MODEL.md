@@ -97,14 +97,109 @@ Postgres with Prisma.
 - source_action (`publish|rollback|reset`)
 - algorithm_version
 - layers (jsonb)
+- runtime_bundle (jsonb, nullable during Step 2 backfill window) — PersAI-native runtime artifact introduced by ADR-072 Step 2
 - openclaw_bootstrap (jsonb)
 - openclaw_workspace (jsonb)
 - `layers.governance.runtimeAssignment` (Step 15 R15d): resolved runtime assignment state with `planDefaultTier`, `runtimeTierOverride`, `effectiveTier`, and `source`
 - layers_document (text)
+- runtime_bundle_document (text, nullable during Step 2 backfill window)
+- runtime_bundle_hash (text, nullable during Step 2 backfill window)
 - openclaw_bootstrap_document (text)
 - openclaw_workspace_document (text)
-- content_hash
+- content_hash — legacy OpenClaw apply hash retained during ADR-072 Slice 1 migration
 - created_at
+
+### runtime_bundle_states (ADR-072 Step 6)
+
+- id (UUID)
+- assistant_id
+- workspace_id
+- materialized_spec_id (unique FK to `assistant_materialized_specs`)
+- published_version_id (unique FK to `assistant_published_versions`)
+- runtime_tier (`free_shared_restricted|paid_shared_restricted|paid_isolated`)
+- bundle_hash
+- last_warmed_at (nullable)
+- invalidated_at (nullable)
+- created_at
+- updated_at
+- purpose:
+  - runtime-plane warm/invalidate state only
+  - **not** a second authoritative copy of the bundle document
+  - authoritative compiled bundle remains `assistant_materialized_specs.runtime_bundle*`
+  - Step 7 runtime bundle warm/invalidate endpoints now own `last_warmed_at` and `invalidated_at`
+  - PersAI control-plane apply/reapply now invokes that runtime seam when the temporary Step 7 runtime-base-url boundary is configured
+  - Step 7 bundle-state data-model work is complete; the remaining temporary runtime/provider-gateway activation seams are explicit API boundaries queued for Step 9 removal rather than additional schema work
+
+### runtime_sessions (ADR-072 Step 6)
+
+- id (UUID)
+- assistant_id
+- workspace_id
+- current_published_version_id (nullable FK to `assistant_published_versions`)
+- runtime_tier (`free_shared_restricted|paid_shared_restricted|paid_isolated`)
+- conversation_key (unique deterministic hash key for the shared runtime conversation address)
+- channel (`web|telegram|max_ru`)
+- external_thread_key
+- external_user_key (nullable)
+- mode (`direct|group`)
+- current_bundle_hash (nullable)
+- current_tokens (nullable)
+- total_tokens_fresh
+- compaction_count
+- compaction_hint_tokens (nullable)
+- provider_key (nullable)
+- model_key (nullable)
+- last_turn_at (nullable)
+- closed_at (nullable)
+- created_at
+- updated_at
+- Step 8 `SessionStoreService` now resolves/ensures active runtime sessions from this table by `conversation_key`
+- Redis conversation-session pointers are explicitly non-authoritative hot-path hints; stale or missing pointers are healed from the durable row instead of from local files or OpenClaw session state
+- Step 8 `TurnFinalizationService` now updates durable session summary fields here after terminal receipt persistence, keeping session-summary truth in Postgres instead of in process memory
+- Step 8 lease renewal remains Redis-only coordination state; no additional Postgres schema is introduced for heartbeat because session ownership is still intentionally ephemeral, not canonical relational truth
+- Step 8 in-flight accepted-turn claims also remain Redis-only coordination state; no separate relational table is introduced because this pre-receipt window is intentionally bounded and ephemeral
+
+### runtime_session_compactions (ADR-072 Step 6)
+
+- id (UUID)
+- runtime_session_id
+- assistant_id
+- workspace_id
+- request_id (nullable)
+- reason (nullable)
+- instructions (nullable)
+- summary_payload (nullable jsonb)
+- tokens_before (nullable)
+- tokens_after (nullable)
+- created_at
+
+### runtime_turn_receipts (ADR-072 Step 6)
+
+- id (UUID)
+- assistant_id
+- workspace_id
+- runtime_session_id (nullable)
+- published_version_id (nullable)
+- runtime_tier (`free_shared_restricted|paid_shared_restricted|paid_isolated`)
+- conversation_key
+- channel (`web|telegram|max_ru`)
+- external_thread_key
+- external_user_key (nullable)
+- mode (`direct|group`)
+- request_id (unique)
+- idempotency_key
+- bundle_hash (nullable)
+- status (`accepted|completed|interrupted|failed`)
+- result_payload (nullable jsonb)
+- error_code (nullable)
+- error_message (nullable)
+- completed_at (nullable)
+- created_at
+- updated_at
+- Step 8 `IdempotencyService` now treats this table as the durable turn receipt / replay authority for one logical runtime turn
+- Redis receipt markers remain best-effort accelerators keyed by conversation + idempotency and may be refreshed from the matching Postgres row when absent or stale
+- Step 8 `TurnFinalizationService` now marks accepted rows here as `completed`, `interrupted`, or `failed` before releasing the matching session lease
+- Step 8 `TurnAcceptanceService` now uses a separate Redis in-flight accepted-turn marker only for the narrow pre-receipt window; durable replay truth still moves here as soon as the accepted receipt row is persisted
 
 ### assistant_chats (Step 5 C1 baseline, extended M5)
 
@@ -459,9 +554,10 @@ Postgres with Prisma.
   - unique: `published_version_id` (one deterministic materialization per published version)
   - stores:
     - layered materialization structure (`layers`)
+    - PersAI-native runtime artifact (`runtime_bundle`, `runtime_bundle_document`, `runtime_bundle_hash`)
     - OpenClaw-native outputs (`openclaw_bootstrap`, `openclaw_workspace`)
     - deterministic diff documents (`*_document`)
-    - integrity hash (`content_hash`)
+    - legacy OpenClaw apply integrity hash (`content_hash`) while request-time execution remains on the migration boundary
 - `assistant_chats`:
   - primary key: `id`
   - unique per-assistant/per-surface thread identity:
@@ -592,7 +688,12 @@ Postgres with Prisma.
 - A4 adds rollback/reset actions over existing A3 model without deleting attachment layers
 - A5 adds runtime apply state tracking model only (no runtime call execution)
 - A6 adds platform-managed governance layer separate from user-owned draft/version truth
-- A7 adds deterministic materialization layer from user-owned + governance inputs to OpenClaw-native outputs
+- A7 adds deterministic materialization layer from user-owned + governance inputs to runtime artifacts
+- ADR-072 Step 2 dual-writes a PersAI-native `runtime_bundle` beside the legacy `openclaw_*` materialization fields without changing the active request-time executor yet
+- ADR-072 Step 6 adds the first shared runtime-state tables:
+  - `runtime_bundle_states` tracks runtime-plane warm/invalidation metadata only
+  - `runtime_sessions`, `runtime_session_compactions`, and `runtime_turn_receipts` establish the durable Postgres side of the future native session/idempotency model
+  - authoritative bundle documents still live in `assistant_materialized_specs.runtime_bundle*`
 - A8 executes runtime apply/reapply via infrastructure adapter using A7 materialized outputs and persists coarse apply error state
 - D1 adds first-class `memory_control` JSON on `assistant_governance` for memory policy/hooks/markers; runtime memory behavior stays outside backend tables
 - D2 adds `assistant_memory_registry_items` for Memory Center summaries (web chat derived); not a dump of OpenClaw runtime memory

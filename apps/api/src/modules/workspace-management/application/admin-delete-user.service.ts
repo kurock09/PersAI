@@ -1,9 +1,9 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter
-} from "./assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "./assistant-runtime.facade";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
@@ -16,8 +16,8 @@ export class AdminDeleteUserService {
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
@@ -37,7 +37,7 @@ export class AdminDeleteUserService {
     if (assistant) {
       this.logger.log(`Resetting runtime workspace for assistant ${assistant.id}`);
       try {
-        await this.runtimeAdapter.resetWorkspace(assistant.id);
+        await this.assistantRuntime.resetWorkspace(assistant.id);
       } catch (err) {
         this.logger.warn("Runtime workspace reset failed (continuing)", err);
       }

@@ -1,6 +1,10 @@
 import { createHash, createHmac } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
+import {
+  compileAssistantRuntimeBundle,
+  type AssistantRuntimeBundle
+} from "@persai/runtime-bundle";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
@@ -54,12 +58,25 @@ const OPENCLAW_WORKSPACE_SCHEMA = "openclaw.workspace.v1";
 export interface AssistantRuntimeArtifacts {
   currentConfigGeneration: number;
   layers: Record<string, unknown>;
+  runtimeBundle: AssistantRuntimeBundle;
   openclawBootstrap: Record<string, unknown>;
   openclawWorkspace: Record<string, unknown>;
   layersDocument: string;
+  runtimeBundleDocument: string;
+  runtimeBundleHash: string;
   openclawBootstrapDocument: string;
   openclawWorkspaceDocument: string;
   contentHash: string;
+}
+
+interface GeneratedBootstrapDocuments {
+  soulDocument: string;
+  userDocument: string;
+  identityDocument: string;
+  toolsDocument: string;
+  agentsDocument: string;
+  heartbeatDocument: string;
+  bootstrapDocument: string;
 }
 
 function sortKeysDeep(value: unknown): unknown {
@@ -146,9 +163,12 @@ export class MaterializeAssistantPublishedVersionService {
       algorithmVersion: MATERIALIZATION_ALGORITHM_VERSION,
       materializedAtConfigGeneration: artifacts.currentConfigGeneration,
       layers: artifacts.layers,
+      runtimeBundle: artifacts.runtimeBundle,
       openclawBootstrap: artifacts.openclawBootstrap,
       openclawWorkspace: artifacts.openclawWorkspace,
       layersDocument: artifacts.layersDocument,
+      runtimeBundleDocument: artifacts.runtimeBundleDocument,
+      runtimeBundleHash: artifacts.runtimeBundleHash,
       openclawBootstrapDocument: artifacts.openclawBootstrapDocument,
       openclawWorkspaceDocument: artifacts.openclawWorkspaceDocument,
       contentHash: artifacts.contentHash
@@ -365,7 +385,79 @@ export class MaterializeAssistantPublishedVersionService {
       bootstrapDocuments
     };
 
+    const runtimeBundleArtifact = compileAssistantRuntimeBundle({
+      metadata: {
+        assistantId: assistant.id,
+        workspaceId: assistant.workspaceId,
+        publishedVersionId: publishedVersion.id,
+        publishedVersion: publishedVersion.version,
+        algorithmVersion: MATERIALIZATION_ALGORITHM_VERSION,
+        configGeneration: currentConfigGeneration
+      },
+      persona: {
+        displayName: publishedVersion.snapshotDisplayName,
+        instructions: publishedVersion.snapshotInstructions,
+        traits: publishedVersion.snapshotTraits,
+        avatarEmoji: publishedVersion.snapshotAvatarEmoji,
+        avatarUrl: publishedVersion.snapshotAvatarUrl,
+        assistantGender
+      },
+      userContext,
+      runtime: {
+        runtimeAssignment,
+        runtimeProviderProfile,
+        runtimeProviderRouting,
+        optimizationPolicy: platformRuntimeProviderSettings.optimizationPolicy
+      },
+      governance: {
+        capabilityEnvelope: governance.capabilityEnvelope,
+        secretRefs: governance.secretRefs,
+        policyEnvelope: governance.policyEnvelope,
+        effectiveCapabilities,
+        toolAvailability,
+        memoryControl,
+        tasksControl,
+        toolCredentialRefs,
+        toolQuotaPolicy,
+        quota: {
+          planCode: effectivePlanCode,
+          workspaceQuotaBytes,
+          quotaHook: governance.quotaHook
+        },
+        auditHook: governance.auditHook
+      },
+      channels: {
+        bindings: channelSurfaceBindings,
+        telegram: {
+          enabled: telegramChannel.enabled,
+          autoCompactionEnabled: telegramChannel.autoCompactionEnabled,
+          dmPolicy: telegramChannel.dmPolicy,
+          groupReplyMode: telegramChannel.groupReplyMode,
+          parseMode: telegramChannel.parseMode,
+          inbound: telegramChannel.inbound,
+          outbound: telegramChannel.outbound,
+          accessMode: telegramChannel.accessMode,
+          ownerClaimStatus: telegramChannel.ownerClaimStatus,
+          ownerClaimCode: telegramChannel.ownerClaimCode,
+          ownerClaimCodeExpiresAt: telegramChannel.ownerClaimCodeExpiresAt,
+          ownerTelegramUserId: telegramChannel.ownerTelegramUserId,
+          ownerTelegramUsername: telegramChannel.ownerTelegramUsername,
+          ownerTelegramChatId: telegramChannel.ownerTelegramChatId
+        }
+      },
+      promptDocuments: {
+        soul: bootstrapDocuments.soulDocument,
+        user: bootstrapDocuments.userDocument,
+        identity: bootstrapDocuments.identityDocument,
+        tools: bootstrapDocuments.toolsDocument,
+        agents: bootstrapDocuments.agentsDocument,
+        heartbeat: bootstrapDocuments.heartbeatDocument,
+        bootstrap: bootstrapDocuments.bootstrapDocument
+      }
+    });
+
     const layersDocument = toDeterministicDocument(layers);
+    const runtimeBundleDocument = runtimeBundleArtifact.document;
     const openclawBootstrapDocument = toDeterministicDocument(openclawBootstrap);
     const openclawWorkspaceDocument = toDeterministicDocument(openclawWorkspace);
     const contentHash = createHash("sha256")
@@ -375,9 +467,12 @@ export class MaterializeAssistantPublishedVersionService {
     return {
       currentConfigGeneration,
       layers,
+      runtimeBundle: runtimeBundleArtifact.bundle,
       openclawBootstrap,
       openclawWorkspace,
       layersDocument,
+      runtimeBundleDocument,
+      runtimeBundleHash: runtimeBundleArtifact.hash,
       openclawBootstrapDocument,
       openclawWorkspaceDocument,
       contentHash
@@ -607,7 +702,7 @@ export class MaterializeAssistantPublishedVersionService {
       locale: string;
       timezone: string;
     };
-  }): Promise<Record<string, string>> {
+  }): Promise<GeneratedBootstrapDocuments> {
     const templates = await this.loadPresetTemplates();
 
     return {

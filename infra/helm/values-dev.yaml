@@ -81,6 +81,12 @@ api:
     LOG_LEVEL: info
     GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
     GCP_REGION: europe-west1
+    PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED: "true"
+    PERSAI_RUNTIME_BASE_URL: "http://runtime:3012"
+    PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS: "10000"
+    PERSAI_RUNTIME_TURN_TIMEOUT_MS: "90000"
+    PERSAI_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
+    PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "10000"
     OPENCLAW_ADAPTER_ENABLED: "true"
     OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: "http://openclaw-free-shared-restricted-sandbox:18789"
     OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: "http://openclaw-paid-shared-restricted-sandbox:18789"
@@ -232,6 +238,39 @@ web:
     enabled: true
     name: persai-web-backend-config
     timeoutSec: 3600
+
+providerGateway:
+  enabled: true
+  env:
+    APP_ENV: dev
+    PORT: "3011"
+    LOG_LEVEL: info
+    GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
+    GCP_REGION: europe-west1
+    PROVIDER_GATEWAY_WARM_ON_BOOT: "true"
+    PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "5000"
+    PROVIDER_GATEWAY_OPENAI_MODELS: "gpt-5.4"
+    PROVIDER_GATEWAY_ANTHROPIC_MODELS: "claude-sonnet-4-5"
+
+runtime:
+  enabled: true
+  serviceAccount:
+    create: false
+    name: api-sa
+  cloudSqlProxy:
+    enabled: true
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.18.3
+    port: 5432
+    instanceConnectionName: project-44786b14-b7d7-4554-a8a:europe-west1:persai-dev-postgres
+    usePrivateIp: true
+  env:
+    APP_ENV: dev
+    PORT: "3012"
+    LOG_LEVEL: info
+    GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
+    GCP_REGION: europe-west1
+    RUNTIME_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
+    RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "10000"
 
 openclaw:
   enabled: true

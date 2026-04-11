@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/dev-image-publish.yml
       - apps/api/**
+      - apps/runtime/**
+      - apps/provider-gateway/**
       - apps/web/**
       - packages/**
       - package.json
@@ -33,6 +35,12 @@ jobs:
         include:
           - image: api
             dockerfile: apps/api/Dockerfile
+            build-args: ""
+          - image: runtime
+            dockerfile: apps/runtime/Dockerfile
+            build-args: ""
+          - image: provider-gateway
+            dockerfile: apps/provider-gateway/Dockerfile
             build-args: ""
           - image: web
             dockerfile: apps/web/Dockerfile

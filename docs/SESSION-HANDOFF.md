@@ -1,5 +1,1344 @@
 # SESSION-HANDOFF
 
+## 2026-04-11 - ADR-072 Step 9 API sync native cutover flag
+
+### What changed
+
+1. Added the first API-side Step 9 sync cutover seam: `apps/api` now has `SendNativeWebChatTurnService`, which builds a native `RuntimeTurnRequest` from the prepared web turn and calls `apps/runtime` `POST /api/v1/turns/create`.
+2. `SendWebChatTurnService` now routes authenticated sync web turns through that native service when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`, while keeping the existing API-owned replay claim, canonical user/assistant message persistence, quota accounting, and media delivery flow unchanged around the returned native result.
+3. When the native sync flag is enabled there is no silent request-time fallback back to OpenClaw for sync web turns; instead the request fails honestly if `PERSAI_RUNTIME_BASE_URL` or the native runtime path is unavailable.
+4. Native sync turns now skip the legacy `consumeBootstrapWorkspace(...)` follow-up, so the cutover path no longer mutates OpenClaw workspace state after a native execution succeeds.
+5. Extended `RuntimeTurnRequest` plus `TurnExecutionService` so API-side quota degrade routing can still pass optional `providerOverride` / `modelOverride` into the native runtime without regressing current sync web semantics.
+6. Added focused API/runtime coverage for the new native API client, the sync route selection, and override propagation; updated ADR-072, architecture, API-boundary, changelog, and test-plan docs to reflect that Step 9 now has both a dark runtime seam and a flagged API sync consumer.
+
+### Why
+
+1. This is the next smallest valid Step 9 sub-step after the dark runtime seam: `apps/api` now really consumes native sync execution instead of only warming dark services.
+2. Keeping the cutover behind `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED` makes the migration boundary explicit and temporary, without introducing a permanent hybrid runtime abstraction.
+3. Preserving provider/model override propagation avoids regressing quota-degraded sync turns at the moment the API boundary switches from OpenClaw request-time execution to the native runtime.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 9 — Implement native web createTurn and streamTurn`
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `packages/config/src/api-config.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/send-native-web-chat-turn.service.test.ts`
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `pnpm --filter @persai/api typecheck`
+- `pnpm --filter @persai/runtime typecheck`
+- `pnpm --filter @persai/provider-gateway typecheck`
+- `pnpm --filter @persai/api test`
+- `pnpm --filter @persai/runtime test`
+
+### Risks
+
+1. Step 9 is still only partially landed: sync web turns can now use the native runtime behind a flag, but `streamTurn` and the primary web UX path are still legacy.
+2. The cutover is still boundary-config driven: `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`, `PERSAI_RUNTIME_BASE_URL`, and `PERSAI_RUNTIME_TURN_TIMEOUT_MS` are explicit temporary migration seams that must disappear once Step 9/10 rollout closes.
+3. Native sync still returns text/media as the current Step 9 dark runtime allows: attachment refs are not yet sent as native object-storage attachments, and media artifacts from the runtime are still rejected on the API sync path until later Step 11 work.
+
+### Next recommended step
+
+- Use this new flag in dev only to run one bounded live sync-web smoke against `POST /api/v1/assistant/chat/web`, then continue Step 9 by adding the native `streamTurn` API path so the default web UX can move off the legacy request-time runtime.
+
+### Ready commit message
+
+- `feat: route flagged web sync turns to native runtime`
+
+---
+
+## 2026-04-11 - ADR-072 Step 9 dark sync createTurn seam
+
+### What changed
+
+1. Added the first dark Step 9 sync execution surface: `apps/runtime` now exposes `POST /api/v1/turns/create`, and `TurnExecutionService` composes `TurnAcceptanceService`, warmed bundle lookup, provider-gateway text generation, and `TurnFinalizationService` for text-only sync turns.
+2. Added the first provider-gateway text generation seam: `apps/provider-gateway` now exposes `POST /api/v1/providers/generate-text`, and the warmed OpenAI/Anthropic clients now implement a shared `ProviderGatewayTextGenerateRequest` / `ProviderGatewayTextGenerateResult` contract from `packages/runtime-contract`.
+3. Runtime readiness/metrics are now execution-aware: `executionEnabled` is true, provider readiness is checked through the runtime-side `RUNTIME_PROVIDER_GATEWAY_BASE_URL` / `RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS` config, and the runtime reports provider-gateway dependency health instead of a hardcoded ready state.
+4. Added focused gateway/runtime coverage for the new provider-generation seam, runtime provider-gateway client, dark sync turn execution path, and the new runtime config fields.
+5. Updated ADR-072, architecture, API-boundary, and changelog docs so repo truth now shows Step 9 as in progress instead of still purely planned.
+
+### Why
+
+1. This is the smallest valid Step 9 sub-step that starts real native request-time execution without cutting live web traffic over prematurely.
+2. Keeping model execution behind `apps/provider-gateway` preserves the intended final boundary and avoids pulling provider SDK calls or OpenClaw-shaped execution back into `apps/runtime`.
+3. Making runtime readiness depend on the actual provider-gateway state keeps the new dark execution seam honest before any API/web consumer starts using it.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 9 — Implement native web createTurn and streamTurn`
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `packages/config/src/runtime-config.ts`
+- `apps/provider-gateway/package.json`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-text-generation.service.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-text-generation.controller.ts`
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`
+- `apps/provider-gateway/test/provider-text-generation.service.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/interface/http/turns.controller.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/src/modules/platform-core/application/runtime-readiness.service.ts`
+- `apps/runtime/src/modules/platform-core/application/runtime-metrics.service.ts`
+- `apps/runtime/src/modules/platform-core/interface/http/health.controller.ts`
+- `apps/runtime/src/modules/platform-core/interface/http/ready.controller.ts`
+- `apps/runtime/src/modules/platform-core/interface/http/metrics.controller.ts`
+- `apps/runtime/src/modules/platform-core/platform-core.module.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-config.test.ts`
+- `apps/runtime/test/idempotency.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/runtime-state-keyspace.service.test.ts`
+- `apps/runtime/test/runtime-state-redis.service.test.ts`
+- `apps/runtime/test/session-store.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `pnpm --filter @persai/provider-gateway typecheck`
+- `pnpm --filter @persai/provider-gateway test`
+- `pnpm --filter @persai/runtime typecheck`
+- `pnpm --filter @persai/runtime test`
+
+### Risks
+
+1. Step 9 is still only partially landed: the new path is dark, sync-only, and text-only; `streamTurn`, attachments, and API-side web orchestration/persistence still remain.
+2. Replayed completed receipts now return the stored result, but replayed failed or still-accepted receipts currently surface as conflicts until the API/web consumer defines final product semantics for those cases.
+3. The temporary Step 7 API `unset => skip` seams (`PERSAI_RUNTIME_BASE_URL`, `PERSAI_PROVIDER_GATEWAY_BASE_URL`) still remain because live web traffic has not switched to the native runtime yet.
+
+### Next recommended step
+
+- Continue `Step 9` by wiring the authenticated web sync path in `apps/api` behind a boundary-level native-runtime flag to call `POST /api/v1/turns/create`, persist canonical user/assistant messages around the returned `RuntimeTurnResult`, and only then prepare removal of the temporary Step 7 API activation seams.
+
+### Ready commit message
+
+- `feat: start adr-072 step 9 sync create turn path`
+
+---
+
+## 2026-04-11 - ADR-072 Step 8 in-flight claim seam and closure
+
+### What changed
+
+1. Added a bounded Redis in-flight accepted-turn marker to close the last Step 8 pre-receipt race.
+2. `RuntimeStateKeyspaceService` now defines a dedicated `turn_inflight` key shape, and `RuntimeStateRedisService` now supports atomic `claimAcceptedTurnInFlight(...)` plus read/clear helpers for that marker.
+3. `SessionLeaseService` now exposes `claimLeaseForAcceptedTurn(...)` and `clearAcceptedTurnInFlight(...)`, so Step 8 has one runtime-owned boundary for ephemeral accepted-turn claim semantics instead of leaving the gap inside ad hoc orchestration logic.
+4. `TurnAcceptanceService` now uses that claim seam and returns explicit `in_flight` for same-idempotency retries during the lease-acquired / accepted-receipt-not-yet-persisted window instead of collapsing them into generic `busy`.
+5. Added focused runtime coverage for the new in-flight key builder, Redis claim behavior, session-lease claim wrapper, and the new `in_flight` acceptance outcome plus cleanup on receipt-persist failure.
+6. Updated ADR-072 ledger and supporting architecture/API/data-model/test docs so repo truth now records Step 8 as complete and points the next session at Step 9.
+
+### Why
+
+1. The only meaningful Step 8 tail left was the narrow pre-receipt race where a same-idempotency retry could still observe `busy` after lease acquisition but before accepted receipt persistence.
+2. The new in-flight claim seam keeps the fix clean and still purely runtime-internal: no request-time execution, no HTTP surface, and no OpenClaw compatibility path were added.
+3. With this claim seam in place, Step 8 now honestly provides the full internal runtime package for session ordering and replay safety that Step 9 can consume.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 9 — Implement native web createTurn and streamTurn`
+
+### Files touched
+
+- `apps/runtime/src/modules/runtime-state/runtime-state-keyspace.service.ts`
+- `apps/runtime/src/modules/runtime-state/infrastructure/coordination/runtime-state-redis.service.ts`
+- `apps/runtime/src/modules/sessions/session-lease.service.ts`
+- `apps/runtime/src/modules/turns/turn-acceptance.service.ts`
+- `apps/runtime/test/runtime-state-keyspace.service.test.ts`
+- `apps/runtime/test/runtime-state-redis.service.test.ts`
+- `apps/runtime/test/session-lease.service.test.ts`
+- `apps/runtime/test/turn-acceptance.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+
+### Risks
+
+1. Step 8 is now complete as an internal runtime-state package, but no Step 9 request-path consumer exists yet, so this package is still proven only by focused runtime tests.
+2. Long-running stream ownership now has renew/lost semantics, but the future Step 9 execution path still must decide exactly how web streaming reacts when a lease is lost mid-turn.
+3. The in-flight marker is intentionally ephemeral and Redis-only; if Redis becomes unavailable at the wrong moment, the durable Postgres receipt still remains the primary replay truth, but the small pre-receipt window would temporarily degrade back toward `busy`.
+
+### Next recommended step
+
+- Start `Step 9 — Implement native web createTurn and streamTurn` by adding the first runtime-side turn execution facade/controller seam that consumes the completed Step 8 session-state package without cutting over live web traffic yet.
+
+### Ready commit message
+
+- `feat: close adr-072 step 8 runtime state package`
+
+---
+
+## 2026-04-11 - ADR-072 Step 8 lease heartbeat seam
+
+### What changed
+
+1. Added atomic compare-and-renew lease support in `RuntimeStateRedisService` so a runtime session lease TTL can be extended only when the stored lease owner token still matches.
+2. Added `SessionLeaseService.renewLease(...)` as the runtime-owned lease-renewal boundary above the Redis coordination helper.
+3. Added `TurnLeaseHeartbeatService` in `apps/runtime` as the first bounded Step 8 heartbeat seam for long-running accepted turns, returning explicit `renewed` vs `lost` outcomes.
+4. Added focused runtime coverage for:
+   - Redis compare-and-renew semantics
+   - session-lease renewal behavior
+   - accepted-turn heartbeat outcomes (`renewed` / `lost`)
+5. Updated ADR-072 ledger and supporting architecture/API/data-model/test docs so repo truth now records the Step 8 renewal seam honestly.
+
+### Why
+
+1. Step 8 still lacked any clean lease-renewal contract, so upcoming long-running `streamTurn` work would otherwise be forced to rely only on passive TTL expiry or invent ad hoc renewal logic later.
+2. Compare-and-renew keeps ownership honest: the runtime now extends a lease only when it still owns that exact lease token, rather than blindly extending whatever happens to exist under the key.
+3. This remains fully inside Step 8 because it is internal session-coordination behavior only; no request-time execution, HTTP surface, or traffic cutover was added.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 8 — Implement runtime session resolve, lease, and idempotency`
+
+### Files touched
+
+- `apps/runtime/src/modules/runtime-state/infrastructure/coordination/runtime-state-redis.service.ts`
+- `apps/runtime/src/modules/sessions/session-lease.service.ts`
+- `apps/runtime/src/modules/turns/turn-lease-heartbeat.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/runtime-state-redis.service.test.ts`
+- `apps/runtime/test/session-lease.service.test.ts`
+- `apps/runtime/test/turn-lease-heartbeat.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+
+### Risks
+
+1. Step 8 is still not fully closed: the narrow pre-receipt race remains, so a same-idempotency retry can still observe `busy` instead of `replayed` between lease acquisition and accepted-receipt persistence.
+2. The new heartbeat seam is internal only; no Step 9 execution path consumes it yet, so its behavior is still proven only by focused runtime tests.
+3. There is still no higher-level stream ownership policy beyond renew/lost semantics; later work must decide how native streaming reacts operationally when the lease is lost mid-turn.
+
+### Next recommended step
+
+- Continue `Step 8` by tightening the remaining pre-receipt race: add a bounded in-flight accepted-turn marker or equivalent runtime-owned claim seam so same-idempotency retries prefer `replayed_or_in_flight` over `busy` during the small gap between lease acquisition and accepted-receipt persistence.
+
+### Ready commit message
+
+- `feat: advance adr-072 step 8 lease heartbeat seam`
+
+---
+
+## 2026-04-11 - ADR-072 Step 8 turn finalization seam
+
+### What changed
+
+1. Added `TurnFinalizationService` in `apps/runtime` as the paired internal Step 8 seam for terminal turn state.
+2. `TurnFinalizationService` now marks accepted `runtime_turn_receipts` as `completed`, `interrupted`, or `failed`, updates `runtime_sessions` summary fields through `SessionStoreService`, and releases the held Redis session lease.
+3. Added explicit `updateSession()` persistence in `RuntimeStatePostgresService` plus `updateSessionSummary()` in `SessionStoreService` so Step 8 can mutate durable session summaries without abusing session re-create paths.
+4. The finalization ordering is now explicit and tested: terminal receipt persistence happens first, session summary update happens next, and the lease is released only after terminal receipt persistence succeeds.
+5. Added focused runtime coverage for completed/interrupted/failed finalization plus two error-ordering cases:
+   - receipt write failure keeps the lease
+   - session update failure after receipt persistence still releases the lease
+6. Updated ADR-072 ledger and supporting architecture/API/data-model/test docs so repo truth now records the new Step 8 terminal-state seam honestly.
+
+### Why
+
+1. Step 8 still had no bounded internal contract for terminal turn state, so receipt terminalization, session summary mutation, and lease release were still an unstructured future concern.
+2. Replay safety is more important than session-summary freshness, so terminal receipt persistence now happens before lease release. This keeps one logical turn result durable before the next turn can legitimately proceed.
+3. This remains strictly inside Step 8: it is runtime-internal orchestration only, with no web/Telegram HTTP surface, no provider calls, and no request-time traffic cutover.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 8 — Implement runtime session resolve, lease, and idempotency`
+
+### Files touched
+
+- `apps/runtime/src/modules/runtime-state/infrastructure/persistence/runtime-state-postgres.service.ts`
+- `apps/runtime/src/modules/sessions/session-store.service.ts`
+- `apps/runtime/src/modules/turns/turn-finalization.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/runtime-state-postgres.service.test.ts`
+- `apps/runtime/test/session-store.service.test.ts`
+- `apps/runtime/test/turn-finalization.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+
+### Risks
+
+1. Step 8 is still incomplete for long-lived streams: lease renewal/extension semantics are still undefined, so `streamTurn` cannot safely rely only on the base lease TTL.
+2. Receipt terminalization is now bounded, but no Step 9 execution service consumes it yet, so the seam is still only exercised by focused runtime tests.
+3. The narrow pre-receipt window from the acceptance seam still exists: a same-idempotency retry can still observe `busy` instead of `replayed` if it lands after lease acquisition but before accepted receipt persistence.
+
+### Next recommended step
+
+- Continue `Step 8` by adding a bounded lease-renewal/lease-heartbeat seam for long-running accepted turns so upcoming native `streamTurn` execution can hold session ownership safely without relying only on TTL expiry.
+
+### Ready commit message
+
+- `feat: advance adr-072 step 8 turn finalization seam`
+
+---
+
+## 2026-04-11 - ADR-072 Step 8 turn acceptance orchestration seam
+
+### What changed
+
+1. Added `TurnAcceptanceService` in `apps/runtime` as the first bounded internal native-turn acceptance orchestrator.
+2. `TurnAcceptanceService` now composes `SessionStoreService`, `SessionLeaseService`, and `IdempotencyService` in one explicit order: ensure session, check replay, acquire lease, then create the accepted turn receipt.
+3. Refactored `IdempotencyService` so replay lookup and accepted-receipt creation are separate operations; the old `claimOrReplayAcceptedTurn()` helper remains available as a convenience wrapper over the split behavior.
+4. Added focused runtime coverage for the new acceptance branches: replay-before-lease, busy-session without receipt creation, accepted-turn happy path, and replay-after-lease-race with lease release.
+5. Updated ADR-072 ledger and supporting architecture/API/test docs so repo truth now records the new internal Step 8 orchestration seam honestly.
+
+### Why
+
+1. Step 8 still had a real ordering tail: session resolve, lease, and idempotency existed as separate services, but there was no single runtime-owned seam that composed them the way Step 9 will need.
+2. Splitting replay lookup from accepted-receipt creation keeps the design cleaner: the runtime can now avoid persisting a durable `accepted` receipt when the session is already busy and no lease was acquired.
+3. This remains strictly inside Step 8 because it prepares internal turn acceptance only; it does not add HTTP controllers, request-time execution, provider calls, or traffic cutover.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 8 — Implement runtime session resolve, lease, and idempotency`
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/idempotency.service.ts`
+- `apps/runtime/src/modules/turns/turn-acceptance.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/turn-acceptance.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+
+### Risks
+
+1. Step 8 is still incomplete: there is now an acceptance orchestrator, but no paired finalization seam yet to mark receipts completed/interrupted/failed and release leases as one bounded runtime contract.
+2. Lease renewal/extension semantics are still undefined for long-running stream turns; that must land before Step 9 stream execution becomes real.
+3. There remains a narrow pre-receipt window where a same-idempotency retry can still see `busy` instead of `replayed` if it arrives after the first request acquires the lease but before it persists the accepted receipt; no active traffic depends on this yet, but the behavior should be revisited before cutover.
+
+### Next recommended step
+
+- Continue `Step 8` by adding a runtime-side turn finalization seam that marks receipts `completed` / `interrupted` / `failed`, updates session summary fields, and releases the lease through one bounded internal contract, still without adding any HTTP surface.
+
+### Ready commit message
+
+- `feat: advance adr-072 step 8 turn acceptance seam`
+
+---
+
+## 2026-04-11 - ADR-072 Step 8 runtime session-state boundary start
+
+### What changed
+
+1. Added `SessionStoreService` in `apps/runtime` as the first runtime-owned session resolve/ensure boundary over `runtime_sessions` plus Redis conversation-session pointers.
+2. Added `SessionLeaseService` for explicit Redis session lease acquire/release semantics instead of leaving lease behavior trapped in raw storage helpers.
+3. Added `IdempotencyService` in `apps/runtime` to claim or replay logical turns over durable `runtime_turn_receipts` plus Redis receipt markers.
+4. Hardened the Step 6 runtime-state foundation for Step 8 consumption by adding `findSessionById`, replacing the old turn-receipt upsert with safer create-only accepted-receipt semantics, and exposing conversation-pointer clearing.
+5. Added focused runtime coverage for session resolve healing, ensure/update behavior, lease acquire/release, idempotency replay, and the touched runtime-state helpers.
+6. Updated the ADR-072 ledger plus architecture/boundary/data-model/test-plan docs so repo truth now records Step 8 as in progress rather than still only planned.
+
+### Why
+
+1. Step 8 could not honestly start while `apps/runtime` still exposed only raw Postgres/Redis helper services with no runtime-owned session or replay boundary above them.
+2. The new service layer keeps the final target clean: Postgres is the durable authority for runtime sessions and turn receipts, while Redis pointers/markers stay explicit hot-path accelerators instead of becoming hidden filesystem-style truth.
+3. This is the smallest valid Step 8 sub-step that prepares native web turn orchestration without cutting traffic over early or deepening any OpenClaw-shaped request path.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 8 — Implement runtime session resolve, lease, and idempotency`
+
+### Files touched
+
+- `apps/runtime/src/app.module.ts`
+- `apps/runtime/src/modules/runtime-state/infrastructure/coordination/runtime-state-redis.service.ts`
+- `apps/runtime/src/modules/runtime-state/infrastructure/persistence/runtime-state-postgres.service.ts`
+- `apps/runtime/src/modules/sessions/session-store.service.ts`
+- `apps/runtime/src/modules/sessions/session-lease.service.ts`
+- `apps/runtime/src/modules/sessions/sessions.module.ts`
+- `apps/runtime/src/modules/turns/idempotency.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/session-store.service.test.ts`
+- `apps/runtime/test/session-lease.service.test.ts`
+- `apps/runtime/test/idempotency.service.test.ts`
+- `apps/runtime/test/runtime-state-postgres.service.test.ts`
+- `apps/runtime/test/runtime-state-redis.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+
+### Risks
+
+1. Step 8 is only partially complete: no native web turn controller/orchestrator composes these services yet, so the new boundary is still exercised only by focused runtime tests.
+2. Redis session pointers and receipt markers are intentionally best-effort accelerators; Step 9 still needs real request-path validation to confirm the Postgres-heal path remains cheap enough under load.
+3. `SessionLeaseService` currently exposes acquire/release only; long-running lease renewal/timeout behavior still needs to be defined when stream execution lands.
+
+### Next recommended step
+
+- Continue `Step 8` by adding the first runtime-side turn/session orchestration seam that composes `SessionStoreService`, `SessionLeaseService`, and `IdempotencyService` for one accepted native turn lifecycle, still without cutting web traffic over.
+
+### Ready commit message
+
+- `feat: start adr-072 step 8 runtime session boundary`
+
+---
+
+## 2026-04-11 - ADR-072 Step 7 provider gateway control-plane warmup
+
+### What changed
+
+1. Reworked `apps/provider-gateway` warmup/catalog state so `POST /api/v1/providers/warmup` can now accept a control-plane apply payload (`schema`, `source: "control_plane_apply"`, `availableModelsByProvider`) instead of staying bootstrap-only forever.
+2. `GET /api/v1/providers/catalog` now reflects the current in-memory provider snapshot from `ProviderWarmupService`, so the first apply-triggered control-plane warmup replaces the temporary Step 4 bootstrap model catalog seed instead of leaving a second long-term authority.
+3. Added `SyncProviderGatewayWarmupService` in `apps/api` plus temporary explicit API config seam `PERSAI_PROVIDER_GATEWAY_BASE_URL` / `PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS`.
+4. Wired `ApplyAssistantPublishedVersionService` to call provider-gateway warmup after native runtime bundle sync and to record `providerGatewayWarmup` in success audit details.
+5. If the provider-gateway base URL is configured and control-plane warmup fails after legacy apply succeeds, apply is now marked `degraded` instead of silently succeeding.
+6. Added focused API/provider-gateway coverage for the new request shape, control-plane catalog replacement, and apply degraded behavior.
+
+### Why
+
+1. Step 7 could not honestly close while provider-gateway warmup/catalog truth still lived only in the Step 4 bootstrap config seam.
+2. The new flow makes apply/materialization the real control-plane warm trigger for both dark services created in Steps 4-5, while keeping the activation seams explicit and temporary instead of hiding fail-open behavior.
+3. Bootstrap-config model lists are now only startup seed for the dark service until the first control-plane warmup arrives, which is materially cleaner than preserving them as permanent runtime truth.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 8 — Implement runtime session resolve, lease, and idempotency`
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/provider-client.types.ts`
+- `apps/provider-gateway/src/modules/providers/provider-warmup.service.ts`
+- `apps/provider-gateway/src/modules/providers/provider-catalog.service.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-warmup.controller.ts`
+- `apps/provider-gateway/test/provider-warmup.service.test.ts`
+- `packages/config/src/api-config.ts`
+- `apps/api/src/modules/workspace-management/application/sync-provider-gateway-warmup.service.ts`
+- `apps/api/src/modules/workspace-management/application/apply-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/sync-provider-gateway-warmup.service.test.ts`
+- `apps/api/test/apply-assistant-published-version.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-warmup.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/sync-provider-gateway-warmup.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/apply-assistant-published-version.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run lint`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/config run typecheck`
+
+### Risks
+
+1. `PERSAI_RUNTIME_BASE_URL` and `PERSAI_PROVIDER_GATEWAY_BASE_URL` still use explicit `unset => skip` behavior; that activation seam is temporary and must be removed in Step 9 when native web execution makes both services mandatory.
+2. `apps/provider-gateway` still uses env API keys plus bootstrap model lists as startup seed until the first control-plane warmup arrives; no active request-time traffic depends on that seed, but it remains a temporary dark-service bootstrap boundary rather than final target-state behavior.
+3. Apply can now honestly finish as `degraded` when either configured dark-service warm hook fails after legacy apply succeeds; this is correct for migration visibility, but operators need to treat degraded applies as partial native-state drift until Step 9 removes the optional-service phase.
+
+### Next recommended step
+
+- Start `Step 8 — Implement runtime session resolve, lease, and idempotency` by introducing the first runtime-owned session resolve + lease boundary in `apps/runtime` over `runtime_sessions`, Redis conversation-session pointers, and turn-receipt/idempotency state, without cutting active web traffic yet.
+
+### Ready commit message
+
+- `feat: close adr-072 step 7 control-plane warm flow`
+
+---
+
+## 2026-04-11 - ADR-072 Step 7 API apply wiring for runtime bundle sync
+
+### What changed
+
+1. Wired `ApplyAssistantPublishedVersionService` to trigger native runtime bundle sync after successful legacy OpenClaw apply.
+2. Added `SyncNativeRuntimeBundleService`, which calls `POST /api/v1/bundles/invalidate` and then `POST /api/v1/bundles/warm` with `materializedSpecId`, `runtimeTier`, native bundle document, and a PersAI-native `RuntimeBundleRef`.
+3. Added temporary explicit API config seam `PERSAI_RUNTIME_BASE_URL` plus `PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS` so apply/reapply can invoke the dark runtime service when it is configured, while remaining a documented no-op when the dark service is still absent.
+4. If the runtime base URL is configured and native bundle sync fails after legacy apply succeeds, apply is now marked `degraded` instead of silently succeeding. Success audit details now record `nativeRuntimeBundleSync`.
+5. Added focused API coverage for both the direct bundle-sync service and the apply-service success/degraded semantics. Also added `@persai/runtime-contract` to `apps/api` and removed a now-failing unused type import so API lint/typecheck stay green.
+
+### Why
+
+1. Step 7 could not honestly progress beyond the runtime-side seam while `apps/api` apply/reapply still never emitted real control-plane bundle warm/invalidate events.
+2. The temporary `PERSAI_RUNTIME_BASE_URL` boundary is strictly necessary because `apps/runtime` is still a dark service and not yet a universally required deployed dependency. The boundary is explicit, bounded, and temporary rather than hidden fail-open behavior.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 7 — Implement bundle warm/invalidate flow`
+
+### Files touched
+
+- `apps/api/package.json`
+- `apps/api/src/modules/workspace-management/application/apply-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/sync-native-runtime-bundle.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/apply-assistant-published-version.service.test.ts`
+- `apps/api/test/sync-native-runtime-bundle.service.test.ts`
+- `packages/config/src/api-config.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `pnpm-lock.yaml`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/sync-native-runtime-bundle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/apply-assistant-published-version.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api run test`
+- `corepack pnpm --filter @persai/config run typecheck`
+
+### Risks
+
+1. Step 7 is still incomplete: provider-gateway warmup remains on the temporary Step 4 bootstrap seam.
+2. The API-side `PERSAI_RUNTIME_BASE_URL` `unset => skip` behavior is intentionally temporary; it must not survive into native web cutover.
+3. Even when configured, bundle sync is still a best-effort cross-service control-plane action around a dark runtime, so `degraded` apply now honestly means “legacy apply succeeded but native warm sync did not.”
+
+### Next recommended step
+
+- Continue `Step 7` by wiring provider-gateway warmup off the same control-plane apply/materialization path and documenting/removing the remaining temporary bootstrap catalog seam. Keep the temporary API runtime-base-url skip seam explicit until Step 9 makes runtime service configuration mandatory.
+
+### Ready commit message
+
+- `feat: wire adr-072 apply into native runtime bundle sync`
+
+---
+
+## 2026-04-11 - ADR-072 Step 7 bundle coordination hardening
+
+### What changed
+
+1. Hardened the new Step 7 runtime-side bundle coordinator so warm validation happens before side effects and shared-state writes happen before local cache mutation.
+2. `RuntimeBundleRegistryService` now exposes pure warm-input validation plus optional timestamp overrides, letting the coordinator keep Postgres/Redis timestamps aligned with the local cache response.
+3. `RuntimeBundleCoordinatorService.warmBundle()` now upserts runtime bundle metadata first, marks Postgres warmed, writes Redis bundle markers, and only then mutates the local cache; if a later stage fails, it compensates shared state by invalidating the matching Postgres/Redis warm markers.
+4. `RuntimeBundleCoordinatorService.invalidateBundles()` now marks Postgres invalidation first, still invalidates the local cache even if Redis invalidation fails, and rethrows the Redis error instead of leaving the runtime in a silently partial local/shared mismatch.
+5. Expanded focused runtime tests to prove the new ordering and to verify that a shared-state failure path leaves the local runtime cache untouched.
+
+### Why
+
+1. The first Step 7 sub-step still had a real consistency tail: local bundle cache mutation happened before shared Postgres/Redis state, which was not clean enough for the intended runtime-control-plane seam.
+2. This hardening keeps the dark runtime closer to the final PersAI-native architecture by treating shared state as the primary truth and local cache as a bounded derivative, not the other way around.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 7 — Implement bundle warm/invalidate flow`
+
+### Files touched
+
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-coordinator.service.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/runtime run build`
+
+### Risks
+
+1. Step 7 is still partial overall: `apps/api` apply/reapply does not invoke the runtime warm/invalidate seam yet.
+2. Provider-gateway still uses the temporary Step 4 bootstrap config/catalog seam.
+3. Cross-store warm/invalidate is now cleaner, but it is still not a true distributed transaction across Postgres, Redis, and local cache; the current design compensates the known late-failure path instead of claiming impossible atomicity.
+
+### Next recommended step
+
+- Continue `Step 7` by wiring `ApplyAssistantPublishedVersionService` to call the hardened runtime invalidate/warm seam with `materializedSpecId`, `runtimeTier`, and the native bundle document, then land the paired provider-gateway warmup sub-step.
+
+### Ready commit message
+
+- `fix: harden adr-072 step 7 bundle coordination ordering`
+
+---
+
+## 2026-04-11 - ADR-072 Step 7 runtime bundle coordination seam
+
+### What changed
+
+1. Upgraded `apps/runtime` bundle warm/invalidate from the Step 5 local-cache shell into the first real Step 7 runtime-state coordination seam.
+2. `POST /api/v1/bundles/warm` now requires `materializedSpecId` plus `runtimeTier`, warms the bounded local cache, persists `runtime_bundle_states.lastWarmedAt`/`invalidatedAt`, and writes Redis bundle warm markers.
+3. `POST /api/v1/bundles/invalidate` now clears matching local cache entries, marks `runtime_bundle_states.invalidatedAt`, and removes Redis bundle markers for the assistant or assistant+published-version scope.
+4. Added focused runtime coverage for the new coordinator flow and updated `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, and `docs/SESSION-HANDOFF.md` so repo truth now records Step 7 as started but not complete.
+
+### Why
+
+1. Step 7 could not honestly be driven from `apps/api` while the runtime-side endpoints still behaved like a Step 5 shell and ignored the Step 6 Postgres/Redis state seam.
+2. This sub-step makes `apps/runtime` the real owner of bundle warm/invalidate state effects without cutting request traffic over, preserving the final PersAI-native direction and avoiding new OpenClaw-shaped compatibility.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 7 — Implement bundle warm/invalidate flow`
+
+### Files touched
+
+- `apps/runtime/src/modules/bundles/bundle.types.ts`
+- `apps/runtime/src/modules/bundles/bundles.module.ts`
+- `apps/runtime/src/modules/bundles/interface/http/bundle-warm.controller.ts`
+- `apps/runtime/src/modules/bundles/interface/http/bundle-invalidate.controller.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-coordinator.service.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/runtime run build`
+
+### Risks
+
+1. Step 7 is only partially landed: `apps/api` apply/reapply still does not invoke the runtime warm/invalidate seam, so the dark runtime will not yet receive real control-plane bundle events.
+2. Provider-gateway still uses the temporary Step 4 bootstrap config/catalog seam; Step 7 is not complete until that warmup path is also driven by PersAI control-plane events.
+3. The new runtime bundle endpoints are still dark-service only and have not yet been exercised by live deploy wiring.
+
+### Next recommended step
+
+- Continue `Step 7` by wiring `ApplyAssistantPublishedVersionService` to call the new runtime invalidate/warm seam with `materializedSpecId`, `runtimeTier`, and the native bundle document, then land the paired provider-gateway warmup sub-step so apply/materialization becomes the real control-plane warm trigger.
+
+### Ready commit message
+
+- `feat: start adr-072 step 7 runtime bundle coordination`
+
+---
+
+## 2026-04-11 - ADR-072 Step 6 persistence seam completion
+
+### What changed
+
+1. Completed the runtime-side Step 6 ownership seam in `apps/runtime`: added Prisma-backed runtime-state persistence services for `runtime_bundle_states`, `runtime_sessions`, `runtime_session_compactions`, and `runtime_turn_receipts`.
+2. Added Redis coordination services in `apps/runtime` for conversation-session pointers, session leases, turn-receipt/idempotency markers, and bundle warm markers over the deterministic Step 6 keyspace model.
+3. Runtime config now validates `DATABASE_URL` and `RUNTIME_STATE_REDIS_URL`, `apps/runtime/package.json` now declares `@prisma/client` plus `redis`, and focused runtime tests now cover config, keyspace, Postgres mapping, and Redis coordination semantics.
+4. Updated `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/TEST-PLAN.md`, `docs/CHANGELOG.md`, and `docs/SESSION-HANDOFF.md` to mark Step 6 complete and move the active step to Step 7.
+
+### Why
+
+1. Step 6 was not honestly complete with schema + key model alone; the dark runtime needed to own the real Postgres/Redis persistence seam before Step 7 could start cleanly.
+2. This closes the shared-state foundation while still keeping `assistant_materialized_specs.runtime_bundle*` as the only authoritative compiled bundle artifact and without changing active request-time execution.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 7 — Implement bundle warm/invalidate flow`
+
+### Files touched
+
+- `apps/runtime/package.json`
+- `apps/runtime/src/modules/runtime-state/runtime-state.module.ts`
+- `apps/runtime/src/modules/runtime-state/infrastructure/persistence/runtime-state-prisma.service.ts`
+- `apps/runtime/src/modules/runtime-state/infrastructure/persistence/runtime-state-postgres.service.ts`
+- `apps/runtime/src/modules/runtime-state/infrastructure/coordination/runtime-state-redis.service.ts`
+- `apps/runtime/test/runtime-config.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-state-keyspace.service.test.ts`
+- `apps/runtime/test/runtime-state-postgres.service.test.ts`
+- `apps/runtime/test/runtime-state-redis.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `packages/config/src/runtime-config.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `pnpm-lock.yaml`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run prisma:generate`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/runtime run build`
+- `corepack pnpm --filter @persai/config run typecheck`
+
+### Risks
+
+1. Step 6 now owns the shared-state seam, but Step 7 still has to wire real apply/materialization-driven warm/invalidate flow into these Postgres/Redis services.
+2. Verification is still focused/unit-level for the new runtime persistence layer; live DB/Redis behavior will only be exercised when later slices start invoking the seam for real.
+
+### Next recommended step
+
+- Implement `Step 7 — bundle warm/invalidate flow` by feeding publish/apply materialization into the new runtime-state persistence seam and replacing the Step 5 shell-only warm assumptions, still without cutting request traffic over.
+
+### Ready commit message
+
+- `feat: complete adr-072 step 6 runtime-state seam`
+
+---
+
+## 2026-04-11 - ADR-072 Step 6 honesty correction
+
+### What changed
+
+1. Reconciled ADR-072 execution docs after a strict code-vs-plan review showed the prior session overstated Step 6 completion.
+2. Updated `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` to mark `Step 6 — Add Postgres runtime tables and Redis session keys` as `in_progress`, not `completed`.
+3. Updated `docs/CHANGELOG.md` and this handoff so the repo truth now says only Step 6 foundation has landed so far.
+
+### Why
+
+1. The repo does have Step 6 groundwork: Postgres runtime-state tables and a deterministic Redis key model.
+2. But the runtime-side persistence/config seam that will actually own/read/write this state is still missing, so calling all of Step 6 complete was not honest.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 6 — Add Postgres runtime tables and Redis session keys`
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- none; docs reconciliation only
+
+### Risks
+
+1. Runtime-state schema and Redis key model exist, but the runtime app still lacks the real persistence/config ownership seam for that state.
+2. Until that seam lands, Step 7 and Step 8 would be premature to call active implementation targets.
+
+### Next recommended step
+
+- Continue `Step 6` by adding the runtime-side persistence/config seam in `apps/runtime` for the new Postgres runtime tables and Redis keyspace so the dark runtime can own/read/write bundle/session/receipt state before any Step 7 warm/invalidate wiring begins.
+
+### Ready commit message
+
+- `docs: correct adr-072 step 6 status`
+
+---
+
+## 2026-04-11 - ADR-072 Step 6 runtime-state foundation (partial)
+
+### What changed
+
+1. Added the first Step 6 shared runtime-state schema in `apps/api/prisma/schema.prisma` plus migration `20260411110000_adr072_step6_runtime_state_foundation`, introducing `runtime_bundle_states`, `runtime_sessions`, `runtime_session_compactions`, and `runtime_turn_receipts`.
+2. Added `apps/runtime/src/modules/runtime-state/*` with a deterministic Redis keyspace model for conversation-session pointers, session leases, turn-receipt/idempotency markers, and bundle warm markers; extended runtime config defaults/tests accordingly.
+3. Updated `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, and `docs/CHANGELOG.md` to record the Step 6 state-model boundary and keep bundle authority on `assistant_materialized_specs.runtime_bundle*`.
+
+### Why
+
+1. ADR-072 Step 6 requires the distributed Postgres/Redis state foundation before Step 7 warm/invalidate flow and Step 8 session resolve/lease/idempotency logic can land cleanly.
+2. Keeping `runtime_bundle_states` metadata-only avoids contaminating the final architecture with a second bundle-document authority while still giving the runtime plane its own durable warm/invalidation state seam.
+3. This session landed Step 6 foundation only; it did not yet add the runtime-side persistence/config seam needed to call all of Step 6 complete.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 6 — Add Postgres runtime tables and Redis session keys`
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260411110000_adr072_step6_runtime_state_foundation/migration.sql`
+- `apps/runtime/src/app.module.ts`
+- `apps/runtime/src/modules/runtime-state/runtime-state.module.ts`
+- `apps/runtime/src/modules/runtime-state/runtime-state-keyspace.service.ts`
+- `apps/runtime/test/runtime-config.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-state-keyspace.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `packages/config/src/runtime-config.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run prisma:generate`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/runtime run build`
+- `corepack pnpm --filter @persai/config run typecheck`
+
+### Risks
+
+1. Step 6 lands schema and deterministic keyspace only; the runtime-side persistence/config seam is still missing before Step 6 can be closed.
+2. The Redis key model is validated in unit tests only so far; live Redis write/read semantics, invalidation fanout, and lease contention behavior remain future-slice work.
+
+### Next recommended step
+
+- Continue Step 6 by adding the runtime-side persistence/config seam in `apps/runtime` for the new Postgres runtime tables and Redis keyspace; after that, Step 7 can wire real bundle warm/invalidate flow over that state.
+
+### Ready commit message
+
+- `feat: add adr-072 step 6 runtime-state foundation`
+
+---
+
+## 2026-04-11 - ADR-072 Step 5 runtime shell
+
+### What changed
+
+1. Added `apps/runtime` as the Step 5 dark-service shell with `loadRuntimeConfig`, Nest bootstrap, health/readiness/metrics controllers, a bounded native-bundle warm/invalidate registry, and runtime observability counters while keeping `executionEnabled: false`.
+2. Added the missing runtime app ESLint config plus the new `apps/runtime` importer in `pnpm-lock.yaml`, then verified the new service with focused test, typecheck, build, and lint runs.
+3. Updated `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/TEST-PLAN.md`, and `docs/CHANGELOG.md` to record the new runtime-shell boundary, mark Step 5 complete, and advance the active slice/step.
+
+### Why
+
+1. ADR-072 Step 5 requires a real PersAI-native runtime service boundary before any distributed session state, bundle-control-plane wiring, or native web execution can land.
+2. The bundle cache stays explicitly local and bounded so this session establishes the runtime process/service shape without polluting the final architecture with filesystem state, OpenClaw compatibility, or premature Step 6/7 execution logic.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 6 — Add Postgres runtime tables and Redis session keys`
+
+### Files touched
+
+- `apps/runtime/*`
+- `packages/config/src/index.ts`
+- `packages/config/src/runtime-config.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/TEST-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+- `pnpm-lock.yaml`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run build`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/config run typecheck`
+
+### Risks
+
+1. The Step 5 bundle registry is intentionally process-local dark-service scaffolding only; Step 6 and Step 7 still need to replace that with shared distributed/runtime-control-plane truth before any traffic cutover.
+2. `/ready` currently reports `providerCacheReady: true` because native execution is disabled in Step 5; later execution slices must replace that placeholder with real provider-gateway dependency truth when runtime inference becomes active.
+
+### Next recommended step
+
+- Implement Step 6 by adding the first Postgres runtime tables and Redis session-key model for native session leases/idempotency/bundle markers, still without changing active request-time execution.
+
+### Ready commit message
+
+- `feat: add runtime shell for adr-072 step 5`
+
+---
+
+## 2026-04-10 - ADR-072 Step 4 provider-gateway tsconfig resolve fix
+
+### What changed
+
+1. Changed `apps/provider-gateway/tsconfig.json` to extend `../../packages/tsconfig/nest.json` via a stable relative path instead of `@persai/tsconfig/nest.json`.
+
+### Why
+
+1. The Step 4 gateway code/build were already valid, but some IDE/tsserver contexts reported `File '@persai/tsconfig/nest.json' not found.` for the new app.
+2. The relative path removes that tooling tail without changing Step 4 architecture, runtime behavior, or active-step scope.
+
+### Current active slice
+
+- `Slice 2 — Provider gateway and runtime shell`
+
+### Current active step
+
+- `Step 5 — Create apps/runtime shell with health/readiness/metrics`
+
+### Files touched
+
+- `apps/provider-gateway/tsconfig.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+
+### Risks
+
+1. This is a tooling/IDE resolution cleanup only; Step 4 still keeps the documented temporary bootstrap catalog/config seam until Step 7 removes it.
+
+### Next recommended step
+
+- Create `apps/runtime` with the Step 5 dark-service shell: bootstrap, health/readiness/metrics, and bounded bundle/observability seams, still without production turn execution.
+
+### Ready commit message
+
+- `fix: stabilize provider gateway tsconfig resolution`
+
+---
+
+## 2026-04-10 - ADR-072 Step 4 provider gateway shell
+
+### What changed
+
+1. Added `apps/provider-gateway` as the first PersAI-native execution-plane app scaffold with Nest bootstrap, lint/typecheck/build/test wiring, and dedicated platform-core health/readiness/metrics modules.
+2. Added real OpenAI and Anthropic provider client modules plus a dark-service catalog/warmup boundary: `GET /api/v1/providers/catalog` and `POST /api/v1/providers/warmup`.
+3. Added `loadProviderGatewayConfig()` in `packages/config` so the gateway owns one bounded startup config seam for provider keys, bootstrap model catalogs, and warm-on-boot behavior.
+4. Updated ADR-072/supporting docs to mark Step 4 complete, record the temporary bootstrap catalog seam explicitly, and move the active step to `Step 5 — Create apps/runtime` shell with health/readiness/metrics.
+
+### Why
+
+1. ADR-072 Step 4 required a real provider-gateway service boundary before the runtime shell or native turn execution can exist.
+2. Prewarming provider clients outside the future runtime hot path is necessary to keep ordinary chat execution free of request-time provider discovery and ad hoc SDK boot.
+3. The temporary bootstrap catalog/config seam is intentionally confined to the new gateway so later Step 7 work can replace it cleanly with PersAI control-plane warm/invalidate input instead of letting a second authority spread across the repo.
+
+### Current active slice
+
+- `Slice 2 — Provider gateway and runtime shell`
+
+### Current active step
+
+- `Step 5 — Create apps/runtime shell with health/readiness/metrics`
+
+### Files touched
+
+- `apps/provider-gateway/package.json`
+- `apps/provider-gateway/.eslintrc.cjs`
+- `apps/provider-gateway/tsconfig.json`
+- `apps/provider-gateway/tsconfig.build.json`
+- `apps/provider-gateway/src/main.ts`
+- `apps/provider-gateway/src/app.module.ts`
+- `apps/provider-gateway/src/provider-gateway-config.ts`
+- `apps/provider-gateway/src/provider-gateway-config.module.ts`
+- `apps/provider-gateway/src/modules/platform-core/platform-core.module.ts`
+- `apps/provider-gateway/src/modules/platform-core/application/provider-gateway-readiness.service.ts`
+- `apps/provider-gateway/src/modules/platform-core/application/provider-gateway-metrics.service.ts`
+- `apps/provider-gateway/src/modules/platform-core/interface/http/health.controller.ts`
+- `apps/provider-gateway/src/modules/platform-core/interface/http/ready.controller.ts`
+- `apps/provider-gateway/src/modules/platform-core/interface/http/metrics.controller.ts`
+- `apps/provider-gateway/src/modules/platform-core/infrastructure/logging/app-logger.service.ts`
+- `apps/provider-gateway/src/modules/providers/provider-client.types.ts`
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`
+- `apps/provider-gateway/src/modules/providers/provider-catalog.service.ts`
+- `apps/provider-gateway/src/modules/providers/provider-warmup.service.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-catalog.controller.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-warmup.controller.ts`
+- `apps/provider-gateway/test/provider-gateway-config.test.ts`
+- `apps/provider-gateway/test/provider-warmup.service.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `packages/config/src/provider-gateway-config.ts`
+- `packages/config/src/index.ts`
+- `docs/ARCHITECTURE.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `pnpm-lock.yaml`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/config run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/provider-gateway run lint`
+- `corepack pnpm --filter @persai/provider-gateway run build`
+
+### Risks
+
+1. The new gateway is still a dark service; no request traffic, runtime shell, or control-plane warm/invalidate flow points at it yet.
+2. Step 4 intentionally uses a temporary bootstrap catalog/config seam in `packages/config` + `apps/provider-gateway`; Step 7 must replace that with PersAI control-plane warm/invalidate input instead of letting it become a second long-term authority.
+3. Provider warmup currently instantiates SDK clients without live external smoke calls, so credential validity/network behavior still needs later environment-backed verification when secrets are available.
+
+### Next recommended step
+
+- Create `apps/runtime` with the first dark-service runtime shell: bootstrap, health/readiness/metrics, and a bounded bundle/observability boundary without executing production turns yet.
+
+### Ready commit message
+
+- `feat: add provider gateway shell for ADR-072`
+
+---
+
+## 2026-04-10 - ADR-072 Step 3 neutral runtime facade
+
+### What changed
+
+1. Added `assistant-runtime.facade.ts` as the new PersAI-native application seam and `openclaw-assistant-runtime.facade.ts` as the temporary boundary implementation that delegates to the legacy runtime bridge.
+2. Converted `assistant-runtime-adapter.types.ts` from the app-layer contract into the internal `OpenClawRuntimeBridge` boundary contract, then updated `OpenClawRuntimeAdapter` and `workspace-management.module.ts` so legacy OpenClaw translation stays trapped behind DI wiring.
+3. Migrated workspace-management application services plus `assistant.controller.ts` to inject `ASSISTANT_RUNTIME_FACADE`, use `AssistantRuntimeError`, and pass `runtimeBundle` with `legacyBridge` payloads only where the boundary still needs them.
+4. Added focused seam coverage for the new facade mapping and updated closeout docs/ledger state so Slice 1 now ends with a neutral runtime boundary instead of a growing OpenClaw-shaped app contract.
+
+### Why
+
+1. ADR-072 Step 3 required PersAI application code to stop growing around OpenClaw-specific runtime shapes before provider-gateway and runtime-shell work begins.
+2. A neutral facade gives later native-runtime slices one bounded replacement seam instead of forcing another repo-wide refactor when the real PersAI runtime executor lands.
+3. Keeping the OpenClaw payload translation inside the boundary preserves current behavior while preventing `openclaw*` fields from remaining the long-term runtime interface.
+
+### Current active slice
+
+- `Slice 2 — Provider gateway and runtime shell`
+
+### Current active step
+
+- `Step 4 — Create apps/provider-gateway`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/openclaw-assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-preflight.service.ts`
+- `apps/api/src/modules/workspace-management/application/apply-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/create-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+- `apps/api/src/modules/workspace-management/application/admin-delete-user.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/inbound-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-preprocessor.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-inbound-error.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/preview-assistant-setup.service.test.ts`
+- `apps/api/test/admin-delete-user.service.test.ts`
+- `apps/api/test/openclaw-assistant-runtime.facade.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/preview-assistant-setup.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/openclaw-assistant-runtime.facade.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-lifecycle-runtime-assignment.test.ts`
+
+### Risks
+
+1. The new facade is still backed entirely by `OpenClawRuntimeBridge`, so request-time execution behavior is unchanged and still legacy until later slices land.
+2. `runtimeBundle` now reaches the facade boundary for apply/preview flows, but the bridge still executes against legacy payloads; later cutover work must delete this temporary duplication cleanly instead of letting it harden.
+3. Step 3 mainly validates boundary mapping and compile-time wiring; broader end-to-end runtime behavior still depends on later provider-gateway and runtime-shell slices.
+
+### Next recommended step
+
+- Create `apps/provider-gateway` with the first prewarmed OpenAI/Anthropic provider modules, health seams, and catalog/warmup boundary without cutting any request traffic yet.
+
+### Ready commit message
+
+- `refactor: add neutral assistant runtime facade`
+
+---
+
+## 2026-04-10 - ADR-072 Step 2 runtime bundle persistence
+
+### What changed
+
+1. Added `packages/runtime-bundle` with the first PersAI-native `AssistantRuntimeBundle` schema plus deterministic document/hash compilation helpers.
+2. Extended `assistant_materialized_specs` with additive native bundle persistence fields: `runtime_bundle`, `runtime_bundle_document`, and `runtime_bundle_hash`.
+3. Updated `MaterializeAssistantPublishedVersionService` and the materialized-spec domain/repository layer to dual-write the native bundle beside legacy `openclawBootstrap` / `openclawWorkspace` artifacts without changing active request-time routing or the legacy OpenClaw `contentHash`.
+4. Added focused bundle determinism coverage and updated the touched materialization/preview regression tests.
+5. Updated source-of-truth docs (`ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `CHANGELOG`, and ADR-072 ledger state) so repo truth now records the native bundle dual-write baseline honestly.
+
+### Why
+
+1. ADR-072 Step 2 required a real PersAI-native runtime artifact before any neutral runtime facade, bundle warm path, or execution-plane cutover could happen.
+2. Persisting the native bundle now lets later steps target one clean PersAI runtime shape instead of continuing to treat `openclawBootstrap` / `openclawWorkspace` as the only durable execution truth.
+3. Keeping the legacy OpenClaw payload and `contentHash` untouched avoids accidental request-path behavior changes while Slice 1 is still building the new boundary.
+
+### Current active slice
+
+- `Slice 1 — Native bundle and execution boundary foundation`
+
+### Current active step
+
+- `Step 3 — Split the fat runtime adapter into a neutral runtime facade`
+
+### Files touched
+
+- `packages/runtime-bundle/package.json`
+- `packages/runtime-bundle/tsconfig.json`
+- `packages/runtime-bundle/src/index.ts`
+- `apps/api/package.json`
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260410113000_adr072_step2_runtime_bundle_persistence/migration.sql`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-materialized-spec.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-materialized-spec.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-materialized-spec.repository.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/api/test/preview-assistant-setup.service.test.ts`
+- `apps/api/test/assistant-lifecycle-runtime-assignment.test.ts`
+- `pnpm-lock.yaml`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+
+### Tests run
+
+- `corepack pnpm install`
+- `corepack pnpm --filter @persai/runtime-bundle run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-bundle-materialization.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/preview-assistant-setup.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-lifecycle-runtime-assignment.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks
+
+1. Pre-Step-2 `assistant_materialized_specs` rows keep nullable `runtime_bundle*` fields until they are re-materialized by a later publish/reapply or explicit backfill, so Step 3 must not assume universal historical bundle presence yet.
+2. The active request path still applies and previews via the legacy OpenClaw artifacts, so Step 3 must introduce the neutral facade without deepening `openclaw*` terminology in new application interfaces.
+3. The new bundle still carries prompt-document content as transitional runtime context, so later native-runtime slices must preserve business semantics without turning those documents back into filesystem-owned hot-path truth.
+
+### Next recommended step
+
+- Introduce the neutral PersAI runtime facade in `apps/api`, route the existing OpenClaw adapter behind it temporarily at the boundary only, and stop growing `assistant-runtime-adapter.types.ts` as the long-term runtime contract.
+
+### Ready commit message
+
+- `feat: persist PersAI runtime bundles beside legacy specs`
+
+---
+
+## 2026-04-10 - ADR-072 Step 1 runtime contract package
+
+### What changed
+
+1. Added `packages/runtime-contract` with the first PersAI-native shared runtime contracts for runtime tiers, conversation addresses, bundle refs, attachments/artifacts, session resolve/compaction, turn requests/results/stream events, and health/readiness status.
+2. Updated `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` execution tracking to mark Step 1 completed, keep Slice 1 in progress, and queue Step 2 as the next implementation target.
+3. Updated `docs/CHANGELOG.md` so repo truth records the new native runtime contract package.
+
+### Why
+
+1. ADR-072 Step 1 required a standalone PersAI-native boundary package before any bundle persistence, runtime service, or cutover work.
+2. Landing the first contract vocabulary now lets later steps build on neutral PersAI-native turn/session/media/channel types instead of deepening the existing OpenClaw-shaped adapter surface.
+
+### Current active slice
+
+- `Slice 1 — Native bundle and execution boundary foundation`
+
+### Current active step
+
+- `Step 2 — Introduce AssistantRuntimeBundle and bundle persistence`
+
+### Files touched
+
+- `packages/runtime-contract/package.json`
+- `packages/runtime-contract/tsconfig.json`
+- `packages/runtime-contract/src/index.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+
+### Risks
+
+1. The new package is not wired into active request paths yet, so legacy OpenClaw-shaped adapter types remain the live runtime boundary until Steps 2-3 adopt the native contracts.
+2. `RuntimeBundleRef` is intentionally thin in Step 1; Step 2 must ensure the full `AssistantRuntimeBundle` captures all business semantics currently hidden inside `openclawBootstrap` and `openclawWorkspace`.
+
+### Next recommended step
+
+- Introduce `packages/runtime-bundle` plus native bundle persistence, then dual-write the bundle beside legacy materialized spec fields without changing active request routing.
+
+### Ready commit message
+
+- `feat: add PersAI runtime contract package`
+
+---
+
+## 2026-04-10 - ADR-072 Cursor continuity rule
+
+### What changed
+
+1. Added `.cursor/rules/adr072-runtime-continuity.mdc` as an always-on Cursor rule for the PersAI-native runtime replacement program.
+2. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now includes a Cursor session continuity protocol, execution tracking ledger, and universal master prompt.
+
+### Why
+
+1. The runtime replacement will be implemented across many separate Cursor coding sessions and must not rely on fragile conversational memory.
+2. New agents need one deterministic way to read the same source-of-truth pack, detect the last completed checkpoint, pick the next valid step, and avoid drifting away from the target architecture.
+
+### Current active slice
+
+- `Slice 1 — Native bundle and execution boundary foundation`
+
+### Current active step
+
+- `Step 1 — Add the ADR and native runtime contract package`
+
+### Next recommended step
+
+- Start implementation by creating `packages/runtime-contract` and wiring the first PersAI-native runtime contracts without introducing any OpenClaw-shaped target-state types.
+
+### Ready commit message
+
+- `docs: add Cursor continuity rule for ADR-072`
+
+---
+
 ## 2026-04-10 - SR10a sandboxSessionKey propagation hotfix
 
 ### What changed

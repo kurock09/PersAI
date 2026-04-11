@@ -1,0 +1,17 @@
+{{- if .Values.runtime.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: runtime
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: runtime
+spec:
+  type: {{ .Values.runtime.service.type }}
+  selector:
+    app.kubernetes.io/name: runtime
+  ports:
+    - name: http
+      port: {{ .Values.runtime.service.port }}
+      targetPort: {{ .Values.runtime.service.port }}
+{{- end }}

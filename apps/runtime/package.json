@@ -1,0 +1,37 @@
+{
+  "name": "@persai/runtime",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json --incremental false",
+    "start": "node dist/main.js",
+    "lint": "eslint --max-warnings=0 --ext .ts src test",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx test/run-suite.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.17",
+    "@nestjs/core": "^11.1.17",
+    "@nestjs/platform-express": "^11.1.17",
+    "@persai/config": "workspace:*",
+    "@persai/logger": "workspace:*",
+    "@persai/runtime-bundle": "workspace:*",
+    "@persai/runtime-contract": "workspace:*",
+    "@prisma/client": "6.19.2",
+    "redis": "^5.11.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@persai/eslint-config": "workspace:*",
+    "@persai/tsconfig": "workspace:*",
+    "@types/node": "^24.12.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.1",
+    "@typescript-eslint/parser": "^8.57.1",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^10.1.8",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

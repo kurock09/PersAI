@@ -118,6 +118,70 @@ For sandbox-capable tiers, also verify the corresponding runtime Deployment/Serv
 Current dev chart state in `infra/helm/values-dev.yaml`:
 
 - OpenClaw apply-store runs in `redis` mode via `PERSAI_RUNTIME_SPEC_STORE=redis`
+
+## Phase C: ADR-072 native sync web smoke
+
+Use this only after the API deploy has all of these:
+
+- `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`
+- `PERSAI_RUNTIME_BASE_URL` pointing at the Step 9 `apps/runtime` Service
+- `PERSAI_PROVIDER_GATEWAY_BASE_URL` still configured for the current Step 7/9 warm path
+
+What this proves:
+
+- `POST /api/v1/assistant/chat/web` is now routed by `apps/api` to native `POST /api/v1/turns/create`
+- the API keeps canonical replay/message persistence ownership around the native result
+- sync-path failures are surfaced honestly instead of silently falling back to OpenClaw
+
+What this does **not** prove yet:
+
+- streaming UX is native
+- attachment refs are native object-storage inputs
+- Step 10 web cutover is complete
+
+### Native service checks
+
+Recommended extra port-forwards:
+
+```powershell
+kubectl port-forward -n persai-dev svc/runtime 3003:3003
+kubectl port-forward -n persai-dev svc/provider-gateway 3004:3004
+```
+
+Probes:
+
+```powershell
+curl.exe -s http://127.0.0.1:3003/ready
+curl.exe -s http://127.0.0.1:3004/ready
+```
+
+Expect both to report ready before trusting the sync cutover test.
+
+### Through the authenticated browser session
+
+Because the main web UX is still stream-first, the simplest live sync probe is a same-origin browser call from the signed-in `/app` session:
+
+```javascript
+await fetch("/api/v1/assistant/chat/web", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    surfaceThreadKey: `adr072-sync-smoke-${Date.now()}`,
+    message: "Reply with exactly: native sync smoke ok",
+    clientTurnId: crypto.randomUUID()
+  })
+}).then(async (r) => ({ status: r.status, body: await r.json() }));
+```
+
+Expected:
+
+- HTTP `200`
+- one completed transport payload with assistant message text
+- if native runtime is misconfigured/unhealthy, an honest `5xx`/conflict response instead of a hidden OpenClaw success path
+
+### Follow-up check
+
+Immediately retry the same payload with the same `clientTurnId` and confirm the API replays the stored completion state instead of creating a second assistant reply.
 - OpenClaw runtime model/policy authority comes from PersAI admin-managed runtime settings materialized into bootstrap/profile, not from `agents.defaults.model.primary`
 - OpenClaw receives `OPENAI_API_KEY` from `persai-openclaw-secrets`
 - PersAI API uses `OPENCLAW_ADAPTER_TIMEOUT_MS=90000` in dev (and the same default in `loadApiConfig` when unset) to avoid premature stream aborts on long OpenClaw turns

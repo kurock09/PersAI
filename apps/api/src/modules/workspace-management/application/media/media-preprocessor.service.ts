@@ -1,9 +1,9 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter
-} from "../assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "../assistant-runtime.facade";
 import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
 import type { PreprocessedMedia } from "./media.types";
 
@@ -41,8 +41,8 @@ export class MediaPreprocessorService {
   private readonly logger = new Logger(MediaPreprocessorService.name);
 
   constructor(
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
@@ -275,7 +275,7 @@ export class MediaPreprocessorService {
     const { randomUUID } = await import("crypto");
     const transientChatId = `_stt_tmp_${randomUUID()}`;
 
-    const uploadResult = await this.runtimeAdapter.uploadChatMedia({
+    const uploadResult = await this.assistantRuntime.uploadChatMedia({
       assistantId,
       runtimeTier,
       chatId: transientChatId,
@@ -285,7 +285,7 @@ export class MediaPreprocessorService {
     });
 
     try {
-      const result = await this.runtimeAdapter.transcribeMedia(
+      const result = await this.assistantRuntime.transcribeMedia(
         assistantId,
         uploadResult.storagePath,
         runtimeTier
@@ -293,7 +293,7 @@ export class MediaPreprocessorService {
       outcome = "success";
       return result.text && result.text.trim().length > 0 ? result.text.trim() : null;
     } finally {
-      await this.runtimeAdapter.deleteChatMediaBatch(assistantId, transientChatId, runtimeTier);
+      await this.assistantRuntime.deleteChatMediaBatch(assistantId, transientChatId, runtimeTier);
       const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
       this.platformHttpMetricsService.recordMediaStage({
         stage: "stt_transcribe",

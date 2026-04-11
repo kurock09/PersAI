@@ -24,10 +24,17 @@ Dev values image composition pattern:
 - project id: `global.images.projectId`
 - GAR repository: `global.images.repository`
 - shared deployed tag: `global.images.tag` (pinned by CI to immutable `${GITHUB_SHA}`)
-- component names: `api.image.name`, `web.image.name`, `openclaw.image.name`
+- component names: `api.image.name`, `runtime.image.name`, `providerGateway.image.name`, `web.image.name`, `openclaw.image.name`
 - api runtime env is supplied from values + k8s secret refs:
   - `api.env` (non-secret runtime config)
   - `api.secretEnv` (`secretKeyRef` mapping for required secrets)
+- runtime env is supplied from values + k8s secret refs:
+  - `runtime.env` (non-secret runtime config such as `RUNTIME_PROVIDER_GATEWAY_BASE_URL`)
+  - `runtime.secretEnv` (`DATABASE_URL`, `RUNTIME_STATE_REDIS_URL`)
+  - dev rollout reuses the existing Cloud SQL proxy + `api-sa` Workload Identity baseline so the dark runtime can reach the shared Cloud SQL instance without a second GCP IAM rollout first
+- provider-gateway env is supplied from values + k8s secret refs:
+  - `providerGateway.env` (non-secret runtime config)
+  - `providerGateway.secretEnv` (`PROVIDER_GATEWAY_OPENAI_API_KEY`, optional `PROVIDER_GATEWAY_ANTHROPIC_API_KEY`)
 - api database runtime path in dev:
   - API deployment uses dedicated runtime service account (`api.serviceAccount.*`)
   - KSA -> GSA mapping is provided by annotation `iam.gke.io/gcp-service-account`
@@ -47,8 +54,8 @@ Dev values image composition pattern:
 
 Dev image publish behavior:
 
-- CI publishes both `${GITHUB_SHA}` and `dev-main` tags to GAR.
-- `dev-image-publish.yml` now runs only for api/web/shared-build-input changes and then updates `infra/helm/values-dev.yaml` -> `global.images.tag: <GITHUB_SHA>`.
+- CI publishes both `${GITHUB_SHA}` and `dev-main` tags to GAR for `api`, `runtime`, `provider-gateway`, and `web`.
+- `dev-image-publish.yml` now runs for api/runtime/provider-gateway/web/shared-build-input changes and then updates `infra/helm/values-dev.yaml` -> `global.images.tag: <GITHUB_SHA>`.
 - OpenClaw CI publishes both `<OPENCLAW_APPROVED_SHA>` and `dev-main` tags to GAR.
 - `openclaw-dev-image-publish.yml` now runs only when `infra/dev/gitops/openclaw-approved-sha.txt` changes (or by `workflow_dispatch`) and then updates `infra/helm/values-dev.yaml`:
   - `openclaw.image.tag: <OPENCLAW_APPROVED_SHA>`
@@ -71,6 +78,7 @@ Database migration behavior on every deploy sync:
 - GitOps manifests remain intentionally small and environment-specific
 - Argo CD auto-sync is active for routine dev deploys
 - CI updates Git-tracked image pins but does not call cluster APIs directly
+- `apps/runtime` and `apps/provider-gateway` are now part of the same dev chart/image-pin path as `apps/api`
 - GKE cleanup/reset remains manual via runbook/scripts
 
 ## OpenClaw rule

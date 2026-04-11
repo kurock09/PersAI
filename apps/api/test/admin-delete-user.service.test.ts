@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { AdminDeleteUserService } from "../src/modules/workspace-management/application/admin-delete-user.service";
-import type { AssistantRuntimeAdapter } from "../src/modules/workspace-management/application/assistant-runtime-adapter.types";
+import type { AssistantRuntimeFacade } from "../src/modules/workspace-management/application/assistant-runtime.facade";
 import type { AdminAuthorizationService } from "../src/modules/workspace-management/application/admin-authorization.service";
 
 function normalizeSql(value: string): string {
@@ -158,7 +158,7 @@ async function run(): Promise<void> {
       resetWorkspace: async (assistantId: string) => {
         runtimeResets.push(assistantId);
       }
-    } as Pick<AssistantRuntimeAdapter, "resetWorkspace"> as AssistantRuntimeAdapter,
+    } as Pick<AssistantRuntimeFacade, "resetWorkspace"> as AssistantRuntimeFacade,
     {
       assertCanReadAdminSurface: async () => undefined
     } as Pick<AdminAuthorizationService, "assertCanReadAdminSurface"> as AdminAuthorizationService,

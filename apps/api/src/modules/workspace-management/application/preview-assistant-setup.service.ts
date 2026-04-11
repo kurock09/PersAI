@@ -6,9 +6,9 @@ import {
 } from "../domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter
-} from "./assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "./assistant-runtime.facade";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -28,8 +28,8 @@ export class PreviewAssistantSetupService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
@@ -75,15 +75,18 @@ export class PreviewAssistantSetupService {
       "Sound like your configured persona. Do not mention previews, setup, drafts, or internal configuration.";
 
     const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(artifacts.layers);
-    const result = await this.assistantRuntimeAdapter
+    const result = await this.assistantRuntime
       .previewSetupTurn({
         assistantId: assistant.id,
         ...(runtimeAssignment?.effectiveTier
           ? { runtimeTier: runtimeAssignment.effectiveTier }
           : {}),
         userMessage: previewPrompt,
-        openclawBootstrap: artifacts.openclawBootstrap,
-        openclawWorkspace: artifacts.openclawWorkspace,
+        runtimeBundle: artifacts.runtimeBundle,
+        legacyBridge: {
+          bootstrap: artifacts.openclawBootstrap,
+          workspace: artifacts.openclawWorkspace
+        },
         userTimezone: workspace?.timezone ?? "UTC",
         currentTimeIso: new Date().toISOString()
       })

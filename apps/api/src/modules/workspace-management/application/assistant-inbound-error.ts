@@ -4,7 +4,7 @@ import {
   type ApiErrorCategory,
   type ApiErrorObject
 } from "../../platform-core/interface/http/api-error";
-import { AssistantRuntimeAdapterError } from "./assistant-runtime-adapter.types";
+import { AssistantRuntimeError } from "./assistant-runtime.facade";
 
 export type AssistantInboundFailurePayload = {
   code: string;
@@ -58,7 +58,7 @@ export function createAssistantInboundInfraError(
   return createApiError(status, code, "infra", message, details);
 }
 
-function normalizeRuntimeAdapterError(error: AssistantRuntimeAdapterError): {
+function normalizeRuntimeError(error: AssistantRuntimeError): {
   status: number;
   error: ApiErrorObject;
 } {
@@ -125,8 +125,8 @@ export function toAssistantInboundHttpException(error: unknown): ApiErrorHttpExc
   if (error instanceof ApiErrorHttpException) {
     return error;
   }
-  if (error instanceof AssistantRuntimeAdapterError) {
-    const normalized = normalizeRuntimeAdapterError(error);
+  if (error instanceof AssistantRuntimeError) {
+    const normalized = normalizeRuntimeError(error);
     return new ApiErrorHttpException(normalized.status, normalized.error);
   }
   if (error instanceof Error) {

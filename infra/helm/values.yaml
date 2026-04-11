@@ -58,6 +58,12 @@ api:
     LOG_LEVEL: info
     GCP_PROJECT_ID: ""
     GCP_REGION: ""
+    PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED: "false"
+    PERSAI_RUNTIME_BASE_URL: ""
+    PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS: "10000"
+    PERSAI_RUNTIME_TURN_TIMEOUT_MS: "90000"
+    PERSAI_PROVIDER_GATEWAY_BASE_URL: ""
+    PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "10000"
     OPENCLAW_ADAPTER_ENABLED: "false"
     OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: ""
     OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: ""
@@ -199,6 +205,146 @@ web:
     enabled: false
     name: persai-web-backend-config
     timeoutSec: 3600
+
+providerGateway:
+  enabled: false
+  replicaCount: 1
+  revisionHistoryLimit: 2
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  image:
+    name: provider-gateway
+    tag: ""
+    pullPolicy: IfNotPresent
+  env:
+    APP_ENV: dev
+    PORT: "3011"
+    LOG_LEVEL: info
+    GCP_PROJECT_ID: ""
+    GCP_REGION: ""
+    PROVIDER_GATEWAY_WARM_ON_BOOT: "true"
+    PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "5000"
+    PROVIDER_GATEWAY_OPENAI_MODELS: "gpt-5.4"
+    PROVIDER_GATEWAY_ANTHROPIC_MODELS: "claude-sonnet-4-5"
+  secretEnv:
+    PROVIDER_GATEWAY_OPENAI_API_KEY:
+      secretName: persai-openclaw-secrets
+      secretKey: OPENAI_API_KEY
+      optional: true
+    PROVIDER_GATEWAY_ANTHROPIC_API_KEY:
+      secretName: persai-openclaw-secrets
+      secretKey: ANTHROPIC_API_KEY
+      optional: true
+  probes:
+    readiness:
+      path: /ready
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+    liveness:
+      path: /health
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      timeoutSeconds: 2
+      failureThreshold: 3
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  topologySpreadConstraints: []
+  service:
+    type: ClusterIP
+    port: 3011
+
+runtime:
+  enabled: false
+  replicaCount: 1
+  revisionHistoryLimit: 2
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  serviceAccount:
+    create: true
+    name: runtime-sa
+    gcpServiceAccountEmail: ""
+  image:
+    name: runtime
+    tag: ""
+    pullPolicy: IfNotPresent
+  cloudSqlProxy:
+    enabled: false
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.18.3
+    port: 5432
+    instanceConnectionName: ""
+    usePrivateIp: true
+  env:
+    APP_ENV: dev
+    PORT: "3012"
+    LOG_LEVEL: info
+    GCP_PROJECT_ID: ""
+    GCP_REGION: ""
+    RUNTIME_PROVIDER_GATEWAY_BASE_URL: ""
+    RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "10000"
+  secretEnv:
+    DATABASE_URL:
+      secretName: persai-api-secrets
+      secretKey: DATABASE_URL
+    RUNTIME_STATE_REDIS_URL:
+      secretName: persai-openclaw-secrets
+      secretKey: PERSAI_RUNTIME_SPEC_STORE_REDIS_URL
+  probes:
+    readiness:
+      path: /ready
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+    liveness:
+      path: /health
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      timeoutSeconds: 2
+      failureThreshold: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 768Mi
+    limits:
+      cpu: "2"
+      memory: 1536Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  topologySpreadConstraints: []
+  service:
+    type: ClusterIP
+    port: 3012
 
 openclaw:
   enabled: false

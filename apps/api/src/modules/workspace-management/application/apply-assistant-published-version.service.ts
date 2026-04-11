@@ -6,13 +6,15 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  AssistantRuntimeAdapterError,
-  type AssistantRuntimeAdapter
-} from "./assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  AssistantRuntimeError,
+  type AssistantRuntimeFacade
+} from "./assistant-runtime.facade";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
+import { SyncNativeRuntimeBundleService } from "./sync-native-runtime-bundle.service";
+import { SyncProviderGatewayWarmupService } from "./sync-provider-gateway-warmup.service";
 
 @Injectable()
 export class ApplyAssistantPublishedVersionService {
@@ -21,10 +23,12 @@ export class ApplyAssistantPublishedVersionService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
-    private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService
+    private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
+    private readonly syncNativeRuntimeBundleService: SyncNativeRuntimeBundleService,
+    private readonly syncProviderGatewayWarmupService: SyncProviderGatewayWarmupService
   ) {}
 
   async execute(
@@ -119,16 +123,25 @@ export class ApplyAssistantPublishedVersionService {
       const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(
         materializedSpec.layers
       );
-      await this.assistantRuntimeAdapter.applyMaterializedSpec({
+      const runtimeTier = runtimeAssignment?.effectiveTier ?? "free_shared_restricted";
+      await this.assistantRuntime.applyMaterializedSpec({
         assistantId: assistantInProgress.id,
         publishedVersionId: publishedVersion.id,
-        ...(runtimeAssignment?.effectiveTier
-          ? { runtimeTier: runtimeAssignment.effectiveTier }
-          : {}),
-        contentHash: materializedSpec.contentHash,
-        openclawBootstrap: materializedSpec.openclawBootstrap,
-        openclawWorkspace: materializedSpec.openclawWorkspace,
+        ...(runtimeAssignment?.effectiveTier ? { runtimeTier: runtimeAssignment.effectiveTier } : {}),
+        runtimeBundle: materializedSpec.runtimeBundle,
+        legacyBridge: {
+          contentHash: materializedSpec.contentHash,
+          bootstrap: materializedSpec.openclawBootstrap,
+          workspace: materializedSpec.openclawWorkspace
+        },
         reapply
+      });
+      const nativeRuntimeBundleSync = await this.syncNativeRuntimeBundleService.execute({
+        materializedSpec,
+        runtimeTier
+      });
+      const providerGatewayWarmup = await this.syncProviderGatewayWarmupService.execute({
+        materializedSpec
       });
 
       await this.assistantRepository.markApplySucceeded(userId, publishedVersion.id);
@@ -142,11 +155,13 @@ export class ApplyAssistantPublishedVersionService {
         details: {
           publishedVersionId: publishedVersion.id,
           reapply,
-          contentHash: materializedSpec.contentHash
+          contentHash: materializedSpec.contentHash,
+          nativeRuntimeBundleSync,
+          providerGatewayWarmup
         }
       });
     } catch (error) {
-      if (error instanceof AssistantRuntimeAdapterError) {
+      if (error instanceof AssistantRuntimeError) {
         if (error.code === "runtime_degraded") {
           await this.assistantRepository.markApplyDegraded(
             userId,

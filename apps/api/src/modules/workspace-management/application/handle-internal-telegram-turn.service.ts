@@ -1,10 +1,10 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter,
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade,
   type RuntimeMediaArtifact
-} from "./assistant-runtime-adapter.types";
+} from "./assistant-runtime.facade";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -25,7 +25,7 @@ import {
   OverviewLatencyTraceService,
   type OverviewLatencyTraceHandle
 } from "./overview-latency-trace.service";
-import { AssistantRuntimeAdapterError } from "./assistant-runtime-adapter.types";
+import { AssistantRuntimeError } from "./assistant-runtime.facade";
 
 export interface InternalTelegramAttachmentInput {
   type: "image" | "audio" | "voice" | "video" | "document";
@@ -116,8 +116,8 @@ export class HandleInternalTelegramTurnService {
   private static readonly TELEGRAM_UPDATE_CLAIM_STALE_MS = 120_000;
 
   constructor(
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly chatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
@@ -255,7 +255,7 @@ export class HandleInternalTelegramTurnService {
         enrichedMessage = input.message;
       }
 
-      const runtimeResponse = await this.assistantRuntimeAdapter.sendChannelTurn({
+      const runtimeResponse = await this.assistantRuntime.sendChannelTurn({
         assistantId: resolved.assistantId,
         publishedVersionId: resolved.publishedVersionId,
         runtimeTier: resolved.runtimeTier,
@@ -417,7 +417,7 @@ export class HandleInternalTelegramTurnService {
       attempt <= HandleInternalTelegramTurnService.TELEGRAM_MEDIA_DOWNLOAD_ATTEMPTS;
       attempt += 1
     ) {
-      const downloaded = await this.assistantRuntimeAdapter.downloadChatMedia(
+      const downloaded = await this.assistantRuntime.downloadChatMedia(
         assistantId,
         storagePath,
         await this.resolveAssistantInboundRuntimeContextService
@@ -463,7 +463,7 @@ export class HandleInternalTelegramTurnService {
     const locale = await this.resolveWorkspaceLocale(params.resolved.workspaceId);
     params.trace.stage("telegram_compact_command");
     try {
-      const outcome = await this.assistantRuntimeAdapter.compactTelegramChannelSession({
+      const outcome = await this.assistantRuntime.compactTelegramChannelSession({
         assistantId: params.resolved.assistantId,
         runtimeTier: params.resolved.runtimeTier,
         surface: "telegram",
@@ -521,7 +521,7 @@ export class HandleInternalTelegramTurnService {
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       const sessionMissing =
-        error instanceof AssistantRuntimeAdapterError &&
+        error instanceof AssistantRuntimeError &&
         (error.code === "compaction_unavailable" ||
           errMsg.includes("active runtime session") ||
           errMsg.includes("Compaction is unavailable"));
@@ -557,7 +557,7 @@ export class HandleInternalTelegramTurnService {
     runtimeTier: import("./runtime-assignment").RuntimeTier
   ): Promise<void> {
     try {
-      await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId, runtimeTier);
+      await this.assistantRuntime.consumeBootstrapWorkspace(assistantId, runtimeTier);
     } catch (error) {
       this.logger.warn(
         `[telegram-turn] Non-fatal: failed to consume BOOTSTRAP.md: ${
@@ -574,7 +574,7 @@ export class HandleInternalTelegramTurnService {
     workspaceId: string;
   }): Promise<string | null> {
     const [runtimeSessionState, platformSettings, binding] = await Promise.all([
-      this.assistantRuntimeAdapter.getChannelSessionState({
+      this.assistantRuntime.getChannelSessionState({
         assistantId: params.assistantId,
         runtimeTier: params.runtimeTier,
         surface: "telegram",
@@ -606,7 +606,7 @@ export class HandleInternalTelegramTurnService {
     if (!shouldSuggest) {
       return null;
     }
-    await this.assistantRuntimeAdapter.markChannelCompactionHintShown({
+    await this.assistantRuntime.markChannelCompactionHintShown({
       assistantId: params.assistantId,
       runtimeTier: params.runtimeTier,
       surface: "telegram",

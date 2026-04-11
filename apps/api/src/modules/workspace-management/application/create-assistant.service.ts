@@ -11,9 +11,9 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter
-} from "./assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "./assistant-runtime.facade";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
@@ -27,8 +27,8 @@ export class CreateAssistantService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
   ) {}
@@ -66,7 +66,7 @@ export class CreateAssistantService {
       assistant.id
     );
     try {
-      await this.runtimeAdapter.resetMemoryWorkspace(assistant.id);
+      await this.assistantRuntime.resetMemoryWorkspace(assistant.id);
     } catch (err) {
       console.warn("[assistant.create] Non-fatal: failed to initialize memory workspace:", err);
     }

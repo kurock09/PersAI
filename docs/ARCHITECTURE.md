@@ -8,6 +8,8 @@ Modular monolith for apps/api, with strict module and layer boundaries.
 
 - apps/web
 - apps/api
+- apps/provider-gateway
+- apps/runtime
 - external OpenClaw fork (materialized in CI to `services/openclaw` for image builds)
 - packages/\*
 - infra
@@ -44,9 +46,127 @@ It is not part of backend domain logic.
 - normative PersAI→OpenClaw HTTP request/response contract (design freeze v1): [API-BOUNDARY.md — PersAI to OpenClaw HTTP runtime contract (v1)](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1)
 - planned control-plane evolution for admin-driven runtime profiles (models, fallback refs, credential refs) is tracked in [ADR-049](ADR/049-platform-admin-runtime-control-plane-phasing.md); PersAI owns policy + references, while OpenClaw remains the runtime executor and secret resolver
 
+## ADR-072 transition boundary
+
+- `assistant_materialized_specs` now dual-writes a PersAI-native `runtimeBundle` beside the legacy `openclawBootstrap` / `openclawWorkspace` artifacts.
+- the native bundle is the future runtime artifact for the PersAI-native execution plane
+- the legacy OpenClaw artifacts remain only as a migration boundary while request-time execution still routes through the existing adapter
+- active request-time apply, preview, web chat, Telegram, media, and session paths are still legacy until later ADR-072 slices cut traffic over
+
+## ADR-072 execution-plane bootstrap boundary
+
+- `apps/provider-gateway` now exists as a dark internal service for the future PersAI-native execution plane.
+- Step 4 scope is intentionally bounded:
+  - OpenAI and Anthropic provider modules
+  - health, readiness, metrics, catalog, and warmup seams
+  - no request traffic cutover yet
+- temporary bootstrap catalog/config lives only inside `apps/provider-gateway` startup config so the service can exist before control-plane warm/invalidate wiring lands.
+- that bootstrap seam is temporary:
+  - why: Step 4 needs a real gateway shell before Step 7 can feed it from PersAI control-plane warm/invalidate events
+  - where: `packages/config` provider-gateway env loader plus `apps/provider-gateway/src/modules/providers/*`
+  - removal: Step 7 replaces bootstrap-only catalog warmup with control-plane bundle/provider warm-invalidate flow
+
+## ADR-072 runtime shell boundary
+
+- `apps/runtime` now exists as a dark internal service for the future PersAI-native conversation runtime.
+- Step 5 scope is intentionally bounded:
+  - native bundle warm/invalidate shell
+  - health, readiness, and metrics seams
+  - runtime observability counters
+  - no turn execution, session leasing, or distributed runtime state yet
+- the Step 5 bundle cache is intentionally local and non-authoritative:
+  - why: Step 5 needs the runtime process boundary before Step 6 adds distributed runtime state and Step 7 wires real control-plane warm/invalidate flow
+  - where: `apps/runtime/src/modules/bundles/*` and `apps/runtime/src/modules/observability/*`
+  - removal/upgrade: Step 7 replaces the shell-only warm path with the real control-plane bundle warm/invalidate flow over persisted runtime bundles
+
+## ADR-072 distributed runtime-state boundary
+
+- Step 6 adds the first shared runtime-state model without changing active request-time execution yet.
+- Postgres now owns durable runtime-plane records for:
+  - bundle warm/invalidation state (`runtime_bundle_states`)
+  - session summaries (`runtime_sessions`)
+  - compaction history (`runtime_session_compactions`)
+  - turn receipts / idempotency outcomes (`runtime_turn_receipts`)
+- Redis remains the ephemeral coordination layer only:
+  - session lease keys
+  - conversation-to-session pointers
+  - turn receipt/idempotency markers
+  - bundle warm markers
+- `apps/runtime/src/modules/runtime-state/*` now owns the concrete dark-service persistence seam for that state:
+  - Postgres persistence via Prisma-backed runtime-state services
+  - Redis coordination via runtime-owned keyspace + coordination services
+  - explicit runtime config validation for `DATABASE_URL` and `RUNTIME_STATE_REDIS_URL`
+- `assistant_materialized_specs.runtime_bundle*` remains the authoritative compiled bundle artifact during this slice.
+- `runtime_bundle_states` is intentionally metadata-only runtime-plane state so Step 6 does not introduce a second bundle document authority before Step 7 warms/invalidate caches from the control plane.
+
+## ADR-072 Step 7 bundle and provider warm boundary
+
+- `apps/runtime` bundle warm/invalidate endpoints no longer stop at the Step 5 local cache shell.
+- `apps/api` apply/reapply now triggers two control-plane warm actions **after** successful legacy OpenClaw apply:
+  - assistant-wide invalidate + current-bundle warm for the native runtime bundle
+  - provider-gateway warmup with the materialized control-plane model catalog snapshot
+- successful runtime bundle warm now coordinates three runtime-owned effects:
+  - bounded local bundle cache warm
+  - `runtime_bundle_states.last_warmed_at` / `invalidated_at`
+  - Redis bundle warm markers
+- provider-gateway catalog/warmup is no longer bootstrap-only:
+  - bootstrap-config model lists remain only as dark-service startup seed
+  - the first apply-triggered `control_plane_apply` warmup replaces that seed with the materialized `availableModelsByProvider` snapshot
+  - `GET /api/v1/providers/catalog` now reflects the current in-memory control-plane snapshot source
+- temporary API-side activation seams are currently allowed:
+  - why: Step 7 needs real control-plane warm hooks before `apps/runtime` and `apps/provider-gateway` are universally deployed mandatory dependencies, while request-time traffic remains legacy-safe
+  - where: `packages/config/src/api-config.ts` (`PERSAI_RUNTIME_BASE_URL`, `PERSAI_PROVIDER_GATEWAY_BASE_URL`) plus the paired API sync services
+  - removal/upgrade: Step 9 first makes runtime configuration mandatory for the flagged sync cutover, then removes the remaining `unset => skip` behaviors entirely once native web execution is the default path
+
+## ADR-072 Step 8 session-state boundary
+
+- Step 8 has now started with the first runtime-owned session/idempotency service layer over the shared Step 6 state model.
+- `apps/runtime/src/modules/sessions/session-store.service.ts` now resolves and ensures active runtime sessions over:
+  - durable `runtime_sessions` rows in Postgres
+  - Redis conversation-session pointers as best-effort hot-path hints
+- `apps/runtime/src/modules/sessions/session-lease.service.ts` now owns explicit Redis lease acquire/release for runtime session ordering.
+- `apps/runtime/src/modules/turns/idempotency.service.ts` now owns logical turn claim/replay over:
+  - durable `runtime_turn_receipts` rows in Postgres
+  - Redis turn-receipt markers as best-effort hot-path hints
+- `apps/runtime/src/modules/turns/turn-acceptance.service.ts` now composes the first bounded native-turn acceptance lifecycle inside the runtime boundary:
+  - ensure or heal the session from Postgres/Redis
+  - check replay before ordering work
+  - acquire the Redis session lease
+  - create the accepted turn receipt only after the lease is held
+- the internal Step 8 acceptance seam now returns explicit `accepted`, `busy`, or `replayed` outcomes without adding any web/Telegram HTTP surface yet.
+- `apps/runtime/src/modules/turns/turn-finalization.service.ts` now provides the paired bounded terminal-state seam:
+  - mark the accepted turn receipt `completed` / `interrupted` / `failed`
+  - update durable session summary fields
+  - release the session lease only after terminal receipt persistence
+- `apps/runtime/src/modules/turns/turn-lease-heartbeat.service.ts` now provides the paired Step 8 renewal seam for long-running accepted turns:
+  - renew the held Redis session lease while the turn is still active
+  - surface explicit `renewed` vs `lost` outcomes
+  - keep lease maintenance inside one bounded runtime-owned service instead of leaving TTL extension as ad hoc future logic
+- `TurnAcceptanceService` now also uses a bounded in-flight accepted-turn claim seam:
+  - atomically check or create an in-flight marker together with lease acquisition
+  - return explicit `in_flight` for same-idempotency retries during the pre-receipt window instead of collapsing them into generic `busy`
+- Step 8 is now complete as an internal runtime-state package:
+  - session resolve/ensure
+  - lease acquire/release/renew
+  - durable replay receipts
+  - in-flight accepted-turn claim
+  - bounded acceptance/finalization/heartbeat orchestration
+- Step 9 has now started with a dark sync text-only `createTurn` path:
+  - `apps/runtime/src/modules/turns/interface/http/turns.controller.ts` exposes `POST /api/v1/turns/create`
+  - `apps/runtime/src/modules/turns/turn-execution.service.ts` composes acceptance, warmed bundle lookup, provider-gateway text generation, and terminal finalization
+  - `apps/provider-gateway` now exposes `POST /api/v1/providers/generate-text` over warmed provider clients
+  - runtime readiness/metrics now treat provider gateway as an active dependency through `RUNTIME_PROVIDER_GATEWAY_BASE_URL`
+- Step 9 now also has its first API-side native consumer:
+  - `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts` builds native `RuntimeTurnRequest` payloads and calls `POST /api/v1/turns/create`
+  - `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts` routes sync web turns to that native path when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`
+  - the API boundary keeps canonical replay/message persistence and quota/media ownership, and skips legacy bootstrap consumption on native success
+  - optional quota degrade provider/model overrides are now carried through the native runtime request instead of being dropped at the cutover boundary
+- `streamTurn`, primary web UX cutover, attachment execution, and removal of the remaining temporary Step 7 API activation seams still remain later Step 9/10 work.
+- Postgres is the durable authority for session summaries and turn receipts; stale or missing Redis pointers/markers may be rebuilt from Postgres instead of introducing filesystem or OpenClaw-era session truth.
+
 ## Planned runtime segmentation boundary (Step 15)
 
-- target direction is **one PersAI control plane** plus **multiple OpenClaw runtime pools**, not one permanent shared runtime forever
+- target direction is **one PersAI control plane** plus **tiered PersAI-native execution lanes**, not one permanent shared runtime forever
 - runtime assignment is a control-plane decision (plan default + admin override), not a low-level infrastructure choice exposed in the product UI
 - initial target runtime classes:
   - `free_shared_restricted`
@@ -57,7 +177,7 @@ It is not part of backend domain logic.
   - explicit sandbox/workspace limits
   - explicit network/resource hardening
 - GKE topology evolution (tier-specific deployments/services/config/network policy) is part of the same boundary and must not leak into end-user product semantics
-- current implementation remains a single-runtime deployment until Step 15 slices land; new docs and future slices must not deepen that assumption as the long-term architecture
+- current implementation still routes request-time execution through the legacy boundary until later ADR-072 slices land; new docs and future slices must not deepen that legacy executor as the long-term architecture
 
 ## Runtime optimization policy boundary
 
@@ -97,8 +217,11 @@ It is not part of backend domain logic.
 
 - backend web chat transport entrypoint:
   - `POST /api/v1/assistant/chat/web`
-- transport is adapter-only to OpenClaw runtime:
+- default legacy transport still targets the OpenClaw runtime bridge:
   - `POST /api/v1/runtime/chat/web`
+- ADR-072 Step 9 adds a flagged native alternative for the same API boundary:
+  - `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true` routes sync turns to `apps/runtime` `POST /api/v1/turns/create`
+  - when that flag is on there is no silent per-request fallback to OpenClaw inside the sync path
 - backend persists canonical chat/message records before/after runtime turn
 - transport is synchronous in C2 (no streaming)
 

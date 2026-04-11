@@ -1,9 +1,9 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter
-} from "../assistant-runtime-adapter.types";
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade
+} from "../assistant-runtime.facade";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -37,8 +37,8 @@ export class InboundMediaService {
   private readonly logger = new Logger(InboundMediaService.name);
 
   constructor(
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly runtimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     private readonly preprocessor: MediaPreprocessorService,
@@ -66,7 +66,7 @@ export class InboundMediaService {
       workspaceId: params.workspaceId
     } as Parameters<typeof this.trackWorkspaceQuotaUsageService.resolveWorkspaceStorageLimit>[0]);
     if (wsLimits.limitBytes !== null) {
-      const wsUsage = await this.runtimeAdapter.getWorkspaceStorageUsage(
+      const wsUsage = await this.assistantRuntime.getWorkspaceStorageUsage(
         params.assistantId,
         runtimeTier
       );
@@ -105,7 +105,7 @@ export class InboundMediaService {
           params.assistantId
         );
 
-        const uploadResult = await this.runtimeAdapter.uploadChatMedia({
+        const uploadResult = await this.assistantRuntime.uploadChatMedia({
           assistantId: params.assistantId,
           runtimeTier,
           chatId: params.chatId,
@@ -127,7 +127,7 @@ export class InboundMediaService {
         });
 
         if (applied.capped) {
-          await this.runtimeAdapter.deleteChatMedia(
+          await this.assistantRuntime.deleteChatMedia(
             params.assistantId,
             uploadResult.storagePath,
             runtimeTier

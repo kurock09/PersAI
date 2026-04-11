@@ -14,10 +14,10 @@ import {
   type CompletedWebTurnReplayState
 } from "../domain/assistant-channel-surface-binding.repository";
 import {
-  ASSISTANT_RUNTIME_ADAPTER,
-  type AssistantRuntimeAdapter,
+  ASSISTANT_RUNTIME_FACADE,
+  type AssistantRuntimeFacade,
   type RuntimeMediaArtifact
-} from "./assistant-runtime-adapter.types";
+} from "./assistant-runtime.facade";
 import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -130,8 +130,8 @@ export class StreamWebChatTurnService {
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
-    @Inject(ASSISTANT_RUNTIME_ADAPTER)
-    private readonly assistantRuntimeAdapter: AssistantRuntimeAdapter,
+    @Inject(ASSISTANT_RUNTIME_FACADE)
+    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly prepareAssistantInboundTurnService: PrepareAssistantInboundTurnService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
@@ -200,7 +200,7 @@ export class StreamWebChatTurnService {
       : baseMessage;
 
     try {
-      for await (const chunk of this.assistantRuntimeAdapter.streamWebChatTurn({
+      for await (const chunk of this.assistantRuntime.streamWebChatTurn({
         assistantId: prepared.assistantId,
         publishedVersionId: prepared.publishedVersionId,
         runtimeTier: prepared.runtimeTier,
@@ -536,7 +536,7 @@ export class StreamWebChatTurnService {
     runtimeTier: RuntimeTier
   ): Promise<void> {
     try {
-      await this.assistantRuntimeAdapter.consumeBootstrapWorkspace(assistantId, runtimeTier);
+      await this.assistantRuntime.consumeBootstrapWorkspace(assistantId, runtimeTier);
     } catch (error) {
       console.warn("[web-chat-stream] Non-fatal: failed to consume BOOTSTRAP.md:", error);
     }
