@@ -8,10 +8,7 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  type AssistantRuntimeFacade
-} from "./assistant-runtime.facade";
+import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";

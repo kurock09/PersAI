@@ -5,7 +5,10 @@ import {
   type RuntimeSessionLease,
   SessionLeaseService
 } from "../src/modules/sessions/session-lease.service";
-import type { EnsuredRuntimeSession, SessionStoreService } from "../src/modules/sessions/session-store.service";
+import type {
+  EnsuredRuntimeSession,
+  SessionStoreService
+} from "../src/modules/sessions/session-store.service";
 import {
   IdempotencyService,
   type ClaimRuntimeTurnInput,
@@ -138,7 +141,9 @@ class FakeIdempotencyService {
   findCalls: ClaimRuntimeTurnInput[] = [];
   createCalls: ClaimRuntimeTurnInput[] = [];
 
-  async findReplayAcceptedTurn(input: ClaimRuntimeTurnInput): Promise<ClaimRuntimeTurnResult | null> {
+  async findReplayAcceptedTurn(
+    input: ClaimRuntimeTurnInput
+  ): Promise<ClaimRuntimeTurnResult | null> {
     this.findCalls.push(input);
     return this.replayResult;
   }

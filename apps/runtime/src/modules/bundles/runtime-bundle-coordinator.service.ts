@@ -82,7 +82,10 @@ export class RuntimeBundleCoordinatorService {
       redisError = error;
     }
 
-    const invalidated = this.runtimeBundleRegistryService.invalidateBundles(input, invalidatedAtIso);
+    const invalidated = this.runtimeBundleRegistryService.invalidateBundles(
+      input,
+      invalidatedAtIso
+    );
     if (redisError) {
       throw redisError;
     }

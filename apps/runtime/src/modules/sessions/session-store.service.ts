@@ -57,7 +57,9 @@ export class SessionStoreService {
   ) {}
 
   async resolveSession(input: RuntimeSessionResolveInput): Promise<ResolvedRuntimeSession> {
-    const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(input.conversation);
+    const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(
+      input.conversation
+    );
     const pointerSession = await this.resolveFromConversationPointer(
       input.conversation,
       conversationKey,
@@ -107,7 +109,9 @@ export class SessionStoreService {
       ...(input.currentPublishedVersionId !== undefined
         ? { currentPublishedVersionId: input.currentPublishedVersionId }
         : {}),
-      ...(input.currentBundleHash !== undefined ? { currentBundleHash: input.currentBundleHash } : {}),
+      ...(input.currentBundleHash !== undefined
+        ? { currentBundleHash: input.currentBundleHash }
+        : {}),
       ...(input.currentTokens !== undefined ? { currentTokens: input.currentTokens } : {}),
       ...(input.totalTokensFresh !== undefined ? { totalTokensFresh: input.totalTokensFresh } : {}),
       ...(input.compactionCount !== undefined ? { compactionCount: input.compactionCount } : {}),
@@ -137,7 +141,9 @@ export class SessionStoreService {
       ...(input.currentPublishedVersionId !== undefined
         ? { currentPublishedVersionId: input.currentPublishedVersionId }
         : {}),
-      ...(input.currentBundleHash !== undefined ? { currentBundleHash: input.currentBundleHash } : {}),
+      ...(input.currentBundleHash !== undefined
+        ? { currentBundleHash: input.currentBundleHash }
+        : {}),
       ...(input.currentTokens !== undefined ? { currentTokens: input.currentTokens } : {}),
       ...(input.totalTokensFresh !== undefined ? { totalTokensFresh: input.totalTokensFresh } : {}),
       ...(input.compactionCount !== undefined ? { compactionCount: input.compactionCount } : {}),

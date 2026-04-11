@@ -25,7 +25,10 @@ export type AcceptedTurnLeaseClaimResult =
 export class SessionLeaseService {
   constructor(private readonly runtimeStateRedisService: RuntimeStateRedisService) {}
 
-  async acquireLease(sessionId: string, ownerToken: string = randomUUID()): Promise<RuntimeSessionLease | null> {
+  async acquireLease(
+    sessionId: string,
+    ownerToken: string = randomUUID()
+  ): Promise<RuntimeSessionLease | null> {
     this.assertNonEmpty(sessionId, "sessionId");
     this.assertNonEmpty(ownerToken, "ownerToken");
 

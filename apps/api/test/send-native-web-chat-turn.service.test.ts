@@ -32,8 +32,11 @@ describe("SendNativeWebChatTurnService", () => {
     let capturedBody: Record<string, unknown> | null = null;
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      capturedUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      capturedBody = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : null;
+      capturedUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      capturedBody = init?.body
+        ? (JSON.parse(init.body as string) as Record<string, unknown>)
+        : null;
       return new Response(
         JSON.stringify({
           requestId: "runtime-request-1",
@@ -104,7 +107,8 @@ describe("SendNativeWebChatTurnService", () => {
       assert.equal(capturedBody?.modelOverride, "claude-sonnet-4-5");
       assert.equal((capturedBody?.bundle as Record<string, unknown>)?.bundleId, "spec-1");
       assert.equal(
-        ((capturedBody?.conversation as Record<string, unknown>)?.externalUserKey as string) ?? null,
+        ((capturedBody?.conversation as Record<string, unknown>)?.externalUserKey as string) ??
+          null,
         "user-1"
       );
       assert.equal(result.assistantMessage, "native hello");
@@ -123,7 +127,7 @@ describe("SendNativeWebChatTurnService", () => {
       return new Response(
         JSON.stringify({
           statusCode: 409,
-          message: "Turn \"request-1\" is already in flight.",
+          message: 'Turn "request-1" is already in flight.',
           error: "Conflict"
         }),
         {

@@ -71,7 +71,9 @@ export class ProviderGatewayClientService {
       throw this.toGatewayException(response);
     }
     if (!this.isTextGenerateResult(response.body)) {
-      throw new BadGatewayException("Provider gateway returned an invalid text generation response.");
+      throw new BadGatewayException(
+        "Provider gateway returned an invalid text generation response."
+      );
     }
 
     return response.body;
@@ -111,7 +113,9 @@ export class ProviderGatewayClientService {
     };
   }
 
-  private toGatewayException(response: JsonResponse): BadGatewayException | ServiceUnavailableException {
+  private toGatewayException(
+    response: JsonResponse
+  ): BadGatewayException | ServiceUnavailableException {
     const message = this.extractErrorMessage(response.body);
     if (response.status >= 500) {
       return new ServiceUnavailableException(

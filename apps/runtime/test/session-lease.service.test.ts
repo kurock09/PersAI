@@ -110,7 +110,10 @@ export async function runSessionLeaseServiceTest(): Promise<void> {
   assert.equal(secondLease, null);
   assert.equal(await service.renewLease({ sessionId: "session-1", ownerToken: "owner-1" }), true);
   assert.equal(await service.renewLease({ sessionId: "session-1", ownerToken: "owner-2" }), false);
-  assert.equal(await service.releaseLease({ sessionId: "session-1", ownerToken: "owner-2" }), false);
+  assert.equal(
+    await service.releaseLease({ sessionId: "session-1", ownerToken: "owner-2" }),
+    false
+  );
   assert.equal(await service.releaseLease({ sessionId: "session-1", ownerToken: "owner-1" }), true);
 
   const conversation = {

@@ -26,15 +26,18 @@ const optionalString = z.preprocess((value) => {
   return value;
 }, z.string().optional());
 
-const modelList = z.preprocess((value) => {
-  if (typeof value === "string") {
-    return value
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-  }
-  return value;
-}, z.array(z.string().min(1)));
+const modelList = z.preprocess(
+  (value) => {
+    if (typeof value === "string") {
+      return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+    }
+    return value;
+  },
+  z.array(z.string().min(1))
+);
 
 const baseProviderGatewayConfigSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),

@@ -14,9 +14,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
   readonly catalogSource = "bootstrap_config" as const;
   private client: Anthropic | null = null;
 
-  constructor(
-    @Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig
-  ) {}
+  constructor(@Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig) {}
 
   isConfigured(): boolean {
     return typeof this.config.PROVIDER_GATEWAY_ANTHROPIC_API_KEY === "string";

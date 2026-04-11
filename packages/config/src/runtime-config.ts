@@ -54,7 +54,9 @@ function formatIssues(issues: z.ZodIssue[]): string {
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv): RuntimeConfig {
   const parsed = runtimeConfigSchema.safeParse(env);
   if (!parsed.success) {
-    throw new Error(`Invalid runtime environment configuration: ${formatIssues(parsed.error.issues)}`);
+    throw new Error(
+      `Invalid runtime environment configuration: ${formatIssues(parsed.error.issues)}`
+    );
   }
   return parsed.data;
 }

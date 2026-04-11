@@ -168,10 +168,14 @@ export class TurnFinalizationService {
     actualSessionId: string;
   }): void {
     if (input.expectedRequestId !== input.actualRequestId) {
-      throw new BadRequestException("Turn finalization requestId does not match the accepted receipt");
+      throw new BadRequestException(
+        "Turn finalization requestId does not match the accepted receipt"
+      );
     }
     if (input.expectedSessionId !== input.actualSessionId) {
-      throw new BadRequestException("Turn finalization sessionId does not match the accepted session");
+      throw new BadRequestException(
+        "Turn finalization sessionId does not match the accepted session"
+      );
     }
   }
 

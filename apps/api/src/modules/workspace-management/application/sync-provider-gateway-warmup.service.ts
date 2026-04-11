@@ -1,9 +1,6 @@
 import { loadApiConfig } from "@persai/config";
 import { Injectable } from "@nestjs/common";
-import {
-  AssistantRuntimeError,
-  type AssistantRuntimeErrorCode
-} from "./assistant-runtime.facade";
+import { AssistantRuntimeError, type AssistantRuntimeErrorCode } from "./assistant-runtime.facade";
 import type { AssistantMaterializedSpec } from "../domain/assistant-materialized-spec.entity";
 
 type ProviderGatewayWarmupStatus = "skipped_unconfigured" | "warmed";
@@ -112,7 +109,8 @@ export class SyncProviderGatewayWarmupService {
           `Provider gateway warmup timed out after ${timeoutMs}ms.`
         );
       }
-      const message = error instanceof Error ? error.message : "Unknown provider gateway warmup failure.";
+      const message =
+        error instanceof Error ? error.message : "Unknown provider gateway warmup failure.";
       throw new AssistantRuntimeError(
         "runtime_degraded",
         `Provider gateway warmup failed: ${message}`

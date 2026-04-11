@@ -102,8 +102,6 @@ export class RuntimeStateKeyspaceService {
   }
 
   private hashParts(parts: readonly string[]): string {
-    return createHash("sha256")
-      .update(JSON.stringify(parts))
-      .digest("hex");
+    return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
   }
 }

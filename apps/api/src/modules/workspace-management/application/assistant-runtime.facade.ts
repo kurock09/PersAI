@@ -267,23 +267,37 @@ export interface AssistantRuntimeFacade {
   compactTelegramChannelSession(
     input: AssistantRuntimeChannelCompactInput
   ): Promise<AssistantRuntimeChannelCompactResult>;
-  sendWebChatTurn(input: AssistantRuntimeWebChatTurnInput): Promise<AssistantRuntimeWebChatTurnResult>;
+  sendWebChatTurn(
+    input: AssistantRuntimeWebChatTurnInput
+  ): Promise<AssistantRuntimeWebChatTurnResult>;
   previewSetupTurn(
     input: AssistantRuntimeSetupPreviewTurnInput
   ): Promise<AssistantRuntimeSetupPreviewTurnResult>;
-  sendChannelTurn(input: AssistantRuntimeChannelTurnInput): Promise<AssistantRuntimeWebChatTurnResult>;
+  sendChannelTurn(
+    input: AssistantRuntimeChannelTurnInput
+  ): Promise<AssistantRuntimeWebChatTurnResult>;
   streamWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk>;
   controlCronJob(input: AssistantRuntimeCronControlInput): Promise<unknown>;
-  uploadChatMedia(input: AssistantRuntimeMediaUploadInput): Promise<AssistantRuntimeMediaUploadResult>;
+  uploadChatMedia(
+    input: AssistantRuntimeMediaUploadInput
+  ): Promise<AssistantRuntimeMediaUploadResult>;
   downloadChatMedia(
     assistantId: string,
     storagePath: string,
     runtimeTier?: RuntimeTier
   ): Promise<AssistantRuntimeMediaDownloadResult | null>;
-  deleteChatMedia(assistantId: string, storagePath: string, runtimeTier?: RuntimeTier): Promise<void>;
-  deleteChatMediaBatch(assistantId: string, chatId: string, runtimeTier?: RuntimeTier): Promise<void>;
+  deleteChatMedia(
+    assistantId: string,
+    storagePath: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<void>;
+  deleteChatMediaBatch(
+    assistantId: string,
+    chatId: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<void>;
   transcribeMedia(
     assistantId: string,
     storagePath: string,
@@ -297,7 +311,11 @@ export interface AssistantRuntimeFacade {
     content: string,
     runtimeTier?: RuntimeTier
   ): Promise<unknown>;
-  forgetMemoryItem(assistantId: string, itemId: string, runtimeTier?: RuntimeTier): Promise<unknown>;
+  forgetMemoryItem(
+    assistantId: string,
+    itemId: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<unknown>;
   searchMemory(assistantId: string, query: string, runtimeTier?: RuntimeTier): Promise<unknown>;
   getWorkspaceStorageUsage(
     assistantId: string,

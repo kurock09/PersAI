@@ -1,9 +1,6 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  type AssistantRuntimeFacade
-} from "./assistant-runtime.facade";
+import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 

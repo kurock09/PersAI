@@ -1,5 +1,8 @@
 import { Controller, Get, HttpStatus, Res } from "@nestjs/common";
-import { RuntimeReadinessService, type RuntimeReadySnapshot } from "../../application/runtime-readiness.service";
+import {
+  RuntimeReadinessService,
+  type RuntimeReadySnapshot
+} from "../../application/runtime-readiness.service";
 
 interface ReadyResponseStatus {
   status(code: number): ReadyResponseStatus;

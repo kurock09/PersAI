@@ -219,8 +219,7 @@ export async function runRuntimeBundleCoordinatorServiceTest(): Promise<void> {
   if (invalidateBundleStatesInput === null) {
     throw new Error("Expected bundle-state invalidation call.");
   }
-  const recordedInvalidation =
-    invalidateBundleStatesInput as CapturedInvalidateBundleStatesInput;
+  const recordedInvalidation = invalidateBundleStatesInput as CapturedInvalidateBundleStatesInput;
   assert.equal(recordedInvalidation.assistantId, "assistant-1");
   assert.equal(recordedInvalidation.publishedVersionId, "version-1");
   assert.equal(recordedInvalidation.invalidatedAt.toISOString(), invalidated.invalidatedAt);

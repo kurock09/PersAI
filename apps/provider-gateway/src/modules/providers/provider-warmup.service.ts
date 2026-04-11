@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  type OnModuleInit
-} from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, type OnModuleInit } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import { PROVIDER_GATEWAY_CONFIG } from "../../provider-gateway-config";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
@@ -226,7 +221,9 @@ export class ProviderWarmupService implements OnModuleInit {
     }
 
     const schema =
-      typeof input.schema === "string" && input.schema.trim().length > 0 ? input.schema.trim() : null;
+      typeof input.schema === "string" && input.schema.trim().length > 0
+        ? input.schema.trim()
+        : null;
     if (schema !== "persai.providerGatewayWarmupRequest.v1") {
       throw new BadRequestException(
         'Provider warmup request schema must equal "persai.providerGatewayWarmupRequest.v1".'

@@ -6,10 +6,7 @@ import {
 } from "../domain/assistant-chat-message-attachment.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  type AssistantRuntimeFacade
-} from "./assistant-runtime.facade";
+import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 

@@ -107,7 +107,9 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
     return this.openClawRuntimeBridge.compactTelegramChannelSession(input);
   }
 
-  sendWebChatTurn(input: AssistantRuntimeWebChatTurnInput): Promise<AssistantRuntimeWebChatTurnResult> {
+  sendWebChatTurn(
+    input: AssistantRuntimeWebChatTurnInput
+  ): Promise<AssistantRuntimeWebChatTurnResult> {
     return this.openClawRuntimeBridge.sendWebChatTurn(input);
   }
 
@@ -125,7 +127,9 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
     });
   }
 
-  sendChannelTurn(input: AssistantRuntimeChannelTurnInput): Promise<AssistantRuntimeWebChatTurnResult> {
+  sendChannelTurn(
+    input: AssistantRuntimeChannelTurnInput
+  ): Promise<AssistantRuntimeWebChatTurnResult> {
     return this.openClawRuntimeBridge.sendChannelTurn(input);
   }
 
@@ -139,7 +143,9 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
     return this.openClawRuntimeBridge.controlCronJob(input);
   }
 
-  uploadChatMedia(input: AssistantRuntimeMediaUploadInput): Promise<AssistantRuntimeMediaUploadResult> {
+  uploadChatMedia(
+    input: AssistantRuntimeMediaUploadInput
+  ): Promise<AssistantRuntimeMediaUploadResult> {
     return this.openClawRuntimeBridge.uploadChatMedia(input);
   }
 
@@ -151,11 +157,19 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
     return this.openClawRuntimeBridge.downloadChatMedia(assistantId, storagePath, runtimeTier);
   }
 
-  deleteChatMedia(assistantId: string, storagePath: string, runtimeTier?: RuntimeTier): Promise<void> {
+  deleteChatMedia(
+    assistantId: string,
+    storagePath: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<void> {
     return this.openClawRuntimeBridge.deleteChatMedia(assistantId, storagePath, runtimeTier);
   }
 
-  deleteChatMediaBatch(assistantId: string, chatId: string, runtimeTier?: RuntimeTier): Promise<void> {
+  deleteChatMediaBatch(
+    assistantId: string,
+    chatId: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<void> {
     return this.openClawRuntimeBridge.deleteChatMediaBatch(assistantId, chatId, runtimeTier);
   }
 
@@ -184,7 +198,11 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
     return this.openClawRuntimeBridge.editMemoryItem(assistantId, itemId, content, runtimeTier);
   }
 
-  forgetMemoryItem(assistantId: string, itemId: string, runtimeTier?: RuntimeTier): Promise<unknown> {
+  forgetMemoryItem(
+    assistantId: string,
+    itemId: string,
+    runtimeTier?: RuntimeTier
+  ): Promise<unknown> {
     return this.openClawRuntimeBridge.forgetMemoryItem(assistantId, itemId, runtimeTier);
   }
 
@@ -205,7 +223,9 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
     return this.openClawRuntimeBridge.uploadWorkspaceAvatar(input);
   }
 
-  downloadWorkspaceAvatar(assistantId: string): Promise<AssistantRuntimeMediaDownloadResult | null> {
+  downloadWorkspaceAvatar(
+    assistantId: string
+  ): Promise<AssistantRuntimeMediaDownloadResult | null> {
     return this.openClawRuntimeBridge.downloadWorkspaceAvatar(assistantId);
   }
 }

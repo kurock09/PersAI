@@ -95,7 +95,8 @@ const materializedSpec: AssistantMaterializedSpec = {
 
 async function runSuccessCase(): Promise<void> {
   let appliedInput: Parameters<AssistantRuntimeFacade["applyMaterializedSpec"]>[0] | null = null;
-  let syncedInput: { materializedSpec: AssistantMaterializedSpec; runtimeTier: string } | null = null;
+  let syncedInput: { materializedSpec: AssistantMaterializedSpec; runtimeTier: string } | null =
+    null;
   let warmedProviderGatewayInput: { materializedSpec: AssistantMaterializedSpec } | null = null;
   let markApplySucceededArgs: [string, string] | null = null;
   let markApplyDegradedArgs: [string, string, string, string] | null = null;
@@ -124,7 +125,10 @@ async function runSuccessCase(): Promise<void> {
 
   const materializedSpecRepository = {
     findByPublishedVersionId: async () => materializedSpec
-  } as Pick<AssistantMaterializedSpecRepository, "findByPublishedVersionId"> as AssistantMaterializedSpecRepository;
+  } as Pick<
+    AssistantMaterializedSpecRepository,
+    "findByPublishedVersionId"
+  > as AssistantMaterializedSpecRepository;
 
   const assistantRuntime = {
     applyMaterializedSpec: async (
@@ -142,10 +146,16 @@ async function runSuccessCase(): Promise<void> {
 
   const materializeService = {
     execute: async () => undefined
-  } as Pick<MaterializeAssistantPublishedVersionService, "execute"> as MaterializeAssistantPublishedVersionService;
+  } as Pick<
+    MaterializeAssistantPublishedVersionService,
+    "execute"
+  > as MaterializeAssistantPublishedVersionService;
 
   const syncNativeRuntimeBundleService = {
-    execute: async (input: { materializedSpec: AssistantMaterializedSpec; runtimeTier: string }) => {
+    execute: async (input: {
+      materializedSpec: AssistantMaterializedSpec;
+      runtimeTier: string;
+    }) => {
       syncedInput = input;
       return "warmed" as const;
     }
@@ -229,7 +239,10 @@ async function runDegradedWarmCase(): Promise<void> {
 
   const materializedSpecRepository = {
     findByPublishedVersionId: async () => materializedSpec
-  } as Pick<AssistantMaterializedSpecRepository, "findByPublishedVersionId"> as AssistantMaterializedSpecRepository;
+  } as Pick<
+    AssistantMaterializedSpecRepository,
+    "findByPublishedVersionId"
+  > as AssistantMaterializedSpecRepository;
 
   const assistantRuntime = {
     applyMaterializedSpec: async () => undefined
@@ -243,7 +256,10 @@ async function runDegradedWarmCase(): Promise<void> {
 
   const materializeService = {
     execute: async () => undefined
-  } as Pick<MaterializeAssistantPublishedVersionService, "execute"> as MaterializeAssistantPublishedVersionService;
+  } as Pick<
+    MaterializeAssistantPublishedVersionService,
+    "execute"
+  > as MaterializeAssistantPublishedVersionService;
 
   const syncNativeRuntimeBundleService = {
     execute: async () => {
@@ -278,7 +294,10 @@ async function runDegradedWarmCase(): Promise<void> {
     "Native runtime bundle sync failed with HTTP 503."
   ]);
   assert.equal(auditEvents.length, 2);
-  assert.equal((auditEvents[1] as { eventCode: string }).eventCode, "assistant.runtime.apply_degraded");
+  assert.equal(
+    (auditEvents[1] as { eventCode: string }).eventCode,
+    "assistant.runtime.apply_degraded"
+  );
 }
 
 async function runProviderGatewayDegradedCase(): Promise<void> {
@@ -309,7 +328,10 @@ async function runProviderGatewayDegradedCase(): Promise<void> {
 
   const materializedSpecRepository = {
     findByPublishedVersionId: async () => materializedSpec
-  } as Pick<AssistantMaterializedSpecRepository, "findByPublishedVersionId"> as AssistantMaterializedSpecRepository;
+  } as Pick<
+    AssistantMaterializedSpecRepository,
+    "findByPublishedVersionId"
+  > as AssistantMaterializedSpecRepository;
 
   const assistantRuntime = {
     applyMaterializedSpec: async () => undefined
@@ -323,7 +345,10 @@ async function runProviderGatewayDegradedCase(): Promise<void> {
 
   const materializeService = {
     execute: async () => undefined
-  } as Pick<MaterializeAssistantPublishedVersionService, "execute"> as MaterializeAssistantPublishedVersionService;
+  } as Pick<
+    MaterializeAssistantPublishedVersionService,
+    "execute"
+  > as MaterializeAssistantPublishedVersionService;
 
   const syncNativeRuntimeBundleService = {
     execute: async () => "warmed" as const
@@ -358,7 +383,10 @@ async function runProviderGatewayDegradedCase(): Promise<void> {
     "Provider gateway warmup failed with HTTP 503."
   ]);
   assert.equal(auditEvents.length, 2);
-  assert.equal((auditEvents[1] as { eventCode: string }).eventCode, "assistant.runtime.apply_degraded");
+  assert.equal(
+    (auditEvents[1] as { eventCode: string }).eventCode,
+    "assistant.runtime.apply_degraded"
+  );
 }
 
 async function run(): Promise<void> {

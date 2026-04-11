@@ -8,9 +8,7 @@ interface ReadyResponseStatus {
 
 @Controller()
 export class ReadyController {
-  constructor(
-    private readonly providerGatewayReadinessService: ProviderGatewayReadinessService
-  ) {}
+  constructor(private readonly providerGatewayReadinessService: ProviderGatewayReadinessService) {}
 
   @Get("ready")
   getReady(@Res({ passthrough: true }) res: ReadyResponseStatus): ProviderReadinessSnapshot {

@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import type { RuntimeConfig } from "@persai/config";
-import type {
-  PersaiRuntimeTier,
-  RuntimeConversationAddress
-} from "@persai/runtime-contract";
+import type { PersaiRuntimeTier, RuntimeConversationAddress } from "@persai/runtime-contract";
 import type { RuntimeSession } from "@prisma/client";
 import { SessionStoreService } from "../src/modules/sessions/session-store.service";
 import { RuntimeStateKeyspaceService } from "../src/modules/runtime-state/runtime-state-keyspace.service";

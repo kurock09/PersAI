@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  ServiceUnavailableException
-} from "@nestjs/common";
+import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import type {
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult

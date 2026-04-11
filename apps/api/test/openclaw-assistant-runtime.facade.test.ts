@@ -22,7 +22,10 @@ async function run(): Promise<void> {
         media: []
       };
     }
-  } as Pick<OpenClawRuntimeBridge, "applyMaterializedSpec" | "previewSetupTurn"> as OpenClawRuntimeBridge;
+  } as Pick<
+    OpenClawRuntimeBridge,
+    "applyMaterializedSpec" | "previewSetupTurn"
+  > as OpenClawRuntimeBridge;
 
   const facade = new OpenClawAssistantRuntimeFacade(bridge);
 

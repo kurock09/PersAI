@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import type { RuntimeConfig } from "@persai/config";
 import type { RuntimeBundleRef, RuntimeConversationAddress } from "@persai/runtime-contract";
 import type { RuntimeTurnReceipt } from "@prisma/client";
-import { IdempotencyService, type ClaimRuntimeTurnInput } from "../src/modules/turns/idempotency.service";
+import {
+  IdempotencyService,
+  type ClaimRuntimeTurnInput
+} from "../src/modules/turns/idempotency.service";
 import { RuntimeStateKeyspaceService } from "../src/modules/runtime-state/runtime-state-keyspace.service";
 import type { RuntimeStateRedisService } from "../src/modules/runtime-state/infrastructure/coordination/runtime-state-redis.service";
 import type {
@@ -108,9 +111,9 @@ class FakeRuntimeStatePostgresService {
     conversationKey: string,
     idempotencyKey: string
   ): Promise<RuntimeTurnReceipt | null> {
-    return this.receiptsByConversationAndIdempotency.get(
-      `${conversationKey}|${idempotencyKey}`
-    ) ?? null;
+    return (
+      this.receiptsByConversationAndIdempotency.get(`${conversationKey}|${idempotencyKey}`) ?? null
+    );
   }
 
   async createAcceptedTurnReceipt(

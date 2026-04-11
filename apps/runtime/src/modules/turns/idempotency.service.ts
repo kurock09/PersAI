@@ -5,8 +5,10 @@ import { RuntimeStateRedisService } from "../runtime-state/infrastructure/coordi
 import { RuntimeStatePostgresService } from "../runtime-state/infrastructure/persistence/runtime-state-postgres.service";
 import { RuntimeStateKeyspaceService } from "../runtime-state/runtime-state-keyspace.service";
 
-export interface ClaimRuntimeTurnInput
-  extends Pick<RuntimeTurnRequest, "requestId" | "idempotencyKey" | "runtimeTier" | "conversation" | "bundle"> {
+export interface ClaimRuntimeTurnInput extends Pick<
+  RuntimeTurnRequest,
+  "requestId" | "idempotencyKey" | "runtimeTier" | "conversation" | "bundle"
+> {
   sessionId?: string | null;
 }
 
@@ -36,11 +38,15 @@ export class IdempotencyService {
     private readonly runtimeStateRedisService: RuntimeStateRedisService
   ) {}
 
-  async findReplayAcceptedTurn(input: ClaimRuntimeTurnInput): Promise<ClaimRuntimeTurnResult | null> {
+  async findReplayAcceptedTurn(
+    input: ClaimRuntimeTurnInput
+  ): Promise<ClaimRuntimeTurnResult | null> {
     this.assertNonEmpty(input.requestId, "requestId");
     this.assertNonEmpty(input.idempotencyKey, "idempotencyKey");
 
-    const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(input.conversation);
+    const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(
+      input.conversation
+    );
     const receiptFromMarker = await this.resolveFromMarker(input, conversationKey);
     if (receiptFromMarker !== null) {
       return this.toClaimResult(conversationKey, receiptFromMarker, true);
@@ -63,7 +69,9 @@ export class IdempotencyService {
     this.assertNonEmpty(input.requestId, "requestId");
     this.assertNonEmpty(input.idempotencyKey, "idempotencyKey");
 
-    const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(input.conversation);
+    const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(
+      input.conversation
+    );
 
     try {
       const createdReceipt = await this.runtimeStatePostgresService.createAcceptedTurnReceipt({
@@ -109,13 +117,16 @@ export class IdempotencyService {
   private async resolveFromMarker(
     input: ClaimRuntimeTurnInput,
     conversationKey: string
-  ): Promise<Awaited<ReturnType<RuntimeStatePostgresService["findTurnReceiptByRequestId"]>> | null> {
+  ): Promise<Awaited<
+    ReturnType<RuntimeStatePostgresService["findTurnReceiptByRequestId"]>
+  > | null> {
     const markerRequestId = await this.tryReadReceiptMarker(input);
     if (markerRequestId === null) {
       return null;
     }
 
-    const receipt = await this.runtimeStatePostgresService.findTurnReceiptByRequestId(markerRequestId);
+    const receipt =
+      await this.runtimeStatePostgresService.findTurnReceiptByRequestId(markerRequestId);
     if (
       receipt === null ||
       receipt.conversationKey !== conversationKey ||
@@ -128,7 +139,9 @@ export class IdempotencyService {
   }
 
   private toReceiptSummary(
-    receipt: NonNullable<Awaited<ReturnType<RuntimeStatePostgresService["findTurnReceiptByRequestId"]>>>
+    receipt: NonNullable<
+      Awaited<ReturnType<RuntimeStatePostgresService["findTurnReceiptByRequestId"]>>
+    >
   ): RuntimeTurnReceiptSummary {
     return {
       requestId: receipt.requestId,
@@ -145,7 +158,9 @@ export class IdempotencyService {
 
   private toClaimResult(
     conversationKey: string,
-    receipt: NonNullable<Awaited<ReturnType<RuntimeStatePostgresService["findTurnReceiptByRequestId"]>>>,
+    receipt: NonNullable<
+      Awaited<ReturnType<RuntimeStatePostgresService["findTurnReceiptByRequestId"]>>
+    >,
     replayed: boolean
   ): ClaimRuntimeTurnResult {
     return {
@@ -182,12 +197,7 @@ export class IdempotencyService {
   }
 
   private isUniqueConstraintError(error: unknown): boolean {
-    return (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "P2002"
-    );
+    return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
   }
 
   private assertNonEmpty(value: unknown, field: string): asserts value is string {

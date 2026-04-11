@@ -10,11 +10,7 @@ import { AppLoggerService } from "./infrastructure/logging/app-logger.service";
 @Module({
   imports: [ProviderGatewayModule],
   controllers: [HealthController, ReadyController, MetricsController],
-  providers: [
-    AppLoggerService,
-    ProviderGatewayReadinessService,
-    ProviderGatewayMetricsService
-  ],
+  providers: [AppLoggerService, ProviderGatewayReadinessService, ProviderGatewayMetricsService],
   exports: [AppLoggerService, ProviderGatewayReadinessService, ProviderGatewayMetricsService]
 })
 export class PlatformCoreModule {}

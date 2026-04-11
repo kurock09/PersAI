@@ -9,7 +9,9 @@ import {
   type ProviderGatewayDependencyReadiness
 } from "../src/modules/turns/provider-gateway.client.service";
 
-function createConfig(baseUrl: string | undefined = "http://provider-gateway.local"): RuntimeConfig {
+function createConfig(
+  baseUrl: string | undefined = "http://provider-gateway.local"
+): RuntimeConfig {
   return {
     APP_ENV: "local",
     DATABASE_URL: "postgresql://persai:persai@localhost:5432/persai",
@@ -52,7 +54,8 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
 
   globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (init === undefined) {
       requests.push({ url });
     } else {
@@ -102,9 +105,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
 
-    const unconfiguredService = new ProviderGatewayClientService(
-      createUnconfiguredConfig()
-    );
+    const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();
     assert.deepEqual(unconfiguredReadiness, {
       ready: false,

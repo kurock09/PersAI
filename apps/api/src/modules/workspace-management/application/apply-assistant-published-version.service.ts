@@ -127,7 +127,9 @@ export class ApplyAssistantPublishedVersionService {
       await this.assistantRuntime.applyMaterializedSpec({
         assistantId: assistantInProgress.id,
         publishedVersionId: publishedVersion.id,
-        ...(runtimeAssignment?.effectiveTier ? { runtimeTier: runtimeAssignment.effectiveTier } : {}),
+        ...(runtimeAssignment?.effectiveTier
+          ? { runtimeTier: runtimeAssignment.effectiveTier }
+          : {}),
         runtimeBundle: materializedSpec.runtimeBundle,
         legacyBridge: {
           contentHash: materializedSpec.contentHash,

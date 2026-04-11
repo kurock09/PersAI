@@ -14,9 +14,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   readonly catalogSource = "bootstrap_config" as const;
   private client: OpenAI | null = null;
 
-  constructor(
-    @Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig
-  ) {}
+  constructor(@Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig) {}
 
   isConfigured(): boolean {
     return typeof this.config.PROVIDER_GATEWAY_OPENAI_API_KEY === "string";
@@ -52,9 +50,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         role: message.role,
         content: [{ type: "input_text", text: message.content }]
       })),
-      ...(input.maxOutputTokens === undefined
-        ? {}
-        : { max_output_tokens: input.maxOutputTokens })
+      ...(input.maxOutputTokens === undefined ? {} : { max_output_tokens: input.maxOutputTokens })
     });
 
     const text = typeof response.output_text === "string" ? response.output_text.trim() : "";

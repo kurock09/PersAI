@@ -1,10 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
-import {
-  compileAssistantRuntimeBundle,
-  type AssistantRuntimeBundle
-} from "@persai/runtime-bundle";
+import { compileAssistantRuntimeBundle, type AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";

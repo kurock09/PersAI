@@ -1,10 +1,7 @@
 import { loadApiConfig } from "@persai/config";
 import type { RuntimeBundleRef } from "@persai/runtime-contract";
 import { Injectable } from "@nestjs/common";
-import {
-  AssistantRuntimeError,
-  type AssistantRuntimeErrorCode
-} from "./assistant-runtime.facade";
+import { AssistantRuntimeError, type AssistantRuntimeErrorCode } from "./assistant-runtime.facade";
 import type { AssistantMaterializedSpec } from "../domain/assistant-materialized-spec.entity";
 import type { RuntimeTier } from "./runtime-assignment";
 

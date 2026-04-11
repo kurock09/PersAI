@@ -5,10 +5,7 @@ import {
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  type AssistantRuntimeFacade
-} from "./assistant-runtime.facade";
+import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";

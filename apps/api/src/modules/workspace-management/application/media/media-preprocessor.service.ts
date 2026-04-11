@@ -1,9 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  type AssistantRuntimeFacade
-} from "../assistant-runtime.facade";
+import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "../assistant-runtime.facade";
 import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
 import type { PreprocessedMedia } from "./media.types";
 

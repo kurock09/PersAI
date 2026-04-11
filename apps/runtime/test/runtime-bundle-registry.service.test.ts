@@ -148,12 +148,16 @@ export async function runRuntimeBundleRegistryServiceTest(): Promise<void> {
 
   registryService.validateWarmBundleInput(createWarmInput("bundle-0", "assistant-0", "version-0"));
 
-  const warmedOne = registryService.warmBundle(createWarmInput("bundle-1", "assistant-1", "version-1"));
+  const warmedOne = registryService.warmBundle(
+    createWarmInput("bundle-1", "assistant-1", "version-1")
+  );
   assert.equal(warmedOne.replaced, false);
   assert.equal(warmedOne.cacheEntries, 1);
   assert.deepEqual(warmedOne.evictedBundleIds, []);
 
-  const warmedTwo = registryService.warmBundle(createWarmInput("bundle-2", "assistant-2", "version-2"));
+  const warmedTwo = registryService.warmBundle(
+    createWarmInput("bundle-2", "assistant-2", "version-2")
+  );
   assert.equal(warmedTwo.replaced, false);
   assert.equal(warmedTwo.cacheEntries, 1);
   assert.deepEqual(warmedTwo.evictedBundleIds, ["bundle-1"]);

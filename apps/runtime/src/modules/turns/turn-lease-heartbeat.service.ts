@@ -10,7 +10,9 @@ export interface TurnLeaseHeartbeatResult {
 export class TurnLeaseHeartbeatService {
   constructor(private readonly sessionLeaseService: SessionLeaseService) {}
 
-  async heartbeatAcceptedTurn(acceptedTurn: AcceptedRuntimeTurn): Promise<TurnLeaseHeartbeatResult> {
+  async heartbeatAcceptedTurn(
+    acceptedTurn: AcceptedRuntimeTurn
+  ): Promise<TurnLeaseHeartbeatResult> {
     const renewed = await this.sessionLeaseService.renewLease(acceptedTurn.lease);
     return {
       outcome: renewed ? "renewed" : "lost"

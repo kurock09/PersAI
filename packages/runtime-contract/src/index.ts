@@ -29,12 +29,7 @@ export const PERSAI_RUNTIME_TRACE_SCOPES = [
 
 export type PersaiRuntimeTraceScope = (typeof PERSAI_RUNTIME_TRACE_SCOPES)[number];
 
-export const PERSAI_RUNTIME_TRACE_STATUSES = [
-  "ok",
-  "degraded",
-  "failed",
-  "interrupted"
-] as const;
+export const PERSAI_RUNTIME_TRACE_STATUSES = ["ok", "degraded", "failed", "interrupted"] as const;
 
 export type PersaiRuntimeTraceStatus = (typeof PERSAI_RUNTIME_TRACE_STATUSES)[number];
 

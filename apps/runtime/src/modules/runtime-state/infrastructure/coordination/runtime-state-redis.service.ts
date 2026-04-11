@@ -208,7 +208,10 @@ export class RuntimeStateRedisService implements OnModuleDestroy {
     });
 
     const setKey = this.keyspace.buildAssistantBundleMarkerSetKey(bundle.assistantId);
-    await client.sAdd(setKey, this.encodeAssistantBundleMarkerMember(bundle.publishedVersionId, markerKey));
+    await client.sAdd(
+      setKey,
+      this.encodeAssistantBundleMarkerMember(bundle.publishedVersionId, markerKey)
+    );
     await client.expire(setKey, this.config.RUNTIME_BUNDLE_MARKER_TTL_SECONDS);
   }
 
@@ -234,7 +237,8 @@ export class RuntimeStateRedisService implements OnModuleDestroy {
     for (const member of members) {
       const decoded = this.decodeAssistantBundleMarkerMember(member);
       const shouldInvalidate =
-        input.publishedVersionId === undefined || decoded.publishedVersionId === input.publishedVersionId;
+        input.publishedVersionId === undefined ||
+        decoded.publishedVersionId === input.publishedVersionId;
       if (!shouldInvalidate) {
         survivors.push(member);
         continue;

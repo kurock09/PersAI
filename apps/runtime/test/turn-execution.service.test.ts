@@ -288,7 +288,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
 
   const request = createRuntimeTurnRequest();
   request.bundle.bundleHash = bundleRegistry.entry?.bundle.bundleHash ?? request.bundle.bundleHash;
-  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash = request.bundle.bundleHash;
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
 
   const completed = await service.createTurn(request);
   assert.equal(completed.assistantText, "runtime reply");
@@ -303,7 +304,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   overrideRequest.providerOverride = "anthropic";
   overrideRequest.modelOverride = "claude-sonnet-4-5";
   turnAcceptanceService.result = createAcceptedTurn();
-  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash = request.bundle.bundleHash;
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
   providerGatewayClient.result = {
     provider: "anthropic",
     model: "claude-sonnet-4-5",
@@ -348,7 +350,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(providerGatewayClient.calls.length, 2);
 
   turnAcceptanceService.result = createAcceptedTurn();
-  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash = request.bundle.bundleHash;
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
   providerGatewayClient.error = new ServiceUnavailableException("gateway down");
   await assert.rejects(() => service.createTurn(request), /gateway down/);
   assert.equal(turnFinalizationService.failed.length, 1);

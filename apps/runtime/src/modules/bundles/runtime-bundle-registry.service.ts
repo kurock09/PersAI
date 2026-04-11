@@ -143,10 +143,14 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
       throw new BadRequestException("bundleDocument hash does not match bundle.bundleHash");
     }
     if (parsedBundle.metadata.assistantId !== input.bundle.assistantId) {
-      throw new BadRequestException("bundleDocument metadata.assistantId does not match bundle.assistantId");
+      throw new BadRequestException(
+        "bundleDocument metadata.assistantId does not match bundle.assistantId"
+      );
     }
     if (parsedBundle.metadata.workspaceId !== input.bundle.workspaceId) {
-      throw new BadRequestException("bundleDocument metadata.workspaceId does not match bundle.workspaceId");
+      throw new BadRequestException(
+        "bundleDocument metadata.workspaceId does not match bundle.workspaceId"
+      );
     }
     if (parsedBundle.metadata.publishedVersionId !== input.bundle.publishedVersionId) {
       throw new BadRequestException(

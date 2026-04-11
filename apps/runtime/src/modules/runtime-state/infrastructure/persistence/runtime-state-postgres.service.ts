@@ -1,8 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type {
-  PersaiRuntimeTier,
-  RuntimeConversationAddress
-} from "@persai/runtime-contract";
+import type { PersaiRuntimeTier, RuntimeConversationAddress } from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
 import { RuntimeStatePrismaService } from "./runtime-state-prisma.service";
 
@@ -148,7 +145,9 @@ export class RuntimeStatePostgresService {
       ...(input.currentPublishedVersionId !== undefined
         ? { currentPublishedVersionId: input.currentPublishedVersionId }
         : {}),
-      ...(input.currentBundleHash !== undefined ? { currentBundleHash: input.currentBundleHash } : {}),
+      ...(input.currentBundleHash !== undefined
+        ? { currentBundleHash: input.currentBundleHash }
+        : {}),
       ...(input.currentTokens !== undefined ? { currentTokens: input.currentTokens } : {}),
       ...(input.totalTokensFresh !== undefined ? { totalTokensFresh: input.totalTokensFresh } : {}),
       ...(input.compactionCount !== undefined ? { compactionCount: input.compactionCount } : {}),
@@ -211,7 +210,9 @@ export class RuntimeStatePostgresService {
         ? { currentPublishedVersionId: input.currentPublishedVersionId }
         : {}),
       ...(input.runtimeTier !== undefined ? { runtimeTier: input.runtimeTier } : {}),
-      ...(input.currentBundleHash !== undefined ? { currentBundleHash: input.currentBundleHash } : {}),
+      ...(input.currentBundleHash !== undefined
+        ? { currentBundleHash: input.currentBundleHash }
+        : {}),
       ...(input.currentTokens !== undefined ? { currentTokens: input.currentTokens } : {}),
       ...(input.totalTokensFresh !== undefined ? { totalTokensFresh: input.totalTokensFresh } : {}),
       ...(input.compactionCount !== undefined ? { compactionCount: input.compactionCount } : {}),

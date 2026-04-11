@@ -78,7 +78,9 @@ export class TurnExecutionService {
       if (bundleEntry === null) {
         throw new TurnExecutionError(
           "runtime_bundle_missing",
-          new ServiceUnavailableException(`Runtime bundle "${input.bundle.bundleId}" is not warmed.`)
+          new ServiceUnavailableException(
+            `Runtime bundle "${input.bundle.bundleId}" is not warmed.`
+          )
         );
       }
       if (bundleEntry.bundle.bundleHash !== input.bundle.bundleHash) {
@@ -99,7 +101,11 @@ export class TurnExecutionService {
       }
 
       const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, input);
-      const providerRequest = this.buildProviderRequest(bundleEntry.parsedBundle, input, providerSelection);
+      const providerRequest = this.buildProviderRequest(
+        bundleEntry.parsedBundle,
+        input,
+        providerSelection
+      );
       const providerResult = await this.providerGatewayClientService.generateText(providerRequest);
 
       return {
@@ -163,7 +169,9 @@ export class TurnExecutionService {
       bundle.persona.displayName === null
         ? null
         : `Assistant display name: ${bundle.persona.displayName}`,
-      bundle.userContext.displayName === null ? null : `User display name: ${bundle.userContext.displayName}`,
+      bundle.userContext.displayName === null
+        ? null
+        : `User display name: ${bundle.userContext.displayName}`,
       `User locale: ${bundle.userContext.locale}`,
       `User timezone: ${bundle.userContext.timezone}`,
       this.normalizeOptionalText(bundle.persona.instructions),

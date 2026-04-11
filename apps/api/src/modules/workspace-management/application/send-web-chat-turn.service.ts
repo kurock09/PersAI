@@ -13,10 +13,7 @@ import {
   type AssistantChannelSurfaceBindingRepository,
   type CompletedWebTurnReplayState
 } from "../domain/assistant-channel-surface-binding.repository";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  type AssistantRuntimeFacade
-} from "./assistant-runtime.facade";
+import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -229,10 +226,9 @@ export class SendWebChatTurnService {
             }
           : {}),
         ...(trace.isEnabled() ? { overviewTraceId: trace.getTraceId() } : {})
-      })
-        .catch((error: unknown) => {
-          throw toAssistantInboundHttpException(error);
-        });
+      }).catch((error: unknown) => {
+        throw toAssistantInboundHttpException(error);
+      });
       if (runtimeResponse.runtimeTrace) {
         trace.attachExternalTrace(runtimeResponse.runtimeTrace);
       }
@@ -496,7 +492,9 @@ export class SendWebChatTurnService {
         userMessage: input.userMessage,
         userTimezone: input.userTimezone,
         currentTimeIso: input.currentTimeIso,
-        ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
+        ...(input.providerOverride === undefined
+          ? {}
+          : { providerOverride: input.providerOverride }),
         ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
       });
     }

@@ -59,7 +59,9 @@ export class SendNativeWebChatTurnService {
     }
 
     const materializedSpec =
-      await this.assistantMaterializedSpecRepository.findByPublishedVersionId(input.publishedVersionId);
+      await this.assistantMaterializedSpecRepository.findByPublishedVersionId(
+        input.publishedVersionId
+      );
     if (materializedSpec === null) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
@@ -176,7 +178,8 @@ export class SendNativeWebChatTurnService {
           `Native runtime sync turn timed out after ${timeoutMs}ms.`
         );
       }
-      const message = error instanceof Error ? error.message : "Unknown native runtime sync failure.";
+      const message =
+        error instanceof Error ? error.message : "Unknown native runtime sync failure.";
       throw new AssistantRuntimeError(
         "runtime_unreachable",
         `Native runtime sync turn failed: ${message}`

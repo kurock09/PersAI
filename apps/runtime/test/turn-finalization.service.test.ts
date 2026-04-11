@@ -118,7 +118,9 @@ class FakeSessionStoreService {
   updateCalls: UpdateRuntimeSessionSummaryInput[] = [];
   throwOnUpdate = false;
 
-  async updateSessionSummary(input: UpdateRuntimeSessionSummaryInput): Promise<RuntimeSessionSummary> {
+  async updateSessionSummary(
+    input: UpdateRuntimeSessionSummaryInput
+  ): Promise<RuntimeSessionSummary> {
     this.updateCalls.push(input);
     if (this.throwOnUpdate) {
       throw new Error("session update failed");
