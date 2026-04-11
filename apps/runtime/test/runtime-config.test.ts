@@ -11,7 +11,8 @@ export async function runRuntimeConfigTest(): Promise<void> {
     RUNTIME_SESSION_LEASE_TTL_SECONDS: "45",
     RUNTIME_TURN_RECEIPT_TTL_SECONDS: "3600",
     RUNTIME_BUNDLE_MARKER_TTL_SECONDS: "7200",
-    RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "9000"
+    RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "9000",
+    RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: "15000"
   });
 
   assert.equal(config.DATABASE_URL, "postgresql://persai:persai@localhost:5432/persai");
@@ -25,4 +26,5 @@ export async function runRuntimeConfigTest(): Promise<void> {
   assert.equal(config.RUNTIME_BUNDLE_MARKER_TTL_SECONDS, 7200);
   assert.equal(config.RUNTIME_PROVIDER_GATEWAY_BASE_URL, undefined);
   assert.equal(config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS, 9000);
+  assert.equal(config.RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS, 15000);
 }

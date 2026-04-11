@@ -1269,12 +1269,17 @@ Behavior baseline:
   - Redis pointers and markers are hot-path accelerators that may be refreshed or rebuilt from Postgres when stale or missing
 - Step 8 itself still added no request-path controller/HTTP surface; the first Step 9 execution seams are documented below.
 
-## ADR-072 Step 9 native web runtime boundary (dark sync createTurn sub-step)
+## ADR-072 Step 9 native web runtime boundary (sync + stream sub-steps)
 
-- Step 9 now has both dark-service internal execution seams and the first flagged API sync cutover consumer.
+- Step 9 now has both dark-service internal execution seams and flagged API sync/stream cutover consumers.
 - `apps/provider-gateway` now exposes `POST /api/v1/providers/generate-text`:
   - request body matches `ProviderGatewayTextGenerateRequest`
   - response body matches `ProviderGatewayTextGenerateResult`
+  - execution is allowed only when the target provider is warmed/ready
+  - the requested model must exist in the warmed provider catalog snapshot for that provider
+- `apps/provider-gateway` now also exposes `POST /api/v1/providers/stream-text`:
+  - request body matches `ProviderGatewayTextGenerateRequest`
+  - response body is NDJSON `ProviderGatewayTextStreamEvent`
   - execution is allowed only when the target provider is warmed/ready
   - the requested model must exist in the warmed provider catalog snapshot for that provider
 - `apps/runtime` now exposes `POST /api/v1/turns/create`:
@@ -1289,6 +1294,14 @@ Behavior baseline:
     - terminal receipt/session finalization through `TurnFinalizationService`
   - replayed completed receipts return the stored `RuntimeTurnResult`
   - replayed failed/accepted states and active busy/in-flight states currently surface as conflicts in this dark sub-step
+- `apps/runtime` now also exposes `POST /api/v1/turns/stream`:
+  - request body matches `RuntimeTurnRequest`
+  - response body is NDJSON `RuntimeTurnStreamEvent`
+  - current scope is text-only native `streamTurn`
+  - attachments are rejected when sent as native attachment refs in this Step 9 sub-step
+  - runtime execution order matches sync up to acceptance and bundle/provider resolution, then yields provider-gateway stream deltas before terminal finalization
+  - replayed completed receipts return a terminal `completed` event from the stored `RuntimeTurnResult`
+  - replayed failed/interrupted/accepted states and active busy/in-flight states currently surface as conflicts in this Step 9 sub-step
 - authenticated `POST /api/v1/assistant/chat/web` now has an explicit Step 9 migration mode:
   - when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=false`, sync web turns still use the legacy OpenClaw runtime bridge
   - when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`, sync web turns call `apps/runtime` `POST /api/v1/turns/create` through `SendNativeWebChatTurnService`
@@ -1296,17 +1309,22 @@ Behavior baseline:
   - on the flagged native path there is no silent per-request fallback back to OpenClaw; missing runtime config or runtime failure surfaces as an honest error
   - on the flagged native path, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
   - current Step 9 sync cutover still sends attachment context as enriched text and does not yet pass object-storage attachment refs into native runtime
+- authenticated `POST /api/v1/assistant/chat/web/stream` now also has an explicit Step 9 migration mode:
+  - when `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=false`, web stream turns still use the legacy OpenClaw runtime bridge
+  - when `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`, web stream turns call `apps/runtime` `POST /api/v1/turns/stream` through `StreamNativeWebChatTurnService`
+  - on the flagged native stream path, `apps/api` still owns replay claim, canonical user/assistant message persistence, quota accounting, media delivery, SSE event shaping, and interruption handling
+  - on the flagged native stream path there is no silent per-request fallback back to OpenClaw; missing runtime config, invalid native stream payloads, or runtime/provider failures surface as honest errors
+  - on the flagged native stream path, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
+  - current Step 9 stream cutover still sends attachment context as enriched text and does not yet pass object-storage attachment refs into native runtime
 - runtime readiness/metrics are now execution-aware:
   - `executionEnabled` is `true`
   - `providerCacheReady` depends on provider-gateway `/ready`
-  - runtime reaches provider gateway through `RUNTIME_PROVIDER_GATEWAY_BASE_URL` and `RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS`
+  - runtime reaches provider gateway through `RUNTIME_PROVIDER_GATEWAY_BASE_URL`, `RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS`, and `RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS`
 - temporary Step 7/9 API activation seams still remain during this partial Step 9 state:
-  - why: sync API cutover is now flagged, stream/default web UX is still legacy, and provider-gateway warmup remains a temporary Step 7 activation seam
-  - where: `PERSAI_RUNTIME_BASE_URL`, `PERSAI_RUNTIME_TURN_TIMEOUT_MS`, `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`, and `PERSAI_PROVIDER_GATEWAY_BASE_URL` in API config plus the existing Step 7 sync services
+  - why: sync and stream API cutovers are still explicitly flagged, and provider-gateway warmup remains a temporary Step 7 activation seam until native runtime/provider-gateway are mandatory defaults
+  - where: `PERSAI_RUNTIME_BASE_URL`, `PERSAI_RUNTIME_TURN_TIMEOUT_MS`, `PERSAI_RUNTIME_STREAM_TIMEOUT_MS`, `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`, `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED`, and `PERSAI_PROVIDER_GATEWAY_BASE_URL` in API config plus the existing Step 7 sync services
   - removal/upgrade: later Step 9/10 work makes native runtime/provider-gateway mandatory for the default web path and deletes the remaining `unset => skip` / feature-flag behavior
 - not included yet:
-  - `streamTurn`
-  - native streaming/default web UX cutover
   - attachment/media execution inside native runtime
   - Step 10 shadow/primary traffic cutover
 

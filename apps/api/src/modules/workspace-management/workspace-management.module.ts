@@ -82,6 +82,7 @@ import { RollbackAssistantService } from "./application/rollback-assistant.servi
 import { PreviewAssistantSetupService } from "./application/preview-assistant-setup.service";
 import { SendNativeWebChatTurnService } from "./application/send-native-web-chat-turn.service";
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
+import { StreamNativeWebChatTurnService } from "./application/stream-native-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
@@ -246,6 +247,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     PreviewAssistantSetupService,
     RecordWebChatMemoryTurnService,
     SendNativeWebChatTurnService,
+    StreamNativeWebChatTurnService,
     ListAssistantMemoryItemsService,
     ForgetAssistantMemoryItemService,
     DoNotRememberAssistantMemoryService,

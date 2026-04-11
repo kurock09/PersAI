@@ -134,9 +134,9 @@ Required in CI:
   - lease acquisition and in-flight accepted-turn claim happen together
   - same-idempotency retries in that small window now surface as `in_flight` instead of generic `busy`
 - Step 8 is now complete as an internal runtime-state package, while Step 9 is now the first request-path consumer of these services:
-  - `apps/runtime` owns the dark sync text-only `createTurn` path
-  - `apps/api` can route sync web turns to that native path behind `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`
-  - Step 9 verification now must preserve API-owned replay/message persistence semantics while confirming the native runtime path honors optional provider/model override routing
+  - `apps/runtime` now owns native `createTurn` and `streamTurn` paths
+  - `apps/api` can route sync and stream web turns to those native paths behind `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED` / `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED`
+  - Step 9 verification now must preserve API-owned replay/message persistence semantics while confirming the native runtime path honors optional provider/model override routing and honest stream interruption/failure behavior
 - Durable authority stays explicit:
   - Postgres remains the source of truth for session summaries and turn receipts
   - Redis conversation pointers and receipt markers are hot-path accelerators only and must be healable from Postgres
@@ -149,6 +149,33 @@ Required in CI:
   - `apps/runtime/test/turn-lease-heartbeat.service.test.ts`
   - `apps/runtime/test/runtime-state-postgres.service.test.ts`
   - `apps/runtime/test/runtime-state-redis.service.test.ts`
+
+## Step 9 native web cutover focus
+
+- Provider-gateway native text seams:
+  - `apps/provider-gateway/test/provider-text-generation.service.test.ts`
+  - `apps/provider-gateway/test/provider-gateway-config.test.ts`
+  - `apps/provider-gateway/test/provider-warmup.service.test.ts`
+- Runtime native web seams:
+  - `apps/runtime/test/provider-gateway.client.service.test.ts`
+  - `apps/runtime/test/turn-execution.service.test.ts`
+  - `apps/runtime/test/runtime-config.test.ts`
+- API cutover seams:
+  - `apps/api/test/send-native-web-chat-turn.service.test.ts`
+  - `apps/api/test/send-web-chat-turn.service.test.ts`
+  - `apps/api/test/stream-native-web-chat-turn.service.test.ts`
+  - `apps/api/test/stream-web-chat-turn.service.test.ts`
+- Minimum verification for this sub-step:
+  - `corepack pnpm --filter @persai/provider-gateway run typecheck`
+  - `corepack pnpm --filter @persai/runtime run typecheck`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/provider-gateway run test`
+  - `corepack pnpm --filter @persai/runtime run test`
+  - `corepack pnpm --filter @persai/api run test`
+- Still required after local verification:
+  - one bounded dev-GKE smoke with `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`
+  - replay/idempotency proof on `POST /api/v1/assistant/chat/web/stream`
+  - one disconnect/interruption proof for the native stream path
 
 ## Step 1 focus
 

@@ -16,6 +16,7 @@ import {
 import {
   ASSISTANT_RUNTIME_FACADE,
   type AssistantRuntimeFacade,
+  type AssistantRuntimeWebChatTurnStreamChunk,
   type RuntimeMediaArtifact
 } from "./assistant-runtime.facade";
 import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
@@ -36,6 +37,7 @@ import { createAssistantInboundConflict } from "./assistant-inbound-error";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import type { RuntimeTier } from "./runtime-assignment";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
+import { StreamNativeWebChatTurnService } from "./stream-native-web-chat-turn.service";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -132,6 +134,7 @@ export class StreamWebChatTurnService {
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
     @Inject(ASSISTANT_RUNTIME_FACADE)
     private readonly assistantRuntime: AssistantRuntimeFacade,
+    private readonly streamNativeWebChatTurnService: StreamNativeWebChatTurnService,
     private readonly prepareAssistantInboundTurnService: PrepareAssistantInboundTurnService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
@@ -172,6 +175,7 @@ export class StreamWebChatTurnService {
     prepared: StreamWebChatTurnPrepared,
     callbacks: {
       isClientAborted: () => boolean;
+      clientAbortSignal?: AbortSignal;
       onDelta: (delta: string, accumulated: string) => void;
       onThinking: (delta: string, accumulated: string) => void;
       onDone: (respondedAt: string) => void;
@@ -198,25 +202,16 @@ export class StreamWebChatTurnService {
     const enrichedUserMessage = attachmentContext
       ? `${attachmentContext}\n${baseMessage}`
       : baseMessage;
+    const useNativeRuntimeStream = this.streamNativeWebChatTurnService.isEnabled();
 
     try {
-      for await (const chunk of this.assistantRuntime.streamWebChatTurn({
-        assistantId: prepared.assistantId,
-        publishedVersionId: prepared.publishedVersionId,
-        runtimeTier: prepared.runtimeTier,
-        ...(prepared.quotaDegradeModelOverride
-          ? {
-              providerOverride: prepared.quotaDegradeModelOverride.provider,
-              modelOverride: prepared.quotaDegradeModelOverride.model
-            }
-          : {}),
+      for await (const chunk of this.executeRuntimeStream({
+        prepared,
+        enrichedUserMessage,
         ...(trace.isEnabled() ? { overviewTraceId: trace.getTraceId() } : {}),
-        chatId: prepared.chat.id,
-        surfaceThreadKey: prepared.chat.surfaceThreadKey,
-        userMessageId: prepared.userMessage.id,
-        userMessage: enrichedUserMessage,
-        userTimezone: prepared.workspaceTimezone,
-        currentTimeIso: new Date().toISOString()
+        ...(callbacks.clientAbortSignal === undefined
+          ? {}
+          : { signal: callbacks.clientAbortSignal })
       })) {
         if (callbacks.isClientAborted()) {
           if (prepared.clientTurnId !== undefined) {
@@ -262,6 +257,22 @@ export class StreamWebChatTurnService {
           trace.stage("runtime_done");
           callbacks.onDone(chunk.respondedAt);
         }
+      }
+
+      if (callbacks.isClientAborted()) {
+        if (prepared.clientTurnId !== undefined) {
+          await this.bindingRepository.releaseWebTurnProcessing(
+            prepared.assistantId,
+            WEB_TURN_PROVIDER_KEY,
+            WEB_TURN_SURFACE_TYPE,
+            prepared.clientTurnId
+          );
+        }
+        trace.finish({
+          status: "interrupted",
+          outputPreview: accumulated
+        });
+        return this.persistInterruptedOutcome(prepared, accumulated, respondedAt);
       }
 
       const cleanedAccumulated = accumulated.trim();
@@ -327,8 +338,10 @@ export class StreamWebChatTurnService {
         source: "web_chat_turn_stream_completed"
       });
       trace.stage("quota_recorded");
-      await this.consumeBootstrapBestEffort(prepared.assistantId, prepared.runtimeTier);
-      trace.stage("bootstrap_consumed");
+      if (!useNativeRuntimeStream) {
+        await this.consumeBootstrapBestEffort(prepared.assistantId, prepared.runtimeTier);
+        trace.stage("bootstrap_consumed");
+      }
       if (prepared.clientTurnId !== undefined) {
         await this.bindingRepository.completeWebTurnProcessing(
           prepared.assistantId,
@@ -415,6 +428,56 @@ export class StreamWebChatTurnService {
         message: normalized.message
       };
     }
+  }
+
+  private executeRuntimeStream(input: {
+    prepared: StreamWebChatTurnPrepared;
+    enrichedUserMessage: string;
+    overviewTraceId?: string;
+    signal?: AbortSignal;
+  }): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk> {
+    if (this.streamNativeWebChatTurnService.isEnabled()) {
+      return this.streamNativeWebChatTurnService.execute(
+        {
+          assistantId: input.prepared.assistantId,
+          publishedVersionId: input.prepared.publishedVersionId,
+          runtimeTier: input.prepared.runtimeTier,
+          surfaceThreadKey: input.prepared.chat.surfaceThreadKey,
+          userId: input.prepared.userId,
+          workspaceId: input.prepared.workspaceId,
+          userMessageId: input.prepared.userMessage.id,
+          userMessage: input.enrichedUserMessage,
+          userTimezone: input.prepared.workspaceTimezone,
+          currentTimeIso: new Date().toISOString(),
+          ...(input.prepared.quotaDegradeModelOverride
+            ? {
+                providerOverride: input.prepared.quotaDegradeModelOverride.provider,
+                modelOverride: input.prepared.quotaDegradeModelOverride.model
+              }
+            : {})
+        },
+        input.signal === undefined ? undefined : { signal: input.signal }
+      );
+    }
+
+    return this.assistantRuntime.streamWebChatTurn({
+      assistantId: input.prepared.assistantId,
+      publishedVersionId: input.prepared.publishedVersionId,
+      runtimeTier: input.prepared.runtimeTier,
+      ...(input.prepared.quotaDegradeModelOverride
+        ? {
+            providerOverride: input.prepared.quotaDegradeModelOverride.provider,
+            modelOverride: input.prepared.quotaDegradeModelOverride.model
+          }
+        : {}),
+      ...(input.overviewTraceId === undefined ? {} : { overviewTraceId: input.overviewTraceId }),
+      chatId: input.prepared.chat.id,
+      surfaceThreadKey: input.prepared.chat.surfaceThreadKey,
+      userMessageId: input.prepared.userMessage.id,
+      userMessage: input.enrichedUserMessage,
+      userTimezone: input.prepared.workspaceTimezone,
+      currentTimeIso: new Date().toISOString()
+    });
   }
 
   private async claimOrReplayWebTurn(

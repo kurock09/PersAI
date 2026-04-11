@@ -115,8 +115,8 @@ It is not part of backend domain logic.
   - `GET /api/v1/providers/catalog` now reflects the current in-memory control-plane snapshot source
 - temporary API-side activation seams are currently allowed:
   - why: Step 7 needs real control-plane warm hooks before `apps/runtime` and `apps/provider-gateway` are universally deployed mandatory dependencies, while request-time traffic remains legacy-safe
-  - where: `packages/config/src/api-config.ts` (`PERSAI_RUNTIME_BASE_URL`, `PERSAI_PROVIDER_GATEWAY_BASE_URL`) plus the paired API sync services
-  - removal/upgrade: Step 9 first makes runtime configuration mandatory for the flagged sync cutover, then removes the remaining `unset => skip` behaviors entirely once native web execution is the default path
+  - where: `packages/config/src/api-config.ts` (`PERSAI_RUNTIME_BASE_URL`, `PERSAI_PROVIDER_GATEWAY_BASE_URL`, sync/stream flags, and sync/stream timeouts) plus the paired API sync/stream services
+  - removal/upgrade: Step 9 first makes runtime configuration mandatory for the flagged sync/stream cutovers, then removes the remaining `unset => skip` behaviors entirely once native web execution is the default path
 
 ## ADR-072 Step 8 session-state boundary
 
@@ -161,7 +161,13 @@ It is not part of backend domain logic.
   - `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts` routes sync web turns to that native path when `PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED=true`
   - the API boundary keeps canonical replay/message persistence and quota/media ownership, and skips legacy bootstrap consumption on native success
   - optional quota degrade provider/model overrides are now carried through the native runtime request instead of being dropped at the cutover boundary
-- `streamTurn`, primary web UX cutover, attachment execution, and removal of the remaining temporary Step 7 API activation seams still remain later Step 9/10 work.
+- Step 9 now also has the first native streaming chain:
+  - `apps/provider-gateway/src/modules/providers/interface/http/provider-text-generation.controller.ts` exposes `POST /api/v1/providers/stream-text`
+  - `apps/runtime/src/modules/turns/interface/http/turns.controller.ts` now also exposes `POST /api/v1/turns/stream`
+  - `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts` maps native NDJSON stream events back into the existing API-owned `delta` / `done` web stream contract
+  - `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` routes `POST /api/v1/assistant/chat/web/stream` to that native path when `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`
+  - the API stream boundary still owns canonical replay/message persistence, SSE shaping, media delivery, and honest interruption handling; successful native stream completion also skips legacy bootstrap consumption
+- the remaining Step 9/10 work is now bounded to live validation of the new stream path, attachment execution, default-path cutover cleanup, and removal of the temporary Step 7 API activation seams.
 - Postgres is the durable authority for session summaries and turn receipts; stale or missing Redis pointers/markers may be rebuilt from Postgres instead of introducing filesystem or OpenClaw-era session truth.
 
 ## Planned runtime segmentation boundary (Step 15)
@@ -232,6 +238,11 @@ It is not part of backend domain logic.
 - backend streams transport events to web UI and keeps canonical record ownership
 - adapter boundary remains explicit for runtime stream:
   - `POST /api/v1/runtime/chat/web/stream`
+- ADR-072 Step 9 now adds a flagged native alternative for the same API boundary:
+  - `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true` routes web stream turns to `apps/runtime` `POST /api/v1/turns/stream`
+  - `apps/runtime` reaches `apps/provider-gateway` `POST /api/v1/providers/stream-text` for provider text streaming
+  - when the flag is on there is no silent per-request fallback to OpenClaw inside the API stream path
+- external web SSE events remain API-owned (`started`, `delta`, `thinking`, `runtime_done`, `completed`, `interrupted`, `failed`) even when the underlying runtime execution is native
 - interruption/failure is represented honestly and partial output can be persisted with explicit marker records
 
 ## Chat list/actions boundary (Step 5 C4)

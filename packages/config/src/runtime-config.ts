@@ -22,7 +22,8 @@ const baseRuntimeConfigSchema = z.object({
   RUNTIME_TURN_RECEIPT_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
   RUNTIME_BUNDLE_MARKER_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
   RUNTIME_PROVIDER_GATEWAY_BASE_URL: optionalUrl,
-  RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000)
+  RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000)
 });
 
 const localRuntimeConfigSchema = baseRuntimeConfigSchema.extend({

@@ -1,8 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
+  ProviderGatewayTextCompletedEvent,
+  ProviderGatewayTextDeltaEvent,
+  ProviderGatewayTextFailedEvent,
   ProviderGatewayTextGenerateRequest,
-  ProviderGatewayTextGenerateResult
+  ProviderGatewayTextGenerateResult,
+  ProviderGatewayTextStreamEvent,
+  RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import OpenAI from "openai";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
@@ -30,10 +35,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       this.client = null;
       return;
     }
-    this.client = new OpenAI({
-      apiKey,
-      timeout: this.config.PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS
-    });
+    this.client = new OpenAI({ apiKey });
   }
 
   async generateText(
@@ -43,40 +45,206 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       throw new Error("OpenAI provider client is not warmed.");
     }
 
-    const response = await this.client.responses.create({
-      model: input.model,
-      ...(input.systemPrompt === null ? {} : { instructions: input.systemPrompt }),
-      input: input.messages.map((message) => ({
-        role: message.role,
-        content: [{ type: "input_text", text: message.content }]
-      })),
-      ...(input.maxOutputTokens === undefined ? {} : { max_output_tokens: input.maxOutputTokens })
-    });
+    const { signal, dispose } = this.createTimedSignal(
+      this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
+    );
+    try {
+      const response = await this.client.responses.create(
+        {
+          model: input.model,
+          ...(input.systemPrompt === null ? {} : { instructions: input.systemPrompt }),
+          input: input.messages.map((message) => ({
+            role: message.role,
+            content: [{ type: "input_text", text: message.content }]
+          })),
+          ...(input.maxOutputTokens === undefined
+            ? {}
+            : { max_output_tokens: input.maxOutputTokens })
+        },
+        { signal }
+      );
 
-    const text = typeof response.output_text === "string" ? response.output_text.trim() : "";
-    if (!text) {
-      throw new Error("OpenAI provider response did not contain text output.");
+      const text = typeof response.output_text === "string" ? response.output_text.trim() : "";
+      if (!text) {
+        throw new Error("OpenAI provider response did not contain text output.");
+      }
+
+      return {
+        provider: "openai",
+        model: input.model,
+        text,
+        respondedAt: new Date().toISOString(),
+        usage:
+          response.usage === undefined
+            ? null
+            : {
+                providerKey: "openai",
+                modelKey: input.model,
+                inputTokens: response.usage.input_tokens ?? null,
+                outputTokens: response.usage.output_tokens ?? null,
+                totalTokens: response.usage.total_tokens ?? null
+              }
+      };
+    } finally {
+      dispose();
     }
-
-    return {
-      provider: "openai",
-      model: input.model,
-      text,
-      respondedAt: new Date().toISOString(),
-      usage:
-        response.usage === undefined
-          ? null
-          : {
-              providerKey: "openai",
-              modelKey: input.model,
-              inputTokens: response.usage.input_tokens ?? null,
-              outputTokens: response.usage.output_tokens ?? null,
-              totalTokens: response.usage.total_tokens ?? null
-            }
-    };
   }
 
   getClient(): OpenAI | null {
     return this.client;
+  }
+
+  async *streamText(
+    input: ProviderGatewayTextGenerateRequest,
+    signal?: AbortSignal
+  ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
+    if (this.client === null) {
+      throw new Error("OpenAI provider client is not warmed.");
+    }
+
+    let accumulatedText = "";
+    const { signal: timedSignal, dispose } = this.createTimedSignal(
+      this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS,
+      signal
+    );
+
+    try {
+      const stream = await this.client.responses.create(
+        {
+          model: input.model,
+          ...(input.systemPrompt === null ? {} : { instructions: input.systemPrompt }),
+          input: input.messages.map((message) => ({
+            role: message.role,
+            content: [{ type: "input_text", text: message.content }]
+          })),
+          ...(input.maxOutputTokens === undefined
+            ? {}
+            : { max_output_tokens: input.maxOutputTokens }),
+          stream: true
+        },
+        { signal: timedSignal }
+      );
+
+      for await (const event of stream) {
+        if (event.type === "response.output_text.delta" && event.delta.length > 0) {
+          accumulatedText += event.delta;
+          const deltaEvent: ProviderGatewayTextDeltaEvent = {
+            type: "text_delta",
+            delta: event.delta,
+            accumulatedText
+          };
+          yield deltaEvent;
+          continue;
+        }
+
+        if (event.type === "response.completed") {
+          const text =
+            typeof event.response.output_text === "string"
+              ? event.response.output_text.trim()
+              : accumulatedText.trim();
+          if (!text) {
+            const failedEvent: ProviderGatewayTextFailedEvent = {
+              type: "failed",
+              code: "provider_invalid_response",
+              message: "OpenAI provider stream completed without text output."
+            };
+            yield failedEvent;
+            return;
+          }
+
+          const completedEvent: ProviderGatewayTextCompletedEvent = {
+            type: "completed",
+            result: {
+              provider: "openai",
+              model: input.model,
+              text,
+              respondedAt: new Date().toISOString(),
+              usage: this.toUsageSnapshot(input.model, event.response.usage)
+            }
+          };
+          yield completedEvent;
+          return;
+        }
+
+        if (event.type === "error") {
+          const failedEvent: ProviderGatewayTextFailedEvent = {
+            type: "failed",
+            code: event.code ?? "provider_stream_error",
+            message: event.message
+          };
+          yield failedEvent;
+          return;
+        }
+
+        if (event.type === "response.failed" || event.type === "response.incomplete") {
+          const failedEvent: ProviderGatewayTextFailedEvent = {
+            type: "failed",
+            code: "provider_stream_failed",
+            message:
+              event.response.error?.message ??
+              "OpenAI provider stream did not complete successfully."
+          };
+          yield failedEvent;
+          return;
+        }
+      }
+
+      const failedEvent: ProviderGatewayTextFailedEvent = {
+        type: "failed",
+        code: "provider_stream_ended",
+        message: "OpenAI provider stream ended before a completed result was emitted."
+      };
+      yield failedEvent;
+    } catch (error) {
+      if (this.isAbortError(error) || signal?.aborted) {
+        return;
+      }
+      const failedEvent: ProviderGatewayTextFailedEvent = {
+        type: "failed",
+        code: "provider_stream_failed",
+        message: error instanceof Error ? error.message : "OpenAI provider stream failed."
+      };
+      yield failedEvent;
+    } finally {
+      dispose();
+    }
+  }
+
+  private toUsageSnapshot(
+    model: string,
+    usage: OpenAI.Responses.ResponseUsage | undefined
+  ): RuntimeUsageSnapshot | null {
+    return usage === undefined
+      ? null
+      : {
+          providerKey: "openai",
+          modelKey: model,
+          inputTokens: usage.input_tokens ?? null,
+          outputTokens: usage.output_tokens ?? null,
+          totalTokens: usage.total_tokens ?? null
+        };
+  }
+
+  private createTimedSignal(
+    timeoutMs: number,
+    externalSignal?: AbortSignal
+  ): { signal: AbortSignal; dispose: () => void } {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort();
+      } else {
+        externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
+      }
+    }
+    return {
+      signal: controller.signal,
+      dispose: () => clearTimeout(timeoutId)
+    };
+  }
+
+  private isAbortError(error: unknown): boolean {
+    return error instanceof Error && error.name === "AbortError";
   }
 }

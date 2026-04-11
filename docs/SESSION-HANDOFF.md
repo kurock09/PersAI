@@ -1,5 +1,93 @@
 # SESSION-HANDOFF
 
+## 2026-04-11 - ADR-072 Step 9 API stream native cutover flag
+
+### What changed
+
+1. Added the native Step 9 streaming execution seams behind the PersAI boundaries: `apps/provider-gateway` now exposes `POST /api/v1/providers/stream-text`, and `apps/runtime` now exposes `POST /api/v1/turns/stream` over Step 8 acceptance/finalization state instead of only the earlier sync `createTurn` seam.
+2. `apps/api` now has `StreamNativeWebChatTurnService`, which builds the same native `RuntimeTurnRequest` shape as the sync cutover, calls `apps/runtime` `POST /api/v1/turns/stream`, parses native NDJSON events, and maps them back into the existing API-owned `delta` / `done` stream contract.
+3. `StreamWebChatTurnService` now routes authenticated `POST /api/v1/assistant/chat/web/stream` traffic through that native service when `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`, while keeping canonical replay claim ownership, assistant/user message persistence, quota/media handling, and SSE transport semantics in `apps/api`.
+4. When the native stream flag is enabled there is no silent per-request fallback back to OpenClaw on the API stream path; missing runtime config, invalid native stream payloads, or runtime/provider failures surface honestly.
+5. Native stream turns now skip legacy `consumeBootstrapWorkspace(...)` on successful completion, and the API controller passes a real `AbortSignal` down so client disconnects abort the in-flight native runtime fetch instead of waiting for an arbitrary next chunk.
+6. Added focused coverage for provider-gateway stream delegation, runtime provider-gateway NDJSON parsing, runtime `streamTurn` orchestration, the new API native stream client, and API stream-route selection. All three packages (`@persai/provider-gateway`, `@persai/runtime`, `@persai/api`) now pass both `typecheck` and `test`.
+
+### Why
+
+1. This is the next smallest valid Step 9 sub-step after the sync cutover and sync live smoke: the primary web transport endpoint now has a native implementation path, but still behind an explicit temporary flag.
+2. Keeping the external SSE contract and persistence/replay ownership in `apps/api` avoids leaking OpenClaw-shaped stream behavior into the native runtime boundary while preserving current product semantics.
+3. Adding dedicated stream timeout/abort seams now is necessary so the first bounded native stream live smoke does not inherit the older sync-only timeout assumptions or hang on client disconnects.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 9 — Implement native web createTurn and streamTurn`
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `packages/config/src/api-config.ts`
+- `packages/config/src/runtime-config.ts`
+- `packages/config/src/provider-gateway-config.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-text-generation.controller.ts`
+- `apps/provider-gateway/src/modules/providers/provider-text-generation.service.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/runtime/src/modules/turns/interface/http/turns.controller.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/provider-gateway/test/provider-gateway-config.test.ts`
+- `apps/provider-gateway/test/provider-text-generation.service.test.ts`
+- `apps/provider-gateway/test/provider-warmup.service.test.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-config.test.ts`
+- `apps/runtime/test/runtime-state-keyspace.service.test.ts`
+- `apps/runtime/test/runtime-state-redis.service.test.ts`
+- `apps/runtime/test/session-store.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/api/test/stream-native-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/LIVE-TEST-HYBRID.md`
+
+### Tests run
+
+- `pnpm --filter @persai/provider-gateway typecheck`
+- `pnpm --filter @persai/runtime typecheck`
+- `pnpm --filter @persai/api typecheck`
+- `pnpm --filter @persai/provider-gateway test`
+- `pnpm --filter @persai/runtime test`
+- `pnpm --filter @persai/api test`
+
+### Risks
+
+1. The new native stream path is implemented and locally verified, but unlike the sync path it has not yet passed a bounded dev-GKE live smoke with `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`.
+2. Step 9 is still partial even after this sub-step: native attachments/object-storage refs and runtime media artifacts on the native path are still unfinished, and Step 10 cutover/shadow work has not started.
+3. Temporary migration seams now include both sync and stream flags/timeouts (`PERSAI_NATIVE_RUNTIME_WEB_SYNC_ENABLED`, `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED`, `PERSAI_RUNTIME_*_TIMEOUT_MS`, runtime/provider-gateway stream timeouts, and explicit service base URLs) and must still be removed once Step 9/10 closes.
+
+### Next recommended step
+
+- Run one bounded dev-GKE native stream smoke with `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true` against `POST /api/v1/assistant/chat/web/stream` (including replay/idempotency and disconnect/interruption checks). If that is green, Step 9 can move to the next cleanup/cutover decision instead of continuing to implement dark seams.
+
+### Ready commit message
+
+- `feat: route flagged web stream turns to native runtime`
+
+---
+
 ## 2026-04-11 - ADR-072 Step 9 dev GitOps rollout and bounded live sync smoke
 
 ### What changed

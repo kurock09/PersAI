@@ -45,6 +45,8 @@ const baseProviderGatewayConfigSchema = z.object({
   LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
   PROVIDER_GATEWAY_WARM_ON_BOOT: envBoolean.default(true),
   PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
+  PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
+  PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   PROVIDER_GATEWAY_OPENAI_API_KEY: optionalString,
   PROVIDER_GATEWAY_ANTHROPIC_API_KEY: optionalString,
   PROVIDER_GATEWAY_OPENAI_MODELS: modelList.default(["gpt-5.4"]),

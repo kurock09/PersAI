@@ -139,9 +139,28 @@ What this does **not** prove yet:
 - attachment refs are native object-storage inputs
 - Step 10 web cutover is complete
 
+Important:
+
+- do **not** use the normal `/app` message composer as proof of this slice; current web UI still sends `POST /api/v1/assistant/chat/web/stream`
+- for sync proof, call `POST /api/v1/assistant/chat/web` directly
+- for agent-driven validation, do not waste time on raw Clerk `POST /v1/sessions`, raw ticket accept URLs, or manual fresh-user password login flows; use the fast auth path below
+
 ### Native service checks
 
-Recommended extra port-forwards:
+Fast path from the running API pod (preferred, no extra port-forwards):
+
+```powershell
+kubectl exec -n persai-dev deployment/api -- node -e "(async()=>{for (const url of ['http://provider-gateway:3011/ready','http://runtime:3012/ready']) { const res = await fetch(url); console.log(url); console.log(res.status); console.log(await res.text()); }} )().catch((error)=>{console.error(error); process.exit(1);})"
+Invoke-WebRequest -UseBasicParsing https://api.persai.dev/ready | Select-Object -ExpandProperty Content
+```
+
+Expect:
+
+- `provider-gateway` `/ready` returns `200` with provider cache ready
+- `runtime` `/ready` returns `200` with `ready: true`
+- external API `/ready` returns `status: "ready"`
+
+Optional direct port-forwards only when you need deeper cluster debugging:
 
 ```powershell
 kubectl port-forward -n persai-dev svc/runtime 3003:3003
@@ -157,9 +176,45 @@ curl.exe -s http://127.0.0.1:3004/ready
 
 Expect both to report ready before trusting the sync cutover test.
 
+### Fast agent-only auth bootstrap (recommended)
+
+Use this when a coding session needs to run the sync smoke itself instead of asking a human to sign in manually.
+
+1. Install temporary browser tooling outside the repo:
+
+```powershell
+New-Item -ItemType Directory -Path "$env:TEMP\clerk-playwright-smoke" -Force | Out-Null
+npm install --prefix "$env:TEMP\clerk-playwright-smoke" playwright @clerk/testing
+npx --prefix "$env:TEMP\clerk-playwright-smoke" playwright install chromium
+```
+
+2. Read `CLERK_SECRET_KEY` from `persai-api-secrets` and set:
+
+```powershell
+$env:CLERK_SECRET_KEY = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((kubectl get secret persai-api-secrets -n persai-dev -o jsonpath='{.data.CLERK_SECRET_KEY}')))
+$env:CLERK_FAPI = 'clerk.persai.dev'
+```
+
+3. Preferred auth sequence:
+
+- create a fresh Clerk user with `POST https://api.clerk.com/v1/users`
+- launch Playwright and navigate to `https://persai.dev/sign-in`
+- use `@clerk/testing/playwright` `clerk.signIn({ page, emailAddress, setupClerkTestingTokenOptions: { frontendApiUrl: 'clerk.persai.dev' } })`
+- wait for `window.Clerk.session.id`
+- mint a short-lived bearer with `POST https://api.clerk.com/v1/sessions/{sessionId}/tokens`
+
+4. Important gotchas that already cost time once:
+
+- `POST /v1/sessions` is dev-instance-only and is **not** the fast path on the current production Clerk instance
+- `POST /v1/sessions/{sessionId}/tokens` requires `Content-Type: application/json` and a JSON body such as `{}`
+- direct raw `sign_in_token` / `actor_token` accept URLs can get stuck in Clerk edge challenge flow; let Clerk JS plus the testing helper perform the ticket flow instead
+- wrap direct `https://api.persai.dev` calls in short retry/backoff because transient `ECONNRESET` happened during the successful smoke
+
+5. After auth, run the actual Step 9 smoke as direct HTTP, not by driving the web UI.
+
 ### Through the authenticated browser session
 
-Because the main web UX is still stream-first, the simplest live sync probe is a same-origin browser call from the signed-in `/app` session:
+If a human is already signed in and wants the quickest manual proof, use a same-origin browser call from the signed-in `/app` session:
 
 ```javascript
 await fetch("/api/v1/assistant/chat/web", {
@@ -175,18 +230,93 @@ await fetch("/api/v1/assistant/chat/web", {
 
 Expected:
 
-- HTTP `200`
+- HTTP `201`
 - one completed transport payload with assistant message text
 - if native runtime is misconfigured/unhealthy, an honest `5xx`/conflict response instead of a hidden OpenClaw success path
 
 ### Follow-up check
 
 Immediately retry the same payload with the same `clientTurnId` and confirm the API replays the stored completion state instead of creating a second assistant reply.
+- do not rely only on a `transport.replayed` field
+- verify the replay returns the same `chatId` and same `assistantMessageId`
+- fetch `GET /api/v1/assistant/chats/web/:chatId/messages` and confirm the chat still contains exactly one user message and one assistant message
 - OpenClaw runtime model/policy authority comes from PersAI admin-managed runtime settings materialized into bootstrap/profile, not from `agents.defaults.model.primary`
 - OpenClaw receives `OPENAI_API_KEY` from `persai-openclaw-secrets`
 - PersAI API uses `OPENCLAW_ADAPTER_TIMEOUT_MS=90000` in dev (and the same default in `loadApiConfig` when unset) to avoid premature stream aborts on long OpenClaw turns
 
 If the fork is running with `PERSAI_RUNTIME_SPEC_STORE=memory`, an OpenClaw process restart clears applied PersAI specs and you must apply again before expecting native chat output. For restart-safe / multi-replica runtime behavior, run the fork with `PERSAI_RUNTIME_SPEC_STORE=redis` and a valid `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL`.
+
+## Phase D: ADR-072 native stream web smoke
+
+Use this only after the API deploy has all of these:
+
+- `PERSAI_NATIVE_RUNTIME_WEB_STREAM_ENABLED=true`
+- `PERSAI_RUNTIME_BASE_URL` pointing at the Step 9 `apps/runtime` Service
+- `PERSAI_PROVIDER_GATEWAY_BASE_URL` still configured for the current Step 7/9 warm path
+
+What this proves:
+
+- `POST /api/v1/assistant/chat/web/stream` is now routed by `apps/api` to native `POST /api/v1/turns/stream`
+- the API keeps canonical replay/message persistence, SSE shaping, and interruption ownership around the native runtime stream
+- stream-path failures are surfaced honestly instead of silently falling back to OpenClaw
+
+What this does **not** prove yet:
+
+- attachment refs are native object-storage inputs
+- runtime media artifacts are fully native
+- Step 10 shadow/primary web cutover is complete
+
+### Through the authenticated browser session
+
+If a human is already signed in and wants the quickest manual proof, use a same-origin browser call from the signed-in `/app` session:
+
+```javascript
+const clientTurnId = crypto.randomUUID();
+const response = await fetch("/api/v1/assistant/chat/web/stream", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    surfaceThreadKey: `adr072-stream-smoke-${Date.now()}`,
+    message: "Reply with exactly: native stream smoke ok",
+    clientTurnId
+  })
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+let buffer = "";
+const events = [];
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  buffer += decoder.decode(value, { stream: true });
+  while (true) {
+    const boundary = buffer.indexOf("\n\n");
+    if (boundary === -1) break;
+    const frame = buffer.slice(0, boundary);
+    buffer = buffer.slice(boundary + 2);
+    const event = frame.match(/^event: (.+)$/m)?.[1] ?? "message";
+    const data = frame.match(/^data: (.+)$/m)?.[1];
+    if (data) events.push({ event, data: JSON.parse(data) });
+  }
+}
+
+({ status: response.status, clientTurnId, events });
+```
+
+Expected:
+
+- HTTP `201`
+- SSE includes `started`, one or more `delta`, `runtime_done`, then terminal `completed`
+- `completed.transport.assistantMessage.content` is exactly `native stream smoke ok`
+- if native runtime is misconfigured/unhealthy, the stream fails honestly instead of ending as a hidden OpenClaw success path
+
+### Follow-up checks
+
+1. Immediately retry the same payload with the same `clientTurnId` and confirm the API replays the stored completion state instead of creating a second assistant reply.
+2. Fetch `GET /api/v1/assistant/chats/web/:chatId/messages` and confirm the chat still contains exactly one user message and one assistant message.
+3. Optional interruption proof: repeat the call with an `AbortController`, abort after the first `delta`, then verify the chat/history reflects an interrupted partial-output outcome rather than a silent full completion.
 
 ### ADR-048 direct contract check (optional)
 

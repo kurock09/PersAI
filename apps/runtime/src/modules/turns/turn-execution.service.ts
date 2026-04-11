@@ -1,17 +1,21 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   InternalServerErrorException,
-  ServiceUnavailableException,
-  type HttpException
+  ServiceUnavailableException
 } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextGenerateRequest,
+  ProviderGatewayTextStreamEvent,
   RuntimeFailedEvent,
+  RuntimeInterruptedEvent,
   RuntimeTurnRequest,
-  RuntimeTurnResult
+  RuntimeTurnResult,
+  RuntimeTurnStreamEvent,
+  RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
 import type { RuntimeTurnReceiptSummary } from "./idempotency.service";
@@ -24,6 +28,10 @@ type NativeManagedProvider = "openai" | "anthropic";
 type ProviderSelection = {
   provider: NativeManagedProvider;
   model: string;
+};
+
+type PreparedTurnExecution = {
+  providerRequest: ProviderGatewayTextGenerateRequest;
 };
 
 class TurnExecutionError extends Error {
@@ -45,7 +53,7 @@ export class TurnExecutionService {
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
-    this.assertSupportedCreateTurnRequest(input);
+    this.assertSupportedTurnRequest(input, "createTurn");
 
     const acceptedTurn = await this.turnAcceptanceService.acceptTurn(input);
     switch (acceptedTurn.outcome) {
@@ -69,57 +77,231 @@ export class TurnExecutionService {
     }
   }
 
+  async streamTurn(
+    input: RuntimeTurnRequest,
+    options?: { signal?: AbortSignal }
+  ): Promise<AsyncGenerator<RuntimeTurnStreamEvent>> {
+    this.assertSupportedTurnRequest(input, "streamTurn");
+
+    const acceptedTurn = await this.turnAcceptanceService.acceptTurn(input);
+    switch (acceptedTurn.outcome) {
+      case "busy":
+        throw new ConflictException(
+          `Session "${acceptedTurn.session.sessionId}" is already processing another turn.`
+        );
+      case "in_flight":
+        throw new ConflictException(
+          acceptedTurn.requestId === null
+            ? "A matching turn is already in flight."
+            : `Turn "${acceptedTurn.requestId}" is already in flight.`
+        );
+      case "replayed":
+        return this.replayStreamResult(acceptedTurn.receipt);
+      case "accepted": {
+        const execution = this.prepareTurnExecution(input);
+        const providerStream = await this.providerGatewayClientService.streamText(
+          execution.providerRequest,
+          options?.signal === undefined ? undefined : { signal: options.signal }
+        );
+        return this.streamAcceptedTurn(acceptedTurn, providerStream, options?.signal);
+      }
+    }
+  }
+
   private async executeAcceptedTurn(
     input: RuntimeTurnRequest,
     acceptedTurn: AcceptedRuntimeTurn
   ): Promise<RuntimeTurnResult> {
     try {
-      const bundleEntry = this.runtimeBundleRegistryService.getBundle(input.bundle.bundleId);
-      if (bundleEntry === null) {
-        throw new TurnExecutionError(
-          "runtime_bundle_missing",
-          new ServiceUnavailableException(
-            `Runtime bundle "${input.bundle.bundleId}" is not warmed.`
-          )
-        );
-      }
-      if (bundleEntry.bundle.bundleHash !== input.bundle.bundleHash) {
-        throw new TurnExecutionError(
-          "runtime_bundle_hash_mismatch",
-          new ServiceUnavailableException(
-            `Runtime bundle "${input.bundle.bundleId}" does not match the requested bundle hash.`
-          )
-        );
-      }
-      if (bundleEntry.bundle.publishedVersionId !== input.bundle.publishedVersionId) {
-        throw new TurnExecutionError(
-          "runtime_bundle_version_mismatch",
-          new ServiceUnavailableException(
-            `Runtime bundle "${input.bundle.bundleId}" does not match the requested published version.`
-          )
-        );
-      }
-
-      const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, input);
-      const providerRequest = this.buildProviderRequest(
-        bundleEntry.parsedBundle,
-        input,
-        providerSelection
+      const execution = this.prepareTurnExecution(input);
+      const providerResult = await this.providerGatewayClientService.generateText(
+        execution.providerRequest
       );
-      const providerResult = await this.providerGatewayClientService.generateText(providerRequest);
 
-      return {
-        requestId: acceptedTurn.receipt.requestId,
-        sessionId: acceptedTurn.session.sessionId,
-        assistantText: providerResult.text,
-        artifacts: [],
-        respondedAt: providerResult.respondedAt,
-        usage: providerResult.usage
-      };
+      return this.buildTurnResult(acceptedTurn, providerResult);
     } catch (error) {
       await this.failAcceptedTurnQuietly(acceptedTurn, error);
       throw this.toHttpException(error);
     }
+  }
+
+  private prepareTurnExecution(input: RuntimeTurnRequest): PreparedTurnExecution {
+    const bundleEntry = this.runtimeBundleRegistryService.getBundle(input.bundle.bundleId);
+    if (bundleEntry === null) {
+      throw new TurnExecutionError(
+        "runtime_bundle_missing",
+        new ServiceUnavailableException(`Runtime bundle "${input.bundle.bundleId}" is not warmed.`)
+      );
+    }
+    if (bundleEntry.bundle.bundleHash !== input.bundle.bundleHash) {
+      throw new TurnExecutionError(
+        "runtime_bundle_hash_mismatch",
+        new ServiceUnavailableException(
+          `Runtime bundle "${input.bundle.bundleId}" does not match the requested bundle hash.`
+        )
+      );
+    }
+    if (bundleEntry.bundle.publishedVersionId !== input.bundle.publishedVersionId) {
+      throw new TurnExecutionError(
+        "runtime_bundle_version_mismatch",
+        new ServiceUnavailableException(
+          `Runtime bundle "${input.bundle.bundleId}" does not match the requested published version.`
+        )
+      );
+    }
+
+    const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, input);
+    return {
+      providerRequest: this.buildProviderRequest(bundleEntry.parsedBundle, input, providerSelection)
+    };
+  }
+
+  private async *streamAcceptedTurn(
+    acceptedTurn: AcceptedRuntimeTurn,
+    providerStream: AsyncGenerator<ProviderGatewayTextStreamEvent>,
+    signal?: AbortSignal
+  ): AsyncGenerator<RuntimeTurnStreamEvent> {
+    let accumulatedText = "";
+    let completionFinalizationAttempted = false;
+
+    yield {
+      type: "started",
+      requestId: acceptedTurn.receipt.requestId,
+      sessionId: acceptedTurn.session.sessionId
+    };
+
+    try {
+      for await (const event of providerStream) {
+        if (signal?.aborted) {
+          await this.interruptAcceptedTurnQuietly({
+            acceptedTurn,
+            event: this.toInterruptedEvent(acceptedTurn, accumulatedText, null)
+          });
+          return;
+        }
+
+        if (event.type === "text_delta" && event.delta !== undefined) {
+          accumulatedText = event.accumulatedText ?? accumulatedText + event.delta;
+          yield {
+            type: "text_delta",
+            requestId: acceptedTurn.receipt.requestId,
+            sessionId: acceptedTurn.session.sessionId,
+            delta: event.delta,
+            accumulatedText
+          };
+          continue;
+        }
+
+        if (event.type === "completed" && event.result !== undefined) {
+          const result = this.buildTurnResult(acceptedTurn, event.result);
+          completionFinalizationAttempted = true;
+          await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
+          yield {
+            type: "completed",
+            result
+          };
+          return;
+        }
+
+        if (event.type === "failed") {
+          if (accumulatedText.trim().length > 0) {
+            const interrupted = this.toInterruptedEvent(acceptedTurn, accumulatedText, null);
+            await this.interruptAcceptedTurnQuietly({
+              acceptedTurn,
+              event: interrupted
+            });
+            yield interrupted;
+            return;
+          }
+
+          const failed = await this.failAcceptedTurnQuietly(acceptedTurn, {
+            type: "failed",
+            requestId: acceptedTurn.receipt.requestId,
+            sessionId: acceptedTurn.session.sessionId,
+            code: event.code ?? "provider_stream_failed",
+            message: event.message ?? "Provider stream failed.",
+            willRetry: false
+          });
+          yield failed;
+          return;
+        }
+      }
+
+      if (accumulatedText.trim().length > 0) {
+        const interrupted = this.toInterruptedEvent(acceptedTurn, accumulatedText, null);
+        await this.interruptAcceptedTurnQuietly({
+          acceptedTurn,
+          event: interrupted
+        });
+        yield interrupted;
+        return;
+      }
+
+      const failed = await this.failAcceptedTurnQuietly(acceptedTurn, {
+        type: "failed",
+        requestId: acceptedTurn.receipt.requestId,
+        sessionId: acceptedTurn.session.sessionId,
+        code: "provider_stream_ended",
+        message: "Provider stream ended before native turn completion.",
+        willRetry: false
+      });
+      yield failed;
+    } catch (error) {
+      if (completionFinalizationAttempted) {
+        throw this.toHttpException(error);
+      }
+
+      if (signal?.aborted || this.isAbortError(error)) {
+        await this.interruptAcceptedTurnQuietly({
+          acceptedTurn,
+          event: this.toInterruptedEvent(acceptedTurn, accumulatedText, null)
+        });
+        return;
+      }
+
+      if (accumulatedText.trim().length > 0) {
+        const interrupted = this.toInterruptedEvent(acceptedTurn, accumulatedText, null);
+        await this.interruptAcceptedTurnQuietly({
+          acceptedTurn,
+          event: interrupted
+        });
+        yield interrupted;
+        return;
+      }
+
+      const failed = await this.failAcceptedTurnQuietly(acceptedTurn, error);
+      yield failed;
+    }
+  }
+
+  private async replayStreamResult(
+    receipt: RuntimeTurnReceiptSummary
+  ): Promise<AsyncGenerator<RuntimeTurnStreamEvent>> {
+    const result = this.resolveReplayResult(receipt);
+    return (async function* (): AsyncGenerator<RuntimeTurnStreamEvent> {
+      yield {
+        type: "completed",
+        result
+      };
+    })();
+  }
+
+  private buildTurnResult(
+    acceptedTurn: AcceptedRuntimeTurn,
+    providerResult: {
+      text: string;
+      respondedAt: string;
+      usage: RuntimeUsageSnapshot | null;
+    }
+  ): RuntimeTurnResult {
+    return {
+      requestId: acceptedTurn.receipt.requestId,
+      sessionId: acceptedTurn.session.sessionId,
+      assistantText: providerResult.text,
+      artifacts: [],
+      respondedAt: providerResult.respondedAt,
+      usage: providerResult.usage
+    };
   }
 
   private resolveReplayResult(receipt: RuntimeTurnReceiptSummary): RuntimeTurnResult {
@@ -230,20 +412,23 @@ export class TurnExecutionService {
     throw new TurnExecutionError(
       "native_provider_selection_unavailable",
       new ServiceUnavailableException(
-        "Runtime bundle does not declare a native managed provider/model for web createTurn."
+        "Runtime bundle does not declare a native managed provider/model for web turn execution."
       )
     );
   }
 
-  private assertSupportedCreateTurnRequest(input: RuntimeTurnRequest): void {
+  private assertSupportedTurnRequest(
+    input: RuntimeTurnRequest,
+    operation: "createTurn" | "streamTurn"
+  ): void {
     if (input.message.text.trim().length === 0) {
-      throw new BadRequestException("message.text must be non-empty for native web createTurn.");
+      throw new BadRequestException(`message.text must be non-empty for native web ${operation}.`);
     }
     const hasProviderOverride = input.providerOverride !== undefined;
     const hasModelOverride = input.modelOverride !== undefined;
     if (hasProviderOverride !== hasModelOverride) {
       throw new BadRequestException(
-        "providerOverride and modelOverride must be provided together for native web createTurn."
+        `providerOverride and modelOverride must be provided together for native web ${operation}.`
       );
     }
     if (input.modelOverride !== undefined && input.modelOverride.trim().length === 0) {
@@ -253,7 +438,7 @@ export class TurnExecutionService {
     }
     if (input.message.attachments.length > 0) {
       throw new BadRequestException(
-        "Native web createTurn currently supports text-only requests in this step."
+        `Native web ${operation} currently supports text-only requests in this step.`
       );
     }
   }
@@ -279,16 +464,46 @@ export class TurnExecutionService {
   private async failAcceptedTurnQuietly(
     acceptedTurn: AcceptedRuntimeTurn,
     error: unknown
-  ): Promise<void> {
+  ): Promise<RuntimeFailedEvent> {
     const failure = this.toFailureEvent(acceptedTurn, error);
     try {
       await this.turnFinalizationService.failAcceptedTurn(acceptedTurn, failure);
     } catch {
       // The durable accepted receipt remains replay truth even if failure finalization also breaks.
     }
+    return failure;
+  }
+
+  private async interruptAcceptedTurnQuietly(input: {
+    acceptedTurn: AcceptedRuntimeTurn;
+    event: RuntimeInterruptedEvent;
+    usage?: RuntimeUsageSnapshot | null;
+  }): Promise<void> {
+    try {
+      await this.turnFinalizationService.interruptAcceptedTurn(input);
+    } catch {
+      // The durable accepted receipt remains replay truth even if interruption finalization breaks.
+    }
+  }
+
+  private toInterruptedEvent(
+    acceptedTurn: AcceptedRuntimeTurn,
+    assistantText: string,
+    respondedAt: string | null
+  ): RuntimeInterruptedEvent {
+    return {
+      type: "interrupted",
+      requestId: acceptedTurn.receipt.requestId,
+      sessionId: acceptedTurn.session.sessionId,
+      assistantText: assistantText.trim(),
+      respondedAt
+    };
   }
 
   private toFailureEvent(acceptedTurn: AcceptedRuntimeTurn, error: unknown): RuntimeFailedEvent {
+    if (this.isRuntimeFailedEvent(error)) {
+      return error;
+    }
     if (error instanceof TurnExecutionError) {
       return {
         type: "failed",
@@ -323,13 +538,29 @@ export class TurnExecutionService {
     if (error instanceof TurnExecutionError) {
       return error.exception;
     }
-    if (error instanceof BadRequestException || error instanceof ConflictException) {
+    if (error instanceof HttpException) {
       return error;
     }
     if (error instanceof Error && error.message.trim().length > 0) {
       return new InternalServerErrorException(error.message);
     }
     return new InternalServerErrorException("Native turn execution failed.");
+  }
+
+  private isRuntimeFailedEvent(value: unknown): value is RuntimeFailedEvent {
+    const row = this.asObject(value);
+    return (
+      row?.type === "failed" &&
+      typeof row.requestId === "string" &&
+      (typeof row.sessionId === "string" || row.sessionId === null) &&
+      typeof row.code === "string" &&
+      typeof row.message === "string" &&
+      typeof row.willRetry === "boolean"
+    );
+  }
+
+  private isAbortError(error: unknown): boolean {
+    return error instanceof Error && error.name === "AbortError";
   }
 
   private isRuntimeTurnResult(value: unknown): value is RuntimeTurnResult {

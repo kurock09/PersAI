@@ -900,12 +900,15 @@ export class AssistantController {
     res.setHeader("X-Accel-Buffering", "no");
 
     let clientClosed = false;
+    const clientAbortController = new AbortController();
     req.on("aborted", () => {
       clientClosed = true;
+      clientAbortController.abort();
     });
     res.on("close", () => {
       if (!res.writableEnded) {
         clientClosed = true;
+        clientAbortController.abort();
       }
     });
 
@@ -936,6 +939,7 @@ export class AssistantController {
 
     const outcome = await this.streamWebChatTurnService.streamToCompletion(prepared, {
       isClientAborted: () => clientClosed,
+      clientAbortSignal: clientAbortController.signal,
       onDelta: (delta) => {
         sendSse("delta", { delta });
       },

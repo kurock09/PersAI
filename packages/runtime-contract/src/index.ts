@@ -143,6 +143,28 @@ export interface ProviderGatewayTextGenerateResult {
   usage: RuntimeUsageSnapshot | null;
 }
 
+export interface ProviderGatewayTextDeltaEvent {
+  type: "text_delta";
+  delta: string;
+  accumulatedText: string;
+}
+
+export interface ProviderGatewayTextCompletedEvent {
+  type: "completed";
+  result: ProviderGatewayTextGenerateResult;
+}
+
+export interface ProviderGatewayTextFailedEvent {
+  type: "failed";
+  code: string;
+  message: string;
+}
+
+export type ProviderGatewayTextStreamEvent =
+  | ProviderGatewayTextDeltaEvent
+  | ProviderGatewayTextCompletedEvent
+  | ProviderGatewayTextFailedEvent;
+
 export interface RuntimeStreamStartedEvent {
   type: "started";
   requestId: string;

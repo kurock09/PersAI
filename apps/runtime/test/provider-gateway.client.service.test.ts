@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import type { RuntimeConfig } from "@persai/config";
 import type {
   ProviderGatewayTextGenerateRequest,
-  ProviderGatewayTextGenerateResult
+  ProviderGatewayTextGenerateResult,
+  ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
 import {
   ProviderGatewayClientService,
@@ -24,7 +25,8 @@ function createConfig(
     RUNTIME_TURN_RECEIPT_TTL_SECONDS: 3600,
     RUNTIME_BUNDLE_MARKER_TTL_SECONDS: 7200,
     RUNTIME_PROVIDER_GATEWAY_BASE_URL: baseUrl,
-    RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: 5_000
+    RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: 5_000,
+    RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 15_000
   };
 }
 
@@ -47,6 +49,16 @@ function createGenerateTextRequest(): ProviderGatewayTextGenerateRequest {
       }
     ]
   };
+}
+
+async function collectStreamEvents(
+  generator: AsyncGenerator<ProviderGatewayTextStreamEvent>
+): Promise<ProviderGatewayTextStreamEvent[]> {
+  const events: ProviderGatewayTextStreamEvent[] = [];
+  for await (const event of generator) {
+    events.push(event);
+  }
+  return events;
 }
 
 export async function runProviderGatewayClientServiceTest(): Promise<void> {
@@ -75,6 +87,34 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       });
     }
 
+    if (url.endsWith("/api/v1/providers/stream-text")) {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "text_delta",
+            delta: "generated",
+            accumulatedText: "generated"
+          }),
+          JSON.stringify({
+            type: "completed",
+            result: {
+              provider: "openai",
+              model: "gpt-5.4",
+              text: "generated text",
+              respondedAt: "2026-04-11T12:00:01.000Z",
+              usage: null
+            }
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }
+
     const payload: ProviderGatewayTextGenerateResult = {
       provider: "openai",
       model: "gpt-5.4",
@@ -100,10 +140,18 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
 
     const result = await service.generateText(createGenerateTextRequest());
     assert.equal(result.text, "generated text");
-    assert.equal(requests.length, 2);
+    const stream = await service.streamText(createGenerateTextRequest());
+    const streamEvents = await collectStreamEvents(stream);
+    assert.equal(requests.length, 3);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
+    assert.deepEqual(
+      streamEvents.map((event) => event.type),
+      ["text_delta", "completed"]
+    );
+    assert.equal(requests[2]?.url, "http://provider-gateway.local/api/v1/providers/stream-text");
+    assert.equal(requests[2]?.init?.method, "POST");
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();

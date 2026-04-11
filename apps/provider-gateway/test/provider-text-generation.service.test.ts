@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import type {
   ProviderGatewayTextGenerateRequest,
-  ProviderGatewayTextGenerateResult
+  ProviderGatewayTextGenerateResult,
+  ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
 import type { ProviderWarmupSnapshot } from "../src/modules/providers/provider-client.types";
 import { ProviderTextGenerationService } from "../src/modules/providers/provider-text-generation.service";
@@ -51,6 +52,7 @@ class FakeProviderWarmupService {
 
 class FakeOpenAIProviderClient {
   calls: ProviderGatewayTextGenerateRequest[] = [];
+  streamCalls: ProviderGatewayTextGenerateRequest[] = [];
 
   async generateText(
     input: ProviderGatewayTextGenerateRequest
@@ -64,10 +66,32 @@ class FakeOpenAIProviderClient {
       usage: null
     };
   }
+
+  async *streamText(
+    input: ProviderGatewayTextGenerateRequest
+  ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
+    this.streamCalls.push(input);
+    yield {
+      type: "text_delta",
+      delta: "openai-",
+      accumulatedText: "openai-"
+    };
+    yield {
+      type: "completed",
+      result: {
+        provider: "openai",
+        model: input.model,
+        text: "openai-stream",
+        respondedAt: "2026-04-11T12:00:03.000Z",
+        usage: null
+      }
+    };
+  }
 }
 
 class FakeAnthropicProviderClient {
   calls: ProviderGatewayTextGenerateRequest[] = [];
+  streamCalls: ProviderGatewayTextGenerateRequest[] = [];
 
   async generateText(
     input: ProviderGatewayTextGenerateRequest
@@ -81,6 +105,37 @@ class FakeAnthropicProviderClient {
       usage: null
     };
   }
+
+  async *streamText(
+    input: ProviderGatewayTextGenerateRequest
+  ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
+    this.streamCalls.push(input);
+    yield {
+      type: "text_delta",
+      delta: "anthropic-",
+      accumulatedText: "anthropic-"
+    };
+    yield {
+      type: "completed",
+      result: {
+        provider: "anthropic",
+        model: input.model,
+        text: "anthropic-stream",
+        respondedAt: "2026-04-11T12:00:04.000Z",
+        usage: null
+      }
+    };
+  }
+}
+
+async function collectStreamEvents(
+  generator: AsyncGenerator<ProviderGatewayTextStreamEvent>
+): Promise<ProviderGatewayTextStreamEvent[]> {
+  const events: ProviderGatewayTextStreamEvent[] = [];
+  for await (const event of generator) {
+    events.push(event);
+  }
+  return events;
 }
 
 function createRequest(provider: "openai" | "anthropic"): ProviderGatewayTextGenerateRequest {
@@ -115,6 +170,14 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   const anthropicResult = await service.generateText(createRequest("anthropic"));
   assert.equal(anthropicResult.text, "anthropic-result");
   assert.equal(anthropicClient.calls.length, 1);
+
+  const openaiStream = await service.streamText(createRequest("openai"));
+  const openaiStreamEvents = await collectStreamEvents(openaiStream);
+  assert.equal(openaiClient.streamCalls.length, 1);
+  assert.deepEqual(
+    openaiStreamEvents.map((event) => event.type),
+    ["text_delta", "completed"]
+  );
 
   await assert.rejects(
     () =>

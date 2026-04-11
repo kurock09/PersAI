@@ -4,8 +4,10 @@ import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
+  ProviderGatewayTextStreamEvent,
   RuntimeTurnRequest,
-  RuntimeTurnResult
+  RuntimeTurnResult,
+  RuntimeTurnStreamEvent
 } from "@persai/runtime-contract";
 import type { RuntimeBundleCacheEntry } from "../src/modules/bundles/bundle.types";
 import type { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
@@ -211,6 +213,7 @@ class FakeRuntimeBundleRegistryService {
 
 class FakeProviderGatewayClientService {
   calls: ProviderGatewayTextGenerateRequest[] = [];
+  streamCalls: ProviderGatewayTextGenerateRequest[] = [];
   result: ProviderGatewayTextGenerateResult = {
     provider: "openai",
     model: "gpt-5.4",
@@ -225,6 +228,30 @@ class FakeProviderGatewayClientService {
     }
   };
   error: Error | null = null;
+  streamError: Error | null = null;
+  streamEvents: ProviderGatewayTextStreamEvent[] = [
+    {
+      type: "text_delta",
+      delta: "runtime ",
+      accumulatedText: "runtime "
+    },
+    {
+      type: "completed",
+      result: {
+        provider: "openai",
+        model: "gpt-5.4",
+        text: "runtime reply",
+        respondedAt: "2026-04-11T12:00:02.000Z",
+        usage: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4",
+          inputTokens: 10,
+          outputTokens: 20,
+          totalTokens: 30
+        }
+      }
+    }
+  ];
 
   async generateText(
     input: ProviderGatewayTextGenerateRequest
@@ -234,6 +261,22 @@ class FakeProviderGatewayClientService {
       throw this.error;
     }
     return this.result;
+  }
+
+  async streamText(
+    input: ProviderGatewayTextGenerateRequest
+  ): Promise<AsyncGenerator<ProviderGatewayTextStreamEvent>> {
+    this.streamCalls.push(input);
+    if (this.streamError !== null) {
+      throw this.streamError;
+    }
+
+    const events = [...this.streamEvents];
+    return (async function* (): AsyncGenerator<ProviderGatewayTextStreamEvent> {
+      for (const event of events) {
+        yield event;
+      }
+    })();
   }
 }
 
@@ -272,6 +315,16 @@ class FakeTurnFinalizationService {
       leaseReleased: true
     };
   }
+}
+
+async function collectStreamEvents(
+  generator: AsyncGenerator<RuntimeTurnStreamEvent>
+): Promise<RuntimeTurnStreamEvent[]> {
+  const events: RuntimeTurnStreamEvent[] = [];
+  for await (const event of generator) {
+    events.push(event);
+  }
+  return events;
 }
 
 export async function runTurnExecutionServiceTest(): Promise<void> {
@@ -356,4 +409,23 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   await assert.rejects(() => service.createTurn(request), /gateway down/);
   assert.equal(turnFinalizationService.failed.length, 1);
   assert.equal(turnFinalizationService.failed[0]?.code, "turn_execution_failed");
+
+  providerGatewayClient.error = null;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const completedBeforeStream = turnFinalizationService.completed.length;
+  const stream = await service.streamTurn(request);
+  const streamEvents = await collectStreamEvents(stream);
+  assert.deepEqual(
+    streamEvents.map((event) => event.type),
+    ["started", "text_delta", "completed"]
+  );
+  assert.equal(providerGatewayClient.streamCalls.length, 1);
+  assert.equal(turnFinalizationService.completed.length, completedBeforeStream + 1);
+  const completedEvent = streamEvents[2];
+  assert.equal(completedEvent?.type, "completed");
+  if (completedEvent?.type === "completed") {
+    assert.equal(completedEvent.result.assistantText, "runtime reply");
+  }
 }
