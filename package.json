@@ -18,10 +18,10 @@
     "networkpolicy:readiness:strict": "node scripts/networkpolicy-readiness.cjs --strict",
     "format:check": "corepack pnpm exec prettier --check \"apps/**/*.{ts,tsx,js,cjs,json,css}\" \"packages/**/*.{ts,js,cjs,json}\" \".github/**/*.{yml,yaml}\" \"infra/dev/**/*.{yml,yaml,md}\" \"infra/local/**/*.{yml,yaml}\" \"*.{json,md,yml,yaml}\"",
     "lint": "corepack pnpm -r --if-present run lint && corepack pnpm run format:check",
-    "typecheck": "corepack pnpm -r --if-present run typecheck",
+    "typecheck": "corepack pnpm run prisma:generate && corepack pnpm -r --if-present run typecheck",
     "test": "corepack pnpm -r --if-present run test",
     "test:step2": "corepack pnpm --filter @persai/api run test:step2 && corepack pnpm --filter @persai/web run test",
-    "build": "corepack pnpm -r --if-present run build"
+    "build": "corepack pnpm run prisma:generate && corepack pnpm -r --if-present run build"
   },
   "devDependencies": {
     "prettier": "^3.8.1"
