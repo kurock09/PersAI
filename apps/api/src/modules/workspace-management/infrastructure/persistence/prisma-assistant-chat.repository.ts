@@ -301,6 +301,36 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     return this.mapMessageToDomain(message);
   }
 
+  async deleteMessage(messageId: string, assistantId: string): Promise<boolean> {
+    const existingMessage = await this.prisma.assistantChatMessage.findFirst({
+      where: { id: messageId, assistantId },
+      select: { chatId: true }
+    });
+    if (existingMessage === null) {
+      return false;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.assistantChatMessage.deleteMany({
+        where: { id: messageId, assistantId }
+      });
+      if (deleted.count === 0) {
+        return false;
+      }
+
+      const latestMessage = await tx.assistantChatMessage.findFirst({
+        where: { chatId: existingMessage.chatId, assistantId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { createdAt: true }
+      });
+      await tx.assistantChat.update({
+        where: { id: existingMessage.chatId },
+        data: { lastMessageAt: latestMessage?.createdAt ?? null }
+      });
+      return true;
+    });
+  }
+
   async listMessagesByChatId(chatId: string): Promise<AssistantChatMessage[]> {
     const messages = await this.prisma.assistantChatMessage.findMany({
       where: { chatId },

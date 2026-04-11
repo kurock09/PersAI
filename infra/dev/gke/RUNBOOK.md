@@ -206,6 +206,15 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --role="roles/cloudsql.client"
 ```
 
+16.3 If Step 11 web attachment staging fails with `storage.objects.create denied`:
+
+```bash
+# api now writes PersAI-owned attachment objects directly to the media bucket
+gcloud storage buckets add-iam-policy-binding "gs://persai-dev-workspaces" \
+  --member="serviceAccount:api-runtime@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
+```
+
 17. Verify OpenClaw deployment and service:
 
 ```bash

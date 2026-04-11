@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
+import { ApiErrorHttpException } from "../../platform-core/interface/http/api-error";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository,
@@ -153,6 +154,10 @@ export class ManageChatMediaService {
   }): Promise<{ chatId: string; messageId: string; attachment: AssistantChatMessageAttachment }> {
     const startedAt = process.hrtime.bigint();
     let outcome: "success" | "failure" = "failure";
+    let assistant: Assistant | null = null;
+    let stagingMessageId: string | null = null;
+    let uploadedObjectKey: string | null = null;
+    let reservedStorageBytes: bigint | null = null;
     try {
       const validated = await validatePersaiMediaFile({
         buffer: params.file.buffer,
@@ -161,7 +166,7 @@ export class ManageChatMediaService {
         surface: "chat_upload"
       });
 
-      const assistant = await this.assistantRepository.findByUserId(params.userId);
+      assistant = await this.assistantRepository.findByUserId(params.userId);
       if (!assistant) {
         throw new NotFoundException("Assistant does not exist for this user.");
       }
@@ -191,6 +196,7 @@ export class ManageChatMediaService {
         author: "user",
         content: ""
       });
+      stagingMessageId = stagingMessage.id;
 
       const processed = await this.preprocessUploadBestEffort({
         buffer: params.file.buffer,
@@ -219,14 +225,26 @@ export class ManageChatMediaService {
         buffer: fileBuffer,
         mimeType
       });
+      uploadedObjectKey = uploadResult.objectKey;
 
       const sizeBytes = BigInt(uploadResult.sizeBytes);
-      await this.ensureMediaStorageQuotaApplied({
-        assistant,
-        objectKey: uploadResult.objectKey,
-        sizeBytes,
-        source: "web_staged_upload"
-      });
+      try {
+        await this.ensureMediaStorageQuotaApplied({
+          assistant,
+          objectKey: uploadResult.objectKey,
+          sizeBytes,
+          source: "web_staged_upload"
+        });
+      } catch (error) {
+        if (
+          error instanceof ApiErrorHttpException &&
+          error.errorObject.code === "media_storage_quota_exceeded"
+        ) {
+          uploadedObjectKey = null;
+        }
+        throw error;
+      }
+      reservedStorageBytes = sizeBytes;
       const attachment = await this.attachmentRepository.create({
         messageId: stagingMessage.id,
         chatId: chat.id,
@@ -250,6 +268,14 @@ export class ManageChatMediaService {
 
       outcome = "success";
       return { chatId: chat.id, messageId: stagingMessage.id, attachment };
+    } catch (error) {
+      await this.rollbackFailedStagedUpload({
+        assistant,
+        stagingMessageId,
+        uploadedObjectKey,
+        reservedStorageBytes
+      });
+      throw error;
     } finally {
       const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
       this.platformHttpMetricsService.recordMediaStage({
@@ -383,6 +409,41 @@ export class ManageChatMediaService {
         released.state.mediaStorageBytesUsed,
         released.state.mediaStorageBytesLimit
       );
+    }
+  }
+
+  private async rollbackFailedStagedUpload(input: {
+    assistant: Assistant | null;
+    stagingMessageId: string | null;
+    uploadedObjectKey: string | null;
+    reservedStorageBytes: bigint | null;
+  }): Promise<void> {
+    if (input.uploadedObjectKey !== null) {
+      await this.mediaObjectStorage.deleteObject(input.uploadedObjectKey);
+    }
+
+    if (input.assistant !== null && input.reservedStorageBytes !== null) {
+      try {
+        await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
+          assistant: input.assistant,
+          sizeBytes: input.reservedStorageBytes,
+          source: "web_staged_upload_rollback"
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Failed to release staged-upload quota usage for assistant "${input.assistant.id}": ${String(error)}`
+        );
+      }
+    }
+
+    if (input.assistant !== null && input.stagingMessageId !== null) {
+      try {
+        await this.chatRepository.deleteMessage(input.stagingMessageId, input.assistant.id);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to delete orphan staged-upload message "${input.stagingMessageId}": ${String(error)}`
+        );
+      }
     }
   }
 

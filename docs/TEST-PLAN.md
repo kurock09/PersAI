@@ -231,11 +231,13 @@ Required in CI:
 - the current Step 11 storage cutover must not depend on OpenClaw request-time media upload/download/delete for ordinary web attachment persistence
 - native web sync/stream paths should pass raw user text plus attachment refs and let `apps/runtime` hydrate current/historical attachment summaries from canonical attachment rows instead of relying on API-only attachment text enrichment
 - canonical attachment rows should retain usable preview/transcription metadata for runtime hydration, including direct web upload paths and staged uploads
+- failed staged uploads must roll back transient empty staging rows, and native hydration must ignore any legacy orphan placeholders that still exist in canonical chat history
 - temporary migration seams are still allowed only where Step 11 is not yet complete:
   - pre-Step-12 STT staging/transcription may still use the existing runtime transcribe seam
   - legacy runtime-owned media producers may still require one download-source seam until later native tool slices replace them
 - focused Step 11 regressions for this storage cutover:
   - `apps/api/test/manage-chat-media.stage-web-thread.test.ts`
+  - `apps/api/test/merge-staged-web-chat-attachments.service.test.ts`
   - `apps/api/test/send-web-chat-turn.service.test.ts`
   - `apps/api/test/stream-web-chat-turn.service.test.ts`
   - `apps/api/test/inbound-media.service.test.ts`
@@ -247,6 +249,7 @@ Required in CI:
   - `corepack pnpm --filter @persai/api run typecheck`
   - `corepack pnpm --filter @persai/runtime run typecheck`
   - `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/merge-staged-web-chat-attachments.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`

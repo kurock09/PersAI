@@ -102,6 +102,9 @@ export class TurnContextHydrationService {
       if (message.author === "system") {
         continue;
       }
+      if (message.content.trim().length === 0 && message.attachments.length === 0) {
+        continue;
+      }
 
       const isCurrentInboundMessage = message.id === input.idempotencyKey;
       if (isCurrentInboundMessage) {

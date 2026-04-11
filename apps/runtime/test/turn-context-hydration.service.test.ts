@@ -114,6 +114,12 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       attachments: []
     },
     {
+      id: "message-empty",
+      author: "user",
+      content: "   ",
+      attachments: []
+    },
+    {
       id: "message-current",
       author: "user",
       content: "raw persisted user message",

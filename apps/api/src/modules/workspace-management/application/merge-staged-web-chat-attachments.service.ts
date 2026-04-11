@@ -42,11 +42,13 @@ export class MergeStagedWebChatAttachmentsService {
     for (let i = prior.length - 1; i >= 0; i--) {
       const m = prior[i]!;
       if (m.author !== "user") break;
-      if (m.attachments.length === 0) break;
       if (!isStagingUserMessageContent(m.content)) break;
       const ageMs = userMessageCreatedAt.getTime() - m.createdAt.getTime();
       if (ageMs > STAGING_MAX_AGE_MS) break;
       stagingMessageIds.push(m.id);
+      if (m.attachments.length === 0) {
+        continue;
+      }
     }
 
     if (stagingMessageIds.length === 0) return;

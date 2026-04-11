@@ -176,6 +176,7 @@ async function run(): Promise<void> {
   });
 
   const metrics = new PlatformHttpMetricsService();
+  const deletedStagingMessageIds: string[] = [];
   const deletedStoragePaths: string[] = [];
   const releasedBytes: bigint[] = [];
   const service = new ManageChatMediaService(
@@ -213,6 +214,10 @@ async function run(): Promise<void> {
           createdAt: new Date("2026-04-06T00:00:00.000Z"),
           updatedAt: new Date("2026-04-06T00:00:00.000Z")
         };
+      },
+      async deleteMessage(messageId: string) {
+        deletedStagingMessageIds.push(messageId);
+        return true;
       }
     } as never,
     {
@@ -342,6 +347,7 @@ async function run(): Promise<void> {
 
   assert.equal(staged.chatId, "chat-1");
   assert.equal(staged.messageId, "msg-1");
+  assert.deepEqual(deletedStagingMessageIds, []);
   assert.deepEqual(deletedStoragePaths, []);
   assert.deepEqual(releasedBytes, []);
   const successSeries = metrics
@@ -357,6 +363,7 @@ async function run(): Promise<void> {
   const failureMetrics = new PlatformHttpMetricsService();
   const cappedDeletes: string[] = [];
   const cappedReleases: bigint[] = [];
+  const cappedDeletedMessages: string[] = [];
   const failingService = new ManageChatMediaService(
     {
       async findByUserId() {
@@ -392,6 +399,10 @@ async function run(): Promise<void> {
           createdAt: new Date("2026-04-06T00:00:00.000Z"),
           updatedAt: new Date("2026-04-06T00:00:00.000Z")
         };
+      },
+      async deleteMessage(messageId: string) {
+        cappedDeletedMessages.push(messageId);
+        return true;
       }
     } as never,
     {
@@ -503,6 +514,7 @@ async function run(): Promise<void> {
     "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png"
   ]);
   assert.deepEqual(cappedReleases, [BigInt(5)]);
+  assert.deepEqual(cappedDeletedMessages, ["msg-1"]);
   const failureSeries = failureMetrics
     .getSnapshot()
     .mediaStageSeries.find(
@@ -512,6 +524,145 @@ async function run(): Promise<void> {
         series.key.outcome === "failure"
     );
   assert.equal(failureSeries?.count, 1);
+
+  const storageFailureMetrics = new PlatformHttpMetricsService();
+  const storageFailureDeletes: string[] = [];
+  const storageFailureReleases: bigint[] = [];
+  const storageFailureDeletedMessages: string[] = [];
+  const storageFailureService = new ManageChatMediaService(
+    {
+      async findByUserId() {
+        return assistant;
+      }
+    } as never,
+    {
+      async getOrCreateWebChatBySurfaceThreadUnderCap() {
+        return {
+          outcome: "created" as const,
+          chat: {
+            id: "chat-1",
+            assistantId: assistant.id,
+            userId: assistant.userId,
+            workspaceId: assistant.workspaceId,
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: null,
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: new Date("2026-04-06T00:00:00.000Z"),
+            updatedAt: new Date("2026-04-06T00:00:00.000Z")
+          }
+        };
+      },
+      async createMessage() {
+        return {
+          id: "msg-1",
+          chatId: "chat-1",
+          assistantId: assistant.id,
+          author: "user",
+          content: "",
+          createdAt: new Date("2026-04-06T00:00:00.000Z"),
+          updatedAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      },
+      async deleteMessage(messageId: string) {
+        storageFailureDeletedMessages.push(messageId);
+        return true;
+      }
+    } as never,
+    {
+      async create() {
+        throw new Error("attachment must not be created when storage save fails");
+      }
+    } as never,
+    {
+      async transcribeMedia() {
+        throw new Error("not used");
+      }
+    } as never,
+    {
+      async process(buffer: Buffer, mime: string) {
+        return {
+          normalizedBuffer: buffer,
+          normalizedMime: mime,
+          normalizedExtension: "png",
+          transcription: null,
+          textExtract: null,
+          durationMs: null,
+          width: 100,
+          height: 100
+        };
+      }
+    } as never,
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png";
+      },
+      async saveObject() {
+        throw new Error("storage.objects.create denied");
+      },
+      async deleteObject(objectKey: string) {
+        storageFailureDeletes.push(objectKey);
+      }
+    } as never,
+    {} as never,
+    {
+      async checkMediaStorageQuota() {
+        return { allowed: true };
+      },
+      async recordMediaUpload() {
+        throw new Error("quota usage must not be recorded when storage save fails");
+      },
+      async releaseMediaStorage(input: { sizeBytes: bigint }) {
+        storageFailureReleases.push(input.sizeBytes);
+        return {
+          releasedDelta: input.sizeBytes,
+          state: {
+            id: "state-1",
+            workspaceId: assistant.workspaceId,
+            tokenBudgetUsed: BigInt(0),
+            tokenBudgetLimit: null,
+            costOrTokenDrivingToolClassUnitsUsed: 0,
+            costOrTokenDrivingToolClassUnitsLimit: null,
+            activeWebChatsCurrent: 0,
+            activeWebChatsLimit: null,
+            mediaStorageBytesUsed: BigInt(0),
+            mediaStorageBytesLimit: BigInt(1000),
+            lastComputedAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        };
+      }
+    } as never,
+    storageFailureMetrics
+  );
+
+  await assert.rejects(
+    () =>
+      storageFailureService.stageForWebThread({
+        userId: "user-1",
+        surfaceThreadKey: "thread-1",
+        file: {
+          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+          mimetype: "image/png",
+          originalname: "image.png"
+        }
+      }),
+    (error) => error instanceof Error && error.message === "storage.objects.create denied"
+  );
+  assert.deepEqual(storageFailureDeletes, []);
+  assert.deepEqual(storageFailureReleases, []);
+  assert.deepEqual(storageFailureDeletedMessages, ["msg-1"]);
+  const storageFailureSeries = storageFailureMetrics
+    .getSnapshot()
+    .mediaStageSeries.find(
+      (series) =>
+        series.key.stage === "web_stage_attachment" &&
+        series.key.channel === "web" &&
+        series.key.outcome === "failure"
+    );
+  assert.equal(storageFailureSeries?.count, 1);
 
   await assert.rejects(
     () =>

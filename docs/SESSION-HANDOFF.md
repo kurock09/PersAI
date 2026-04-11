@@ -1,5 +1,74 @@
 # SESSION-HANDOFF
 
+## 2026-04-11 - ADR-072 Step 11 staged upload rollback hardening
+
+### What changed
+
+1. `ManageChatMediaService.stageForWebThread(...)` now rolls back failed staged uploads instead of leaving an empty transient user message behind. If failure happens after object persistence, it also performs bounded PersAI-side object/quota rollback before deleting the transient staging row.
+2. `MergeStagedWebChatAttachmentsService` now treats recent empty staging placeholders as cleanup-only rows instead of letting them block attachment merge, and `TurnContextHydrationService` now skips attachment-less empty canonical messages so older poisoned chats can recover on the native path.
+3. Live dev remediation is already applied: `api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com` now has `roles/storage.objectAdmin` on `gs://persai-dev-workspaces`, object write was verified from the `api` pod, two orphan empty staging rows were deleted from the poisoned chat, and `infra/dev/gke/RUNBOOK.md` now documents the required bucket IAM fix for future Step 11 rollouts.
+
+### Why
+
+1. A failed staged attachment upload was leaving an empty user message in canonical chat history. Native runtime hydration then replayed that empty row on every later turn in the same chat, which poisoned the thread even for plain text messages.
+2. Step 11 attachment staging has to be PersAI-owned and failure-safe; transient upload placeholders cannot remain durable runtime truth after the object-storage cutover.
+
+### Current active slice
+
+- `Slice 4 — Attachment context and STT cutover`
+
+### Current active step
+
+- `Step 11 — Implement native attachment staging`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/merge-staged-web-chat-attachments.service.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-chat.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/api/test/manage-chat-media.stage-web-thread.test.ts`
+- `apps/api/test/merge-staged-web-chat-attachments.service.test.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `infra/dev/gke/RUNBOOK.md`
+
+### Tests run
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/merge-staged-web-chat-attachments.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- Live dev verification:
+  - granted `roles/storage.objectAdmin` on `gs://persai-dev-workspaces` to `api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com`
+  - verified `api` pod can create/delete a test object in the bucket
+  - deleted orphan empty staging rows from the affected chat and confirmed the orphan query returns `[]`
+
+### Risks
+
+1. Step 12 is still pending, so STT continues to use the temporary OpenClaw transcription seam.
+2. Temporary `legacy|shadow` web execution still uses API-side attachment enrichment while the Step 10 route seam exists.
+3. The dev bucket IAM hotfix is now documented in-repo, but the actual IAM binding still lives in cloud state rather than a repo-managed IaC source in this workspace.
+
+### Next recommended step
+
+1. Continue Step 11 only if you want to remove the remaining temporary legacy media source seams now; otherwise move directly to `Step 12 — Implement native STT` so the last OpenClaw request-time media dependency is removed.
+
+### Ready commit message
+
+- `fix(media): rollback failed staged uploads from native chat history`
+
 ## 2026-04-11 - ADR-072 Step 11 native attachment context hydration
 
 ### What changed
