@@ -320,6 +320,10 @@ Expected:
 
 ## Phase E: ADR-072 bounded web shadow window
 
+Use this only if operators temporarily switch web route modes back to `shadow`
+after the Step 10 closeout. The ordinary dev web path is now `native`, so this
+phase is historical/diagnostic rather than the default validation path.
+
 Use this after the Step 10 package is deployed with:
 
 - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=shadow`
@@ -349,6 +353,11 @@ After the bounded `shadow` window shows acceptable semantic parity, flip both
 to `native` and use Phase C + Phase D plus the ordinary `/app` composer flow as
 the post-shadow cutover proof. At that point the Admin Overview shadow panel is
 historical evidence only and no longer the main validation surface.
+
+Current closeout truth: that native flip and ordinary web-path validation have
+already been completed in dev, so new regressions should be checked first
+through the normal native web flow unless there is a specific reason to reopen a
+bounded `shadow` window.
 
 ### ADR-048 direct contract check (optional)
 

@@ -177,14 +177,14 @@ Required in CI:
   - replay/idempotency proof already exists for both `POST /api/v1/assistant/chat/web` and `POST /api/v1/assistant/chat/web/stream`
   - disconnect/interruption persistence proof already exists for the native stream path
 
-## Step 10 web shadow/cutover focus
+## Step 10 web shadow/cutover closeout
 
 - API web routing is now mode-driven instead of boolean-flag-driven:
   - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=legacy|shadow|native`
   - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=legacy|shadow|native`
-- Current dev rollout target for the next bounded validation window:
+- Current dev rollout truth after Step 10 closeout:
   - `infra/helm/values-dev.yaml` sets both web runtime modes to `native`
-- the bounded `shadow` window remains a temporary migration seam, but the current dev cutover target is now the ordinary native web path instead of one more comparison-only rollout.
+- the bounded `shadow` window remains a temporary migration seam only for diagnostic parity sampling; it is no longer the ordinary dev web mode.
 - Admin Overview now also exposes a bounded pod-local Step 10 shadow read model:
   - `GET /api/v1/admin/overview/dashboard` returns `webRuntimeShadowComparisons`
   - `/admin` should render recent sync/stream parity samples from the same API pod that captured them when the route mode is temporarily switched back to `shadow`
@@ -216,12 +216,12 @@ Required in CI:
   - `corepack pnpm --filter @persai/api exec tsx test/web-runtime-shadow-comparison.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/send-native-web-chat-turn.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts`
-- Still required after this sub-step:
-  - deploy the current Step 10 package so dev actually picks up the `native` route-mode config
-  - validate that the ordinary web composer path now succeeds through native runtime for both sync and stream ownership surfaces
-  - inspect `web_runtime_route`, runtime/provider readiness, and direct native-path behavior for regressions now that `shadow` is no longer the ordinary mode
-  - decide whether Step 10 can be called complete and the temporary route-mode cleanup can open next
-  - remove the remaining temporary web route modes only after native web execution is the ordinary path
+- Step 10 closeout evidence now recorded:
+  - dev picked up the `native` route-mode config for both sync and stream web turns
+  - the ordinary web composer path was validated after cutover on real chat traffic
+  - runtime/provider readiness stayed healthy through the native rollout window
+  - `web_runtime_shadow_compare` remains available only when operators intentionally switch a route back to `shadow`
+  - next work moves to Step 11 attachment staging and later cleanup of the temporary web route modes
 
 ## Step 1 focus
 

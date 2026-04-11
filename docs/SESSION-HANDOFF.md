@@ -1,5 +1,48 @@
 # SESSION-HANDOFF
 
+## 2026-04-11 - ADR-072 Step 10 web cutover closeout
+
+### What changed
+
+1. Marked `Step 10 — Add web shadow comparison and cut over web` as complete in the ADR ledger after the bounded `shadow` window, native history hydration, OpenAI assistant-history serialization fix, dev route-mode switch to `native`, and one successful post-cutover live validation pass on the ordinary web chat path.
+2. Marked `Slice 3 — Distributed session/state core and web runtime` as complete for the current web text path and moved the next planned work pointer to `Slice 4` / `Step 11`.
+3. Refreshed supporting canon (`ARCHITECTURE`, `TEST-PLAN`, `LIVE-TEST-HYBRID`, `CHANGELOG`) so repo truth now says `shadow` is only a temporary diagnostic seam, not the ordinary dev web mode.
+
+### Why
+
+1. The requested Step 10 live cutover check is now satisfied: dev is running `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=native` and `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=native`, rollout completed cleanly, and the user confirmed the ordinary web chat path works after cutover.
+2. Leaving Step 10 open after that would no longer reflect the actual migration state and would obscure the fact that the next meaningful product/runtime work is attachment staging rather than more web-text parity plumbing.
+
+### Current active slice
+
+- `Slice 4 — Attachment context and STT cutover`
+
+### Current active step
+
+- `Step 11 — Implement native attachment staging`
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CHANGELOG.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm run format:check`
+
+### Risks
+
+1. Temporary `legacy|shadow|native` route modes still exist in code/config, so Step 10 is closed from the execution/migration standpoint but the seam cleanup itself remains future work.
+2. Attachments/files/audio are still outside the finished Step 10 web-text scope; they remain Step 11/12 work and should not be implied by this closeout.
+
+### Next recommended step
+
+1. Start `Step 11 — Implement native attachment staging` with the same “smallest executable step” discipline, then remove the temporary web route modes only after the later migration slices no longer need them.
+
 ## 2026-04-11 - ADR-072 Step 10 dev native web cutover config
 
 ### What changed

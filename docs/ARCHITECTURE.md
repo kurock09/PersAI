@@ -51,7 +51,7 @@ It is not part of backend domain logic.
 - `assistant_materialized_specs` now dual-writes a PersAI-native `runtimeBundle` beside the legacy `openclawBootstrap` / `openclawWorkspace` artifacts.
 - the native bundle is the future runtime artifact for the PersAI-native execution plane
 - the legacy OpenClaw artifacts remain only as a migration boundary while request-time execution still routes through the existing adapter
-- active request-time apply, preview, Telegram, media, and session paths are still legacy; web chat is now the first boundary in partial Step 10 migration with explicit `legacy|shadow|native` route modes while full cutover remains in progress
+- active request-time apply, preview, Telegram, media, and session paths are still legacy; web chat is now the first request-time path validated on the PersAI-native runtime in dev, while the temporary `legacy|shadow|native` route modes remain only as migration/rollback seams until later cleanup
 
 ## ADR-072 execution-plane bootstrap boundary
 
@@ -170,7 +170,7 @@ It is not part of backend domain logic.
   - `shadow` keeps OpenClaw as the user-visible primary stream path while queueing a native comparison run and logging `web_runtime_shadow_compare`
   - the API stream boundary still owns canonical replay/message persistence, SSE shaping, media delivery, and honest interruption handling; successful native stream completion skips legacy bootstrap consumption only when native is the primary path
 - Step 9 native sync and native stream web paths have now both passed bounded dev-GKE live validation, including stream replay/idempotency and disconnect persistence checks.
-- the remaining Step 10+ work is now bounded to default-path native web validation in dev, removal of the temporary route modes plus the remaining Step 7 API activation seams, and later attachment execution.
+- Step 10 is now closed for the ordinary web text path; remaining follow-up work is removal of the temporary route modes plus the remaining Step 7 API activation seams, and later attachment execution.
 - Postgres is the durable authority for session summaries and turn receipts; stale or missing Redis pointers/markers may be rebuilt from Postgres instead of introducing filesystem or OpenClaw-era session truth.
 
 ## Planned runtime segmentation boundary (Step 15)
