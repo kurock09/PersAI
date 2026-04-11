@@ -11,6 +11,7 @@ import {
   type ChannelMediaAdapter
 } from "./channel-adapters/channel-media-adapter.interface";
 import {
+  buildStoredAttachmentMetadata,
   inferMimeFromUrlAndType,
   type DeliveredMedia,
   type MediaArtifact,
@@ -18,6 +19,7 @@ import {
 } from "./media.types";
 import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
 import { validatePersaiMediaFile } from "./media-security-policy";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 
 @Injectable()
 export class MediaDeliveryService {
@@ -32,6 +34,7 @@ export class MediaDeliveryService {
     @Inject(CHANNEL_MEDIA_ADAPTERS)
     adapters: ChannelMediaAdapter[],
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {
     this.adapterMap = new Map(adapters.map((a) => [a.channel, a]));
@@ -107,12 +110,15 @@ export class MediaDeliveryService {
       originalFilename: artifact.url.split("/").pop() ?? "media",
       surface: "tool_output_persist"
     });
-    const uploadResult = await this.assistantRuntime.uploadChatMedia({
+    const objectKey = this.mediaObjectStorage.buildChatMessageObjectKey({
       assistantId: params.assistantId,
-      runtimeTier,
       chatId: params.chatId,
       messageId: params.messageId,
-      fileBuffer: downloadResult.buffer,
+      extension: validated.normalizedExtension
+    });
+    const uploadResult = await this.mediaObjectStorage.saveObject({
+      objectKey,
+      buffer: downloadResult.buffer,
       mimeType: validated.effectiveMimeType
     });
 
@@ -125,7 +131,7 @@ export class MediaDeliveryService {
       assistantId: params.assistantId,
       workspaceId: params.workspaceId,
       attachmentType,
-      storagePath: uploadResult.storagePath,
+      storagePath: uploadResult.objectKey,
       originalFilename: filename,
       mimeType: validated.effectiveMimeType,
       sizeBytes: BigInt(uploadResult.sizeBytes),
@@ -134,7 +140,10 @@ export class MediaDeliveryService {
       height: null,
       processingStatus: "ready",
       transcription: null,
-      metadata: { source: "tool_output", originalUrl: artifact.url }
+      metadata: buildStoredAttachmentMetadata({
+        source: "tool_output",
+        originalUrl: artifact.url
+      })
     });
 
     return {

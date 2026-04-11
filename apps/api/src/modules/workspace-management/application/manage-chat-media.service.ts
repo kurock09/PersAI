@@ -15,13 +15,14 @@ import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assist
 import type { Assistant } from "../domain/assistant.entity";
 import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { MediaPreprocessorService } from "./media/media-preprocessor.service";
+import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
+import { buildStoredAttachmentMetadata } from "./media/media.types";
 import {
   createAssistantInboundConflict,
-  createMediaStorageQuotaExceededError,
-  createWorkspaceStorageFullError
+  createMediaStorageQuotaExceededError
 } from "./assistant-inbound-error";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
@@ -52,6 +53,7 @@ export class ManageChatMediaService {
     @Inject(ASSISTANT_RUNTIME_FACADE)
     private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly preprocessor: MediaPreprocessorService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
@@ -92,24 +94,31 @@ export class ManageChatMediaService {
       throw createMediaStorageQuotaExceededError(quotaCheck.usedBytes, quotaCheck.limitBytes);
     }
 
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
-
-    const uploadResult = await this.assistantRuntime.uploadChatMedia({
+    const processed = await this.preprocessUploadBestEffort({
+      buffer: params.file.buffer,
+      mimeType: validated.effectiveMimeType,
+      originalFilename: params.file.originalname,
       assistantId: assistant.id,
-      runtimeTier,
+      logContext: "direct upload"
+    });
+    const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
+    const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
+    const objectKey = this.mediaObjectStorage.buildChatMessageObjectKey({
+      assistantId: assistant.id,
       chatId: chat.id,
       messageId: message.id,
-      fileBuffer: params.file.buffer,
-      mimeType: validated.effectiveMimeType
+      extension: processed?.normalizedExtension ?? validated.normalizedExtension
+    });
+    const uploadResult = await this.mediaObjectStorage.saveObject({
+      objectKey,
+      buffer: fileBuffer,
+      mimeType
     });
 
     const sizeBytes = BigInt(uploadResult.sizeBytes);
     await this.ensureMediaStorageQuotaApplied({
       assistant,
-      runtimeTier,
-      storagePath: uploadResult.storagePath,
+      objectKey: uploadResult.objectKey,
       sizeBytes,
       source: "chat_upload"
     });
@@ -118,17 +127,20 @@ export class ManageChatMediaService {
       chatId: chat.id,
       assistantId: assistant.id,
       workspaceId: assistant.workspaceId,
-      attachmentType: inferAttachmentType(validated.effectiveMimeType),
-      storagePath: uploadResult.storagePath,
+      attachmentType: inferAttachmentType(mimeType),
+      storagePath: uploadResult.objectKey,
       originalFilename: validated.originalFilename,
       mimeType: uploadResult.mimeType,
       sizeBytes,
-      durationMs: null,
-      width: null,
-      height: null,
+      durationMs: processed?.durationMs ?? null,
+      width: processed?.width ?? null,
+      height: processed?.height ?? null,
       processingStatus: "ready",
-      transcription: null,
-      metadata: null
+      transcription: processed?.transcription ?? null,
+      metadata: buildStoredAttachmentMetadata({
+        source: "chat_upload",
+        textExtract: processed?.textExtract ?? null
+      })
     });
 
     return attachment;
@@ -180,28 +192,13 @@ export class ManageChatMediaService {
         content: ""
       });
 
-      let processed: {
-        normalizedBuffer: Buffer;
-        normalizedMime: string;
-        transcription: string | null;
-        textExtract: string | null;
-        durationMs: number | null;
-        width: number | null;
-        height: number | null;
-      } | null = null;
-
-      try {
-        processed = await this.preprocessor.process(
-          params.file.buffer,
-          validated.effectiveMimeType,
-          params.file.originalname,
-          assistant.id
-        );
-      } catch (err) {
-        this.logger.warn(
-          `Preprocessing failed for staged upload "${params.file.originalname}", uploading raw: ${String(err)}`
-        );
-      }
+      const processed = await this.preprocessUploadBestEffort({
+        buffer: params.file.buffer,
+        mimeType: validated.effectiveMimeType,
+        originalFilename: params.file.originalname,
+        assistantId: assistant.id,
+        logContext: "staged upload"
+      });
 
       const quotaCheck =
         await this.trackWorkspaceQuotaUsageService.checkMediaStorageQuota(assistant);
@@ -211,36 +208,22 @@ export class ManageChatMediaService {
 
       const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
       const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
-      const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-        assistant.id
-      );
-
-      const wsLimits =
-        await this.trackWorkspaceQuotaUsageService.resolveWorkspaceStorageLimit(assistant);
-      if (wsLimits.limitBytes !== null) {
-        const wsUsage = await this.assistantRuntime.getWorkspaceStorageUsage(
-          assistant.id,
-          runtimeTier
-        );
-        if (wsUsage.usedBytes >= Number(wsLimits.limitBytes)) {
-          throw createWorkspaceStorageFullError(wsUsage.usedBytes, wsLimits.limitBytes);
-        }
-      }
-
-      const uploadResult = await this.assistantRuntime.uploadChatMedia({
+      const objectKey = this.mediaObjectStorage.buildChatMessageObjectKey({
         assistantId: assistant.id,
-        runtimeTier,
         chatId: chat.id,
         messageId: stagingMessage.id,
-        fileBuffer,
+        extension: processed?.normalizedExtension ?? validated.normalizedExtension
+      });
+      const uploadResult = await this.mediaObjectStorage.saveObject({
+        objectKey,
+        buffer: fileBuffer,
         mimeType
       });
 
       const sizeBytes = BigInt(uploadResult.sizeBytes);
       await this.ensureMediaStorageQuotaApplied({
         assistant,
-        runtimeTier,
-        storagePath: uploadResult.storagePath,
+        objectKey: uploadResult.objectKey,
         sizeBytes,
         source: "web_staged_upload"
       });
@@ -250,7 +233,7 @@ export class ManageChatMediaService {
         assistantId: assistant.id,
         workspaceId: assistant.workspaceId,
         attachmentType: inferAttachmentType(mimeType),
-        storagePath: uploadResult.storagePath,
+        storagePath: uploadResult.objectKey,
         originalFilename: validated.originalFilename,
         mimeType: uploadResult.mimeType,
         sizeBytes,
@@ -259,10 +242,10 @@ export class ManageChatMediaService {
         height: processed?.height ?? null,
         processingStatus: "ready",
         transcription: processed?.transcription ?? null,
-        metadata: {
+        metadata: buildStoredAttachmentMetadata({
           source: "web_staged_upload",
-          ...(processed?.textExtract ? { textExtract: "stored" } : {})
-        }
+          textExtract: processed?.textExtract ?? null
+        })
       });
 
       outcome = "success";
@@ -380,8 +363,7 @@ export class ManageChatMediaService {
 
   private async ensureMediaStorageQuotaApplied(params: {
     assistant: Assistant;
-    runtimeTier: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
-    storagePath: string;
+    objectKey: string;
     sizeBytes: bigint;
     source: "chat_upload" | "web_staged_upload";
   }): Promise<void> {
@@ -391,11 +373,7 @@ export class ManageChatMediaService {
       source: params.source
     });
     if (applied.capped) {
-      await this.assistantRuntime.deleteChatMedia(
-        params.assistant.id,
-        params.storagePath,
-        params.runtimeTier
-      );
+      await this.mediaObjectStorage.deleteObject(params.objectKey);
       const released = await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
         assistant: params.assistant,
         sizeBytes: applied.appliedDelta,
@@ -405,6 +383,28 @@ export class ManageChatMediaService {
         released.state.mediaStorageBytesUsed,
         released.state.mediaStorageBytesLimit
       );
+    }
+  }
+
+  private async preprocessUploadBestEffort(input: {
+    buffer: Buffer;
+    mimeType: string;
+    originalFilename: string;
+    assistantId: string;
+    logContext: string;
+  }): Promise<Awaited<ReturnType<MediaPreprocessorService["process"]>> | null> {
+    try {
+      return await this.preprocessor.process(
+        input.buffer,
+        input.mimeType,
+        input.originalFilename,
+        input.assistantId
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Preprocessing failed for ${input.logContext} "${input.originalFilename}", uploading raw: ${String(err)}`
+      );
+      return null;
     }
   }
 
@@ -421,15 +421,7 @@ export class ManageChatMediaService {
     if (!attachment || attachment.assistantId !== assistant.id) {
       throw new NotFoundException("Attachment not found.");
     }
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
-
-    const result = await this.assistantRuntime.downloadChatMedia(
-      assistant.id,
-      attachment.storagePath,
-      runtimeTier
-    );
+    const result = await this.mediaObjectStorage.downloadObject(attachment.storagePath);
     if (!result) {
       throw new NotFoundException("Media file not found on storage.");
     }

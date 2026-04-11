@@ -26,7 +26,17 @@ function createRuntimeTurnRequest(): RuntimeTurnRequest {
     },
     message: {
       text: "current enriched user message",
-      attachments: [],
+      attachments: [
+        {
+          attachmentId: "runtime-attachment-1",
+          kind: "file",
+          objectKey:
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file.pdf",
+          mimeType: "application/pdf",
+          filename: "runtime-fallback.pdf",
+          sizeBytes: 123
+        }
+      ],
       locale: "en",
       timezone: "UTC",
       receivedAt: "2026-04-11T12:00:00.000Z"
@@ -42,6 +52,14 @@ class FakeRuntimeStatePrismaService {
     id: string;
     author: "user" | "assistant" | "system";
     content: string;
+    attachments: Array<{
+      id: string;
+      attachmentType: "image" | "audio" | "voice" | "video" | "document" | "tool_output";
+      originalFilename: string | null;
+      mimeType: string;
+      transcription: string | null;
+      metadata: Record<string, unknown> | null;
+    }>;
   }> = [];
 
   assistantChat = {
@@ -62,22 +80,53 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     {
       id: "message-1",
       author: "user",
-      content: "first user"
+      content: "first user",
+      attachments: [
+        {
+          id: "attachment-1",
+          attachmentType: "document",
+          originalFilename: "notes.txt",
+          mimeType: "text/plain",
+          transcription: null,
+          metadata: { contentPreview: "first note preview" }
+        }
+      ]
     },
     {
       id: "message-2",
       author: "assistant",
-      content: "first assistant"
+      content: "first assistant",
+      attachments: [
+        {
+          id: "attachment-2",
+          attachmentType: "image",
+          originalFilename: "reply.png",
+          mimeType: "image/png",
+          transcription: null,
+          metadata: null
+        }
+      ]
     },
     {
       id: "message-3",
       author: "system",
-      content: "ignore this system marker"
+      content: "ignore this system marker",
+      attachments: []
     },
     {
       id: "message-current",
       author: "user",
-      content: "raw persisted user message"
+      content: "raw persisted user message",
+      attachments: [
+        {
+          id: "attachment-3",
+          attachmentType: "audio",
+          originalFilename: "voice.mp3",
+          mimeType: "audio/mpeg",
+          transcription: "hello from attachment",
+          metadata: null
+        }
+      ]
     }
   ];
 
@@ -85,15 +134,18 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   assert.deepEqual(hydrated, [
     {
       role: "user",
-      content: "first user"
+      content:
+        '[Files attached by user:\n- attachment (document "notes.txt", content preview: "first note preview")\nUse the attachment metadata, transcription, and content preview when available.]\nfirst user'
     },
     {
       role: "assistant",
-      content: "first assistant"
+      content:
+        '[Assistant attachments:\n- attachment (image "reply.png")\nImage attachments are present. Do not guess visual details that are not described in the attachment metadata or message text.\nUse the attachment metadata, transcription, and content preview when available.]\nfirst assistant'
     },
     {
       role: "user",
-      content: "current enriched user message"
+      content:
+        '[Files attached by user:\n- attachment (audio "voice.mp3", transcription: "hello from attachment")\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
     }
   ]);
 
@@ -102,7 +154,8 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   assert.deepEqual(fallback, [
     {
       role: "user",
-      content: "current enriched user message"
+      content:
+        '[Files attached by user:\n- attachment (file "runtime-fallback.pdf")\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
     }
   ]);
 
@@ -110,7 +163,8 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   prisma.messages = Array.from({ length: 22 }, (_, index) => ({
     id: `message-${index + 1}`,
     author: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
-    content: `message-${index + 1}`
+    content: `message-${index + 1}`,
+    attachments: []
   }));
 
   const capped = await service.buildMessages(request);
@@ -121,6 +175,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   });
   assert.deepEqual(capped.at(-1), {
     role: "user",
-    content: "current enriched user message"
+    content:
+      '[Files attached by user:\n- attachment (file "runtime-fallback.pdf")\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
   });
 }

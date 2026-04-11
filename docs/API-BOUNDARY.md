@@ -1290,23 +1290,23 @@ Behavior baseline:
 - `apps/runtime` now exposes `POST /api/v1/turns/create`:
   - request body matches `RuntimeTurnRequest`
   - current scope is text-only synchronous native `createTurn`
-  - attachments are rejected when sent as native attachment refs in this first Step 9 sub-step
+  - attachment refs are accepted; current native semantics still summarize attachments into text context rather than doing provider-native multimodal upload
   - runtime execution order is:
     - accept/replay/busy resolution through `TurnAcceptanceService`
     - warmed bundle lookup from the runtime bundle registry
-    - recent web chat history hydration from canonical backend chat records (`assistant_chats` / `assistant_chat_messages`) when the conversation address resolves to a web thread
+    - recent web chat history hydration from canonical backend chat records (`assistant_chats` / `assistant_chat_messages`) plus canonical attachment rows when the conversation address resolves to a web thread
     - provider/model resolution from the native runtime bundle unless API passes an explicit Step 9 quota-degrade `providerOverride` / `modelOverride`
     - provider-gateway text generation request
     - terminal receipt/session finalization through `TurnFinalizationService`
-  - the current enriched inbound user message still comes from API-owned request preparation; history hydration does not move chat-record ownership into runtime
+  - API still owns canonical chat/attachment persistence, but native runtime now builds current and historical attachment summary context from canonical attachment rows instead of trusting workspace paths or API-only enriched text
   - replayed completed receipts return the stored `RuntimeTurnResult`
   - replayed failed/accepted states and active busy/in-flight states currently surface as conflicts in this dark sub-step
 - `apps/runtime` now also exposes `POST /api/v1/turns/stream`:
   - request body matches `RuntimeTurnRequest`
   - response body is NDJSON `RuntimeTurnStreamEvent`
   - current scope is text-only native `streamTurn`
-  - attachments are rejected when sent as native attachment refs in this Step 9 sub-step
-  - runtime execution order matches sync up to acceptance, bundle/provider resolution, and recent canonical web chat history hydration, then yields provider-gateway stream deltas before terminal finalization
+  - attachment refs are accepted; current native semantics still summarize attachments into text context rather than doing provider-native multimodal upload
+  - runtime execution order matches sync up to acceptance, bundle/provider resolution, and recent canonical web chat/attachment hydration, then yields provider-gateway stream deltas before terminal finalization
   - replayed completed receipts return a terminal `completed` event from the stored `RuntimeTurnResult`
   - replayed failed/interrupted/accepted states and active busy/in-flight states currently surface as conflicts in this Step 9 sub-step
 - authenticated `POST /api/v1/assistant/chat/web` now has the Step 10 sync route mode boundary:
@@ -1317,7 +1317,7 @@ Behavior baseline:
   - in `shadow`, API logs `web_runtime_shadow_compare` so content, latency, and error-class drift can be inspected without changing the user-visible reply source
   - in `native`, there is no silent per-request fallback back to OpenClaw; missing runtime config or runtime failure surfaces as an honest error
   - in `native`, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
-  - current native sync path still sends attachment context as enriched text, hydrates recent canonical web chat history inside runtime, and does not yet pass object-storage attachment refs into native runtime
+  - current native sync path passes raw user text plus object-key attachment refs; `apps/runtime` hydrates attachment summaries from canonical attachment rows while `legacy` / `shadow` primary still use API-side attachment enrichment until the temporary route seam is removed
 - authenticated `POST /api/v1/assistant/chat/web/stream` now has the Step 10 stream route mode boundary:
   - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=legacy` keeps web stream turns on the OpenClaw runtime bridge
   - `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=shadow` keeps OpenClaw as the user-visible primary path while queueing one native comparison run through `StreamNativeWebChatTurnService`
@@ -1326,7 +1326,7 @@ Behavior baseline:
   - in `shadow`, API logs `web_runtime_shadow_compare` so stream completeness, latency, and error-class drift can be inspected without changing the user-visible reply source
   - in `native`, there is no silent per-request fallback back to OpenClaw; missing runtime config, invalid native stream payloads, or runtime/provider failures surface as honest errors
   - in `native`, legacy `consumeBootstrapWorkspace(...)` is skipped after successful native execution
-  - current native stream path still sends attachment context as enriched text, hydrates recent canonical web chat history inside runtime, and does not yet pass object-storage attachment refs into native runtime
+  - current native stream path passes raw user text plus object-key attachment refs; `apps/runtime` hydrates attachment summaries from canonical attachment rows while `legacy` / `shadow` primary still use API-side attachment enrichment until the temporary route seam is removed
 - runtime readiness/metrics are now execution-aware:
   - `executionEnabled` is `true`
   - `providerCacheReady` depends on provider-gateway `/ready`
@@ -1817,7 +1817,7 @@ Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness dete
 - authenticated caller only
 - `Content-Type: multipart/form-data` with `file` field
 - validates: MIME type allowlist (`image/*`, `audio/*`, `video/*`, `application/pdf`, `text/plain`, `text/markdown`), max size (configurable, default 10MB), `mediaClasses` capability gate
-- stores file in workspace via OpenClaw runtime proxy (`POST /api/v1/runtime/workspace/media/upload`)
+- stores file in PersAI-owned object storage and persists the returned object key in `assistant_chat_message_attachments.storage_path`
 - creates `assistant_chat_message_attachments` row with `processing_status: ready` (or `pending` for voice requiring STT)
 - returns `{ attachmentId, type, mimeType, sizeBytes }`
 - tracks `media_storage_bytes` quota dimension on successful upload
@@ -1826,7 +1826,7 @@ Two new endpoints consumed by OpenClaw at chat time for lazy spec freshness dete
 
 - authenticated caller only
 - validates: attachment belongs to caller's assistant + chat
-- proxies binary content from workspace via OpenClaw runtime (`GET /api/v1/runtime/workspace/media/download`)
+- streams binary content from PersAI-owned object storage using the stored object key
 - returns binary with `Content-Type` from stored `mimeType`
 
 ### POST /api/v1/assistant/chat/web (updated M2)
@@ -1867,10 +1867,8 @@ Response (extended M6):
 
 ### OpenClaw runtime workspace media endpoints (M1, bridge)
 
-- `POST /api/v1/runtime/workspace/media/upload?assistantId=...&chatId=...&messageId=...&filename=...` — binary body, writes to `<assistantId>/media/<chatId>/<messageId>/<filename>`
-- `GET /api/v1/runtime/workspace/media/download?assistantId=...&path=...` — streams file from workspace
-- `DELETE /api/v1/runtime/workspace/media/delete-chat?assistantId=...&chatId=...` — removes `<assistantId>/media/<chatId>/` directory
-- `POST /api/v1/runtime/media/transcribe?assistantId=...` — binary audio body, returns `{ text }` via `transcribeAudioFile()`
+- these endpoints are no longer the target-state storage boundary for active web attachment persistence
+- temporary remaining use is limited to legacy/media migration seams that are still outside the finished PersAI-native attachment path, such as pre-Step-12 STT staging or older runtime-owned media producers
 
 ### OpenClaw runtime chat response (updated M2, bridge)
 

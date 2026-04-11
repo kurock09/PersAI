@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
-import type { RuntimeTurnRequest, RuntimeTurnResult } from "@persai/runtime-contract";
+import type {
+  RuntimeAttachmentRef,
+  RuntimeTurnRequest,
+  RuntimeTurnResult
+} from "@persai/runtime-contract";
 import {
   ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
   type AssistantMaterializedSpecRepository
@@ -26,6 +30,7 @@ export interface SendNativeWebChatTurnInput {
   workspaceId: string;
   userMessageId: string;
   userMessage: string;
+  attachments: RuntimeAttachmentRef[];
   userTimezone?: string;
   currentTimeIso?: string;
   providerOverride?: "openai" | "anthropic";
@@ -106,7 +111,7 @@ export class SendNativeWebChatTurnService {
       },
       message: {
         text: input.userMessage,
-        attachments: [],
+        attachments: input.attachments,
         locale: null,
         timezone: input.userTimezone ?? null,
         receivedAt: input.currentTimeIso ?? new Date().toISOString()

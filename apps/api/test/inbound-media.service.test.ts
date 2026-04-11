@@ -10,21 +10,6 @@ async function run(): Promise<void> {
 
   const service = new InboundMediaService(
     {
-      async uploadChatMedia() {
-        return {
-          storagePath: "chat-1/msg-1/photo.jpg",
-          sizeBytes: 12,
-          mimeType: "image/jpeg"
-        };
-      },
-      async deleteChatMedia(_assistantId: string, storagePath: string) {
-        deletedStoragePaths.push(storagePath);
-      },
-      async getWorkspaceStorageUsage() {
-        return { usedBytes: 1000 };
-      }
-    } as never,
-    {
       async create() {
         attachmentCreated = true;
         throw new Error("attachment must not be created after capped media apply");
@@ -45,8 +30,18 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async resolveByAssistantId() {
-        return "free_shared_restricted";
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/photo.jpg";
+      },
+      async saveObject() {
+        return {
+          objectKey: "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/photo.jpg",
+          sizeBytes: 12,
+          mimeType: "image/jpeg"
+        };
+      },
+      async deleteObject(objectKey: string) {
+        deletedStoragePaths.push(objectKey);
       }
     } as never,
     {
@@ -91,9 +86,6 @@ async function run(): Promise<void> {
             updatedAt: new Date()
           }
         };
-      },
-      async resolveWorkspaceStorageLimit() {
-        return { limitBytes: BigInt(524_288_000) };
       }
     } as never,
     metrics
@@ -124,7 +116,9 @@ async function run(): Promise<void> {
   assert.equal(result.systemNotices.length, 1);
   assert.match(result.systemNotices[0]!, /Media storage/i);
   assert.equal(attachmentCreated, false);
-  assert.deepEqual(deletedStoragePaths, ["chat-1/msg-1/photo.jpg"]);
+  assert.deepEqual(deletedStoragePaths, [
+    "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/photo.jpg"
+  ]);
   assert.deepEqual(releasedBytes, [BigInt(5)]);
   const failureSeries = metrics
     .getSnapshot()

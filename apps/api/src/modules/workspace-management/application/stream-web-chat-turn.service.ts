@@ -32,6 +32,7 @@ import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { InboundMediaService } from "./media/inbound-media.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
+import { toRuntimeAttachmentRef } from "./media/media.types";
 import { resolveWelcomeTurnInstruction } from "./send-web-chat-turn.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
@@ -197,18 +198,22 @@ export class StreamWebChatTurnService {
       threadKey: prepared.chat.surfaceThreadKey
     });
 
-    const attachmentContext =
-      await this.inboundMediaService.buildContextForCurrentMessageAttachments(
-        prepared.userMessage.id
-      );
-    trace.stage("attachment_context");
+    const userAttachments = await this.attachmentRepository.listByMessageId(
+      prepared.userMessage.id
+    );
     const baseMessage = prepared.welcomeTurn
       ? resolveWelcomeTurnInstruction(prepared.welcomeLocale)
       : prepared.userMessage.content;
-    const enrichedUserMessage = attachmentContext
-      ? `${attachmentContext}\n${baseMessage}`
-      : baseMessage;
     const runtimeMode = this.streamNativeWebChatTurnService.getMode();
+    let primaryUserMessage = baseMessage;
+    if (runtimeMode !== "native") {
+      const attachmentContext =
+        await this.inboundMediaService.buildContextForCurrentMessageAttachments(
+          prepared.userMessage.id
+        );
+      primaryUserMessage = attachmentContext ? `${attachmentContext}\n${baseMessage}` : baseMessage;
+    }
+    trace.stage("attachment_context");
     const currentTimeIso = new Date().toISOString();
     const nativeTurnInput = this.buildNativeStreamTurnInput({
       assistantId: prepared.assistantId,
@@ -218,7 +223,8 @@ export class StreamWebChatTurnService {
       userId: prepared.userId,
       workspaceId: prepared.workspaceId,
       userMessageId: prepared.userMessage.id,
-      userMessage: enrichedUserMessage,
+      userMessage: baseMessage,
+      attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
       userTimezone: prepared.workspaceTimezone,
       currentTimeIso,
       ...(prepared.quotaDegradeModelOverride
@@ -244,7 +250,7 @@ export class StreamWebChatTurnService {
         runtimeMode,
         nativeTurnInput,
         prepared,
-        enrichedUserMessage,
+        enrichedUserMessage: primaryUserMessage,
         currentTimeIso,
         ...(trace.isEnabled() ? { overviewTraceId: trace.getTraceId() } : {}),
         ...(callbacks.clientAbortSignal === undefined
@@ -532,6 +538,7 @@ export class StreamWebChatTurnService {
     workspaceId: string;
     userMessageId: string;
     userMessage: string;
+    attachments: StreamNativeWebChatTurnInput["attachments"];
     userTimezone: string;
     currentTimeIso: string;
     providerOverride?: "openai" | "anthropic";
@@ -546,6 +553,7 @@ export class StreamWebChatTurnService {
       workspaceId: input.workspaceId,
       userMessageId: input.userMessageId,
       userMessage: input.userMessage,
+      attachments: input.attachments,
       userTimezone: input.userTimezone,
       currentTimeIso: input.currentTimeIso,
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),

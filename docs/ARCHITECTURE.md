@@ -766,22 +766,23 @@ It is not part of backend domain logic.
 
 - PersAI owns canonical chat message attachment lifecycle in `assistant_chat_message_attachments` (control plane)
 - attachment types: `image`, `audio`, `voice`, `video`, `document`, `tool_output`
-- physical media files live inside per-assistant GCS FUSE workspace under `<assistantId>/media/<chatId>/<messageId>/`
-- PersAI proxies media upload/download through OpenClaw workspace HTTP endpoints (same pattern as avatar)
+- physical media binaries for active chat attachments/artifacts live in PersAI-owned object storage; `assistant_chat_message_attachments.storage_path` currently stores the PersAI object key even though the column name still reflects the older media model
+- the underlying object storage may reuse the same cloud bucket family as other PersAI storage, but attachment persistence is no longer modeled as an OpenClaw workspace filesystem concern
 - tool-generated media (`image_generate`, `tts`) is captured from OpenClaw agent response payloads and persisted as `tool_output` attachments after turn completion; delivery is post-completion with natural model status text during generation
-- inbound voice messages (web microphone + Telegram `message:voice`) are transcribed via existing OpenClaw `transcribeAudioFile()` (Whisper); transcription text becomes the runtime `userMessage`, original audio is preserved as attachment
+- inbound voice messages (web microphone + Telegram `message:voice`) still use the temporary pre-Step-12 STT seam; transcription text becomes the runtime `userMessage`, original audio is preserved as attachment
 - media capabilities (`image`, `audio`, `video`, `file`) are plan-governed via `effectiveCapabilities.mediaClasses` (activated from plan entitlements, no longer hardcoded false)
 - media storage is quota-tracked via `media_storage_bytes` dimension in the existing workspace quota accounting system
-- cleanup: chat hard-delete removes media files from workspace + attachment rows from DB; assistant reset deletes entire workspace directory (already covers media)
-- OpenClaw remains runtime executor; PersAI owns attachment persistence, quota enforcement, and per-surface delivery formatting
+- cleanup: chat hard-delete / assistant reset / admin delete remove attachment objects from PersAI storage as part of the same bounded PersAI-owned media lifecycle
+- native web turns now pass raw user text plus attachment refs into `apps/runtime`, which hydrates attachment summaries from canonical `assistant_chat_message_attachments` rows instead of relying on workspace paths or API-only prompt enrichment for the native path
+- OpenClaw workspace media is no longer target-state storage for active chat attachments; any remaining OpenClaw media calls are temporary migration seams outside the final attachment architecture
 - native OpenClaw changes in M-series stayed intentionally small, centered on Yandex TTS support and a few runtime fixes/seams; the majority of the implementation remained PersAI-side or in PersAI bridge files in the fork
 
 ### Unified media pipeline (ADR-060)
 
 - all media handling goes through three unified services in `apps/api/src/modules/workspace-management/application/media/`:
   - `MediaPreprocessorService` — normalizes inbound media: audio webm/ogg→mp3 (ffmpeg), image heic→jpg + resize (sharp), PDF text extraction, video audio track STT
-  - `InboundMediaService` — single `resolve()` entry point for all inbound user attachments (any channel); preprocesses → stores → creates attachment records → builds model context block
-  - `MediaDeliveryService` — single `deliver()` entry point for all outbound tool-generated media; downloads → re-uploads → creates attachment records → delegates to channel adapter
+  - `InboundMediaService` — single `resolve()` entry point for all inbound user attachments (any channel); preprocesses → stores in PersAI object storage → creates attachment records with canonical transcription/content-preview metadata → builds the current legacy-path model context block when needed
+  - `MediaDeliveryService` — single `deliver()` entry point for all outbound tool-generated media; downloads source artifacts → persists the PersAI-owned attachment copy → creates attachment records → delegates to channel adapter
 - `ChannelMediaAdapter` interface defines per-channel delivery contract (`sendImage`, `sendVoice`, `sendAudio`, `sendDocument`, `sendVideo`)
 - current adapters: `WebMediaAdapter` (no-op, proxy-based), `TelegramMediaAdapter` (bridge-delegated via turn response)
 - adding a new channel (WhatsApp, VK, Matrix) = one new adapter file implementing `ChannelMediaAdapter`, zero changes to core pipeline

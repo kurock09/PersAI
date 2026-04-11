@@ -147,6 +147,7 @@ import { ManageChatMediaService } from "./application/manage-chat-media.service"
 import { MediaPreprocessorService } from "./application/media/media-preprocessor.service";
 import { InboundMediaService } from "./application/media/inbound-media.service";
 import { MediaDeliveryService } from "./application/media/media-delivery.service";
+import { PersaiMediaObjectStorageService } from "./application/media/persai-media-object-storage.service";
 import { CHANNEL_MEDIA_ADAPTERS } from "./application/media/channel-adapters/channel-media-adapter.interface";
 import { WebMediaAdapter } from "./application/media/channel-adapters/web-media.adapter";
 import { TelegramMediaAdapter } from "./application/media/channel-adapters/telegram-media.adapter";
@@ -346,6 +347,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     },
     ManageChatMediaService,
     MediaPreprocessorService,
+    PersaiMediaObjectStorageService,
     InboundMediaService,
     MediaDeliveryService,
     WebMediaAdapter,

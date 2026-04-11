@@ -223,6 +223,38 @@ Required in CI:
   - `web_runtime_shadow_compare` remains available only when operators intentionally switch a route back to `shadow`
   - next work moves to Step 11 attachment staging and later cleanup of the temporary web route modes
 
+## Step 11 native attachment staging focus
+
+- active web attachment persistence must move to PersAI-owned object storage instead of OpenClaw workspace media endpoints
+- `assistant_chat_message_attachments.storage_path` now stores a PersAI object key even before the later schema-cleanup step renames any legacy field names
+- hard-delete, assistant reset, and admin user delete must remove the corresponding stored attachment objects in addition to deleting attachment rows and releasing `media_storage_bytes`
+- the current Step 11 storage cutover must not depend on OpenClaw request-time media upload/download/delete for ordinary web attachment persistence
+- native web sync/stream paths should pass raw user text plus attachment refs and let `apps/runtime` hydrate current/historical attachment summaries from canonical attachment rows instead of relying on API-only attachment text enrichment
+- canonical attachment rows should retain usable preview/transcription metadata for runtime hydration, including direct web upload paths and staged uploads
+- temporary migration seams are still allowed only where Step 11 is not yet complete:
+  - pre-Step-12 STT staging/transcription may still use the existing runtime transcribe seam
+  - legacy runtime-owned media producers may still require one download-source seam until later native tool slices replace them
+- focused Step 11 regressions for this storage cutover:
+  - `apps/api/test/manage-chat-media.stage-web-thread.test.ts`
+  - `apps/api/test/send-web-chat-turn.service.test.ts`
+  - `apps/api/test/stream-web-chat-turn.service.test.ts`
+  - `apps/api/test/inbound-media.service.test.ts`
+  - `apps/api/test/media-delivery.service.test.ts`
+  - `apps/api/test/manage-web-chat-list.service.test.ts`
+  - `apps/api/test/admin-delete-user.service.test.ts`
+  - `apps/runtime/test/turn-context-hydration.service.test.ts`
+- minimum verification for this sub-step:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/runtime run typecheck`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+
 ## Step 1 focus
 
 - app boot

@@ -3,6 +3,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 
 const ASSISTANT_PUBLISHED_VERSIONS_NO_DELETE_TRIGGER = "assistant_published_versions_no_delete";
 const ASSISTANT_AUDIT_EVENTS_NO_UPDATE_TRIGGER = "assistant_audit_events_no_update";
@@ -16,7 +17,8 @@ export class AdminDeleteUserService {
     @Inject(ASSISTANT_RUNTIME_FACADE)
     private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async execute(callerUserId: string, targetUserId: string): Promise<void> {
@@ -148,6 +150,12 @@ export class AdminDeleteUserService {
       },
       { timeout: 60_000 }
     );
+
+    if (assistant !== null) {
+      await this.mediaObjectStorage.deletePrefix(
+        this.mediaObjectStorage.buildAssistantPrefix(assistant.id)
+      );
+    }
 
     if (assistant !== null && workspaceId !== null) {
       const survivingMembers = await this.prisma.workspaceMember.count({

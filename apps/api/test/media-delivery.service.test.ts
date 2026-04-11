@@ -40,14 +40,6 @@ async function run(): Promise<void> {
           buffer: Buffer.from("console.log('x');"),
           contentType: "application/octet-stream"
         };
-      },
-      async uploadChatMedia() {
-        uploadCalls += 1;
-        return {
-          storagePath: "chat/blocked.js",
-          sizeBytes: 19,
-          mimeType: "text/javascript"
-        };
       }
     } as never,
     {
@@ -60,6 +52,20 @@ async function run(): Promise<void> {
     {
       async resolveByAssistantId() {
         return "free_shared_restricted";
+      }
+    } as never,
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/blocked.js";
+      },
+      async saveObject() {
+        uploadCalls += 1;
+        return {
+          objectKey:
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/blocked.js",
+          sizeBytes: 19,
+          mimeType: "text/javascript"
+        };
       }
     } as never,
     blockedMetrics
@@ -96,21 +102,6 @@ async function run(): Promise<void> {
           buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
           contentType: "application/octet-stream"
         };
-      },
-      async uploadChatMedia(_params: {
-        assistantId: string;
-        runtimeTier: string;
-        chatId: string;
-        messageId: string;
-        fileBuffer: Buffer;
-        mimeType: string;
-      }) {
-        uploadedMime = _params.mimeType;
-        return {
-          storagePath: "chat/image.png",
-          sizeBytes: _params.fileBuffer.length,
-          mimeType: _params.mimeType
-        };
       }
     } as never,
     {
@@ -132,6 +123,20 @@ async function run(): Promise<void> {
     {
       async resolveByAssistantId() {
         return "free_shared_restricted";
+      }
+    } as never,
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/render.png";
+      },
+      async saveObject(input: { mimeType: string; buffer: Buffer }) {
+        uploadedMime = input.mimeType;
+        return {
+          objectKey:
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/render.png",
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
       }
     } as never,
     safeMetrics

@@ -796,7 +796,7 @@ Postgres with Prisma.
 - assistant_id (UUID FK -> `assistants.id`)
 - workspace_id (UUID FK -> `workspaces.id`)
 - attachment_type (`image|audio|voice|video|document|tool_output`)
-- storage_path (varchar 512) -- relative path within assistant workspace (e.g. `media/<chatId>/<messageId>/photo.jpg`)
+- storage_path (varchar 512) -- PersAI object key for the attachment binary (the column name is legacy, but the stored value is now object-storage based rather than workspace-relative)
 - original_filename (nullable varchar 255)
 - mime_type (varchar 128)
 - size_bytes (bigint)
@@ -818,7 +818,7 @@ Prisma baseline:
     - `(chat_id)` -- bulk delete on chat hard-delete
     - `(assistant_id)` -- bulk delete on assistant reset
     - `(workspace_id, created_at DESC)` -- quota aggregation
-  - stores attachment metadata only; physical files live in GCS FUSE workspace
+  - stores attachment metadata only; physical files live in PersAI-owned object storage
   - cascade: rows deleted in same DB transaction as parent messages/chats (hard-delete, reset)
   - quota tracking: `SUM(size_bytes)` by workspace_id drives `media_storage_bytes` accounting dimension
 

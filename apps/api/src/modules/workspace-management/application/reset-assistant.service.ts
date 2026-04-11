@@ -9,6 +9,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 
 @Injectable()
 export class ResetAssistantService {
@@ -23,7 +24,8 @@ export class ResetAssistantService {
     private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async execute(userId: string): Promise<void> {
@@ -98,6 +100,7 @@ export class ResetAssistantService {
       throw err;
     }
 
+    await this.mediaObjectStorage.deletePrefix(this.mediaObjectStorage.buildAssistantPrefix(aid));
     this.logger.log("Resetting runtime workspace to clean memory baseline");
     await this.assistantRuntime.resetWorkspace(aid);
     await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({

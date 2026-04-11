@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type {
+  RuntimeAttachmentRef,
   RuntimeFailedEvent,
   RuntimeInterruptedEvent,
   RuntimeTurnRequest,
@@ -32,6 +33,7 @@ export interface StreamNativeWebChatTurnInput {
   workspaceId: string;
   userMessageId: string;
   userMessage: string;
+  attachments: RuntimeAttachmentRef[];
   userTimezone?: string;
   currentTimeIso?: string;
   providerOverride?: "openai" | "anthropic";
@@ -115,7 +117,7 @@ export class StreamNativeWebChatTurnService {
       },
       message: {
         text: input.userMessage,
-        attachments: [],
+        attachments: input.attachments,
         locale: null,
         timezone: input.userTimezone ?? null,
         receivedAt: input.currentTimeIso ?? new Date().toISOString()

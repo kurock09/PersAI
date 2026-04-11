@@ -95,6 +95,7 @@ describe("SendNativeWebChatTurnService", () => {
         workspaceId: "workspace-1",
         userMessageId: "user-msg-1",
         userMessage: "hello native",
+        attachments: [],
         userTimezone: "UTC",
         currentTimeIso: "2026-04-11T13:00:00.000Z",
         providerOverride: "anthropic",
@@ -106,6 +107,10 @@ describe("SendNativeWebChatTurnService", () => {
       assert.equal(capturedBody?.providerOverride, "anthropic");
       assert.equal(capturedBody?.modelOverride, "claude-sonnet-4-5");
       assert.equal((capturedBody?.bundle as Record<string, unknown>)?.bundleId, "spec-1");
+      assert.deepEqual(
+        ((capturedBody?.message as Record<string, unknown>)?.attachments as unknown[]) ?? [],
+        []
+      );
       assert.equal(
         ((capturedBody?.conversation as Record<string, unknown>)?.externalUserKey as string) ??
           null,
@@ -172,7 +177,8 @@ describe("SendNativeWebChatTurnService", () => {
             userId: "user-1",
             workspaceId: "workspace-1",
             userMessageId: "user-msg-1",
-            userMessage: "hello native"
+            userMessage: "hello native",
+            attachments: []
           }),
         (error) => {
           const row = error as { errorObject?: { code?: string } };
@@ -202,7 +208,8 @@ describe("SendNativeWebChatTurnService", () => {
           userId: "user-1",
           workspaceId: "workspace-1",
           userMessageId: "user-msg-1",
-          userMessage: "hello native"
+          userMessage: "hello native",
+          attachments: []
         }),
       (error) =>
         error instanceof AssistantRuntimeError &&

@@ -439,10 +439,12 @@ export class TurnExecutionService {
         "modelOverride must be a non-empty string when providerOverride is provided."
       );
     }
-    if (input.message.attachments.length > 0) {
-      throw new BadRequestException(
-        `Native web ${operation} currently supports text-only requests in this step.`
-      );
+    for (const attachment of input.message.attachments) {
+      if (attachment.objectKey.trim().length === 0) {
+        throw new BadRequestException(
+          `message.attachments[].objectKey must be non-empty for native web ${operation}.`
+        );
+      }
     }
   }
 

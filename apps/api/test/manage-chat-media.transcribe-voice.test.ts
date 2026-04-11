@@ -69,6 +69,7 @@ async function run(): Promise<void> {
       }
     } as never,
     {} as never,
+    {} as never,
     {
       async resolveByAssistantId() {
         return "free_shared_restricted";
@@ -145,6 +146,7 @@ async function run(): Promise<void> {
       },
       async deleteChatMediaBatch() {}
     } as never,
+    {} as never,
     {} as never,
     {
       async resolveByAssistantId() {

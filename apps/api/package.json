@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@clerk/backend": "^3.2.2",
+    "@google-cloud/storage": "^7.19.0",
     "@nestjs/common": "^11.1.17",
     "@nestjs/core": "^11.1.17",
     "@nestjs/platform-express": "^11.1.17",

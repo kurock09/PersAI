@@ -13,6 +13,7 @@ async function run(): Promise<void> {
   const deleted: string[] = [];
   const runtimeResets: string[] = [];
   const releasedBytes: bigint[] = [];
+  const deletedPrefixes: string[] = [];
   const recordDelete = (label: string) => async () => {
     deleted.push(label);
   };
@@ -166,12 +167,21 @@ async function run(): Promise<void> {
       releaseMediaStorage: async (input: { sizeBytes: bigint }) => {
         releasedBytes.push(input.sizeBytes);
       }
+    } as never,
+    {
+      buildAssistantPrefix(assistantId: string) {
+        return `assistant-media/assistants/${assistantId}/`;
+      },
+      async deletePrefix(prefix: string) {
+        deletedPrefixes.push(prefix);
+      }
     } as never
   );
 
   await service.execute("admin-1", "user-1");
 
   assert.deepEqual(runtimeResets, ["assistant-1"]);
+  assert.deepEqual(deletedPrefixes, ["assistant-media/assistants/assistant-1/"]);
   assert.deepEqual(auditUpdateCalls, []);
   assert.equal(
     normalizeSql(rawSql[0] ?? ""),

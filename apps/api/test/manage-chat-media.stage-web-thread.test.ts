@@ -37,6 +37,144 @@ async function run(): Promise<void> {
   process.env.WEB_ACTIVE_CHATS_CAP = "20";
   process.env.QUOTA_TOKEN_BUDGET_DEFAULT = "100";
   process.env.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT = "3";
+
+  let directUploadCreateInput: Record<string, unknown> | null = null;
+  const directUploadService = new ManageChatMediaService(
+    {
+      async findByUserId(userId: string) {
+        return userId === "user-1" ? assistant : null;
+      }
+    } as never,
+    {
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: assistant.id,
+          userId: assistant.userId,
+          workspaceId: assistant.workspaceId,
+          surface: "web",
+          surfaceThreadKey: "thread-1",
+          title: null,
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: new Date("2026-04-06T00:00:00.000Z"),
+          updatedAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      },
+      async findMessageByIdForAssistant(messageId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId: assistant.id,
+          author: "user",
+          content: "upload here",
+          createdAt: new Date("2026-04-06T00:00:00.000Z"),
+          updatedAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      }
+    } as never,
+    {
+      async create(input: Record<string, unknown>) {
+        directUploadCreateInput = input;
+        return {
+          id: "att-direct-1",
+          messageId: "msg-direct-1",
+          chatId: "chat-1",
+          assistantId: assistant.id,
+          workspaceId: assistant.workspaceId,
+          attachmentType: "document",
+          storagePath: input.storagePath,
+          originalFilename: input.originalFilename,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+          durationMs: input.durationMs,
+          width: input.width,
+          height: input.height,
+          processingStatus: "ready",
+          transcription: input.transcription,
+          metadata: input.metadata,
+          createdAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      }
+    } as never,
+    {
+      async transcribeMedia() {
+        throw new Error("not used");
+      }
+    } as never,
+    {
+      async process(buffer: Buffer) {
+        return {
+          normalizedBuffer: buffer,
+          normalizedMime: "text/plain",
+          normalizedExtension: "txt",
+          transcription: null,
+          textExtract: "line one\nline two",
+          durationMs: null,
+          width: null,
+          height: null
+        };
+      }
+    } as never,
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-direct-1/note.txt";
+      },
+      async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+        return {
+          objectKey: input.objectKey,
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
+      }
+    } as never,
+    {} as never,
+    {
+      async checkMediaStorageQuota() {
+        return { allowed: true };
+      },
+      async recordMediaUpload(input: { sizeBytes: bigint }) {
+        return {
+          appliedDelta: input.sizeBytes,
+          capped: false,
+          state: {
+            id: "state-direct-1",
+            workspaceId: assistant.workspaceId,
+            tokenBudgetUsed: BigInt(0),
+            tokenBudgetLimit: null,
+            costOrTokenDrivingToolClassUnitsUsed: 0,
+            costOrTokenDrivingToolClassUnitsLimit: null,
+            activeWebChatsCurrent: 0,
+            activeWebChatsLimit: null,
+            mediaStorageBytesUsed: input.sizeBytes,
+            mediaStorageBytesLimit: BigInt(1000),
+            lastComputedAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        };
+      }
+    } as never,
+    new PlatformHttpMetricsService()
+  );
+
+  await directUploadService.uploadAttachment({
+    userId: "user-1",
+    chatId: "chat-1",
+    messageId: "msg-direct-1",
+    file: {
+      buffer: Buffer.from("line one\nline two"),
+      mimetype: "text/plain",
+      originalname: "note.txt"
+    }
+  });
+
+  assert.equal((directUploadCreateInput?.mimeType as string) ?? null, "text/plain");
+  assert.deepEqual(directUploadCreateInput?.metadata, {
+    source: "chat_upload",
+    contentPreview: "line one line two"
+  });
+
   const metrics = new PlatformHttpMetricsService();
   const deletedStoragePaths: string[] = [];
   const releasedBytes: bigint[] = [];
@@ -108,25 +246,8 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async uploadChatMedia(input: {
-        assistantId: string;
-        runtimeTier: string;
-        chatId: string;
-        messageId: string;
-        fileBuffer: Buffer;
-        mimeType: string;
-      }) {
-        return {
-          storagePath: `${input.chatId}/${input.messageId}/image.png`,
-          sizeBytes: input.fileBuffer.length,
-          mimeType: input.mimeType
-        };
-      },
-      async deleteChatMedia(_assistantId: string, storagePath: string) {
-        deletedStoragePaths.push(storagePath);
-      },
-      async getWorkspaceStorageUsage() {
-        return { usedBytes: 1000 };
+      async transcribeMedia() {
+        throw new Error("not used");
       }
     } as never,
     {
@@ -144,16 +265,24 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async resolveByAssistantId() {
-        return "free_shared_restricted";
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png";
+      },
+      async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+        return {
+          objectKey: input.objectKey,
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
+      },
+      async deleteObject(objectKey: string) {
+        deletedStoragePaths.push(objectKey);
       }
     } as never,
+    {} as never,
     {
       async checkMediaStorageQuota() {
         return { allowed: true };
-      },
-      async resolveWorkspaceStorageLimit() {
-        return { limitBytes: BigInt(524_288_000) };
       },
       async recordMediaUpload(input: { sizeBytes: bigint }) {
         return {
@@ -271,18 +400,8 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async uploadChatMedia() {
-        return {
-          storagePath: "chat-1/msg-1/image.png",
-          sizeBytes: 12,
-          mimeType: "image/png"
-        };
-      },
-      async deleteChatMedia(_assistantId: string, storagePath: string) {
-        cappedDeletes.push(storagePath);
-      },
-      async getWorkspaceStorageUsage() {
-        return { usedBytes: 1000 };
+      async transcribeMedia() {
+        throw new Error("not used");
       }
     } as never,
     {
@@ -300,16 +419,24 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async resolveByAssistantId() {
-        return "free_shared_restricted";
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png";
+      },
+      async saveObject() {
+        return {
+          objectKey: "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png",
+          sizeBytes: 12,
+          mimeType: "image/png"
+        };
+      },
+      async deleteObject(objectKey: string) {
+        cappedDeletes.push(objectKey);
       }
     } as never,
+    {} as never,
     {
       async checkMediaStorageQuota() {
         return { allowed: true };
-      },
-      async resolveWorkspaceStorageLimit() {
-        return { limitBytes: BigInt(524_288_000) };
       },
       async recordMediaUpload() {
         return {
@@ -372,7 +499,9 @@ async function run(): Promise<void> {
       error instanceof ApiErrorHttpException &&
       error.errorObject.code === "media_storage_quota_exceeded"
   );
-  assert.deepEqual(cappedDeletes, ["chat-1/msg-1/image.png"]);
+  assert.deepEqual(cappedDeletes, [
+    "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png"
+  ]);
   assert.deepEqual(cappedReleases, [BigInt(5)]);
   const failureSeries = failureMetrics
     .getSnapshot()
@@ -401,6 +530,7 @@ async function run(): Promise<void> {
             };
           }
         } as never,
+        {} as never,
         {} as never,
         {} as never,
         {} as never,

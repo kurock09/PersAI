@@ -12,6 +12,7 @@ import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assista
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import type {
   AssistantWebChatCompactionResult,
   AssistantWebChatCompactionState,
@@ -65,6 +66,7 @@ export class ManageWebChatListService {
     private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
   ) {}
 
@@ -359,15 +361,17 @@ export class ManageWebChatListService {
       surfaceThreadKey: chat.surfaceThreadKey
     });
 
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
     const attachments = await this.attachmentRepository.listByChatId(chat.id);
     const releasedBytes = attachments.reduce(
       (sum, attachment) => sum + attachment.sizeBytes,
       BigInt(0)
     );
-    await this.assistantRuntime.deleteChatMediaBatch(assistant.id, chat.id, runtimeTier);
+    await this.mediaObjectStorage.deletePrefix(
+      this.mediaObjectStorage.buildChatPrefix({
+        assistantId: assistant.id,
+        chatId: chat.id
+      })
+    );
     await this.attachmentRepository.deleteByChatId(chat.id);
     await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
       assistant,

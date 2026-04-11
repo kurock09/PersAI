@@ -133,13 +133,22 @@ async function run(): Promise<void> {
       }) => {
         callOrder.push(`quota-${input.source}-${String(input.activeWebChatsCurrent)}`);
       }
+    } as never,
+    {
+      buildChatPrefix(input: { assistantId: string; chatId: string }) {
+        assert.deepEqual(input, { assistantId: "assistant-1", chatId: "chat-1" });
+        return "assistant-media/assistants/assistant-1/chats/chat-1/";
+      },
+      async deletePrefix(prefix: string) {
+        callOrder.push(`object-storage-delete:${prefix}`);
+      }
     } as never
   );
 
   await service.hardDeleteChat("user-1", "chat-1", { confirmText: "DELETE" });
   assert.deepEqual(callOrder, [
     "runtime-delete",
-    "runtime-media-delete",
+    "object-storage-delete:assistant-media/assistants/assistant-1/chats/chat-1/",
     "attachments-delete",
     "repo-delete",
     "quota-web_chat_hard_delete-0"

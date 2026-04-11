@@ -1,6 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
-import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "../assistant-runtime.facade";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -8,13 +7,15 @@ import {
 import type { AssistantChatMessageAttachment } from "../../domain/assistant-chat-message-attachment.entity";
 import { MediaPreprocessorService } from "./media-preprocessor.service";
 import {
+  buildStoredAttachmentMetadata,
   inferAttachmentTypeFromMime,
+  readStoredAttachmentContentPreview,
   type InboundMediaResolveParams,
   type ResolvedInboundMedia
 } from "./media.types";
-import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media-security-policy";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 
 class MediaStorageQuotaExceededError extends Error {
   constructor(
@@ -34,12 +35,10 @@ export class InboundMediaService {
   private readonly logger = new Logger(InboundMediaService.name);
 
   constructor(
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     private readonly preprocessor: MediaPreprocessorService,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
@@ -53,37 +52,6 @@ export class InboundMediaService {
     const contextLines: string[] = [];
     const failureNotices: string[] = [];
     const systemNotices: string[] = [];
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      params.assistantId
-    );
-
-    const wsLimits = await this.trackWorkspaceQuotaUsageService.resolveWorkspaceStorageLimit({
-      id: params.assistantId,
-      userId: params.userId,
-      workspaceId: params.workspaceId
-    } as Parameters<typeof this.trackWorkspaceQuotaUsageService.resolveWorkspaceStorageLimit>[0]);
-    if (wsLimits.limitBytes !== null) {
-      const wsUsage = await this.assistantRuntime.getWorkspaceStorageUsage(
-        params.assistantId,
-        runtimeTier
-      );
-      if (wsUsage.usedBytes >= Number(wsLimits.limitBytes)) {
-        const usedMb = Math.round((wsUsage.usedBytes / 1_048_576) * 10) / 10;
-        const limitMb = Math.round((Number(wsLimits.limitBytes) / 1_048_576) * 10) / 10;
-        const sysNotice = `⚠ Workspace disk is full (${usedMb} MB / ${limitMb} MB). Delete old chats or files to free space.`;
-        systemNotices.push(sysNotice);
-        failureNotices.push(
-          `[System: The workspace disk is full (${usedMb} MB / ${limitMb} MB). The user's file "${params.rawAttachments[0]?.originalFilename ?? "attachment"}" could not be saved. Please tell the user that the workspace storage is full and suggest deleting old files or chats to free space.]`
-        );
-        const enrichedMessage = this.buildEnrichedMessage(
-          params.userMessage,
-          contextLines,
-          false,
-          failureNotices
-        );
-        return { attachments, enrichedMessage, systemNotices };
-      }
-    }
 
     for (const raw of params.rawAttachments) {
       const startedAt = process.hrtime.bigint();
@@ -102,12 +70,15 @@ export class InboundMediaService {
           params.assistantId
         );
 
-        const uploadResult = await this.assistantRuntime.uploadChatMedia({
+        const objectKey = this.mediaObjectStorage.buildChatMessageObjectKey({
           assistantId: params.assistantId,
-          runtimeTier,
           chatId: params.chatId,
           messageId: params.messageId,
-          fileBuffer: processed.normalizedBuffer,
+          extension: processed.normalizedExtension
+        });
+        const uploadResult = await this.mediaObjectStorage.saveObject({
+          objectKey,
+          buffer: processed.normalizedBuffer,
           mimeType: processed.normalizedMime
         });
 
@@ -124,11 +95,7 @@ export class InboundMediaService {
         });
 
         if (applied.capped) {
-          await this.assistantRuntime.deleteChatMedia(
-            params.assistantId,
-            uploadResult.storagePath,
-            runtimeTier
-          );
+          await this.mediaObjectStorage.deleteObject(uploadResult.objectKey);
           const released = await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
             assistant: {
               id: params.assistantId,
@@ -157,7 +124,7 @@ export class InboundMediaService {
           assistantId: params.assistantId,
           workspaceId: params.workspaceId,
           attachmentType,
-          storagePath: uploadResult.storagePath,
+          storagePath: uploadResult.objectKey,
           originalFilename: raw.originalFilename || null,
           mimeType: processed.normalizedMime,
           sizeBytes: BigInt(uploadResult.sizeBytes),
@@ -166,10 +133,10 @@ export class InboundMediaService {
           height: processed.height,
           processingStatus: "ready",
           transcription: processed.transcription,
-          metadata: {
+          metadata: buildStoredAttachmentMetadata({
             source: raw.source,
-            ...(processed.textExtract ? { textExtract: "stored" } : {})
-          }
+            textExtract: processed.textExtract
+          })
         });
 
         attachments.push(attachment);
@@ -238,7 +205,11 @@ export class InboundMediaService {
       });
 
       const lines = deduped.map((attachment) =>
-        this.formatContextLine(attachment, attachment.transcription, null)
+        this.formatContextLine(
+          attachment,
+          attachment.transcription,
+          readStoredAttachmentContentPreview(attachment.metadata)
+        )
       );
 
       return this.buildAttachmentBlock(
@@ -268,7 +239,7 @@ export class InboundMediaService {
     }
 
     const extrasStr = extras.length > 0 ? ", " + extras.join(", ") : "";
-    return `- media/${attachment.storagePath} (${attachment.attachmentType}${name}${extrasStr})`;
+    return `- attachment (${attachment.attachmentType}${name}${extrasStr})`;
   }
 
   private buildEnrichedMessage(
@@ -311,10 +282,10 @@ export class InboundMediaService {
     const lines = [`[${title}:`, ...contextLines];
     if (hasImageAttachments) {
       lines.push(
-        "If any attached file is an image, inspect it with the image tool before answering. Do not guess from the filename or path alone."
+        "Image attachments are present. Do not guess visual details that are not described in the attachment metadata or user message."
       );
     }
-    lines.push("You can read or reference them by their path.]");
+    lines.push("Use the attachment metadata, transcription, and content preview when available.]");
     return lines.join("\n");
   }
 

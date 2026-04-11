@@ -43,6 +43,8 @@ const baseApiConfigSchema = z.object({
   PERSAI_RUNTIME_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   PERSAI_PROVIDER_GATEWAY_BASE_URL: optionalUrl,
   PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  PERSAI_MEDIA_BUCKET_NAME: z.string().optional(),
+  PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("assistant-media"),
   OPENCLAW_ADAPTER_ENABLED: envBoolean.default(false),
   OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: optionalUrl,
   OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: optionalUrl,

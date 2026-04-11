@@ -127,6 +127,8 @@ describe("SendWebChatTurnService", () => {
     let legacyRuntimeCalls = 0;
     let nativeRuntimeCalls = 0;
     let bootstrapConsumeCalls = 0;
+    let attachmentContextCalls = 0;
+    let capturedNativeUserMessage = "";
 
     const service = new SendWebChatTurnService(
       {
@@ -161,8 +163,9 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         getMode: () => "native",
-        execute: async () => {
+        execute: async (input: { userMessage: string }) => {
           nativeRuntimeCalls += 1;
+          capturedNativeUserMessage = input.userMessage;
           return {
             assistantMessage: "native",
             respondedAt: "2026-04-05T12:00:01.000Z",
@@ -218,7 +221,10 @@ describe("SendWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
-        buildContextForCurrentMessageAttachments: async () => null
+        buildContextForCurrentMessageAttachments: async () => {
+          attachmentContextCalls += 1;
+          return '[Files attached by user:\n- attachment (document "draft.txt")]';
+        }
       } as never,
       {
         deliver: async () => ({ attachments: [] })
@@ -237,6 +243,8 @@ describe("SendWebChatTurnService", () => {
     assert.equal(nativeRuntimeCalls, 1);
     assert.equal(legacyRuntimeCalls, 0);
     assert.equal(bootstrapConsumeCalls, 0);
+    assert.equal(attachmentContextCalls, 0);
+    assert.equal(capturedNativeUserMessage, "hello");
     assert.equal(result.assistantMessage.content, "native");
   });
 
@@ -245,6 +253,8 @@ describe("SendWebChatTurnService", () => {
     let nativeRuntimeCalls = 0;
     let bootstrapConsumeCalls = 0;
     let shadowComparisonCalls = 0;
+    let attachmentContextCalls = 0;
+    let capturedLegacyUserMessage = "";
 
     const service = new SendWebChatTurnService(
       {
@@ -265,8 +275,9 @@ describe("SendWebChatTurnService", () => {
         releaseWebTurnProcessing: async () => undefined
       } as never,
       {
-        sendWebChatTurn: async () => {
+        sendWebChatTurn: async (input: { userMessage: string }) => {
           legacyRuntimeCalls += 1;
+          capturedLegacyUserMessage = input.userMessage;
           return {
             assistantMessage: "legacy",
             respondedAt: "2026-04-05T12:00:01.000Z",
@@ -336,7 +347,10 @@ describe("SendWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
-        buildContextForCurrentMessageAttachments: async () => null
+        buildContextForCurrentMessageAttachments: async () => {
+          attachmentContextCalls += 1;
+          return '[Files attached by user:\n- attachment (document "draft.txt")]';
+        }
       } as never,
       {
         deliver: async () => ({ attachments: [] })
@@ -358,6 +372,8 @@ describe("SendWebChatTurnService", () => {
     assert.equal(nativeRuntimeCalls, 0);
     assert.equal(bootstrapConsumeCalls, 1);
     assert.equal(shadowComparisonCalls, 1);
+    assert.equal(attachmentContextCalls, 1);
+    assert.match(capturedLegacyUserMessage, /Files attached by user/);
     assert.equal(result.assistantMessage.content, "legacy");
   });
 });

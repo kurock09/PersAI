@@ -1,5 +1,154 @@
 # SESSION-HANDOFF
 
+## 2026-04-11 - ADR-072 Step 11 native attachment context hydration
+
+### What changed
+
+1. Native web sync/stream paths now send raw user text plus attachment refs into `apps/runtime`; `TurnContextHydrationService` now hydrates current and historical attachment summaries from canonical `assistant_chat_message_attachments` rows instead of relying on API-only attachment prompt enrichment for the native path.
+2. `ManageChatMediaService.uploadAttachment(...)` now runs the same best-effort preprocessing path as staged uploads, so direct web uploads also persist canonical preview/transcription metadata that runtime hydration can later read.
+3. Canonical attachment metadata now stores usable `contentPreview` text instead of a placeholder marker, and repo truth (`ADR-072`, `API-BOUNDARY`, `ARCHITECTURE`, `TEST-PLAN`, `CHANGELOG`) now reflects that native attachment context lives in runtime hydration while API-side enrichment remains only for `legacy` / `shadow` primary execution during the temporary Step 10 route seam.
+
+### Why
+
+1. The previous object-storage cutover still left native attachment meaning partially dependent on API-enriched text, which would have forced another deploy just to finish the same Step 11 attachment package honestly.
+2. Batching canonical preview persistence plus runtime-native attachment hydration now gives one cleaner deploy point for the current Step 11 package.
+
+### Current active slice
+
+- `Slice 4 — Attachment context and STT cutover`
+
+### Current active step
+
+- `Step 11 — Implement native attachment staging`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/inbound-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media.types.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/api/test/manage-chat-media.stage-web-thread.test.ts`
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run test`
+
+### Risks
+
+1. STT still uses the temporary OpenClaw transcription seam in `manage-chat-media.service.ts` and `media-preprocessor.service.ts`; Step 12 must remove it.
+2. `legacy` / `shadow` primary execution still uses API-side attachment enrichment while the temporary web route seam exists; that is acceptable only until the later route cleanup/removal step.
+3. `MediaDeliveryService` still downloads legacy runtime-owned tool artifact sources before persisting the PersAI-owned copy; later native tool slices must remove that bounded source seam.
+
+### Next recommended step
+
+1. This is a reasonable single deploy point for the current Step 11 package. After rollout, either close the remaining Step 11 legacy source seams if they are still worth batching locally, or move directly to `Step 12 — Implement native STT` so the last OpenClaw request-time media seam is removed.
+
+### Ready commit message
+
+- `feat(runtime): hydrate native attachment context from canonical storage`
+
+## 2026-04-11 - ADR-072 Step 11 PersAI object-storage attachment cutover
+
+### What changed
+
+1. Added `PersaiMediaObjectStorageService` plus explicit API config/Helm keys (`PERSAI_MEDIA_BUCKET_NAME`, `PERSAI_MEDIA_OBJECT_PREFIX`) so active web/inbound attachment binaries are persisted by PersAI-owned object storage and `assistant_chat_message_attachments.storage_path` now stores PersAI object keys.
+2. Switched `ManageChatMediaService`, `InboundMediaService`, and `MediaDeliveryService` away from OpenClaw request-time media persistence for the active attachment path; hard-delete/reset/admin-delete now clean PersAI media objects; and native sync/stream web turn requests now carry attachment refs instead of being hard-rejected by runtime.
+3. Refreshed `ADR-072`, `CHANGELOG`, and related canon so Step 11 is honestly `in_progress`, the remaining temporary seams are explicit (STT plus legacy tool-artifact source download), and bootstrap/user prompt truth is recorded as `runtimeBundle.userContext` + compiled `promptDocuments` rather than filesystem `USER.md` / `BOOTSTRAP.md`.
+
+### Why
+
+1. Step 11 requires PersAI to own active attachment lifecycle and storage instead of treating OpenClaw workspace media as long-term runtime truth.
+2. The final target stays cleaner if object storage becomes the canonical attachment boundary now, while only bounded temporary seams remain where later steps still need them.
+
+### Current active slice
+
+- `Slice 4 — Attachment context and STT cutover`
+
+### Current active step
+
+- `Step 11 — Implement native attachment staging`
+
+### Files touched
+
+- `apps/api/package.json`
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/inbound-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media.types.ts`
+- `apps/api/src/modules/workspace-management/application/media/persai-media-object-storage.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/admin-delete-user.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/api/test/manage-chat-media.stage-web-thread.test.ts`
+- `apps/api/test/manage-chat-media.transcribe-voice.test.ts`
+- `apps/api/test/inbound-media.service.test.ts`
+- `apps/api/test/media-delivery.service.test.ts`
+- `apps/api/test/manage-web-chat-list.service.test.ts`
+- `apps/api/test/admin-delete-user.service.test.ts`
+- `apps/api/test/send-native-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-native-web-chat-turn.service.test.ts`
+- `packages/config/src/api-config.ts`
+- `pnpm-lock.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CHANGELOG.md`
+- `docs/DATA-MODEL.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.transcribe-voice.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-native-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts`
+
+### Risks
+
+1. Historical attachment context is still shallow: the current native path carries current-turn attachment meaning mainly through API-enriched text plus object refs, so follow-up turns do not yet get full runtime-native attachment hydration across prior messages.
+2. STT still uses the temporary OpenClaw transcription seam in `manage-chat-media.service.ts` and `media-preprocessor.service.ts`; Step 12 must remove it.
+3. Deployed `apps/api` now needs object-storage IAM and env wiring (`PERSAI_MEDIA_BUCKET_NAME`, bucket access) or attachment persistence/download will fail at runtime even though the local code/test path is ready.
+
+### Next recommended step
+
+1. Continue Step 11 by hydrating attachment context natively from canonical attachment rows/object refs for current and historical turns, then trim the remaining temporary legacy source seams without reintroducing filesystem path semantics.
+
+### Ready commit message
+
+- `feat(api): cut native attachments over to persai object storage`
+
 ## 2026-04-11 - ADR-072 Step 10 web cutover closeout
 
 ### What changed

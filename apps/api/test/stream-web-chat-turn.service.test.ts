@@ -235,6 +235,8 @@ describe("StreamWebChatTurnService", () => {
     let legacyRuntimeCalls = 0;
     let nativeRuntimeCalls = 0;
     let bootstrapConsumeCalls = 0;
+    let attachmentContextCalls = 0;
+    let capturedNativeUserMessage = "";
 
     const service = new StreamWebChatTurnService(
       {
@@ -280,8 +282,9 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       {
         getMode: () => "native",
-        execute: async function* () {
+        execute: async function* (input: { userMessage: string }) {
           nativeRuntimeCalls += 1;
+          capturedNativeUserMessage = input.userMessage;
           yield { type: "delta", delta: "native", accumulated: "native" };
           yield { type: "done", respondedAt: "2026-04-05T12:00:01.000Z" };
         }
@@ -303,7 +306,10 @@ describe("StreamWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
-        buildContextForCurrentMessageAttachments: async () => null
+        buildContextForCurrentMessageAttachments: async () => {
+          attachmentContextCalls += 1;
+          return '[Files attached by user:\n- attachment (document "draft.txt")]';
+        }
       } as never,
       {
         deliver: async () => ({
@@ -363,6 +369,8 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(legacyRuntimeCalls, 0);
     assert.equal(nativeRuntimeCalls, 1);
     assert.equal(bootstrapConsumeCalls, 0);
+    assert.equal(attachmentContextCalls, 0);
+    assert.equal(capturedNativeUserMessage, "hello");
     assert.equal(createdMessages.length, 1);
     assert.equal(createdMessages[0]?.content, "native");
   });
@@ -373,6 +381,8 @@ describe("StreamWebChatTurnService", () => {
     let nativeRuntimeCalls = 0;
     let bootstrapConsumeCalls = 0;
     let shadowComparisonCalls = 0;
+    let attachmentContextCalls = 0;
+    let capturedLegacyUserMessage = "";
 
     const service = new StreamWebChatTurnService(
       {
@@ -407,8 +417,9 @@ describe("StreamWebChatTurnService", () => {
         completeWebTurnProcessing: async () => undefined
       } as never,
       {
-        streamWebChatTurn: async function* () {
+        streamWebChatTurn: async function* (input: { userMessage: string }) {
           legacyRuntimeCalls += 1;
+          capturedLegacyUserMessage = input.userMessage;
           yield { type: "delta", delta: "legacy" };
           yield { type: "done", respondedAt: "2026-04-05T12:00:01.000Z" };
         },
@@ -441,7 +452,10 @@ describe("StreamWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
-        buildContextForCurrentMessageAttachments: async () => null
+        buildContextForCurrentMessageAttachments: async () => {
+          attachmentContextCalls += 1;
+          return '[Files attached by user:\n- attachment (document "draft.txt")]';
+        }
       } as never,
       {
         deliver: async () => ({
@@ -504,6 +518,8 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(nativeRuntimeCalls, 0);
     assert.equal(bootstrapConsumeCalls, 1);
     assert.equal(shadowComparisonCalls, 1);
+    assert.equal(attachmentContextCalls, 1);
+    assert.match(capturedLegacyUserMessage, /Files attached by user/);
     assert.equal(createdMessages.length, 1);
     assert.equal(createdMessages[0]?.content, "legacy");
   });
