@@ -344,6 +344,12 @@ Recommended checks during the bounded window:
 2. Confirm the same serving pod also reports `web_runtime_route` and `web_runtime_shadow_compare` for both sync and stream traffic.
 3. For stream traffic, check terminal status, content drift, error-class drift, runtime duration, first-delta timing, and delta counts before deciding the first honest cutover target.
 
+After the bounded `shadow` window shows acceptable semantic parity, flip both
+`PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE` and `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE`
+to `native` and use Phase C + Phase D plus the ordinary `/app` composer flow as
+the post-shadow cutover proof. At that point the Admin Overview shadow panel is
+historical evidence only and no longer the main validation surface.
+
 ### ADR-048 direct contract check (optional)
 
 After port-forward to `svc/openclaw-free-shared-restricted` and with Bearer from `persai-openclaw-secrets` / `OPENCLAW_GATEWAY_TOKEN`, you can POST `/api/v1/runtime/spec/apply` then `/api/v1/runtime/chat/web` and expect `200`, header `X-Persai-Runtime-Session-Key`, and `assistantMessage` from the **embedded agent** when apply is present (requires provider credentials in OpenClaw runtime secrets for non-trivial replies; current dev chart expects `OPENAI_API_KEY`). Without apply, the runtime now returns **503** instead of a compat echo body. Shapes: [API-BOUNDARY.md](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1).

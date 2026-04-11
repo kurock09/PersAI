@@ -1,5 +1,50 @@
 # SESSION-HANDOFF
 
+## 2026-04-11 - ADR-072 Step 10 dev native web cutover config
+
+### What changed
+
+1. Switched `infra/helm/values-dev.yaml` from `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=shadow` / `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=shadow` to `native` for the next ordinary dev rollout.
+2. Refreshed Step 10 source-of-truth docs so repo canon now says the bounded `shadow` window has already done its job: native runtime keeps recent web chat context, OpenAI assistant-history serialization is fixed, and the next live check should validate the real default-path native cutover instead of collecting more `shadow` evidence.
+3. Kept the temporary route-mode seam itself in place for now; only the chosen dev mode changed. This preserves the honest rollback path back to `shadow` or `legacy` if the first native default-path validation finds a real regression.
+
+### Why
+
+1. Fresh `shadow` samples are now `COMPLETED` instead of `FAILED`, and user inspection confirmed the remaining drift is semantic rewording rather than context loss or native-path breakage.
+2. That means more `shadow` time would no longer buy the main architectural decision. The next meaningful Step 10 action is to make native runtime the ordinary web execution path in dev and validate that default path directly.
+3. This matches the requirement to avoid unnecessary deploys: rather than keeping one extra bounded comparison window open, the next rollout now does the actual cutover work.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 10 — Add web shadow comparison and cut over web`
+
+### Files touched
+
+- `infra/helm/values-dev.yaml`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `docs/LIVE-TEST-HYBRID.md`
+
+### Tests run
+
+- pending for this exact cutover commit; run the normal workspace gates before committing/pushing
+
+### Risks
+
+1. `shadow` samples will stop appearing once dev is on `native`, so live validation needs to rely on ordinary web behavior, `web_runtime_route`, runtime/provider readiness, and direct native path checks rather than the Admin Overview parity panel.
+2. Attachments/files/audio are still not native final-state inputs, so this cutover is specifically about the ordinary text web chat path from Step 10, not the later Step 11/12 media work.
+
+### Next recommended step
+
+1. Push this dev-mode cutover through the normal GitOps path, wait for the updated `api` / `runtime` / `provider-gateway` / `web` rollout, then send a few ordinary web chat turns and confirm the default user-visible path is now healthy on native runtime. If that holds, Step 10 can be marked complete and the temporary route-mode cleanup can open next.
+
 ## 2026-04-11 - ADR-072 Step 10 OpenAI assistant-history serialization fix
 
 ### What changed

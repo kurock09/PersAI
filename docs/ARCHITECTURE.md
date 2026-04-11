@@ -170,7 +170,7 @@ It is not part of backend domain logic.
   - `shadow` keeps OpenClaw as the user-visible primary stream path while queueing a native comparison run and logging `web_runtime_shadow_compare`
   - the API stream boundary still owns canonical replay/message persistence, SSE shaping, media delivery, and honest interruption handling; successful native stream completion skips legacy bootstrap consumption only when native is the primary path
 - Step 9 native sync and native stream web paths have now both passed bounded dev-GKE live validation, including stream replay/idempotency and disconnect persistence checks.
-- the remaining Step 10+ work is now bounded to dev shadow-parity inspection, default-path cutover to native web execution, removal of the temporary route modes plus the remaining Step 7 API activation seams, and later attachment execution.
+- the remaining Step 10+ work is now bounded to default-path native web validation in dev, removal of the temporary route modes plus the remaining Step 7 API activation seams, and later attachment execution.
 - Postgres is the durable authority for session summaries and turn receipts; stale or missing Redis pointers/markers may be rebuilt from Postgres instead of introducing filesystem or OpenClaw-era session truth.
 
 ## Planned runtime segmentation boundary (Step 15)
