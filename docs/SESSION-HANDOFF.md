@@ -1,5 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-04-11 - ADR-072 Step 10 OpenAI assistant-history serialization fix
+
+### What changed
+
+1. Traced the fresh Step 10 `shadow` failures all the way down to `runtime_turn_receipts`, which showed the native turn was not unreachable at all; it was failing in provider execution with `provider_stream_failed` and OpenAI error `400 Invalid value: 'input_text'. Supported values are: 'output_text' and 'refusal'.`
+2. Fixed `apps/provider-gateway` so the OpenAI Responses client now sends our current text-only message history as plain string `content` instead of forcing every message through an `input_text` content block.
+3. Added a focused provider-gateway regression test that covers mixed `user` + `assistant` history serialization on both non-streaming and streaming OpenAI calls.
+4. Recorded the fix in `CHANGELOG` and `TEST-PLAN` so the next live Step 10 validation can distinguish true runtime reachability issues from provider-side assistant-history serialization failures.
+
+### Why
+
+1. The previous Step 10 history-hydration slice correctly started sending assistant history into the native path, but the OpenAI gateway serializer still assumed every message was a `user`-style input block.
+2. That made fresh `shadow` samples look like generic `runtime_unreachable` failures in Admin Overview even though the real error was a deterministic provider-side `400`.
+3. Fixing this in `apps/provider-gateway` is the smallest honest correction because it preserves the new hydrated history depth while restoring the native stream path on the current OpenAI provider contract.
+
+### Current active slice
+
+- `Slice 3 — Distributed session/state core and web runtime`
+
+### Current active step
+
+- `Step 10 — Add web shadow comparison and cut over web`
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+
+### Risks
+
+1. This fix keeps the current provider contract text-only; if later Step 11 introduces richer native attachment/file content blocks on the OpenAI path, the serializer will need another explicit expansion instead of silently assuming strings remain enough forever.
+2. Dev still needs one more normal deploy and fresh `shadow` samples after this provider fix before Step 10 can be called complete; the current cluster still runs the pre-fix provider-gateway image.
+
+### Next recommended step
+
+1. Push this provider-gateway fix through the normal GitOps path, wait for the updated `provider-gateway` rollout, then send one new web stream message and inspect the newest Admin Overview shadow samples again.
+
 ## 2026-04-11 - ADR-072 Step 10 native web history hydration
 
 ### What changed

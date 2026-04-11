@@ -55,7 +55,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           ...(input.systemPrompt === null ? {} : { instructions: input.systemPrompt }),
           input: input.messages.map((message) => ({
             role: message.role,
-            content: [{ type: "input_text", text: message.content }]
+            content: message.content
           })),
           ...(input.maxOutputTokens === undefined
             ? {}
@@ -115,7 +115,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           ...(input.systemPrompt === null ? {} : { instructions: input.systemPrompt }),
           input: input.messages.map((message) => ({
             role: message.role,
-            content: [{ type: "input_text", text: message.content }]
+            content: message.content
           })),
           ...(input.maxOutputTokens === undefined
             ? {}

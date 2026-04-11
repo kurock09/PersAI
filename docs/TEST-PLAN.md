@@ -194,6 +194,7 @@ Required in CI:
 - Native parity now also depends on context hydration depth:
   - `apps/runtime` should assemble provider `messages[]` from recent canonical web chat history, not only from the newest inbound message
 - Focused Step 10 regressions for this sub-step:
+  - `apps/provider-gateway/test/openai-provider.client.test.ts`
   - `apps/runtime/test/turn-context-hydration.service.test.ts`
   - `apps/runtime/test/turn-execution.service.test.ts`
   - `apps/api/test/send-web-chat-turn.service.test.ts`
@@ -203,6 +204,8 @@ Required in CI:
   - `apps/api/test/send-native-web-chat-turn.service.test.ts`
   - `apps/api/test/stream-native-web-chat-turn.service.test.ts`
 - Minimum verification for this sub-step:
+  - `corepack pnpm --filter @persai/provider-gateway run typecheck`
+  - `corepack pnpm --filter @persai/provider-gateway run test`
   - `corepack pnpm --filter @persai/runtime run typecheck`
   - `corepack pnpm --filter @persai/runtime run test`
   - `corepack pnpm --filter @persai/api run typecheck`
