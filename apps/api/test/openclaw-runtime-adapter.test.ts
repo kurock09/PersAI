@@ -304,49 +304,6 @@ async function run(): Promise<void> {
         headers: { "content-type": "application/json" }
       });
     }
-    if (url.endsWith("/api/v1/runtime/chat/channel")) {
-      return new Response(
-        JSON.stringify({
-          assistantMessage: "Telegram reply",
-          respondedAt: "2026-03-31T00:00:00.000Z"
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" }
-        }
-      );
-    }
-    throw new Error(`Unexpected fetch url: ${url}`);
-  }) as typeof fetch;
-
-  const channelAdapter = new OpenClawRuntimeAdapter();
-  const channelResult = await channelAdapter.sendChannelTurn({
-    assistantId: "assistant-1",
-    publishedVersionId: "pub-1",
-    surface: "telegram",
-    threadId: "chat-telegram-1",
-    userMessage: "hello"
-  });
-  assert.deepEqual(channelResult, {
-    assistantMessage: "Telegram reply",
-    respondedAt: "2026-03-31T00:00:00.000Z",
-    media: []
-  });
-
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const url = String(input);
-    if (url.endsWith("/healthz")) {
-      return new Response(JSON.stringify({ ok: true, status: "live" }), {
-        status: 200,
-        headers: { "content-type": "application/json" }
-      });
-    }
-    if (url.endsWith("/readyz")) {
-      return new Response(JSON.stringify({ ready: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" }
-      });
-    }
     if (url.endsWith("/api/v1/runtime/chat/web/preview")) {
       return new Response(
         JSON.stringify({

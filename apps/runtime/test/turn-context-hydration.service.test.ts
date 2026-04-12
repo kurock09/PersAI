@@ -57,6 +57,7 @@ class FakeRuntimeStatePrismaService {
   chat: { id: string } | null = {
     id: "chat-1"
   };
+  lastFindFirstArgs: unknown = null;
   messages: Array<{
     id: string;
     author: "user" | "assistant" | "system";
@@ -74,7 +75,10 @@ class FakeRuntimeStatePrismaService {
   }> = [];
 
   assistantChat = {
-    findFirst: async () => this.chat
+    findFirst: async (args: unknown) => {
+      this.lastFindFirstArgs = args;
+      return this.chat;
+    }
   };
 
   assistantChatMessage = {
@@ -253,6 +257,72 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   assert.deepEqual(downloadedObjectKeys, [
     "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-small.pdf"
   ]);
+
+  const telegramRequest: RuntimeTurnRequest = {
+    ...request,
+    conversation: {
+      ...request.conversation,
+      channel: "telegram",
+      externalThreadKey: "telegram-chat-1",
+      externalUserKey: null,
+      mode: "group"
+    },
+    message: {
+      ...request.message,
+      text: "@bot current telegram message",
+      attachments: []
+    }
+  };
+  prisma.chat = { id: "chat-telegram-1" };
+  prisma.messages = [
+    {
+      id: "telegram-message-1",
+      author: "user",
+      content: "earlier telegram user",
+      attachments: []
+    },
+    {
+      id: "message-current",
+      author: "assistant",
+      content: "older assistant should stay",
+      attachments: []
+    },
+    {
+      id: "telegram-message-2",
+      author: "user",
+      content: "stored telegram current",
+      attachments: []
+    }
+  ];
+
+  const telegramHydrated = await service.buildMessages({
+    ...telegramRequest,
+    idempotencyKey: "telegram-message-2"
+  });
+  assert.deepEqual(telegramHydrated, [
+    {
+      role: "user",
+      content: "earlier telegram user"
+    },
+    {
+      role: "assistant",
+      content: "older assistant should stay"
+    },
+    {
+      role: "user",
+      content: "@bot current telegram message"
+    }
+  ]);
+  assert.deepEqual(prisma.lastFindFirstArgs, {
+    where: {
+      assistantId: "assistant-1",
+      surface: "telegram",
+      surfaceThreadKey: "telegram-chat-1"
+    },
+    select: {
+      id: true
+    }
+  });
 
   prisma.chat = { id: "chat-1" };
   prisma.messages = Array.from({ length: 22 }, (_, index) => ({

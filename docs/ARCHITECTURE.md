@@ -210,7 +210,7 @@ It is not part of backend domain logic.
 - current audited repo status for `ADR-071` slices 1-5:
   - slices 1-4 are mostly wired through the intended control-plane path (`admin runtime settings -> config generation/materialization -> OpenClaw runtime override`)
   - rendered Helm/runtime-pool defaults are still a transitional infra baseline for optimization policy and must not be treated as the only runtime source-of-truth
-  - slice 5 is materially wired through the intended product/control-plane path: web compaction suggestion/manual compact is contract-backed, Telegram hinting is policy-driven, and the touched UX copy paths now have localization parity
+  - slice 5 currently keeps only the web compaction suggestion/manual compact surface live; Telegram-specific hinting and slash-command compaction were removed from the active product path and will return only as a shared runtime/tool capability in Step 15
 
 ## Chat boundary (Step 5 C1)
 
@@ -415,7 +415,7 @@ It is not part of backend domain logic.
   - stable error-code emission
 - concrete H13 gateway seams now are:
   - public web turn APIs (`POST /api/v1/assistant/chat/web`, `POST /api/v1/assistant/chat/web/stream`)
-  - internal Telegram ingress (`POST /api/v1/internal/runtime/turns/telegram`)
+  - public Telegram webhook adapter (`POST /telegram-webhook/:assistantId`)
   - reminder callback ingress (`POST /api/v1/internal/cron-fire`) with the same backend error-code family before delivery fanout
 - OpenClaw runtime execution for non-web channel turns stays behind a thin bridge:
   - `POST /api/v1/runtime/chat/channel`
@@ -679,24 +679,29 @@ It is not part of backend domain logic.
   - no MAX bot/mini-app delivery implementation
   - no collapse of bot and mini-app into one MAX surface
 
-## Telegram runtime delivery boundary (Step 12 H8)
+## Telegram runtime delivery boundary (Step 13 complete, Step 14 next)
 
 - Telegram is an interaction/delivery surface, not a control-plane surface.
-- PersAI materializes Telegram config into `openclawBootstrap.channels.telegram` (token, webhook URL, HMAC secret, policy, group reply mode).
-- OpenClaw owns Telegram runtime delivery:
-  - dynamic Grammy bot lifecycle (start/stop on spec apply)
-  - webhook mode (when `TELEGRAM_WEBHOOK_BASE_URL` is configured) or polling fallback (when unset)
-  - `message:text` event handling → agent turn with per-assistant `workspaceDir`
-  - `my_chat_member` event handling → group status callback to PersAI (uses `secrets.providers.persai-runtime.baseUrl` from config)
-- OpenClaw Telegram ingress is also the enforcement point for Telegram-specific runtime safety:
+- PersAI API now owns the public Telegram delivery adapter:
+  - assistant-scoped webhook secret verification
+  - `message:text|voice|photo|document` and `my_chat_member` parsing
+  - owner-only DM gate and group mention/reply filtering
+  - direct Telegram Bot API inbound file download and outbound text/media delivery
+  - canonical Telegram chat/message persistence in PersAI before/after turn execution
+- Telegram duplicate update safety is now claimed inside PersAI before attachment download / runtime work:
   - dedupe repeated Telegram deliveries by `assistantId + update_id`
-  - owner-only DM gate before runtime turn execution
-  - terminal `401 Unauthorized` promotion to explicit `invalid_token` state
+  - terminal Telegram `401 Unauthorized` promotion to explicit `invalid_token` state
+- PersAI-side Telegram state sync is now local to the API boundary:
+  - `assistant_telegram_groups` persistence
+  - reminder / owner chat target sync
 - PersAI owns Telegram control-plane:
   - connect/disconnect/rotate/revoke via assistant integration APIs
   - encrypted token storage (`PlatformRuntimeProviderSecretStoreService`)
-  - `assistant_telegram_groups` persistence from OpenClaw callbacks
-  - auto-apply after connect/disconnect to push config changes to OpenClaw immediately
+  - auto-apply after connect/disconnect keeps the native Telegram runtime path aligned with current binding/config truth
+- Current Step 14 status:
+  - `HandleInternalTelegramTurnService` now routes Telegram text/group request-time execution through the native runtime turn path with shared `RuntimeConversationAddress` identity and canonical history hydration
+  - the temporary Telegram-only `/compact` and compaction-hint path was intentionally removed instead of being preserved as a channel-specific runtime seam
+  - shared compaction UX/tooling is deferred to Step 15, and tool-produced Telegram media follow-up remains outside this text/group cutover
 - PersAI Telegram lifecycle is now explicitly staged:
   - `not_connected`
   - `claim_required`

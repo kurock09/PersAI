@@ -1,71 +1,43 @@
 import assert from "node:assert/strict";
-import { InternalRuntimeConfigGenerationController } from "../src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller";
+import { SyncTelegramGroupMembershipService } from "../src/modules/workspace-management/application/sync-telegram-group-membership.service";
 
 async function run(): Promise<void> {
   const updateManyCalls: Array<{
     where: Record<string, unknown>;
     data: Record<string, unknown>;
   }> = [];
-  const previousInternalApiToken = process.env.PERSAI_INTERNAL_API_TOKEN;
   const previousAppEnv = process.env.APP_ENV;
   const previousDatabaseUrl = process.env.DATABASE_URL;
   const previousClerkSecretKey = process.env.CLERK_SECRET_KEY;
-  process.env.PERSAI_INTERNAL_API_TOKEN = "test-token";
   process.env.APP_ENV = "local";
   process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
   process.env.CLERK_SECRET_KEY = "test-clerk-secret";
 
   try {
-    const controller = new InternalRuntimeConfigGenerationController(
-      { current: async () => 1 } as never,
-      { findById: async () => null } as never,
-      { findLatestByAssistantId: async () => null } as never,
-      { findLatestByAssistantId: async () => null } as never,
-      { execute: async () => undefined } as never,
-      {
-        execute: async () => ({
-          mode: "global_settings",
-          primary: { provider: "openai", model: "gpt-4.1" }
-        })
-      } as never,
-      {
-        parseInput: () => ({ assistantId: "assistant-1" }),
-        execute: async () => undefined
-      } as never,
-      {
-        assistantTelegramGroup: {
-          findUnique: async () => ({ title: "Bots" }),
-          updateMany: async (input: {
-            where: Record<string, unknown>;
-            data: Record<string, unknown>;
-          }) => {
-            updateManyCalls.push(input);
-            return { count: 1 };
-          },
-          upsert: async () => ({})
-        }
-      } as never
-    );
-
-    const response = await controller.handleTelegramGroupUpdate(
-      { headers: { authorization: "Bearer test-token" } },
-      {
-        assistantId: "assistant-1",
-        telegramChatId: "chat-1",
-        title: "Alex, Jarvis и MASHA",
-        event: "joined"
+    const service = new SyncTelegramGroupMembershipService({
+      assistantTelegramGroup: {
+        findUnique: async () => ({ title: "Bots" }),
+        updateMany: async (input: {
+          where: Record<string, unknown>;
+          data: Record<string, unknown>;
+        }) => {
+          updateManyCalls.push(input);
+          return { count: 1 };
+        },
+        upsert: async () => ({})
       }
-    );
+    } as never);
 
-    assert.deepEqual(response, { ok: true });
+    await service.execute({
+      assistantId: "assistant-1",
+      telegramChatId: "chat-1",
+      title: "Alex, Jarvis и MASHA",
+      event: "joined"
+    });
+
     assert.equal(updateManyCalls.length, 1);
     assert.deepEqual(updateManyCalls[0]?.where.title, { in: ["Bots", "Alex, Jarvis и MASHA"] });
   } finally {
-    if (previousInternalApiToken === undefined) {
-      delete process.env.PERSAI_INTERNAL_API_TOKEN;
-    } else {
-      process.env.PERSAI_INTERNAL_API_TOKEN = previousInternalApiToken;
-    }
     if (previousAppEnv === undefined) {
       delete process.env.APP_ENV;
     } else {

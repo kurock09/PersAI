@@ -1019,14 +1019,13 @@ Evidence required:
 - concurrent or repeated delivery of the same web `clientTurnId` does not create more than one persisted user-visible turn or more than one runtime execution
 - repeated delivery of the same logical reminder callback does not append more than one reminders-chat message or more than one Telegram reminder send
 - Telegram proxy timeout/network failures return a retry-worthy non-2xx response instead of a false success acknowledgement
-- transient `OpenClaw -> PersAI internal Telegram turn` failures are not converted into a successful webhook acknowledgment with fallback user text; retry-worthy internal-turn failures remain retry-worthy at the webhook boundary
+- transient downstream Telegram runtime failures are not converted into a successful webhook acknowledgment with fallback user text; retry-worthy failures remain retry-worthy at the webhook boundary
 - OpenClaw cron webhook non-2xx completion is surfaced as failure in runtime logs instead of silent success
 - docs do not overclaim that quota/billing correctness (`SR9`) or final envelope proof (`SR10`) were solved by this combined replay package
 
 Verification:
 - `Tier 0`: `corepack pnpm --filter @persai/api run typecheck`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
-- `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-turn.controller.test.ts`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
 - `Tier 0`: `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`

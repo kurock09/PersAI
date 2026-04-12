@@ -1162,8 +1162,11 @@ Remove the OpenClaw-owned Telegram runtime loop.
 
 **Migration notes**
 
+- `apps/api` now owns assistant-scoped Telegram webhook verification, owner-only gate decisions, group membership sync, inbound Bot API file download, canonical transcript persistence, and outbound Bot API delivery
+- legacy PersAI internal Telegram ingress/callback endpoints were removed once the public API-side adapter took ownership
 - claim updates in Redis before runtime work
 - normalize Telegram group semantics into the shared channel envelope
+- Step 14 now removes the remaining legacy execution seam inside `HandleInternalTelegramTurnService`
 
 **Rollback notes**
 
@@ -1173,7 +1176,7 @@ Remove the OpenClaw-owned Telegram runtime loop.
 
 **Purpose**
 
-Make Telegram the second production channel on the new runtime core.
+Make Telegram the second production text channel on the new runtime core.
 
 **Files/modules likely affected**
 
@@ -1188,6 +1191,8 @@ Make Telegram the second production channel on the new runtime core.
 **Migration notes**
 
 - validate owner, DM, and group flows separately
+- keep Telegram as a thin adapter over shared runtime turn execution and canonical history hydration
+- do not preserve a Telegram-only `/compact` or hint path; shared compaction UX/tooling is deferred to Step 15
 
 **Rollback notes**
 
@@ -1213,6 +1218,7 @@ Restore necessary capability without polluting ordinary chat latency.
 
 - only bounded inline tools enter ordinary chat path
 - all heavy tools queue jobs
+- shared compaction capability belongs here as a runtime/tool surface for user-invoked and automatic flows; do not reintroduce channel-specific slash-command compaction before this step
 
 **Rollback notes**
 
@@ -1439,9 +1445,9 @@ Use only these statuses:
 | Item | Status | Notes |
 |---|---|---|
 | ADR-072 document | completed | Target architecture, slices, and step order are documented |
-| Runtime replacement implementation | in_progress | Steps 1-12 are complete. Step 12 now closes the OpenClaw STT seam with a native `apps/api -> apps/runtime -> apps/provider-gateway -> OpenAI` path over multipart audio streaming. Telegram native cutover, native web voice-output/TTS streaming, native tool producers, and later temporary-route cleanup remain follow-up work |
-| Current active slice | in_progress | `Slice 5 — Telegram native adapter and group semantics` is now active because Step 12 completed and Step 13 is the next migration boundary |
-| Current active step | planned | `Step 13 — Replace Telegram proxy with a native Telegram adapter` is the next active step now that Step 12 native STT is complete |
+| Runtime replacement implementation | in_progress | Steps 1-13 are complete. PersAI now owns Telegram webhook ingress/delivery, group/chat metadata sync, canonical Telegram transcript persistence, and native request-time text execution. Step 14 is now in progress for validation/closeout, while shared compaction/tool producers and later temporary-route cleanup remain follow-up work |
+| Current active slice | in_progress | `Slice 5 — Telegram native adapter and group semantics` remains active while Step 14 validation/closeout is still pending |
+| Current active step | in_progress | `Step 14 — Cut over Telegram text and groups` now routes Telegram text/group turns through the native runtime core; shared compaction is explicitly deferred to Step 15 |
 
 ### Slice ledger
 
@@ -1451,7 +1457,7 @@ Use only these statuses:
 | Slice 2 — Provider gateway and runtime shell | completed | `apps/provider-gateway` and `apps/runtime` now exist with warmup/bundle shells plus health, readiness, and metrics |
 | Slice 3 — Distributed session/state core and web runtime | completed | Web request-time text execution now runs through native runtime on Redis/Postgres session state, with Step 10 closed after bounded shadow evidence plus live native cutover validation in dev |
 | Slice 4 — Attachment context and STT cutover | completed | Attachment staging now lives in PersAI-owned object storage with bounded current-turn multimodal input, richer canonical extracts, and native STT routed through `apps/runtime` / `apps/provider-gateway` instead of OpenClaw |
-| Slice 5 — Telegram native adapter and group semantics | in_progress | Telegram ingress and delivery are the next active request-time cutover over the shared runtime core |
+| Slice 5 — Telegram native adapter and group semantics | in_progress | Telegram ingress/delivery now run through the PersAI API-side adapter; native Telegram request-time execution is the remaining active cutover over the shared runtime core |
 | Slice 6 — Async tools, workers, and sandbox separation | planned | Heavy tools and sandbox are isolated from ordinary chat latency |
 | Slice 7 — OpenClaw removal and schema cleanup | planned | OpenClaw request-time path and `openclaw*` runtime artifacts are removed from PersAI |
 
@@ -1471,9 +1477,9 @@ Use only these statuses:
 | Step 10 — Add web shadow comparison and cut over web | completed | Step 9 | `apps/api` now uses temporary `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE` / `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE` values (`legacy|shadow|native`) so shadow mode can collect bounded comparison evidence, Admin Overview exposes bounded recent shadow samples per API pod, `apps/runtime` hydrates recent canonical web chat history into provider `messages[]`, and the OpenAI provider path now accepts assistant history correctly. The ordinary dev web route has been switched to `native` and validated on live chat traffic, so Step 10 is complete for the current web text path while temporary route-mode cleanup remains later follow-up work |
 | Step 11 — Implement native attachment staging | completed | Steps 4, 5, 6 | Active web/inbound attachment persistence now writes to PersAI-owned object storage, cleanup paths delete PersAI media objects, failed staged uploads roll back their transient empty rows, direct uploads also persist canonical preview/transcription metadata plus Office/text-style extracts, and native web turns now hydrate current/historical attachment context from canonical attachment rows plus object-key refs while sending current inbound images/PDFs as real provider input only for the current turn under a bounded request-size budget. Historical attachments intentionally stay summary/extract-only so binary payload does not replay through long chat history |
 | Step 12 — Implement native STT | completed | Steps 4, 11 | Voice/media transcription now streams audio through `apps/api -> apps/runtime -> apps/provider-gateway -> OpenAI` without OpenClaw request-time transcription or workspace-media staging |
-| Step 13 — Replace Telegram proxy with a native Telegram adapter | planned | Steps 8, 9, 11, 12 | Telegram ingress no longer loops through OpenClaw |
-| Step 14 — Cut over Telegram text and groups | planned | Step 13 | Telegram request-time execution is native |
-| Step 15 — Introduce bounded inline tools and async worker jobs | planned | Steps 9-10 | Tool execution is cleanly separated by latency class |
+| Step 13 — Replace Telegram proxy with a native Telegram adapter | completed | Steps 8, 9, 11, 12 | Public Telegram webhook ingress, owner gate handling, group/chat metadata sync, Bot API media download/delivery, and canonical transcript persistence now run in `apps/api`; the old PersAI internal Telegram ingress/callback endpoints were removed with the proxy loop |
+| Step 14 — Cut over Telegram text and groups | in_progress | Step 13 | Telegram text/group request-time execution now routes through native `apps/runtime` with shared conversation identity/history hydration; the temporary Telegram-only `/compact` and hint seam was removed instead of being carried forward, and final validation/deploy closeout remains |
+| Step 15 — Introduce bounded inline tools and async worker jobs | planned | Steps 9-10 | Tool execution is cleanly separated by latency class, including the future shared compaction capability |
 | Step 15a — Native web TTS streaming/output | planned | Steps 9, 10, 15 | Native web voice output is a channel capability and no longer relies on post-turn attachment delivery to feel complete |
 | Step 16 — Build isolated sandbox service | planned | Step 15 | Sandbox exists outside ordinary chat path |
 | Step 17 — Remove OpenClaw runtime integration from PersAI active paths | planned | Steps 10, 12, 14, 15, 16 | Legacy active request-time runtime path is deleted |

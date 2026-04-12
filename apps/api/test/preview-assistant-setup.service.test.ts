@@ -93,11 +93,6 @@ async function run(): Promise<void> {
         media: []
       };
     },
-    sendChannelTurn: async () => ({
-      assistantMessage: "unused",
-      respondedAt: "2026-04-03T12:00:00.000Z",
-      media: []
-    }),
     streamWebChatTurn: async function* () {
       throw new Error("unused");
       yield undefined as never;
@@ -115,7 +110,6 @@ async function run(): Promise<void> {
     | "deleteWebChatSession"
     | "sendWebChatTurn"
     | "previewSetupTurn"
-    | "sendChannelTurn"
     | "streamWebChatTurn"
     | "controlCronJob"
     | "downloadChatMedia"

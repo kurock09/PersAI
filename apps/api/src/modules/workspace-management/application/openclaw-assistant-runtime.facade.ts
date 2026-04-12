@@ -3,11 +3,6 @@ import type {
   AssistantRuntimeApplyInput,
   AssistantRuntimeAvatarUploadInput,
   AssistantRuntimeAvatarUploadResult,
-  AssistantRuntimeChannelCompactInput,
-  AssistantRuntimeChannelCompactResult,
-  AssistantRuntimeChannelSessionStateInput,
-  AssistantRuntimeChannelSessionStateResult,
-  AssistantRuntimeChannelTurnInput,
   AssistantRuntimeCronControlInput,
   AssistantRuntimeFacade,
   AssistantRuntimeMediaDownloadResult,
@@ -80,28 +75,10 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
     return this.openClawRuntimeBridge.getWebChatSessionState(input);
   }
 
-  getChannelSessionState(
-    input: AssistantRuntimeChannelSessionStateInput
-  ): Promise<AssistantRuntimeChannelSessionStateResult> {
-    return this.openClawRuntimeBridge.getChannelSessionState(input);
-  }
-
-  markChannelCompactionHintShown(
-    input: AssistantRuntimeChannelSessionStateInput & { tokens: number }
-  ): Promise<void> {
-    return this.openClawRuntimeBridge.markChannelCompactionHintShown(input);
-  }
-
   compactWebChatSession(
     input: AssistantRuntimeWebChatCompactInput
   ): Promise<AssistantRuntimeWebChatCompactResult> {
     return this.openClawRuntimeBridge.compactWebChatSession(input);
-  }
-
-  compactTelegramChannelSession(
-    input: AssistantRuntimeChannelCompactInput
-  ): Promise<AssistantRuntimeChannelCompactResult> {
-    return this.openClawRuntimeBridge.compactTelegramChannelSession(input);
   }
 
   sendWebChatTurn(
@@ -122,12 +99,6 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
       ...(input.userTimezone === undefined ? {} : { userTimezone: input.userTimezone }),
       ...(input.currentTimeIso === undefined ? {} : { currentTimeIso: input.currentTimeIso })
     });
-  }
-
-  sendChannelTurn(
-    input: AssistantRuntimeChannelTurnInput
-  ): Promise<AssistantRuntimeWebChatTurnResult> {
-    return this.openClawRuntimeBridge.sendChannelTurn(input);
   }
 
   streamWebChatTurn(

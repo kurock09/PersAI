@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
@@ -17,56 +17,12 @@ export interface TelegramChatTargetSyncRequest {
   runtimeHealthMessage: string | null;
 }
 
-function normalizeRequiredString(value: unknown, fieldName: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new BadRequestException(`${fieldName} must be a non-empty string.`);
-  }
-  return value.trim();
-}
-
-function normalizeOptionalString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 @Injectable()
 export class SyncTelegramChatTargetService {
   constructor(
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository
   ) {}
-
-  parseInput(body: unknown): TelegramChatTargetSyncRequest {
-    if (body === null || typeof body !== "object" || Array.isArray(body)) {
-      throw new BadRequestException("Body must be an object.");
-    }
-
-    const row = body as Record<string, unknown>;
-    return {
-      assistantId: normalizeRequiredString(row.assistantId, "assistantId"),
-      telegramChatId: normalizeRequiredString(row.telegramChatId, "telegramChatId"),
-      chatType: normalizeRequiredString(row.chatType, "chatType"),
-      title: normalizeOptionalString(row.title),
-      username: normalizeOptionalString(row.username),
-      telegramUserId:
-        typeof row.telegramUserId === "number" && Number.isFinite(row.telegramUserId)
-          ? row.telegramUserId
-          : null,
-      claimOwner: row.claimOwner === true,
-      systemWelcomeSentAt:
-        typeof row.systemWelcomeSentAt === "string" && row.systemWelcomeSentAt.trim().length > 0
-          ? row.systemWelcomeSentAt.trim()
-          : null,
-      runtimeHealth:
-        row.runtimeHealth === "ok" || row.runtimeHealth === "invalid_token"
-          ? row.runtimeHealth
-          : null,
-      runtimeHealthMessage: normalizeOptionalString(row.runtimeHealthMessage)
-    };
-  }
 
   async execute(input: TelegramChatTargetSyncRequest): Promise<void> {
     const isPrivateChat = input.chatType === "private";

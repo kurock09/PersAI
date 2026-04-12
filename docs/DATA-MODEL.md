@@ -332,7 +332,7 @@ Postgres with Prisma.
 - left_at (nullable timestamptz)
 - updated_at
 - unique(assistant_id, telegram_chat_id)
-- populated automatically via OpenClaw `my_chat_member` callback → `POST /api/v1/internal/runtime/telegram/group-update`
+- populated automatically by the PersAI API-side Telegram webhook adapter from Telegram `my_chat_member` updates
 
 ### assistant_audit_events (Step 9 F1 baseline)
 

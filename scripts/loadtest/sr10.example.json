@@ -19,7 +19,6 @@
     { "kind": "web_sync", "weight": 35 },
     { "kind": "web_stream", "weight": 25 },
     { "kind": "tool_prompt", "weight": 10 },
-    { "kind": "telegram_turn", "weight": 15 },
     { "kind": "web_stage_attachment", "weight": 10 },
     { "kind": "voice_transcribe", "weight": 5 }
   ],
@@ -60,21 +59,6 @@
     "toolPromptTemplates": [
       "If any allowed tool helps, use one tool and then answer briefly about a competitor research step.",
       "Use one allowed tool if available, then answer in 3 bullet points about customer support workflow."
-    ]
-  },
-  "telegram": {
-    "internalApiTokenEnv": "PERSAI_INTERNAL_API_TOKEN",
-    "threadPoolSize": 4,
-    "assistants": [
-      {
-        "label": "assistant-1",
-        "assistantId": "replace-with-real-assistant-id-1",
-        "threadPrefix": "sr10-tg-a1"
-      }
-    ],
-    "messageTemplates": [
-      "Telegram load-test turn. Respond briefly.",
-      "Telegram scenario: give one actionable suggestion."
     ]
   },
   "media": {

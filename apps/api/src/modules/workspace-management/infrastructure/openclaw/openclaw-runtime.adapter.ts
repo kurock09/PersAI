@@ -9,11 +9,6 @@ import {
   resolveRuntimeBaseUrl
 } from "../../application/runtime-endpoint-routing";
 import type {
-  AssistantRuntimeChannelSessionStateInput,
-  AssistantRuntimeChannelSessionStateResult,
-  AssistantRuntimeChannelCompactInput,
-  AssistantRuntimeChannelCompactResult,
-  AssistantRuntimeChannelTurnInput,
   AssistantRuntimeCronControlInput,
   AssistantRuntimeWebChatCompactInput,
   AssistantRuntimeWebChatCompactResult,
@@ -394,65 +389,6 @@ export class OpenClawRuntimeAdapter implements OpenClawRuntimeBridge {
     };
   }
 
-  async getChannelSessionState(
-    input: AssistantRuntimeChannelSessionStateInput
-  ): Promise<AssistantRuntimeChannelSessionStateResult> {
-    const config = toOpenClawAdapterConfig(input.runtimeTier);
-    if (!config.enabled) {
-      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
-    }
-    const payload = await this.requestWithRetries(
-      "POST",
-      "/api/v1/runtime/chat/channel/session/state",
-      {
-        assistantId: input.assistantId,
-        surface: input.surface,
-        threadId: input.threadId
-      },
-      config
-    );
-    if (!isObject(payload) || payload.ok !== true || !isObject(payload.state)) {
-      throw new AssistantRuntimeAdapterError(
-        "invalid_response",
-        "OpenClaw channel session state response is invalid."
-      );
-    }
-    const state = payload.state;
-    return {
-      sessionKey: typeof state.sessionKey === "string" ? state.sessionKey : "",
-      found: state.found === true,
-      currentTokens: typeof state.currentTokens === "number" ? state.currentTokens : null,
-      totalTokensFresh: state.totalTokensFresh === true,
-      compactionCount: typeof state.compactionCount === "number" ? state.compactionCount : 0,
-      compactionHintTokens:
-        typeof state.compactionHintTokens === "number" ? state.compactionHintTokens : null,
-      updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : null,
-      provider: typeof state.provider === "string" ? state.provider : null,
-      model: typeof state.model === "string" ? state.model : null
-    };
-  }
-
-  async markChannelCompactionHintShown(
-    input: AssistantRuntimeChannelSessionStateInput & { tokens: number }
-  ): Promise<void> {
-    const config = toOpenClawAdapterConfig(input.runtimeTier);
-    if (!config.enabled) {
-      return;
-    }
-    await this.requestWithRetries(
-      "POST",
-      "/api/v1/runtime/chat/channel/session/state",
-      {
-        assistantId: input.assistantId,
-        surface: input.surface,
-        threadId: input.threadId,
-        action: "mark_compaction_hint_shown",
-        tokens: input.tokens
-      },
-      config
-    );
-  }
-
   async compactWebChatSession(
     input: AssistantRuntimeWebChatCompactInput
   ): Promise<AssistantRuntimeWebChatCompactResult> {
@@ -496,58 +432,6 @@ export class OpenClawRuntimeAdapter implements OpenClawRuntimeBridge {
         currentTokens: typeof state.currentTokens === "number" ? state.currentTokens : null,
         totalTokensFresh: state.totalTokensFresh === true,
         compactionCount: typeof state.compactionCount === "number" ? state.compactionCount : 0,
-        updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : null,
-        provider: typeof state.provider === "string" ? state.provider : null,
-        model: typeof state.model === "string" ? state.model : null
-      }
-    };
-  }
-
-  async compactTelegramChannelSession(
-    input: AssistantRuntimeChannelCompactInput
-  ): Promise<AssistantRuntimeChannelCompactResult> {
-    const config = toOpenClawAdapterConfig(input.runtimeTier);
-    if (!config.enabled) {
-      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
-    }
-    const payload = await this.requestWithRetries(
-      "POST",
-      "/api/v1/runtime/chat/channel/compact",
-      {
-        assistantId: input.assistantId,
-        surface: input.surface,
-        threadId: input.threadId,
-        ...(input.instructions ? { instructions: input.instructions } : {})
-      },
-      config,
-      { acceptedErrorStatuses: [409] }
-    );
-    if (!isObject(payload)) {
-      throw new AssistantRuntimeAdapterError(
-        "invalid_response",
-        "OpenClaw Telegram channel compaction response is invalid."
-      );
-    }
-    if (payload.ok !== true) {
-      const errorMessage =
-        typeof payload.error === "string" ? payload.error : "Telegram channel compaction failed.";
-      throw new AssistantRuntimeAdapterError("compaction_unavailable", errorMessage);
-    }
-    const result = isObject(payload.result) ? payload.result : {};
-    const state = isObject(payload.state) ? payload.state : {};
-    return {
-      compacted: result.compacted === true,
-      reason: typeof result.reason === "string" ? result.reason : null,
-      tokensBefore: typeof result.tokensBefore === "number" ? result.tokensBefore : null,
-      tokensAfter: typeof result.tokensAfter === "number" ? result.tokensAfter : null,
-      state: {
-        sessionKey: typeof state.sessionKey === "string" ? state.sessionKey : "",
-        found: state.found === true,
-        currentTokens: typeof state.currentTokens === "number" ? state.currentTokens : null,
-        totalTokensFresh: state.totalTokensFresh === true,
-        compactionCount: typeof state.compactionCount === "number" ? state.compactionCount : 0,
-        compactionHintTokens:
-          typeof state.compactionHintTokens === "number" ? state.compactionHintTokens : null,
         updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : null,
         provider: typeof state.provider === "string" ? state.provider : null,
         model: typeof state.model === "string" ? state.model : null
@@ -691,80 +575,6 @@ export class OpenClawRuntimeAdapter implements OpenClawRuntimeBridge {
       assistantMessage: assistantMessage.trim(),
       respondedAt: respondedAt.trim(),
       media: parseMediaArray(payload.media)
-    };
-  }
-
-  async sendChannelTurn(
-    input: AssistantRuntimeChannelTurnInput
-  ): Promise<AssistantRuntimeWebChatTurnResult> {
-    const config = toOpenClawAdapterConfig(input.runtimeTier);
-    if (!config.enabled) {
-      throw new AssistantRuntimeAdapterError(
-        "runtime_unreachable",
-        "OpenClaw adapter is disabled by configuration."
-      );
-    }
-
-    const preflight = await this.preflight(input.runtimeTier);
-    if (!preflight.live || !preflight.ready) {
-      throw new AssistantRuntimeAdapterError(
-        "runtime_degraded",
-        `OpenClaw runtime degraded: live=${preflight.live}, ready=${preflight.ready}.`
-      );
-    }
-
-    const payload = await this.requestWithRetries(
-      "POST",
-      "/api/v1/runtime/chat/channel",
-      {
-        assistantId: input.assistantId,
-        publishedVersionId: input.publishedVersionId,
-        ...(input.providerOverride ? { providerOverride: input.providerOverride } : {}),
-        ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
-        surface: input.surface,
-        threadId: input.threadId,
-        userMessage: input.userMessage,
-        ...(input.userTimezone ? { userTimezone: input.userTimezone } : {}),
-        ...(input.currentTimeIso ? { currentTimeIso: input.currentTimeIso } : {})
-      },
-      config,
-      input.overviewTraceId ? { overviewTraceId: input.overviewTraceId } : undefined
-    );
-
-    if (!isObject(payload)) {
-      throw new AssistantRuntimeAdapterError(
-        "invalid_response",
-        "OpenClaw channel chat response is not a JSON object."
-      );
-    }
-
-    const assistantMessage = payload.assistantMessage;
-    const respondedAt = payload.respondedAt;
-    const media = parseMediaArray(payload.media);
-    if (
-      typeof assistantMessage !== "string" ||
-      (assistantMessage.trim().length === 0 && media.length === 0)
-    ) {
-      throw new AssistantRuntimeAdapterError(
-        "invalid_response",
-        "OpenClaw channel chat response is missing assistantMessage."
-      );
-    }
-    if (typeof respondedAt !== "string" || respondedAt.trim().length === 0) {
-      throw new AssistantRuntimeAdapterError(
-        "invalid_response",
-        "OpenClaw channel chat response is missing respondedAt."
-      );
-    }
-
-    const runtimeTrace = isObject(payload.runtimeTrace)
-      ? (payload.runtimeTrace as AssistantRuntimeWebChatTurnResult["runtimeTrace"])
-      : undefined;
-    return {
-      assistantMessage: assistantMessage.trim(),
-      respondedAt: respondedAt.trim(),
-      media,
-      ...(runtimeTrace ? { runtimeTrace } : {})
     };
   }
 

@@ -30,6 +30,8 @@ async function run(): Promise<void> {
   assert.equal(transcriptionCalls.length, 2);
   assert.equal(transcriptionCalls[0]?.filename, "voice-1.mp3");
   assert.equal(transcriptionCalls[1]?.filename, "voice-2.mp3");
+  assert.equal(transcriptionCalls[0]?.mimeType, "audio/mpeg");
+  assert.equal(transcriptionCalls[1]?.mimeType, "audio/mpeg");
   const successSeries = metrics
     .getSnapshot()
     .mediaStageSeries.find(
@@ -39,6 +41,38 @@ async function run(): Promise<void> {
         series.key.outcome === "success"
     );
   assert.equal(successSeries?.count, 2);
+
+  const convertedCalls: Array<{ buffer: Buffer; mimeType: string; filename: string | null }> = [];
+  const convertedService = new MediaPreprocessorService(
+    {
+      async transcribe(input: { buffer: Buffer; mimeType: string; filename: string | null }) {
+        convertedCalls.push(input);
+        return {
+          provider: "openai",
+          model: "gpt-4o-mini-transcribe",
+          text: " converted from webm ",
+          respondedAt: "2026-04-12T12:00:01.000Z"
+        };
+      }
+    } as never,
+    new PlatformHttpMetricsService()
+  );
+  (
+    convertedService as unknown as {
+      convertAudioToMp3(buffer: Buffer): Promise<Buffer>;
+    }
+  ).convertAudioToMp3 = async () => Buffer.from("converted-audio");
+
+  const converted = await convertedService.process(
+    Buffer.from("audio-webm"),
+    "audio/webm",
+    "voice-note.webm"
+  );
+  assert.equal(converted.transcription, "converted from webm");
+  assert.equal(convertedCalls.length, 1);
+  assert.equal(convertedCalls[0]?.mimeType, "audio/mpeg");
+  assert.equal(convertedCalls[0]?.filename, "voice-note.mp3");
+  assert.deepEqual(convertedCalls[0]?.buffer, Buffer.from("converted-audio"));
 
   const failingMetrics = new PlatformHttpMetricsService();
   const failingService = new MediaPreprocessorService(

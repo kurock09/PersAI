@@ -1,154 +1,190 @@
 import assert from "node:assert/strict";
-import { TelegramWebhookProxyController } from "../src/modules/workspace-management/interface/http/telegram-webhook-proxy.controller";
-
-const ORIGINAL_ENV = { ...process.env };
-const ORIGINAL_FETCH = globalThis.fetch;
-
-type MockResponse = {
-  statusCode: number | null;
-  headers: Record<string, string>;
-  jsonBody: unknown;
-  sentBody: string | null;
-  status(code: number): MockResponse;
-  setHeader(key: string, value: string): void;
-  json(payload: unknown): void;
-  send(body: string): void;
-};
-
-function applyEnv(): void {
-  process.env = {
-    ...ORIGINAL_ENV,
-    APP_ENV: "local",
-    DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public",
-    CLERK_SECRET_KEY: "clerk-secret",
-    OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: "http://openclaw-free.test",
-    OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: "http://openclaw-paid-shared.test",
-    OPENCLAW_BASE_URL_PAID_ISOLATED: "http://openclaw-paid-isolated.test",
-    OPENCLAW_GATEWAY_TOKEN: "gateway-token",
-    PERSAI_INTERNAL_API_TOKEN: "internal-api-token"
-  };
-}
-
-function createResponse(): MockResponse {
-  return {
-    statusCode: null,
-    headers: {},
-    jsonBody: null,
-    sentBody: null,
-    status(code: number) {
-      this.statusCode = code;
-      return this;
-    },
-    setHeader(key: string, value: string) {
-      this.headers[key] = value;
-    },
-    json(payload: unknown) {
-      this.jsonBody = payload;
-    },
-    send(body: string) {
-      this.sentBody = body;
-    }
-  };
-}
+import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
+import { TelegramChannelAdapterService } from "../src/modules/workspace-management/application/telegram-channel-adapter.service";
 
 async function run(): Promise<void> {
-  applyEnv();
+  let sendReplyCalls = 0;
+  let executeTurnCalls = 0;
+  let syncedTargets = 0;
+  let syncedGroups = 0;
 
-  const passThroughController = new TelegramWebhookProxyController({
-    async resolveByAssistantId() {
-      return "paid_shared_restricted";
-    }
-  } as never);
-
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    assert.equal(String(input), "http://openclaw-paid-shared.test/telegram-webhook/assistant-1");
-    assert.equal(init?.method, "POST");
-    assert.equal((init?.headers as Record<string, string>).Authorization, "Bearer gateway-token");
-    assert.equal(
-      (init?.headers as Record<string, string>)["x-telegram-bot-api-secret-token"],
-      "tg-secret"
-    );
-    assert.equal(init?.body, JSON.stringify({ update_id: 123 }));
-    return new Response("upstream unavailable", {
-      status: 503,
-      headers: { "content-type": "text/plain", "x-upstream-test": "yes" }
-    });
-  }) as typeof fetch;
-
-  const passThroughRes = createResponse();
-  await passThroughController.proxy(
-    "assistant-1",
+  const service = new TelegramChannelAdapterService(
     {
-      method: "POST",
-      headers: { "x-telegram-bot-api-secret-token": "tg-secret" },
-      body: { update_id: 123 }
-    },
-    passThroughRes
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          locale: "en",
+          botToken: "bot-token",
+          botUserId: 777,
+          botUsername: "persai_bot",
+          inbound: true,
+          outbound: true,
+          groupReplyMode: "mention_reply",
+          parseMode: "plain_text",
+          accessMode: "owner_only",
+          ownerClaimStatus: "claimed",
+          ownerClaimCode: null,
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: 42,
+          ownerTelegramUsername: "alex",
+          ownerTelegramChatId: "42",
+          runtimeHealth: "ok",
+          webhookSecret: "tg-secret"
+        };
+      }
+    } as never,
+    {
+      async sendPlainText() {
+        return undefined;
+      },
+      async sendAssistantTurnReply() {
+        sendReplyCalls += 1;
+      },
+      async downloadInboundFile() {
+        throw new Error("not expected");
+      }
+    } as never,
+    {
+      async execute() {
+        executeTurnCalls += 1;
+        return {
+          assistantMessage: "native reply",
+          respondedAt: "2026-04-12T10:00:00.000Z",
+          media: []
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        syncedTargets += 1;
+      }
+    } as never,
+    {
+      async execute() {
+        syncedGroups += 1;
+      }
+    } as never,
+    {
+      renderError(_surface: string, code: string, fallback: string) {
+        return { code, text: fallback };
+      }
+    } as never,
+    {
+      async patchMetadata() {
+        return undefined;
+      }
+    } as never
   );
-  assert.equal(passThroughRes.statusCode, 503);
-  assert.equal(passThroughRes.headers["content-type"], "text/plain");
-  assert.equal(passThroughRes.headers["x-upstream-test"], "yes");
-  assert.equal(passThroughRes.sentBody, "upstream unavailable");
 
-  const timeoutController = new TelegramWebhookProxyController({
-    async resolveByAssistantId() {
-      return "free_shared_restricted";
+  const success = await service.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "tg-secret",
+    payload: {
+      update_id: 123,
+      message: {
+        text: "hello",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, username: "alex" }
+      }
     }
-  } as never);
+  });
+  assert.deepEqual(success, { statusCode: 200, body: { ok: true } });
+  assert.equal(executeTurnCalls, 1);
+  assert.equal(sendReplyCalls, 1);
+  assert.equal(syncedTargets, 1);
+  assert.equal(syncedGroups, 0);
 
-  globalThis.fetch = (async () => {
-    const error = new Error("aborted");
-    error.name = "AbortError";
-    throw error;
-  }) as typeof fetch;
-  const timeoutRes = createResponse();
-  await timeoutController.proxy(
-    "assistant-timeout",
-    { method: "POST", headers: {}, body: { update_id: 1 } },
-    timeoutRes
+  const unauthorized = await service.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "wrong-secret",
+    payload: {}
+  });
+  assert.deepEqual(unauthorized, { statusCode: 401, body: { ok: false, error: "unauthorized" } });
+
+  const retryable = new TelegramChannelAdapterService(
+    {
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          locale: "en",
+          botToken: "bot-token",
+          botUserId: 777,
+          botUsername: "persai_bot",
+          inbound: true,
+          outbound: true,
+          groupReplyMode: "mention_reply",
+          parseMode: "plain_text",
+          accessMode: "owner_only",
+          ownerClaimStatus: "claimed",
+          ownerClaimCode: null,
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: 42,
+          ownerTelegramUsername: "alex",
+          ownerTelegramChatId: "42",
+          runtimeHealth: "ok",
+          webhookSecret: "tg-secret"
+        };
+      }
+    } as never,
+    {
+      async sendPlainText() {
+        return undefined;
+      },
+      async sendAssistantTurnReply() {
+        throw new Error("not expected");
+      },
+      async downloadInboundFile() {
+        throw new Error("not expected");
+      }
+    } as never,
+    {
+      async execute() {
+        throw new AssistantRuntimeError("timeout", "timed out");
+      }
+    } as never,
+    {
+      async execute() {
+        return undefined;
+      }
+    } as never,
+    {
+      async execute() {
+        return undefined;
+      }
+    } as never,
+    {
+      renderError(_surface: string, code: string, fallback: string) {
+        return { code, text: fallback };
+      }
+    } as never,
+    {
+      async patchMetadata() {
+        return undefined;
+      }
+    } as never
   );
-  assert.equal(timeoutRes.statusCode, 504);
-  assert.deepEqual(timeoutRes.jsonBody, { ok: false, error: "upstream_timeout" });
 
-  const networkErrorController = new TelegramWebhookProxyController({
-    async resolveByAssistantId() {
-      return "free_shared_restricted";
+  const retryResult = await retryable.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "tg-secret",
+    payload: {
+      update_id: 124,
+      message: {
+        text: "hello again",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, username: "alex" }
+      }
     }
-  } as never);
-
-  globalThis.fetch = (async () => {
-    throw new Error("socket hang up");
-  }) as typeof fetch;
-  const networkErrorRes = createResponse();
-  await networkErrorController.proxy(
-    "assistant-network-error",
-    { method: "POST", headers: {}, body: { update_id: 2 } },
-    networkErrorRes
-  );
-  assert.equal(networkErrorRes.statusCode, 502);
-  assert.deepEqual(networkErrorRes.jsonBody, { ok: false, error: "upstream_error" });
-
-  const unknownAssistantController = new TelegramWebhookProxyController({
-    async resolveByAssistantId() {
-      throw new Error("not found");
-    }
-  } as never);
-  const unknownAssistantRes = createResponse();
-  await unknownAssistantController.proxy(
-    "missing-assistant",
-    { method: "POST", headers: {}, body: { update_id: 3 } },
-    unknownAssistantRes
-  );
-  assert.equal(unknownAssistantRes.statusCode, 200);
-  assert.deepEqual(unknownAssistantRes.jsonBody, { ok: false, error: "unknown_assistant" });
+  });
+  assert.deepEqual(retryResult, {
+    statusCode: 504,
+    body: { ok: false, error: "runtime_timeout" }
+  });
 }
 
-void run()
-  .finally(() => {
-    process.env = ORIGINAL_ENV;
-    globalThis.fetch = ORIGINAL_FETCH;
-  })
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+void run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

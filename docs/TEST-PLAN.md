@@ -683,7 +683,6 @@ Required in CI:
 - Capability/quota/abuse/tool-limit checks are exercised from the shared path rather than duplicated surface-specific code.
 - Concrete focused coverage in this slice includes:
   - `test/enforcement-points.test.ts`
-  - `test/internal-runtime-turn.controller.test.ts`
   - `test/internal-runtime-tool-quota.controller.test.ts`
   - `test/handle-internal-cron-fire.test.ts`
   - `test/openclaw-runtime-adapter.test.ts`
@@ -737,11 +736,10 @@ Required in CI:
 
 ### Group tracking
 
-- OpenClaw sends `my_chat_member` events to PersAI `POST /api/v1/internal/runtime/telegram/group-update`.
+- PersAI API-side Telegram webhook adapter handles `my_chat_member` events directly and syncs `assistant_telegram_groups`.
 - Join event upserts group record with status `active`.
 - Leave event updates group record to status `left` with `leftAt` timestamp.
 - `GET /api/v1/assistant/integrations/telegram/groups` returns current group list.
-- Verify `openclaw.json` configmap includes `secrets.providers.persai-runtime` with correct `baseUrl`; without it group callbacks are silently dropped.
 
 ### UI
 
@@ -1017,7 +1015,7 @@ Required in CI:
 - Compaction suggestion UX must prove:
   - web chat suggestion state and manual compact actions are covered by the public assistant API contract, not only by ad hoc client calls
   - threshold behavior comes from the admin-managed optimization policy rather than a second product-side source
-  - web and Telegram surfaces are both reviewed for user-facing copy, localization, and repeated-hint suppression behavior before the slice is called complete
+  - the currently live web surface is reviewed for user-facing copy and localization; any future shared multi-channel compaction surface (including Telegram or agent-invoked flows) must be validated when Step 15 lands
 - Bootstrap budget optimization must prove:
   - prompt/token reduction is measured
   - persona/humanity regressions were reviewed explicitly
@@ -1360,13 +1358,12 @@ Required in CI:
   - PersAI claims one logical reminder replay key before reminder fanout, so repeated callback delivery does not append/send duplicate reminders
   - successful completion advances the handled/completed replay marker and clears the in-flight claim
   - failed attempts release or age out the in-flight claim so the same logical delivery is not deadlocked forever after one broken run
-- transient Telegram proxy timeout/network failure returns a retry-worthy non-2xx response instead of silent `200` success
-- transient `OpenClaw -> PersAI internal Telegram turn` failures are treated as retry-worthy webhook failures instead of being rendered to the user and acknowledged as successful webhook completion
+- transient Telegram adapter runtime failure returns a retry-worthy `503/504` response instead of silent `200` success, while locally handled bot-token / attachment-download failures are acknowledged explicitly
+- the public PersAI Telegram adapter is now the only product webhook path; retry-worthy downstream runtime failures must stay retry-worthy at that webhook boundary instead of being converted into a successful acknowledgment with fallback user text
 - OpenClaw cron webhook non-2xx completion is surfaced as runtime failure in logs instead of being silently treated as success
 - Minimum verification for this sub-slice:
   - `corepack pnpm --filter @persai/api run typecheck`
   - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
-  - `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-turn.controller.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`

@@ -19,7 +19,6 @@ import { InternalCronFireController } from "./interface/http/internal-cron-fire.
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
 import { InternalRuntimeConfigGenerationController } from "./interface/http/internal-runtime-config-generation.controller";
 import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
-import { InternalRuntimeTurnController } from "./interface/http/internal-runtime-turn.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
@@ -80,6 +79,7 @@ import { ReapplyAssistantService } from "./application/reapply-assistant.service
 import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
 import { PreviewAssistantSetupService } from "./application/preview-assistant-setup.service";
+import { SendNativeTelegramTurnService } from "./application/send-native-telegram-turn.service";
 import { SendNativeWebChatTurnService } from "./application/send-native-web-chat-turn.service";
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamNativeWebChatTurnService } from "./application/stream-native-web-chat-turn.service";
@@ -96,6 +96,7 @@ import { ResolveAssistantRuntimeTierService } from "./application/resolve-assist
 import { RenderAssistantInboundSurfaceMessageService } from "./application/render-assistant-inbound-surface-message.service";
 import { SyncAssistantTaskRegistryService } from "./application/sync-assistant-task-registry.service";
 import { SyncTelegramChatTargetService } from "./application/sync-telegram-chat-target.service";
+import { SyncTelegramGroupMembershipService } from "./application/sync-telegram-group-membership.service";
 import { TrackWorkspaceQuotaUsageService } from "./application/track-workspace-quota-usage.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./application/resolve-internal-runtime-tool-daily-policy.service";
 import { SyncWorkspaceSubscriptionService } from "./application/sync-workspace-subscription.service";
@@ -142,7 +143,7 @@ import { SyncNativeRuntimeBundleService } from "./application/sync-native-runtim
 import { SyncProviderGatewayWarmupService } from "./application/sync-provider-gateway-warmup.service";
 import { AdminForceReapplyController } from "./interface/http/admin-force-reapply.controller";
 import { MediaAttachmentController } from "./interface/http/media-attachment.controller";
-import { TelegramWebhookProxyController } from "./interface/http/telegram-webhook-proxy.controller";
+import { TelegramWebhookController } from "./interface/http/telegram-webhook-proxy.controller";
 import { ManageChatMediaService } from "./application/manage-chat-media.service";
 import { MediaPreprocessorService } from "./application/media/media-preprocessor.service";
 import { NativeMediaTranscriptionService } from "./application/media/native-media-transcription.service";
@@ -157,6 +158,9 @@ import { PrismaAssistantMaterializedSpecRepository } from "./infrastructure/pers
 import { PrismaAssistantPublishedVersionRepository } from "./infrastructure/persistence/prisma-assistant-published-version.repository";
 import { PrismaAssistantRepository } from "./infrastructure/persistence/prisma-assistant.repository";
 import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/workspace-management-prisma.service";
+import { ResolveTelegramChannelRuntimeConfigService } from "./application/resolve-telegram-channel-runtime-config.service";
+import { TelegramBotClientService } from "./application/telegram-bot.client.service";
+import { TelegramChannelAdapterService } from "./application/telegram-channel-adapter.service";
 
 @Module({
   imports: [IdentityAccessModule, PlatformCoreModule],
@@ -178,11 +182,10 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     InternalRuntimeProviderSecretsController,
     InternalRuntimeConfigGenerationController,
     InternalRuntimeTaskRegistryController,
-    InternalRuntimeTurnController,
     InternalRuntimeToolQuotaController,
     AdminForceReapplyController,
     MediaAttachmentController,
-    TelegramWebhookProxyController
+    TelegramWebhookController
   ],
   providers: [
     {
@@ -249,6 +252,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     ResetAssistantService,
     PreviewAssistantSetupService,
     RecordWebChatMemoryTurnService,
+    SendNativeTelegramTurnService,
     SendNativeWebChatTurnService,
     StreamNativeWebChatTurnService,
     WebRuntimeShadowComparisonService,
@@ -263,11 +267,15 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     CancelAssistantTaskRegistryItemService,
     SyncAssistantTaskRegistryService,
     SyncTelegramChatTargetService,
+    SyncTelegramGroupMembershipService,
     MergeStagedWebChatAttachmentsService,
     PrepareAssistantInboundTurnService,
     SendWebChatTurnService,
     StreamWebChatTurnService,
     UpdateAssistantDraftService,
+    ResolveTelegramChannelRuntimeConfigService,
+    TelegramBotClientService,
+    TelegramChannelAdapterService,
     {
       provide: ASSISTANT_REPOSITORY,
       useClass: PrismaAssistantRepository

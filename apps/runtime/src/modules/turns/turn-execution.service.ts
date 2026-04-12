@@ -388,7 +388,9 @@ export class TurnExecutionService {
       if (primaryPath.active === false) {
         throw new TurnExecutionError(
           "runtime_provider_routing_inactive",
-          new BadRequestException("Runtime bundle primary provider path is inactive for web chat.")
+          new BadRequestException(
+            "Runtime bundle primary provider path is inactive for native turn execution."
+          )
         );
       }
       const providerFromRouting = this.asNativeManagedProvider(primaryPath.providerKey);
@@ -415,7 +417,7 @@ export class TurnExecutionService {
     throw new TurnExecutionError(
       "native_provider_selection_unavailable",
       new ServiceUnavailableException(
-        "Runtime bundle does not declare a native managed provider/model for web turn execution."
+        "Runtime bundle does not declare a native managed provider/model for turn execution."
       )
     );
   }
@@ -425,13 +427,15 @@ export class TurnExecutionService {
     operation: "createTurn" | "streamTurn"
   ): void {
     if (input.message.text.trim().length === 0) {
-      throw new BadRequestException(`message.text must be non-empty for native web ${operation}.`);
+      throw new BadRequestException(
+        `message.text must be non-empty for native ${operation} execution.`
+      );
     }
     const hasProviderOverride = input.providerOverride !== undefined;
     const hasModelOverride = input.modelOverride !== undefined;
     if (hasProviderOverride !== hasModelOverride) {
       throw new BadRequestException(
-        `providerOverride and modelOverride must be provided together for native web ${operation}.`
+        `providerOverride and modelOverride must be provided together for native ${operation} execution.`
       );
     }
     if (input.modelOverride !== undefined && input.modelOverride.trim().length === 0) {
@@ -442,7 +446,7 @@ export class TurnExecutionService {
     for (const attachment of input.message.attachments) {
       if (attachment.objectKey.trim().length === 0) {
         throw new BadRequestException(
-          `message.attachments[].objectKey must be non-empty for native web ${operation}.`
+          `message.attachments[].objectKey must be non-empty for native ${operation} execution.`
         );
       }
     }

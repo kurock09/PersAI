@@ -86,6 +86,7 @@ export class MediaPreprocessorService {
     let normalizedBuffer = buffer;
     let normalizedMime = mime;
     let normalizedExtension = this.extensionForMime(mime);
+    let transcriptionFilename = originalFilename;
 
     if (AUDIO_MIMES_NEEDING_CONVERSION.has(mime)) {
       try {
@@ -93,6 +94,10 @@ export class MediaPreprocessorService {
         normalizedBuffer = converted;
         normalizedMime = "audio/mpeg";
         normalizedExtension = "mp3";
+        transcriptionFilename = this.replaceFilenameExtension(
+          originalFilename,
+          normalizedExtension
+        );
       } catch (err) {
         this.logger.warn(
           `Audio conversion failed for "${originalFilename}", keeping original format: ${String(err)}`
@@ -105,7 +110,7 @@ export class MediaPreprocessorService {
       transcription = await this.transcribeAudio(
         normalizedBuffer,
         normalizedMime,
-        originalFilename
+        transcriptionFilename
       );
     } catch (err) {
       this.logger.warn(`STT failed for "${originalFilename}": ${String(err)}`);
@@ -439,6 +444,20 @@ export class MediaPreprocessorService {
 
   private normalizeMime(mime: string): string {
     return (mime.split(";")[0] ?? mime).trim().toLowerCase();
+  }
+
+  private replaceFilenameExtension(filename: string, extension: string): string {
+    const trimmed = filename.trim();
+    if (trimmed.length === 0) {
+      return `audio.${extension}`;
+    }
+
+    const lastSlash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+    const lastDot = trimmed.lastIndexOf(".");
+    if (lastDot > lastSlash) {
+      return `${trimmed.slice(0, lastDot)}.${extension}`;
+    }
+    return `${trimmed}.${extension}`;
   }
 
   private extensionForMime(mime: string): string {

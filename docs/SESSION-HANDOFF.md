@@ -1,5 +1,201 @@
 # SESSION-HANDOFF
 
+## 2026-04-12 - ADR-072 Step 14 native Telegram text cutover (in progress)
+
+### What changed
+
+1. `HandleInternalTelegramTurnService` now keeps Telegram direct/group text turns on the native `apps/runtime` turn path with proper Telegram `RuntimeConversationAddress` identity (`channel=telegram`, `externalThreadKey`, `externalUserKey`, `mode`) and no request-time `sendChannelTurn(...)` fallback.
+2. The temporary Telegram-only `/compact` command path, Telegram compaction hints, and the related channel-session/channel-compact facade/adapter contracts were removed from the active API/runtime path instead of being preserved as a channel-specific migration seam.
+3. `apps/runtime` hydration now narrows canonical-channel lookup explicitly to `web | telegram`, and the touched Telegram/native tests plus workspace typecheck/lint were rerun against the new boundary.
+
+### Why
+
+1. Step 14 is about making Telegram text/group execution genuinely native; keeping a Telegram-only `/compact` seam would have left a new legacy tail in the intended final architecture.
+2. Shared compaction is broader than Telegram and should return only as a Step 15 runtime/tool capability, whether user-invoked or automatic.
+3. Repo truth needed to stop pointing future sessions at “implement native Telegram `/compact` now”, because that is no longer the chosen boundary.
+
+### Current active slice
+
+- `Slice 5 — Telegram native adapter and group semantics`
+
+### Current active step
+
+- `Step 14 — Cut over Telegram text and groups`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-bot.client.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/openclaw-assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/test/handle-internal-telegram-turn.service.test.ts`
+- `apps/api/test/preview-assistant-setup.service.test.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ADR/071-openclaw-saas-context-and-runtime-optimization.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CHANGELOG.md`
+- `docs/TEST-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm exec tsx test/send-native-telegram-turn.service.test.ts`
+- `corepack pnpm exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm run typecheck`
+- `corepack pnpm run lint` in `apps/api`
+- `corepack pnpm run lint` in `apps/runtime`
+- `corepack pnpm run format:check` (still failing due pre-existing formatting drift in unrelated dirty files listed below)
+
+### Risks
+
+1. Step 14 has not been deploy/live-validated yet on real Telegram DM/group traffic; the next session should do the requested deploy plus live check before marking the step complete.
+2. Shared compaction/manual-auto compression is now intentionally absent from the Telegram product path until Step 15 introduces it as a bounded runtime/tool capability.
+3. Workspace `format:check` still fails on pre-existing formatting drift outside this narrow cut: `apps/api/src/modules/workspace-management/application/resolve-telegram-channel-runtime-config.service.ts`, `apps/api/src/modules/workspace-management/application/telegram-assistant-markdown-html.ts`, `apps/api/src/modules/workspace-management/application/telegram-channel-adapter.service.ts`, `apps/api/src/modules/workspace-management/interface/http/telegram-webhook-proxy.controller.ts`, `apps/api/test/telegram-group-rename-dedupe.test.ts`, `apps/runtime/src/modules/turns/turn-execution.service.ts`.
+
+### Next recommended step
+
+1. Deploy and live-validate Step 14 on Telegram DM + group flows, then close the step honestly if native text/group behavior is healthy.
+2. After Step 14 validation, start Step 15 with a shared compaction/runtime-tool design instead of restoring any Telegram-only slash-command path.
+
+### Ready commit message
+
+- `refactor(telegram): cut over native text turns and drop channel compact seam`
+
+## 2026-04-12 - ADR-072 Step 13 closeout
+
+### What changed
+
+1. Finished the Step 13 cleanup after the API-side Telegram adapter cutover: PersAI removed the old internal Telegram ingress/controller path and the old internal Telegram group/chat-target callback endpoints because the public API-side Telegram adapter now owns webhook parsing, group sync, chat-target sync, Bot API file download, and outbound Bot API delivery directly.
+2. `HandleInternalTelegramTurnService` was simplified to accept only already-normalized Telegram turns from the API-side adapter instead of parsing OpenClaw-shaped payloads or downloading inbound Telegram attachments by legacy `storagePath`.
+3. The synthetic `SR10` Telegram loadtest seam was retired honestly together with that internal ingress removal: the example pack no longer claims Telegram internal-turn traffic, and the runner now fails fast if `telegram_turn` is requested instead of silently depending on a removed endpoint.
+
+### Why
+
+1. Step 13 is about replacing the Telegram proxy/adapter layer, so leaving internal Telegram ingress/callback endpoints behind would have kept an OpenClaw-shaped product seam after the adapter cutover was already done.
+2. Since there are no platform users yet, keeping the old internal bridge alive for compatibility would have been unnecessary migration debt instead of a justified boundary.
+3. Finishing Step 13 cleanly lets Step 14 focus only on the remaining real work: replacing the last legacy Telegram execution seam with native runtime turns.
+
+### Current active slice
+
+- `Slice 5 — Telegram native adapter and group semantics`
+
+### Current active step
+
+- `Step 14 — Cut over Telegram text and groups`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/sync-telegram-chat-target.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-channel-adapter.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/telegram-webhook-proxy.controller.test.ts`
+- deleted `apps/api/src/modules/workspace-management/interface/http/internal-runtime-turn.controller.ts`
+- deleted `apps/api/test/internal-runtime-turn.controller.test.ts`
+- `scripts/loadtest/run-sr10.cjs`
+- `scripts/loadtest/README.md`
+- `scripts/loadtest/sr10.example.json`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/ARCHITECTURE.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/SCALING-READINESS-PLAN.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm run typecheck`
+
+### Risks
+
+1. Step 13 is now complete, but Telegram request-time text generation and `/compact` still run through `AssistantRuntimeFacade.sendChannelTurn(...)` / `compactTelegramChannelSession(...)` inside `HandleInternalTelegramTurnService`. That is the Step 14 boundary.
+2. Telegram outbound media still downloads the just-produced artifact through the legacy runtime facade before posting to Telegram Bot API. That remaining artifact seam should disappear together with Step 14/native runtime Telegram execution.
+3. The old synthetic `telegram_turn` loadtest scenario was intentionally removed rather than replaced with a fake public-webhook simulation, so Telegram validation now depends on the later live check instead of the previous synthetic internal seam.
+
+### Next recommended step
+
+1. Start Step 14 by replacing `HandleInternalTelegramTurnService -> AssistantRuntimeFacade.sendChannelTurn(...)` and `compactTelegramChannelSession(...)` with native `apps/runtime` Telegram execution, including correct `RuntimeConversationAddress` identity (`channel=telegram`, `externalThreadKey`, `externalUserKey`, `mode`) and shared Telegram history hydration in the runtime core.
+
+### Ready commit message
+
+- `refactor(telegram): complete native adapter cutover`
+
+## 2026-04-12 - ADR-072 Step 13 Telegram API-side adapter cutover
+
+### What changed
+
+1. `apps/api` public `POST /telegram-webhook/:assistantId` no longer proxies Telegram webhooks into OpenClaw. The controller now calls a PersAI-side Telegram adapter that verifies the assistant-scoped webhook secret, parses `message` / `my_chat_member` updates, applies owner-only + group mention/reply semantics, syncs Telegram chat/group metadata, downloads inbound files directly from the Telegram Bot API, and sends outbound replies/media back through the Telegram Bot API.
+2. `HandleInternalTelegramTurnService` now persists canonical Telegram chat history for ordinary text turns too, not just attachment-bearing ones. The same service can accept raw Telegram attachments from the API-side adapter, claim duplicate updates before attachment download/runtime work, and persist assistant outbound media into canonical attachment records.
+3. Shared Telegram adapter utilities now live in PersAI (`ResolveTelegramChannelRuntimeConfigService`, `TelegramBotClientService`, Telegram markdown/html chunking helpers, `SyncTelegramGroupMembershipService`), and repo truth now records Step 13 as `in_progress` with an explicit temporary boundary instead of pretending the old proxy is still the active design.
+
+### Why
+
+1. Step 13 exists to remove the OpenClaw-owned Telegram webhook/bot loop and move Telegram ingress/delivery ownership onto the same PersAI-side channel-adapter shape that later channels can reuse.
+2. Canonical transcript persistence had to move with that adapter boundary; otherwise Telegram text turns would continue bypassing PersAI-owned history while web already uses canonical chat/message truth.
+3. The remaining legacy execution seam had to be documented explicitly so Step 14 can remove it cleanly instead of leaving a hidden OpenClaw tail inside the new adapter path.
+
+### Current active slice
+
+- `Slice 5 — Telegram native adapter and group semantics`
+
+### Current active step
+
+- `Step 13 — Replace Telegram proxy with a native Telegram adapter`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/interface/http/telegram-webhook-proxy.controller.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-channel-adapter.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-bot.client.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-telegram-channel-runtime-config.service.ts`
+- `apps/api/src/modules/workspace-management/application/sync-telegram-group-membership.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-outbound-chunks.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-assistant-markdown-html.ts`
+- `apps/api/src/modules/workspace-management/application/media/channel-adapters/telegram-media.adapter.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/handle-internal-telegram-turn.service.test.ts`
+- `apps/api/test/telegram-group-rename-dedupe.test.ts`
+- `apps/api/test/telegram-webhook-proxy.controller.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ADR/066-telegram-tier-aware-ingress-proxy.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm exec tsx test/telegram-group-rename-dedupe.test.ts`
+- `corepack pnpm exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm run typecheck`
+- `corepack pnpm exec eslint --max-warnings=0 src/modules/workspace-management/application/sync-telegram-group-membership.service.ts src/modules/workspace-management/application/resolve-telegram-channel-runtime-config.service.ts src/modules/workspace-management/application/telegram-outbound-chunks.ts src/modules/workspace-management/application/telegram-assistant-markdown-html.ts src/modules/workspace-management/application/telegram-bot.client.service.ts src/modules/workspace-management/application/telegram-channel-adapter.service.ts src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts src/modules/workspace-management/interface/http/telegram-webhook-proxy.controller.ts src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts src/modules/workspace-management/workspace-management.module.ts test/handle-internal-telegram-turn.service.test.ts test/telegram-group-rename-dedupe.test.ts test/telegram-webhook-proxy.controller.test.ts`
+
+### Risks
+
+1. Step 13 is still not complete: `HandleInternalTelegramTurnService` continues to delegate final text generation and `/compact` execution through `AssistantRuntimeFacade.sendChannelTurn(...)` / `compactTelegramChannelSession(...)`. This is the explicit temporary boundary and must be removed in Step 14.
+2. Telegram outbound media is now persisted canonically in PersAI, but the live send path still downloads the just-produced artifact through the legacy runtime facade before posting it to the Telegram Bot API. That bounded artifact seam also disappears when Step 14/native producer work replaces the remaining legacy execution path.
+3. `POST /api/v1/internal/runtime/turns/telegram` still exists as a bounded legacy bridge endpoint for the old OpenClaw-initiated path; the new public webhook adapter no longer uses it, but repo cleanup is not complete until the Step 14/17 follow-up removes that path entirely.
+
+### Next recommended step
+
+1. Continue Step 13 by replacing `HandleInternalTelegramTurnService -> AssistantRuntimeFacade.sendChannelTurn(...)` and `compactTelegramChannelSession(...)` with native `apps/runtime` turn/compaction execution, including Telegram `RuntimeConversationAddress` identity (`channel=telegram`, `externalThreadKey`, `externalUserKey`, `mode`) and shared history hydration for Telegram chats.
+
+### Ready commit message
+
+- `feat(telegram): move webhook ingress and delivery into api`
+
 ## 2026-04-12 - ADR-072 plan: explicit native web TTS output step
 
 ### What changed

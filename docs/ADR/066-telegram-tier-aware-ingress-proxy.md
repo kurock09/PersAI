@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by ADR-072 Step 13 on 2026-04-12. Retained only as the historical ingress-transition record.
 
 ## Context
 

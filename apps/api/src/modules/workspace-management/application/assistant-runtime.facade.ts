@@ -55,55 +55,6 @@ export interface AssistantRuntimeWebChatTurnInput {
   overviewTraceId?: string;
 }
 
-export interface AssistantRuntimeChannelTurnInput {
-  assistantId: string;
-  publishedVersionId: string;
-  runtimeTier?: RuntimeTier;
-  providerOverride?: "openai" | "anthropic";
-  modelOverride?: string;
-  surface: "telegram";
-  threadId: string;
-  userMessage: string;
-  userTimezone?: string;
-  currentTimeIso?: string;
-  overviewTraceId?: string;
-}
-
-export interface AssistantRuntimeChannelSessionStateInput {
-  assistantId: string;
-  runtimeTier?: RuntimeTier;
-  surface: "telegram";
-  threadId: string;
-}
-
-export interface AssistantRuntimeChannelSessionStateResult {
-  sessionKey: string;
-  found: boolean;
-  currentTokens: number | null;
-  totalTokensFresh: boolean;
-  compactionCount: number;
-  compactionHintTokens: number | null;
-  updatedAt: string | null;
-  provider: string | null;
-  model: string | null;
-}
-
-export interface AssistantRuntimeChannelCompactInput {
-  assistantId: string;
-  runtimeTier?: RuntimeTier;
-  surface: "telegram";
-  threadId: string;
-  instructions?: string;
-}
-
-export interface AssistantRuntimeChannelCompactResult {
-  compacted: boolean;
-  reason: string | null;
-  tokensBefore: number | null;
-  tokensAfter: number | null;
-  state: AssistantRuntimeChannelSessionStateResult;
-}
-
 export interface RuntimeMediaArtifact {
   url: string;
   type: "image" | "audio" | "video" | "document";
@@ -236,27 +187,15 @@ export interface AssistantRuntimeFacade {
   getWebChatSessionState(
     input: AssistantRuntimeWebChatSessionStateInput
   ): Promise<AssistantRuntimeWebChatSessionStateResult>;
-  getChannelSessionState(
-    input: AssistantRuntimeChannelSessionStateInput
-  ): Promise<AssistantRuntimeChannelSessionStateResult>;
-  markChannelCompactionHintShown(
-    input: AssistantRuntimeChannelSessionStateInput & { tokens: number }
-  ): Promise<void>;
   compactWebChatSession(
     input: AssistantRuntimeWebChatCompactInput
   ): Promise<AssistantRuntimeWebChatCompactResult>;
-  compactTelegramChannelSession(
-    input: AssistantRuntimeChannelCompactInput
-  ): Promise<AssistantRuntimeChannelCompactResult>;
   sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;
   previewSetupTurn(
     input: AssistantRuntimeSetupPreviewTurnInput
   ): Promise<AssistantRuntimeSetupPreviewTurnResult>;
-  sendChannelTurn(
-    input: AssistantRuntimeChannelTurnInput
-  ): Promise<AssistantRuntimeWebChatTurnResult>;
   streamWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk>;

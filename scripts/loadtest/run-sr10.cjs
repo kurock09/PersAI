@@ -447,51 +447,6 @@ async function scenarioVoiceTranscribe(ctx, identity) {
   }
 }
 
-async function scenarioTelegramTurn(ctx, identity) {
-  const threadId = makeThreadKey(
-    identity.threadPrefix,
-    identity.label,
-    ctx.config.telegram.threadPoolSize
-  );
-  const message =
-    ctx.config.telegram.messageTemplates[
-      randomBetween(0, ctx.config.telegram.messageTemplates.length - 1)
-    ];
-  const result = await fetchJson(
-    `${ctx.config.internalApiBaseUrl}/internal/runtime/turns/telegram`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${ctx.config.telegram.internalApiToken}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        assistantId: identity.assistantId,
-        threadId,
-        message,
-        updateId: Date.now() + randomBetween(0, 999_999)
-      })
-    },
-    ctx.config.requestTimeoutMs
-  );
-  if (result.ok && result.payload && result.payload.ok === true) {
-    return {
-      ok: true,
-      latencyMs: result.latencyMs,
-      status: result.status,
-      kind: "telegram_turn"
-    };
-  }
-  const error = summarizePayloadError(result.payload);
-  return {
-    ok: false,
-    latencyMs: result.latencyMs,
-    status: result.status,
-    kind: "telegram_turn",
-    error
-  };
-}
-
 function createEmptyStats() {
   return {
     startedAt: new Date().toISOString(),
@@ -612,7 +567,6 @@ function evaluateGates(config, phaseSummary, adminBefore, adminAfter) {
 async function runWorker(ctx, workerIndex, phaseEndAt) {
   const webUsers = ctx.config.web ? ctx.config.web.usersResolved : [];
   const mediaUsers = ctx.config.media ? ctx.config.media.usersResolved : [];
-  const telegramAssistants = ctx.config.telegram ? ctx.config.telegram.assistantsResolved : [];
 
   while (Date.now() < phaseEndAt) {
     const kind = choiceWeighted(ctx.config.trafficMix);
@@ -625,9 +579,6 @@ async function runWorker(ctx, workerIndex, phaseEndAt) {
       } else if (kind === "web_stream") {
         const identity = webUsers[workerIndex % webUsers.length];
         result = await scenarioWebStream(ctx, identity);
-      } else if (kind === "telegram_turn") {
-        const identity = telegramAssistants[workerIndex % telegramAssistants.length];
-        result = await scenarioTelegramTurn(ctx, identity);
       } else if (kind === "web_stage_attachment") {
         const identity = mediaUsers[workerIndex % mediaUsers.length];
         result = await scenarioWebStageAttachment(ctx, identity);
@@ -705,10 +656,6 @@ async function writeReport(reportDir, runId, report) {
 function normalizeConfig(rawConfig, cliArgs) {
   const envOptions = { allowMissing: cliArgs.dryRun === true };
   const apiBaseUrl = assertString(rawConfig.apiBaseUrl, "apiBaseUrl").replace(/\/$/, "");
-  const internalApiBaseUrl = assertString(
-    rawConfig.internalApiBaseUrl ?? rawConfig.apiBaseUrl,
-    "internalApiBaseUrl"
-  ).replace(/\/$/, "");
   const profiles = rawConfig.profiles;
   if (!profiles || typeof profiles !== "object" || Array.isArray(profiles)) {
     throw new Error("profiles must be an object keyed by profile id.");
@@ -747,7 +694,6 @@ function normalizeConfig(rawConfig, cliArgs) {
 
   const config = {
     apiBaseUrl,
-    internalApiBaseUrl,
     reportDir: cliArgs.reportDir ?? rawConfig.reportDir ?? "artifacts/sr10-loadtest",
     requestTimeoutMs: rawConfig.requestTimeoutMs ?? 90_000,
     thinkTimeMs: {
@@ -767,7 +713,6 @@ function normalizeConfig(rawConfig, cliArgs) {
     },
     admin: null,
     web: null,
-    telegram: null,
     media: null
   };
 
@@ -800,30 +745,6 @@ function normalizeConfig(rawConfig, cliArgs) {
           `web.users[${index}]`,
           envOptions
         )
-      }))
-    };
-  }
-
-  if (rawConfig.telegram) {
-    const assistants = Array.isArray(rawConfig.telegram.assistants) ? rawConfig.telegram.assistants : [];
-    if (assistants.length === 0) {
-      throw new Error("telegram.assistants must contain at least one assistant id.");
-    }
-    config.telegram = {
-      internalApiToken: resolveEnvToken(
-        assertString(rawConfig.telegram.internalApiTokenEnv, "telegram.internalApiTokenEnv"),
-        "telegram.internalApiToken",
-        envOptions
-      ),
-      threadPoolSize: rawConfig.telegram.threadPoolSize ?? 4,
-      messageTemplates:
-        Array.isArray(rawConfig.telegram.messageTemplates) && rawConfig.telegram.messageTemplates.length > 0
-          ? rawConfig.telegram.messageTemplates
-          : ["Load-test telegram turn. Reply briefly."],
-      assistantsResolved: assistants.map((assistant, index) => ({
-        label: assistant.label ?? `telegram-${index + 1}`,
-        assistantId: assertString(assistant.assistantId, `telegram.assistants[${index}].assistantId`),
-        threadPrefix: assistant.threadPrefix ?? "sr10-tg"
       }))
     };
   }
@@ -868,8 +789,10 @@ function normalizeConfig(rawConfig, cliArgs) {
     if ((kind === "web_sync" || kind === "web_stream" || kind === "tool_prompt") && !config.web) {
       throw new Error(`${kind} requires a web section in config.`);
     }
-    if (kind === "telegram_turn" && !config.telegram) {
-      throw new Error("telegram_turn requires a telegram section in config.");
+    if (kind === "telegram_turn") {
+      throw new Error(
+        "telegram_turn synthetic loadtest traffic was removed after ADR-072 Step 13. Use live Telegram verification instead."
+      );
     }
     if ((kind === "web_stage_attachment" || kind === "voice_transcribe") && !config.media) {
       throw new Error(`${kind} requires a media section in config.`);
@@ -900,7 +823,6 @@ async function main() {
         {
           ok: true,
           apiBaseUrl: config.apiBaseUrl,
-          internalApiBaseUrl: config.internalApiBaseUrl,
           reportDir: config.reportDir,
           trafficMix: config.trafficMix,
           profiles: plan
@@ -917,7 +839,6 @@ async function main() {
     runId,
     startedAt: new Date().toISOString(),
     apiBaseUrl: config.apiBaseUrl,
-    internalApiBaseUrl: config.internalApiBaseUrl,
     profiles: [],
     stoppedEarly: false
   };

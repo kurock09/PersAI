@@ -4,15 +4,12 @@ import type { ChannelMediaAdapter } from "./channel-media-adapter.interface";
 import type { ChannelTarget, MediaChannel } from "../media.types";
 
 /**
- * Telegram channel adapter. Delegates media delivery to the OpenClaw
- * Telegram bridge via the internal turn response. The PersAI API
- * returns media artifacts in the turn result, and the bridge
- * (persai-runtime-telegram.ts) calls Grammy sendPhoto/sendVoice/etc.
+ * Telegram media persistence adapter.
  *
- * Direct Telegram Bot API calls are intentionally NOT made here —
- * bot token and session live in the OpenClaw fork. This adapter
- * handles any PersAI-side formatting or preparation before the
- * artifacts are included in the turn response.
+ * During Step 13, direct Telegram Bot API delivery moved into the
+ * API-side Telegram adapter / bot client path. `MediaDeliveryService`
+ * still uses this adapter slot only for canonical attachment
+ * persistence bookkeeping, so the send methods remain no-op.
  */
 @Injectable()
 export class TelegramMediaAdapter implements ChannelMediaAdapter {

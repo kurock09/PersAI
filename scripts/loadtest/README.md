@@ -7,7 +7,6 @@ Runnable load-validation harness for `SR10` at `100 / 500 / 1000` concurrent-use
 - drives real PersAI API traffic against existing seams:
   - `POST /api/v1/assistant/chat/web`
   - `POST /api/v1/assistant/chat/web/stream`
-  - `POST /api/v1/internal/runtime/turns/telegram`
   - `POST /api/v1/assistant/chat/web/stage-attachment`
   - `POST /api/v1/assistant/voice/transcribe`
 - runs three ordered phases per profile:
@@ -34,9 +33,8 @@ Required env vars depend on enabled scenarios:
 - `SR10_USER_TOKEN_1`
 - `SR10_USER_TOKEN_2`
 - `SR10_USER_TOKEN_3`
-- `PERSAI_INTERNAL_API_TOKEN`
 
-Telegram assistant ids must be real existing assistant ids in the target environment.
+Synthetic Telegram loadtest traffic was removed after ADR-072 Step 13. Telegram should now be validated through real live checks against the public webhook/Bot API path instead of the old internal turn seam.
 
 ## Typical setup
 

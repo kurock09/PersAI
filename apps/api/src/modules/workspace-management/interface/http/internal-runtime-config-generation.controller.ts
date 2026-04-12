@@ -5,14 +5,12 @@ import {
   Get,
   HttpCode,
   Inject,
-  Logger,
   Post,
   Req,
   Res
 } from "@nestjs/common";
 import { BumpConfigGenerationService } from "../../application/bump-config-generation.service";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../../domain/assistant.repository";
-import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 import {
   ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
   type AssistantMaterializedSpecRepository
@@ -23,7 +21,6 @@ import {
 } from "../../domain/assistant-published-version.repository";
 import { MaterializeAssistantPublishedVersionService } from "../../application/materialize-assistant-published-version.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "../../application/resolve-platform-runtime-provider-settings.service";
-import { SyncTelegramChatTargetService } from "../../application/sync-telegram-chat-target.service";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
 type InternalRequestLike = {
@@ -68,8 +65,6 @@ function parseEnsureFreshSpecInput(body: unknown): EnsureFreshSpecRequest {
 
 @Controller("api/v1/internal/runtime")
 export class InternalRuntimeConfigGenerationController {
-  private readonly logger = new Logger(InternalRuntimeConfigGenerationController.name);
-
   constructor(
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     @Inject(ASSISTANT_REPOSITORY)
@@ -79,9 +74,7 @@ export class InternalRuntimeConfigGenerationController {
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly publishedVersionRepository: AssistantPublishedVersionRepository,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
-    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
-    private readonly syncTelegramChatTargetService: SyncTelegramChatTargetService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
   ) {}
 
   @Get("config-generation")
@@ -176,98 +169,6 @@ export class InternalRuntimeConfigGenerationController {
         workspace: refreshedSpec.openclawWorkspace
       }
     };
-  }
-
-  @HttpCode(200)
-  @Post("telegram/group-update")
-  async handleTelegramGroupUpdate(
-    @Req() req: InternalRequestLike,
-    @Body() body: unknown
-  ): Promise<{ ok: boolean }> {
-    this.assertAuthorized(req);
-    if (body === null || typeof body !== "object" || Array.isArray(body)) {
-      throw new BadRequestException("Body must be an object.");
-    }
-    const row = body as Record<string, unknown>;
-    const assistantId = typeof row.assistantId === "string" ? row.assistantId.trim() : "";
-    const telegramChatId = typeof row.telegramChatId === "string" ? row.telegramChatId.trim() : "";
-    const title = typeof row.title === "string" ? row.title.trim() : "";
-    const event = typeof row.event === "string" ? row.event.trim() : "";
-    const memberCount =
-      typeof row.memberCount === "number" && Number.isInteger(row.memberCount)
-        ? row.memberCount
-        : null;
-
-    if (!assistantId || !telegramChatId || !event) {
-      throw new BadRequestException("assistantId, telegramChatId, and event are required.");
-    }
-
-    if (event === "joined") {
-      const existingGroup = await this.prisma.assistantTelegramGroup.findUnique({
-        where: {
-          assistantId_telegramChatId: { assistantId, telegramChatId }
-        },
-        select: { title: true }
-      });
-      const dedupeTitles = Array.from(
-        new Set(
-          [existingGroup?.title?.trim() ?? "", title]
-            .map((entry) => entry.trim())
-            .filter((entry) => entry.length > 0)
-        )
-      );
-      if (dedupeTitles.length > 0) {
-        await this.prisma.assistantTelegramGroup.updateMany({
-          where: {
-            assistantId,
-            title: { in: dedupeTitles },
-            telegramChatId: { not: telegramChatId },
-            status: "active"
-          },
-          data: { status: "left", leftAt: new Date() }
-        });
-      }
-      await this.prisma.assistantTelegramGroup.upsert({
-        where: {
-          assistantId_telegramChatId: { assistantId, telegramChatId }
-        },
-        create: {
-          assistantId,
-          telegramChatId,
-          title: title || "Unknown group",
-          memberCount,
-          status: "active",
-          joinedAt: new Date()
-        },
-        update: {
-          ...(title ? { title } : {}),
-          ...(memberCount !== null ? { memberCount } : {}),
-          status: "active",
-          leftAt: null
-        }
-      });
-      this.logger.log(`Telegram group joined: ${telegramChatId} for assistant ${assistantId}`);
-    } else if (event === "left") {
-      await this.prisma.assistantTelegramGroup.updateMany({
-        where: { assistantId, telegramChatId },
-        data: { status: "left", leftAt: new Date() }
-      });
-      this.logger.log(`Telegram group left: ${telegramChatId} for assistant ${assistantId}`);
-    }
-
-    return { ok: true };
-  }
-
-  @HttpCode(200)
-  @Post("telegram/chat-target")
-  async handleTelegramChatTarget(
-    @Req() req: InternalRequestLike,
-    @Body() body: unknown
-  ): Promise<{ ok: boolean }> {
-    this.assertAuthorized(req);
-    const input = this.syncTelegramChatTargetService.parseInput(body);
-    await this.syncTelegramChatTargetService.execute(input);
-    return { ok: true };
   }
 
   private assertAuthorized(req: InternalRequestLike): void {

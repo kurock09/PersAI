@@ -10,9 +10,19 @@ import type {
 import { RuntimeStatePrismaService } from "../runtime-state/infrastructure/persistence/runtime-state-prisma.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 
-const MAX_CANONICAL_WEB_CONTEXT_MESSAGES = 20;
+const MAX_CANONICAL_CONTEXT_MESSAGES = 20;
 const MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES = 12 * 1024 * 1024;
+type HydratedCanonicalSurface = Extract<
+  RuntimeTurnRequest["conversation"]["channel"],
+  "web" | "telegram"
+>;
+
+function toHydratedCanonicalSurface(
+  channel: RuntimeTurnRequest["conversation"]["channel"]
+): HydratedCanonicalSurface | null {
+  return channel === "web" || channel === "telegram" ? channel : null;
+}
 
 type CanonicalChatMessageRow = {
   id: string;
@@ -59,14 +69,15 @@ export class TurnContextHydrationService {
   ) {}
 
   async buildMessages(input: RuntimeTurnRequest): Promise<ProviderGatewayTextMessage[]> {
-    if (input.conversation.channel !== "web") {
+    const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
+    if (canonicalSurface === null) {
       return [await this.createCurrentUserMessage(input)];
     }
 
     const chat = await this.prisma.assistantChat.findFirst({
       where: {
         assistantId: input.conversation.assistantId,
-        surface: "web",
+        surface: canonicalSurface,
         surfaceThreadKey: input.conversation.externalThreadKey
       },
       select: {
@@ -170,7 +181,7 @@ export class TurnContextHydrationService {
       hydrated.push(await this.createCurrentUserMessage(input));
     }
 
-    return hydrated.slice(-MAX_CANONICAL_WEB_CONTEXT_MESSAGES);
+    return hydrated.slice(-MAX_CANONICAL_CONTEXT_MESSAGES);
   }
 
   private async createCurrentUserMessage(

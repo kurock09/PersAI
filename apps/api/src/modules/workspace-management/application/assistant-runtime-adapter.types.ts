@@ -2,11 +2,6 @@ import type { RuntimeTier } from "./runtime-assignment";
 import type {
   AssistantRuntimeAvatarUploadInput,
   AssistantRuntimeAvatarUploadResult,
-  AssistantRuntimeChannelCompactInput,
-  AssistantRuntimeChannelCompactResult,
-  AssistantRuntimeChannelSessionStateInput,
-  AssistantRuntimeChannelSessionStateResult,
-  AssistantRuntimeChannelTurnInput,
   AssistantRuntimeCronControlInput,
   AssistantRuntimeMediaDownloadResult,
   AssistantRuntimePreflightResult,
@@ -25,11 +20,6 @@ import type {
 export type {
   AssistantRuntimeAvatarUploadInput,
   AssistantRuntimeAvatarUploadResult,
-  AssistantRuntimeChannelCompactInput,
-  AssistantRuntimeChannelCompactResult,
-  AssistantRuntimeChannelSessionStateInput,
-  AssistantRuntimeChannelSessionStateResult,
-  AssistantRuntimeChannelTurnInput,
   AssistantRuntimeCronControlInput,
   AssistantRuntimeErrorCode,
   AssistantRuntimeMediaDownloadResult,
@@ -79,27 +69,15 @@ export interface OpenClawRuntimeBridge {
   getWebChatSessionState(
     input: AssistantRuntimeWebChatSessionStateInput
   ): Promise<AssistantRuntimeWebChatSessionStateResult>;
-  getChannelSessionState(
-    input: AssistantRuntimeChannelSessionStateInput
-  ): Promise<AssistantRuntimeChannelSessionStateResult>;
-  markChannelCompactionHintShown(
-    input: AssistantRuntimeChannelSessionStateInput & { tokens: number }
-  ): Promise<void>;
   compactWebChatSession(
     input: AssistantRuntimeWebChatCompactInput
   ): Promise<AssistantRuntimeWebChatCompactResult>;
-  compactTelegramChannelSession(
-    input: AssistantRuntimeChannelCompactInput
-  ): Promise<AssistantRuntimeChannelCompactResult>;
   sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;
   previewSetupTurn(
     input: OpenClawRuntimeSetupPreviewTurnInput
   ): Promise<AssistantRuntimeSetupPreviewTurnResult>;
-  sendChannelTurn(
-    input: AssistantRuntimeChannelTurnInput
-  ): Promise<AssistantRuntimeWebChatTurnResult>;
   streamWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk>;

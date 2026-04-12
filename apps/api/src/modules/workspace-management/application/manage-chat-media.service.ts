@@ -304,12 +304,14 @@ export class ManageChatMediaService {
 
     let fileBuffer = params.file.buffer;
     let mimeType = validated.effectiveMimeType;
+    let transcriptionFilename = params.file.originalname;
     const baseMime = (mimeType.split(";")[0] ?? mimeType).trim();
 
     if (AUDIO_MIMES_NEEDING_CONVERSION.has(baseMime)) {
       try {
         fileBuffer = await this.convertAudioToMp3(fileBuffer);
         mimeType = "audio/mpeg";
+        transcriptionFilename = this.replaceFilenameExtension(transcriptionFilename, "mp3");
       } catch (err) {
         this.logger.warn(
           `Audio conversion failed for "${validated.originalFilename ?? "voice-input"}", keeping original: ${String(err)}`
@@ -321,7 +323,7 @@ export class ManageChatMediaService {
       const result = await this.nativeMediaTranscriptionService.transcribe({
         buffer: fileBuffer,
         mimeType,
-        filename: params.file.originalname
+        filename: transcriptionFilename
       });
       const text = result.text.trim();
       if (text.length === 0) {
@@ -367,6 +369,20 @@ export class ManageChatMediaService {
       await unlink(inputPath).catch(() => {});
       await unlink(outputPath).catch(() => {});
     }
+  }
+
+  private replaceFilenameExtension(filename: string, extension: string): string {
+    const trimmed = filename.trim();
+    if (trimmed.length === 0) {
+      return `audio.${extension}`;
+    }
+
+    const lastSlash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+    const lastDot = trimmed.lastIndexOf(".");
+    if (lastDot > lastSlash) {
+      return `${trimmed.slice(0, lastDot)}.${extension}`;
+    }
+    return `${trimmed}.${extension}`;
   }
 
   private async ensureMediaStorageQuotaApplied(params: {

@@ -133,6 +133,33 @@ function createOverviewLatencyTraceServiceMock() {
   };
 }
 
+function createChatRepositoryMock() {
+  let messageCounter = 0;
+  return {
+    async findOrCreateChatBySurfaceThread() {
+      return {
+        id: "chat-1"
+      };
+    },
+    async createMessage(input: { author: string; content: string }) {
+      messageCounter += 1;
+      return {
+        id: `message-${messageCounter}`,
+        author: input.author,
+        content: input.content
+      };
+    }
+  };
+}
+
+function createMediaDeliveryServiceMock() {
+  return {
+    async deliver() {
+      return { attachments: [] };
+    }
+  };
+}
+
 async function run(): Promise<void> {
   let resolveFirstRuntime: (() => void) | null = null;
   const firstRuntimeStarted = new Promise<void>((resolve) => {
@@ -147,42 +174,15 @@ async function run(): Promise<void> {
   let concurrentRuntimeCalls = 0;
   let concurrentUsageCalls = 0;
   const traceService = createOverviewLatencyTraceServiceMock();
+  const chatRepository = createChatRepositoryMock();
+  const mediaDeliveryService = createMediaDeliveryServiceMock();
   const concurrentService = new HandleInternalTelegramTurnService(
     {
-      async sendChannelTurn() {
-        concurrentRuntimeCalls += 1;
-        resolveFirstRuntime?.();
-        await finishFirstRuntime;
-        return {
-          assistantMessage: "Telegram reply",
-          respondedAt: "2026-04-06T00:00:00.000Z",
-          media: []
-        };
-      },
-      async downloadChatMedia() {
-        return null;
-      },
-      async getChannelSessionState() {
-        return {
-          sessionKey: "agent:assistant-1:telegram:chat-1",
-          found: false,
-          currentTokens: null,
-          totalTokensFresh: true,
-          compactionCount: 0,
-          compactionHintTokens: null,
-          updatedAt: null,
-          provider: null,
-          model: null
-        };
-      },
-      async markChannelCompactionHintShown() {
-        return undefined;
-      },
       async consumeBootstrapWorkspace() {
         return undefined;
       }
     } as never,
-    {} as never,
+    chatRepository as never,
     concurrentBindingRepository as never,
     {
       async enforceInboundTurn() {
@@ -205,18 +205,6 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async execute() {
-        return {
-          optimizationPolicy: {
-            compaction: {
-              reserveTokens: 24000,
-              keepRecentTokens: 16000
-            }
-          }
-        };
-      }
-    } as never,
-    {
       workspace: {
         async findUnique() {
           return { timezone: "UTC" };
@@ -228,11 +216,26 @@ async function run(): Promise<void> {
         throw new Error("attachments not expected");
       }
     } as never,
-    traceService as never
+    mediaDeliveryService as never,
+    traceService as never,
+    {
+      async execute() {
+        concurrentRuntimeCalls += 1;
+        resolveFirstRuntime?.();
+        await finishFirstRuntime;
+        return {
+          assistantMessage: "Telegram reply",
+          respondedAt: "2026-04-06T00:00:00.000Z",
+          media: []
+        };
+      }
+    } as never
   );
   const first = concurrentService.execute({
     assistantId: "assistant-1",
     threadId: "chat-1",
+    conversationMode: "direct",
+    externalUserKey: "telegram-user-1",
     message: "hi",
     updateId: 77
   });
@@ -241,6 +244,8 @@ async function run(): Promise<void> {
   const deduplicated = await concurrentService.execute({
     assistantId: "assistant-1",
     threadId: "chat-1",
+    conversationMode: "direct",
+    externalUserKey: "telegram-user-1",
     message: "hi",
     updateId: 77
   });
@@ -257,43 +262,15 @@ async function run(): Promise<void> {
 
   const releasedBindingRepository = createBindingRepository();
   let releaseRuntimeCalls = 0;
+  const releasedChatRepository = createChatRepositoryMock();
+  const releasedMediaDeliveryService = createMediaDeliveryServiceMock();
   const fixedReleaseService = new HandleInternalTelegramTurnService(
     {
-      async sendChannelTurn() {
-        releaseRuntimeCalls += 1;
-        if (releaseRuntimeCalls === 1) {
-          throw new Error("temporary failure");
-        }
-        return {
-          assistantMessage: "Recovered reply",
-          respondedAt: "2026-04-06T00:00:01.000Z",
-          media: []
-        };
-      },
-      async downloadChatMedia() {
-        return null;
-      },
-      async getChannelSessionState() {
-        return {
-          sessionKey: "agent:assistant-1:telegram:chat-1",
-          found: false,
-          currentTokens: null,
-          totalTokensFresh: true,
-          compactionCount: 0,
-          compactionHintTokens: null,
-          updatedAt: null,
-          provider: null,
-          model: null
-        };
-      },
-      async markChannelCompactionHintShown() {
-        return undefined;
-      },
       async consumeBootstrapWorkspace() {
         return undefined;
       }
     } as never,
-    {} as never,
+    releasedChatRepository as never,
     releasedBindingRepository as never,
     {
       async enforceInboundTurn() {
@@ -316,18 +293,6 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async execute() {
-        return {
-          optimizationPolicy: {
-            compaction: {
-              reserveTokens: 24000,
-              keepRecentTokens: 16000
-            }
-          }
-        };
-      }
-    } as never,
-    {
       workspace: {
         async findUnique() {
           return { timezone: "UTC" };
@@ -339,13 +304,29 @@ async function run(): Promise<void> {
         throw new Error("attachments not expected");
       }
     } as never,
-    traceService as never
+    releasedMediaDeliveryService as never,
+    traceService as never,
+    {
+      async execute() {
+        releaseRuntimeCalls += 1;
+        if (releaseRuntimeCalls === 1) {
+          throw new Error("temporary failure");
+        }
+        return {
+          assistantMessage: "Recovered reply",
+          respondedAt: "2026-04-06T00:00:01.000Z",
+          media: []
+        };
+      }
+    } as never
   );
 
   await assert.rejects(() =>
     fixedReleaseService.execute({
       assistantId: "assistant-1",
       threadId: "chat-1",
+      conversationMode: "direct",
+      externalUserKey: "telegram-user-1",
       message: "retry me",
       updateId: 88
     })
@@ -355,6 +336,8 @@ async function run(): Promise<void> {
   const recovered = await fixedReleaseService.execute({
     assistantId: "assistant-1",
     threadId: "chat-1",
+    conversationMode: "direct",
+    externalUserKey: "telegram-user-1",
     message: "retry me",
     updateId: 88
   });

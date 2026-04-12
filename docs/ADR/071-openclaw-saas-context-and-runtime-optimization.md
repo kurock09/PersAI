@@ -42,7 +42,7 @@ This order is mandatory unless live evidence disproves it.
 Repository audit status as of `2026-04-09`:
 
 - slices 1-4 are materially implemented through the intended PersAI control-plane path, although Helm/runtime-pool defaults still remain as a transitional baseline
-- slice 5 is materially implemented through the intended product/control-plane path: web compaction state/manual compact is contract-backed, Telegram hinting is policy-driven, and the touched web/runtime copy paths now have EN/RU localization parity
+- slice 5 currently keeps only the web compaction state/manual compact surface live; the temporary Telegram hint/manual `/compact` path was removed from the active product boundary and should return only after the shared Step 15 compaction capability exists
 - the "cheaper compaction model path" in this ADR remains directional, not delivered, until PersAI exposes and verifies that policy path explicitly
 
 ### 2. Ownership boundary
@@ -97,7 +97,7 @@ The baseline direction is:
 Current product policy clarification:
 
 - web chat should prefer **manual** compaction UX over background threshold auto-compaction
-- Telegram should default to **automatic** compaction, but the assistant owner may disable it in Telegram settings and fall back to hints + manual `/compact`
+- Telegram/multi-channel compaction UX should be reintroduced only as a shared runtime/tool capability after Step 15, not as a channel-specific slash-command seam
 
 ### 6. OpenAI tuning rule
 OpenAI-specific knobs are policy-controlled by tier and use case, not globally enabled without distinction.

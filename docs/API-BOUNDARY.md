@@ -181,7 +181,7 @@ Behavior baseline:
 - web chat remains public/authenticated user API.
 - Telegram, reminder callbacks, and future messengers converge on internal/application-layer orchestration that reuses the same enforcement/runtime/accounting path.
 - concrete internal ingress in this slice:
-  - `POST /api/v1/internal/runtime/turns/telegram`
+  - public Telegram webhook adapter (`POST /telegram-webhook/:assistantId`)
   - existing `POST /api/v1/internal/cron-fire` now renders denial/degradation copy from the same backend code family before delivery fanout
 - stable backend error codes are the contract:
   - HTTP failures use canonical `ErrorEnvelope`
@@ -533,7 +533,7 @@ Behavior baseline:
 - When enabled, PersAI creates one in-memory trace per touched turn surface:
   - `POST /api/v1/assistant/chat/web`
   - `POST /api/v1/assistant/chat/web/stream`
-  - `POST /api/v1/internal/runtime/turns/telegram`
+  - `POST /telegram-webhook/:assistantId`
 - PersAI forwards the active trace context to OpenClaw through `X-Persai-Overview-Trace-Id`.
 - OpenClaw treats that header as the only runtime-side trace enablement signal for the PersAI bridge; there is no separate runtime env flag for this slice.
 - Sync runtime responses may include `runtimeTrace` in the JSON payload; stream runtime responses may include `runtimeTrace` in the final `done` NDJSON event.
@@ -707,14 +707,7 @@ Behavior baseline:
 
 - returns list of Telegram groups where the bot is a member
 - response: `{ groups: [{ id, telegramChatId, title, memberCount, status, joinedAt }] }`
-- populated automatically from OpenClaw `my_chat_member` event callbacks
-
-### POST /api/v1/internal/runtime/telegram/group-update (new, internal)
-
-- called by OpenClaw when bot is added/removed from a Telegram group
-- requires `Authorization: Bearer {OPENCLAW_GATEWAY_TOKEN}`
-- body: `{ assistantId, telegramChatId, title, event: "joined"|"left", memberCount? }`
-- upserts/updates `assistant_telegram_groups` record
+- populated automatically by the PersAI API-side Telegram webhook adapter from Telegram `my_chat_member` updates
 
 ### Materialization: openclawBootstrap.channels.telegram (new)
 
@@ -724,14 +717,9 @@ Behavior baseline:
 - `webhookUrl` = `{TELEGRAM_WEBHOOK_BASE_URL}/telegram-webhook/{assistantId}`
 - `webhookSecret` = HMAC-SHA256(assistantId, TELEGRAM_WEBHOOK_HMAC_SECRET), truncated to 64 chars
 
-### OpenClaw: POST /telegram-webhook/:assistantId (new, public)
+### Historical OpenClaw webhook boundary
 
-- Telegram sends webhook updates to this URL
-- OpenClaw validates `X-Telegram-Bot-Api-Secret-Token` header against materialized `webhookSecret`
-- routes update to the dynamically managed Grammy bot for the assistant
-- repeated Telegram deliveries must be deduped by `assistantId + update_id` before a PersAI turn is started
-- owner-only Telegram DMs must be rejected in OpenClaw runtime ingress before `POST /api/v1/internal/runtime/turns/telegram`
-- while claim is pending, the bot prompts the user to send the 6-digit code from PersAI and only a matching code completes owner claim
+- historical only after ADR-072 Step 13; the active public webhook boundary is now the PersAI API-side Telegram adapter at `POST /telegram-webhook/:assistantId`
 
 ### OpenClaw config: secrets.providers.persai-runtime
 
@@ -1851,18 +1839,15 @@ Response: `AssistantWebChatTurnState` now includes `attachments[]` on each `Assi
 - response `messages[]` now includes optional `attachments[]` per message
 - each attachment: `{ id, type, mimeType, sizeBytes, durationMs, width, height, transcription, processingStatus, url, createdAt }`
 
-### POST /api/v1/internal/runtime/turns/telegram (updated M5)
+### ADR-072 Step 13 Telegram adapter boundary
 
-Request body fields (extended):
-
-- `assistantId` (string, required)
-- `threadId` (string, required)
-- `message` (string, required; transcription for voice messages)
-- `attachments` (array, optional): `[{ type, storagePath, mimeType, sizeBytes, originalFilename, transcription?, duration? }]`
+- the public Telegram webhook path now calls `HandleInternalTelegramTurnService` directly from the PersAI API-side adapter after webhook-secret verification, group/owner gating, and direct Telegram Bot API file download
+- `HandleInternalTelegramTurnService` persists canonical Telegram user/assistant messages for normal text turns too, not only attachment-bearing turns
+- legacy PersAI internal Telegram ingress / callback endpoints were removed once the public API-side adapter took ownership of webhook handling, group sync, and chat-target sync
 
 Response (extended M6):
 
-- `reply` (string)
+- `assistantMessage` (string)
 - `media` (array, optional): `[{ url, type, audioAsVoice? }]`
 
 ### ADR-072 Step 12 native STT boundary
@@ -1885,16 +1870,22 @@ Response (extended M6):
 - `POST /api/v1/runtime/chat/web/stream` NDJSON now emits optional `{ type: "media", media: [...] }` record after `done`
 - `POST /api/v1/runtime/chat/channel` response now includes optional `media[]`
 
-## Telegram webhook proxy (ADR-066)
+## Telegram webhook ingress
 
-### ALL /telegram-webhook/:assistantId
+### POST /telegram-webhook/:assistantId
 
 Public endpoint. No Clerk auth. Not under `/api/v1/` prefix.
 
-GKE Ingress routes `bot.persai.dev/telegram-webhook/*` to the PersAI API service on port 3001. The `TelegramWebhookProxyController` extracts `assistantId` from the path, resolves the assistant's effective runtime tier via materialized spec, and forwards the complete Telegram update (re-serialized JSON body) to the matching tier-specific OpenClaw pool's `/telegram-webhook/:assistantId` endpoint.
+GKE Ingress routes `bot.persai.dev/telegram-webhook/*` to the PersAI API service on port 3001. The API-side Telegram webhook controller now acts as a real delivery adapter instead of a tier-aware reverse proxy: it verifies the assistant-scoped Telegram secret token, resolves Telegram binding/runtime config from PersAI control-plane truth, parses Telegram `message` and `my_chat_member` updates, applies owner-only and group mention/reply gating, syncs Telegram chat/group metadata, downloads inbound files directly from the Telegram Bot API, invokes `HandleInternalTelegramTurnService`, and sends outbound text/media back through the Telegram Bot API.
 
-Returns the upstream OpenClaw response unchanged. On permanent PersAI-side resolution failures (`misconfigured`, `unknown_assistant`), returns `200 { ok: false, error: "..." }` so Telegram does not keep retrying a non-recoverable route. On transient upstream proxy timeout/network failure, returns retry-worthy `504 { ok: false, error: "upstream_timeout" }` or `502 { ok: false, error: "upstream_error" }`.
+Return semantics are now adapter-owned:
 
-For the runtime-side `OpenClaw -> PersAI internal Telegram turn` seam, retry semantics are also explicit: when `POST /api/v1/internal/runtime/turns/telegram` returns transient transport/runtime failure (`runtime_timeout`, `runtime_degraded`, `runtime_unreachable`, or retry-worthy HTTP `408/425/429/5xx`), the OpenClaw Telegram bridge must rethrow instead of converting that failure into a user-facing fallback reply plus webhook `200`. This keeps Telegram webhook delivery retry-worthy for transient internal-turn failure rather than silently acknowledging a broken turn as success.
+- `200 { ok: true }` for handled, ignored, or deduplicated updates
+- `200 { ok: false, error: "unknown_assistant" | "invalid_bot_token" | "attachment_download_failed" | "..."}`
+  when PersAI already handled the failure locally and Telegram should not retry the same update
+- `401 { ok: false, error: "unauthorized" }` when the Telegram secret token does not match the assistant-scoped webhook secret
+- retry-worthy `503/504` for transient downstream runtime failures (`runtime_degraded`, `runtime_unreachable`, `runtime_timeout`) so Telegram can redeliver the webhook update
 
-This replaces the previous ingress rule that hardcoded all Telegram traffic to the `free_shared_restricted` OpenClaw pool regardless of assistant tier.
+There is no longer a separate PersAI internal Telegram ingress endpoint for the product path. Retry-worthy Telegram webhook behavior is now controlled directly by the API-side adapter: transient downstream runtime failures return retry-worthy `503/504`, while locally handled failures (`unknown_assistant`, invalid bot token, attachment-download failure, owner gate denial, duplicate update) are acknowledged intentionally without asking Telegram to replay the update.
+
+This replaces the earlier `TelegramWebhookProxyController` behavior that only forwarded Telegram traffic to tier-specific OpenClaw pools.
