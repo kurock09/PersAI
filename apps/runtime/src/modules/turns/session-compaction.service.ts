@@ -22,6 +22,7 @@ import { ProviderGatewayClientService } from "./provider-gateway.client.service"
 import {
   MAX_REUSABLE_COMPACTION_SECTION_ITEMS,
   REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA,
+  type ReusableSharedCompactionOutputRejectionReason,
   normalizeReusableCompactionStateFromModelOutput
 } from "./shared-compaction-state";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
@@ -42,6 +43,8 @@ type SharedCompactionRequest = RuntimeCompactionRequest & {
 };
 
 const MIN_SUMMARIZED_MESSAGE_COUNT = 2;
+const SHARED_COMPACTION_MAX_ATTEMPTS = 2;
+const SHARED_COMPACTION_MAX_OUTPUT_TOKENS = 1_200;
 
 @Injectable()
 export class SessionCompactionService {
@@ -268,39 +271,20 @@ export class SessionCompactionService {
       }
 
       const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle);
-      const providerResult = await this.providerGatewayClientService.generateText(
-        this.buildProviderRequest({
-          bundle: bundleEntry.parsedBundle,
-          providerSelection,
-          toolCode: input.toolCode,
-          trigger: input.trigger,
-          runtimeRequestId: input.input.runtimeRequestId ?? null,
-          runtimeSessionId: resolvedSession.session.sessionId,
-          persistSummary: input.persistSummary,
-          instructions,
-          summarizedMessageCount: compactionSource.summarizedMessageCount,
-          preservedRecentMessageCount: compactionSource.preservedRecentMessageCount,
-          messages: compactionSource.messages
-        })
-      );
-      if (providerResult.stopReason !== "completed" || providerResult.text === null) {
-        throw new ServiceUnavailableException(
-          "Shared compaction provider call did not return a completed summary."
-        );
-      }
-
-      const normalizedSummary = normalizeReusableCompactionStateFromModelOutput({
-        rawOutputText: providerResult.text,
+      const validatedOutput = await this.generateValidatedSharedCompactionOutput({
+        bundle: bundleEntry.parsedBundle,
+        providerSelection,
         toolCode: input.toolCode,
+        trigger: input.trigger,
+        runtimeRequestId: input.input.runtimeRequestId ?? null,
+        runtimeSessionId: resolvedSession.session.sessionId,
+        persistSummary: input.persistSummary,
+        instructions,
         summarizedMessageCount: compactionSource.summarizedMessageCount,
-        preservedRecentMessageCount: compactionSource.preservedRecentMessageCount
+        preservedRecentMessageCount: compactionSource.preservedRecentMessageCount,
+        messages: compactionSource.messages
       });
-      if (normalizedSummary.parsed === null) {
-        this.logger.warn(
-          `[shared-compaction] Rejected ${input.toolCode} output for session ${resolvedSession.session.sessionId} ` +
-            `(trigger=${input.trigger}, provider=${providerSelection.provider}:${providerSelection.model}, ` +
-            `reason=${normalizedSummary.rejectionReason ?? "unknown"}, chars=${String(providerResult.text.length)})`
-        );
+      if (validatedOutput === null) {
         return this.buildCompactionResult({
           toolCode: input.toolCode,
           action: "skipped",
@@ -325,6 +309,7 @@ export class SessionCompactionService {
           reusableInLaterTurns: false
         });
       }
+      const normalizedSummary = validatedOutput.normalizedSummary;
 
       let compactionRecordId: string | null = null;
       let updatedSession = resolvedSession.session;
@@ -336,7 +321,7 @@ export class SessionCompactionService {
           requestId: input.input.runtimeRequestId ?? null,
           reason: input.trigger,
           instructions,
-          summaryPayload: normalizedSummary.parsed.payload,
+          summaryPayload: normalizedSummary.payload,
           tokensBefore: resolvedSession.session.currentTokens,
           tokensAfter: null
         });
@@ -369,8 +354,8 @@ export class SessionCompactionService {
           preservedRecentMessageCount: compactionSource.preservedRecentMessageCount
         }),
         compactionRecordId,
-        summaryText: normalizedSummary.parsed.summaryText,
-        summaryPayload: normalizedSummary.parsed.payload,
+        summaryText: normalizedSummary.summaryText,
+        summaryPayload: normalizedSummary.payload,
         preservedRecentTurns: sharedCompaction.recentTurnsPreserve,
         reusableInLaterTurns: input.persistSummary
       });
@@ -393,12 +378,16 @@ export class SessionCompactionService {
     summarizedMessageCount: number;
     preservedRecentMessageCount: number;
     messages: ProviderGatewayTextGenerateRequest["messages"];
+    retryReason?: ReusableSharedCompactionOutputRejectionReason | null;
   }): ProviderGatewayTextGenerateRequest {
     const sections = [
       "You are the PersAI native shared compaction tool.",
       "Summarize earlier conversation context so later runtime turns can preserve durable facts and open threads without replaying all old messages.",
       "Return exactly one JSON object and nothing else. Do not use markdown or code fences.",
       'Required JSON shape: {"stableFacts":[],"userPreferences":[],"assistantCommitments":[],"openThreads":[],"importantReferences":[]}.',
+      input.retryReason === undefined || input.retryReason === null
+        ? null
+        : `Previous attempt was rejected because the output was ${this.describeRejectionReason(input.retryReason)}. Return only the JSON object that matches the required shape, with no leading or trailing text.`,
       "Use empty arrays when a section has nothing durable to keep.",
       "Each array item must be a short neutral factual note, not a direct reply to the user.",
       "Do not include greetings, reassurance, sign-offs, first-person assistant language, or transient chatter.",
@@ -425,6 +414,7 @@ export class SessionCompactionService {
       model: input.providerSelection.model,
       systemPrompt: sections.join("\n\n"),
       messages: input.messages,
+      maxOutputTokens: SHARED_COMPACTION_MAX_OUTPUT_TOKENS,
       outputSchema: REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA,
       requestMetadata: this.createRequestMetadata({
         classification: input.trigger,
@@ -433,6 +423,68 @@ export class SessionCompactionService {
         compactionToolCode: input.toolCode
       })
     };
+  }
+
+  private async generateValidatedSharedCompactionOutput(input: {
+    bundle: AssistantRuntimeBundle;
+    providerSelection: ProviderSelection;
+    toolCode: PersaiRuntimeSharedCompactionToolCode;
+    trigger: SharedCompactionTrigger;
+    runtimeRequestId: string | null;
+    runtimeSessionId: string;
+    persistSummary: boolean;
+    instructions: string | null;
+    summarizedMessageCount: number;
+    preservedRecentMessageCount: number;
+    messages: ProviderGatewayTextGenerateRequest["messages"];
+  }): Promise<{
+    normalizedSummary: NonNullable<
+      ReturnType<typeof normalizeReusableCompactionStateFromModelOutput>["parsed"]
+    >;
+  } | null> {
+    let retryReason: ReusableSharedCompactionOutputRejectionReason | null = null;
+    for (let attempt = 1; attempt <= SHARED_COMPACTION_MAX_ATTEMPTS; attempt += 1) {
+      const providerResult = await this.providerGatewayClientService.generateText(
+        this.buildProviderRequest({
+          ...input,
+          retryReason
+        })
+      );
+      if (providerResult.stopReason !== "completed" || providerResult.text === null) {
+        throw new ServiceUnavailableException(
+          "Shared compaction provider call did not return a completed summary."
+        );
+      }
+
+      const normalizedSummary = normalizeReusableCompactionStateFromModelOutput({
+        rawOutputText: providerResult.text,
+        toolCode: input.toolCode,
+        summarizedMessageCount: input.summarizedMessageCount,
+        preservedRecentMessageCount: input.preservedRecentMessageCount
+      });
+      if (normalizedSummary.parsed !== null) {
+        if (attempt > 1) {
+          this.logger.log(
+            `[shared-compaction] Accepted ${input.toolCode} output for session ${input.runtimeSessionId} ` +
+              `(trigger=${input.trigger}, provider=${input.providerSelection.provider}:${input.providerSelection.model}, ` +
+              `attempt=${String(attempt)}/${String(SHARED_COMPACTION_MAX_ATTEMPTS)})`
+          );
+        }
+        return {
+          normalizedSummary: normalizedSummary.parsed
+        };
+      }
+
+      retryReason = normalizedSummary.rejectionReason ?? "invalid_sections";
+      this.logger.warn(
+        `[shared-compaction] Rejected ${input.toolCode} output for session ${input.runtimeSessionId} ` +
+          `(trigger=${input.trigger}, provider=${input.providerSelection.provider}:${input.providerSelection.model}, ` +
+          `attempt=${String(attempt)}/${String(SHARED_COMPACTION_MAX_ATTEMPTS)}, ` +
+          `reason=${retryReason}, chars=${String(providerResult.text.length)})`
+      );
+    }
+
+    return null;
   }
 
   private resolveProviderSelection(bundle: AssistantRuntimeBundle): ProviderSelection {
@@ -505,6 +557,19 @@ export class SessionCompactionService {
         reusableInLaterTurns: input.reusableInLaterTurns
       }
     };
+  }
+
+  private describeRejectionReason(reason: ReusableSharedCompactionOutputRejectionReason): string {
+    switch (reason) {
+      case "empty_output":
+        return "empty";
+      case "output_too_long":
+        return "too long";
+      case "invalid_json":
+        return "not valid JSON";
+      case "invalid_sections":
+        return "missing required sections";
+    }
   }
 
   private createToolResultState(input: {

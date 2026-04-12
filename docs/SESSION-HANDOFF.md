@@ -1,5 +1,106 @@
 # SESSION-HANDOFF
 
+## 2026-04-12 - ADR-072 native web-tool internal API wiring follow-through
+
+### What changed
+
+1. Reviewed the current uncommitted `T15-3a` shared-compaction reliability follow-through plus `T15-6b` planning/docs edits and kept them intact; no rollback or doc/code contradiction was needed before continuing.
+2. Helm source-of-truth now injects `PERSAI_API_BASE_URL` into both `runtime` and `provider-gateway` and adds `PERSAI_INTERNAL_API_TOKEN` to both services' `secretEnv`, so native `web_search` / `web_fetch` can actually consume tool daily limits and resolve assistant-scoped tool credentials on live deployments.
+3. A bounded `helm template` render with `values-dev.yaml` plus the full local pre-commit gate now pass on the combined change set, so the remaining gap before live validation is rollout/reapply rather than missing cluster wiring.
+
+### Why
+
+1. Live native `web_search` was still failing closed with `search_failed` / `PersAI internal API base URL is not configured.` even after provider-selection parity landed.
+2. `kubectl` inspection showed the problem was deployment wiring, not tool executor logic: both live `runtime` and `provider-gateway` pods were missing the internal API base URL/token envs required by the new native quota/secret seam.
+3. Step 15 needs honest live-readiness for native web tools before later slices continue, so the missing Helm wiring had to land together with the current reviewed runtime/docs changes.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, and `T15-3a` remain complete; `T15-3b — Web search and fetch plan tools` stays active; native `web_search` / `web_fetch` now have source-of-truth Helm wiring for the internal quota/secret seam, and the next honest follow-through is rollout/reapply plus bounded live validation`)
+
+### Files touched
+
+- `.cursor/rules/adr072-runtime-continuity.mdc`
+- `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml`
+- `ReadLints` on `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `ReadLints` on `apps/runtime/test/session-compaction.service.test.ts`
+
+### Risks
+
+1. The Helm/source-of-truth fix is landed, but live pods still need rollout/reapply before the cluster stops serving the stale env set.
+2. Native `web_search` / `web_fetch` bounded live validation is still not rerun after the wiring fix, so deployment truth is prepared rather than already proven.
+3. `T15-6b` is now explicit in the future Step 15 order, but there is still no implemented PersAI-native memory/knowledge backend; `knowledge_*` stays disconnected until that later slice actually lands.
+
+### Next recommended step
+
+1. Wait for the new Helm/image rollout or trigger the normal `reapply`/GitOps sync path, then confirm `runtime` and `provider-gateway` pods now have `PERSAI_API_BASE_URL=http://api-internal:3002` plus `PERSAI_INTERNAL_API_TOKEN`.
+2. Run one bounded native web validation pack after the rollout: at least one real `web_search` success, one `web_fetch` success, and one controlled quota/unsupported-provider rejection.
+
+## 2026-04-12 - ADR-072 T15-6b human memory and namespaced knowledge planning
+
+### What changed
+
+1. ADR-072 now has an explicit `T15-6b — Human memory and namespaced knowledge sources` slice after `T15-6` and before `T15-7` instead of leaving `knowledge_*` only as a vague deferred branch.
+2. The plan now separates four concerns cleanly: session memory (`summarize_context` / `compact_context`), cross-session human memory, namespaced knowledge sources, and Step 16 sandbox filesystem/process access.
+3. Durable human memory writes are now explicitly planned as bounded tool/validator flows rather than hidden side effects of ordinary assistant text, while `knowledge_search` / `knowledge_fetch` stay the unified future read layer and `memory_search` / `memory_get` are tracked as future compatibility remaps.
+4. The ADR now also fixes the product-data boundary for presets/subscriptions and workspace uploads: assistant/preset/subscription shared knowledge, assistant-user-private workspace knowledge, and PersAI-global knowledge belong to the PersAI-managed indexed knowledge layer, while sandbox remains only an authoring/ingest surface until Step 16.
+
+### Why
+
+1. The prior “deferred knowledge layer” wording was too abstract for the actual product direction and left room to confuse memory, knowledge, and sandbox file access.
+2. The runtime needs one explicit future step where `knowledge_*` becomes real only after PersAI-native backends exist, instead of silently leaking into earlier slices.
+3. Human memory needed one honest write-path rule: if the agent decides to remember something between sessions, that decision must happen through an explicit tool/validator flow, not through hidden prompt magic.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, and `T15-3a` remain complete; `T15-3b — Web search and fetch plan tools` stays active; the later order is now `T15-4 -> T15-5 -> T15-6 -> T15-6b -> T15-7`)
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `.cursor/rules/adr072-runtime-continuity.mdc`
+
+### Tests run
+
+- none (docs/rules-only planning sync)
+
+### Risks
+
+1. `T15-6b` is now explicit in the plan, but no PersAI-native memory/knowledge backend is implemented yet; `knowledge_*` still stays disconnected until that future slice is actually built.
+2. The ADR now names a bounded durable-memory write helper path, but the exact final contract name and policy class still remain implementation work for `T15-6b`.
+
+### Next recommended step
+
+1. Finish the bounded live validation for the active `T15-3b` native `web_search` / `web_fetch` slice before starting later Step 15 work.
+2. When Step 15 reaches the future knowledge branch, treat `T15-6b` as the first honest activation point for `knowledge_search` / `knowledge_fetch` plus durable human-memory writes; do not bypass it by smuggling sandbox reads or hidden memory writes into earlier slices.
+
 ## 2026-04-12 - ADR-072 T15-3b native web_search provider-selection parity
 
 ### What changed
@@ -192,6 +293,7 @@
 3. Durable reusable compaction state is now a strict validated `persai.runtimeSessionCompaction.v2` payload rather than arbitrary free-form summary text; invalid or assistant-like compaction output no longer persists as reusable state, and old bad rows are ignored safely on the read path.
 4. Session token/accounting semantics after durable compaction are now honest: runtime clears `currentTokens`, marks `totalTokensFresh=false`, and keeps `compactionHintTokens` as the last known pre-compaction estimate so stale token state does not trigger unpredictable follow-up compaction decisions.
 5. `apps/provider-gateway` now validates request classification metadata, and the OpenAI path forwards that metadata upstream so internal tool/compaction requests stop looking like ordinary user turns in provider-side observability.
+6. Shared compaction requests now cap provider output with a bounded `maxOutputTokens` budget and retry once only when the returned summary fails structured validation, so sporadic provider-side JSON/schema misses recover without turning into silent durable-state corruption or a permanent first-attempt skip.
 
 ### Why
 
@@ -199,6 +301,7 @@
 2. Runtime had no explicit memory that durable compaction had already happened inside the current logical turn, so manual `compact_context` could still be followed by an extra hidden auto-compaction attempt.
 3. The in-turn follow-up after durable compaction was still capable of reasoning on stale hydrated context rather than the newly compacted reusable state.
 4. Provider/internal logs needed a truthful distinction between user turns, tool-loop follow-ups, and compaction-only requests.
+5. Live repro later showed an additional reliability gap: even with structured-output schema enforcement, the compaction model could sporadically miss JSON/section validity and return `invalid_summary_output` on the first attempt.
 
 ### Current active slice
 
@@ -229,23 +332,20 @@
 
 ### Tests run
 
-- `corepack pnpm --filter @persai/runtime run test`
-- `corepack pnpm --filter @persai/provider-gateway run test`
-- `corepack pnpm --filter @persai/runtime run lint`
-- `corepack pnpm --filter @persai/provider-gateway run lint`
-- `corepack pnpm --filter @persai/runtime run typecheck`
-- `corepack pnpm --filter @persai/provider-gateway run typecheck`
-- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm exec tsx test/turn-execution.service.test.ts`
+- `ReadLints` on `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `ReadLints` on `apps/runtime/test/session-compaction.service.test.ts`
 
 ### Risks
 
 1. Old `runtime_session_compactions` rows that still use free-form `v1` payloads are now intentionally ignored on reuse; a session needs one fresh valid compaction to rebuild reusable durable state.
-2. The OpenAI provider path now carries classification metadata upstream, but live Telegram/web/provider-log validation still has not been rerun after this hardening.
-3. This hardening fixes shared-compaction semantics, not the next Step 15 executor family; `web_search` / `web_fetch` work is still untouched.
+2. Live Telegram/web/provider-log validation still has not been rerun after the new bounded retry/output-budget follow-through, so cluster-level confirmation remains a separate post-`reapply` step.
+3. This hardening fixes shared-compaction semantics and structured-output reliability, not the next Step 15 executor family; `web_search` / `web_fetch` work is still untouched.
 
 ### Next recommended step
 
-1. Run one bounded live validation pack on native web plus Telegram after reapply, specifically checking that manual `compact_context` no longer triggers a second hidden compaction, that invalid old compaction rows are ignored, and that provider logs now distinguish `main_turn` vs `tool_loop_followup` vs `manual_compaction` / `auto_compaction`.
+1. Run one bounded live validation pack on native web plus Telegram after `reapply`, specifically checking that manual `compact_context` no longer triggers a second hidden compaction, that first-attempt structured-output misses now recover on retry instead of immediately returning `invalid_summary_output`, that invalid old compaction rows are ignored, and that provider logs now distinguish `main_turn` vs `tool_loop_followup` vs `manual_compaction` / `auto_compaction`.
 2. After that verification, continue with `T15-3b — Web search and fetch plan tools`.
 
 ### Ready commit message

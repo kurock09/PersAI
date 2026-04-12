@@ -253,6 +253,7 @@ providerGateway:
     LOG_LEVEL: info
     GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
     GCP_REGION: europe-west1
+    PERSAI_API_BASE_URL: "http://api-internal:3002"
     PROVIDER_GATEWAY_WARM_ON_BOOT: "true"
     PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "5000"
     PROVIDER_GATEWAY_OPENAI_MODELS: "gpt-5.4"
@@ -275,6 +276,7 @@ runtime:
     LOG_LEVEL: info
     GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
     GCP_REGION: europe-west1
+    PERSAI_API_BASE_URL: "http://api-internal:3002"
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
     RUNTIME_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
     RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "90000"

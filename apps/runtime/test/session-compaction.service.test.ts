@@ -230,17 +230,22 @@ class FakeRuntimeBundleRegistryService {
 class FakeProviderGatewayClientService {
   requests: ProviderGatewayTextGenerateRequest[] = [];
   textOutput = VALID_COMPACTION_OUTPUT;
+  queuedTextOutputs: string[] = [];
 
   async generateText(input: ProviderGatewayTextGenerateRequest) {
     this.requests.push(input);
+    const textOutput =
+      this.queuedTextOutputs.length > 0
+        ? (this.queuedTextOutputs.shift() ?? this.textOutput)
+        : this.textOutput;
     return {
       provider: "openai" as const,
-      model: "gpt-5.4",
-      text: this.textOutput,
+      model: input.model,
+      text: textOutput,
       respondedAt: "2026-04-12T12:00:02.000Z",
       usage: {
         providerKey: "openai",
-        modelKey: "gpt-5.4",
+        modelKey: input.model,
         inputTokens: 120,
         outputTokens: 40,
         totalTokens: 160
@@ -394,6 +399,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     providerGateway.requests[0]?.outputSchema,
     REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
   );
+  assert.equal(providerGateway.requests[0]?.maxOutputTokens, 1_200);
   assert.deepEqual(postgres.appendCalls.at(-1), {
     runtimeSessionId: "session-1",
     assistantId: "assistant-1",
@@ -437,6 +443,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     providerGateway.requests[1]?.outputSchema,
     REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
   );
+  assert.equal(providerGateway.requests[1]?.maxOutputTokens, 1_200);
   assert.match(
     providerGateway.requests[1]?.systemPrompt ?? "",
     /Additional operator instructions: Keep commitments and open questions\./
@@ -477,16 +484,46 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(autoAfterCompaction.reason, "threshold_not_reached");
   assert.equal(providerGateway.requests.length, 2);
 
-  providerGateway.textOutput = "Sure, here's a helpful summary for you.";
+  const retryRequestCountBefore = providerGateway.requests.length;
+  const retryAppendCountBefore = postgres.appendCalls.length;
+  const retryUpdateCountBefore = sessionStore.updateCalls.length;
+  providerGateway.queuedTextOutputs = [
+    "Sure, here's a helpful summary for you.",
+    VALID_COMPACTION_OUTPUT
+  ];
+  sessionStore.resolvedSession = createResolvedSession(30000);
+  const recoveredSummary = await service.compactSession(
+    createCompactionRequest({ instructions: "Keep durable facts only." })
+  );
+  assert.equal(recoveredSummary.compacted, true);
+  assert.equal(recoveredSummary.reason, "compacted");
+  assert.equal(recoveredSummary.toolResult.summaryText, RENDERED_COMPACTION_SUMMARY);
+  assert.equal(providerGateway.requests.length, retryRequestCountBefore + 2);
+  assert.equal(postgres.appendCalls.length, retryAppendCountBefore + 1);
+  assert.equal(sessionStore.updateCalls.length, retryUpdateCountBefore + 1);
+  assert.match(
+    providerGateway.requests.at(-1)?.systemPrompt ?? "",
+    /Previous attempt was rejected because the output was not valid JSON\./
+  );
+
+  const invalidRequestCountBefore = providerGateway.requests.length;
+  const invalidAppendCountBefore = postgres.appendCalls.length;
+  const invalidUpdateCountBefore = sessionStore.updateCalls.length;
+  providerGateway.queuedTextOutputs = [
+    "Sure, here's a helpful summary for you.",
+    "Still not valid JSON."
+  ];
   sessionStore.resolvedSession = createResolvedSession(30000);
   const invalidSummary = await service.compactSession(
     createCompactionRequest({ instructions: "Keep durable facts only." })
   );
   assert.equal(invalidSummary.compacted, false);
   assert.equal(invalidSummary.reason, "invalid_summary_output");
-  assert.equal(postgres.appendCalls.length, 2);
-  assert.equal(sessionStore.updateCalls.length, 2);
+  assert.equal(providerGateway.requests.length, invalidRequestCountBefore + 2);
+  assert.equal(postgres.appendCalls.length, invalidAppendCountBefore);
+  assert.equal(sessionStore.updateCalls.length, invalidUpdateCountBefore);
   providerGateway.textOutput = VALID_COMPACTION_OUTPUT;
+  providerGateway.queuedTextOutputs = [];
 
   const summarized = await service.summarizeContext(
     createCompactionRequest({ instructions: "Keep durable facts only." })
@@ -508,8 +545,8 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     providerGateway.requests.at(-1)?.outputSchema,
     REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
   );
-  assert.equal(postgres.appendCalls.length, 2);
-  assert.equal(sessionStore.updateCalls.length, 2);
+  assert.equal(postgres.appendCalls.length, 3);
+  assert.equal(sessionStore.updateCalls.length, 3);
 
   const acquireCallsBeforeHeldLease = leaseService.acquireCalls.length;
   const releasedBeforeHeldLease = leaseService.released.length;

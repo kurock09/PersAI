@@ -884,6 +884,7 @@ Required in CI:
   - `POST /api/v1/turns/compact` resolves the active session and warmed bundle from runtime-owned state instead of taking channel-specific compaction shortcuts
   - `POST /api/v1/turns/session/resolve` resolves active session summary state from runtime-owned Redis/Postgres truth instead of calling OpenClaw web session-state APIs
   - the dark seam uses `runtime.sharedCompaction` for threshold and preservation knobs before running provider-backed summary generation
+  - shared compaction requests keep provider output bounded with an explicit `maxOutputTokens` budget instead of leaving structured summary size unconstrained
   - successful compaction appends `runtime_session_compactions` and increments runtime session compaction counters
   - public `POST /api/v1/assistant/chats/web/:chatId/compact` preserves the existing assistant API contract while routing through native `POST /api/v1/turns/compact` and keeping `compaction_unavailable` mapping for unavailable native-session cases
   - public `GET /api/v1/assistant/chats/web/:chatId/compaction` preserves the existing assistant API contract while routing through native `POST /api/v1/turns/session/resolve` for banner/state reads
@@ -891,6 +892,7 @@ Required in CI:
   - later native turns reuse the latest durable `runtime_session_compactions.summary_payload` summary instead of replaying all previously summarized canonical history
   - later native turns reuse only validated machine-summary payloads; old `v1` or assistant-like poisoned compaction rows are ignored on the read path
   - manual in-turn durable `compact_context` does not trigger a second hidden post-turn auto-compaction in the same logical turn
+  - a first invalid structured compaction output triggers at most one bounded retry with stricter JSON-only guidance, and a second invalid attempt still fails closed without persisting or mutating session state
   - same-turn follow-up after durable compaction rebuilds provider messages from refreshed compaction state instead of stale pre-compaction history
   - durable compaction resets stale token freshness (`currentTokens=null`, `totalTokensFresh=false`) so later auto-compaction decisions do not trust pre-compaction totals
   - web compaction/banner state suggests compression when rolling reply latency crosses the shared `7000ms` threshold even when token pressure is still below the compaction token threshold
