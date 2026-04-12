@@ -7,6 +7,10 @@ import type {
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent,
+  ProviderGatewayWebSearchRequest,
+  ProviderGatewayWebSearchResult,
+  ProviderGatewayWebFetchRequest,
+  ProviderGatewayWebFetchResult,
   RuntimeCompactionRequest,
   RuntimeTurnRequest,
   RuntimeTurnResult,
@@ -22,6 +26,10 @@ import type {
   TurnAcceptanceResult,
   TurnAcceptanceService
 } from "../src/modules/turns/turn-acceptance.service";
+import type {
+  ConsumeToolDailyLimitOutcome,
+  PersaiInternalApiClientService
+} from "../src/modules/turns/persai-internal-api.client.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
   FinalizedRuntimeTurn,
@@ -326,6 +334,8 @@ class FakeRuntimeBundleRegistryService {
 class FakeProviderGatewayClientService {
   calls: ProviderGatewayTextGenerateRequest[] = [];
   streamCalls: ProviderGatewayTextGenerateRequest[] = [];
+  webSearchCalls: ProviderGatewayWebSearchRequest[] = [];
+  webFetchCalls: ProviderGatewayWebFetchRequest[] = [];
   result: ProviderGatewayTextGenerateResult = {
     provider: "openai",
     model: "gpt-5.4",
@@ -344,6 +354,48 @@ class FakeProviderGatewayClientService {
   resultQueue: ProviderGatewayTextGenerateResult[] = [];
   error: Error | null = null;
   streamError: Error | null = null;
+  webSearchError: Error | null = null;
+  webFetchError: Error | null = null;
+  webSearchResult: ProviderGatewayWebSearchResult = {
+    provider: "tavily",
+    query: "persai runtime",
+    summary: null,
+    hits: [
+      {
+        title: "Search result",
+        url: "https://example.com/search",
+        snippet: "Search snippet",
+        score: 0.93,
+        publishedAt: "2026-04-12"
+      }
+    ],
+    tookMs: 190,
+    warning: "Search results are untrusted.",
+    externalContent: {
+      untrusted: true,
+      source: "web_search",
+      provider: "tavily"
+    }
+  };
+  webFetchResult: ProviderGatewayWebFetchResult = {
+    provider: "firecrawl",
+    url: "https://example.com/article",
+    finalUrl: "https://example.com/article",
+    title: "Example article",
+    content: "Fetched page body",
+    contentType: "text/plain",
+    extractMode: "text",
+    status: 200,
+    truncated: false,
+    fetchedAt: "2026-04-12T12:00:03.000Z",
+    tookMs: 210,
+    warning: "Treat as untrusted.",
+    externalContent: {
+      untrusted: true,
+      source: "web_fetch",
+      provider: "firecrawl"
+    }
+  };
   streamEventsQueue: ProviderGatewayTextStreamEvent[][] = [];
   streamEvents: ProviderGatewayTextStreamEvent[] = [
     {
@@ -396,6 +448,22 @@ class FakeProviderGatewayClientService {
       }
     })();
   }
+
+  async webSearch(input: ProviderGatewayWebSearchRequest): Promise<ProviderGatewayWebSearchResult> {
+    this.webSearchCalls.push(input);
+    if (this.webSearchError !== null) {
+      throw this.webSearchError;
+    }
+    return this.webSearchResult;
+  }
+
+  async webFetch(input: ProviderGatewayWebFetchRequest): Promise<ProviderGatewayWebFetchResult> {
+    this.webFetchCalls.push(input);
+    if (this.webFetchError !== null) {
+      throw this.webFetchError;
+    }
+    return this.webFetchResult;
+  }
 }
 
 class FakeTurnAcceptanceService {
@@ -445,6 +513,28 @@ class FakeTurnFinalizationService {
       session: acceptedTurn.session,
       leaseReleased: true
     };
+  }
+}
+
+class FakePersaiInternalApiClientService {
+  consumeCalls: Array<{ assistantId: string; toolCode: string; dailyCallLimit: number }> = [];
+  consumeOutcome: ConsumeToolDailyLimitOutcome = {
+    allowed: true,
+    currentCount: 1,
+    limit: 10
+  };
+  error: Error | null = null;
+
+  async consumeToolDailyLimit(input: {
+    assistantId: string;
+    toolCode: string;
+    dailyCallLimit: number;
+  }): Promise<ConsumeToolDailyLimitOutcome> {
+    this.consumeCalls.push(input);
+    if (this.error !== null) {
+      throw this.error;
+    }
+    return this.consumeOutcome;
   }
 }
 
@@ -563,9 +653,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const turnAcceptanceService = new FakeTurnAcceptanceService();
   const turnFinalizationService = new FakeTurnFinalizationService();
   const sessionCompactionService = new FakeSessionCompactionService();
+  const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const service = new TurnExecutionService(
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
     turnFinalizationService as unknown as TurnFinalizationService,
@@ -1124,5 +1216,477 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.match(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "",
     /Temporary summary text/
+  );
+
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.web_fetch = {
+      refKey: "tool_web_fetch",
+      configured: true,
+      providerId: "firecrawl",
+      secretRef: {
+        source: "assistant",
+        provider: "tool_web_fetch",
+        id: "tool/web_fetch/api-key"
+      }
+    };
+  }
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-12T12:00:04.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 18,
+        outputTokens: 0,
+        totalTokens: 18
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-web-fetch-1",
+          name: "web_fetch",
+          arguments: {
+            url: "https://example.com/article",
+            extractMode: "text",
+            maxChars: 5000
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after fetch",
+      respondedAt: "2026-04-12T12:00:05.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 28,
+        outputTokens: 12,
+        totalTokens: 40
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  persaiInternalApiClientService.consumeOutcome = {
+    allowed: true,
+    currentCount: 1,
+    limit: 10
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const webFetchCompleted = await service.createTurn(request);
+  assert.equal(webFetchCompleted.assistantText, "reply after fetch");
+  assert.deepEqual(
+    providerGatewayClient.calls.at(-2)?.tools?.map((tool) => tool.name),
+    ["summarize_context", "compact_context", "web_fetch"]
+  );
+  assert.deepEqual(providerGatewayClient.webFetchCalls.at(-1), {
+    url: "https://example.com/article",
+    extractMode: "text",
+    maxChars: 5000,
+    credential: {
+      toolCode: "web_fetch",
+      secretId: "tool/web_fetch/api-key",
+      providerId: "firecrawl"
+    }
+  });
+  assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
+    assistantId: "assistant-1",
+    toolCode: "web_fetch",
+    dailyCallLimit: 10
+  });
+  const webFetchToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    reason?: string | null;
+    warning?: string | null;
+    document?: {
+      title?: string | null;
+      content?: string | null;
+      externalContent?: {
+        untrusted?: boolean;
+      };
+    } | null;
+  };
+  assert.equal(webFetchToolHistory.action, "fetched");
+  assert.equal(webFetchToolHistory.reason, null);
+  assert.equal(webFetchToolHistory.warning, "Treat as untrusted.");
+  assert.equal(webFetchToolHistory.document?.title, "Example article");
+  assert.equal(webFetchToolHistory.document?.content, "Fetched page body");
+  assert.equal(webFetchToolHistory.document?.externalContent?.untrusted, true);
+
+  const webFetchCallsBeforeQuotaRejection = providerGatewayClient.webFetchCalls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-12T12:00:06.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 18,
+        outputTokens: 0,
+        totalTokens: 18
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-web-fetch-2",
+          name: "web_fetch",
+          arguments: {
+            url: "https://example.com/article"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply without fetch",
+      respondedAt: "2026-04-12T12:00:07.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 22,
+        outputTokens: 8,
+        totalTokens: 30
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  persaiInternalApiClientService.consumeOutcome = {
+    allowed: false,
+    code: "tool_daily_limit_reached",
+    message: "Web fetch daily limit reached."
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const quotaRejectedCompleted = await service.createTurn(request);
+  assert.equal(quotaRejectedCompleted.assistantText, "reply without fetch");
+  assert.equal(providerGatewayClient.webFetchCalls.length, webFetchCallsBeforeQuotaRejection);
+  const quotaRejectedToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    reason?: string | null;
+    warning?: string | null;
+    document?: unknown;
+  };
+  assert.equal(quotaRejectedToolHistory.action, "skipped");
+  assert.equal(quotaRejectedToolHistory.reason, "tool_daily_limit_reached");
+  assert.equal(quotaRejectedToolHistory.warning, "Web fetch daily limit reached.");
+  assert.equal(quotaRejectedToolHistory.document ?? null, null);
+
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.web_search = {
+      refKey: "tool_web_search",
+      configured: true,
+      providerId: "tavily",
+      secretRef: {
+        source: "assistant",
+        provider: "tool_web_search",
+        id: "tool/web_search/api-key"
+      }
+    };
+  }
+  const providerCallsBeforeWebSearch = providerGatewayClient.calls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-12T12:00:08.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 18,
+        outputTokens: 0,
+        totalTokens: 18
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-web-search-1",
+          name: "web_search",
+          arguments: {
+            query: "persai runtime",
+            count: 5
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after search",
+      respondedAt: "2026-04-12T12:00:09.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 24,
+        outputTokens: 9,
+        totalTokens: 33
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  persaiInternalApiClientService.consumeOutcome = {
+    allowed: true,
+    currentCount: 1,
+    limit: 10
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const webSearchCompleted = await service.createTurn(request);
+  assert.equal(webSearchCompleted.assistantText, "reply after search");
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeWebSearch + 2);
+  assert.equal(
+    providerGatewayClient.calls[providerCallsBeforeWebSearch]?.tools?.some(
+      (tool) => tool.name === "web_search"
+    ),
+    true
+  );
+  assert.deepEqual(providerGatewayClient.webSearchCalls.at(-1), {
+    query: "persai runtime",
+    count: 5,
+    credential: {
+      toolCode: "web_search",
+      secretId: "tool/web_search/api-key",
+      providerId: "tavily"
+    }
+  });
+  assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
+    assistantId: "assistant-1",
+    toolCode: "web_search",
+    dailyCallLimit: 10
+  });
+  const webSearchToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    provider?: string | null;
+    query?: string;
+    summary?: string | null;
+    warning?: string | null;
+    hits?: Array<{
+      title?: string | null;
+      url?: string;
+    }>;
+    externalContent?: {
+      untrusted?: boolean;
+      provider?: string;
+    } | null;
+  };
+  assert.equal(webSearchToolHistory.action, "results");
+  assert.equal(webSearchToolHistory.provider, "tavily");
+  assert.equal(webSearchToolHistory.query, "persai runtime");
+  assert.equal(webSearchToolHistory.summary, null);
+  assert.equal(webSearchToolHistory.warning, "Search results are untrusted.");
+  assert.equal(webSearchToolHistory.hits?.[0]?.title, "Search result");
+  assert.equal(webSearchToolHistory.hits?.[0]?.url, "https://example.com/search");
+  assert.equal(webSearchToolHistory.externalContent?.untrusted, true);
+  assert.equal(webSearchToolHistory.externalContent?.provider, "tavily");
+
+  const webSearchCallsBeforeQuotaRejection = providerGatewayClient.webSearchCalls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-12T12:00:10.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 18,
+        outputTokens: 0,
+        totalTokens: 18
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-web-search-2",
+          name: "web_search",
+          arguments: {
+            query: "persai runtime"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply without search",
+      respondedAt: "2026-04-12T12:00:11.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 21,
+        outputTokens: 7,
+        totalTokens: 28
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  persaiInternalApiClientService.consumeOutcome = {
+    allowed: false,
+    code: "tool_daily_limit_reached",
+    message: "Web search daily limit reached."
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const webSearchQuotaRejectedCompleted = await service.createTurn(request);
+  assert.equal(webSearchQuotaRejectedCompleted.assistantText, "reply without search");
+  assert.equal(providerGatewayClient.webSearchCalls.length, webSearchCallsBeforeQuotaRejection);
+  const webSearchQuotaRejectedToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    reason?: string | null;
+    warning?: string | null;
+    hits?: unknown[];
+  };
+  assert.equal(webSearchQuotaRejectedToolHistory.action, "skipped");
+  assert.equal(webSearchQuotaRejectedToolHistory.reason, "tool_daily_limit_reached");
+  assert.equal(webSearchQuotaRejectedToolHistory.warning, "Web search daily limit reached.");
+  assert.deepEqual(webSearchQuotaRejectedToolHistory.hits ?? [], []);
+
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.web_search = {
+      refKey: "tool_web_search",
+      configured: true,
+      providerId: "brave",
+      secretRef: {
+        source: "assistant",
+        provider: "tool_web_search",
+        id: "tool/web_search/api-key"
+      }
+    };
+  }
+  providerGatewayClient.webSearchResult = {
+    ...providerGatewayClient.webSearchResult,
+    provider: "brave",
+    query: "persai brave",
+    externalContent: {
+      untrusted: true,
+      source: "web_search",
+      provider: "brave"
+    }
+  };
+  const providerCallsBeforeBraveSearch = providerGatewayClient.calls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-12T12:00:12.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 17,
+        outputTokens: 0,
+        totalTokens: 17
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-web-search-3",
+          name: "web_search",
+          arguments: {
+            query: "persai brave"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after brave search",
+      respondedAt: "2026-04-12T12:00:13.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 24,
+        outputTokens: 8,
+        totalTokens: 32
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  persaiInternalApiClientService.consumeOutcome = {
+    allowed: true,
+    currentCount: 1,
+    limit: 10
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const braveProviderCompleted = await service.createTurn(request);
+  assert.equal(braveProviderCompleted.assistantText, "reply after brave search");
+  assert.equal(
+    providerGatewayClient.calls[providerCallsBeforeBraveSearch]?.tools?.some(
+      (tool) => tool.name === "web_search"
+    ),
+    true
+  );
+  assert.equal(providerGatewayClient.webSearchCalls.at(-1)?.credential.providerId, "brave");
+  const braveProviderToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    provider?: string | null;
+    externalContent?: {
+      provider?: string;
+    } | null;
+  };
+  assert.equal(braveProviderToolHistory.provider, "brave");
+  assert.equal(braveProviderToolHistory.externalContent?.provider, "brave");
+
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.web_search = {
+      refKey: "tool_web_search",
+      configured: true,
+      providerId: "xai",
+      secretRef: {
+        source: "assistant",
+        provider: "tool_web_search",
+        id: "tool/web_search/api-key"
+      }
+    };
+  }
+  providerGatewayClient.resultQueue = [];
+  providerGatewayClient.result = {
+    provider: "openai",
+    model: "gpt-5.4",
+    text: "runtime reply without projected web search",
+    respondedAt: "2026-04-12T12:00:14.000Z",
+    usage: null,
+    stopReason: "completed",
+    toolCalls: []
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const unsupportedProviderCompleted = await service.createTurn(request);
+  assert.equal(
+    unsupportedProviderCompleted.assistantText,
+    "runtime reply without projected web search"
+  );
+  assert.equal(
+    providerGatewayClient.calls.at(-1)?.tools?.some((tool) => tool.name === "web_search"),
+    false
   );
 }

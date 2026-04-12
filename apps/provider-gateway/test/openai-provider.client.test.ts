@@ -77,12 +77,14 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     input?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
+    text?: unknown;
     metadata?: unknown;
   } | null = null;
   let capturedStreamPayload: {
     input?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
+    text?: unknown;
     metadata?: unknown;
   } | null = null;
   let capturedTranscriptionInput: unknown = null;
@@ -238,6 +240,51 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   });
   const baselineGenerateInput = capturedGeneratePayload!.input;
 
+  const structuredRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    outputSchema: {
+      name: "shared_compaction",
+      description: "Durable shared compaction output.",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          stableFacts: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          }
+        },
+        required: ["stableFacts"]
+      },
+      strict: true
+    }
+  };
+  const structuredResult = await client.generateText(structuredRequest);
+  assert.equal(structuredResult.text, "done");
+  assert.deepEqual(capturedGeneratePayload!.text, {
+    format: {
+      type: "json_schema",
+      name: "shared_compaction",
+      description: "Durable shared compaction output.",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          stableFacts: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          }
+        },
+        required: ["stableFacts"]
+      },
+      strict: true
+    }
+  });
+
   const toolRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
     tools: [
@@ -359,6 +406,34 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   });
   assert.deepEqual(
     events.map((event) => event.type),
+    ["text_delta", "completed"]
+  );
+
+  const structuredStream = await client.streamText(structuredRequest);
+  const structuredStreamEvents = await collectStream(structuredStream);
+  assert.deepEqual(capturedStreamPayload!.text, {
+    format: {
+      type: "json_schema",
+      name: "shared_compaction",
+      description: "Durable shared compaction output.",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          stableFacts: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          }
+        },
+        required: ["stableFacts"]
+      },
+      strict: true
+    }
+  });
+  assert.deepEqual(
+    structuredStreamEvents.map((event) => event.type),
     ["text_delta", "completed"]
   );
 

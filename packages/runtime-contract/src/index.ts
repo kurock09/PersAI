@@ -244,6 +244,94 @@ export interface RuntimeKnowledgeFetchToolResult extends RuntimeKnowledgeFetchRe
   reason: string | null;
 }
 
+export const PERSAI_RUNTIME_WEB_SEARCH_PROVIDER_IDS = [
+  "tavily",
+  "brave",
+  "perplexity",
+  "google"
+] as const;
+
+export type PersaiRuntimeWebSearchProviderId =
+  (typeof PERSAI_RUNTIME_WEB_SEARCH_PROVIDER_IDS)[number];
+
+export interface RuntimeWebSearchRequest {
+  toolCode: "web_search";
+  query: string;
+  count: number | null;
+}
+
+export interface RuntimeWebSearchHit {
+  title: string | null;
+  url: string;
+  snippet: string | null;
+  score: number | null;
+  publishedAt: string | null;
+}
+
+export interface RuntimeWebSearchResult {
+  toolCode: "web_search";
+  executionMode: PersaiRuntimeToolExecutionMode;
+  provider: PersaiRuntimeWebSearchProviderId | null;
+  query: string;
+  summary: string | null;
+  hits: RuntimeWebSearchHit[];
+  externalContent: {
+    untrusted: true;
+    source: "web_search";
+    provider: PersaiRuntimeWebSearchProviderId;
+  } | null;
+}
+
+export interface RuntimeWebSearchToolResult extends RuntimeWebSearchResult {
+  action: "results" | "skipped";
+  reason: string | null;
+  warning: string | null;
+}
+
+export const PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES = ["markdown", "text"] as const;
+
+export type PersaiRuntimeWebFetchExtractMode =
+  (typeof PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES)[number];
+
+export interface RuntimeWebFetchRequest {
+  toolCode: "web_fetch";
+  url: string;
+  extractMode: PersaiRuntimeWebFetchExtractMode;
+  maxChars: number | null;
+}
+
+export interface RuntimeWebFetchDocument {
+  url: string;
+  finalUrl: string | null;
+  title: string | null;
+  content: string;
+  contentType: string | null;
+  extractMode: PersaiRuntimeWebFetchExtractMode;
+  provider: "firecrawl";
+  status: number | null;
+  truncated: boolean;
+  fetchedAt: IsoTimestamp;
+  tookMs: number;
+  warning: string | null;
+  externalContent: {
+    untrusted: true;
+    source: "web_fetch";
+    provider: "firecrawl";
+  };
+}
+
+export interface RuntimeWebFetchResult {
+  toolCode: "web_fetch";
+  executionMode: PersaiRuntimeToolExecutionMode;
+  document: RuntimeWebFetchDocument | null;
+}
+
+export interface RuntimeWebFetchToolResult extends RuntimeWebFetchResult {
+  action: "fetched" | "skipped";
+  reason: string | null;
+  warning: string | null;
+}
+
 export interface RuntimeTurnRequest {
   requestId: string;
   idempotencyKey: string;
@@ -345,6 +433,13 @@ export interface ProviderGatewayRequestMetadata {
   compactionToolCode: PersaiRuntimeSharedCompactionToolCode | null;
 }
 
+export interface ProviderGatewayStructuredOutputSchema {
+  name: string;
+  description?: string;
+  schema: Record<string, unknown>;
+  strict?: boolean;
+}
+
 export interface ProviderGatewayTextGenerateRequest {
   provider: "openai" | "anthropic";
   model: string;
@@ -355,6 +450,7 @@ export interface ProviderGatewayTextGenerateRequest {
   toolChoice?: ProviderGatewayToolChoice;
   toolHistory?: ProviderGatewayToolExchange[];
   requestMetadata?: ProviderGatewayRequestMetadata;
+  outputSchema?: ProviderGatewayStructuredOutputSchema;
 }
 
 export interface ProviderGatewayTextGenerateResult {
@@ -372,6 +468,61 @@ export interface ProviderGatewayAudioTranscriptionResult {
   model: string;
   text: string;
   respondedAt: IsoTimestamp;
+}
+
+export interface ProviderGatewayWebSearchRequest {
+  query: string;
+  count: number | null;
+  credential: {
+    toolCode: "web_search";
+    secretId: string;
+    providerId: PersaiRuntimeWebSearchProviderId | null;
+  };
+}
+
+export interface ProviderGatewayWebSearchResult {
+  provider: PersaiRuntimeWebSearchProviderId;
+  query: string;
+  summary: string | null;
+  hits: RuntimeWebSearchHit[];
+  tookMs: number;
+  warning: string | null;
+  externalContent: {
+    untrusted: true;
+    source: "web_search";
+    provider: PersaiRuntimeWebSearchProviderId;
+  };
+}
+
+export interface ProviderGatewayWebFetchRequest {
+  url: string;
+  extractMode: PersaiRuntimeWebFetchExtractMode;
+  maxChars: number | null;
+  credential: {
+    toolCode: "web_fetch";
+    secretId: string;
+    providerId: string | null;
+  };
+}
+
+export interface ProviderGatewayWebFetchResult {
+  provider: "firecrawl";
+  url: string;
+  finalUrl: string | null;
+  title: string | null;
+  content: string;
+  contentType: string | null;
+  extractMode: PersaiRuntimeWebFetchExtractMode;
+  status: number | null;
+  truncated: boolean;
+  fetchedAt: IsoTimestamp;
+  tookMs: number;
+  warning: string | null;
+  externalContent: {
+    untrusted: true;
+    source: "web_fetch";
+    provider: "firecrawl";
+  };
 }
 
 export interface ProviderGatewayTextDeltaEvent {

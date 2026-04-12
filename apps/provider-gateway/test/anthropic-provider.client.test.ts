@@ -77,11 +77,13 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     messages?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
+    output_config?: unknown;
   } | null = null;
   let capturedStreamPayload: {
     messages?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
+    output_config?: unknown;
   } | null = null;
 
   (client as unknown as { client: unknown }).client = {
@@ -242,6 +244,47 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   ]);
   const baselineGenerateMessages = capturedGeneratePayload!.messages;
 
+  const structuredRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    outputSchema: {
+      name: "shared_compaction",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          stableFacts: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          }
+        },
+        required: ["stableFacts"]
+      },
+      strict: true
+    }
+  };
+  const structuredResult = await client.generateText(structuredRequest);
+  assert.equal(structuredResult.text, "done");
+  assert.deepEqual(capturedGeneratePayload!.output_config, {
+    format: {
+      type: "json_schema",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          stableFacts: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          }
+        },
+        required: ["stableFacts"]
+      }
+    }
+  });
+
   const toolRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
     tools: [
@@ -363,6 +406,31 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   assert.deepEqual(capturedStreamPayload!.messages, baselineGenerateMessages);
   assert.deepEqual(
     events.map((event) => event.type),
+    ["text_delta", "completed"]
+  );
+
+  const structuredStream = await client.streamText(structuredRequest);
+  const structuredStreamEvents = await collectStream(structuredStream);
+  assert.deepEqual(capturedStreamPayload!.output_config, {
+    format: {
+      type: "json_schema",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          stableFacts: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          }
+        },
+        required: ["stableFacts"]
+      }
+    }
+  });
+  assert.deepEqual(
+    structuredStreamEvents.map((event) => event.type),
     ["text_delta", "completed"]
   );
 

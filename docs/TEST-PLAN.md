@@ -897,11 +897,21 @@ Required in CI:
 - Shared tool-runtime observability validates:
   - provider/runtime request metadata distinguishes `main_turn`, `tool_loop_followup`, `manual_compaction`, and `auto_compaction`
   - internal tool and compaction hops no longer need to be inferred from provider-side pseudo-message logs
-- Knowledge access contract baseline validates:
-  - `runtime.knowledgeAccess` exists on the native runtime bundle with fixed `knowledge_search` / `knowledge_fetch` names
-  - `runtime.knowledgeAccess.executionModes` includes both `inline` and `worker`, and `runtime.knowledgeAccess.ragMode` stays `pattern_only`
-  - the current `web` source maps to `web_search` / `web_fetch`, the current `memory` source maps to `memory_search` / `memory_get`, and `browser` does not get folded into the knowledge layer
-  - runtime warm validation rejects alias/source drift when `runtime.knowledgeAccess` no longer matches the preserved tool-policy surface
+- Deferred knowledge scaffolding validates:
+  - `runtime.knowledgeAccess` may remain on the native runtime bundle as reserved future scaffolding, but no current model-visible native tool projection depends on it
+  - `knowledge_search` / `knowledge_fetch` stay disconnected until a real PersAI-native knowledge backend exists
+  - current `web_search` / `web_fetch` executor tests do not route through `knowledge_*` placeholders
+- T15-3b web retrieval sub-step validates:
+  - the first truthful landing may expose `web_fetch` before `web_search`, but only when plan policy, credential availability, and real native executor availability all agree
+  - runtime consumes the `web_fetch` daily limit through `POST /api/v1/internal/runtime/tools/consume` before invoking the external provider seam
+  - runtime/provider-gateway resolve `tool/web_fetch/api-key` through PersAI internal secret resolution instead of env-only fallback
+  - provider-gateway `POST /api/v1/providers/web-fetch` returns normalized fetch metadata/content with explicit attribution and untrusted-source markers
+  - runtime tool-loop coverage includes both successful `web_fetch` execution and structured `tool_daily_limit_reached` skip results without routing through `knowledge_*`
+  - native `web_search` honors the full current control-plane provider set (`Tavily`, `Brave`, `Perplexity`, `Google (Gemini)`) on the shared native `query` / `count` contract instead of darking non-default admin selections
+  - runtime consumes the `web_search` daily limit through the same internal tool-limit seam before invoking provider-gateway
+  - runtime/provider-gateway resolve `tool/web_search/api-key` through PersAI internal secret resolution and normalize results from each current provider seam into the separate native `web_search` contract
+  - runtime tool-loop coverage includes successful `web_search` execution for at least one non-default provider plus structured `tool_daily_limit_reached` and unsupported-provider outcomes without routing through `knowledge_*`
+  - after provider-selection parity lands, one bounded post-`reapply` live validation pack should exercise at least one real configured `web_search` success plus quota-denied / unsupported-provider guards from the fresh bundle
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift

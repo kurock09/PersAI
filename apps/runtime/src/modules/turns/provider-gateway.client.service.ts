@@ -10,7 +10,11 @@ import type {
   ProviderGatewayAudioTranscriptionResult,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
-  ProviderGatewayTextStreamEvent
+  ProviderGatewayTextStreamEvent,
+  ProviderGatewayWebSearchRequest,
+  ProviderGatewayWebSearchResult,
+  ProviderGatewayWebFetchRequest,
+  ProviderGatewayWebFetchResult
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../runtime-config";
 
@@ -125,6 +129,58 @@ export class ProviderGatewayClientService {
       throw new BadGatewayException(
         "Provider gateway returned an invalid audio transcription response."
       );
+    }
+
+    return response.body;
+  }
+
+  async webSearch(input: ProviderGatewayWebSearchRequest): Promise<ProviderGatewayWebSearchResult> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
+    }
+
+    const response = await this.fetchJson(
+      this.buildUrl("/api/v1/providers/web-search"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      },
+      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      throw this.toGatewayException(response);
+    }
+    if (!this.isWebSearchResult(response.body)) {
+      throw new BadGatewayException("Provider gateway returned an invalid web search response.");
+    }
+
+    return response.body;
+  }
+
+  async webFetch(input: ProviderGatewayWebFetchRequest): Promise<ProviderGatewayWebFetchResult> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
+    }
+
+    const response = await this.fetchJson(
+      this.buildUrl("/api/v1/providers/web-fetch"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      },
+      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      throw this.toGatewayException(response);
+    }
+    if (!this.isWebFetchResult(response.body)) {
+      throw new BadGatewayException("Provider gateway returned an invalid web fetch response.");
     }
 
     return response.body;
@@ -400,6 +456,59 @@ export class ProviderGatewayClientService {
       typeof row.model === "string" &&
       typeof row.text === "string" &&
       typeof row.respondedAt === "string"
+    );
+  }
+
+  private isWebSearchResult(value: unknown): value is ProviderGatewayWebSearchResult {
+    const row = this.asObject(value);
+    const externalContent = this.asObject(row?.externalContent);
+    return (
+      row !== null &&
+      (row.provider === "tavily" ||
+        row.provider === "brave" ||
+        row.provider === "perplexity" ||
+        row.provider === "google") &&
+      typeof row.query === "string" &&
+      (typeof row.summary === "string" || row.summary === null) &&
+      Array.isArray(row.hits) &&
+      row.hits.every((hit) => {
+        const searchHit = this.asObject(hit);
+        return (
+          searchHit !== null &&
+          (typeof searchHit.title === "string" || searchHit.title === null) &&
+          typeof searchHit.url === "string" &&
+          (typeof searchHit.snippet === "string" || searchHit.snippet === null) &&
+          (typeof searchHit.score === "number" || searchHit.score === null) &&
+          (typeof searchHit.publishedAt === "string" || searchHit.publishedAt === null)
+        );
+      }) &&
+      typeof row.tookMs === "number" &&
+      (typeof row.warning === "string" || row.warning === null) &&
+      externalContent?.untrusted === true &&
+      externalContent.source === "web_search" &&
+      externalContent.provider === row.provider
+    );
+  }
+
+  private isWebFetchResult(value: unknown): value is ProviderGatewayWebFetchResult {
+    const row = this.asObject(value);
+    const externalContent = this.asObject(row?.externalContent);
+    return (
+      row?.provider === "firecrawl" &&
+      typeof row.url === "string" &&
+      (typeof row.finalUrl === "string" || row.finalUrl === null) &&
+      (typeof row.title === "string" || row.title === null) &&
+      typeof row.content === "string" &&
+      (typeof row.contentType === "string" || row.contentType === null) &&
+      (row.extractMode === "markdown" || row.extractMode === "text") &&
+      (Number.isInteger(row.status) || row.status === null) &&
+      typeof row.truncated === "boolean" &&
+      typeof row.fetchedAt === "string" &&
+      typeof row.tookMs === "number" &&
+      (typeof row.warning === "string" || row.warning === null) &&
+      externalContent?.untrusted === true &&
+      externalContent.source === "web_fetch" &&
+      externalContent.provider === "firecrawl"
     );
   }
 

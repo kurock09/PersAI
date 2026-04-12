@@ -208,6 +208,29 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   assert.equal(anthropicResult.text, "anthropic-result");
   assert.equal(anthropicClient.calls.length, 1);
 
+  const structuredOpenAIResult = await service.generateText({
+    ...createRequest("openai"),
+    outputSchema: {
+      name: "shared_compaction",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          stableFacts: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          }
+        },
+        required: ["stableFacts"]
+      },
+      strict: true
+    }
+  });
+  assert.equal(structuredOpenAIResult.text, "openai-result");
+  assert.equal(openaiClient.calls.at(-1)?.outputSchema?.name, "shared_compaction");
+
   const openaiStream = await service.streamText(createRequest("openai"));
   const openaiStreamEvents = await collectStreamEvents(openaiStream);
   assert.equal(openaiClient.streamCalls.length, 1);
@@ -264,6 +287,20 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
         ]
       }),
     /dataBase64 must be non-empty/
+  );
+
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        outputSchema: {
+          name: "",
+          schema: {
+            type: "object"
+          }
+        }
+      }),
+    /outputSchema.name must be 1-64 chars/
   );
 
   await assert.rejects(

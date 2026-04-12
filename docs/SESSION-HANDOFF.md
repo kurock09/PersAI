@@ -1,5 +1,188 @@
 # SESSION-HANDOFF
 
+## 2026-04-12 - ADR-072 T15-3b native web_search provider-selection parity
+
+### What changed
+
+1. `apps/provider-gateway` now routes native `web_search` through all current admin-visible provider seams (`Tavily`, `Brave`, `Perplexity`, `Google (Gemini)`) on the same internal secret-resolution boundary, with direct-result normalization for `Tavily` / `Brave` / `Perplexity` plus Gemini-grounded summary/citation extraction for `Google`.
+2. `apps/runtime` no longer keeps non-`Tavily` `web_search` providers dark: projection and execution now honor the current `tool_web_search` provider selection from the bundle (`null -> tavily`, `brave`, `perplexity`, `google`) while preserving daily-limit enforcement and explicit unsupported-provider skips for anything outside the known set.
+3. Focused tests now cover provider-routing parity inside `ProviderWebSearchService`, runtime projection/execution for a non-default selected provider, and the existing quota-denied / unsupported-provider outcomes, so the native `web_search` path is ready for one bounded live validation pass after `reapply`.
+
+### Why
+
+1. Admin UI already exposes provider choice for `tool_web_search`, so a `Tavily`-only native executor was not honest enough for live-test readiness.
+2. `T15-3b` needs current provider seam parity for `web_search`, not a permanently reduced subset.
+3. The remaining bounded gap before live validation was provider routing parity, not another contract or UX redesign.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, and `T15-3a` remain complete; `T15-3b — Web search and fetch plan tools` stays active; native `web_fetch` is landed end-to-end and native `web_search` now covers the current admin-visible provider set on the shared `query` / `count` contract; the next honest follow-through is bounded live validation from a freshly applied bundle`)
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/provider-web-search.service.ts`
+- `apps/provider-gateway/test/provider-web-search.service.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run lint`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+
+### Risks
+
+1. The current native `web_search` surface is still intentionally generic (`query` + `count`); richer provider-specific filters remain future parity work if product still needs them.
+2. This session makes the path ready for bounded live validation but does not claim that `reapply` + live dev verification has already happened.
+3. The `Perplexity` compatibility path can use either the direct Search API or a default OpenRouter `perplexity/sonar-pro` fallback when the key shape indicates OpenRouter; broader transport/model overrides are still outside current control-plane truth.
+
+### Next recommended step
+
+1. `reapply` the current bundle/config so runtime/provider-gateway pick up the expanded provider-routing truth.
+2. Run one bounded native web validation pack that exercises a real `web_search` success on at least one configured provider plus `tool_daily_limit_reached` and unsupported-provider guard behavior from the freshly applied bundle.
+
+### Ready commit message
+
+- `feat(runtime): add native web_search provider parity`
+
+## 2026-04-12 - ADR-072 T15-3b native web_search Tavily-first baseline
+
+### What changed
+
+1. `packages/runtime-contract` plus `apps/runtime` / `apps/provider-gateway` now carry a separate native `web_search` contract and executor path instead of routing search through `knowledge_search`.
+2. `apps/provider-gateway` now exposes `POST /api/v1/providers/web-search` via a new `ProviderWebSearchService`: it resolves `tool/web_search/api-key` through the PersAI internal API, calls Tavily search, and normalizes hits into a dedicated untrusted `web_search` result shape.
+3. `apps/runtime` now projects and executes `web_search` as a first-class plan tool inside the shared sync/stream tool loop: it validates `query` / `count`, consumes the tool daily limit before execution, and returns structured `results` / `skipped` payloads instead of collapsing into `knowledge_*`.
+4. The current bounded `web_search` follow-through is intentionally `Tavily`-first: runtime keeps `Brave`, `Perplexity`, and `Google (Gemini)` dark when their `providerId` is selected, because those providers do not have equally real native executors yet.
+
+### Why
+
+1. After landing native `web_fetch`, the next highest-priority unfinished `T15-3b` work was the separate `web_search` family.
+2. `Tavily` is the smallest honest first search seam because `tool_web_search` already defaults to `tavily` in the control plane and its transport is straightforward.
+3. Unsupported current providers needed to stay dark rather than surfacing a model-visible tool that would only fail after invocation.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, and `T15-3a` remain complete; `T15-3b — Web search and fetch plan tools` stays active; native `web_fetch` and native `web_search (Tavily-first)` are now landed, while `Brave` / `Perplexity` / `Google (Gemini)` search-provider parity is the next unfinished work`)
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/provider-gateway/src/modules/providers/provider-web-search.service.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-web-search.controller.ts`
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/provider-gateway/test/provider-web-search.service.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run test`
+
+### Risks
+
+1. `T15-3b` is still in progress because `Brave`, `Perplexity`, and `Google (Gemini)` web-search parity is not landed yet.
+2. The current native `web_search` contract is intentionally generic (`query` + `count`) and `Tavily`-backed; richer provider-specific options remain separate future parity work.
+3. Native `web_search` has passed focused tests but has not yet been live-validated after `reapply`.
+
+### Next recommended step
+
+1. Continue `T15-3b` with the remaining `web_search` providers (`Brave`, `Perplexity`, `Google (Gemini)`) on the same runtime-owned quota seam and provider-gateway secret routing.
+2. After that provider parity lands, run one bounded native web validation pack that exercises real `web_search` success plus unsupported-provider / quota-denied behavior from a freshly applied bundle.
+
+### Ready commit message
+
+- `feat(runtime): land native web_search tool path`
+
+## 2026-04-12 - ADR-072 T15-3b native web_fetch baseline
+
+### What changed
+
+1. `apps/provider-gateway` now owns a real `POST /api/v1/providers/web-fetch` seam backed by a new `ProviderWebFetchService`: it resolves the `tool/web_fetch/api-key` secret through the PersAI internal API, calls Firecrawl `/v2/scrape`, normalizes the returned page extract, and marks fetched content as explicit untrusted external material.
+2. `apps/runtime` now executes `web_fetch` as a separate first-class plan tool instead of routing through `knowledge_fetch`: projection exposes it only when policy is `allowed`, `executionMode = inline`, and credentials are configured; turn execution validates tool arguments, consumes the tool daily limit through `POST /api/v1/internal/runtime/tools/consume`, calls provider-gateway, and returns structured fetched/skipped tool results inside the existing sync/stream native tool loop.
+3. Focused runtime/provider tests now cover the new provider seam, runtime client round-trip, successful `web_fetch` execution, and quota-denied skip behavior.
+
+### Why
+
+1. `T15-3b` needed one truthful provider-backed executor to prove the native credential/quota/provider path before the broader `web_search` family lands.
+2. `web_fetch` is the smallest bounded sub-step because it uses a single current provider seam (`Firecrawl`) and does not require inventing a premature knowledge layer.
+3. External page content must stay explicitly attributed and untrusted so later model reasoning cannot treat fetched pages as instructions.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, and `T15-3a` remain complete; `T15-3b — Web search and fetch plan tools` stays active; the native `web_fetch` sub-step is now landed end-to-end, and `web_search` provider parity is the next unfinished work`)
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/provider-web-fetch.service.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-web-fetch.controller.ts`
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/provider-gateway/test/provider-web-fetch.service.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run test`
+
+### Risks
+
+1. `web_search` is still unimplemented, so `T15-3b` remains in progress even though `web_fetch` is now real.
+2. `web_fetch` currently routes only through Firecrawl and has not yet been live-validated in dev after `reapply`.
+3. Quota/secret/provider failures now return structured skipped tool results, but user-facing fallback quality still depends on later model behavior and future `T15-7` exposure/admin follow-through.
+
+### Next recommended step
+
+1. Continue `T15-3b` with the separate native `web_search` executor family on top of the same runtime-owned quota seam and provider-gateway credential routing.
+2. After `web_search` lands, run a bounded live validation pack that exercises both real `web_fetch` success and quota/credential failure behavior from the native web path.
+
+### Ready commit message
+
+- `feat(runtime): land native web_fetch tool path`
+
 ## 2026-04-12 - ADR-072 shared compaction stability hardening
 
 ### What changed

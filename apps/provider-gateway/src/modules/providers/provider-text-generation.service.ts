@@ -67,6 +67,7 @@ export class ProviderTextGenerationService {
     const declaredToolNames = this.assertValidTools(input);
     this.assertValidToolChoice(input, declaredToolNames);
     this.assertValidToolHistory(input, declaredToolNames);
+    this.assertValidOutputSchema(input);
     this.assertValidRequestMetadata(input);
   }
 
@@ -221,6 +222,41 @@ export class ProviderTextGenerationService {
           `toolHistory[${index}] references undeclared tool "${exchange.toolCall.name}"`
         );
       }
+    }
+  }
+
+  private assertValidOutputSchema(input: ProviderGatewayTextGenerateRequest): void {
+    const outputSchema = input.outputSchema;
+    if (outputSchema === undefined) {
+      return;
+    }
+    if (outputSchema === null || typeof outputSchema !== "object" || Array.isArray(outputSchema)) {
+      throw new BadRequestException("outputSchema must be an object when provided");
+    }
+
+    const name = typeof outputSchema.name === "string" ? outputSchema.name.trim() : "";
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
+      throw new BadRequestException(
+        "outputSchema.name must be 1-64 chars of letters, numbers, underscores, or dashes"
+      );
+    }
+    if (
+      outputSchema.description !== undefined &&
+      (typeof outputSchema.description !== "string" || outputSchema.description.trim().length === 0)
+    ) {
+      throw new BadRequestException(
+        "outputSchema.description must be a non-empty string when provided"
+      );
+    }
+    if (
+      outputSchema.schema === null ||
+      typeof outputSchema.schema !== "object" ||
+      Array.isArray(outputSchema.schema)
+    ) {
+      throw new BadRequestException("outputSchema.schema must be an object");
+    }
+    if (outputSchema.strict !== undefined && typeof outputSchema.strict !== "boolean") {
+      throw new BadRequestException("outputSchema.strict must be a boolean when provided");
     }
   }
 

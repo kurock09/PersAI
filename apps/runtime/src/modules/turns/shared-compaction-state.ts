@@ -1,4 +1,7 @@
-import type { PersaiRuntimeSharedCompactionToolCode } from "@persai/runtime-contract";
+import type {
+  PersaiRuntimeSharedCompactionToolCode,
+  ProviderGatewayStructuredOutputSchema
+} from "@persai/runtime-contract";
 
 const MAX_PROVIDER_OUTPUT_CHARS = 12_000;
 const MAX_SECTION_ITEMS = 6;
@@ -48,6 +51,41 @@ const SHARED_COMPACTION_SECTION_DEFINITIONS: SharedCompactionSectionDefinition[]
 
 export const REUSABLE_SHARED_COMPACTION_SCHEMA = "persai.runtimeSessionCompaction.v2" as const;
 export const MAX_REUSABLE_COMPACTION_SECTION_ITEMS = MAX_SECTION_ITEMS;
+export const REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA: ProviderGatewayStructuredOutputSchema = {
+  name: "persai_runtime_session_compaction",
+  description:
+    "Structured durable runtime summary for later turns. Each field contains short neutral notes only.",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: [...SHARED_COMPACTION_SECTION_ORDER],
+    properties: SHARED_COMPACTION_SECTION_ORDER.reduce<Record<string, Record<string, unknown>>>(
+      (properties, key) => {
+        properties[key] = {
+          type: "array",
+          items: {
+            type: "string",
+            maxLength: MAX_ITEM_CHARS
+          },
+          maxItems: MAX_SECTION_ITEMS
+        };
+        return properties;
+      },
+      {}
+    )
+  }
+};
+
+export const REUSABLE_SHARED_COMPACTION_OUTPUT_REJECTION_REASONS = [
+  "empty_output",
+  "output_too_long",
+  "invalid_json",
+  "invalid_sections"
+] as const;
+
+export type ReusableSharedCompactionOutputRejectionReason =
+  (typeof REUSABLE_SHARED_COMPACTION_OUTPUT_REJECTION_REASONS)[number];
 
 export interface StoredReusableCompactionState extends Record<string, unknown> {
   schema: typeof REUSABLE_SHARED_COMPACTION_SCHEMA;
@@ -63,25 +101,45 @@ export interface ParsedReusableCompactionState {
   summarizedMessageCount: number;
 }
 
+export interface NormalizedReusableCompactionStateResult {
+  parsed: ParsedReusableCompactionState | null;
+  rejectionReason: ReusableSharedCompactionOutputRejectionReason | null;
+}
+
 export function normalizeReusableCompactionStateFromModelOutput(input: {
   rawOutputText: string;
   toolCode: PersaiRuntimeSharedCompactionToolCode;
   summarizedMessageCount: number;
   preservedRecentMessageCount: number;
-}): ParsedReusableCompactionState | null {
+}): NormalizedReusableCompactionStateResult {
   const normalizedOutput = normalizeOptionalText(input.rawOutputText);
-  if (normalizedOutput === null || normalizedOutput.length > MAX_PROVIDER_OUTPUT_CHARS) {
-    return null;
+  if (normalizedOutput === null) {
+    return {
+      parsed: null,
+      rejectionReason: "empty_output"
+    };
+  }
+  if (normalizedOutput.length > MAX_PROVIDER_OUTPUT_CHARS) {
+    return {
+      parsed: null,
+      rejectionReason: "output_too_long"
+    };
   }
 
   const parsed = parseJsonObject(unwrapJsonCodeFence(normalizedOutput));
   if (parsed === null) {
-    return null;
+    return {
+      parsed: null,
+      rejectionReason: "invalid_json"
+    };
   }
 
   const sections = normalizeReusableCompactionSections(parsed);
   if (sections === null) {
-    return null;
+    return {
+      parsed: null,
+      rejectionReason: "invalid_sections"
+    };
   }
 
   const payload: StoredReusableCompactionState = {
@@ -93,9 +151,12 @@ export function normalizeReusableCompactionStateFromModelOutput(input: {
   };
   const summaryText = renderReusableCompactionSummaryText(sections);
   return {
-    payload,
-    summaryText,
-    summarizedMessageCount: input.summarizedMessageCount
+    parsed: {
+      payload,
+      summaryText,
+      summarizedMessageCount: input.summarizedMessageCount
+    },
+    rejectionReason: null
   };
 }
 

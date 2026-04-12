@@ -106,6 +106,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     );
     try {
       const toolChoice = this.toOpenAIToolChoice(input);
+      const textConfig = this.toOpenAITextConfig(input.outputSchema);
       const payload: OpenAINonStreamingCreateParams = {
         model: input.model,
         input: this.buildOpenAIInputItems(input) as OpenAIResponseInputParam
@@ -121,6 +122,9 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       }
       if (toolChoice !== undefined) {
         payload.tool_choice = toolChoice;
+      }
+      if (textConfig !== undefined) {
+        payload.text = textConfig;
       }
       const metadata = this.toOpenAIMetadata(input.requestMetadata);
       if (metadata !== undefined) {
@@ -250,6 +254,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
     try {
       const toolChoice = this.toOpenAIToolChoice(input);
+      const textConfig = this.toOpenAITextConfig(input.outputSchema);
       const payload: Record<string, unknown> = {
         model: input.model,
         input: this.buildOpenAIInputItems(input) as OpenAIResponseInputParam,
@@ -266,6 +271,9 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       }
       if (toolChoice !== undefined) {
         payload.tool_choice = toolChoice;
+      }
+      if (textConfig !== undefined) {
+        payload.text = textConfig;
       }
       const metadata = this.toOpenAIMetadata(input.requestMetadata);
       if (metadata !== undefined) {
@@ -467,6 +475,28 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     return {
       type: "function",
       name: input.toolChoice.name
+    };
+  }
+
+  private toOpenAITextConfig(
+    outputSchema: ProviderGatewayTextGenerateRequest["outputSchema"]
+  ): OpenAINonStreamingCreateParams["text"] | undefined {
+    if (outputSchema === undefined) {
+      return undefined;
+    }
+
+    const format: NonNullable<OpenAINonStreamingCreateParams["text"]>["format"] = {
+      type: "json_schema",
+      name: outputSchema.name,
+      schema: outputSchema.schema,
+      strict: outputSchema.strict ?? true
+    };
+    if (outputSchema.description !== undefined) {
+      format.description = outputSchema.description;
+    }
+
+    return {
+      format
     };
   }
 

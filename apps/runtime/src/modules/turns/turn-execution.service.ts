@@ -7,25 +7,34 @@ import {
   Logger,
   ServiceUnavailableException
 } from "@nestjs/common";
-import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
-  PersaiRuntimeSharedCompactionToolCode,
-  RuntimeCompactionRequest,
-  ProviderGatewayRequestMetadata,
-  ProviderGatewayToolCall,
-  ProviderGatewayToolExchange,
-  ProviderGatewayTextMessage,
-  ProviderGatewayTextGenerateRequest,
-  ProviderGatewayTextGenerateResult,
-  RuntimeKnowledgeFetchToolResult,
-  RuntimeKnowledgeSearchToolResult,
-  RuntimeSharedCompactionToolResult,
-  RuntimeFailedEvent,
-  RuntimeInterruptedEvent,
-  RuntimeTurnRequest,
-  RuntimeTurnResult,
-  RuntimeTurnStreamEvent,
-  RuntimeUsageSnapshot
+  AssistantRuntimeBundle,
+  AssistantRuntimeBundleToolCredentialRef
+} from "@persai/runtime-bundle";
+import {
+  PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
+  type PersaiRuntimeWebSearchProviderId,
+  type PersaiRuntimeSharedCompactionToolCode,
+  type ProviderGatewayRequestMetadata,
+  type ProviderGatewayToolCall,
+  type ProviderGatewayToolExchange,
+  type ProviderGatewayTextMessage,
+  type ProviderGatewayTextGenerateRequest,
+  type ProviderGatewayTextGenerateResult,
+  type PersaiRuntimeWebFetchExtractMode,
+  type RuntimeCompactionRequest,
+  type RuntimeKnowledgeFetchToolResult,
+  type RuntimeKnowledgeSearchToolResult,
+  type RuntimeSharedCompactionToolResult,
+  type RuntimeToolPolicy,
+  type RuntimeFailedEvent,
+  type RuntimeInterruptedEvent,
+  type RuntimeTurnRequest,
+  type RuntimeTurnResult,
+  type RuntimeTurnStreamEvent,
+  type RuntimeWebSearchToolResult,
+  type RuntimeWebFetchToolResult,
+  type RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
 import type { RuntimeTurnReceiptSummary } from "./idempotency.service";
@@ -33,6 +42,7 @@ import {
   projectRuntimeNativeTools,
   type RuntimeNativeToolProjection
 } from "./native-tool-projection";
+import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
@@ -73,6 +83,8 @@ type ToolExecutionOutcome = {
     | RuntimeSharedCompactionToolResult
     | RuntimeKnowledgeSearchToolResult
     | RuntimeKnowledgeFetchToolResult
+    | RuntimeWebSearchToolResult
+    | RuntimeWebFetchToolResult
     | Record<string, unknown>;
   sharedCompaction?: {
     toolCode: PersaiRuntimeSharedCompactionToolCode;
@@ -90,6 +102,14 @@ class TurnExecutionError extends Error {
 }
 
 const MAX_NATIVE_TOOL_LOOP_ITERATIONS = 4;
+const WEB_SEARCH_TOOL_CODE = "web_search";
+const DEFAULT_NATIVE_WEB_SEARCH_PROVIDER_ID: PersaiRuntimeWebSearchProviderId = "tavily";
+const WEB_SEARCH_MIN_COUNT = 1;
+const WEB_SEARCH_MAX_COUNT = 20;
+const WEB_FETCH_TOOL_CODE = "web_fetch";
+const WEB_FETCH_DEFAULT_EXTRACT_MODE: PersaiRuntimeWebFetchExtractMode = "markdown";
+const WEB_FETCH_MIN_MAX_CHARS = 100;
+const WEB_FETCH_MAX_MAX_CHARS = 50_000;
 
 @Injectable()
 export class TurnExecutionService {
@@ -98,6 +118,7 @@ export class TurnExecutionService {
   constructor(
     private readonly runtimeBundleRegistryService: RuntimeBundleRegistryService,
     private readonly providerGatewayClientService: ProviderGatewayClientService,
+    private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
     private readonly turnContextHydrationService: TurnContextHydrationService,
     private readonly turnAcceptanceService: TurnAcceptanceService,
     private readonly turnFinalizationService: TurnFinalizationService,
@@ -778,6 +799,10 @@ export class TurnExecutionService {
           }
         );
       }
+      case WEB_SEARCH_TOOL_CODE:
+        return this.executeWebSearchTool(execution, toolCall);
+      case WEB_FETCH_TOOL_CODE:
+        return this.executeWebFetchTool(execution, toolCall);
       case execution.bundle.runtime.knowledgeAccess.searchToolCode:
         return this.executeKnowledgeSearchTool(execution, toolCall);
       case execution.bundle.runtime.knowledgeAccess.fetchToolCode:
@@ -875,12 +900,267 @@ export class TurnExecutionService {
     });
   }
 
+  private async executeWebSearchTool(
+    execution: PreparedTurnExecution,
+    toolCall: ProviderGatewayToolCall
+  ): Promise<ToolExecutionOutcome> {
+    const request = this.readWebSearchArguments(toolCall.arguments);
+    if (request instanceof Error) {
+      return this.createToolExecutionOutcome(
+        toolCall,
+        {
+          toolCode: WEB_SEARCH_TOOL_CODE,
+          executionMode: "inline",
+          provider: null,
+          query: this.asNonEmptyString(toolCall.arguments.query) ?? "",
+          summary: null,
+          hits: [],
+          externalContent: null,
+          action: "skipped",
+          reason: "invalid_arguments",
+          warning: request.message
+        },
+        true
+      );
+    }
+
+    const policy = this.resolveAllowedInlineToolPolicy(execution.bundle, WEB_SEARCH_TOOL_CODE);
+    if (policy === null) {
+      return this.createToolExecutionOutcome(toolCall, {
+        toolCode: WEB_SEARCH_TOOL_CODE,
+        executionMode: "inline",
+        provider: null,
+        query: request.query,
+        summary: null,
+        hits: [],
+        externalContent: null,
+        action: "skipped",
+        reason: "tool_unavailable",
+        warning: null
+      });
+    }
+
+    const credential = this.resolveConfiguredCredentialRef(execution.bundle, WEB_SEARCH_TOOL_CODE);
+    if (credential === null) {
+      return this.createToolExecutionOutcome(toolCall, {
+        toolCode: WEB_SEARCH_TOOL_CODE,
+        executionMode: "inline",
+        provider: null,
+        query: request.query,
+        summary: null,
+        hits: [],
+        externalContent: null,
+        action: "skipped",
+        reason: "credential_not_configured",
+        warning: null
+      });
+    }
+
+    const providerId = this.resolveCurrentNativeWebSearchProviderId(credential.providerId ?? null);
+    if (providerId === null) {
+      return this.createToolExecutionOutcome(toolCall, {
+        toolCode: WEB_SEARCH_TOOL_CODE,
+        executionMode: "inline",
+        provider: null,
+        query: request.query,
+        summary: null,
+        hits: [],
+        externalContent: null,
+        action: "skipped",
+        reason: "provider_unavailable",
+        warning: "Selected web_search provider is not supported by the current native runtime."
+      });
+    }
+
+    try {
+      if (policy.dailyCallLimit !== null) {
+        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+          assistantId: execution.bundle.metadata.assistantId,
+          toolCode: WEB_SEARCH_TOOL_CODE,
+          dailyCallLimit: policy.dailyCallLimit
+        });
+        if (!quotaOutcome.allowed) {
+          return this.createToolExecutionOutcome(toolCall, {
+            toolCode: WEB_SEARCH_TOOL_CODE,
+            executionMode: "inline",
+            provider: providerId,
+            query: request.query,
+            summary: null,
+            hits: [],
+            externalContent: null,
+            action: "skipped",
+            reason: quotaOutcome.code,
+            warning: quotaOutcome.message
+          });
+        }
+      }
+
+      const providerResult = await this.providerGatewayClientService.webSearch({
+        query: request.query,
+        count: request.count,
+        credential: {
+          toolCode: WEB_SEARCH_TOOL_CODE,
+          secretId: credential.secretRef.id,
+          providerId
+        }
+      });
+      return this.createToolExecutionOutcome(toolCall, {
+        toolCode: WEB_SEARCH_TOOL_CODE,
+        executionMode: "inline",
+        provider: providerResult.provider,
+        query: providerResult.query,
+        summary: providerResult.summary,
+        hits: providerResult.hits,
+        externalContent: providerResult.externalContent,
+        action: "results",
+        reason: null,
+        warning: providerResult.warning
+      });
+    } catch (error) {
+      if (error instanceof HttpException) {
+        return this.createToolExecutionOutcome(
+          toolCall,
+          {
+            toolCode: WEB_SEARCH_TOOL_CODE,
+            executionMode: "inline",
+            provider: providerId,
+            query: request.query,
+            summary: null,
+            hits: [],
+            externalContent: null,
+            action: "skipped",
+            reason: "search_failed",
+            warning: error.message
+          },
+          true
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async executeWebFetchTool(
+    execution: PreparedTurnExecution,
+    toolCall: ProviderGatewayToolCall
+  ): Promise<ToolExecutionOutcome> {
+    const request = this.readWebFetchArguments(toolCall.arguments);
+    if (request instanceof Error) {
+      return this.createToolExecutionOutcome(
+        toolCall,
+        {
+          toolCode: WEB_FETCH_TOOL_CODE,
+          executionMode: "inline",
+          document: null,
+          action: "skipped",
+          reason: "invalid_arguments",
+          warning: request.message
+        },
+        true
+      );
+    }
+
+    const policy = this.resolveAllowedInlineToolPolicy(execution.bundle, WEB_FETCH_TOOL_CODE);
+    if (policy === null) {
+      return this.createToolExecutionOutcome(toolCall, {
+        toolCode: WEB_FETCH_TOOL_CODE,
+        executionMode: "inline",
+        document: null,
+        action: "skipped",
+        reason: "tool_unavailable",
+        warning: null
+      });
+    }
+
+    const credential = this.resolveConfiguredCredentialRef(execution.bundle, WEB_FETCH_TOOL_CODE);
+    if (credential === null) {
+      return this.createToolExecutionOutcome(toolCall, {
+        toolCode: WEB_FETCH_TOOL_CODE,
+        executionMode: "inline",
+        document: null,
+        action: "skipped",
+        reason: "credential_not_configured",
+        warning: null
+      });
+    }
+
+    try {
+      if (policy.dailyCallLimit !== null) {
+        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+          assistantId: execution.bundle.metadata.assistantId,
+          toolCode: WEB_FETCH_TOOL_CODE,
+          dailyCallLimit: policy.dailyCallLimit
+        });
+        if (!quotaOutcome.allowed) {
+          return this.createToolExecutionOutcome(toolCall, {
+            toolCode: WEB_FETCH_TOOL_CODE,
+            executionMode: "inline",
+            document: null,
+            action: "skipped",
+            reason: quotaOutcome.code,
+            warning: quotaOutcome.message
+          });
+        }
+      }
+
+      const providerResult = await this.providerGatewayClientService.webFetch({
+        url: request.url,
+        extractMode: request.extractMode,
+        maxChars: request.maxChars,
+        credential: {
+          toolCode: WEB_FETCH_TOOL_CODE,
+          secretId: credential.secretRef.id,
+          providerId: credential.providerId ?? null
+        }
+      });
+      return this.createToolExecutionOutcome(toolCall, {
+        toolCode: WEB_FETCH_TOOL_CODE,
+        executionMode: "inline",
+        document: {
+          url: providerResult.url,
+          finalUrl: providerResult.finalUrl,
+          title: providerResult.title,
+          content: providerResult.content,
+          contentType: providerResult.contentType,
+          extractMode: providerResult.extractMode,
+          provider: providerResult.provider,
+          status: providerResult.status,
+          truncated: providerResult.truncated,
+          fetchedAt: providerResult.fetchedAt,
+          tookMs: providerResult.tookMs,
+          warning: providerResult.warning,
+          externalContent: providerResult.externalContent
+        },
+        action: "fetched",
+        reason: null,
+        warning: providerResult.warning
+      });
+    } catch (error) {
+      if (error instanceof HttpException) {
+        return this.createToolExecutionOutcome(
+          toolCall,
+          {
+            toolCode: WEB_FETCH_TOOL_CODE,
+            executionMode: "inline",
+            document: null,
+            action: "skipped",
+            reason: "fetch_failed",
+            warning: error.message
+          },
+          true
+        );
+      }
+      throw error;
+    }
+  }
+
   private createToolExecutionOutcome(
     toolCall: ProviderGatewayToolCall,
     payload:
       | RuntimeSharedCompactionToolResult
       | RuntimeKnowledgeSearchToolResult
       | RuntimeKnowledgeFetchToolResult
+      | RuntimeWebSearchToolResult
+      | RuntimeWebFetchToolResult
       | Record<string, unknown>,
     isError = false,
     sharedCompaction?: ToolExecutionOutcome["sharedCompaction"]
@@ -1072,6 +1352,115 @@ export class TurnExecutionService {
       : new Error("instructions must be a non-empty string when provided");
   }
 
+  private readWebSearchArguments(argumentsObject: Record<string, unknown>):
+    | {
+        query: string;
+        count: number | null;
+      }
+    | Error {
+    const unknownKeys = Object.keys(argumentsObject).filter(
+      (key) => key !== "query" && key !== "count"
+    );
+    if (unknownKeys.length > 0) {
+      return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
+    }
+    const query = this.asNonEmptyString(argumentsObject.query);
+    if (query === null) {
+      return new Error("query must be a non-empty string");
+    }
+    let count: number | null = null;
+    if ("count" in argumentsObject) {
+      if (argumentsObject.count === null || argumentsObject.count === undefined) {
+        count = null;
+      } else if (
+        Number.isInteger(argumentsObject.count) &&
+        Number(argumentsObject.count) >= WEB_SEARCH_MIN_COUNT &&
+        Number(argumentsObject.count) <= WEB_SEARCH_MAX_COUNT
+      ) {
+        count = Number(argumentsObject.count);
+      } else {
+        return new Error(
+          `count must be null or an integer between ${String(WEB_SEARCH_MIN_COUNT)} and ${String(
+            WEB_SEARCH_MAX_COUNT
+          )}`
+        );
+      }
+    }
+    return {
+      query,
+      count
+    };
+  }
+
+  private readWebFetchArguments(argumentsObject: Record<string, unknown>):
+    | {
+        url: string;
+        extractMode: PersaiRuntimeWebFetchExtractMode;
+        maxChars: number | null;
+      }
+    | Error {
+    const unknownKeys = Object.keys(argumentsObject).filter(
+      (key) => key !== "url" && key !== "extractMode" && key !== "maxChars"
+    );
+    if (unknownKeys.length > 0) {
+      return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
+    }
+    const url = this.asNonEmptyString(argumentsObject.url);
+    if (url === null) {
+      return new Error("url must be a non-empty string");
+    }
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return new Error("url must be a valid URL");
+    }
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return new Error("url must use http or https");
+    }
+
+    let extractMode = WEB_FETCH_DEFAULT_EXTRACT_MODE;
+    if ("extractMode" in argumentsObject) {
+      if (argumentsObject.extractMode === null || argumentsObject.extractMode === undefined) {
+        extractMode = WEB_FETCH_DEFAULT_EXTRACT_MODE;
+      } else if (
+        typeof argumentsObject.extractMode === "string" &&
+        PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES.includes(
+          argumentsObject.extractMode as (typeof PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES)[number]
+        )
+      ) {
+        extractMode = argumentsObject.extractMode as PersaiRuntimeWebFetchExtractMode;
+      } else {
+        return new Error('extractMode must be "markdown" or "text" when provided');
+      }
+    }
+
+    let maxChars: number | null = null;
+    if ("maxChars" in argumentsObject) {
+      if (argumentsObject.maxChars === null || argumentsObject.maxChars === undefined) {
+        maxChars = null;
+      } else if (
+        Number.isInteger(argumentsObject.maxChars) &&
+        Number(argumentsObject.maxChars) >= WEB_FETCH_MIN_MAX_CHARS &&
+        Number(argumentsObject.maxChars) <= WEB_FETCH_MAX_MAX_CHARS
+      ) {
+        maxChars = Number(argumentsObject.maxChars);
+      } else {
+        return new Error(
+          `maxChars must be null or an integer between ${String(WEB_FETCH_MIN_MAX_CHARS)} and ${String(
+            WEB_FETCH_MAX_MAX_CHARS
+          )}`
+        );
+      }
+    }
+
+    return {
+      url: parsedUrl.toString(),
+      extractMode,
+      maxChars
+    };
+  }
+
   private normalizeOptionalText(value: string | null): string | null {
     return value === null || value.trim().length === 0 ? null : value.trim();
   }
@@ -1142,6 +1531,52 @@ export class TurnExecutionService {
   private asObject(value: unknown): Record<string, unknown> | null {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
+      : null;
+  }
+
+  private resolveAllowedInlineToolPolicy(
+    bundle: AssistantRuntimeBundle,
+    toolCode: string
+  ): RuntimeToolPolicy | null {
+    const policy =
+      bundle.governance.toolPolicies.find((entry) => entry.toolCode === toolCode) ?? null;
+    if (
+      policy === null ||
+      policy.enabled !== true ||
+      policy.usageRule !== "allowed" ||
+      policy.executionMode !== "inline"
+    ) {
+      return null;
+    }
+    return policy;
+  }
+
+  private resolveConfiguredCredentialRef(
+    bundle: AssistantRuntimeBundle,
+    toolCode: string
+  ): AssistantRuntimeBundleToolCredentialRef | null {
+    const credential = bundle.governance.toolCredentialRefs[toolCode] ?? null;
+    if (
+      credential === null ||
+      credential.configured !== true ||
+      credential.secretRef.id.trim().length === 0
+    ) {
+      return null;
+    }
+    return credential;
+  }
+
+  private resolveCurrentNativeWebSearchProviderId(
+    providerId: string | null
+  ): PersaiRuntimeWebSearchProviderId | null {
+    if (providerId === null) {
+      return DEFAULT_NATIVE_WEB_SEARCH_PROVIDER_ID;
+    }
+    return providerId === "tavily" ||
+      providerId === "brave" ||
+      providerId === "perplexity" ||
+      providerId === "google"
+      ? (providerId as PersaiRuntimeWebSearchProviderId)
       : null;
   }
 

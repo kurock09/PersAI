@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import type { RuntimeConfig } from "@persai/config";
 import type {
+  ProviderGatewayWebSearchRequest,
+  ProviderGatewayWebFetchRequest,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent
@@ -48,6 +50,31 @@ function createGenerateTextRequest(): ProviderGatewayTextGenerateRequest {
         content: "hello"
       }
     ]
+  };
+}
+
+function createWebFetchRequest(): ProviderGatewayWebFetchRequest {
+  return {
+    url: "https://example.com",
+    extractMode: "markdown",
+    maxChars: null,
+    credential: {
+      toolCode: "web_fetch",
+      secretId: "secret-1",
+      providerId: "firecrawl"
+    }
+  };
+}
+
+function createWebSearchRequest(): ProviderGatewayWebSearchRequest {
+  return {
+    query: "persai runtime",
+    count: 5,
+    credential: {
+      toolCode: "web_search",
+      secretId: "secret-1",
+      providerId: "tavily"
+    }
   };
 }
 
@@ -151,6 +178,68 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       );
     }
 
+    if (url.endsWith("/api/v1/providers/web-fetch")) {
+      return new Response(
+        JSON.stringify({
+          provider: "firecrawl",
+          url: "https://example.com",
+          finalUrl: "https://example.com/final",
+          title: "Example",
+          content: "# Example\nBody",
+          contentType: "text/markdown",
+          extractMode: "markdown",
+          status: 200,
+          truncated: false,
+          fetchedAt: "2026-04-12T12:00:02.000Z",
+          tookMs: 321,
+          warning: "External content is untrusted.",
+          externalContent: {
+            untrusted: true,
+            source: "web_fetch",
+            provider: "firecrawl"
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+
+    if (url.endsWith("/api/v1/providers/web-search")) {
+      return new Response(
+        JSON.stringify({
+          provider: "tavily",
+          query: "persai runtime",
+          summary: null,
+          hits: [
+            {
+              title: "Example",
+              url: "https://example.com",
+              snippet: "Example snippet",
+              score: 0.9,
+              publishedAt: "2026-04-12"
+            }
+          ],
+          tookMs: 210,
+          warning: "External results are untrusted.",
+          externalContent: {
+            untrusted: true,
+            source: "web_search",
+            provider: "tavily"
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+
     if (isPayloadTooLargeRequest) {
       return new Response(
         JSON.stringify({
@@ -201,8 +290,12 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       mimeType: "audio/mpeg",
       filename: "voice.mp3"
     });
+    const webFetch = await service.webFetch(createWebFetchRequest());
+    const webSearch = await service.webSearch(createWebSearchRequest());
     assert.equal(transcription.text, "hello from audio");
-    assert.equal(requests.length, 4);
+    assert.equal(webFetch.provider, "firecrawl");
+    assert.equal(webSearch.provider, "tavily");
+    assert.equal(requests.length, 6);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
@@ -218,6 +311,10 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     );
     assert.equal(requests[3]?.init?.method, "POST");
     assert.ok(requests[3]?.init?.body instanceof FormData);
+    assert.equal(requests[4]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
+    assert.equal(requests[4]?.init?.method, "POST");
+    assert.equal(requests[5]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
+    assert.equal(requests[5]?.init?.method, "POST");
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();
@@ -227,6 +324,14 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     });
     await assert.rejects(
       () => unconfiguredService.generateText(createGenerateTextRequest()),
+      /base URL is not configured/
+    );
+    await assert.rejects(
+      () => unconfiguredService.webFetch(createWebFetchRequest()),
+      /base URL is not configured/
+    );
+    await assert.rejects(
+      () => unconfiguredService.webSearch(createWebSearchRequest()),
       /base URL is not configured/
     );
     await assert.rejects(

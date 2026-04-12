@@ -1,7 +1,12 @@
-import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
-  ProviderGatewayToolDefinition,
-  RuntimeKnowledgeAccessSourceConfig
+  AssistantRuntimeBundle,
+  AssistantRuntimeBundleToolCredentialRef
+} from "@persai/runtime-bundle";
+import {
+  PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
+  type ProviderGatewayToolDefinition,
+  type RuntimeKnowledgeAccessSourceConfig,
+  type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 
 export interface RuntimeNativeToolProjection {
@@ -9,6 +14,9 @@ export interface RuntimeNativeToolProjection {
   knowledgeSearchSources: RuntimeKnowledgeAccessSourceConfig[];
   knowledgeFetchSources: RuntimeKnowledgeAccessSourceConfig[];
 }
+
+const WEB_FETCH_MAX_CHARS_CAP = 50_000;
+const WEB_SEARCH_MAX_COUNT = 20;
 
 export function projectRuntimeNativeTools(
   bundle: AssistantRuntimeBundle,
@@ -24,11 +32,27 @@ export function projectRuntimeNativeTools(
 
   // T15-3a keeps ordinary model-visible knowledge/system-helper families gated off
   // until real PersAI-native executors exist for them.
+  const projectedTools: ProviderGatewayToolDefinition[] = [
+    createSummarizeContextToolDefinition(bundle),
+    createCompactContextToolDefinition(bundle)
+  ];
+  const webSearchPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "web_search");
+  const webSearchCredential = resolveConfiguredCredentialRef(bundle, "web_search");
+  if (
+    webSearchPolicy !== null &&
+    webSearchCredential !== null &&
+    supportsCurrentNativeWebSearchProvider(webSearchCredential.providerId ?? null)
+  ) {
+    projectedTools.push(createWebSearchToolDefinition());
+  }
+  const webFetchPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "web_fetch");
+  const webFetchCredential = resolveConfiguredCredentialRef(bundle, "web_fetch");
+  if (webFetchPolicy !== null && webFetchCredential !== null) {
+    projectedTools.push(createWebFetchToolDefinition());
+  }
+
   return {
-    tools: [
-      createSummarizeContextToolDefinition(bundle),
-      createCompactContextToolDefinition(bundle)
-    ],
+    tools: projectedTools,
     knowledgeSearchSources: [],
     knowledgeFetchSources: []
   };
@@ -67,4 +91,98 @@ function createCompactionInputSchema(): Record<string, unknown> {
       }
     }
   };
+}
+
+function createWebSearchToolDefinition(): ProviderGatewayToolDefinition {
+  return {
+    name: "web_search",
+    description:
+      "Search the public web through the currently configured search provider. Use this when you need sources or links about a topic and do not already have one exact URL to fetch.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["query"],
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query string."
+        },
+        count: {
+          type: "integer",
+          minimum: 1,
+          maximum: WEB_SEARCH_MAX_COUNT,
+          description: "Maximum number of search results to return."
+        }
+      }
+    }
+  };
+}
+
+function createWebFetchToolDefinition(): ProviderGatewayToolDefinition {
+  return {
+    name: "web_fetch",
+    description:
+      "Fetch and extract the main content of a public webpage through the current web-fetch provider. Use this when you already know the exact URL and need page content, not a search results list.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["url"],
+      properties: {
+        url: {
+          type: "string",
+          description: "HTTP or HTTPS URL to fetch."
+        },
+        extractMode: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES],
+          description: 'Return content as "markdown" (default) or "text".'
+        },
+        maxChars: {
+          type: "integer",
+          minimum: 100,
+          maximum: WEB_FETCH_MAX_CHARS_CAP,
+          description: "Maximum number of characters to return after extraction."
+        }
+      }
+    }
+  };
+}
+
+function resolveAllowedModelVisibleToolPolicy(
+  bundle: AssistantRuntimeBundle,
+  toolCode: string
+): RuntimeToolPolicy | null {
+  const policy =
+    bundle.governance.toolPolicies.find((entry) => entry.toolCode === toolCode) ?? null;
+  if (
+    policy === null ||
+    policy.visibleToModel !== true ||
+    policy.enabled !== true ||
+    policy.usageRule !== "allowed" ||
+    policy.executionMode !== "inline"
+  ) {
+    return null;
+  }
+  return policy;
+}
+
+function resolveConfiguredCredentialRef(
+  bundle: AssistantRuntimeBundle,
+  toolCode: string
+): AssistantRuntimeBundleToolCredentialRef | null {
+  const credential = bundle.governance.toolCredentialRefs[toolCode] ?? null;
+  if (credential === null || credential.configured !== true) {
+    return null;
+  }
+  return credential;
+}
+
+function supportsCurrentNativeWebSearchProvider(providerId: string | null): boolean {
+  return (
+    providerId === null ||
+    providerId === "tavily" ||
+    providerId === "brave" ||
+    providerId === "perplexity" ||
+    providerId === "google"
+  );
 }

@@ -15,6 +15,7 @@ import type { SessionStoreService } from "../src/modules/sessions/session-store.
 import type { RuntimeStatePostgresService } from "../src/modules/runtime-state/infrastructure/persistence/runtime-state-postgres.service";
 import { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
 import { SessionCompactionService } from "../src/modules/turns/session-compaction.service";
+import { REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA } from "../src/modules/turns/shared-compaction-state";
 import type {
   RuntimeCompactionMessageSource,
   TurnContextHydrationService
@@ -389,6 +390,10 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     toolLoopIteration: null,
     compactionToolCode: "compact_context"
   });
+  assert.deepEqual(
+    providerGateway.requests[0]?.outputSchema,
+    REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
+  );
   assert.deepEqual(postgres.appendCalls.at(-1), {
     runtimeSessionId: "session-1",
     assistantId: "assistant-1",
@@ -428,6 +433,10 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     toolLoopIteration: null,
     compactionToolCode: "compact_context"
   });
+  assert.deepEqual(
+    providerGateway.requests[1]?.outputSchema,
+    REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
+  );
   assert.match(
     providerGateway.requests[1]?.systemPrompt ?? "",
     /Additional operator instructions: Keep commitments and open questions\./
@@ -495,6 +504,10 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     toolLoopIteration: null,
     compactionToolCode: "summarize_context"
   });
+  assert.deepEqual(
+    providerGateway.requests.at(-1)?.outputSchema,
+    REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
+  );
   assert.equal(postgres.appendCalls.length, 2);
   assert.equal(sessionStore.updateCalls.length, 2);
 

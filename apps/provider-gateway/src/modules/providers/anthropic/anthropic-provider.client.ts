@@ -108,6 +108,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     );
     try {
       const toolChoice = this.toAnthropicToolChoice(input);
+      const outputConfig = this.toAnthropicOutputConfig(input.outputSchema);
       const payload: AnthropicNonStreamingCreateMessageParams = {
         model: input.model,
         max_tokens: input.maxOutputTokens ?? 1_024,
@@ -121,6 +122,9 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       }
       if (toolChoice !== undefined) {
         payload.tool_choice = toolChoice;
+      }
+      if (outputConfig !== undefined) {
+        payload.output_config = outputConfig;
       }
       const response = (await this.client.messages.create(payload, {
         signal
@@ -201,6 +205,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
 
     try {
       const toolChoice = this.toAnthropicToolChoice(input);
+      const outputConfig = this.toAnthropicOutputConfig(input.outputSchema);
       const payload: Record<string, unknown> = {
         model: input.model,
         max_tokens: input.maxOutputTokens ?? 1_024,
@@ -215,6 +220,9 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       }
       if (toolChoice !== undefined) {
         payload.tool_choice = toolChoice;
+      }
+      if (outputConfig !== undefined) {
+        payload.output_config = outputConfig;
       }
       const stream = (await this.client.messages.create(
         payload as unknown as AnthropicCreateMessageParams,
@@ -469,6 +477,21 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     return {
       type: "tool",
       name: input.toolChoice.name
+    };
+  }
+
+  private toAnthropicOutputConfig(
+    outputSchema: ProviderGatewayTextGenerateRequest["outputSchema"]
+  ): AnthropicNonStreamingCreateMessageParams["output_config"] | undefined {
+    if (outputSchema === undefined) {
+      return undefined;
+    }
+
+    return {
+      format: {
+        type: "json_schema",
+        schema: outputSchema.schema
+      }
     };
   }
 

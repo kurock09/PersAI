@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException
+} from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   PersaiRuntimeSharedCompactionToolCode,
@@ -16,6 +21,7 @@ import { RuntimeStatePostgresService } from "../runtime-state/infrastructure/per
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import {
   MAX_REUSABLE_COMPACTION_SECTION_ITEMS,
+  REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA,
   normalizeReusableCompactionStateFromModelOutput
 } from "./shared-compaction-state";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
@@ -39,6 +45,8 @@ const MIN_SUMMARIZED_MESSAGE_COUNT = 2;
 
 @Injectable()
 export class SessionCompactionService {
+  private readonly logger = new Logger(SessionCompactionService.name);
+
   constructor(
     private readonly runtimeBundleRegistryService: RuntimeBundleRegistryService,
     private readonly providerGatewayClientService: ProviderGatewayClientService,
@@ -287,7 +295,12 @@ export class SessionCompactionService {
         summarizedMessageCount: compactionSource.summarizedMessageCount,
         preservedRecentMessageCount: compactionSource.preservedRecentMessageCount
       });
-      if (normalizedSummary === null) {
+      if (normalizedSummary.parsed === null) {
+        this.logger.warn(
+          `[shared-compaction] Rejected ${input.toolCode} output for session ${resolvedSession.session.sessionId} ` +
+            `(trigger=${input.trigger}, provider=${providerSelection.provider}:${providerSelection.model}, ` +
+            `reason=${normalizedSummary.rejectionReason ?? "unknown"}, chars=${String(providerResult.text.length)})`
+        );
         return this.buildCompactionResult({
           toolCode: input.toolCode,
           action: "skipped",
@@ -323,7 +336,7 @@ export class SessionCompactionService {
           requestId: input.input.runtimeRequestId ?? null,
           reason: input.trigger,
           instructions,
-          summaryPayload: normalizedSummary.payload,
+          summaryPayload: normalizedSummary.parsed.payload,
           tokensBefore: resolvedSession.session.currentTokens,
           tokensAfter: null
         });
@@ -356,8 +369,8 @@ export class SessionCompactionService {
           preservedRecentMessageCount: compactionSource.preservedRecentMessageCount
         }),
         compactionRecordId,
-        summaryText: normalizedSummary.summaryText,
-        summaryPayload: normalizedSummary.payload,
+        summaryText: normalizedSummary.parsed.summaryText,
+        summaryPayload: normalizedSummary.parsed.payload,
         preservedRecentTurns: sharedCompaction.recentTurnsPreserve,
         reusableInLaterTurns: input.persistSummary
       });
@@ -412,6 +425,7 @@ export class SessionCompactionService {
       model: input.providerSelection.model,
       systemPrompt: sections.join("\n\n"),
       messages: input.messages,
+      outputSchema: REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA,
       requestMetadata: this.createRequestMetadata({
         classification: input.trigger,
         runtimeRequestId: input.runtimeRequestId,
