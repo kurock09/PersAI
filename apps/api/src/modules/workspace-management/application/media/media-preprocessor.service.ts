@@ -28,7 +28,22 @@ const AUDIO_MIMES = new Set([
 
 const VIDEO_MIMES = new Set(["video/mp4", "video/webm", "video/quicktime", "video/x-msvideo"]);
 
-const DOCUMENT_MIMES_WITH_EXTRACTION = new Set(["application/pdf"]);
+const WORD_DOCUMENT_MIMES = new Set([
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+]);
+
+const SPREADSHEET_MIMES = new Set([
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+]);
+
+const DOCUMENT_MIMES_WITH_EXTRACTION = new Set([
+  "application/json",
+  "application/pdf",
+  ...WORD_DOCUMENT_MIMES,
+  ...SPREADSHEET_MIMES
+]);
 
 const MAX_IMAGE_DIMENSION = 2048;
 const MAX_TEXT_EXTRACT_CHARS = 50_000;
@@ -202,8 +217,22 @@ export class MediaPreprocessorService {
       } catch (err) {
         this.logger.warn(`PDF text extraction failed for "${originalFilename}": ${String(err)}`);
       }
-    } else if (mime.startsWith("text/")) {
-      textExtract = buffer.toString("utf-8").slice(0, MAX_TEXT_EXTRACT_CHARS);
+    } else if (mime.startsWith("text/") || mime === "application/json") {
+      textExtract = this.toUtf8TextExtract(buffer);
+    } else if (WORD_DOCUMENT_MIMES.has(mime)) {
+      try {
+        textExtract = await this.extractWordText(buffer);
+      } catch (err) {
+        this.logger.warn(`Word text extraction failed for "${originalFilename}": ${String(err)}`);
+      }
+    } else if (SPREADSHEET_MIMES.has(mime)) {
+      try {
+        textExtract = await this.extractSpreadsheetText(buffer);
+      } catch (err) {
+        this.logger.warn(
+          `Spreadsheet text extraction failed for "${originalFilename}": ${String(err)}`
+        );
+      }
     }
 
     return {
@@ -344,10 +373,76 @@ export class MediaPreprocessorService {
       ) => Promise<{ text?: string }>;
       const result = await pdfParse(buffer, { max: 100 });
       const text = result.text?.trim() ?? "";
-      return text.length > 0 ? text.slice(0, MAX_TEXT_EXTRACT_CHARS) : null;
+      return this.normalizeExtractedText(text);
     } catch {
       return null;
     }
+  }
+
+  private async extractWordText(buffer: Buffer): Promise<string | null> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const WordExtractor = require("word-extractor") as new () => {
+      extract(source: Buffer): Promise<Record<string, unknown>>;
+    };
+    const extractor = new WordExtractor();
+    const document = await extractor.extract(buffer);
+    const sections = [
+      this.readWordSection(document, "getHeaders"),
+      this.readWordSection(document, "getBody"),
+      this.readWordSection(document, "getFootnotes"),
+      this.readWordSection(document, "getEndnotes"),
+      this.readWordSection(document, "getAnnotations"),
+      this.readWordSection(document, "getFooters")
+    ].filter((section): section is string => section !== null);
+    return this.normalizeExtractedText(sections.join("\n\n"));
+  }
+
+  private async extractSpreadsheetText(buffer: Buffer): Promise<string | null> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const XLSX = require("xlsx") as typeof import("xlsx");
+    const workbook = XLSX.read(buffer, { type: "buffer" });
+    const sheetTexts = workbook.SheetNames.map((sheetName) => {
+      const sheet = workbook.Sheets[sheetName];
+      if (!sheet) {
+        return null;
+      }
+      const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false }).trim();
+      if (csv.length === 0) {
+        return null;
+      }
+      return `Sheet "${sheetName}":\n${csv}`;
+    }).filter((sheetText): sheetText is string => sheetText !== null);
+    return this.normalizeExtractedText(sheetTexts.join("\n\n"));
+  }
+
+  private toUtf8TextExtract(buffer: Buffer): string | null {
+    return this.normalizeExtractedText(buffer.toString("utf-8"));
+  }
+
+  private readWordSection(
+    document: Record<string, unknown>,
+    methodName:
+      | "getHeaders"
+      | "getBody"
+      | "getFootnotes"
+      | "getEndnotes"
+      | "getAnnotations"
+      | "getFooters"
+  ): string | null {
+    const candidate = document[methodName];
+    if (typeof candidate !== "function") {
+      return null;
+    }
+    const value = candidate.call(document);
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private normalizeExtractedText(text: string | null | undefined): string | null {
+    if (typeof text !== "string") {
+      return null;
+    }
+    const normalized = text.trim().slice(0, MAX_TEXT_EXTRACT_CHARS);
+    return normalized.length > 0 ? normalized : null;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -375,6 +470,11 @@ export class MediaPreprocessorService {
       "image/svg+xml": "svg",
       "image/heic": "jpg",
       "image/heif": "jpg",
+      "application/json": "json",
+      "application/msword": "doc",
+      "application/vnd.ms-excel": "xls",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
       "audio/mpeg": "mp3",
       "audio/mp3": "mp3",
       "audio/ogg": "ogg",
@@ -387,6 +487,7 @@ export class MediaPreprocessorService {
       "video/webm": "webm",
       "video/quicktime": "mov",
       "application/pdf": "pdf",
+      "text/csv": "csv",
       "text/plain": "txt",
       "text/markdown": "md"
     };

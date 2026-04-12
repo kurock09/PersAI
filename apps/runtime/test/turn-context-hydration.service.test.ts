@@ -31,10 +31,19 @@ function createRuntimeTurnRequest(): RuntimeTurnRequest {
           attachmentId: "runtime-attachment-1",
           kind: "file",
           objectKey:
-            "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file.pdf",
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-small.pdf",
           mimeType: "application/pdf",
           filename: "runtime-fallback.pdf",
           sizeBytes: 123
+        },
+        {
+          attachmentId: "runtime-attachment-2",
+          kind: "file",
+          objectKey:
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-large.pdf",
+          mimeType: "application/pdf",
+          filename: "runtime-large.pdf",
+          sizeBytes: 20_000_000
         }
       ],
       locale: "en",
@@ -57,6 +66,8 @@ class FakeRuntimeStatePrismaService {
       attachmentType: "image" | "audio" | "voice" | "video" | "document" | "tool_output";
       originalFilename: string | null;
       mimeType: string;
+      storagePath: string;
+      sizeBytes: number;
       transcription: string | null;
       metadata: Record<string, unknown> | null;
     }>;
@@ -73,7 +84,25 @@ class FakeRuntimeStatePrismaService {
 
 export async function runTurnContextHydrationServiceTest(): Promise<void> {
   const prisma = new FakeRuntimeStatePrismaService();
-  const service = new TurnContextHydrationService(prisma as unknown as RuntimeStatePrismaService);
+  const downloadedObjectKeys: string[] = [];
+  const service = new TurnContextHydrationService(
+    prisma as unknown as RuntimeStatePrismaService,
+    {
+      async downloadObject(objectKey: string) {
+        downloadedObjectKeys.push(objectKey);
+        if (objectKey.includes("diagram.png")) {
+          return Buffer.from("png-bytes");
+        }
+        if (objectKey.includes("manual.pdf") || objectKey.includes("file-small.pdf")) {
+          return Buffer.from("pdf-bytes");
+        }
+        if (objectKey.includes("file-large.pdf")) {
+          return Buffer.from("large-pdf-bytes");
+        }
+        return null;
+      }
+    } as never
+  );
   const request = createRuntimeTurnRequest();
 
   prisma.messages = [
@@ -87,6 +116,8 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
           attachmentType: "document",
           originalFilename: "notes.txt",
           mimeType: "text/plain",
+          storagePath: "assistant-media/chat-1/notes.txt",
+          sizeBytes: 32,
           transcription: null,
           metadata: { contentPreview: "first note preview" }
         }
@@ -102,6 +133,8 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
           attachmentType: "image",
           originalFilename: "reply.png",
           mimeType: "image/png",
+          storagePath: "assistant-media/chat-1/reply.png",
+          sizeBytes: 64,
           transcription: null,
           metadata: null
         }
@@ -129,8 +162,30 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
           attachmentType: "audio",
           originalFilename: "voice.mp3",
           mimeType: "audio/mpeg",
+          storagePath: "assistant-media/chat-1/voice.mp3",
+          sizeBytes: 48,
           transcription: "hello from attachment",
           metadata: null
+        },
+        {
+          id: "attachment-4",
+          attachmentType: "image",
+          originalFilename: "diagram.png",
+          mimeType: "image/png",
+          storagePath: "assistant-media/chat-1/diagram.png",
+          sizeBytes: 64,
+          transcription: null,
+          metadata: null
+        },
+        {
+          id: "attachment-5",
+          attachmentType: "document",
+          originalFilename: "manual.pdf",
+          mimeType: "application/pdf",
+          storagePath: "assistant-media/chat-1/manual.pdf",
+          sizeBytes: 256,
+          transcription: null,
+          metadata: { contentPreview: "manual preview should stay out of the prompt" }
         }
       ]
     }
@@ -150,19 +205,55 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     },
     {
       role: "user",
-      content:
-        '[Files attached by user:\n- attachment (audio "voice.mp3", transcription: "hello from attachment")\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
+      content: [
+        {
+          type: "text",
+          text:
+            '[Files attached by user:\n- attachment (audio "voice.mp3", transcription: "hello from attachment")\n- attachment (image "diagram.png")\n- attachment (document "manual.pdf")\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nPDF attachments are included as direct model document input. Use the document contents plus any attachment metadata and message text.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
+        },
+        {
+          type: "image",
+          mimeType: "image/png",
+          dataBase64: Buffer.from("png-bytes").toString("base64"),
+          filename: "diagram.png"
+        },
+        {
+          type: "pdf",
+          mimeType: "application/pdf",
+          dataBase64: Buffer.from("pdf-bytes").toString("base64"),
+          filename: "manual.pdf"
+        }
+      ]
     }
+  ]);
+  assert.deepEqual(downloadedObjectKeys, [
+    "assistant-media/chat-1/diagram.png",
+    "assistant-media/chat-1/manual.pdf"
   ]);
 
   prisma.chat = null;
+  downloadedObjectKeys.length = 0;
   const fallback = await service.buildMessages(request);
   assert.deepEqual(fallback, [
     {
       role: "user",
-      content:
-        '[Files attached by user:\n- attachment (file "runtime-fallback.pdf")\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
+      content: [
+        {
+          type: "text",
+          text:
+            '[Files attached by user:\n- attachment (file "runtime-fallback.pdf")\n- attachment (file "runtime-large.pdf")\nSome PDF attachments are included as direct model document input when within the request-size budget. For any others, rely on attachment metadata and content preview when available.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
+        },
+        {
+          type: "pdf",
+          mimeType: "application/pdf",
+          dataBase64: Buffer.from("pdf-bytes").toString("base64"),
+          filename: "runtime-fallback.pdf"
+        }
+      ]
     }
+  ]);
+  assert.deepEqual(downloadedObjectKeys, [
+    "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-small.pdf"
   ]);
 
   prisma.chat = { id: "chat-1" };
@@ -181,7 +272,6 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   });
   assert.deepEqual(capped.at(-1), {
     role: "user",
-    content:
-      '[Files attached by user:\n- attachment (file "runtime-fallback.pdf")\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
+    content: fallback[0]?.content
   });
 }

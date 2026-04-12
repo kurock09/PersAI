@@ -167,6 +167,35 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   assert.equal(openaiClient.calls.length, 1);
   assert.equal(anthropicClient.calls.length, 0);
 
+  const multimodalResult = await service.generateText({
+    ...createRequest("openai"),
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "inspect this"
+          },
+          {
+            type: "image",
+            mimeType: "image/png",
+            dataBase64: "aGVsbG8=",
+            filename: "diagram.png"
+          },
+          {
+            type: "pdf",
+            mimeType: "application/pdf",
+            dataBase64: "cGRmLWRhdGE=",
+            filename: "report.pdf"
+          }
+        ]
+      }
+    ]
+  });
+  assert.equal(multimodalResult.text, "openai-result");
+  assert.equal(openaiClient.calls.length, 2);
+
   const anthropicResult = await service.generateText(createRequest("anthropic"));
   assert.equal(anthropicResult.text, "anthropic-result");
   assert.equal(anthropicClient.calls.length, 1);
@@ -206,5 +235,26 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
         messages: []
       }),
     /messages must include at least one item/
+  );
+
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "pdf",
+                mimeType: "application/pdf",
+                dataBase64: "",
+                filename: "bad.pdf"
+              }
+            ]
+          }
+        ]
+      }),
+    /dataBase64 must be non-empty/
   );
 }

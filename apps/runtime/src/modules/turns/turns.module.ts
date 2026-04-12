@@ -4,6 +4,7 @@ import { SessionsModule } from "../sessions/sessions.module";
 import { RuntimeStateModule } from "../runtime-state/runtime-state.module";
 import { TurnsController } from "./interface/http/turns.controller";
 import { IdempotencyService } from "./idempotency.service";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService } from "./turn-acceptance.service";
@@ -17,6 +18,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
   providers: [
     ProviderGatewayClientService,
     IdempotencyService,
+    PersaiMediaObjectStorageService,
     TurnContextHydrationService,
     TurnAcceptanceService,
     TurnExecutionService,
@@ -26,6 +28,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
   exports: [
     ProviderGatewayClientService,
     IdempotencyService,
+    PersaiMediaObjectStorageService,
     TurnContextHydrationService,
     TurnAcceptanceService,
     TurnExecutionService,

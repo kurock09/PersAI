@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import type {
+  ProviderGatewayMessageContent,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent
@@ -53,9 +54,7 @@ export class ProviderTextGenerationService {
       throw new BadRequestException("messages must include at least one item");
     }
     for (const [index, message] of input.messages.entries()) {
-      if (message.content.trim().length === 0) {
-        throw new BadRequestException(`messages[${index}].content must be non-empty`);
-      }
+      this.assertValidMessageContent(message.content, index);
     }
     if (
       input.maxOutputTokens !== undefined &&
@@ -79,6 +78,46 @@ export class ProviderTextGenerationService {
       throw new BadRequestException(
         `Model "${input.model}" is not present in the warmed provider catalog for "${input.provider}".`
       );
+    }
+  }
+
+  private assertValidMessageContent(content: ProviderGatewayMessageContent, index: number): void {
+    if (typeof content === "string") {
+      if (content.trim().length === 0) {
+        throw new BadRequestException(`messages[${index}].content must be non-empty`);
+      }
+      return;
+    }
+
+    if (content.length === 0) {
+      throw new BadRequestException(`messages[${index}].content must include at least one block`);
+    }
+
+    for (const [blockIndex, block] of content.entries()) {
+      if (block.type === "text") {
+        if (block.text.trim().length === 0) {
+          throw new BadRequestException(
+            `messages[${index}].content[${blockIndex}].text must be non-empty`
+          );
+        }
+        continue;
+      }
+
+      if (block.type === "image" && !block.mimeType.startsWith("image/")) {
+        throw new BadRequestException(
+          `messages[${index}].content[${blockIndex}].mimeType must be an image MIME`
+        );
+      }
+      if (block.type === "pdf" && block.mimeType !== "application/pdf") {
+        throw new BadRequestException(
+          `messages[${index}].content[${blockIndex}].mimeType must be application/pdf`
+        );
+      }
+      if (block.dataBase64.trim().length === 0) {
+        throw new BadRequestException(
+          `messages[${index}].content[${blockIndex}].dataBase64 must be non-empty`
+        );
+      }
     }
   }
 }

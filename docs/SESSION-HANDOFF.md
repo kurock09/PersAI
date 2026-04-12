@@ -1,5 +1,135 @@
 # SESSION-HANDOFF
 
+## 2026-04-12 - ADR-072 Step 11 attachment staging closeout
+
+### What changed
+
+1. `TurnContextHydrationService` now sends current-turn PDF attachments as real provider document/file input in the same bounded native path as current-turn images, but only within an explicit request-size budget so PersAI does not replay binary attachment history on later turns.
+2. `apps/provider-gateway` now maps the new native PDF content block to OpenAI `input_file` and Anthropic `document` input, while the non-PDF document path stays extraction-first by design (`txt/json/csv/doc/docx/xls/xlsx` -> canonical extracted text).
+3. Repo canon now records Step 11 as complete: PersAI owns active attachment storage/lifecycle, staged-upload rollback is failure-safe, current-turn image/PDF understanding is native, and historical attachments remain summary/extract-only instead of growing request payload over time.
+
+### Why
+
+1. The last meaningful Step 11 semantic gap was PDF/layout-aware understanding on the native provider path; extraction alone was not enough to honestly say attachments were fully staged natively.
+2. Closing Step 11 without a hard request-size budget would have invited the same payload-growth failure mode that binary attachment replay causes in long chats.
+
+### Current active slice
+
+- `Slice 4 — Attachment context and STT cutover`
+
+### Current active step
+
+- `Step 12 — Implement native STT`
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-text-generation.service.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-text-generation.service.test.ts`
+- `packages/runtime-contract/src/index.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+
+### Risks
+
+1. `Step 12` is still pending, so STT continues to use the temporary OpenClaw transcription seam.
+2. Historical attachments intentionally stay summary/extract-only; this avoids payload bloat but is not a full multimodal-history engine.
+3. Legacy runtime-owned tool artifact download can still exist as a bounded seam until later native tool slices replace those producers.
+
+### Next recommended step
+
+1. Start `Step 12 — Implement native STT` so the last OpenClaw request-time media dependency is removed.
+
+### Ready commit message
+
+- `feat(media): close step11 native attachment staging`
+
+## 2026-04-12 - ADR-072 Step 11 current-turn multimodal attachments
+
+### What changed
+
+1. `MediaPreprocessorService` and the shared media validation policy now accept and extract canonical text content for `application/json`, `application/pdf`, `text/*`, `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`, `application/vnd.ms-excel`, and `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, so native turns no longer collapse those files to filename/mime-only metadata.
+2. `packages/runtime-contract` now supports provider message content blocks, and `TurnContextHydrationService` now downloads current inbound image attachments from PersAI object storage and sends them through `apps/provider-gateway` to OpenAI/Anthropic as real image input on the native web path.
+3. Runtime config/Helm now pass `PERSAI_MEDIA_BUCKET_NAME` into `apps/runtime`, provider client tests now cover multimodal mapping for both OpenAI and Anthropic, and the Step 11 docs now record the bounded rule: current-turn images are real model input, while historical attachments still stay summary-only for now.
+
+### Why
+
+1. The previous Step 11 cutover still left the native provider boundary text-only, so uploaded images were visible to the runtime only as attachment metadata and many document types still had no canonical content extract.
+2. This gives a clean bounded Step 11 sub-step: current-turn image understanding becomes real on the PersAI-native path, while document-like files become useful through canonical extraction without pretending that full multimodal history is finished.
+
+### Current active slice
+
+- `Slice 4 — Attachment context and STT cutover`
+
+### Current active step
+
+- `Step 11 — Implement native attachment staging`
+
+### Files touched
+
+- `apps/api/package.json`
+- `apps/api/src/modules/workspace-management/application/media/media-preprocessor.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-security-policy.ts`
+- `apps/api/test/media-preprocessor.service.test.ts`
+- `apps/runtime/package.json`
+- `apps/runtime/src/modules/turns/persai-media-object-storage.service.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `apps/runtime/test/runtime-config.test.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-text-generation.service.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-text-generation.service.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `packages/config/src/runtime-config.ts`
+- `packages/runtime-contract/src/index.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/media-preprocessor.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+
+### Risks
+
+1. This is intentionally current-turn image input only; historical images in long chat history are still summary-only until a later bounded multimodal-history sub-step exists.
+2. Step 12 is still pending, so STT continues to use the temporary OpenClaw transcription seam.
+3. Office document extraction is best-effort library parsing, so malformed or highly formatted `doc/docx/xls/xlsx` files may still fall back to sparse previews rather than perfect fidelity.
+
+### Next recommended step
+
+1. Continue Step 11 only if you want to remove the remaining temporary legacy media source seams now; otherwise move directly to `Step 12 — Implement native STT` so the last OpenClaw request-time media dependency is removed.
+
+### Ready commit message
+
+- `feat(media): send native image inputs and extract document text`
+
 ## 2026-04-11 - ADR-072 Step 11 staged upload rollback hardening
 
 ### What changed

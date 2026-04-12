@@ -10,6 +10,13 @@ const optionalUrl = z.preprocess((value) => {
   return value;
 }, z.string().url().optional());
 
+const optionalNonEmptyString = z.preprocess((value) => {
+  if (typeof value === "string" && value.trim().length === 0) {
+    return undefined;
+  }
+  return value;
+}, z.string().min(1).optional());
+
 const baseRuntimeConfigSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
   DATABASE_URL: z.string().min(1),
@@ -22,6 +29,7 @@ const baseRuntimeConfigSchema = z.object({
   RUNTIME_TURN_RECEIPT_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
   RUNTIME_BUNDLE_MARKER_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
   RUNTIME_PROVIDER_GATEWAY_BASE_URL: optionalUrl,
+  PERSAI_MEDIA_BUCKET_NAME: optionalNonEmptyString,
   RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000)
 });

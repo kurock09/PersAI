@@ -55,7 +55,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           ...(input.systemPrompt === null ? {} : { instructions: input.systemPrompt }),
           input: input.messages.map((message) => ({
             role: message.role,
-            content: message.content
+            content: this.toOpenAIMessageContent(message.content)
           })),
           ...(input.maxOutputTokens === undefined
             ? {}
@@ -115,7 +115,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           ...(input.systemPrompt === null ? {} : { instructions: input.systemPrompt }),
           input: input.messages.map((message) => ({
             role: message.role,
-            content: message.content
+            content: this.toOpenAIMessageContent(message.content)
           })),
           ...(input.maxOutputTokens === undefined
             ? {}
@@ -223,6 +223,50 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           outputTokens: usage.output_tokens ?? null,
           totalTokens: usage.total_tokens ?? null
         };
+  }
+
+  private toOpenAIMessageContent(
+    content: ProviderGatewayTextGenerateRequest["messages"][number]["content"]
+  ):
+    | string
+    | Array<
+        | {
+            type: "input_text";
+            text: string;
+          }
+        | {
+            type: "input_image";
+            image_url: string;
+            detail: "auto";
+          }
+        | {
+            type: "input_file";
+            filename: string;
+            file_data: string;
+          }
+      > {
+    if (typeof content === "string") {
+      return content;
+    }
+
+    return content.map((block) =>
+      block.type === "text"
+        ? {
+            type: "input_text",
+            text: block.text
+          }
+        : block.type === "image"
+          ? {
+            type: "input_image",
+            image_url: `data:${block.mimeType};base64,${block.dataBase64}`,
+            detail: "auto"
+          }
+          : {
+              type: "input_file",
+              filename: block.filename ?? "attachment.pdf",
+              file_data: `data:application/pdf;base64,${block.dataBase64}`
+            }
+    );
   }
 
   private createTimedSignal(

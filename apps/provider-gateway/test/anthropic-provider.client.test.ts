@@ -4,7 +4,7 @@ import type {
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
-import { OpenAIProviderClient } from "../src/modules/providers/openai/openai-provider.client";
+import { AnthropicProviderClient } from "../src/modules/providers/anthropic/anthropic-provider.client";
 
 function createConfig(): ProviderGatewayConfig {
   return {
@@ -15,8 +15,8 @@ function createConfig(): ProviderGatewayConfig {
     PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: 5_000,
     PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS: 90_000,
     PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 90_000,
-    PROVIDER_GATEWAY_OPENAI_API_KEY: "openai-test-key",
-    PROVIDER_GATEWAY_ANTHROPIC_API_KEY: undefined,
+    PROVIDER_GATEWAY_OPENAI_API_KEY: undefined,
+    PROVIDER_GATEWAY_ANTHROPIC_API_KEY: "anthropic-test-key",
     PROVIDER_GATEWAY_OPENAI_MODELS: ["gpt-5.4"],
     PROVIDER_GATEWAY_ANTHROPIC_MODELS: ["claude-sonnet-4-5"]
   };
@@ -24,8 +24,8 @@ function createConfig(): ProviderGatewayConfig {
 
 function createRequest(): ProviderGatewayTextGenerateRequest {
   return {
-    provider: "openai",
-    model: "gpt-5.4",
+    provider: "anthropic",
+    model: "claude-sonnet-4-5",
     systemPrompt: "Be concise.",
     messages: [
       {
@@ -33,29 +33,29 @@ function createRequest(): ProviderGatewayTextGenerateRequest {
         content: [
           {
             type: "text",
-            text: "hello"
+            text: "look at this"
           },
           {
             type: "image",
-            mimeType: "image/png",
+            mimeType: "image/jpeg",
             dataBase64: "aGVsbG8=",
-            filename: "diagram.png"
+            filename: "photo.jpg"
           },
           {
             type: "pdf",
             mimeType: "application/pdf",
             dataBase64: "cGRmLWRhdGE=",
-            filename: "manual.pdf"
+            filename: "report.pdf"
           }
         ]
       },
       {
         role: "assistant",
-        content: "hi there"
+        content: "what should I inspect?"
       },
       {
         role: "user",
-        content: "tell me more"
+        content: "the connector pins"
       }
     ]
   };
@@ -71,42 +71,56 @@ async function collectStream(
   return events;
 }
 
-export async function runOpenAIProviderClientTest(): Promise<void> {
-  const client = new OpenAIProviderClient(createConfig());
+export async function runAnthropicProviderClientTest(): Promise<void> {
+  const client = new AnthropicProviderClient(createConfig());
   let capturedGenerateInput: unknown = null;
   let capturedStreamInput: unknown = null;
 
   (client as unknown as { client: unknown }).client = {
-    responses: {
-      create: async (payload: { stream?: boolean; input: unknown }) => {
+    messages: {
+      create: async (payload: { stream?: boolean; messages: unknown }) => {
         if (payload.stream) {
-          capturedStreamInput = payload.input;
+          capturedStreamInput = payload.messages;
           return (async function* (): AsyncGenerator<unknown> {
             yield {
-              type: "response.output_text.delta",
-              delta: "partial "
-            };
-            yield {
-              type: "response.completed",
-              response: {
-                output_text: "partial done",
+              type: "message_start",
+              message: {
                 usage: {
                   input_tokens: 10,
-                  output_tokens: 5,
-                  total_tokens: 15
+                  output_tokens: 0
                 }
               }
+            };
+            yield {
+              type: "content_block_delta",
+              delta: {
+                type: "text_delta",
+                text: "partial "
+              }
+            };
+            yield {
+              type: "message_delta",
+              usage: {
+                output_tokens: 5
+              }
+            };
+            yield {
+              type: "message_stop"
             };
           })();
         }
 
-        capturedGenerateInput = payload.input;
+        capturedGenerateInput = payload.messages;
         return {
-          output_text: "done",
+          content: [
+            {
+              type: "text",
+              text: "done"
+            }
+          ],
           usage: {
             input_tokens: 10,
-            output_tokens: 5,
-            total_tokens: 15
+            output_tokens: 5
           }
         };
       }
@@ -121,28 +135,35 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       role: "user",
       content: [
         {
-          type: "input_text",
-          text: "hello"
+          type: "text",
+          text: "look at this"
         },
         {
-          type: "input_image",
-          image_url: "data:image/png;base64,aGVsbG8=",
-          detail: "auto"
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/jpeg",
+            data: "aGVsbG8="
+          }
         },
         {
-          type: "input_file",
-          filename: "manual.pdf",
-          file_data: "data:application/pdf;base64,cGRmLWRhdGE="
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: "cGRmLWRhdGE="
+          },
+          title: "report.pdf"
         }
       ]
     },
     {
       role: "assistant",
-      content: "hi there"
+      content: "what should I inspect?"
     },
     {
       role: "user",
-      content: "tell me more"
+      content: "the connector pins"
     }
   ]);
 

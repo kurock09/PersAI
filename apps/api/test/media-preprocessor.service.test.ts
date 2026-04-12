@@ -120,6 +120,37 @@ async function run(): Promise<void> {
         series.key.outcome === "failure"
     );
   assert.equal(failureSeries?.count, 1);
+
+  (
+    service as unknown as {
+      extractWordText(buffer: Buffer): Promise<string | null>;
+      extractSpreadsheetText(buffer: Buffer): Promise<string | null>;
+    }
+  ).extractWordText = async () => "first paragraph\nsecond paragraph";
+  (
+    service as unknown as {
+      extractWordText(buffer: Buffer): Promise<string | null>;
+      extractSpreadsheetText(buffer: Buffer): Promise<string | null>;
+    }
+  ).extractSpreadsheetText = async () => "Sheet \"Budget\"\nmonth,amount\nApr,42";
+
+  const docx = await service.process(
+    Buffer.from("fake-docx"),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "notes.docx",
+    "assistant-1"
+  );
+  assert.equal(docx.textExtract, "first paragraph\nsecond paragraph");
+  assert.equal(docx.normalizedExtension, "docx");
+
+  const spreadsheet = await service.process(
+    Buffer.from("fake-xlsx"),
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "budget.xlsx",
+    "assistant-1"
+  );
+  assert.equal(spreadsheet.textExtract, 'Sheet "Budget"\nmonth,amount\nApr,42');
+  assert.equal(spreadsheet.normalizedExtension, "xlsx");
 }
 
 void run();

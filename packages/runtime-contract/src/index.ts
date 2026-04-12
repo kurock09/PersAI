@@ -124,8 +124,34 @@ export interface RuntimeTurnResult {
 
 export interface ProviderGatewayTextMessage {
   role: "user" | "assistant";
-  content: string;
+  content: ProviderGatewayMessageContent;
 }
+
+export interface ProviderGatewayTextContentBlock {
+  type: "text";
+  text: string;
+}
+
+export interface ProviderGatewayImageContentBlock {
+  type: "image";
+  mimeType: string;
+  dataBase64: string;
+  filename: string | null;
+}
+
+export interface ProviderGatewayPdfContentBlock {
+  type: "pdf";
+  mimeType: "application/pdf";
+  dataBase64: string;
+  filename: string | null;
+}
+
+export type ProviderGatewayMessageContentBlock =
+  | ProviderGatewayTextContentBlock
+  | ProviderGatewayImageContentBlock
+  | ProviderGatewayPdfContentBlock;
+
+export type ProviderGatewayMessageContent = string | ProviderGatewayMessageContentBlock[];
 
 export interface ProviderGatewayTextGenerateRequest {
   provider: "openai" | "anthropic";

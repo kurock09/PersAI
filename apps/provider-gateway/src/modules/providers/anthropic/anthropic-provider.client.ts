@@ -56,7 +56,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           ...(input.systemPrompt === null ? {} : { system: input.systemPrompt }),
           messages: input.messages.map((message) => ({
             role: message.role,
-            content: message.content
+            content: this.toAnthropicMessageContent(message.content)
           }))
         },
         { signal }
@@ -124,7 +124,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           ...(input.systemPrompt === null ? {} : { system: input.systemPrompt }),
           messages: input.messages.map((message) => ({
             role: message.role,
-            content: message.content
+            content: this.toAnthropicMessageContent(message.content)
           })),
           stream: true
         },
@@ -225,6 +225,78 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           ? null
           : (inputTokens ?? 0) + (outputTokens ?? 0)
     };
+  }
+
+  private toAnthropicMessageContent(
+    content: ProviderGatewayTextGenerateRequest["messages"][number]["content"]
+  ):
+    | string
+    | Array<
+        | {
+            type: "text";
+            text: string;
+          }
+        | {
+            type: "image";
+            source: {
+              type: "base64";
+              media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+              data: string;
+            };
+          }
+        | {
+            type: "document";
+            source: {
+              type: "base64";
+              media_type: "application/pdf";
+              data: string;
+            };
+            title?: string | null;
+          }
+      > {
+    if (typeof content === "string") {
+      return content;
+    }
+
+    return content.map((block) =>
+      block.type === "text"
+        ? {
+            type: "text",
+            text: block.text
+          }
+        : block.type === "image"
+          ? {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: this.toAnthropicImageMime(block.mimeType),
+              data: block.dataBase64
+            }
+          }
+          : {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: block.dataBase64
+              },
+              title: block.filename
+            }
+    );
+  }
+
+  private toAnthropicImageMime(
+    mimeType: string
+  ): "image/png" | "image/jpeg" | "image/gif" | "image/webp" {
+    switch (mimeType) {
+      case "image/png":
+      case "image/jpeg":
+      case "image/gif":
+      case "image/webp":
+        return mimeType;
+      default:
+        throw new Error(`Anthropic does not support image MIME "${mimeType}".`);
+    }
   }
 
   private createTimedSignal(

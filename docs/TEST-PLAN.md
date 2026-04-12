@@ -225,14 +225,19 @@ Required in CI:
 
 ## Step 11 native attachment staging focus
 
+- this section is now the completed regression baseline for Step 11 attachment staging
 - active web attachment persistence must move to PersAI-owned object storage instead of OpenClaw workspace media endpoints
 - `assistant_chat_message_attachments.storage_path` now stores a PersAI object key even before the later schema-cleanup step renames any legacy field names
 - hard-delete, assistant reset, and admin user delete must remove the corresponding stored attachment objects in addition to deleting attachment rows and releasing `media_storage_bytes`
 - the current Step 11 storage cutover must not depend on OpenClaw request-time media upload/download/delete for ordinary web attachment persistence
 - native web sync/stream paths should pass raw user text plus attachment refs and let `apps/runtime` hydrate current/historical attachment summaries from canonical attachment rows instead of relying on API-only attachment text enrichment
 - canonical attachment rows should retain usable preview/transcription metadata for runtime hydration, including direct web upload paths and staged uploads
+- current inbound `image/*` and `application/pdf` attachments on the native web path must reach the provider as real model input only for the current turn, not as replayed binary history on later turns
+- direct image/PDF provider input must stay within an explicit request-size budget so large attachment history does not silently bloat later requests
+- canonical document preprocessing should persist usable extracted content for `application/json`, `text/*`, `application/pdf`, `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`, `application/vnd.ms-excel`, and `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- non-PDF document/table formats should remain extraction-first by design instead of per-turn binary replay
 - failed staged uploads must roll back transient empty staging rows, and native hydration must ignore any legacy orphan placeholders that still exist in canonical chat history
-- temporary migration seams are still allowed only where Step 11 is not yet complete:
+- bounded seams that may remain after the completed Step 11 package:
   - pre-Step-12 STT staging/transcription may still use the existing runtime transcribe seam
   - legacy runtime-owned media producers may still require one download-source seam until later native tool slices replace them
 - focused Step 11 regressions for this storage cutover:
@@ -242,21 +247,28 @@ Required in CI:
   - `apps/api/test/stream-web-chat-turn.service.test.ts`
   - `apps/api/test/inbound-media.service.test.ts`
   - `apps/api/test/media-delivery.service.test.ts`
+  - `apps/api/test/media-preprocessor.service.test.ts`
   - `apps/api/test/manage-web-chat-list.service.test.ts`
   - `apps/api/test/admin-delete-user.service.test.ts`
   - `apps/runtime/test/turn-context-hydration.service.test.ts`
-- minimum verification for this sub-step:
+  - `apps/provider-gateway/test/openai-provider.client.test.ts`
+  - `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+  - `apps/provider-gateway/test/provider-text-generation.service.test.ts`
+- minimum verification for Step 11 closeout:
   - `corepack pnpm --filter @persai/api run typecheck`
   - `corepack pnpm --filter @persai/runtime run typecheck`
+  - `corepack pnpm --filter @persai/provider-gateway run typecheck`
   - `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
 - `corepack pnpm --filter @persai/api exec tsx test/merge-staged-web-chat-attachments.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/media-preprocessor.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
   - `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+  - `corepack pnpm --filter @persai/provider-gateway run test`
 
 ## Step 1 focus
 

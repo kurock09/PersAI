@@ -25,6 +25,7 @@ export async function runRuntimeConfigTest(): Promise<void> {
   assert.equal(config.RUNTIME_TURN_RECEIPT_TTL_SECONDS, 3600);
   assert.equal(config.RUNTIME_BUNDLE_MARKER_TTL_SECONDS, 7200);
   assert.equal(config.RUNTIME_PROVIDER_GATEWAY_BASE_URL, undefined);
+  assert.equal(config.PERSAI_MEDIA_BUCKET_NAME, undefined);
   assert.equal(config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS, 9000);
   assert.equal(config.RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS, 15000);
 }

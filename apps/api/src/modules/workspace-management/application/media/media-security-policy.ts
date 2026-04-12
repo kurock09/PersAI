@@ -60,6 +60,8 @@ const SAFE_MIME_BY_EXTENSION: Record<string, string> = {
   ".aac": "audio/aac",
   ".avi": "video/x-msvideo",
   ".csv": "text/csv",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".flac": "audio/flac",
   ".gif": "image/gif",
   ".heic": "image/heic",
@@ -80,12 +82,18 @@ const SAFE_MIME_BY_EXTENSION: Record<string, string> = {
   ".txt": "text/plain",
   ".wav": "audio/wav",
   ".webm": "video/webm",
-  ".webp": "image/webp"
+  ".webp": "image/webp",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 };
 
 const ALLOWED_MEDIA_MIMES = new Set([
   "application/json",
+  "application/msword",
   "application/pdf",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "audio/aac",
   "audio/flac",
   "audio/mp4",
@@ -110,6 +118,15 @@ const ALLOWED_MEDIA_MIMES = new Set([
   "video/webm",
   "video/x-msvideo"
 ]);
+
+const OFFICE_DOCUMENT_MIMES = new Set([
+  "application/msword",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+]);
+
+const GENERIC_OFFICE_CONTAINER_MIMES = new Set(["application/zip", "application/x-cfb"]);
 
 function normalizeMime(mime: string | null | undefined): string | null {
   if (typeof mime !== "string") {
@@ -166,8 +183,18 @@ export async function validatePersaiMediaFile(params: {
   const extensionMime = normalizedExtension
     ? (SAFE_MIME_BY_EXTENSION[normalizedExtension] ?? null)
     : null;
+  const declaredOfficeMime =
+    headerMime !== null && OFFICE_DOCUMENT_MIMES.has(headerMime)
+      ? headerMime
+      : extensionMime !== null && OFFICE_DOCUMENT_MIMES.has(extensionMime)
+        ? extensionMime
+        : null;
 
-  if (sniffedMime !== null && !isAllowedMime(sniffedMime)) {
+  if (
+    sniffedMime !== null &&
+    !isAllowedMime(sniffedMime) &&
+    !(declaredOfficeMime !== null && GENERIC_OFFICE_CONTAINER_MIMES.has(sniffedMime))
+  ) {
     throw new BadRequestException(`Detected file type "${sniffedMime}" is not allowed.`);
   }
 
@@ -181,10 +208,16 @@ export async function validatePersaiMediaFile(params: {
   // prefer the header to keep downstream attachmentType = "audio".
   const preferHeaderOverSniff =
     sniffedMime === "video/webm" && headerMimeAllowed !== null && isAudioMime(headerMimeAllowed);
+  const preferDeclaredOfficeMime =
+    declaredOfficeMime !== null &&
+    sniffedMime !== null &&
+    GENERIC_OFFICE_CONTAINER_MIMES.has(sniffedMime);
 
   const effectiveMimeType = preferHeaderOverSniff
     ? headerMimeAllowed
-    : (sniffedMime ?? headerMimeAllowed ?? extensionMime);
+    : preferDeclaredOfficeMime
+      ? declaredOfficeMime
+      : (sniffedMime ?? headerMimeAllowed ?? extensionMime);
 
   if (!isAllowedMime(effectiveMimeType ?? null)) {
     if (headerMime !== null && GENERIC_BINARY_MIMES.has(headerMime)) {

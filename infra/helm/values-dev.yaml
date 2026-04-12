@@ -272,6 +272,7 @@ runtime:
     LOG_LEVEL: info
     GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
     GCP_REGION: europe-west1
+    PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
     RUNTIME_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
     RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "10000"
 
