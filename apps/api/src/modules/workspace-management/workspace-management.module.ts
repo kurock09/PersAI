@@ -145,6 +145,7 @@ import { MediaAttachmentController } from "./interface/http/media-attachment.con
 import { TelegramWebhookProxyController } from "./interface/http/telegram-webhook-proxy.controller";
 import { ManageChatMediaService } from "./application/manage-chat-media.service";
 import { MediaPreprocessorService } from "./application/media/media-preprocessor.service";
+import { NativeMediaTranscriptionService } from "./application/media/native-media-transcription.service";
 import { InboundMediaService } from "./application/media/inbound-media.service";
 import { MediaDeliveryService } from "./application/media/media-delivery.service";
 import { PersaiMediaObjectStorageService } from "./application/media/persai-media-object-storage.service";
@@ -347,6 +348,7 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
     },
     ManageChatMediaService,
     MediaPreprocessorService,
+    NativeMediaTranscriptionService,
     PersaiMediaObjectStorageService,
     InboundMediaService,
     MediaDeliveryService,

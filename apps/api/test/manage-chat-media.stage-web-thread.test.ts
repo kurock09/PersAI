@@ -98,11 +98,6 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async transcribeMedia() {
-        throw new Error("not used");
-      }
-    } as never,
-    {
       async process(buffer: Buffer) {
         return {
           normalizedBuffer: buffer,
@@ -116,6 +111,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    {} as never,
     {
       buildChatMessageObjectKey() {
         return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-direct-1/note.txt";
@@ -128,7 +124,6 @@ async function run(): Promise<void> {
         };
       }
     } as never,
-    {} as never,
     {
       async checkMediaStorageQuota() {
         return { allowed: true };
@@ -251,11 +246,6 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async transcribeMedia() {
-        throw new Error("not used");
-      }
-    } as never,
-    {
       async process(buffer: Buffer, mime: string) {
         return {
           normalizedBuffer: buffer,
@@ -269,6 +259,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    {} as never,
     {
       buildChatMessageObjectKey() {
         return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png";
@@ -284,7 +275,6 @@ async function run(): Promise<void> {
         deletedStoragePaths.push(objectKey);
       }
     } as never,
-    {} as never,
     {
       async checkMediaStorageQuota() {
         return { allowed: true };
@@ -411,11 +401,6 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async transcribeMedia() {
-        throw new Error("not used");
-      }
-    } as never,
-    {
       async process(buffer: Buffer, mime: string) {
         return {
           normalizedBuffer: buffer,
@@ -429,6 +414,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    {} as never,
     {
       buildChatMessageObjectKey() {
         return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png";
@@ -444,7 +430,6 @@ async function run(): Promise<void> {
         cappedDeletes.push(objectKey);
       }
     } as never,
-    {} as never,
     {
       async checkMediaStorageQuota() {
         return { allowed: true };
@@ -576,11 +561,6 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async transcribeMedia() {
-        throw new Error("not used");
-      }
-    } as never,
-    {
       async process(buffer: Buffer, mime: string) {
         return {
           normalizedBuffer: buffer,
@@ -594,6 +574,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    {} as never,
     {
       buildChatMessageObjectKey() {
         return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/image.png";
@@ -605,7 +586,6 @@ async function run(): Promise<void> {
         storageFailureDeletes.push(objectKey);
       }
     } as never,
-    {} as never,
     {
       async checkMediaStorageQuota() {
         return { allowed: true };
@@ -681,7 +661,6 @@ async function run(): Promise<void> {
             };
           }
         } as never,
-        {} as never,
         {} as never,
         {} as never,
         {} as never,

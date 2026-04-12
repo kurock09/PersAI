@@ -276,6 +276,16 @@ function normalizeRawErrorMessage(source: string): string {
   return source.trim().toLowerCase();
 }
 
+function isOversizedAttachmentMessage(normalizedMessage: string): boolean {
+  return (
+    normalizedMessage.includes("request entity too large") ||
+    normalizedMessage.includes("entity.too.large") ||
+    normalizedMessage.includes("payload too large") ||
+    normalizedMessage.includes("file too large") ||
+    normalizedMessage.includes("too large for direct model input")
+  );
+}
+
 function extractErrorCode(error: unknown): string | null {
   if (
     error instanceof ContractsApiError &&
@@ -291,19 +301,37 @@ function extractErrorCode(error: unknown): string | null {
   return null;
 }
 
+function extractErrorMessage(error: unknown): string | null {
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error instanceof ContractsApiError || error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const value = (error as { message?: unknown }).message;
+    return typeof value === "string" && value.trim().length > 0 ? value : null;
+  }
+  return null;
+}
+
 export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
-  const rawMessage =
-    typeof error === "string"
-      ? error
-      : error instanceof ContractsApiError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : "Web chat request failed.";
+  const rawMessage = extractErrorMessage(error) ?? "Web chat request failed.";
 
   const normalized = normalizeRawErrorMessage(rawMessage);
   const status = error instanceof ContractsApiError ? error.status : null;
   const code = extractErrorCode(error);
+
+  if (
+    (code === "native_runtime_request_invalid" && isOversizedAttachmentMessage(normalized)) ||
+    isOversizedAttachmentMessage(normalized)
+  ) {
+    return {
+      classId: "input_validation",
+      message: "One or more attached files are too large for direct model input.",
+      guidance: "Remove some files, split them across messages, or send a smaller file."
+    };
+  }
 
   if (code === "assistant_not_live") {
     return {

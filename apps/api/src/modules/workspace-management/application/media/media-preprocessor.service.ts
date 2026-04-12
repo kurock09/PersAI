@@ -1,8 +1,7 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
-import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "../assistant-runtime.facade";
-import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
 import type { PreprocessedMedia } from "./media.types";
+import { NativeMediaTranscriptionService } from "./native-media-transcription.service";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -53,28 +52,25 @@ export class MediaPreprocessorService {
   private readonly logger = new Logger(MediaPreprocessorService.name);
 
   constructor(
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
+    private readonly nativeMediaTranscriptionService: NativeMediaTranscriptionService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
 
   async process(
     buffer: Buffer,
     mime: string,
-    originalFilename: string,
-    assistantId: string
+    originalFilename: string
   ): Promise<PreprocessedMedia> {
     const normalizedMime = this.normalizeMime(mime);
 
     if (AUDIO_MIMES.has(normalizedMime)) {
-      return this.processAudio(buffer, normalizedMime, originalFilename, assistantId);
+      return this.processAudio(buffer, normalizedMime, originalFilename);
     }
     if (normalizedMime.startsWith("image/")) {
       return this.processImage(buffer, normalizedMime);
     }
     if (VIDEO_MIMES.has(normalizedMime)) {
-      return this.processVideo(buffer, normalizedMime, assistantId);
+      return this.processVideo(buffer, normalizedMime);
     }
     if (DOCUMENT_MIMES_WITH_EXTRACTION.has(normalizedMime) || normalizedMime.startsWith("text/")) {
       return this.processDocument(buffer, normalizedMime, originalFilename);
@@ -85,8 +81,7 @@ export class MediaPreprocessorService {
   private async processAudio(
     buffer: Buffer,
     mime: string,
-    originalFilename: string,
-    assistantId: string
+    originalFilename: string
   ): Promise<PreprocessedMedia> {
     let normalizedBuffer = buffer;
     let normalizedMime = mime;
@@ -107,7 +102,11 @@ export class MediaPreprocessorService {
 
     let transcription: string | null = null;
     try {
-      transcription = await this.transcribeAudio(normalizedBuffer, normalizedMime, assistantId);
+      transcription = await this.transcribeAudio(
+        normalizedBuffer,
+        normalizedMime,
+        originalFilename
+      );
     } catch (err) {
       this.logger.warn(`STT failed for "${originalFilename}": ${String(err)}`);
     }
@@ -176,17 +175,13 @@ export class MediaPreprocessorService {
     };
   }
 
-  private async processVideo(
-    buffer: Buffer,
-    mime: string,
-    assistantId: string
-  ): Promise<PreprocessedMedia> {
+  private async processVideo(buffer: Buffer, mime: string): Promise<PreprocessedMedia> {
     let transcription: string | null = null;
 
     try {
       const audioTrack = await this.extractAudioFromVideo(buffer);
       if (audioTrack) {
-        transcription = await this.transcribeAudio(audioTrack, "audio/mpeg", assistantId);
+        transcription = await this.transcribeAudio(audioTrack, "audio/mpeg", "video-audio.mp3");
       }
     } catch (err) {
       this.logger.warn(`Video audio extraction/STT failed: ${String(err)}`);
@@ -292,34 +287,20 @@ export class MediaPreprocessorService {
   private async transcribeAudio(
     buffer: Buffer,
     mime: string,
-    assistantId: string
+    originalFilename: string
   ): Promise<string | null> {
     const startedAt = process.hrtime.bigint();
     let outcome: "success" | "failure" = "failure";
-    const runtimeTier =
-      await this.resolveAssistantRuntimeTierService.resolveByAssistantId(assistantId);
-    const { randomUUID } = await import("crypto");
-    const transientChatId = `_stt_tmp_${randomUUID()}`;
-
-    const uploadResult = await this.assistantRuntime.uploadChatMedia({
-      assistantId,
-      runtimeTier,
-      chatId: transientChatId,
-      messageId: "transcribe",
-      fileBuffer: buffer,
-      mimeType: mime
-    });
 
     try {
-      const result = await this.assistantRuntime.transcribeMedia(
-        assistantId,
-        uploadResult.storagePath,
-        runtimeTier
-      );
+      const result = await this.nativeMediaTranscriptionService.transcribe({
+        buffer,
+        mimeType: mime,
+        filename: originalFilename
+      });
       outcome = "success";
       return result.text && result.text.trim().length > 0 ? result.text.trim() : null;
     } finally {
-      await this.assistantRuntime.deleteChatMediaBatch(assistantId, transientChatId, runtimeTier);
       const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
       this.platformHttpMetricsService.recordMediaStage({
         stage: "stt_transcribe",

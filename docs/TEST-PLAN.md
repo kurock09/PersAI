@@ -238,7 +238,6 @@ Required in CI:
 - non-PDF document/table formats should remain extraction-first by design instead of per-turn binary replay
 - failed staged uploads must roll back transient empty staging rows, and native hydration must ignore any legacy orphan placeholders that still exist in canonical chat history
 - bounded seams that may remain after the completed Step 11 package:
-  - pre-Step-12 STT staging/transcription may still use the existing runtime transcribe seam
   - legacy runtime-owned media producers may still require one download-source seam until later native tool slices replace them
 - focused Step 11 regressions for this storage cutover:
   - `apps/api/test/manage-chat-media.stage-web-thread.test.ts`
@@ -259,7 +258,7 @@ Required in CI:
   - `corepack pnpm --filter @persai/runtime run typecheck`
   - `corepack pnpm --filter @persai/provider-gateway run typecheck`
   - `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
-- `corepack pnpm --filter @persai/api exec tsx test/merge-staged-web-chat-attachments.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/merge-staged-web-chat-attachments.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`
@@ -269,6 +268,34 @@ Required in CI:
   - `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
   - `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
   - `corepack pnpm --filter @persai/provider-gateway run test`
+
+## ADR-072 Step 12 native STT focus
+
+- this section is now the completed regression baseline for Step 12 native STT
+- `ManageChatMediaService` and `MediaPreprocessorService` must route voice/media transcription through `NativeMediaTranscriptionService` instead of `AssistantRuntimeFacade.transcribeMedia(...)`
+- `apps/api` must stream multipart audio directly to `apps/runtime` `POST /api/v1/media/transcribe`
+- `apps/runtime` must validate audio input and forward multipart audio to `apps/provider-gateway` `POST /api/v1/providers/transcribe-audio`
+- `apps/provider-gateway` must validate provider readiness and execute OpenAI `gpt-4o-mini-transcribe`
+- the request-time STT path must not depend on OpenClaw workspace-media upload/delete/transcribe seams or filesystem-owned session state
+- native STT response validation must enforce `{ provider: "openai", model, text, respondedAt }`
+- current Step 12 scope is STT only; web TTS streaming remains later work and is not a closure condition here
+- focused Step 12 regressions:
+  - `apps/api/test/native-media-transcription.service.test.ts`
+  - `apps/api/test/media-preprocessor.service.test.ts`
+  - `apps/api/test/manage-chat-media.transcribe-voice.test.ts`
+  - `apps/runtime/test/provider-gateway.client.service.test.ts`
+  - `apps/runtime/test/runtime-media-transcription.service.test.ts`
+  - `apps/provider-gateway/test/openai-provider.client.test.ts`
+  - `apps/provider-gateway/test/provider-audio-transcription.service.test.ts`
+- minimum verification for Step 12 closeout:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/runtime run typecheck`
+  - `corepack pnpm --filter @persai/provider-gateway run typecheck`
+  - `corepack pnpm --filter @persai/provider-gateway run test`
+  - `corepack pnpm --filter @persai/runtime run test`
+  - `corepack pnpm --filter @persai/api exec tsx test/native-media-transcription.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/media-preprocessor.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.transcribe-voice.test.ts`
 
 ## Step 1 focus
 

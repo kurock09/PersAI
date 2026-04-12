@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertCircle, X, Pencil, Check, Loader2, Scissors } from "lucide-react";
+import { AlertCircle, AlertTriangle, X, Pencil, Check, Loader2, Scissors } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { ChatMessageBubble } from "./chat-message";
 import { ChatInput } from "./chat-input";
@@ -144,6 +144,13 @@ export function ChatArea({
     }
   }, [chat.chatId, editValue, getToken, onTitleChanged]);
 
+  const issueIsWarning = chat.issue?.classId === "input_validation";
+  const issueContainerClass = issueIsWarning
+    ? "border-amber-200 bg-amber-50"
+    : "border-destructive/20 bg-destructive/5";
+  const issueIconClass = issueIsWarning ? "text-amber-600" : "text-destructive";
+  const issueTextClass = issueIsWarning ? "text-amber-900" : "text-destructive";
+
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
@@ -232,14 +239,20 @@ export function ChatArea({
 
       {/* Issue banner */}
       {chat.issue && (
-        <div className="mx-4 mb-2 flex items-start gap-3 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+        <div
+          className={`mx-4 mb-2 flex items-start gap-3 rounded-lg border px-4 py-3 ${issueContainerClass}`}
+        >
+          {issueIsWarning ? (
+            <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${issueIconClass}`} />
+          ) : (
+            <AlertCircle className={`mt-0.5 h-4 w-4 shrink-0 ${issueIconClass}`} />
+          )}
           <div className="min-w-0 flex-1">
             {(chat.issue.classId === "media_storage_full" ||
               chat.issue.classId === "workspace_storage_full") &&
             typeof chat.issue.data?.limitMb === "number" ? (
               <>
-                <p className="text-sm font-medium text-destructive">
+                <p className={`text-sm font-medium ${issueTextClass}`}>
                   {t(
                     chat.issue.classId === "workspace_storage_full"
                       ? "workspaceStorageFull"
@@ -261,7 +274,7 @@ export function ChatArea({
             ) : chat.issue.classId === "media_storage_full" ||
               chat.issue.classId === "workspace_storage_full" ? (
               <>
-                <p className="text-sm font-medium text-destructive">
+                <p className={`text-sm font-medium ${issueTextClass}`}>
                   {t(
                     chat.issue.classId === "workspace_storage_full"
                       ? "workspaceStorageFullNoLimit"
@@ -278,7 +291,7 @@ export function ChatArea({
               </>
             ) : chat.issue.classId === "compaction_unavailable" ? (
               <>
-                <p className="text-sm font-medium text-destructive">
+                <p className={`text-sm font-medium ${issueTextClass}`}>
                   {t("issueCompactionUnavailable")}
                 </p>
                 <p className="mt-0.5 text-xs text-text-muted">
@@ -287,7 +300,7 @@ export function ChatArea({
               </>
             ) : (
               <>
-                <p className="text-sm font-medium text-destructive">{chat.issue.message}</p>
+                <p className={`text-sm font-medium ${issueTextClass}`}>{chat.issue.message}</p>
                 <p className="mt-0.5 text-xs text-text-muted">{chat.issue.guidance}</p>
               </>
             )}

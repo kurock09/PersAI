@@ -1865,10 +1865,19 @@ Response (extended M6):
 - `reply` (string)
 - `media` (array, optional): `[{ url, type, audioAsVoice? }]`
 
+### ADR-072 Step 12 native STT boundary
+
+- `apps/api` voice/media STT callers now stream multipart audio directly to `apps/runtime` `POST /api/v1/media/transcribe`; OpenClaw workspace-media upload/transcribe/delete is no longer part of the request hot path
+- `apps/runtime` validates the inbound audio payload and forwards multipart audio to `apps/provider-gateway` `POST /api/v1/providers/transcribe-audio`
+- `apps/provider-gateway` validates readiness and executes OpenAI `audio.transcriptions.create` with `gpt-4o-mini-transcribe`
+- native STT response contract is `{ provider: "openai", model, text, respondedAt }`
+- original voice/audio attachment persistence remains PersAI-owned object storage; the STT boundary is stream-forward only and does not create request-time filesystem-owned session/media state
+- current Step 12 scope is STT cutover only; web TTS streaming remains later voice-output work outside this boundary
+
 ### OpenClaw runtime workspace media endpoints (M1, bridge)
 
 - these endpoints are no longer the target-state storage boundary for active web attachment persistence
-- temporary remaining use is limited to legacy/media migration seams that are still outside the finished PersAI-native attachment path, such as pre-Step-12 STT staging or older runtime-owned media producers
+- temporary remaining use is limited to legacy/media migration seams that are still outside the finished PersAI-native attachment path, such as older runtime-owned media producers that have not yet moved onto PersAI-native tool delivery
 
 ### OpenClaw runtime chat response (updated M2, bridge)
 

@@ -68,6 +68,8 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
   globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const bodyText = typeof init?.body === "string" ? init.body : null;
+    const isPayloadTooLargeRequest = bodyText?.includes('"model":"payload-too-large"') ?? false;
     if (init === undefined) {
       requests.push({ url });
     } else {
@@ -88,6 +90,21 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     }
 
     if (url.endsWith("/api/v1/providers/stream-text")) {
+      if (isPayloadTooLargeRequest) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "request entity too large"
+            }
+          }),
+          {
+            status: 413,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
       return new Response(
         [
           JSON.stringify({
@@ -110,6 +127,39 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
           status: 200,
           headers: {
             "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }
+
+    if (url.endsWith("/api/v1/providers/transcribe-audio")) {
+      return new Response(
+        JSON.stringify({
+          provider: "openai",
+          model: "gpt-4o-mini-transcribe",
+          text: "hello from audio",
+          respondedAt: "2026-04-12T12:00:01.000Z"
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+
+    if (isPayloadTooLargeRequest) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "request entity too large"
+          }
+        }),
+        {
+          status: 413,
+          headers: {
+            "Content-Type": "application/json"
           }
         }
       );
@@ -142,7 +192,13 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(result.text, "generated text");
     const stream = await service.streamText(createGenerateTextRequest());
     const streamEvents = await collectStreamEvents(stream);
-    assert.equal(requests.length, 3);
+    const transcription = await service.transcribeAudio({
+      buffer: Buffer.from("voice-data"),
+      mimeType: "audio/mpeg",
+      filename: "voice.mp3"
+    });
+    assert.equal(transcription.text, "hello from audio");
+    assert.equal(requests.length, 4);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
@@ -152,6 +208,12 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     );
     assert.equal(requests[2]?.url, "http://provider-gateway.local/api/v1/providers/stream-text");
     assert.equal(requests[2]?.init?.method, "POST");
+    assert.equal(
+      requests[3]?.url,
+      "http://provider-gateway.local/api/v1/providers/transcribe-audio"
+    );
+    assert.equal(requests[3]?.init?.method, "POST");
+    assert.ok(requests[3]?.init?.body instanceof FormData);
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();
@@ -163,6 +225,21 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       () => unconfiguredService.generateText(createGenerateTextRequest()),
       /base URL is not configured/
     );
+    await assert.rejects(
+      () =>
+        service.generateText({
+          ...createGenerateTextRequest(),
+          model: "payload-too-large"
+        }),
+      /Current-turn file payload is too large for direct model input/
+    );
+    await assert.rejects(async () => {
+      const oversizedStream = await service.streamText({
+        ...createGenerateTextRequest(),
+        model: "payload-too-large"
+      });
+      await collectStreamEvents(oversizedStream);
+    }, /Current-turn file payload is too large for direct model input/);
   } finally {
     globalThis.fetch = originalFetch;
   }

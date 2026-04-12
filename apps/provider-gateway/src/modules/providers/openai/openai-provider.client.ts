@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
+  ProviderGatewayAudioTranscriptionResult,
   ProviderGatewayTextCompletedEvent,
   ProviderGatewayTextDeltaEvent,
   ProviderGatewayTextFailedEvent,
@@ -10,8 +11,11 @@ import type {
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import OpenAI from "openai";
+import { toFile } from "openai/uploads";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 import type { ProviderWarmableClient } from "../provider-client.types";
+
+const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 
 @Injectable()
 export class OpenAIProviderClient implements ProviderWarmableClient {
@@ -84,6 +88,47 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                 outputTokens: response.usage.output_tokens ?? null,
                 totalTokens: response.usage.total_tokens ?? null
               }
+      };
+    } finally {
+      dispose();
+    }
+  }
+
+  async transcribeAudio(input: {
+    buffer: Buffer;
+    mimeType: string;
+    filename: string | null;
+  }): Promise<ProviderGatewayAudioTranscriptionResult> {
+    if (this.client === null) {
+      throw new Error("OpenAI provider client is not warmed.");
+    }
+
+    const { signal, dispose } = this.createTimedSignal(
+      this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
+    );
+    try {
+      const response = await this.client.audio.transcriptions.create(
+        {
+          model: OPENAI_AUDIO_TRANSCRIPTION_MODEL,
+          file: await toFile(
+            input.buffer,
+            input.filename ?? this.defaultAudioFilename(input.mimeType),
+            input.mimeType.trim().length > 0 ? { type: input.mimeType } : undefined
+          )
+        },
+        { signal }
+      );
+
+      const text = typeof response.text === "string" ? response.text.trim() : "";
+      if (!text) {
+        throw new Error("OpenAI provider transcription did not contain text output.");
+      }
+
+      return {
+        provider: "openai",
+        model: OPENAI_AUDIO_TRANSCRIPTION_MODEL,
+        text,
+        respondedAt: new Date().toISOString()
       };
     } finally {
       dispose();
@@ -223,6 +268,28 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           outputTokens: usage.output_tokens ?? null,
           totalTokens: usage.total_tokens ?? null
         };
+  }
+
+  private defaultAudioFilename(mimeType: string): string {
+    switch (mimeType) {
+      case "audio/mpeg":
+      case "audio/mp3":
+        return "audio.mp3";
+      case "audio/wav":
+        return "audio.wav";
+      case "audio/mp4":
+      case "audio/aac":
+        return "audio.m4a";
+      case "audio/ogg":
+      case "audio/opus":
+      case "audio/x-opus+ogg":
+        return "audio.ogg";
+      case "audio/flac":
+        return "audio.flac";
+      case "audio/webm":
+      default:
+        return "audio.webm";
+    }
   }
 
   private toOpenAIMessageContent(

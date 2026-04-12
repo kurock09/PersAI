@@ -112,9 +112,6 @@ async function run(): Promise<void> {
           chatId: "chat-1",
           surfaceThreadKey: "thread-1"
         });
-      },
-      deleteChatMediaBatch: async () => {
-        callOrder.push("runtime-media-delete");
       }
     } as never,
     {

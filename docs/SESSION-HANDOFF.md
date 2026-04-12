@@ -1,5 +1,138 @@
 # SESSION-HANDOFF
 
+## 2026-04-12 - ADR-072 plan: explicit native web TTS output step
+
+### What changed
+
+1. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now includes planned `Step 15a — Native web TTS streaming/output`.
+2. ADR-072 now explicitly states that web TTS must land as a native channel output capability on the web turn path, not as a post-turn attachment-only fallback.
+3. Repo canon now records native web voice-output/TTS streaming as explicit follow-up work after the current Telegram cutover steps instead of leaving it as only implied future capability work.
+
+### Why
+
+1. Live web voice output is a product requirement and should exist as an explicit source-of-truth milestone rather than an inferred later enhancement.
+2. Fixing the intended boundary now reduces the risk that a later implementation closes the gap with attachment-after-completion behavior instead of real channel-native output semantics.
+
+### Current active slice
+
+- `Slice 5 — Telegram native adapter and group semantics`
+
+### Current active step
+
+- `Step 13 — Replace Telegram proxy with a native Telegram adapter`
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- none; docs-only planning update
+
+### Risks
+
+1. `Step 15a` is still only planned work; web TTS streaming remains unimplemented until a later execution slice.
+2. The current ADR order still prioritizes Telegram native cutover first, so this change does not accelerate delivery by itself.
+
+### Next recommended step
+
+1. Continue with `Step 13 — Replace Telegram proxy with a native Telegram adapter`.
+
+### Ready commit message
+
+- `docs(adr072): add native web tts output step`
+
+## 2026-04-12 - ADR-072 Step 12 native STT cutover
+
+### What changed
+
+1. `apps/api` now routes voice/media transcription through `NativeMediaTranscriptionService`, which streams multipart audio directly to `apps/runtime` `POST /api/v1/media/transcribe`; `ManageChatMediaService` and `MediaPreprocessorService` no longer use OpenClaw request-time transcription or workspace-media staging.
+2. `apps/runtime` now exposes a bounded native media-transcription module and forwards audio to `apps/provider-gateway`, while `apps/provider-gateway` exposes `POST /api/v1/providers/transcribe-audio` and executes OpenAI `gpt-4o-mini-transcribe` directly.
+3. The neutral runtime facade and OpenClaw bridge dropped the dead STT/upload/delete media tails, and repo canon now records Step 12 as complete with Step 13 as the next migration boundary.
+
+### Why
+
+1. Step 12 exists to remove the last OpenClaw request-time STT dependency from the active PersAI media path.
+2. After Step 11 attachment cutover, keeping unused upload/delete/transcribe media methods in the neutral runtime facade would have left dead OpenClaw-shaped tails in the target architecture.
+
+### Current active slice
+
+- `Slice 5 — Telegram native adapter and group semantics`
+
+### Current active step
+
+- `Step 13 — Replace Telegram proxy with a native Telegram adapter`
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/openclaw-assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-preprocessor.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/native-media-transcription.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/media-preprocessor.service.test.ts`
+- `apps/api/test/native-media-transcription.service.test.ts`
+- `apps/api/test/manage-chat-media.transcribe-voice.test.ts`
+- `apps/api/test/manage-chat-media.stage-web-thread.test.ts`
+- `apps/api/test/manage-web-chat-list.service.test.ts`
+- `apps/api/test/preview-assistant-setup.service.test.ts`
+- `apps/provider-gateway/src/main.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-audio-transcription.controller.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-audio-transcription.service.ts`
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-audio-transcription.service.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `apps/runtime/src/app.module.ts`
+- `apps/runtime/src/modules/media/interface/http/runtime-media.controller.ts`
+- `apps/runtime/src/modules/media/runtime-media.module.ts`
+- `apps/runtime/src/modules/media/runtime-media-transcription.service.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/runtime-media-transcription.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/api exec tsx test/native-media-transcription.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/media-preprocessor.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.transcribe-voice.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/preview-assistant-setup.service.test.ts`
+
+### Risks
+
+1. Telegram ingress and delivery still loop through OpenClaw until Step 13 and Step 14 replace that request-time path.
+2. Legacy runtime-owned tool artifact download still remains as a bounded media seam until later native tool slices replace those producers.
+3. Web TTS streaming is still outside Step 12 scope; this session closes STT cutover only.
+
+### Next recommended step
+
+1. Start `Step 13 — Replace Telegram proxy with a native Telegram adapter`, moving webhook ingress and internal Telegram turn delivery onto the shared PersAI-native runtime core.
+
+### Ready commit message
+
+- `feat(media): cut stt over to native runtime`
+
 ## 2026-04-12 - ADR-072 Step 11 attachment staging closeout
 
 ### What changed

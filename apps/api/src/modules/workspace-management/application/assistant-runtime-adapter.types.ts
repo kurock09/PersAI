@@ -9,11 +9,8 @@ import type {
   AssistantRuntimeChannelTurnInput,
   AssistantRuntimeCronControlInput,
   AssistantRuntimeMediaDownloadResult,
-  AssistantRuntimeMediaUploadInput,
-  AssistantRuntimeMediaUploadResult,
   AssistantRuntimePreflightResult,
   AssistantRuntimeSetupPreviewTurnResult,
-  AssistantRuntimeTranscribeResult,
   AssistantRuntimeWebChatCompactInput,
   AssistantRuntimeWebChatCompactResult,
   AssistantRuntimeWebChatSessionDeleteInput,
@@ -36,11 +33,8 @@ export type {
   AssistantRuntimeCronControlInput,
   AssistantRuntimeErrorCode,
   AssistantRuntimeMediaDownloadResult,
-  AssistantRuntimeMediaUploadInput,
-  AssistantRuntimeMediaUploadResult,
   AssistantRuntimePreflightResult,
   AssistantRuntimeSetupPreviewTurnResult,
-  AssistantRuntimeTranscribeResult,
   AssistantRuntimeWebChatCompactInput,
   AssistantRuntimeWebChatCompactResult,
   AssistantRuntimeWebChatSessionDeleteInput,
@@ -110,29 +104,11 @@ export interface OpenClawRuntimeBridge {
     input: AssistantRuntimeWebChatTurnInput
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk>;
   controlCronJob(input: AssistantRuntimeCronControlInput): Promise<unknown>;
-  uploadChatMedia(
-    input: AssistantRuntimeMediaUploadInput
-  ): Promise<AssistantRuntimeMediaUploadResult>;
   downloadChatMedia(
     assistantId: string,
     storagePath: string,
     runtimeTier?: RuntimeTier
   ): Promise<AssistantRuntimeMediaDownloadResult | null>;
-  deleteChatMedia(
-    assistantId: string,
-    storagePath: string,
-    runtimeTier?: RuntimeTier
-  ): Promise<void>;
-  deleteChatMediaBatch(
-    assistantId: string,
-    chatId: string,
-    runtimeTier?: RuntimeTier
-  ): Promise<void>;
-  transcribeMedia(
-    assistantId: string,
-    storagePath: string,
-    runtimeTier?: RuntimeTier
-  ): Promise<AssistantRuntimeTranscribeResult>;
   listMemoryItems(assistantId: string, runtimeTier?: RuntimeTier): Promise<unknown>;
   addMemoryItem(assistantId: string, content: string, runtimeTier?: RuntimeTier): Promise<unknown>;
   editMemoryItem(

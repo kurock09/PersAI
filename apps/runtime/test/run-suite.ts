@@ -13,6 +13,7 @@ import { runTurnContextHydrationServiceTest } from "./turn-context-hydration.ser
 import { runTurnExecutionServiceTest } from "./turn-execution.service.test";
 import { runTurnFinalizationServiceTest } from "./turn-finalization.service.test";
 import { runTurnLeaseHeartbeatServiceTest } from "./turn-lease-heartbeat.service.test";
+import { runRuntimeMediaTranscriptionServiceTest } from "./runtime-media-transcription.service.test";
 
 async function run(): Promise<void> {
   await runRuntimeConfigTest();
@@ -22,6 +23,7 @@ async function run(): Promise<void> {
   await runRuntimeStatePostgresServiceTest();
   await runRuntimeStateRedisServiceTest();
   await runProviderGatewayClientServiceTest();
+  await runRuntimeMediaTranscriptionServiceTest();
   await runSessionStoreServiceTest();
   await runSessionLeaseServiceTest();
   await runIdempotencyServiceTest();

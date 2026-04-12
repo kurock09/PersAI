@@ -616,4 +616,17 @@ describe("toWebChatUxIssue", () => {
       }
     );
   });
+
+  it("maps oversized file payload errors to input validation guidance", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "native_runtime_request_invalid",
+        message: "Current-turn file payload is too large for direct model input."
+      })
+    ).toEqual({
+      classId: "input_validation",
+      message: "One or more attached files are too large for direct model input.",
+      guidance: "Remove some files, split them across messages, or send a smaller file."
+    });
+  });
 });

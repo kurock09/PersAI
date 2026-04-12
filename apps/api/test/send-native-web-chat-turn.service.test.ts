@@ -190,6 +190,78 @@ describe("SendNativeWebChatTurnService", () => {
     }
   });
 
+  test("maps oversized native runtime payload responses to input validation", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          statusCode: 413,
+          message: "Current-turn file payload is too large for direct model input.",
+          error: "Payload Too Large"
+        }),
+        {
+          status: 413,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new SendNativeWebChatTurnService({
+        findByPublishedVersionId: async () => ({
+          id: "spec-1",
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          sourceAction: "publish",
+          algorithmVersion: 72,
+          materializedAtConfigGeneration: 1,
+          layers: {},
+          runtimeBundle: {},
+          openclawBootstrap: {},
+          openclawWorkspace: {},
+          layersDocument: "{}",
+          runtimeBundleDocument: "{}",
+          runtimeBundleHash: "bundle-hash-1",
+          openclawBootstrapDocument: "{}",
+          openclawWorkspaceDocument: "{}",
+          contentHash: "content-hash-1",
+          createdAt: new Date("2026-04-11T12:59:00.000Z")
+        })
+      } as AssistantMaterializedSpecRepository);
+
+      await assert.rejects(
+        () =>
+          service.execute({
+            assistantId: "assistant-1",
+            publishedVersionId: "version-1",
+            runtimeTier: "paid_shared_restricted",
+            surfaceThreadKey: "thread-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            userMessageId: "user-msg-1",
+            userMessage: "hello native",
+            attachments: []
+          }),
+        (error) => {
+          const row = error as {
+            errorObject?: { code?: string; message?: string };
+          };
+          return (
+            row.errorObject?.code === "native_runtime_request_invalid" &&
+            row.errorObject?.message ===
+              "Current-turn file payload is too large for direct model input."
+          );
+        }
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("fails clearly when the runtime base url is missing while native mode is enabled", async () => {
     setApiEnv({ PERSAI_RUNTIME_BASE_URL: "" });
     const service = new SendNativeWebChatTurnService({

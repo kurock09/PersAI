@@ -18,11 +18,8 @@ import type {
   AssistantRuntimeWebChatCompactInput,
   AssistantRuntimeWebChatCompactResult,
   AssistantRuntimeMediaDownloadResult,
-  AssistantRuntimeMediaUploadInput,
-  AssistantRuntimeMediaUploadResult,
   AssistantRuntimePreflightResult,
   AssistantRuntimeSetupPreviewTurnResult,
-  AssistantRuntimeTranscribeResult,
   AssistantRuntimeAvatarUploadInput,
   AssistantRuntimeAvatarUploadResult,
   AssistantRuntimeWebChatSessionStateInput,
@@ -1038,67 +1035,6 @@ export class OpenClawRuntimeAdapter implements OpenClawRuntimeBridge {
     );
   }
 
-  async uploadChatMedia(
-    input: AssistantRuntimeMediaUploadInput
-  ): Promise<AssistantRuntimeMediaUploadResult> {
-    const config = toOpenClawAdapterConfig(input.runtimeTier);
-    if (!config.enabled) {
-      throw new AssistantRuntimeAdapterError(
-        "runtime_unreachable",
-        "OpenClaw adapter is disabled by configuration."
-      );
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
-
-    try {
-      const qs = new URLSearchParams({
-        assistantId: input.assistantId,
-        chatId: input.chatId,
-        messageId: input.messageId
-      });
-      const response = await fetch(
-        `${config.baseUrl}/api/v1/runtime/workspace/media/upload?${qs.toString()}`,
-        {
-          method: "POST",
-          headers: {
-            ...(config.token.length > 0 ? { Authorization: `Bearer ${config.token}` } : {}),
-            "Content-Type": input.mimeType
-          },
-          body: new Uint8Array(input.fileBuffer),
-          signal: controller.signal
-        }
-      );
-
-      if (!response.ok) {
-        throw new AssistantRuntimeAdapterError(
-          "invalid_response",
-          `OpenClaw media upload responded ${response.status}.`
-        );
-      }
-
-      const payload = (await response.json()) as {
-        storagePath: string;
-        sizeBytes: number;
-        mimeType: string;
-      };
-      return {
-        storagePath: payload.storagePath,
-        sizeBytes: payload.sizeBytes,
-        mimeType: payload.mimeType
-      };
-    } catch (error) {
-      if (error instanceof AssistantRuntimeAdapterError) throw error;
-      throw new AssistantRuntimeAdapterError(
-        "runtime_unreachable",
-        "OpenClaw runtime unreachable during media upload."
-      );
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
   async downloadChatMedia(
     assistantId: string,
     storagePath: string,
@@ -1137,80 +1073,6 @@ export class OpenClawRuntimeAdapter implements OpenClawRuntimeBridge {
     } finally {
       clearTimeout(timeoutId);
     }
-  }
-
-  async deleteChatMedia(
-    assistantId: string,
-    storagePath: string,
-    runtimeTier?: RuntimeTier
-  ): Promise<void> {
-    const config = toOpenClawAdapterConfig(runtimeTier);
-    if (!config.enabled) return;
-
-    try {
-      const qs = new URLSearchParams({ assistantId, storagePath });
-      await this.requestWithRetries(
-        "POST",
-        `/api/v1/runtime/workspace/media/delete?${qs.toString()}`,
-        undefined,
-        config
-      );
-    } catch {
-      // Non-fatal: file might already be deleted
-    }
-  }
-
-  async deleteChatMediaBatch(
-    assistantId: string,
-    chatId: string,
-    runtimeTier?: RuntimeTier
-  ): Promise<void> {
-    const config = toOpenClawAdapterConfig(runtimeTier);
-    if (!config.enabled) return;
-
-    try {
-      const qs = new URLSearchParams({ assistantId, chatId });
-      await this.requestWithRetries(
-        "POST",
-        `/api/v1/runtime/workspace/media/delete-chat?${qs.toString()}`,
-        undefined,
-        config
-      );
-    } catch {
-      // Non-fatal: directory might already be deleted
-    }
-  }
-
-  async transcribeMedia(
-    assistantId: string,
-    storagePath: string,
-    runtimeTier?: RuntimeTier
-  ): Promise<AssistantRuntimeTranscribeResult> {
-    const config = toOpenClawAdapterConfig(runtimeTier);
-    if (!config.enabled) {
-      throw new AssistantRuntimeAdapterError(
-        "runtime_unreachable",
-        "OpenClaw adapter is disabled by configuration."
-      );
-    }
-
-    const qs = new URLSearchParams({ assistantId, storagePath });
-    const payload = await this.requestWithRetries(
-      "POST",
-      `/api/v1/runtime/workspace/media/transcribe?${qs.toString()}`,
-      undefined,
-      config
-    );
-
-    if (!isObject(payload)) {
-      throw new AssistantRuntimeAdapterError(
-        "invalid_response",
-        "OpenClaw transcribe response is not a JSON object."
-      );
-    }
-
-    const text = typeof payload.text === "string" ? payload.text : "";
-    return { text };
   }
 
   async getWorkspaceStorageUsage(

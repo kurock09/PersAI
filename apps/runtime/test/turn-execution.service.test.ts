@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ServiceUnavailableException } from "@nestjs/common";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextGenerateRequest,
@@ -426,6 +426,19 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   await assert.rejects(() => service.createTurn(request), /gateway down/);
   assert.equal(turnFinalizationService.failed.length, 1);
   assert.equal(turnFinalizationService.failed[0]?.code, "turn_execution_failed");
+
+  providerGatewayClient.error = new BadRequestException(
+    "Current-turn file payload is too large for direct model input."
+  );
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  await assert.rejects(
+    () => service.createTurn(request),
+    /Current-turn file payload is too large for direct model input/
+  );
+  assert.equal(turnFinalizationService.failed.length, 2);
+  assert.equal(turnFinalizationService.failed[1]?.code, "native_runtime_request_invalid");
 
   providerGatewayClient.error = null;
   turnAcceptanceService.result = createAcceptedTurn();

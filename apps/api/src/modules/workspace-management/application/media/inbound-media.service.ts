@@ -66,8 +66,7 @@ export class InboundMediaService {
         const processed = await this.preprocessor.process(
           raw.buffer,
           validated.effectiveMimeType,
-          raw.originalFilename,
-          params.assistantId
+          raw.originalFilename
         );
 
         const objectKey = this.mediaObjectStorage.buildChatMessageObjectKey({

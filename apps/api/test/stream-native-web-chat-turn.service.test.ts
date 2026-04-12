@@ -213,6 +213,62 @@ describe("StreamNativeWebChatTurnService", () => {
     }
   });
 
+  test("maps oversized native runtime payload responses to input validation", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          statusCode: 413,
+          message: "Current-turn file payload is too large for direct model input.",
+          error: "Payload Too Large"
+        }),
+        {
+          status: 413,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new StreamNativeWebChatTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      await assert.rejects(
+        () =>
+          collectChunks(
+            service.execute({
+              assistantId: "assistant-1",
+              publishedVersionId: "version-1",
+              runtimeTier: "paid_shared_restricted",
+              surfaceThreadKey: "thread-1",
+              userId: "user-1",
+              workspaceId: "workspace-1",
+              userMessageId: "user-msg-1",
+              userMessage: "hello native",
+              attachments: []
+            })
+          ),
+        (error) => {
+          const row = error as {
+            errorObject?: { code?: string; message?: string };
+          };
+          return (
+            row.errorObject?.code === "native_runtime_request_invalid" &&
+            row.errorObject?.message ===
+              "Current-turn file payload is too large for direct model input."
+          );
+        }
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("fails clearly when the runtime base url is missing while native stream mode is enabled", async () => {
     setApiEnv({ PERSAI_RUNTIME_BASE_URL: "" });
     const service = new StreamNativeWebChatTurnService({

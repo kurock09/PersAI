@@ -420,7 +420,7 @@ export class StreamNativeWebChatTurnService {
       this.extractErrorMessage(response.body) ??
       `Native runtime stream failed with HTTP ${response.status}.`;
 
-    if (response.status === 400) {
+    if (response.status === 400 || response.status === 413) {
       throw createAssistantInboundValidationError("native_runtime_request_invalid", message);
     }
     if (response.status === 409) {

@@ -1,11 +1,13 @@
 import {
   BadGatewayException,
+  BadRequestException,
   Inject,
   Injectable,
   ServiceUnavailableException
 } from "@nestjs/common";
 import type { RuntimeConfig } from "@persai/config";
 import type {
+  ProviderGatewayAudioTranscriptionResult,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent
@@ -22,6 +24,9 @@ interface JsonResponse {
   status: number;
   body: unknown;
 }
+
+const DIRECT_INPUT_PAYLOAD_TOO_LARGE_MESSAGE =
+  "Current-turn file payload is too large for direct model input. Remove some files or send a smaller file.";
 
 @Injectable()
 export class ProviderGatewayClientService {
@@ -82,6 +87,42 @@ export class ProviderGatewayClientService {
     if (!this.isTextGenerateResult(response.body)) {
       throw new BadGatewayException(
         "Provider gateway returned an invalid text generation response."
+      );
+    }
+
+    return response.body;
+  }
+
+  async transcribeAudio(input: {
+    buffer: Buffer;
+    mimeType: string;
+    filename: string | null;
+  }): Promise<ProviderGatewayAudioTranscriptionResult> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
+    }
+
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new Blob([Uint8Array.from(input.buffer)], { type: input.mimeType }),
+      input.filename ?? this.defaultAudioFilename(input.mimeType)
+    );
+
+    const response = await this.fetchJson(
+      this.buildUrl("/api/v1/providers/transcribe-audio"),
+      {
+        method: "POST",
+        body: formData
+      },
+      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      throw this.toGatewayException(response);
+    }
+    if (!this.isAudioTranscriptionResult(response.body)) {
+      throw new BadGatewayException(
+        "Provider gateway returned an invalid audio transcription response."
       );
     }
 
@@ -273,8 +314,16 @@ export class ProviderGatewayClientService {
 
   private toGatewayException(
     response: JsonResponse
-  ): BadGatewayException | ServiceUnavailableException {
+  ): BadGatewayException | BadRequestException | ServiceUnavailableException {
     const message = this.extractErrorMessage(response.body);
+    if (this.isPayloadTooLargeFailure(response.status, message)) {
+      return new BadRequestException(DIRECT_INPUT_PAYLOAD_TOO_LARGE_MESSAGE);
+    }
+    if (response.status === 400) {
+      return new BadRequestException(
+        message ?? `Provider gateway rejected the request with status ${response.status}.`
+      );
+    }
     if (response.status >= 500) {
       return new ServiceUnavailableException(
         message ?? `Provider gateway request failed with status ${response.status}.`
@@ -297,6 +346,19 @@ export class ProviderGatewayClientService {
     return null;
   }
 
+  private isPayloadTooLargeFailure(status: number, message: string | null): boolean {
+    if (status === 413) {
+      return true;
+    }
+    const normalized = message?.trim().toLowerCase() ?? "";
+    return (
+      normalized.includes("request entity too large") ||
+      normalized.includes("entity.too.large") ||
+      normalized.includes("payload too large") ||
+      normalized.includes("file too large")
+    );
+  }
+
   private asObject(value: unknown): Record<string, unknown> | null {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
@@ -314,6 +376,18 @@ export class ProviderGatewayClientService {
       typeof row.respondedAt === "string" &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage)))
+    );
+  }
+
+  private isAudioTranscriptionResult(
+    value: unknown
+  ): value is ProviderGatewayAudioTranscriptionResult {
+    const row = this.asObject(value);
+    return (
+      row?.provider === "openai" &&
+      typeof row.model === "string" &&
+      typeof row.text === "string" &&
+      typeof row.respondedAt === "string"
     );
   }
 
@@ -352,5 +426,27 @@ export class ProviderGatewayClientService {
 
   private isAbortError(error: unknown): boolean {
     return error instanceof Error && error.name === "AbortError";
+  }
+
+  private defaultAudioFilename(mimeType: string): string {
+    switch (mimeType) {
+      case "audio/mpeg":
+      case "audio/mp3":
+        return "audio.mp3";
+      case "audio/wav":
+        return "audio.wav";
+      case "audio/mp4":
+      case "audio/aac":
+        return "audio.m4a";
+      case "audio/ogg":
+      case "audio/opus":
+      case "audio/x-opus+ogg":
+        return "audio.ogg";
+      case "audio/flac":
+        return "audio.flac";
+      case "audio/webm":
+      default:
+        return "audio.webm";
+    }
   }
 }

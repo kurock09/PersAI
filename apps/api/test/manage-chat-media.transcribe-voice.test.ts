@@ -29,8 +29,8 @@ const assistant: Assistant = {
 };
 
 async function run(): Promise<void> {
-  const uploadCalls: Array<{ assistantId: string; runtimeTier: string; chatId: string }> = [];
-  const deleteBatchCalls: Array<{ assistantId: string; chatId: string; runtimeTier: string }> = [];
+  const transcriptionCalls: Array<{ buffer: Buffer; mimeType: string; filename: string | null }> =
+    [];
   const metrics = new PlatformHttpMetricsService();
 
   const service = new ManageChatMediaService(
@@ -41,40 +41,19 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {} as never,
+    {} as never,
     {
-      async uploadChatMedia(input: {
-        assistantId: string;
-        runtimeTier: string;
-        chatId: string;
-        messageId: string;
-        fileBuffer: Buffer;
-        mimeType: string;
-      }) {
-        uploadCalls.push({
-          assistantId: input.assistantId,
-          runtimeTier: input.runtimeTier,
-          chatId: input.chatId
-        });
+      async transcribe(input: { buffer: Buffer; mimeType: string; filename: string | null }) {
+        transcriptionCalls.push(input);
         return {
-          storagePath: `${input.chatId}/${input.messageId}.mp3`,
-          sizeBytes: input.fileBuffer.length,
-          mimeType: input.mimeType
+          provider: "openai",
+          model: "gpt-4o-mini-transcribe",
+          text: "  transcribed speech  ",
+          respondedAt: "2026-04-12T12:00:01.000Z"
         };
-      },
-      async transcribeMedia() {
-        return { text: "  transcribed speech  " };
-      },
-      async deleteChatMediaBatch(assistantId: string, chatId: string, runtimeTier: string) {
-        deleteBatchCalls.push({ assistantId, chatId, runtimeTier });
       }
     } as never,
     {} as never,
-    {} as never,
-    {
-      async resolveByAssistantId() {
-        return "free_shared_restricted";
-      }
-    } as never,
     {} as never,
     metrics
   );
@@ -98,15 +77,9 @@ async function run(): Promise<void> {
 
   assert.equal(first.text, "transcribed speech");
   assert.equal(second.text, "transcribed speech");
-  assert.equal(uploadCalls.length, 2);
-  assert.equal(deleteBatchCalls.length, 2);
-  assert.ok(uploadCalls[0]?.chatId.startsWith("_voice_tmp_"));
-  assert.ok(uploadCalls[1]?.chatId.startsWith("_voice_tmp_"));
-  assert.notEqual(uploadCalls[0]?.chatId, uploadCalls[1]?.chatId);
-  assert.deepEqual(
-    deleteBatchCalls.map((call) => call.chatId),
-    uploadCalls.map((call) => call.chatId)
-  );
+  assert.equal(transcriptionCalls.length, 2);
+  assert.equal(transcriptionCalls[0]?.filename, "voice-1.mp3");
+  assert.equal(transcriptionCalls[1]?.filename, "voice-2.mp3");
   const successSeries = metrics
     .getSnapshot()
     .mediaStageSeries.find(
@@ -126,33 +99,18 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {} as never,
+    {} as never,
     {
-      async uploadChatMedia(input: {
-        assistantId: string;
-        runtimeTier: string;
-        chatId: string;
-        messageId: string;
-        fileBuffer: Buffer;
-        mimeType: string;
-      }) {
+      async transcribe() {
         return {
-          storagePath: `${input.chatId}/${input.messageId}.mp3`,
-          sizeBytes: input.fileBuffer.length,
-          mimeType: input.mimeType
+          provider: "openai",
+          model: "gpt-4o-mini-transcribe",
+          text: "   ",
+          respondedAt: "2026-04-12T12:00:01.000Z"
         };
-      },
-      async transcribeMedia() {
-        return { text: "   " };
-      },
-      async deleteChatMediaBatch() {}
-    } as never,
-    {} as never,
-    {} as never,
-    {
-      async resolveByAssistantId() {
-        return "free_shared_restricted";
       }
     } as never,
+    {} as never,
     {} as never,
     emptyMetrics
   );

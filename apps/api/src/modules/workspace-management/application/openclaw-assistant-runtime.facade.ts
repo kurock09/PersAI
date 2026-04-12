@@ -11,12 +11,9 @@ import type {
   AssistantRuntimeCronControlInput,
   AssistantRuntimeFacade,
   AssistantRuntimeMediaDownloadResult,
-  AssistantRuntimeMediaUploadInput,
-  AssistantRuntimeMediaUploadResult,
   AssistantRuntimePreflightResult,
   AssistantRuntimeSetupPreviewTurnInput,
   AssistantRuntimeSetupPreviewTurnResult,
-  AssistantRuntimeTranscribeResult,
   AssistantRuntimeWebChatCompactInput,
   AssistantRuntimeWebChatCompactResult,
   AssistantRuntimeWebChatSessionDeleteInput,
@@ -143,42 +140,12 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
     return this.openClawRuntimeBridge.controlCronJob(input);
   }
 
-  uploadChatMedia(
-    input: AssistantRuntimeMediaUploadInput
-  ): Promise<AssistantRuntimeMediaUploadResult> {
-    return this.openClawRuntimeBridge.uploadChatMedia(input);
-  }
-
   downloadChatMedia(
     assistantId: string,
     storagePath: string,
     runtimeTier?: RuntimeTier
   ): Promise<AssistantRuntimeMediaDownloadResult | null> {
     return this.openClawRuntimeBridge.downloadChatMedia(assistantId, storagePath, runtimeTier);
-  }
-
-  deleteChatMedia(
-    assistantId: string,
-    storagePath: string,
-    runtimeTier?: RuntimeTier
-  ): Promise<void> {
-    return this.openClawRuntimeBridge.deleteChatMedia(assistantId, storagePath, runtimeTier);
-  }
-
-  deleteChatMediaBatch(
-    assistantId: string,
-    chatId: string,
-    runtimeTier?: RuntimeTier
-  ): Promise<void> {
-    return this.openClawRuntimeBridge.deleteChatMediaBatch(assistantId, chatId, runtimeTier);
-  }
-
-  transcribeMedia(
-    assistantId: string,
-    storagePath: string,
-    runtimeTier?: RuntimeTier
-  ): Promise<AssistantRuntimeTranscribeResult> {
-    return this.openClawRuntimeBridge.transcribeMedia(assistantId, storagePath, runtimeTier);
   }
 
   listMemoryItems(assistantId: string, runtimeTier?: RuntimeTier): Promise<unknown> {

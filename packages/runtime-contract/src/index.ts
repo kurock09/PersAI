@@ -169,6 +169,13 @@ export interface ProviderGatewayTextGenerateResult {
   usage: RuntimeUsageSnapshot | null;
 }
 
+export interface ProviderGatewayAudioTranscriptionResult {
+  provider: "openai";
+  model: string;
+  text: string;
+  respondedAt: IsoTimestamp;
+}
+
 export interface ProviderGatewayTextDeltaEvent {
   type: "text_delta";
   delta: string;
@@ -243,6 +250,13 @@ export type RuntimeTurnStreamEvent =
   | RuntimeCompletedEvent
   | RuntimeInterruptedEvent
   | RuntimeFailedEvent;
+
+export interface RuntimeMediaTranscriptionResult {
+  provider: "openai";
+  model: string;
+  text: string;
+  respondedAt: IsoTimestamp;
+}
 
 export interface RuntimeSessionResolveInput {
   runtimeTier: PersaiRuntimeTier;

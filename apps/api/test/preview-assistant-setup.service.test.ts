@@ -103,15 +103,7 @@ async function run(): Promise<void> {
       yield undefined as never;
     },
     controlCronJob: async () => ({}),
-    uploadChatMedia: async () => ({
-      storagePath: "unused",
-      sizeBytes: 1,
-      mimeType: "text/plain"
-    }),
-    downloadChatMedia: async () => null,
-    deleteChatMedia: async () => undefined,
-    deleteChatMediaBatch: async () => undefined,
-    transcribeMedia: async () => ({ text: "unused" })
+    downloadChatMedia: async () => null
   } as Pick<
     AssistantRuntimeFacade,
     | "preflight"
@@ -126,11 +118,7 @@ async function run(): Promise<void> {
     | "sendChannelTurn"
     | "streamWebChatTurn"
     | "controlCronJob"
-    | "uploadChatMedia"
     | "downloadChatMedia"
-    | "deleteChatMedia"
-    | "deleteChatMediaBatch"
-    | "transcribeMedia"
   > as AssistantRuntimeFacade;
 
   const materializeService = {

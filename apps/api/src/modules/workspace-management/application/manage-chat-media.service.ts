@@ -14,10 +14,9 @@ import {
 } from "../domain/assistant-chat.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import type { Assistant } from "../domain/assistant.entity";
-import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { MediaPreprocessorService } from "./media/media-preprocessor.service";
+import { NativeMediaTranscriptionService } from "./media/native-media-transcription.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
-import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { buildStoredAttachmentMetadata } from "./media/media.types";
@@ -51,11 +50,9 @@ export class ManageChatMediaService {
     private readonly chatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly preprocessor: MediaPreprocessorService,
+    private readonly nativeMediaTranscriptionService: NativeMediaTranscriptionService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
@@ -304,15 +301,10 @@ export class ManageChatMediaService {
     if (!assistant) {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
 
     let fileBuffer = params.file.buffer;
     let mimeType = validated.effectiveMimeType;
     const baseMime = (mimeType.split(";")[0] ?? mimeType).trim();
-    const { randomUUID } = await import("crypto");
-    const transientChatId = `_voice_tmp_${randomUUID()}`;
 
     if (AUDIO_MIMES_NEEDING_CONVERSION.has(baseMime)) {
       try {
@@ -325,21 +317,12 @@ export class ManageChatMediaService {
       }
     }
 
-    const uploadResult = await this.assistantRuntime.uploadChatMedia({
-      assistantId: assistant.id,
-      runtimeTier,
-      chatId: transientChatId,
-      messageId: "transcribe",
-      fileBuffer,
-      mimeType
-    });
-
     try {
-      const result = await this.assistantRuntime.transcribeMedia(
-        assistant.id,
-        uploadResult.storagePath,
-        runtimeTier
-      );
+      const result = await this.nativeMediaTranscriptionService.transcribe({
+        buffer: fileBuffer,
+        mimeType,
+        filename: params.file.originalname
+      });
       const text = result.text.trim();
       if (text.length === 0) {
         throw new BadRequestException("Voice transcription returned empty text. Please try again.");
@@ -347,7 +330,6 @@ export class ManageChatMediaService {
       outcome = "success";
       return { text };
     } finally {
-      await this.assistantRuntime.deleteChatMediaBatch(assistant.id, transientChatId, runtimeTier);
       const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
       this.platformHttpMetricsService.recordMediaStage({
         stage: "stt_transcribe",
@@ -455,12 +437,7 @@ export class ManageChatMediaService {
     logContext: string;
   }): Promise<Awaited<ReturnType<MediaPreprocessorService["process"]>> | null> {
     try {
-      return await this.preprocessor.process(
-        input.buffer,
-        input.mimeType,
-        input.originalFilename,
-        input.assistantId
-      );
+      return await this.preprocessor.process(input.buffer, input.mimeType, input.originalFilename);
     } catch (err) {
       this.logger.warn(
         `Preprocessing failed for ${input.logContext} "${input.originalFilename}", uploading raw: ${String(err)}`

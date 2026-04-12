@@ -75,8 +75,19 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   const client = new OpenAIProviderClient(createConfig());
   let capturedGenerateInput: unknown = null;
   let capturedStreamInput: unknown = null;
+  let capturedTranscriptionInput: unknown = null;
 
   (client as unknown as { client: unknown }).client = {
+    audio: {
+      transcriptions: {
+        create: async (payload: unknown) => {
+          capturedTranscriptionInput = payload;
+          return {
+            text: "spoken words"
+          };
+        }
+      }
+    },
     responses: {
       create: async (payload: { stream?: boolean; input: unknown }) => {
         if (payload.stream) {
@@ -153,4 +164,16 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     events.map((event) => event.type),
     ["text_delta", "completed"]
   );
+
+  const transcription = await client.transcribeAudio({
+    buffer: Buffer.from("voice-data"),
+    mimeType: "audio/mpeg",
+    filename: "voice.mp3"
+  });
+  assert.equal(transcription.text, "spoken words");
+  assert.equal(
+    (capturedTranscriptionInput as { model?: unknown } | null)?.model,
+    "gpt-4o-mini-transcribe"
+  );
+  assert.ok((capturedTranscriptionInput as { file?: unknown } | null)?.file);
 }

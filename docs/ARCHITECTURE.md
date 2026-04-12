@@ -769,7 +769,7 @@ It is not part of backend domain logic.
 - physical media binaries for active chat attachments/artifacts live in PersAI-owned object storage; `assistant_chat_message_attachments.storage_path` currently stores the PersAI object key even though the column name still reflects the older media model
 - the underlying object storage may reuse the same cloud bucket family as other PersAI storage, but attachment persistence is no longer modeled as an OpenClaw workspace filesystem concern
 - tool-generated media (`image_generate`, `tts`) is captured from OpenClaw agent response payloads and persisted as `tool_output` attachments after turn completion; delivery is post-completion with natural model status text during generation
-- inbound voice messages (web microphone + Telegram `message:voice`) still use the temporary pre-Step-12 STT seam; transcription text becomes the runtime `userMessage`, original audio is preserved as attachment
+- inbound voice messages (web microphone + Telegram `message:voice`) now use the native STT path `apps/api -> apps/runtime -> apps/provider-gateway -> OpenAI`; transcription text becomes the runtime `userMessage`, and the original audio is preserved as an attachment
 - media capabilities (`image`, `audio`, `video`, `file`) are plan-governed via `effectiveCapabilities.mediaClasses` (activated from plan entitlements, no longer hardcoded false)
 - media storage is quota-tracked via `media_storage_bytes` dimension in the existing workspace quota accounting system
 - cleanup: chat hard-delete / assistant reset / admin delete remove attachment objects from PersAI storage as part of the same bounded PersAI-owned media lifecycle

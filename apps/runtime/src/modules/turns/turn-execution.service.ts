@@ -519,6 +519,19 @@ export class TurnExecutionService {
         willRetry: false
       };
     }
+    if (error instanceof HttpException) {
+      const status = error.getStatus();
+      if (status === 400 || status === 413) {
+        return {
+          type: "failed",
+          requestId: acceptedTurn.receipt.requestId,
+          sessionId: acceptedTurn.session.sessionId,
+          code: "native_runtime_request_invalid",
+          message: error.message,
+          willRetry: false
+        };
+      }
+    }
     if (error instanceof Error && error.message.trim().length > 0) {
       return {
         type: "failed",
