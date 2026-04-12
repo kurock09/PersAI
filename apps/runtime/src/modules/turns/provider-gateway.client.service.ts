@@ -27,6 +27,7 @@ interface JsonResponse {
 
 const DIRECT_INPUT_PAYLOAD_TOO_LARGE_MESSAGE =
   "Current-turn file payload is too large for direct model input. Remove some files or send a smaller file.";
+const PROVIDER_GATEWAY_READY_TIMEOUT_MS = 10_000;
 
 @Injectable()
 export class ProviderGatewayClientService {
@@ -48,7 +49,7 @@ export class ProviderGatewayClientService {
       const response = await this.fetchJson(
         this.buildUrl("/ready"),
         { method: "GET" },
-        this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+        PROVIDER_GATEWAY_READY_TIMEOUT_MS
       );
       const body = this.asObject(response.body);
       return {

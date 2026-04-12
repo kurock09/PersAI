@@ -168,13 +168,13 @@ function createCompactionSession(
       externalUserKey: "user-1",
       mode: "direct" as const
     },
-    currentTokens: overrides?.currentTokens ?? 18_250,
+    currentTokens: overrides?.currentTokens !== undefined ? overrides.currentTokens : 18_250,
     totalTokensFresh: true,
     compactionCount: overrides?.compactionCount ?? 1,
     compactionHintTokens: 18_250,
     providerKey: "openai",
     modelKey: "gpt-4.1",
-    updatedAt: overrides?.updatedAt ?? "2026-04-12T20:00:00.000Z"
+    updatedAt: overrides?.updatedAt !== undefined ? overrides.updatedAt : "2026-04-12T20:00:00.000Z"
   };
 }
 
@@ -198,11 +198,25 @@ function createService(overrides?: {
     content: string;
     createdAt: Date;
   }>;
+  sharedCompaction?: Partial<{
+    reserveTokens: number;
+    keepRecentTokens: number;
+    recentTurnsPreserve: number;
+    suggestByMessageCount: boolean;
+    webSuggestionLatencyMs: number;
+  }>;
 }) {
   const callOrder: string[] = [];
   const releasedBytes: bigint[] = [];
   const compactInputs: Array<Record<string, unknown>> = [];
   const sessionResolveInputs: Array<Record<string, unknown>> = [];
+  const sharedCompaction = {
+    reserveTokens: overrides?.sharedCompaction?.reserveTokens ?? 24_000,
+    keepRecentTokens: overrides?.sharedCompaction?.keepRecentTokens ?? 16_000,
+    recentTurnsPreserve: overrides?.sharedCompaction?.recentTurnsPreserve ?? 4,
+    suggestByMessageCount: overrides?.sharedCompaction?.suggestByMessageCount ?? false,
+    webSuggestionLatencyMs: overrides?.sharedCompaction?.webSuggestionLatencyMs ?? 7_000
+  };
 
   const service = new ManageWebChatListService(
     {
@@ -221,6 +235,18 @@ function createService(overrides?: {
       listByChatId: async () => createAttachments(),
       deleteByChatId: async () => {
         callOrder.push("attachments-delete");
+      }
+    } as never,
+    {
+      findByPublishedVersionId: async (publishedVersionId: string) => {
+        assert.equal(publishedVersionId, "version-1");
+        return {
+          runtimeBundle: {
+            runtime: {
+              sharedCompaction
+            }
+          }
+        };
       }
     } as never,
     {
@@ -262,18 +288,6 @@ function createService(overrides?: {
       async deletePrefix(prefix: string) {
         callOrder.push(`object-storage-delete:${prefix}`);
       }
-    } as never,
-    {
-      execute: async () => ({
-        optimizationPolicy: {
-          compaction: {
-            reserveTokens: 24_000,
-            keepRecentTokens: 16_000,
-            recentTurnsPreserve: 4,
-            suggestCompactionByMessageCount: false
-          }
-        }
-      })
     } as never,
     {
       execute: async (input: Record<string, unknown>) => {
@@ -401,6 +415,42 @@ describe("ManageWebChatListService", () => {
       lastCompactedAt: null,
       reserveTokens: 24_000,
       keepRecentTokens: 16_000
+    });
+  });
+
+  test("derives web compaction thresholds from the applied materialized bundle", async () => {
+    const { service } = createService({
+      sharedCompaction: {
+        reserveTokens: 10_000,
+        keepRecentTokens: 4_000,
+        recentTurnsPreserve: 2,
+        suggestByMessageCount: true,
+        webSuggestionLatencyMs: 5_000
+      },
+      sessionResolveResult: {
+        found: true,
+        session: createCompactionSession({
+          currentTokens: null,
+          compactionCount: 0,
+          updatedAt: null
+        })
+      }
+    });
+
+    const state = await service.getChatCompactionState("user-1", "chat-1");
+
+    assert.deepEqual(state, {
+      available: true,
+      suggested: true,
+      suggestionReason: "history_threshold",
+      messageCount: 24,
+      assistantMessageCount: 12,
+      currentTokens: null,
+      sessionKey: null,
+      compactionCount: 0,
+      lastCompactedAt: null,
+      reserveTokens: 10_000,
+      keepRecentTokens: 4_000
     });
   });
 

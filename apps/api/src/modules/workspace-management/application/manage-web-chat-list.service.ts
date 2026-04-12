@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { DEFAULT_RUNTIME_SHARED_COMPACTION_WEB_LATENCY_THRESHOLD_MS } from "@persai/runtime-contract";
+import type { RuntimeSharedCompactionConfig } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -8,6 +8,10 @@ import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
+import {
+  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
+  type AssistantMaterializedSpecRepository
+} from "../domain/assistant-materialized-spec.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_RUNTIME_FACADE,
@@ -16,7 +20,6 @@ import {
 } from "./assistant-runtime.facade";
 import { CompactNativeWebChatSessionService } from "./compact-native-web-chat-session.service";
 import { ResolveNativeWebChatSessionStateService } from "./resolve-native-web-chat-session-state.service";
-import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
@@ -37,6 +40,14 @@ export interface DeleteWebChatRequest {
 }
 
 const ROLLING_WEB_CHAT_COMPACTION_LATENCY_SAMPLE_SIZE = 3;
+type EffectiveSharedCompactionConfig = Pick<
+  RuntimeSharedCompactionConfig,
+  | "reserveTokens"
+  | "keepRecentTokens"
+  | "recentTurnsPreserve"
+  | "suggestByMessageCount"
+  | "webSuggestionLatencyMs"
+>;
 
 function toChatState(chat: {
   id: string;
@@ -71,12 +82,13 @@ export class ManageWebChatListService {
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
+    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
+    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_RUNTIME_FACADE)
     private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly compactNativeWebChatSessionService: CompactNativeWebChatSessionService,
     private readonly resolveNativeWebChatSessionStateService: ResolveNativeWebChatSessionStateService
   ) {}
@@ -274,7 +286,7 @@ export class ManageWebChatListService {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
-    const [runtimeSessionState, platformSettings] = await Promise.all([
+    const [runtimeSessionState, compactionConfig] = await Promise.all([
       this.resolveNativeWebChatSessionStateService.execute({
         assistantId: assistant.id,
         runtimeTier,
@@ -282,9 +294,8 @@ export class ManageWebChatListService {
         surfaceThreadKey: chat.surfaceThreadKey,
         userId
       }),
-      this.resolvePlatformRuntimeProviderSettingsService.execute()
+      this.resolveEffectiveSharedCompactionConfig(assistant)
     ]);
-    const compactionPolicy = platformSettings.optimizationPolicy.compaction;
     return this.buildCompactionState({
       messageCount,
       assistantMessageCount,
@@ -294,7 +305,7 @@ export class ManageWebChatListService {
       compactionCount: runtimeSessionState.session?.compactionCount ?? 0,
       updatedAt: runtimeSessionState.session?.updatedAt ?? null,
       rollingLatencyMs,
-      compactionPolicy
+      compactionConfig
     });
   }
 
@@ -319,8 +330,7 @@ export class ManageWebChatListService {
     if (!result.compacted && this.isCompactionUnavailableReason(result.reason)) {
       throw this.createCompactionUnavailableError();
     }
-    const platformSettings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
-    const compactionPolicy = platformSettings.optimizationPolicy.compaction;
+    const compactionConfig = await this.resolveEffectiveSharedCompactionConfig(assistant);
     const state = this.buildCompactionState({
       messageCount,
       assistantMessageCount,
@@ -330,7 +340,7 @@ export class ManageWebChatListService {
       compactionCount: result.session?.compactionCount ?? 0,
       updatedAt: result.session?.updatedAt ?? null,
       rollingLatencyMs,
-      compactionPolicy,
+      compactionConfig,
       forceSuggestedFalse:
         result.compacted ||
         result.reason === "threshold_not_reached" ||
@@ -446,27 +456,25 @@ export class ManageWebChatListService {
     compactionCount: number;
     updatedAt: string | null;
     rollingLatencyMs: number | null;
-    compactionPolicy: Awaited<
-      ReturnType<ResolvePlatformRuntimeProviderSettingsService["execute"]>
-    >["optimizationPolicy"]["compaction"];
+    compactionConfig: EffectiveSharedCompactionConfig;
     forceSuggestedFalse?: boolean;
   }): AssistantWebChatCompactionState {
     const tokenThreshold = Math.max(
       1,
-      input.compactionPolicy.reserveTokens - input.compactionPolicy.keepRecentTokens
+      input.compactionConfig.reserveTokens - input.compactionConfig.keepRecentTokens
     );
     const tokenSuggested = input.currentTokens !== null && input.currentTokens >= tokenThreshold;
     const historySuggested =
-      input.compactionPolicy.suggestCompactionByMessageCount &&
-      (input.messageCount >= Math.max(input.compactionPolicy.recentTurnsPreserve * 4, 16) ||
-        input.assistantMessageCount >= Math.max(input.compactionPolicy.recentTurnsPreserve * 2, 8));
+      input.compactionConfig.suggestByMessageCount &&
+      (input.messageCount >= Math.max(input.compactionConfig.recentTurnsPreserve * 4, 16) ||
+        input.assistantMessageCount >= Math.max(input.compactionConfig.recentTurnsPreserve * 2, 8));
     // When message-count hints are enabled, do not nag on history alone after token compaction
     // brought usage below the threshold.
     const historyCountsAsSuggestion =
       historySuggested && (input.currentTokens === null || input.currentTokens >= tokenThreshold);
     const latencySuggested =
       input.rollingLatencyMs !== null &&
-      input.rollingLatencyMs >= DEFAULT_RUNTIME_SHARED_COMPACTION_WEB_LATENCY_THRESHOLD_MS;
+      input.rollingLatencyMs >= input.compactionConfig.webSuggestionLatencyMs;
     const suggestionReason = input.forceSuggestedFalse
       ? null
       : tokenSuggested
@@ -486,8 +494,70 @@ export class ManageWebChatListService {
       sessionKey: input.sessionKey,
       compactionCount: input.compactionCount,
       lastCompactedAt: input.compactionCount > 0 ? input.updatedAt : null,
-      reserveTokens: input.compactionPolicy.reserveTokens,
-      keepRecentTokens: input.compactionPolicy.keepRecentTokens
+      reserveTokens: input.compactionConfig.reserveTokens,
+      keepRecentTokens: input.compactionConfig.keepRecentTokens
+    };
+  }
+
+  private async resolveEffectiveSharedCompactionConfig(assistant: {
+    applyAppliedVersionId: string | null;
+  }): Promise<EffectiveSharedCompactionConfig> {
+    const publishedVersionId = assistant.applyAppliedVersionId?.trim() ?? "";
+    if (publishedVersionId.length === 0) {
+      throw new AssistantRuntimeError(
+        "runtime_degraded",
+        "Assistant applied published version is missing for shared compaction."
+      );
+    }
+
+    const materializedSpec =
+      await this.assistantMaterializedSpecRepository.findByPublishedVersionId(publishedVersionId);
+    if (materializedSpec === null) {
+      throw new AssistantRuntimeError(
+        "runtime_degraded",
+        "Assistant materialized runtime bundle is missing for shared compaction."
+      );
+    }
+
+    const sharedCompaction = this.readEffectiveSharedCompactionConfig(
+      materializedSpec.runtimeBundle
+    );
+    if (sharedCompaction === null) {
+      throw new AssistantRuntimeError(
+        "runtime_degraded",
+        "Assistant materialized runtime bundle shared compaction config is invalid."
+      );
+    }
+
+    return sharedCompaction;
+  }
+
+  private readEffectiveSharedCompactionConfig(
+    runtimeBundle: unknown
+  ): EffectiveSharedCompactionConfig | null {
+    const bundle = this.asObject(runtimeBundle);
+    const runtime = this.asObject(bundle?.runtime);
+    const sharedCompaction = this.asObject(runtime?.sharedCompaction);
+    const reserveTokens = this.asInteger(sharedCompaction?.reserveTokens);
+    const keepRecentTokens = this.asInteger(sharedCompaction?.keepRecentTokens);
+    const recentTurnsPreserve = this.asInteger(sharedCompaction?.recentTurnsPreserve);
+    const webSuggestionLatencyMs = this.asInteger(sharedCompaction?.webSuggestionLatencyMs);
+    const suggestByMessageCount = sharedCompaction?.suggestByMessageCount;
+    if (
+      reserveTokens === null ||
+      keepRecentTokens === null ||
+      recentTurnsPreserve === null ||
+      webSuggestionLatencyMs === null ||
+      typeof suggestByMessageCount !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      reserveTokens,
+      keepRecentTokens,
+      recentTurnsPreserve,
+      suggestByMessageCount,
+      webSuggestionLatencyMs
     };
   }
 
@@ -539,5 +609,15 @@ export class ManageWebChatListService {
     return Math.round(
       recentLatencies.reduce((sum, latencyMs) => sum + latencyMs, 0) / recentLatencies.length
     );
+  }
+
+  private asObject(value: unknown): Record<string, unknown> | null {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  }
+
+  private asInteger(value: unknown): number | null {
+    return Number.isInteger(value) ? (value as number) : null;
   }
 }

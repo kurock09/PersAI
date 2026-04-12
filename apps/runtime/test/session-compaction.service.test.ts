@@ -19,18 +19,21 @@ import type {
   TurnContextHydrationService
 } from "../src/modules/turns/turn-context-hydration.service";
 
-function createCompactionRequest(instructions: string | null = null): RuntimeCompactionRequest {
+function createCompactionRequest(input?: {
+  instructions?: string | null;
+  channel?: "web" | "telegram";
+}): RuntimeCompactionRequest {
   return {
     runtimeTier: "paid_shared_restricted",
     conversation: {
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      channel: "web",
+      channel: input?.channel ?? "web",
       externalThreadKey: "thread-1",
       externalUserKey: "user-1",
       mode: "direct"
     },
-    instructions
+    instructions: input?.instructions ?? null
   };
 }
 
@@ -295,15 +298,40 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   );
 
   sessionStore.resolvedSession = createResolvedSession(7000);
-  const belowThreshold = await service.compactSession(createCompactionRequest());
+  const belowThreshold = await service.compactSession(
+    createCompactionRequest({ channel: "telegram" })
+  );
   assert.equal(belowThreshold.compacted, false);
   assert.equal(belowThreshold.reason, "threshold_not_reached");
   assert.equal(providerGateway.requests.length, 0);
   assert.equal(postgres.appendCalls.length, 0);
 
+  sessionStore.resolvedSession = createResolvedSession(7000);
+  const manualWebCompaction = await service.compactSession(createCompactionRequest());
+  assert.equal(manualWebCompaction.compacted, true);
+  assert.equal(manualWebCompaction.reason, "compacted");
+  assert.equal(providerGateway.requests.length, 1);
+  assert.deepEqual(postgres.appendCalls.at(-1), {
+    runtimeSessionId: "session-1",
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    reason: "manual_request",
+    instructions: null,
+    summaryPayload: {
+      schema: "persai.runtimeSessionCompaction.v1",
+      summarizeToolCode: "summarize_context",
+      toolCode: "compact_context",
+      summaryText: "Compacted summary text",
+      summarizedMessageCount: 4,
+      preservedRecentMessageCount: 8
+    },
+    tokensBefore: 7000,
+    tokensAfter: null
+  });
+
   sessionStore.resolvedSession = createResolvedSession(30000);
   const compacted = await service.compactSession(
-    createCompactionRequest("Keep commitments and open questions.")
+    createCompactionRequest({ instructions: "Keep commitments and open questions." })
   );
   assert.equal(compacted.compacted, true);
   assert.equal(compacted.reason, "compacted");
@@ -311,9 +339,9 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(compacted.tokensAfter, null);
   assert.equal(compacted.session?.compactionCount, 3);
   assert.equal(hydration.inputs.at(-1)?.keepRecentMessageCount, 8);
-  assert.equal(providerGateway.requests.length, 1);
+  assert.equal(providerGateway.requests.length, 2);
   assert.match(
-    providerGateway.requests[0]?.systemPrompt ?? "",
+    providerGateway.requests[1]?.systemPrompt ?? "",
     /Additional operator instructions: Keep commitments and open questions\./
   );
   assert.deepEqual(sessionStore.updateCalls.at(-1), {
@@ -338,7 +366,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     tokensBefore: 30000,
     tokensAfter: null
   });
-  assert.equal(leaseService.released.length, 2);
+  assert.equal(leaseService.released.length, 3);
 }
 
 void runSessionCompactionServiceTest();

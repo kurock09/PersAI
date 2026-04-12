@@ -19,11 +19,6 @@ import { RenderAssistantInboundSurfaceMessageService } from "./render-assistant-
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 
 const TELEGRAM_OWNER_CLAIM_CODE_LENGTH = 6;
-const TELEGRAM_RETRYABLE_FAILURE_CODES = new Set([
-  "runtime_timeout",
-  "runtime_degraded",
-  "runtime_unreachable"
-]);
 
 type TelegramChatType = "private" | "group" | "supergroup";
 
@@ -546,32 +541,29 @@ export class TelegramChannelAdapterService {
       });
     } catch (error) {
       if (await this.handleUnauthorizedTelegramError(config.assistantId, error)) {
+        await this.completeTelegramUpdateBestEffort(config.assistantId, event.updateId);
         return { statusCode: 200, body: { ok: false, error: "invalid_bot_token" } };
       }
       if (error instanceof TelegramInboundAttachmentDownloadError) {
-        await this.safeSendPlainText(config, event.chatId, fallbackTurnFailureCopy(event.turnKind));
-        return { statusCode: 200, body: { ok: false, error: "attachment_download_failed" } };
+        return this.replyWithTerminalTurnFailure({
+          config,
+          event,
+          text: fallbackTurnFailureCopy(event.turnKind),
+          errorCode: "attachment_download_failed"
+        });
       }
       const failure = toAssistantInboundFailurePayload(error);
-      if (TELEGRAM_RETRYABLE_FAILURE_CODES.has(failure.code)) {
-        return {
-          statusCode: failure.code === "runtime_timeout" ? 504 : 503,
-          body: { ok: false, error: failure.code }
-        };
-      }
       const outboundMessage = this.renderAssistantInboundSurfaceMessageService.renderError(
         "telegram",
         failure.code,
         fallbackTurnFailureCopy(event.turnKind)
       );
-      const unauthorized = await this.safeSendPlainText(config, event.chatId, outboundMessage.text);
-      return {
-        statusCode: 200,
-        body: {
-          ok: false,
-          error: unauthorized ? "invalid_bot_token" : failure.code
-        }
-      };
+      return this.replyWithTerminalTurnFailure({
+        config,
+        event,
+        text: outboundMessage.text,
+        errorCode: failure.code
+      });
     }
 
     try {
@@ -644,6 +636,51 @@ export class TelegramChannelAdapterService {
         );
       }
       return unauthorized;
+    }
+  }
+
+  private async replyWithTerminalTurnFailure(params: {
+    config: ResolvedTelegramChannelRuntimeConfig;
+    event: Extract<ParsedTelegramWebhookEvent, { kind: "message" }>;
+    text: string;
+    errorCode: string;
+  }): Promise<TelegramWebhookHandleResult> {
+    const unauthorized = await this.safeSendPlainText(
+      params.config,
+      params.event.chatId,
+      params.text
+    );
+    await this.completeTelegramUpdateBestEffort(params.config.assistantId, params.event.updateId);
+    return {
+      statusCode: 200,
+      body: {
+        ok: false,
+        error: unauthorized ? "invalid_bot_token" : params.errorCode
+      }
+    };
+  }
+
+  private async completeTelegramUpdateBestEffort(
+    assistantId: string,
+    updateId: number | null
+  ): Promise<void> {
+    if (updateId === null) {
+      return;
+    }
+    try {
+      await this.bindingRepository.completeTelegramUpdateProcessing(
+        assistantId,
+        "telegram",
+        "telegram_bot",
+        updateId,
+        new Date()
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[telegram-webhook] Non-fatal: failed to finalize Telegram update ${updateId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 

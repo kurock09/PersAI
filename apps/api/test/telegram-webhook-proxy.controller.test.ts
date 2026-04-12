@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
+import { RenderAssistantInboundSurfaceMessageService } from "../src/modules/workspace-management/application/render-assistant-inbound-surface-message.service";
 import { TelegramChannelAdapterService } from "../src/modules/workspace-management/application/telegram-channel-adapter.service";
 
 async function run(): Promise<void> {
@@ -65,11 +66,7 @@ async function run(): Promise<void> {
         syncedGroups += 1;
       }
     } as never,
-    {
-      renderError(_surface: string, code: string, fallback: string) {
-        return { code, text: fallback };
-      }
-    } as never,
+    new RenderAssistantInboundSurfaceMessageService() as never,
     {
       async patchMetadata() {
         return undefined;
@@ -102,6 +99,9 @@ async function run(): Promise<void> {
   });
   assert.deepEqual(unauthorized, { statusCode: 401, body: { ok: false, error: "unauthorized" } });
 
+  const retryPlainTexts: string[] = [];
+  let lastHandledUpdateId: number | null = null;
+  let retryExecuteCalls = 0;
   const retryable = new TelegramChannelAdapterService(
     {
       async resolveByAssistantId() {
@@ -129,10 +129,14 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async sendPlainText() {
+      async sendPlainText(_botToken: string, _chatId: string, text: string) {
+        retryPlainTexts.push(text);
         return undefined;
       },
-      async sendAssistantTurnReply() {
+      async sendAssistantTurnReply(params: { turnResult: { deduplicated?: boolean } }) {
+        if (params.turnResult.deduplicated === true) {
+          return undefined;
+        }
         throw new Error("not expected");
       },
       async downloadInboundFile() {
@@ -141,6 +145,15 @@ async function run(): Promise<void> {
     } as never,
     {
       async execute() {
+        retryExecuteCalls += 1;
+        if (lastHandledUpdateId === 124) {
+          return {
+            assistantMessage: "",
+            respondedAt: "2026-04-12T10:00:01.000Z",
+            media: [],
+            deduplicated: true
+          };
+        }
         throw new AssistantRuntimeError("timeout", "timed out");
       }
     } as never,
@@ -154,12 +167,16 @@ async function run(): Promise<void> {
         return undefined;
       }
     } as never,
+    new RenderAssistantInboundSurfaceMessageService() as never,
     {
-      renderError(_surface: string, code: string, fallback: string) {
-        return { code, text: fallback };
-      }
-    } as never,
-    {
+      async completeTelegramUpdateProcessing(
+        _assistantId: string,
+        _providerKey: string,
+        _surfaceType: string,
+        updateId: number
+      ) {
+        lastHandledUpdateId = updateId;
+      },
       async patchMetadata() {
         return undefined;
       }
@@ -179,9 +196,31 @@ async function run(): Promise<void> {
     }
   });
   assert.deepEqual(retryResult, {
-    statusCode: 504,
+    statusCode: 200,
     body: { ok: false, error: "runtime_timeout" }
   });
+  assert.deepEqual(retryPlainTexts, ["The assistant took too long to respond. Please try again."]);
+  assert.equal(lastHandledUpdateId, 124);
+  assert.equal(retryExecuteCalls, 1);
+
+  const duplicateRetryResult = await retryable.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "tg-secret",
+    payload: {
+      update_id: 124,
+      message: {
+        text: "hello again",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, username: "alex" }
+      }
+    }
+  });
+  assert.deepEqual(duplicateRetryResult, {
+    statusCode: 200,
+    body: { ok: true }
+  });
+  assert.equal(retryExecuteCalls, 2);
+  assert.deepEqual(retryPlainTexts, ["The assistant took too long to respond. Please try again."]);
 }
 
 void run().catch((error) => {

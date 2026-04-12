@@ -93,8 +93,11 @@ export class SessionCompactionService {
         1,
         sharedCompaction.reserveTokens - sharedCompaction.keepRecentTokens
       );
+      // Public web compaction is an explicit user action, so only auto/system triggers remain
+      // token-threshold gated.
+      const isManualRequest = input.conversation.channel === "web" || instructions !== null;
       if (
-        instructions === null &&
+        !isManualRequest &&
         resolvedSession.session.currentTokens !== null &&
         resolvedSession.session.currentTokens < tokenThreshold
       ) {
@@ -137,7 +140,7 @@ export class SessionCompactionService {
         runtimeSessionId: persistedSession.id,
         assistantId: persistedSession.assistantId,
         workspaceId: persistedSession.workspaceId,
-        reason: instructions === null ? "shared_compaction" : "manual_request",
+        reason: isManualRequest ? "manual_request" : "shared_compaction",
         instructions,
         summaryPayload: {
           schema: "persai.runtimeSessionCompaction.v1",

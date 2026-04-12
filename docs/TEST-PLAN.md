@@ -793,6 +793,7 @@ Required in CI:
 - Startup reinit defers non-critical profile sync until the gateway reports ready.
 - Telegram profile API calls honor cooldown and do not spam `setMyName` / `setMyDescription` / `setMyProfilePhoto` on repeated no-op apply.
 - repeated Telegram webhook deliveries are deduped before they can start duplicate runtime turns.
+- accepted Telegram updates that end in terminal runtime/infra failure still return webhook `200`, send explicit fallback copy to the chat, and are marked handled so Telegram does not retry-loop the same update.
 - owner-only DM gate is validated before `requestPersaiTelegramTurn`.
 - unclaimed Telegram DM flow prompts for the PersAI 6-digit code and completes claim only on a matching code.
 - terminal Telegram `401 Unauthorized` maps to explicit `invalid_token` state instead of infinite retry-only behavior.
@@ -1054,6 +1055,7 @@ Required in CI:
   - `GET /healthz` returns `200`
   - `GET /readyz` returns `200` in healthy baseline
   - local/authenticated readiness callers can inspect `failing[]` and `uptimeMs`
+- provider-gateway readiness stays on a short bounded timeout even when runtime turn execution budgets are raised for slower model responses
   - runtime startup/backoff and Telegram bridge failures remain log-driven signals, not Prometheus metrics
 - Tier 2 deploy smoke for `SR1` must include:
   - API `/health`, `/ready`, `/metrics`
