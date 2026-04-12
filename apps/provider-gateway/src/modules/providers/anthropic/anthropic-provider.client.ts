@@ -266,13 +266,13 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           }
         : block.type === "image"
           ? {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: this.toAnthropicImageMime(block.mimeType),
-              data: block.dataBase64
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: this.toAnthropicImageMime(block.mimeType),
+                data: block.dataBase64
+              }
             }
-          }
           : {
               type: "document",
               source: {

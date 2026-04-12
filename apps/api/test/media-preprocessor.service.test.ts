@@ -132,7 +132,7 @@ async function run(): Promise<void> {
       extractWordText(buffer: Buffer): Promise<string | null>;
       extractSpreadsheetText(buffer: Buffer): Promise<string | null>;
     }
-  ).extractSpreadsheetText = async () => "Sheet \"Budget\"\nmonth,amount\nApr,42";
+  ).extractSpreadsheetText = async () => 'Sheet "Budget"\nmonth,amount\nApr,42';
 
   const docx = await service.process(
     Buffer.from("fake-docx"),

@@ -257,10 +257,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           }
         : block.type === "image"
           ? {
-            type: "input_image",
-            image_url: `data:${block.mimeType};base64,${block.dataBase64}`,
-            detail: "auto"
-          }
+              type: "input_image",
+              image_url: `data:${block.mimeType};base64,${block.dataBase64}`,
+              detail: "auto"
+            }
           : {
               type: "input_file",
               filename: block.filename ?? "attachment.pdf",

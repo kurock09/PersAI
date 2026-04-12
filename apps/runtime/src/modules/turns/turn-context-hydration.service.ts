@@ -173,7 +173,9 @@ export class TurnContextHydrationService {
     return hydrated.slice(-MAX_CANONICAL_WEB_CONTEXT_MESSAGES);
   }
 
-  private async createCurrentUserMessage(input: RuntimeTurnRequest): Promise<ProviderGatewayTextMessage> {
+  private async createCurrentUserMessage(
+    input: RuntimeTurnRequest
+  ): Promise<ProviderGatewayTextMessage> {
     return {
       role: "user",
       content: await this.buildHydratedMessageContent({
@@ -233,8 +235,9 @@ export class TurnContextHydrationService {
     const totalPdfCount =
       input.attachments.length > 0
         ? input.attachments.filter((attachment) => attachment.mimeType === "application/pdf").length
-        : input.fallbackAttachments.filter((attachment) => attachment.mimeType === "application/pdf")
-            .length;
+        : input.fallbackAttachments.filter(
+            (attachment) => attachment.mimeType === "application/pdf"
+          ).length;
     const attachmentLines =
       input.attachments.length > 0
         ? input.attachments.map((attachment) =>

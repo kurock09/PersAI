@@ -208,8 +208,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       content: [
         {
           type: "text",
-          text:
-            '[Files attached by user:\n- attachment (audio "voice.mp3", transcription: "hello from attachment")\n- attachment (image "diagram.png")\n- attachment (document "manual.pdf")\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nPDF attachments are included as direct model document input. Use the document contents plus any attachment metadata and message text.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
+          text: '[Files attached by user:\n- attachment (audio "voice.mp3", transcription: "hello from attachment")\n- attachment (image "diagram.png")\n- attachment (document "manual.pdf")\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nPDF attachments are included as direct model document input. Use the document contents plus any attachment metadata and message text.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
         },
         {
           type: "image",
@@ -240,8 +239,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       content: [
         {
           type: "text",
-          text:
-            '[Files attached by user:\n- attachment (file "runtime-fallback.pdf")\n- attachment (file "runtime-large.pdf")\nSome PDF attachments are included as direct model document input when within the request-size budget. For any others, rely on attachment metadata and content preview when available.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
+          text: '[Files attached by user:\n- attachment (file "runtime-fallback.pdf")\n- attachment (file "runtime-large.pdf")\nSome PDF attachments are included as direct model document input when within the request-size budget. For any others, rely on attachment metadata and content preview when available.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
         },
         {
           type: "pdf",

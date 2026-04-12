@@ -10,9 +10,7 @@ export class PersaiMediaObjectStorageService {
 
   constructor(@Inject(RUNTIME_CONFIG) private readonly config: RuntimeConfig) {
     this.storage =
-      config.APP_ENV === "dev"
-        ? new Storage({ projectId: config.GCP_PROJECT_ID })
-        : new Storage();
+      config.APP_ENV === "dev" ? new Storage({ projectId: config.GCP_PROJECT_ID }) : new Storage();
   }
 
   async downloadObject(objectKey: string): Promise<Buffer | null> {
