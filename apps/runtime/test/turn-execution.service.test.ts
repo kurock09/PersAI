@@ -5,6 +5,7 @@ import type {
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent,
+  RuntimeCompactionRequest,
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent
@@ -100,7 +101,17 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           inactiveReason: null
         }
       },
-      optimizationPolicy: null
+      optimizationPolicy: null,
+      sharedCompaction: {
+        summarizeToolCode: "summarize_context",
+        compactToolCode: "compact_context",
+        webSuggestionLatencyMs: 7000,
+        reserveTokens: 24000,
+        keepRecentTokens: 16000,
+        recentTurnsPreserve: 4,
+        suggestByMessageCount: false,
+        telegramAutoSummarizeEnabled: true
+      }
     },
     governance: {
       capabilityEnvelope: null,
@@ -111,7 +122,7 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       memoryControl: null,
       tasksControl: null,
       toolCredentialRefs: {},
-      toolQuotaPolicy: [],
+      toolPolicies: [],
       quota: {
         planCode: "paid",
         workspaceQuotaBytes: 1024,
@@ -331,6 +342,21 @@ class FakeTurnFinalizationService {
   }
 }
 
+class FakeSessionCompactionService {
+  calls: RuntimeCompactionRequest[] = [];
+
+  async compactSession(input: RuntimeCompactionRequest) {
+    this.calls.push(input);
+    return {
+      compacted: false,
+      reason: "threshold_not_reached",
+      tokensBefore: 30,
+      tokensAfter: null,
+      session: null
+    };
+  }
+}
+
 async function collectStreamEvents(
   generator: AsyncGenerator<RuntimeTurnStreamEvent>
 ): Promise<RuntimeTurnStreamEvent[]> {
@@ -341,18 +367,24 @@ async function collectStreamEvents(
   return events;
 }
 
+async function flushTaskQueue(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 export async function runTurnExecutionServiceTest(): Promise<void> {
   const bundleRegistry = new FakeRuntimeBundleRegistryService();
   const providerGatewayClient = new FakeProviderGatewayClientService();
   const turnContextHydrationService = new FakeTurnContextHydrationService();
   const turnAcceptanceService = new FakeTurnAcceptanceService();
   const turnFinalizationService = new FakeTurnFinalizationService();
+  const sessionCompactionService = new FakeSessionCompactionService();
   const service = new TurnExecutionService(
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGatewayClient as unknown as ProviderGatewayClientService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
-    turnFinalizationService as unknown as TurnFinalizationService
+    turnFinalizationService as unknown as TurnFinalizationService,
+    sessionCompactionService as never
   );
 
   const request = createRuntimeTurnRequest();
@@ -368,6 +400,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.deepEqual(providerGatewayClient.calls[0]?.messages, turnContextHydrationService.messages);
   assert.equal(turnFinalizationService.completed.length, 1);
   assert.equal(turnFinalizationService.failed.length, 0);
+  await flushTaskQueue();
+  assert.equal(sessionCompactionService.calls.length, 0);
 
   const overrideRequest = createRuntimeTurnRequest();
   overrideRequest.bundle.bundleHash = request.bundle.bundleHash;
@@ -393,6 +427,48 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(overrideCompleted.assistantText, "override reply");
   assert.equal(providerGatewayClient.calls[1]?.provider, "anthropic");
   assert.equal(providerGatewayClient.calls[1]?.model, "claude-sonnet-4-5");
+  await flushTaskQueue();
+  assert.equal(sessionCompactionService.calls.length, 0);
+
+  const telegramRequest = createRuntimeTurnRequest();
+  telegramRequest.bundle.bundleHash = request.bundle.bundleHash;
+  telegramRequest.conversation = {
+    ...telegramRequest.conversation,
+    channel: "telegram",
+    externalThreadKey: "telegram-thread-1",
+    externalUserKey: null,
+    mode: "group"
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).session.conversation = {
+    ...telegramRequest.conversation
+  };
+  const telegramCompleted = await service.createTurn(telegramRequest);
+  assert.equal(telegramCompleted.assistantText, "override reply");
+  await flushTaskQueue();
+  assert.deepEqual(sessionCompactionService.calls.at(-1), {
+    runtimeTier: "paid_shared_restricted",
+    conversation: telegramRequest.conversation,
+    instructions: null
+  });
+
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.runtime.sharedCompaction.telegramAutoSummarizeEnabled = false;
+  }
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).session.conversation = {
+    ...telegramRequest.conversation
+  };
+  await service.createTurn(telegramRequest);
+  await flushTaskQueue();
+  assert.equal(sessionCompactionService.calls.length, 1);
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.runtime.sharedCompaction.telegramAutoSummarizeEnabled = true;
+  }
 
   const replayedResult = {
     ...completed,
@@ -414,10 +490,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       completedAt: "2026-04-11T12:00:02.000Z"
     }
   };
+  const providerCallsBeforeReplay = providerGatewayClient.calls.length;
   turnAcceptanceService.result = replayedTurn;
   const replayed = await service.createTurn(request);
   assert.equal(replayed.assistantText, "cached reply");
-  assert.equal(providerGatewayClient.calls.length, 2);
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeReplay);
 
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =

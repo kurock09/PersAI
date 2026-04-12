@@ -204,6 +204,15 @@ export class RuntimeStatePostgresService {
     });
   }
 
+  findLatestSessionCompaction(runtimeSessionId: string) {
+    return this.prisma.runtimeSessionCompaction.findFirst({
+      where: {
+        runtimeSessionId
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+    });
+  }
+
   updateSession(input: UpdateRuntimeSessionInput) {
     const data: Prisma.RuntimeSessionUncheckedUpdateInput = {
       ...(input.currentPublishedVersionId !== undefined

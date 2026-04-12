@@ -33,6 +33,18 @@ export const PERSAI_RUNTIME_TRACE_STATUSES = ["ok", "degraded", "failed", "inter
 
 export type PersaiRuntimeTraceStatus = (typeof PERSAI_RUNTIME_TRACE_STATUSES)[number];
 
+export const PERSAI_RUNTIME_TOOL_KINDS = ["system", "plan", "internal"] as const;
+
+export type PersaiRuntimeToolKind = (typeof PERSAI_RUNTIME_TOOL_KINDS)[number];
+
+export const PERSAI_RUNTIME_TOOL_EXECUTION_MODES = ["inline", "worker", "sandbox"] as const;
+
+export type PersaiRuntimeToolExecutionMode = (typeof PERSAI_RUNTIME_TOOL_EXECUTION_MODES)[number];
+
+export const PERSAI_RUNTIME_TOOL_USAGE_RULES = ["required", "allowed", "forbidden"] as const;
+
+export type PersaiRuntimeToolUsageRule = (typeof PERSAI_RUNTIME_TOOL_USAGE_RULES)[number];
+
 export type IsoTimestamp = string;
 
 export interface AssistantScope {
@@ -99,6 +111,40 @@ export interface RuntimeUsageSnapshot {
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+}
+
+export interface RuntimeToolPolicy {
+  toolCode: string;
+  displayName: string;
+  description: string | null;
+  kind: PersaiRuntimeToolKind;
+  executionMode: PersaiRuntimeToolExecutionMode;
+  usageRule: PersaiRuntimeToolUsageRule;
+  enabled: boolean;
+  visibleToModel: boolean;
+  visibleInPlanEditor: boolean;
+  dailyCallLimit: number | null;
+}
+
+export const PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES = [
+  "summarize_context",
+  "compact_context"
+] as const;
+
+export type PersaiRuntimeSharedCompactionToolCode =
+  (typeof PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES)[number];
+
+export const DEFAULT_RUNTIME_SHARED_COMPACTION_WEB_LATENCY_THRESHOLD_MS = 7_000 as const;
+
+export interface RuntimeSharedCompactionConfig {
+  summarizeToolCode: "summarize_context";
+  compactToolCode: "compact_context";
+  webSuggestionLatencyMs: number;
+  reserveTokens: number;
+  keepRecentTokens: number;
+  recentTurnsPreserve: number;
+  suggestByMessageCount: boolean;
+  telegramAutoSummarizeEnabled: boolean;
 }
 
 export interface RuntimeTurnRequest {

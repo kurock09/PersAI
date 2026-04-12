@@ -1,15 +1,25 @@
 import { Body, Controller, Post, Req, Res } from "@nestjs/common";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
+  RuntimeCompactionRequest,
+  RuntimeCompactionResult,
+  RuntimeSessionResolveInput,
+  RuntimeSessionResolveResult,
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent
 } from "@persai/runtime-contract";
+import { SessionStoreService } from "../../../sessions/session-store.service";
+import { SessionCompactionService } from "../../session-compaction.service";
 import { TurnExecutionService } from "../../turn-execution.service";
 
 @Controller("api/v1/turns")
 export class TurnsController {
-  constructor(private readonly turnExecutionService: TurnExecutionService) {}
+  constructor(
+    private readonly turnExecutionService: TurnExecutionService,
+    private readonly sessionCompactionService: SessionCompactionService,
+    private readonly sessionStoreService: SessionStoreService
+  ) {}
 
   @Post("create")
   createTurn(@Body() body: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -47,6 +57,22 @@ export class TurnsController {
         res.end();
       }
     }
+  }
+
+  @Post("compact")
+  compactSession(@Body() body: RuntimeCompactionRequest): Promise<RuntimeCompactionResult> {
+    return this.sessionCompactionService.compactSession(body);
+  }
+
+  @Post("session/resolve")
+  async resolveSession(
+    @Body() body: RuntimeSessionResolveInput
+  ): Promise<RuntimeSessionResolveResult> {
+    const resolved = await this.sessionStoreService.resolveSession(body);
+    return {
+      found: resolved.found,
+      session: resolved.session
+    };
   }
 
   private writeEvent(

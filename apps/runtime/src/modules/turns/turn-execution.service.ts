@@ -4,10 +4,12 @@ import {
   HttpException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   ServiceUnavailableException
 } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
+  RuntimeCompactionRequest,
   ProviderGatewayTextMessage,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextStreamEvent,
@@ -21,6 +23,7 @@ import type {
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
 import type { RuntimeTurnReceiptSummary } from "./idempotency.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
@@ -33,6 +36,7 @@ type ProviderSelection = {
 };
 
 type PreparedTurnExecution = {
+  bundle: AssistantRuntimeBundle;
   providerRequest: ProviderGatewayTextGenerateRequest;
 };
 
@@ -47,12 +51,15 @@ class TurnExecutionError extends Error {
 
 @Injectable()
 export class TurnExecutionService {
+  private readonly logger = new Logger(TurnExecutionService.name);
+
   constructor(
     private readonly runtimeBundleRegistryService: RuntimeBundleRegistryService,
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly turnContextHydrationService: TurnContextHydrationService,
     private readonly turnAcceptanceService: TurnAcceptanceService,
-    private readonly turnFinalizationService: TurnFinalizationService
+    private readonly turnFinalizationService: TurnFinalizationService,
+    private readonly sessionCompactionService: SessionCompactionService
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -73,8 +80,10 @@ export class TurnExecutionService {
       case "replayed":
         return this.resolveReplayResult(acceptedTurn.receipt);
       case "accepted": {
-        const result = await this.executeAcceptedTurn(input, acceptedTurn);
+        const execution = await this.prepareTurnExecution(input);
+        const result = await this.executeAcceptedTurn(acceptedTurn, execution);
         await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
+        this.scheduleAutoCompaction(input, execution.bundle);
         return result;
       }
     }
@@ -106,17 +115,22 @@ export class TurnExecutionService {
           execution.providerRequest,
           options?.signal === undefined ? undefined : { signal: options.signal }
         );
-        return this.streamAcceptedTurn(acceptedTurn, providerStream, options?.signal);
+        return this.streamAcceptedTurn(
+          acceptedTurn,
+          execution,
+          providerStream,
+          input,
+          options?.signal
+        );
       }
     }
   }
 
   private async executeAcceptedTurn(
-    input: RuntimeTurnRequest,
-    acceptedTurn: AcceptedRuntimeTurn
+    acceptedTurn: AcceptedRuntimeTurn,
+    execution: PreparedTurnExecution
   ): Promise<RuntimeTurnResult> {
     try {
-      const execution = await this.prepareTurnExecution(input);
       const providerResult = await this.providerGatewayClientService.generateText(
         execution.providerRequest
       );
@@ -156,6 +170,7 @@ export class TurnExecutionService {
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, input);
     const hydratedMessages = await this.turnContextHydrationService.buildMessages(input);
     return {
+      bundle: bundleEntry.parsedBundle,
       providerRequest: this.buildProviderRequest(
         bundleEntry.parsedBundle,
         providerSelection,
@@ -166,7 +181,9 @@ export class TurnExecutionService {
 
   private async *streamAcceptedTurn(
     acceptedTurn: AcceptedRuntimeTurn,
+    execution: PreparedTurnExecution,
     providerStream: AsyncGenerator<ProviderGatewayTextStreamEvent>,
+    input: RuntimeTurnRequest,
     signal?: AbortSignal
   ): AsyncGenerator<RuntimeTurnStreamEvent> {
     let accumulatedText = "";
@@ -204,6 +221,7 @@ export class TurnExecutionService {
           const result = this.buildTurnResult(acceptedTurn, event.result);
           completionFinalizationAttempted = true;
           await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
+          this.scheduleAutoCompaction(input, execution.bundle);
           yield {
             type: "completed",
             result
@@ -454,6 +472,59 @@ export class TurnExecutionService {
 
   private normalizeOptionalText(value: string | null): string | null {
     return value === null || value.trim().length === 0 ? null : value.trim();
+  }
+
+  private scheduleAutoCompaction(input: RuntimeTurnRequest, bundle: AssistantRuntimeBundle): void {
+    const request = this.buildAutoCompactionRequest(input, bundle);
+    if (request === null) {
+      return;
+    }
+
+    queueMicrotask(() => {
+      void this.runAutoCompaction(request);
+    });
+  }
+
+  private buildAutoCompactionRequest(
+    input: RuntimeTurnRequest,
+    bundle: AssistantRuntimeBundle
+  ): RuntimeCompactionRequest | null {
+    if (
+      input.conversation.channel !== "telegram" ||
+      bundle.runtime.sharedCompaction.telegramAutoSummarizeEnabled !== true
+    ) {
+      return null;
+    }
+
+    return {
+      runtimeTier: input.runtimeTier,
+      conversation: input.conversation,
+      instructions: null
+    };
+  }
+
+  private async runAutoCompaction(request: RuntimeCompactionRequest): Promise<void> {
+    try {
+      const result = await this.sessionCompactionService.compactSession(request);
+      if (
+        !result.compacted &&
+        result.reason !== "threshold_not_reached" &&
+        result.reason !== "nothing_to_compact" &&
+        result.reason !== "session_busy"
+      ) {
+        this.logger.warn(
+          `[auto-compaction] Non-terminal skip for ${request.conversation.channel}:${request.conversation.externalThreadKey} (${String(
+            result.reason ?? "unknown"
+          )})`
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[auto-compaction] Failed for ${request.conversation.channel}:${request.conversation.externalThreadKey}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   private asObject(value: unknown): Record<string, unknown> | null {

@@ -73,40 +73,6 @@ export interface AssistantRuntimeWebChatTurnResult {
   };
 }
 
-export interface AssistantRuntimeWebChatSessionStateInput {
-  assistantId: string;
-  runtimeTier?: RuntimeTier;
-  chatId: string;
-  surfaceThreadKey: string;
-}
-
-export interface AssistantRuntimeWebChatSessionStateResult {
-  sessionKey: string;
-  found: boolean;
-  currentTokens: number | null;
-  totalTokensFresh: boolean;
-  compactionCount: number;
-  updatedAt: string | null;
-  provider: string | null;
-  model: string | null;
-}
-
-export interface AssistantRuntimeWebChatCompactInput {
-  assistantId: string;
-  runtimeTier?: RuntimeTier;
-  chatId: string;
-  surfaceThreadKey: string;
-  instructions?: string;
-}
-
-export interface AssistantRuntimeWebChatCompactResult {
-  compacted: boolean;
-  reason: string | null;
-  tokensBefore: number | null;
-  tokensAfter: number | null;
-  state: AssistantRuntimeWebChatSessionStateResult;
-}
-
 export interface AssistantRuntimeSetupPreviewTurnInput {
   assistantId: string;
   runtimeTier?: RuntimeTier;
@@ -184,12 +150,6 @@ export interface AssistantRuntimeFacade {
   resetWorkspace(assistantId: string): Promise<void>;
   resetMemoryWorkspace(assistantId: string): Promise<void>;
   deleteWebChatSession(input: AssistantRuntimeWebChatSessionDeleteInput): Promise<void>;
-  getWebChatSessionState(
-    input: AssistantRuntimeWebChatSessionStateInput
-  ): Promise<AssistantRuntimeWebChatSessionStateResult>;
-  compactWebChatSession(
-    input: AssistantRuntimeWebChatCompactInput
-  ): Promise<AssistantRuntimeWebChatCompactResult>;
   sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;

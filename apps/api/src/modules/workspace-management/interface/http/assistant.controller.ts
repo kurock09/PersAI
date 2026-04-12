@@ -787,11 +787,15 @@ export class AssistantController {
     state: AssistantWebChatCompactionState;
   }> {
     const userId = this.resolveRequestUserId(req);
-    const state = await this.manageWebChatListService.getChatCompactionState(userId, chatId);
-    return {
-      requestId: req.requestId ?? null,
-      state
-    };
+    try {
+      const state = await this.manageWebChatListService.getChatCompactionState(userId, chatId);
+      return {
+        requestId: req.requestId ?? null,
+        state
+      };
+    } catch (error) {
+      throw toAssistantInboundHttpException(error);
+    }
   }
 
   @Post("assistant/chats/web/:chatId/compact")

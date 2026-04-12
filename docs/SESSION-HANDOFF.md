@@ -1,5 +1,473 @@
 # SESSION-HANDOFF
 
+## 2026-04-12 - ADR-072 T15-2 shared compaction completion
+
+### What changed
+
+1. `apps/runtime` now reuses the native shared compaction service after completed Telegram turns when the assistant-scoped `telegramAutoSummarizeEnabled` flag is on, so Telegram owner auto summarize no longer depends on any channel-only command seam.
+2. Ordinary native turn hydration now reuses the latest durable `runtime_session_compactions.summary_payload` summary on later turns, so already-compacted history stops replaying in full after shared compaction has run.
+3. Public web compaction/banner state now also suggests compression when recent canonical user->assistant reply latency averages above the shared `7000ms` threshold, while keeping the existing assistant API contract and the native session-truth read path.
+
+### Why
+
+1. `T15-2` still was not honestly complete after the web manual/state cutovers because Telegram auto summarize was only materialized as config, not executed through the native shared compaction path.
+2. Writing durable compaction rows without reusing them on later turns left the main token-saving benefit unrealized for normal native execution.
+3. ADR-072 explicitly keeps the web compaction banner when rolling latency exceeds `7s`, so the web state path needed one persistent signal source that survives pod restarts and does not depend on debug-only traces.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-2 — Shared summarization and compaction tools` is now complete; `T15-3 — Unified knowledge access layer` is next)
+
+### Files touched
+
+- `apps/runtime/src/modules/runtime-state/infrastructure/persistence/runtime-state-postgres.service.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-chat.types.ts`
+- `apps/api/test/manage-web-chat-list.service.test.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks
+
+1. Telegram auto summarize now runs best-effort after completed native turns; if another turn immediately grabs the session lease first, the auto compaction attempt will skip with `session_busy` and wait for a later turn instead of blocking the reply path.
+2. Web rolling-latency suggestion currently uses canonical user/assistant timestamp deltas, which reflects end-to-end reply time but not lower-level runtime stage breakdown.
+3. Shared compaction admin/operator exposure still belongs to future `T15-5` under `Admin > Tools`; only the assistant-scoped Telegram user toggle is live today.
+
+### Next recommended step
+
+1. Run the deploy + live validation pack for this completed `T15-2` slice.
+2. After live validation, start `T15-3` with the unified `knowledge_search` / `knowledge_fetch` contract instead of creating separate long-term tool families.
+
+### Ready commit message
+
+- `feat(runtime): finish shared compaction slice`
+
+---
+
+## 2026-04-12 - ADR-072 T15-3 unified knowledge layer planning
+
+### What changed
+
+1. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now fixes `T15-3` as one unified knowledge-access layer instead of several overlapping search/RAG/memory tools.
+2. The ADR now states that the clean target contract is `knowledge_search` + `knowledge_fetch`.
+3. `RAG` is now explicitly treated as a usage pattern, while `memory_search` / `memory_get` and `web_search` / `web_fetch` are recorded as source-specific variants or temporary aliases during migration instead of separate long-term architectures.
+
+### Why
+
+1. Leaving `RAG`, `knowledge_search`, `knowledge_fetch`, `memory_search`, and similar tools as separate architecture tracks would create duplicated runtime logic and model confusion.
+2. The current product surface still needs to be preserved during migration, but the target runtime contract should stay minimal and understandable.
+3. `browser` remains separate on purpose, so interactive browsing is not mixed into the unified retrieval layer.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-2 — Shared summarization and compaction tools` remains in progress)
+
+### Next recommended step
+
+- Finish the remaining `T15-2` work. When starting `T15-3`, implement the unified `knowledge_search` / `knowledge_fetch` layer instead of creating separate long-term architectures for `RAG`, `memory_search`, `memory_get`, `web_search`, and `web_fetch`.
+
+### Ready commit message
+
+- `docs: unify knowledge layer direction in ADR-072`
+
+---
+
+## 2026-04-12 - ADR-072 T15-2 native web compaction state cutover
+
+### What changed
+
+1. `apps/runtime` now exposes dark `POST /api/v1/turns/session/resolve`, backed directly by `SessionStoreService.resolveSession(...)`, so native runtime session-summary truth is available without the old OpenClaw web session-state API.
+2. `apps/api` now routes public `GET /api/v1/assistant/chats/web/:chatId/compaction` through new `ResolveNativeWebChatSessionStateService`, so the live web compaction state/banner path reads native runtime session truth instead of the old OpenClaw-only state seam.
+3. The old API-side OpenClaw-only web compaction/session-state facade methods were removed, `AssistantController` now normalizes GET compaction-state runtime errors through the standard inbound error mapper, and focused runtime/API tests cover the new state seam.
+
+### Why
+
+1. After the earlier manual `POST /compact` cutover, `T15-2` still mixed native compaction writes with legacy OpenClaw session-state reads on the public web banner/state path.
+2. Moving the read path onto native runtime truth keeps the shared compaction capability PersAI-native without spending time on temporary OpenClaw-preserving seams.
+3. This closes the remaining live web state dependency inside `T15-2` while keeping scope bounded: Telegram/auto callers and durable summary reuse still land later.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-2 — Shared summarization and compaction tools` remains in progress; next is Telegram/auto callers plus later summary reuse, while shared compaction admin exposure still belongs in future `T15-5` under `Admin > Tools` and Telegram user auto-summarize remains assistant-scoped in Telegram settings)
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/interface/http/turns.controller.ts`
+- `apps/runtime/test/turns.controller.test.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-native-web-chat-session-state.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
+- `apps/api/src/modules/workspace-management/application/openclaw-assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/resolve-native-web-chat-session-state.service.test.ts`
+- `apps/api/test/manage-web-chat-list.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turns.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-native-web-chat-session-state.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks
+
+1. Public web compaction state now returns native session truth and no longer exposes the old OpenClaw-style session key; current web UI does not use that field, but any hidden caller relying on a non-null `sessionKey` would need follow-up.
+2. Telegram auto summarize and any later shared auto triggers still do not call the native shared compaction seam yet.
+3. Durable shared summaries are still recorded but not yet reused on later turns during normal context hydration.
+
+### Next recommended step
+
+1. Wire Telegram/user auto summarize and later shared auto triggers onto native `POST /api/v1/turns/compact` so all live compaction callers stop depending on channel-specific behavior.
+2. After caller routing is unified, teach normal turn hydration to reuse `runtime_session_compactions`, then land shared compaction operator exposure in future `T15-5` under `Admin > Tools` while leaving the Telegram user toggle assistant-scoped.
+
+### Ready commit message
+
+- `feat(api): move web compaction state to native runtime`
+
+---
+
+## 2026-04-12 - ADR-072 T15-2 native web manual compaction cutover
+
+### What changed
+
+1. `apps/api` now routes public `POST /api/v1/assistant/chats/web/:chatId/compact` through new `CompactNativeWebChatSessionService` to native runtime `POST /api/v1/turns/compact`, so the live web manual compaction action uses the shared `T15-2` seam instead of the old OpenClaw-only web compaction API.
+2. `ManageWebChatListService` now maps native shared-compaction results back into the existing assistant API contract, clears the immediate web suggestion state after a successful or skipped manual compact attempt, and maps native `session_not_found` / `session_busy` / `runtime_bundle_missing` outcomes back to public `compaction_unavailable`.
+3. Focused API tests now cover the new native compaction client plus the updated web compaction service path.
+
+### Why
+
+1. `T15-2` needed its first real user-facing caller on top of the shared native compaction seam after the earlier bundle contract baseline and dark runtime executor landed.
+2. Cutting over only the public web manual compact POST keeps scope bounded while removing the old web-only runtime dependency from the live compaction action.
+3. Preserving the existing assistant HTTP contract avoids forcing concurrent web-client/OpenAPI surface churn while `T15-2` still has pending banner, Telegram, and summary-reuse work.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-2 — Shared summarization and compaction tools` remains in progress; next is moving web compaction state/banner reads, then Telegram/auto callers, onto the same native seam)
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/compact-native-web-chat-session.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/compact-native-web-chat-session.service.test.ts`
+- `apps/api/test/manage-web-chat-list.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/compact-native-web-chat-session.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks
+
+1. Web manual compaction now depends on a native runtime session already existing for that chat; if a deployment intentionally flips ordinary web chat back off the native runtime path, manual compact will return `compaction_unavailable` until a native session exists again.
+2. `GET /api/v1/assistant/chats/web/:chatId/compaction` still reads the older session-state seam, so a later reload can diverge from the immediate POST response until the web state/banner read path also moves to native runtime truth.
+3. Durable shared summaries are still recorded but not yet reused on later turns during normal context hydration.
+
+### Next recommended step
+
+1. Move `GET /api/v1/assistant/chats/web/:chatId/compaction` and the web banner suggestion path onto native runtime session truth so web no longer mixes native manual compaction with legacy session-state reads.
+2. After web state/banner reads are native, wire Telegram auto summarize and later shared auto triggers to the same runtime seam, then teach normal turn hydration to reuse `runtime_session_compactions`.
+
+### Ready commit message
+
+- `feat(api): route web compaction through native runtime`
+
+---
+
+## 2026-04-12 - ADR-072 T15-2 dark native compaction seam
+
+### What changed
+
+1. `apps/runtime` now exposes dark `POST /api/v1/turns/compact` through new `SessionCompactionService`, so Step 15 has a first native executor seam for shared compaction instead of only the bundle contract baseline.
+2. The new runtime seam resolves the active session plus warmed bundle from runtime-owned state, hydrates older canonical web/Telegram history, sends that history through provider-backed summary generation, appends `runtime_session_compactions`, and bumps runtime session compaction counters.
+3. `TurnContextHydrationService` now has a compaction-source builder for older canonical messages, and focused runtime tests now cover the new dark seam plus the compaction persistence path.
+
+### Why
+
+1. `T15-2` needed a real native execution seam after the earlier `runtime.sharedCompaction` contract baseline; otherwise the slice still had no runtime-owned compaction behavior to build on.
+2. Resolving the warmed bundle from runtime session state keeps the future shared tool path PersAI-native instead of reviving web-only or Telegram-only compaction APIs inside the runtime.
+3. Landing this as a dark seam keeps scope bounded: runtime execution/persistence is now real, while web/Telegram routing and summary reuse can cut over in later `T15-2` sub-steps.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-2 — Shared summarization and compaction tools` remains in progress; next is wiring user-facing web/Telegram/auto paths onto the shared native seam)
+
+### Files touched
+
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `apps/runtime/src/modules/turns/interface/http/turns.controller.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `apps/runtime/test/runtime-state-postgres.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-state-postgres.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-registry.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks
+
+1. The new seam is still dark: web manual compact, Telegram auto summarize, and future channel callers do not use `POST /api/v1/turns/compact` yet.
+2. The dark compaction path records durable summaries, but later native turns do not yet reuse those summaries during context hydration.
+3. Current dark compaction hydrates canonical history only for channels already backed by canonical chat rows (`web`, `telegram`); future channels still need their own canonical history feed before they can share the seam honestly.
+
+### Next recommended step
+
+1. Switch the web manual compact path to call the native `POST /api/v1/turns/compact` seam and keep the existing public assistant API contract stable while removing the old web-only runtime dependence.
+2. After web manual compact is on the shared seam, wire Telegram/user auto summarize and future auto triggers to the same runtime path, then teach normal turn hydration to reuse `runtime_session_compactions`.
+
+### Ready commit message
+
+- `feat(runtime): add dark native shared compaction seam`
+
+---
+
+## 2026-04-12 - ADR-072 T15-2 shared compaction contract baseline
+
+### What changed
+
+1. `packages/runtime-contract` and `packages/runtime-bundle` now define a typed native `runtime.sharedCompaction` block with fixed `summarize_context` / `compact_context` names, the shared web suggestion latency threshold, the current web token-preservation knobs, and the assistant-scoped Telegram auto-summarize flag.
+2. `MaterializeAssistantPublishedVersionService` now derives `runtime.sharedCompaction` from admin runtime compaction policy plus Telegram channel config, so later T15-2 work has one native bundle contract instead of split web/Telegram lookups.
+3. `RuntimeBundleRegistryService` now validates `runtime.sharedCompaction` on warm, and focused API/runtime tests cover both the shared-compaction mapping helper and the warmed-bundle contract.
+
+### Why
+
+1. `T15-2` needs a PersAI-native shared compaction contract before executor and user-path wiring can land cleanly.
+2. The previous truth was split across loosely typed runtime optimization policy payloads and Telegram channel config, which risked recreating channel-specific compaction behavior during the cutover.
+3. Starting the slice with this contract baseline keeps later web banner, Telegram auto summarize, and runtime executor work aligned without pretending those behaviors are already complete.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-2 — Shared summarization and compaction tools` is now in progress; next is executor/user-path wiring on top of `runtime.sharedCompaction`)
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `packages/runtime-bundle/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-shared-compaction.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/api/test/runtime-shared-compaction.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-shared-compaction.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-bundle-materialization.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-registry.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-coordinator.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+
+### Risks
+
+1. `runtime.sharedCompaction` is only the contract baseline; no native shared compaction executor or summary reuse path exists yet.
+2. The current web compaction banner/manual compact flow still runs through the existing web API/OpenClaw seam and does not yet consume `runtime.sharedCompaction`.
+3. Telegram `autoCompactionEnabled` is now projected into the shared native contract, but native turn execution still does not act on that flag.
+
+### Next recommended step
+
+1. Start the first real native `T15-2` executor seam by consuming `runtime.sharedCompaction` in a bounded `compact_context` / session-summary path that updates runtime compaction state without reviving Telegram-only commands.
+2. After that executor seam exists, wire the web banner/manual path and Telegram auto summarize to the same shared contract instead of preserving channel-specific behavior.
+
+### Ready commit message
+
+- `feat(runtime): add shared compaction bundle contract baseline`
+
+---
+
+## 2026-04-12 - ADR-072 T15-1 native tool policy baseline
+
+### What changed
+
+1. `packages/runtime-contract` and `packages/runtime-bundle` now define an explicit native `toolPolicies` contract with `kind`, `usageRule`, and `executionMode` metadata instead of relying only on `toolQuotaPolicy`-style plan state.
+2. `MaterializeAssistantPublishedVersionService` now derives native tool policies from the effective tool surface and uses the same policy list to render `TOOLS.md`, so prompt/runtime policy truth is no longer split.
+3. `RuntimeBundleRegistryService` now rejects warmed bundles when `toolAvailability` names a tool that lacks matching explicit policy metadata.
+
+### Why
+
+1. `T15-1` required the runtime and the model to share one PersAI-native understanding of which tools are `system`, `plan`, or hidden internal tools.
+2. Without an explicit contract, later Step 15 slices would still depend on prompt convention or scattered plan state when deciding whether a tool is allowed and how it should execute.
+3. Closing this baseline keeps the next slice focused on shared compaction/summarization instead of reopening tool taxonomy arguments.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-2 — Shared summarization and compaction tools` next)
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `packages/runtime-bundle/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-bundle-materialization.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-registry.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-coordinator.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+
+### Risks
+
+1. `toolPolicies` closes the baseline contract, but no native Step 15 tool executor exists yet; execution semantics still land in later slices.
+2. `toolQuotaPolicy` still exists on the legacy OpenClaw bootstrap side until later cleanup removes that tail completely.
+3. The current execution-mode map is intentionally conservative and must stay in sync when new tools are added to the catalog.
+
+### Next recommended step
+
+1. Start `T15-2 — Shared summarization and compaction tools` with one native `summarize_context` / `compact_context` system capability shared across web, Telegram, and automatic flows.
+2. Keep `T15-3` queued immediately after `T15-2` so search/RAG lands on top of the explicit native tool policy contract instead of inventing a second taxonomy.
+
+### Ready commit message
+
+- `feat(runtime): add native tool policy contract baseline`
+
+---
+
+## 2026-04-12 - ADR-072 T15-0 tool parity baseline closeout
+
+### What changed
+
+1. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now records the Step 15 baseline as an explicit current catalog/UI/runtime parity map instead of only a list of tool codes.
+2. The ADR now points to the concrete current source files for tool credentials, reminder/cron bridge behavior, and runtime materialization/`TOOLS.md` projection, so later Step 15 work has one bounded baseline to preserve.
+3. The ADR ledger now marks `T15-0` complete and `Step 15` in progress, with `T15-1` as the next smallest unfinished slice.
+
+### Why
+
+1. The previous Step 15 docs already named the current tool surface, but they still lacked the explicit parity mapping that `T15-0` itself says must exist before implementation starts.
+2. Without that map, later slices could still silently lose or rename current tools such as `web_fetch`, `browser`, `memory_get`, `reminder_task`, or the platform-managed system tools.
+3. Closing `T15-0` cleanly removes more planning churn and lets the next session move straight into native tool taxonomy/policy work.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-1 — Tool taxonomy and usage policy baseline` next)
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-activation.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-bundle-materialization.test.ts`
+
+### Risks
+
+1. `T15-0` closes only the baseline/parity documentation; no Step 15 runtime executor or usage-policy enforcement code exists yet.
+2. `browser` and some future knowledge-tool naming details are intentionally preserved here as parity requirements for later slices rather than being redesigned in this session.
+3. `reminder_task` still rides the existing cron/webhook bridge until later Step 15 implementation slices replace or isolate that executor path more natively.
+
+### Next recommended step
+
+1. Start `T15-1 — Tool taxonomy and usage policy baseline` by adding explicit PersAI-native runtime/bundle metadata for `system` vs `plan` tools, usage rules, and execution modes.
+2. Keep `T15-2` queued immediately after `T15-1` so shared compaction/summarization returns as one system capability without reopening web-only or Telegram-only seams.
+
+### Ready commit message
+
+- `docs(runtime): close ADR-072 T15-0 tool parity baseline`
+
+---
+
 ## 2026-04-12 - ADR-072 Step 14 closeout and Telegram dev abuse tuning
 
 ### What changed

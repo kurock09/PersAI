@@ -32,6 +32,11 @@ import {
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
 import {
+  buildRuntimeToolPoliciesMarkdown,
+  resolveRuntimeToolPolicies
+} from "./runtime-tool-policy";
+import { buildRuntimeSharedCompactionConfig } from "./runtime-shared-compaction";
+import {
   ALL_TOOL_CREDENTIAL_KEYS,
   TOOL_CODE_BY_CREDENTIAL_KEY,
   TOOL_DEFAULT_PROVIDER,
@@ -46,6 +51,7 @@ import { normalizeAssistantGender } from "./assistant-gender";
 import { resolveRuntimeAssignmentState } from "./runtime-assignment";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { resolveTelegramBindingMetadataState } from "./telegram-integration.metadata";
+import type { RuntimeToolPolicy } from "@persai/runtime-contract";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -300,11 +306,19 @@ export class MaterializeAssistantPublishedVersionService {
 
     const toolCredentialRefs = await this.resolveToolCredentialRefs();
     const planToolQuotaPolicy = await this.resolveToolQuotaPolicy(effectivePlanCode);
-    const toolQuotaPolicy = this.resolveToolRuntimePolicy(
+    const openclawToolQuotaPolicy = this.resolveOpenClawToolQuotaPolicy(
       toolAvailability.tools,
       planToolQuotaPolicy
     );
+    const toolPolicies = resolveRuntimeToolPolicies({
+      tools: toolAvailability.tools,
+      planToolQuotaPolicy
+    });
     const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
+    const sharedCompaction = buildRuntimeSharedCompactionConfig({
+      compactionPolicy: platformRuntimeProviderSettings.optimizationPolicy.compaction,
+      telegramAutoSummarizeEnabled: telegramChannel.autoCompactionEnabled
+    });
 
     const apiConfig = loadApiConfig(process.env);
     const workspaceQuotaBytes = await this.resolveWorkspaceQuotaBytes(
@@ -333,7 +347,7 @@ export class MaterializeAssistantPublishedVersionService {
         runtimeProviderProfile,
         optimizationPolicy: platformRuntimeProviderSettings.optimizationPolicy,
         toolCredentialRefs,
-        toolQuotaPolicy,
+        toolQuotaPolicy: openclawToolQuotaPolicy,
         workspaceQuotaBytes,
         secretRefs: governance.secretRefs,
         auditHook: governance.auditHook
@@ -348,7 +362,7 @@ export class MaterializeAssistantPublishedVersionService {
       publishedVersion,
       governance,
       toolAvailability,
-      toolQuotaPolicy,
+      toolPolicies,
       effectivePlanCode,
       memoryControl,
       tasksControl,
@@ -404,7 +418,8 @@ export class MaterializeAssistantPublishedVersionService {
         runtimeAssignment,
         runtimeProviderProfile,
         runtimeProviderRouting,
-        optimizationPolicy: platformRuntimeProviderSettings.optimizationPolicy
+        optimizationPolicy: platformRuntimeProviderSettings.optimizationPolicy,
+        sharedCompaction
       },
       governance: {
         capabilityEnvelope: governance.capabilityEnvelope,
@@ -415,7 +430,7 @@ export class MaterializeAssistantPublishedVersionService {
         memoryControl,
         tasksControl,
         toolCredentialRefs,
-        toolQuotaPolicy,
+        toolPolicies,
         quota: {
           planCode: effectivePlanCode,
           workspaceQuotaBytes,
@@ -621,7 +636,7 @@ export class MaterializeAssistantPublishedVersionService {
     }));
   }
 
-  private resolveToolRuntimePolicy(
+  private resolveOpenClawToolQuotaPolicy(
     tools: Array<{
       code: string;
       policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
@@ -683,11 +698,7 @@ export class MaterializeAssistantPublishedVersionService {
     publishedVersion: AssistantPublishedVersion;
     governance: AssistantGovernance;
     toolAvailability: Record<string, unknown>;
-    toolQuotaPolicy: Array<{
-      toolCode: string;
-      dailyCallLimit: number | null;
-      activationStatus: string;
-    }>;
+    toolPolicies: RuntimeToolPolicy[];
     effectivePlanCode: string | null;
     memoryControl: unknown;
     tasksControl: unknown;
@@ -706,7 +717,7 @@ export class MaterializeAssistantPublishedVersionService {
       soulDocument: this.generateSoulMd(ctx.publishedVersion, templates.soul ?? null),
       userDocument: this.generateUserMd(ctx.userContext, templates.user ?? null),
       identityDocument: this.generateIdentityMd(ctx.publishedVersion, templates.identity ?? null),
-      toolsDocument: this.generateToolsMd(ctx.toolQuotaPolicy, templates.tools ?? null),
+      toolsDocument: this.generateToolsMd(ctx.toolPolicies, templates.tools ?? null),
       agentsDocument: this.generateAgentsMd(ctx, templates.agents ?? null),
       heartbeatDocument: this.generateHeartbeatMd(ctx.tasksControl),
       bootstrapDocument: this.generateBootstrapMd(ctx.publishedVersion, ctx.userContext)
@@ -867,82 +878,12 @@ export class MaterializeAssistantPublishedVersionService {
     return lines.join("\n");
   }
 
-  private buildToolsCatalogBlockMd(
-    toolQuotaPolicy: Array<{
-      toolCode: string;
-      dailyCallLimit: number | null;
-      activationStatus: string;
-      policyClass?: string;
-      visibleInPlanEditor?: boolean;
-    }>
-  ): string {
-    const lines: string[] = [];
-    const userVisiblePolicy = toolQuotaPolicy.filter(
-      (tool) => tool.policyClass !== "hidden_internal"
-    );
-
-    const active = userVisiblePolicy.filter((t) => t.activationStatus === "active");
-    const inactive = userVisiblePolicy.filter((t) => t.activationStatus !== "active");
-    const platformManaged = active.filter((tool) => tool.policyClass === "platform_managed");
-    const planManagedActive = active.filter((tool) => tool.policyClass !== "platform_managed");
-
-    if (planManagedActive.length > 0) {
-      lines.push("## Active Tools");
-      lines.push("");
-      for (const tool of planManagedActive) {
-        const limit =
-          tool.dailyCallLimit !== null ? ` (daily limit: ${String(tool.dailyCallLimit)})` : "";
-        lines.push(`- **${tool.toolCode}**${limit}`);
-      }
-      lines.push("");
-    }
-
-    if (inactive.length > 0) {
-      lines.push("## Disabled Tools");
-      lines.push("");
-      for (const tool of inactive) {
-        lines.push(`- ~~${tool.toolCode}~~ — not available on current plan`);
-      }
-      lines.push("");
-    }
-
-    if (platformManaged.length > 0) {
-      lines.push("## Platform-managed Tools");
-      lines.push("");
-      for (const tool of platformManaged) {
-        lines.push(`- **${tool.toolCode}** — available as part of platform policy`);
-      }
-      lines.push("");
-    }
-
-    if (userVisiblePolicy.length === 0) {
-      lines.push("No tools configured yet.");
-      lines.push("");
-    }
-
-    lines.push("## Live usage");
-    lines.push("");
-    lines.push("- Daily caps above are plan limits only, not remaining usage for today.");
-    lines.push(
-      "- Do not infer exhaustion from earlier messages; plans and counters change. When the user asks about remaining quota, call the `persai_tool_quota_status` tool first."
-    );
-    lines.push(
-      "- To attach an existing workspace file to the chat (image, document, audio, video) without loading file bytes into context, call `persai_workspace_attach` with a path relative to the workspace root."
-    );
-    lines.push("");
-
-    return lines.join("\n").trimEnd();
+  private buildToolsCatalogBlockMd(toolPolicies: RuntimeToolPolicy[]): string {
+    return buildRuntimeToolPoliciesMarkdown(toolPolicies);
   }
 
-  private generateToolsMd(
-    toolQuotaPolicy: Array<{
-      toolCode: string;
-      dailyCallLimit: number | null;
-      activationStatus: string;
-    }>,
-    template: string | null
-  ): string {
-    const catalog = this.buildToolsCatalogBlockMd(toolQuotaPolicy);
+  private generateToolsMd(toolPolicies: RuntimeToolPolicy[], template: string | null): string {
+    const catalog = this.buildToolsCatalogBlockMd(toolPolicies);
 
     if (template && template.trim().length > 0) {
       return this.interpolateTemplate(template, {

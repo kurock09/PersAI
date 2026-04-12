@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { DEFAULT_RUNTIME_SHARED_COMPACTION_WEB_LATENCY_THRESHOLD_MS } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -8,7 +9,13 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
+import {
+  ASSISTANT_RUNTIME_FACADE,
+  AssistantRuntimeError,
+  type AssistantRuntimeFacade
+} from "./assistant-runtime.facade";
+import { CompactNativeWebChatSessionService } from "./compact-native-web-chat-session.service";
+import { ResolveNativeWebChatSessionStateService } from "./resolve-native-web-chat-session-state.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -28,6 +35,8 @@ export interface RenameWebChatRequest {
 export interface DeleteWebChatRequest {
   confirmText: string;
 }
+
+const ROLLING_WEB_CHAT_COMPACTION_LATENCY_SAMPLE_SIZE = 3;
 
 function toChatState(chat: {
   id: string;
@@ -67,7 +76,9 @@ export class ManageWebChatListService {
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
+    private readonly compactNativeWebChatSessionService: CompactNativeWebChatSessionService,
+    private readonly resolveNativeWebChatSessionStateService: ResolveNativeWebChatSessionStateService
   ) {}
 
   parseRenameInput(payload: unknown): RenameWebChatRequest {
@@ -258,54 +269,33 @@ export class ManageWebChatListService {
     userId: string,
     chatId: string
   ): Promise<AssistantWebChatCompactionState> {
-    const { assistant, chat, messageCount, assistantMessageCount } =
+    const { assistant, chat, messageCount, assistantMessageCount, rollingLatencyMs } =
       await this.resolveOwnedWebChatWithStats(userId, chatId);
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
     const [runtimeSessionState, platformSettings] = await Promise.all([
-      this.assistantRuntime.getWebChatSessionState({
+      this.resolveNativeWebChatSessionStateService.execute({
         assistantId: assistant.id,
         runtimeTier,
-        chatId: chat.id,
-        surfaceThreadKey: chat.surfaceThreadKey
+        workspaceId: assistant.workspaceId,
+        surfaceThreadKey: chat.surfaceThreadKey,
+        userId
       }),
       this.resolvePlatformRuntimeProviderSettingsService.execute()
     ]);
     const compactionPolicy = platformSettings.optimizationPolicy.compaction;
-    const currentTokens = runtimeSessionState.currentTokens;
-    const tokenThreshold = Math.max(
-      1,
-      compactionPolicy.reserveTokens - compactionPolicy.keepRecentTokens
-    );
-    const tokenSuggested = currentTokens !== null && currentTokens >= tokenThreshold;
-    const historySuggested =
-      compactionPolicy.suggestCompactionByMessageCount &&
-      (messageCount >= Math.max(compactionPolicy.recentTurnsPreserve * 4, 16) ||
-        assistantMessageCount >= Math.max(compactionPolicy.recentTurnsPreserve * 2, 8));
-    // When message-count hints are enabled, do not nag on history alone after token compaction
-    // brought usage below the threshold.
-    const historyCountsAsSuggestion =
-      historySuggested && (currentTokens === null || currentTokens >= tokenThreshold);
-    const suggestionReason = tokenSuggested
-      ? "token_threshold"
-      : historyCountsAsSuggestion
-        ? "history_threshold"
-        : null;
-    return {
-      available: runtimeSessionState.found,
-      suggested: suggestionReason !== null,
-      suggestionReason,
+    return this.buildCompactionState({
       messageCount,
       assistantMessageCount,
-      currentTokens,
-      sessionKey: runtimeSessionState.found ? runtimeSessionState.sessionKey : null,
-      compactionCount: runtimeSessionState.compactionCount,
-      lastCompactedAt:
-        runtimeSessionState.compactionCount > 0 ? runtimeSessionState.updatedAt : null,
-      reserveTokens: compactionPolicy.reserveTokens,
-      keepRecentTokens: compactionPolicy.keepRecentTokens
-    };
+      currentTokens: runtimeSessionState.session?.currentTokens ?? null,
+      available: runtimeSessionState.found && runtimeSessionState.session !== null,
+      sessionKey: null,
+      compactionCount: runtimeSessionState.session?.compactionCount ?? 0,
+      updatedAt: runtimeSessionState.session?.updatedAt ?? null,
+      rollingLatencyMs,
+      compactionPolicy
+    });
   }
 
   async compactChat(
@@ -313,23 +303,44 @@ export class ManageWebChatListService {
     chatId: string,
     instructions?: string
   ): Promise<{ state: AssistantWebChatCompactionState; result: AssistantWebChatCompactionResult }> {
-    const { assistant, chat } = await this.resolveOwnedWebChatWithStats(userId, chatId);
+    const { assistant, chat, messageCount, assistantMessageCount, rollingLatencyMs } =
+      await this.resolveOwnedWebChatWithStats(userId, chatId);
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
-    const result = await this.assistantRuntime.compactWebChatSession({
+    const result = await this.compactNativeWebChatSessionService.execute({
       assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
       runtimeTier,
-      chatId: chat.id,
       surfaceThreadKey: chat.surfaceThreadKey,
+      userId,
       ...(instructions ? { instructions } : {})
     });
-    const state = await this.getChatCompactionState(userId, chatId);
+    if (!result.compacted && this.isCompactionUnavailableReason(result.reason)) {
+      throw this.createCompactionUnavailableError();
+    }
+    const platformSettings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    const compactionPolicy = platformSettings.optimizationPolicy.compaction;
+    const state = this.buildCompactionState({
+      messageCount,
+      assistantMessageCount,
+      currentTokens: result.session?.currentTokens ?? null,
+      available: result.session !== null,
+      sessionKey: null,
+      compactionCount: result.session?.compactionCount ?? 0,
+      updatedAt: result.session?.updatedAt ?? null,
+      rollingLatencyMs,
+      compactionPolicy,
+      forceSuggestedFalse:
+        result.compacted ||
+        result.reason === "threshold_not_reached" ||
+        result.reason === "nothing_to_compact"
+    });
     return {
       state,
       result: {
         compacted: result.compacted,
-        reason: result.reason,
+        reason: null,
         tokensBefore: result.tokensBefore,
         tokensAfter: result.tokensAfter
       }
@@ -404,6 +415,7 @@ export class ManageWebChatListService {
     chat: NonNullable<Awaited<ReturnType<AssistantChatRepository["findChatById"]>>>;
     messageCount: number;
     assistantMessageCount: number;
+    rollingLatencyMs: number | null;
   }> {
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
@@ -420,7 +432,112 @@ export class ManageWebChatListService {
       assistant,
       chat,
       messageCount: messages.length,
-      assistantMessageCount: messages.filter((message) => message.author === "assistant").length
+      assistantMessageCount: messages.filter((message) => message.author === "assistant").length,
+      rollingLatencyMs: this.calculateRollingLatencyMs(messages)
     };
+  }
+
+  private buildCompactionState(input: {
+    messageCount: number;
+    assistantMessageCount: number;
+    currentTokens: number | null;
+    available: boolean;
+    sessionKey: string | null;
+    compactionCount: number;
+    updatedAt: string | null;
+    rollingLatencyMs: number | null;
+    compactionPolicy: Awaited<
+      ReturnType<ResolvePlatformRuntimeProviderSettingsService["execute"]>
+    >["optimizationPolicy"]["compaction"];
+    forceSuggestedFalse?: boolean;
+  }): AssistantWebChatCompactionState {
+    const tokenThreshold = Math.max(
+      1,
+      input.compactionPolicy.reserveTokens - input.compactionPolicy.keepRecentTokens
+    );
+    const tokenSuggested = input.currentTokens !== null && input.currentTokens >= tokenThreshold;
+    const historySuggested =
+      input.compactionPolicy.suggestCompactionByMessageCount &&
+      (input.messageCount >= Math.max(input.compactionPolicy.recentTurnsPreserve * 4, 16) ||
+        input.assistantMessageCount >= Math.max(input.compactionPolicy.recentTurnsPreserve * 2, 8));
+    // When message-count hints are enabled, do not nag on history alone after token compaction
+    // brought usage below the threshold.
+    const historyCountsAsSuggestion =
+      historySuggested && (input.currentTokens === null || input.currentTokens >= tokenThreshold);
+    const latencySuggested =
+      input.rollingLatencyMs !== null &&
+      input.rollingLatencyMs >= DEFAULT_RUNTIME_SHARED_COMPACTION_WEB_LATENCY_THRESHOLD_MS;
+    const suggestionReason = input.forceSuggestedFalse
+      ? null
+      : tokenSuggested
+        ? "token_threshold"
+        : latencySuggested
+          ? "latency_threshold"
+          : historyCountsAsSuggestion
+            ? "history_threshold"
+            : null;
+    return {
+      available: input.available,
+      suggested: suggestionReason !== null,
+      suggestionReason,
+      messageCount: input.messageCount,
+      assistantMessageCount: input.assistantMessageCount,
+      currentTokens: input.currentTokens,
+      sessionKey: input.sessionKey,
+      compactionCount: input.compactionCount,
+      lastCompactedAt: input.compactionCount > 0 ? input.updatedAt : null,
+      reserveTokens: input.compactionPolicy.reserveTokens,
+      keepRecentTokens: input.compactionPolicy.keepRecentTokens
+    };
+  }
+
+  private isCompactionUnavailableReason(reason: string | null): boolean {
+    return (
+      reason === "session_not_found" ||
+      reason === "session_busy" ||
+      reason === "runtime_bundle_missing"
+    );
+  }
+
+  private createCompactionUnavailableError(): AssistantRuntimeError {
+    return new AssistantRuntimeError(
+      "compaction_unavailable",
+      'Context compaction could not finish. Send a normal message in this thread, wait for a reply, then try "Compress now" again.'
+    );
+  }
+
+  private calculateRollingLatencyMs(
+    messages: Array<{ id: string; author: string; createdAt: Date }>
+  ): number | null {
+    const orderedMessages = [...messages].sort(
+      (left, right) =>
+        left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id)
+    );
+    const replyLatenciesMs: number[] = [];
+    let pendingUserAt: Date | null = null;
+
+    for (const message of orderedMessages) {
+      if (message.author === "user") {
+        pendingUserAt = message.createdAt;
+        continue;
+      }
+      if (message.author !== "assistant" || pendingUserAt === null) {
+        continue;
+      }
+
+      replyLatenciesMs.push(Math.max(0, message.createdAt.getTime() - pendingUserAt.getTime()));
+      pendingUserAt = null;
+    }
+
+    if (replyLatenciesMs.length === 0) {
+      return null;
+    }
+
+    const recentLatencies = replyLatenciesMs.slice(
+      -ROLLING_WEB_CHAT_COMPACTION_LATENCY_SAMPLE_SIZE
+    );
+    return Math.round(
+      recentLatencies.reduce((sum, latencyMs) => sum + latencyMs, 0) / recentLatencies.length
+    );
   }
 }

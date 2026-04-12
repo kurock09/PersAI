@@ -73,6 +73,8 @@ import { GetAssistantByUserIdService } from "./application/get-assistant-by-user
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
 import { ManageAdminPlansService } from "./application/manage-admin-plans.service";
 import { ManageWebChatListService } from "./application/manage-web-chat-list.service";
+import { CompactNativeWebChatSessionService } from "./application/compact-native-web-chat-session.service";
+import { ResolveNativeWebChatSessionStateService } from "./application/resolve-native-web-chat-session-state.service";
 import { PublishAssistantDraftService } from "./application/publish-assistant-draft.service";
 import { RecordWebChatMemoryTurnService } from "./application/record-web-chat-memory-turn.service";
 import { ReapplyAssistantService } from "./application/reapply-assistant.service";
@@ -244,6 +246,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,
     SyncWorkspaceSubscriptionService,
+    CompactNativeWebChatSessionService,
+    ResolveNativeWebChatSessionStateService,
     ManageWebChatListService,
     CreateAssistantService,
     PublishAssistantDraftService,

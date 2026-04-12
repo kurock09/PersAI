@@ -9,11 +9,7 @@ import type {
   AssistantRuntimePreflightResult,
   AssistantRuntimeSetupPreviewTurnInput,
   AssistantRuntimeSetupPreviewTurnResult,
-  AssistantRuntimeWebChatCompactInput,
-  AssistantRuntimeWebChatCompactResult,
   AssistantRuntimeWebChatSessionDeleteInput,
-  AssistantRuntimeWebChatSessionStateInput,
-  AssistantRuntimeWebChatSessionStateResult,
   AssistantRuntimeWebChatTurnInput,
   AssistantRuntimeWebChatTurnResult,
   AssistantRuntimeWebChatTurnStreamChunk,
@@ -67,18 +63,6 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
 
   deleteWebChatSession(input: AssistantRuntimeWebChatSessionDeleteInput): Promise<void> {
     return this.openClawRuntimeBridge.deleteWebChatSession(input);
-  }
-
-  getWebChatSessionState(
-    input: AssistantRuntimeWebChatSessionStateInput
-  ): Promise<AssistantRuntimeWebChatSessionStateResult> {
-    return this.openClawRuntimeBridge.getWebChatSessionState(input);
-  }
-
-  compactWebChatSession(
-    input: AssistantRuntimeWebChatCompactInput
-  ): Promise<AssistantRuntimeWebChatCompactResult> {
-    return this.openClawRuntimeBridge.compactWebChatSession(input);
   }
 
   sendWebChatTurn(

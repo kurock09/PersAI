@@ -10,15 +10,11 @@ import {
 } from "../../application/runtime-endpoint-routing";
 import type {
   AssistantRuntimeCronControlInput,
-  AssistantRuntimeWebChatCompactInput,
-  AssistantRuntimeWebChatCompactResult,
   AssistantRuntimeMediaDownloadResult,
   AssistantRuntimePreflightResult,
   AssistantRuntimeSetupPreviewTurnResult,
   AssistantRuntimeAvatarUploadInput,
   AssistantRuntimeAvatarUploadResult,
-  AssistantRuntimeWebChatSessionStateInput,
-  AssistantRuntimeWebChatSessionStateResult,
   AssistantRuntimeWebChatSessionDeleteInput,
   AssistantRuntimeWebChatTurnStreamChunk,
   AssistantRuntimeWebChatTurnInput,
@@ -351,92 +347,6 @@ export class OpenClawRuntimeAdapter implements OpenClawRuntimeBridge {
       },
       config
     );
-  }
-
-  async getWebChatSessionState(
-    input: AssistantRuntimeWebChatSessionStateInput
-  ): Promise<AssistantRuntimeWebChatSessionStateResult> {
-    const config = toOpenClawAdapterConfig(input.runtimeTier);
-    if (!config.enabled) {
-      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
-    }
-    const payload = await this.requestWithRetries(
-      "POST",
-      "/api/v1/runtime/chat/web/session/state",
-      {
-        assistantId: input.assistantId,
-        chatId: input.chatId,
-        surfaceThreadKey: input.surfaceThreadKey
-      },
-      config
-    );
-    if (!isObject(payload) || payload.ok !== true || !isObject(payload.state)) {
-      throw new AssistantRuntimeAdapterError(
-        "invalid_response",
-        "OpenClaw web chat session state response is invalid."
-      );
-    }
-    const state = payload.state;
-    return {
-      sessionKey: typeof state.sessionKey === "string" ? state.sessionKey : "",
-      found: state.found === true,
-      currentTokens: typeof state.currentTokens === "number" ? state.currentTokens : null,
-      totalTokensFresh: state.totalTokensFresh === true,
-      compactionCount: typeof state.compactionCount === "number" ? state.compactionCount : 0,
-      updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : null,
-      provider: typeof state.provider === "string" ? state.provider : null,
-      model: typeof state.model === "string" ? state.model : null
-    };
-  }
-
-  async compactWebChatSession(
-    input: AssistantRuntimeWebChatCompactInput
-  ): Promise<AssistantRuntimeWebChatCompactResult> {
-    const config = toOpenClawAdapterConfig(input.runtimeTier);
-    if (!config.enabled) {
-      throw new AssistantRuntimeAdapterError("runtime_unreachable", "OpenClaw adapter disabled.");
-    }
-    const payload = await this.requestWithRetries(
-      "POST",
-      "/api/v1/runtime/chat/web/compact",
-      {
-        assistantId: input.assistantId,
-        chatId: input.chatId,
-        surfaceThreadKey: input.surfaceThreadKey,
-        ...(input.instructions ? { instructions: input.instructions } : {})
-      },
-      config,
-      { acceptedErrorStatuses: [409] }
-    );
-    if (!isObject(payload)) {
-      throw new AssistantRuntimeAdapterError(
-        "invalid_response",
-        "OpenClaw web chat compaction response is invalid."
-      );
-    }
-    if (payload.ok !== true) {
-      const errorMessage =
-        typeof payload.error === "string" ? payload.error : "Web chat compaction failed.";
-      throw new AssistantRuntimeAdapterError("compaction_unavailable", errorMessage);
-    }
-    const result = isObject(payload.result) ? payload.result : {};
-    const state = isObject(payload.state) ? payload.state : {};
-    return {
-      compacted: result.compacted === true,
-      reason: typeof result.reason === "string" ? result.reason : null,
-      tokensBefore: typeof result.tokensBefore === "number" ? result.tokensBefore : null,
-      tokensAfter: typeof result.tokensAfter === "number" ? result.tokensAfter : null,
-      state: {
-        sessionKey: typeof state.sessionKey === "string" ? state.sessionKey : "",
-        found: state.found === true,
-        currentTokens: typeof state.currentTokens === "number" ? state.currentTokens : null,
-        totalTokensFresh: state.totalTokensFresh === true,
-        compactionCount: typeof state.compactionCount === "number" ? state.compactionCount : 0,
-        updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : null,
-        provider: typeof state.provider === "string" ? state.provider : null,
-        model: typeof state.model === "string" ? state.model : null
-      }
-    };
   }
 
   async sendWebChatTurn(

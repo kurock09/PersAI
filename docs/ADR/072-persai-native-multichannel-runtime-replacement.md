@@ -427,6 +427,16 @@ Shared context summarization/compaction is a first-class system capability, not 
 
 Search/RAG must be designed as a reusable knowledge access layer rather than a one-off tool:
 
+- the final target contract centers on two actions:
+  - `knowledge_search`
+  - `knowledge_fetch`
+- `RAG` is not a separate tool; it is a retrieval/use pattern built on top of the knowledge layer
+- `memory_search` / `memory_get` belong to this same layer in the target model:
+  - `memory_search` -> `knowledge_search(source=memory)`
+  - `memory_get` -> `knowledge_fetch(source=memory)`
+- `web_search` / `web_fetch` may remain product-visible aliases or source-specific variants, but they must ride the same underlying knowledge contract:
+  - `web_search` -> `knowledge_search(source=web)`
+  - `web_fetch` -> `knowledge_fetch(source=web)`
 - future knowledge backends may include relational databases, vector indexes, document stores, or other internal knowledge systems
 - bounded single-source lookups may stay inline
 - multi-source or slow retrieval must move to workers
@@ -454,13 +464,21 @@ Current tool inventory baseline must not be skipped before Step 15 implementatio
 - **Hidden internal**
   - `cron`
 
-This baseline is already reflected in current PersAI control-plane/UI truth:
+This baseline is already reflected in current PersAI control-plane/UI/runtime truth:
 
 - tool catalog seed and policy class source:
   - `apps/api/prisma/tool-catalog-data.ts`
 - catalog persistence and plan-activation read model:
   - `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-tool-catalog.repository.ts`
   - `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- tool credential/admin source:
+  - `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`
+  - `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts`
+- reminder/control-plane bridge:
+  - `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+  - `apps/api/src/modules/workspace-management/application/handle-internal-cron-fire.service.ts`
+- runtime materialization and prompt projection:
+  - `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
 - admin plan UI grouping:
   - `apps/web/app/admin/plans/page.tsx`
 - runtime security matrix:
@@ -478,6 +496,24 @@ Current provider/credential seams that must be preserved in the new tool runtime
   - current provider options: `OpenAI`, `ElevenLabs`, `Yandex SpeechKit`
 - `memory_search`
   - current embeddings credential seam already exists in PersAI control plane
+
+Current catalog/UI/runtime parity map for `T15-0`:
+
+- This map preserves the current product/control-plane surface, not the legacy executor ownership. Step 15 may re-implement these capabilities natively, but it may not silently delete or rename them without an explicit product/control-plane decision.
+
+| Current tool | Current catalog/UI/runtime truth | Required Step 15 parity landing |
+|---|---|---|
+| `web_search` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_web_search` with current provider options `Tavily`, `Brave`, `Perplexity`, `Google (Gemini)` | Preserve inside `T15-3`; final clean target may implement this as `knowledge_search(source=web)` or a product-visible alias over that contract, but broader knowledge-layer work must not remove the current web-search surface |
+| `web_fetch` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_web_fetch` (`Firecrawl`) | Preserve inside `T15-3`; final clean target may implement this as `knowledge_fetch(source=web)` or a product-visible alias over that contract, but today's `web_fetch` semantics must remain explicit during migration |
+| `browser` | `plan_managed`, cost-driving, visible in the plan editor; no separate tool credential seam exists in the current PersAI control plane | Preserve as a plan-managed web-interaction capability in `T15-3`; search/fetch work does not authorize silently dropping the current browsing surface |
+| `image_generate` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_image_generate` | Preserve as the Step 15 media-generation plan tool in `T15-4`; later `image_edit` / `video_generate` additions are additive, not replacements for today's image-generation capability |
+| `tts` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_tts` with current provider options `OpenAI`, `ElevenLabs`, `Yandex SpeechKit` | Preserve as the explicit Step 15 `tts` plan tool in `T15-4`; `Step 15a` channel voice output does not replace tool-driven TTS semantics |
+| `memory_search` | `plan_managed`, utility, visible in the plan editor; credential seam `tool_memory_search` | Preserve inside `T15-3`; final clean target should treat this as `knowledge_search(source=memory)` or an explicit alias over that contract, not as a separate long-term architecture |
+| `memory_get` | `plan_managed`, utility, visible in the plan editor; no separate credential seam today | Preserve inside `T15-3`; final clean target should treat this as `knowledge_fetch(source=memory)` or an explicit alias over that contract, and it must not disappear into search-only behavior without an explicit product decision |
+| `reminder_task` | `plan_managed`, utility, visible in the plan editor; current product-facing reminder/task tool over the PersAI-owned reminder control-plane plus cron/webhook bridge | Preserve as the Step 15 reminder/task plan tool; later runtime/worker cleanup must keep the current product-facing reminder semantics and must not regress the surface back to raw `cron` |
+| `persai_workspace_attach` | `platform_managed`, utility, read-only in plan surfaces; projected into the native runtime bundle `toolPolicies` / `TOOLS.md` as a platform-owned helper | Preserve as an always-on Step 15 system tool in `T15-1/T15-5`; it is not a plan toggle and it is not part of the generic Step 16 sandbox file/process matrix |
+| `persai_tool_quota_status` | `platform_managed`, utility, read-only in plan surfaces; projected into the native runtime bundle `toolPolicies` / `TOOLS.md` as the live quota-status helper | Preserve as an always-on Step 15 system tool in `T15-1/T15-5`; the model/runtime must continue to treat live quota inspection as platform-owned rather than a plan-managed upsell tool |
+| `cron` | `hidden_internal`, utility, not visible in the plan editor and intentionally suppressed from user-visible `TOOLS.md`; currently backs reminder/internal callback flows only | Keep hidden-internal only; Step 15 must not re-expose `cron` as a user/model-facing plan tool even if later worker/scheduler internals change |
 
 Step 15 must begin by preserving and remapping this existing product/control-plane tool surface into the PersAI-native tool runtime. It must not silently drop existing tools already present in the catalog, plan editor, or user-facing runtime behavior.
 
@@ -1451,34 +1487,47 @@ Restore necessary capability without polluting ordinary chat latency.
   Replace channel-specific compaction behavior with one shared PersAI-native capability.
 - **Included**
   - shared `summarize_context` / `compact_context` system capability
-  - user-requested compaction path
+  - user-requested compaction path, starting with the stable web manual compact API surface
   - Telegram owner setting for `auto summarize`
+  - native runtime session-state reads for web compaction/banner state without reviving the old OpenClaw web session-state seam
   - web banner that suggests context compression when rolling turn latency exceeds `7s` or context pressure crosses threshold
   - durable summary/compaction state updates in runtime/session metadata
+  - first contract baseline is a typed `runtime.sharedCompaction` bundle block sourced from the existing admin compaction policy plus Telegram owner config, carrying the fixed shared tool names and cross-channel threshold knobs before executor wiring lands
+  - first dark native runtime seam may execute shared compaction through `apps/runtime` `POST /api/v1/turns/compact`, resolving the warmed bundle from current session state instead of reintroducing channel-specific runtime APIs
 - **Excluded**
   - Telegram-only slash-command ownership in the final architecture
   - sandbox-assisted summarization
 - **Validation**
+  - runtime-bundle contract and warm-validation tests for `runtime.sharedCompaction`
+  - dark runtime compaction endpoint tests for bundle/session resolution plus `runtime_session_compactions` persistence
+  - public web manual compaction keeps the existing assistant API contract while routing through native `POST /api/v1/turns/compact`
+  - public web compaction state/banner reads keep the existing assistant API contract while routing through native runtime session-state truth
   - web/Telegram parity tests
   - latency-triggered banner tests
   - session summary reuse on later turns
 
-##### Tool slice T15-3 — Search, RAG, and external knowledge tools
+##### Tool slice T15-3 — Unified knowledge access layer
 
 - **Goal**
-  Establish the future-proof knowledge/search layer the model can rely on without inventing access patterns.
+  Establish one clear knowledge access layer the model can rely on without inventing access patterns or duplicating near-identical tools.
 - **Included**
-  - `web_search`
   - `knowledge_search`
   - `knowledge_fetch`
+  - `RAG` as a usage pattern over the layer, not a separate tool
+  - current `memory_search` / `memory_get` mapped into the same layer as `source=memory` variants or temporary aliases during migration
+  - current `web_search` / `web_fetch` mapped into the same layer as `source=web` variants or temporary aliases during migration
   - bounded inline retrieval
   - worker-backed multi-source or slow retrieval
   - citation/attribution-ready result contract
+  - future DB/vector/doc/internal knowledge sources through the same contract
 - **Excluded**
+  - interactive `browser` automation; it remains a separate plan-managed tool
+  - separate `rag` / `memory_search` / `memory_get` long-term runtime architecture
   - sandbox file search
   - one-off provider-specific search hacks
 - **Validation**
-  - deterministic search-result contract tests
+  - deterministic `knowledge_search` / `knowledge_fetch` contract tests across `web`, `memory`, and future internal sources
+  - alias/source-mode parity tests for the current product-visible surfaces
   - inline vs async routing tests
   - future-backend-ready interface for DB/vector/doc knowledge stores
 
@@ -1511,6 +1560,7 @@ Restore necessary capability without polluting ordinary chat latency.
   - per-tool quotas and audit rules
   - user/model-facing descriptions of what each tool is for
   - channel/runtime rules for which tools are legal in which contexts
+  - admin `Tools` surface owns operator-facing exposure/configuration for always-on system tools such as shared compaction; assistant-scoped Telegram `auto summarize` remains in Telegram settings rather than being replaced by a global admin toggle
 - **Excluded**
   - final admin/UI dead-tail cleanup (handled in Step 15b)
   - sandbox permissions matrix
@@ -1789,9 +1839,9 @@ Use only these statuses:
 | Item | Status | Notes |
 |---|---|---|
 | ADR-072 document | completed | Target architecture, slices, and step order are documented |
-| Runtime replacement implementation | in_progress | Steps 1-14 are complete. PersAI now owns Telegram webhook ingress/delivery, group/chat metadata sync, canonical Telegram transcript persistence, and native request-time text/group execution. Shared compaction/tool producers, control-plane UX cleanup, and later OpenClaw removal remain follow-up work |
+| Runtime replacement implementation | in_progress | Steps 1-14 are complete. PersAI now owns Telegram webhook ingress/delivery, group/chat metadata sync, canonical Telegram transcript persistence, and native request-time text/group execution. Step 15 is now active with `T15-0`, `T15-1`, and `T15-2` complete: shared compaction now has a typed native bundle contract, dark native runtime seams, public web manual/state/banner routing on native truth, Telegram auto summarize through the same runtime-owned compaction service, rolling-latency web banner signaling, and later-turn summary reuse before admin/tool exposure and later OpenClaw removal land |
 | Current active slice | in_progress | `Slice 6 — Tools, control-plane UX, and sandbox separation` is now the next active migration area after Step 14 closeout |
-| Current active step | planned | `Step 15 — Introduce bounded inline tools and async worker jobs` is the next active step now that Step 14 is complete |
+| Current active step | in_progress | `Step 15 — Introduce bounded inline tools and async worker jobs` is active; `T15-0`, `T15-1`, and `T15-2 — Shared summarization and compaction tools` are complete, so `T15-3 — Unified knowledge access layer` is the next remaining tool slice in Step 15 |
 
 ### Slice ledger
 
@@ -1823,7 +1873,7 @@ Use only these statuses:
 | Step 12 — Implement native STT | completed | Steps 4, 11 | Voice/media transcription now streams audio through `apps/api -> apps/runtime -> apps/provider-gateway -> OpenAI` without OpenClaw request-time transcription or workspace-media staging |
 | Step 13 — Replace Telegram proxy with a native Telegram adapter | completed | Steps 8, 9, 11, 12 | Public Telegram webhook ingress, owner gate handling, group/chat metadata sync, Bot API media download/delivery, and canonical transcript persistence now run in `apps/api`; the old PersAI internal Telegram ingress/callback endpoints were removed with the proxy loop |
 | Step 14 — Cut over Telegram text and groups | completed | Step 13 | Telegram text/group request-time execution now routes through native `apps/runtime` with shared conversation identity/history hydration, live dev Telegram validation passed, and the temporary Telegram-only `/compact`/hint seam was removed instead of being carried forward |
-| Step 15 — Introduce bounded inline tools and async worker jobs | planned | Steps 9-10 | Tool execution is cleanly separated by latency class, split into system tools, plan tools, and future worker-backed heavy capabilities, including shared compaction/summarization |
+| Step 15 — Introduce bounded inline tools and async worker jobs | in_progress | Steps 9-10 | `T15-0` now freezes the current catalog/UI/runtime tool surface, `T15-1` now adds explicit native `toolPolicies` metadata (`system|plan|internal`, `allowed|forbidden`, `inline|worker|sandbox`) plus prompt/runtime parity, and `T15-2` is now complete with the typed `runtime.sharedCompaction` bundle contract, dark native compaction/session-resolve seams, public web manual compaction and state/banner reads on native runtime truth, Telegram auto summarize on the runtime-owned compaction path, rolling-latency banner triggering, and later-turn summary reuse. `T15-3` is next |
 | Step 15a — Native web TTS streaming/output | planned | Steps 9, 10, 15 | Native web voice output is a channel capability and no longer relies on post-turn attachment delivery to feel complete |
 | Step 15b — Replace bootstrap preset and lifecycle UI with native prompt surfaces | planned | Steps 2, 7, 15 | Admin/setup UX stops treating OpenClaw bootstrap docs as the product contract; create/preview/publish/reapply/reset/recreate align to the native bundle pipeline |
 | Step 16 — Build isolated sandbox service | planned | Step 15 | Sandbox exists outside ordinary chat path |
@@ -1834,10 +1884,10 @@ Use only these statuses:
 
 | Tool slice | Status | Lands in | Scope |
 |---|---|---|---|
-| T15-0 — Current tool inventory baseline | planned | Step 15 | Preserve the real current catalog/UI/runtime tool surface before redesigning execution |
-| T15-1 — Tool taxonomy and usage policy baseline | planned | Step 15 | PersAI-owned tool classes and explicit model/runtime usage policy |
-| T15-2 — Shared summarization and compaction tools | planned | Step 15 | Shared context compression, Telegram auto summarize, web compaction banner |
-| T15-3 — Search, RAG, and external knowledge tools | planned | Step 15 | Search and future DB/vector/doc knowledge access |
+| T15-0 — Current tool inventory baseline | completed | Step 15 | ADR-072 now captures the current catalog/UI/runtime tool surface, provider seams, and explicit parity landing rules for every existing tool before later Step 15 redesign work |
+| T15-1 — Tool taxonomy and usage policy baseline | completed | Step 15 | Native runtime bundles now carry explicit `toolPolicies`, `TOOLS.md` is derived from the same policy list, and runtime warm validation rejects tool surfaces that lack matching policy metadata |
+| T15-2 — Shared summarization and compaction tools | completed | Step 15 | `runtime.sharedCompaction` now materializes the shared `summarize_context` / `compact_context` naming plus web latency/token-threshold knobs and Telegram auto-summarize policy, `apps/runtime` now has dark native `POST /api/v1/turns/compact` and `POST /api/v1/turns/session/resolve` seams for shared compaction execution and session-state reads, public web manual compaction plus GET/banner state call those seams, Telegram owner auto summarize now reuses the same runtime-owned compaction path after native turns, web banner suggestions also honor rolling reply latency, and later runtime turns reuse the latest durable session compaction summary |
+| T15-3 — Unified knowledge access layer | planned | Step 15 | One `knowledge_search` / `knowledge_fetch` contract over web, memory, and future DB/vector/doc/internal sources with explicit migration paths for current tool names |
 | T15-4 — Media generation and editing plan tools | planned | Step 15 | `tts`, `image_generate`, `image_edit`, `video_generate`, provider-agnostic routing |
 | T15-5 — Plan/admin exposure, quotas, and model guidance | planned | Step 15 | Always-on system tools, plan-controlled tools, quotas, and prompt/runtime alignment |
 | Sandbox tool matrix | planned | Step 16 | `read_file`, `write_file`, `edit_file`, `exec`, `shell`, and related isolated tools |

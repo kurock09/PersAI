@@ -5,9 +5,12 @@ import type {
   ProviderGatewayPdfContentBlock,
   ProviderGatewayTextMessage,
   RuntimeAttachmentRef,
+  RuntimeConversationAddress,
   RuntimeTurnRequest
 } from "@persai/runtime-contract";
+import { RuntimeStatePostgresService } from "../runtime-state/infrastructure/persistence/runtime-state-postgres.service";
 import { RuntimeStatePrismaService } from "../runtime-state/infrastructure/persistence/runtime-state-prisma.service";
+import { RuntimeStateKeyspaceService } from "../runtime-state/runtime-state-keyspace.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 
 const MAX_CANONICAL_CONTEXT_MESSAGES = 20;
@@ -61,10 +64,23 @@ type DirectInputSelection = {
   directPdfCount: number;
 };
 
+type ReusableCompactionSummary = {
+  summaryText: string;
+  summarizedMessageCount: number;
+};
+
+export interface RuntimeCompactionMessageSource {
+  messages: ProviderGatewayTextMessage[];
+  summarizedMessageCount: number;
+  preservedRecentMessageCount: number;
+}
+
 @Injectable()
 export class TurnContextHydrationService {
   constructor(
     private readonly prisma: RuntimeStatePrismaService,
+    private readonly runtimeStatePostgresService: RuntimeStatePostgresService,
+    private readonly runtimeStateKeyspaceService: RuntimeStateKeyspaceService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
@@ -74,24 +90,153 @@ export class TurnContextHydrationService {
       return [await this.createCurrentUserMessage(input)];
     }
 
+    const storedMessages = await this.loadCanonicalChatMessages(input.conversation);
+    if (storedMessages === null) {
+      return [await this.createCurrentUserMessage(input)];
+    }
+
+    const hydrated = await this.hydrateCanonicalWebMessages(storedMessages, input);
+    return hydrated.length > 0 ? hydrated : [await this.createCurrentUserMessage(input)];
+  }
+
+  async buildCompactionMessages(input: {
+    conversation: RuntimeConversationAddress;
+    keepRecentMessageCount: number;
+  }): Promise<RuntimeCompactionMessageSource> {
+    const storedMessages = await this.loadCanonicalChatMessages(input.conversation);
+    if (storedMessages === null) {
+      return {
+        messages: [],
+        summarizedMessageCount: 0,
+        preservedRecentMessageCount: 0
+      };
+    }
+
+    const hydratableMessages = storedMessages.filter((message) =>
+      this.isHydratableCanonicalMessage(message)
+    );
+    const keepRecentMessageCount = Math.max(0, input.keepRecentMessageCount);
+    const summaryBoundary = Math.max(0, hydratableMessages.length - keepRecentMessageCount);
+    const summarizedSourceMessages = hydratableMessages.slice(0, summaryBoundary);
+    const messages: ProviderGatewayTextMessage[] = [];
+
+    for (const message of summarizedSourceMessages) {
+      const content = await this.buildHydratedMessageContent({
+        author: message.author,
+        baseContent: message.content,
+        attachments: message.attachments,
+        fallbackAttachments: [],
+        allowDirectAttachmentInput: false
+      });
+      messages.push({
+        role: this.toProviderRole(message.author),
+        content
+      });
+    }
+
+    return {
+      messages,
+      summarizedMessageCount: summarizedSourceMessages.length,
+      preservedRecentMessageCount: hydratableMessages.length - summarizedSourceMessages.length
+    };
+  }
+
+  private async hydrateCanonicalWebMessages(
+    storedMessages: CanonicalChatMessageRow[],
+    input: RuntimeTurnRequest
+  ): Promise<ProviderGatewayTextMessage[]> {
+    const hydratableMessages = storedMessages.filter((message) =>
+      this.isHydratableCanonicalMessage(message)
+    );
+    const reusableSummary = await this.loadReusableCompactionSummary(input.conversation);
+    if (reusableSummary === null) {
+      return this.hydrateCanonicalMessageSequence(hydratableMessages, input);
+    }
+
+    const summaryBoundary = Math.min(
+      reusableSummary.summarizedMessageCount,
+      hydratableMessages.length
+    );
+    if (summaryBoundary <= 0) {
+      return this.hydrateCanonicalMessageSequence(hydratableMessages, input);
+    }
+
+    const recentMessages = hydratableMessages.slice(summaryBoundary);
+    const hydratedRecentMessages = await this.hydrateCanonicalMessageSequence(
+      recentMessages,
+      input
+    );
+    return this.limitHydratedMessages(
+      [
+        {
+          role: "assistant",
+          content: this.formatReusableCompactionSummary(reusableSummary.summaryText)
+        },
+        ...hydratedRecentMessages
+      ],
+      { preserveFirstMessage: true }
+    );
+  }
+
+  private async hydrateCanonicalMessageSequence(
+    messages: CanonicalChatMessageRow[],
+    input: RuntimeTurnRequest
+  ): Promise<ProviderGatewayTextMessage[]> {
+    const hydrated: ProviderGatewayTextMessage[] = [];
+    let currentMessageFound = false;
+
+    for (const message of messages) {
+      const isCurrentInboundMessage = message.id === input.idempotencyKey;
+      if (isCurrentInboundMessage) {
+        currentMessageFound = true;
+      }
+      const content = await this.buildHydratedMessageContent({
+        author: message.author,
+        baseContent: isCurrentInboundMessage ? input.message.text : message.content,
+        attachments: message.attachments,
+        fallbackAttachments: isCurrentInboundMessage ? input.message.attachments : [],
+        allowDirectAttachmentInput: isCurrentInboundMessage && message.author === "user"
+      });
+
+      hydrated.push({
+        role: this.toProviderRole(message.author),
+        content
+      });
+    }
+
+    if (!currentMessageFound) {
+      hydrated.push(await this.createCurrentUserMessage(input));
+    }
+
+    return this.limitHydratedMessages(hydrated);
+  }
+
+  private async loadCanonicalChatMessages(
+    conversation: RuntimeConversationAddress
+  ): Promise<CanonicalChatMessageRow[] | null> {
+    const canonicalSurface = toHydratedCanonicalSurface(conversation.channel);
+    if (canonicalSurface === null) {
+      return null;
+    }
+
     const chat = await this.prisma.assistantChat.findFirst({
       where: {
-        assistantId: input.conversation.assistantId,
+        assistantId: conversation.assistantId,
         surface: canonicalSurface,
-        surfaceThreadKey: input.conversation.externalThreadKey
+        surfaceThreadKey: conversation.externalThreadKey
       },
       select: {
         id: true
       }
     });
     if (chat === null) {
-      return [await this.createCurrentUserMessage(input)];
+      return null;
     }
 
     const storedMessagesRaw = await this.prisma.assistantChatMessage.findMany({
       where: {
         chatId: chat.id,
-        assistantId: input.conversation.assistantId
+        assistantId: conversation.assistantId
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: {
@@ -116,7 +261,8 @@ export class TurnContextHydrationService {
         }
       }
     });
-    const storedMessages: CanonicalChatMessageRow[] = storedMessagesRaw.map((message) => ({
+
+    return storedMessagesRaw.map((message) => ({
       id: message.id,
       author: message.author,
       content: message.content,
@@ -131,57 +277,78 @@ export class TurnContextHydrationService {
         metadata: attachment.metadata as Record<string, unknown> | null
       }))
     }));
-
-    const hydrated = await this.hydrateCanonicalWebMessages(storedMessages, input);
-    return hydrated.length > 0 ? hydrated : [await this.createCurrentUserMessage(input)];
   }
 
-  private async hydrateCanonicalWebMessages(
-    storedMessages: CanonicalChatMessageRow[],
-    input: RuntimeTurnRequest
-  ): Promise<ProviderGatewayTextMessage[]> {
-    const hydrated: ProviderGatewayTextMessage[] = [];
-    let currentMessageFound = false;
+  private isHydratableCanonicalMessage(message: CanonicalChatMessageRow): boolean {
+    if (message.author === "system") {
+      return false;
+    }
+    return !(message.content.trim().length === 0 && message.attachments.length === 0);
+  }
 
-    for (const message of storedMessages) {
-      if (message.author === "system") {
-        continue;
-      }
-      if (message.content.trim().length === 0 && message.attachments.length === 0) {
-        continue;
-      }
-
-      const isCurrentInboundMessage = message.id === input.idempotencyKey;
-      if (isCurrentInboundMessage) {
-        currentMessageFound = true;
-      }
-      const content = await this.buildHydratedMessageContent({
-        author: message.author,
-        baseContent: isCurrentInboundMessage ? input.message.text : message.content,
-        attachments: message.attachments,
-        fallbackAttachments: isCurrentInboundMessage ? input.message.attachments : [],
-        allowDirectAttachmentInput: isCurrentInboundMessage && message.author === "user"
-      });
-
-      if (message.author === "assistant") {
-        hydrated.push({
-          role: "assistant",
-          content
-        });
-        continue;
-      }
-
-      hydrated.push({
-        role: "user",
-        content
-      });
+  private async loadReusableCompactionSummary(
+    conversation: RuntimeConversationAddress
+  ): Promise<ReusableCompactionSummary | null> {
+    const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(conversation);
+    const session =
+      await this.runtimeStatePostgresService.findSessionByConversationKey(conversationKey);
+    if (session === null) {
+      return null;
     }
 
-    if (!currentMessageFound) {
-      hydrated.push(await this.createCurrentUserMessage(input));
+    const latestCompaction = await this.runtimeStatePostgresService.findLatestSessionCompaction(
+      session.id
+    );
+    return this.parseReusableCompactionSummary(latestCompaction?.summaryPayload);
+  }
+
+  private parseReusableCompactionSummary(payload: unknown): ReusableCompactionSummary | null {
+    const row = this.asObject(payload);
+    if (row?.schema !== "persai.runtimeSessionCompaction.v1") {
+      return null;
     }
 
-    return hydrated.slice(-MAX_CANONICAL_CONTEXT_MESSAGES);
+    const summaryText =
+      typeof row.summaryText === "string" && row.summaryText.trim().length > 0
+        ? row.summaryText.trim()
+        : null;
+    const summarizedMessageCount =
+      Number.isInteger(row.summarizedMessageCount) && Number(row.summarizedMessageCount) > 0
+        ? Number(row.summarizedMessageCount)
+        : null;
+    if (summaryText === null || summarizedMessageCount === null) {
+      return null;
+    }
+
+    return {
+      summaryText,
+      summarizedMessageCount
+    };
+  }
+
+  private toProviderRole(author: CanonicalChatMessageRow["author"]): "user" | "assistant" {
+    return author === "assistant" ? "assistant" : "user";
+  }
+
+  private formatReusableCompactionSummary(summaryText: string): string {
+    return `[Earlier conversation summary retained by shared compaction]\n${summaryText}`;
+  }
+
+  private limitHydratedMessages(
+    messages: ProviderGatewayTextMessage[],
+    options?: { preserveFirstMessage?: boolean }
+  ): ProviderGatewayTextMessage[] {
+    if (messages.length <= MAX_CANONICAL_CONTEXT_MESSAGES) {
+      return messages;
+    }
+    if (options?.preserveFirstMessage === true) {
+      const preservedFirstMessage = messages[0];
+      if (preservedFirstMessage === undefined) {
+        return messages.slice(-MAX_CANONICAL_CONTEXT_MESSAGES);
+      }
+      return [preservedFirstMessage, ...messages.slice(-(MAX_CANONICAL_CONTEXT_MESSAGES - 1))];
+    }
+    return messages.slice(-MAX_CANONICAL_CONTEXT_MESSAGES);
   }
 
   private async createCurrentUserMessage(
@@ -490,5 +657,11 @@ export class TurnContextHydrationService {
   ): string | null {
     const preview = metadata?.contentPreview;
     return typeof preview === "string" && preview.trim().length > 0 ? preview : null;
+  }
+
+  private asObject(value: unknown): Record<string, unknown> | null {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   }
 }

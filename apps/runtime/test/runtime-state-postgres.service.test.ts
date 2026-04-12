@@ -231,6 +231,38 @@ export async function runRuntimeStatePostgresServiceTest(): Promise<void> {
     }
   });
 
+  await service.appendSessionCompaction({
+    runtimeSessionId: "session-1",
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    requestId: "request-1",
+    reason: "shared_compaction",
+    instructions: "Keep durable facts only.",
+    summaryPayload: {
+      schema: "persai.runtimeSessionCompaction.v1",
+      summaryText: "Short summary"
+    },
+    tokensBefore: 321,
+    tokensAfter: null
+  });
+
+  assert.deepEqual(calls.compactionCreate, {
+    data: {
+      runtimeSessionId: "session-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      requestId: "request-1",
+      reason: "shared_compaction",
+      instructions: "Keep durable facts only.",
+      summaryPayload: {
+        schema: "persai.runtimeSessionCompaction.v1",
+        summaryText: "Short summary"
+      },
+      tokensBefore: 321,
+      tokensAfter: null
+    }
+  });
+
   const completedAt = new Date("2026-04-11T12:00:00.000Z");
   await service.markTurnReceiptCompleted({
     requestId: "request-1",

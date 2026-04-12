@@ -62,7 +62,17 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
       runtimeAssignment: { tier: "free_shared_restricted" },
       runtimeProviderProfile: null,
       runtimeProviderRouting: null,
-      optimizationPolicy: null
+      optimizationPolicy: null,
+      sharedCompaction: {
+        summarizeToolCode: "summarize_context",
+        compactToolCode: "compact_context",
+        webSuggestionLatencyMs: 7000,
+        reserveTokens: 24000,
+        keepRecentTokens: 16000,
+        recentTurnsPreserve: 4,
+        suggestByMessageCount: false,
+        telegramAutoSummarizeEnabled: true
+      }
     },
     governance: {
       capabilityEnvelope: null,
@@ -73,7 +83,7 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
       memoryControl: null,
       tasksControl: null,
       toolCredentialRefs: {},
-      toolQuotaPolicy: [],
+      toolPolicies: [],
       quota: {
         planCode: "free",
         workspaceQuotaBytes: 1024,
@@ -123,6 +133,127 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
     bundleDocument: artifact.document,
     materializedSpecId: `spec-${publishedVersionId}`,
     runtimeTier: "free_shared_restricted" as const
+  };
+}
+
+function createWarmInputMissingToolPolicy() {
+  const artifact = compileAssistantRuntimeBundle({
+    metadata: {
+      assistantId: "assistant-missing-policy",
+      workspaceId: "workspace-assistant-missing-policy",
+      publishedVersionId: "version-missing-policy",
+      publishedVersion: 1,
+      algorithmVersion: 72,
+      configGeneration: 1
+    },
+    persona: {
+      displayName: "PersAI",
+      instructions: "Help the user.",
+      traits: null,
+      avatarEmoji: null,
+      avatarUrl: null,
+      assistantGender: null
+    },
+    userContext: {
+      displayName: "Alex",
+      birthday: null,
+      gender: null,
+      locale: "en",
+      timezone: "UTC"
+    },
+    runtime: {
+      runtimeAssignment: { tier: "free_shared_restricted" },
+      runtimeProviderProfile: null,
+      runtimeProviderRouting: null,
+      optimizationPolicy: null,
+      sharedCompaction: {
+        summarizeToolCode: "summarize_context",
+        compactToolCode: "compact_context",
+        webSuggestionLatencyMs: 7000,
+        reserveTokens: 24000,
+        keepRecentTokens: 16000,
+        recentTurnsPreserve: 4,
+        suggestByMessageCount: false,
+        telegramAutoSummarizeEnabled: true
+      }
+    },
+    governance: {
+      capabilityEnvelope: null,
+      secretRefs: null,
+      policyEnvelope: null,
+      effectiveCapabilities: null,
+      toolAvailability: {
+        tools: [{ code: "web_search", effectiveActivation: "active" }]
+      },
+      memoryControl: null,
+      tasksControl: null,
+      toolCredentialRefs: {},
+      toolPolicies: [],
+      quota: {
+        planCode: "free",
+        workspaceQuotaBytes: 1024,
+        quotaHook: null
+      },
+      auditHook: null
+    },
+    channels: {
+      bindings: null,
+      telegram: {
+        enabled: false,
+        autoCompactionEnabled: true,
+        dmPolicy: "owner_only",
+        groupReplyMode: "mentions_only",
+        parseMode: "plain_text",
+        inbound: false,
+        outbound: false,
+        accessMode: "disabled",
+        ownerClaimStatus: "unclaimed",
+        ownerClaimCode: null,
+        ownerClaimCodeExpiresAt: null,
+        ownerTelegramUserId: null,
+        ownerTelegramUsername: null,
+        ownerTelegramChatId: null
+      }
+    },
+    promptDocuments: {
+      soul: "",
+      user: "",
+      identity: "",
+      tools: "",
+      agents: "",
+      heartbeat: "",
+      bootstrap: ""
+    }
+  });
+
+  return {
+    bundle: {
+      bundleId: "bundle-missing-policy",
+      assistantId: "assistant-missing-policy",
+      workspaceId: "workspace-assistant-missing-policy",
+      publishedVersionId: "version-missing-policy",
+      bundleHash: artifact.hash,
+      compiledAt: "2026-04-11T00:00:00.000Z"
+    },
+    bundleDocument: artifact.document,
+    materializedSpecId: "spec-version-missing-policy",
+    runtimeTier: "free_shared_restricted" as const
+  };
+}
+
+function createWarmInputInvalidSharedCompaction() {
+  const input = createWarmInput(
+    "bundle-invalid-shared-compaction",
+    "assistant-invalid-shared-compaction",
+    "version-invalid-shared-compaction"
+  );
+  const bundleDocument = JSON.parse(input.bundleDocument) as {
+    runtime: { sharedCompaction: { webSuggestionLatencyMs: number } };
+  };
+  bundleDocument.runtime.sharedCompaction.webSuggestionLatencyMs = 0;
+  return {
+    ...input,
+    bundleDocument: JSON.stringify(bundleDocument)
   };
 }
 
@@ -176,6 +307,15 @@ export async function runRuntimeBundleRegistryServiceTest(): Promise<void> {
       }
     });
   });
+
+  assert.throws(
+    () => registryService.validateWarmBundleInput(createWarmInputMissingToolPolicy()),
+    /missing explicit policy metadata/
+  );
+  assert.throws(
+    () => registryService.validateWarmBundleInput(createWarmInputInvalidSharedCompaction()),
+    /sharedCompaction\.webSuggestionLatencyMs/
+  );
 
   const overriddenWarm = registryService.warmBundle(
     createWarmInput("bundle-4", "assistant-4", "version-4"),

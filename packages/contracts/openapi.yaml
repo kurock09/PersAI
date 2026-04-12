@@ -3695,6 +3695,7 @@ components:
           enum:
             - token_threshold
             - history_threshold
+            - latency_threshold
         messageCount:
           type: integer
         assistantMessageCount:

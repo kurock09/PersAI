@@ -49,7 +49,7 @@ export interface AssistantWebChatTurnState {
 export interface AssistantWebChatCompactionState {
   available: boolean;
   suggested: boolean;
-  suggestionReason: "token_threshold" | "history_threshold" | null;
+  suggestionReason: "token_threshold" | "history_threshold" | "latency_threshold" | null;
   messageCount: number;
   assistantMessageCount: number;
   currentTokens: number | null;

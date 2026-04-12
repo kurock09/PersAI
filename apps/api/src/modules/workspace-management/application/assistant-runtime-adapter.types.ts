@@ -6,11 +6,7 @@ import type {
   AssistantRuntimeMediaDownloadResult,
   AssistantRuntimePreflightResult,
   AssistantRuntimeSetupPreviewTurnResult,
-  AssistantRuntimeWebChatCompactInput,
-  AssistantRuntimeWebChatCompactResult,
   AssistantRuntimeWebChatSessionDeleteInput,
-  AssistantRuntimeWebChatSessionStateInput,
-  AssistantRuntimeWebChatSessionStateResult,
   AssistantRuntimeWebChatTurnInput,
   AssistantRuntimeWebChatTurnResult,
   AssistantRuntimeWebChatTurnStreamChunk,
@@ -25,11 +21,7 @@ export type {
   AssistantRuntimeMediaDownloadResult,
   AssistantRuntimePreflightResult,
   AssistantRuntimeSetupPreviewTurnResult,
-  AssistantRuntimeWebChatCompactInput,
-  AssistantRuntimeWebChatCompactResult,
   AssistantRuntimeWebChatSessionDeleteInput,
-  AssistantRuntimeWebChatSessionStateInput,
-  AssistantRuntimeWebChatSessionStateResult,
   AssistantRuntimeWebChatTurnInput,
   AssistantRuntimeWebChatTurnResult,
   AssistantRuntimeWebChatTurnStreamChunk,
@@ -66,12 +58,6 @@ export interface OpenClawRuntimeBridge {
   resetWorkspace(assistantId: string): Promise<void>;
   resetMemoryWorkspace(assistantId: string): Promise<void>;
   deleteWebChatSession(input: AssistantRuntimeWebChatSessionDeleteInput): Promise<void>;
-  getWebChatSessionState(
-    input: AssistantRuntimeWebChatSessionStateInput
-  ): Promise<AssistantRuntimeWebChatSessionStateResult>;
-  compactWebChatSession(
-    input: AssistantRuntimeWebChatCompactInput
-  ): Promise<AssistantRuntimeWebChatCompactResult>;
   sendWebChatTurn(
     input: AssistantRuntimeWebChatTurnInput
   ): Promise<AssistantRuntimeWebChatTurnResult>;

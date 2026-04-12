@@ -86,11 +86,34 @@ class FakeRuntimeStatePrismaService {
   };
 }
 
+class FakeRuntimeStatePostgresService {
+  session: { id: string } | null = null;
+  latestCompaction: { summaryPayload: unknown } | null = null;
+
+  async findSessionByConversationKey() {
+    return this.session;
+  }
+
+  async findLatestSessionCompaction() {
+    return this.latestCompaction;
+  }
+}
+
+class FakeRuntimeStateKeyspaceService {
+  createConversationKey(conversation: RuntimeTurnRequest["conversation"]): string {
+    return `conversation:${conversation.channel}:${conversation.externalThreadKey}`;
+  }
+}
+
 export async function runTurnContextHydrationServiceTest(): Promise<void> {
   const prisma = new FakeRuntimeStatePrismaService();
+  const runtimeStatePostgres = new FakeRuntimeStatePostgresService();
+  const runtimeStateKeyspace = new FakeRuntimeStateKeyspaceService();
   const downloadedObjectKeys: string[] = [];
   const service = new TurnContextHydrationService(
     prisma as unknown as RuntimeStatePrismaService,
+    runtimeStatePostgres as never,
+    runtimeStateKeyspace as never,
     {
       async downloadObject(objectKey: string) {
         downloadedObjectKeys.push(objectKey);
@@ -341,5 +364,57 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   assert.deepEqual(capped.at(-1), {
     role: "user",
     content: fallback[0]?.content
+  });
+
+  runtimeStatePostgres.session = { id: "runtime-session-1" };
+  runtimeStatePostgres.latestCompaction = {
+    summaryPayload: {
+      schema: "persai.runtimeSessionCompaction.v1",
+      summaryText: "Durable summary of older context.",
+      summarizedMessageCount: 1
+    }
+  };
+  const reusedSummary = await service.buildMessages({
+    ...request,
+    idempotencyKey: "message-21",
+    message: {
+      ...request.message,
+      text: "current turn after compaction",
+      attachments: []
+    }
+  });
+  assert.equal(reusedSummary.length, 20);
+  assert.deepEqual(reusedSummary.at(0), {
+    role: "assistant",
+    content:
+      "[Earlier conversation summary retained by shared compaction]\nDurable summary of older context."
+  });
+  assert.deepEqual(reusedSummary.at(1), {
+    role: "assistant",
+    content: "message-4"
+  });
+  assert.deepEqual(reusedSummary.at(-2), {
+    role: "user",
+    content: "current turn after compaction"
+  });
+  assert.deepEqual(reusedSummary.at(-1), {
+    role: "assistant",
+    content: "message-22"
+  });
+
+  const compactionSource = await service.buildCompactionMessages({
+    conversation: request.conversation,
+    keepRecentMessageCount: 4
+  });
+  assert.equal(compactionSource.messages.length, 18);
+  assert.equal(compactionSource.summarizedMessageCount, 18);
+  assert.equal(compactionSource.preservedRecentMessageCount, 4);
+  assert.deepEqual(compactionSource.messages.at(0), {
+    role: "user",
+    content: "message-1"
+  });
+  assert.deepEqual(compactionSource.messages.at(-1), {
+    role: "assistant",
+    content: "message-18"
   });
 }

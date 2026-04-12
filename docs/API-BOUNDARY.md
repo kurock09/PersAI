@@ -590,7 +590,9 @@ Behavior baseline:
   - active web chats cap on new-thread creation
   - token budget quota limit
   - cost/token-driving tool-class quota limit when class is quota-governed
-- Materialization now carries explicit `toolAvailability` (`persai.effectiveToolAvailability.v1`) for OpenClaw alongside `effectiveCapabilities`.
+- Materialization now carries explicit `toolAvailability` (`persai.effectiveToolAvailability.v1`) for OpenClaw alongside `effectiveCapabilities`, while the native runtime bundle carries explicit `toolPolicies` derived from that same effective tool surface.
+- `ADR-072` `T15-2` also starts a typed native `runtime.sharedCompaction` contract in the runtime bundle. It carries fixed shared tool names (`summarize_context`, `compact_context`), the web suggestion latency threshold (`7000ms`), the current token-preservation knobs sourced from admin runtime compaction policy, and the assistant-scoped Telegram `autoCompactionEnabled` flag so later shared compaction execution does not recreate a second policy source.
+- The first dark native shared-compaction executor now lives in `apps/runtime` as `POST /api/v1/turns/compact`; it is internal runtime surface only for now and does not yet replace the live web compaction HTTP boundary.
 
 ## Step 7 P7 plan visibility read models
 
@@ -1297,6 +1299,19 @@ Behavior baseline:
   - runtime execution order matches sync up to acceptance, bundle/provider resolution, and recent canonical web chat/attachment hydration, then yields provider-gateway stream deltas before terminal finalization
   - replayed completed receipts return a terminal `completed` event from the stored `RuntimeTurnResult`
   - replayed failed/interrupted/accepted states and active busy/in-flight states currently surface as conflicts in this Step 9 sub-step
+- `apps/runtime` now also exposes dark `POST /api/v1/turns/compact`:
+  - request body matches `RuntimeCompactionRequest`
+  - response body matches `RuntimeCompactionResult`
+  - current scope is the shared native compaction seam for `ADR-072` `T15-2`; public web manual compaction calls it directly through the stable assistant API surface, and Telegram owner auto summarize now reuses the same runtime-owned service after completed native turns instead of reviving a Telegram-only command API
+  - execution resolves the active runtime session, acquires the session lease, resolves the warmed bundle from session `publishedVersionId` + `bundleHash`, hydrates older canonical web/Telegram history, runs provider-backed summary generation, appends one `runtime_session_compactions` row, and increments runtime session compaction counters
+  - `POST /api/v1/assistant/chats/web/:chatId/compact` now calls this seam and preserves the existing public assistant API response shape plus `compaction_unavailable` conflict mapping for native `session_not_found` / `session_busy` / `runtime_bundle_missing`
+- `apps/runtime` now also exposes dark `POST /api/v1/turns/session/resolve`:
+  - request body matches `RuntimeSessionResolveInput`
+  - response body matches `RuntimeSessionResolveResult`
+  - current scope is native runtime-owned session-summary reads for `ADR-072` `T15-2` compaction/banner state, not a user-facing channel API
+  - execution resolves the active session from Redis conversation pointers plus durable `runtime_sessions` fallback without reviving the old OpenClaw web session-state seam
+  - `GET /api/v1/assistant/chats/web/:chatId/compaction` now calls this seam and preserves the existing public assistant API contract while returning native session truth
+  - ordinary native turn hydration now reuses the latest durable `runtime_session_compactions.summary_payload` summary on later turns, and the public web compaction banner also considers rolling reply latency from canonical user/assistant message timing alongside context-pressure thresholds
 - authenticated `POST /api/v1/assistant/chat/web` now has the Step 10 sync route mode boundary:
   - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=legacy` keeps sync web turns on the OpenClaw runtime bridge
   - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=shadow` keeps OpenClaw as the user-visible primary path while queueing one native comparison run through `SendNativeWebChatTurnService`
@@ -1688,6 +1703,7 @@ Implementation reference: [openclaw-runtime.adapter.ts](../apps/api/src/modules/
 - audit note for `ADR-071` slice 5:
   - the web compaction endpoints implemented in the assistant HTTP surface (`GET /api/v1/assistant/chats/web/:chatId/compaction` and `POST /api/v1/assistant/chats/web/:chatId/compact`) are part of the live product boundary
   - those endpoints are represented in `packages/contracts/openapi.yaml` and consumed through generated client contracts, so client/runtime parity for this slice no longer depends on ad hoc fetch wiring
+  - `ADR-072` `T15-2` now materializes the shared-compaction contract into the native runtime bundle (`runtime.sharedCompaction`), uses native runtime `POST /api/v1/turns/compact` for public web manual compaction, uses native runtime `POST /api/v1/turns/session/resolve` for public web compaction state/banner reads, reuses the same runtime-owned compaction service for Telegram owner auto summarize, and rehydrates later native turns from the latest durable compaction summary while preserving the existing assistant API contracts
 
 ## H3: Runtime hydration depth — memory workspace proxy + chat history
 

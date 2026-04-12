@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { PERSAI_RUNTIME_CONTRACT_SCHEMA } from "@persai/runtime-contract";
+import {
+  PERSAI_RUNTIME_CONTRACT_SCHEMA,
+  type RuntimeSharedCompactionConfig,
+  type RuntimeToolPolicy
+} from "@persai/runtime-contract";
 
 export const PERSAI_RUNTIME_BUNDLE_SCHEMA = "persai.runtime.bundle.v1" as const;
 
@@ -42,13 +46,7 @@ export interface AssistantRuntimeBundleToolCredentialRef {
   providerId?: string;
 }
 
-export interface AssistantRuntimeBundleToolPolicy {
-  toolCode: string;
-  dailyCallLimit: number | null;
-  activationStatus: string;
-  policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
-  visibleInPlanEditor: boolean;
-}
+export type AssistantRuntimeBundleToolPolicy = RuntimeToolPolicy;
 
 export interface AssistantRuntimeBundleQuota {
   planCode: string | null;
@@ -61,6 +59,7 @@ export interface AssistantRuntimeBundleRuntimeConfig {
   runtimeProviderProfile: unknown;
   runtimeProviderRouting: unknown;
   optimizationPolicy: unknown;
+  sharedCompaction: RuntimeSharedCompactionConfig;
 }
 
 export interface AssistantRuntimeBundleGovernance {
@@ -72,7 +71,7 @@ export interface AssistantRuntimeBundleGovernance {
   memoryControl: unknown;
   tasksControl: unknown;
   toolCredentialRefs: Record<string, AssistantRuntimeBundleToolCredentialRef>;
-  toolQuotaPolicy: AssistantRuntimeBundleToolPolicy[];
+  toolPolicies: AssistantRuntimeBundleToolPolicy[];
   quota: AssistantRuntimeBundleQuota;
   auditHook: unknown;
 }

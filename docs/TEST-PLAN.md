@@ -868,6 +868,27 @@ Required in CI:
 ## Step 15 R15 focus
 
 - Docs-first alignment is required: `ADR-063`, `ROADMAP.md`, `ARCHITECTURE.md`, and `OPENCLAW-SAAS-RUNTIME-PLAN.md` must describe the same runtime direction.
+- Native tool policy contract validates:
+  - every runtime-bundle `toolAvailability.tools[].code` has a matching `governance.toolPolicies[].toolCode`
+  - each tool policy declares explicit `kind`, `usageRule`, and `executionMode` metadata instead of relying on prompt folklore
+  - hidden internal tools never become model-visible through the native bundle contract
+- Prompt/runtime parity validates:
+  - `TOOLS.md` is rendered from the same native `toolPolicies` array that the runtime bundle carries
+  - active plan tools, always-on system tools, and disabled plan tools keep the same visibility/forbidden semantics in both prompt docs and bundle metadata
+- Shared compaction contract baseline validates:
+  - `runtime.sharedCompaction` exists on the native runtime bundle with fixed `summarize_context` / `compact_context` names
+  - `runtime.sharedCompaction` mirrors the current web compaction threshold knobs from admin-managed optimization policy instead of inventing a second threshold source
+  - `runtime.sharedCompaction.telegramAutoSummarizeEnabled` mirrors the assistant-scoped Telegram owner setting so shared runtime wiring does not rely on channel-only config lookups
+- Dark native shared-compaction seam validates:
+  - `POST /api/v1/turns/compact` resolves the active session and warmed bundle from runtime-owned state instead of taking channel-specific compaction shortcuts
+  - `POST /api/v1/turns/session/resolve` resolves active session summary state from runtime-owned Redis/Postgres truth instead of calling OpenClaw web session-state APIs
+  - the dark seam uses `runtime.sharedCompaction` for threshold and preservation knobs before running provider-backed summary generation
+  - successful compaction appends `runtime_session_compactions` and increments runtime session compaction counters
+  - public `POST /api/v1/assistant/chats/web/:chatId/compact` preserves the existing assistant API contract while routing through native `POST /api/v1/turns/compact` and keeping `compaction_unavailable` mapping for unavailable native-session cases
+  - public `GET /api/v1/assistant/chats/web/:chatId/compaction` preserves the existing assistant API contract while routing through native `POST /api/v1/turns/session/resolve` for banner/state reads
+  - completed native Telegram turns with `telegramAutoSummarizeEnabled=true` trigger the same runtime-owned compaction path without reviving Telegram-only `/compact`
+  - later native turns reuse the latest durable `runtime_session_compactions.summary_payload` summary instead of replaying all previously summarized canonical history
+  - web compaction/banner state suggests compression when rolling reply latency crosses the shared `7000ms` threshold even when token pressure is still below the compaction token threshold
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift

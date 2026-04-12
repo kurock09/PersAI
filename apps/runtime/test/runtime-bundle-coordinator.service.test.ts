@@ -81,7 +81,17 @@ function createWarmInput() {
       runtimeAssignment: { tier: "free_shared_restricted" },
       runtimeProviderProfile: null,
       runtimeProviderRouting: null,
-      optimizationPolicy: null
+      optimizationPolicy: null,
+      sharedCompaction: {
+        summarizeToolCode: "summarize_context",
+        compactToolCode: "compact_context",
+        webSuggestionLatencyMs: 7000,
+        reserveTokens: 24000,
+        keepRecentTokens: 16000,
+        recentTurnsPreserve: 4,
+        suggestByMessageCount: false,
+        telegramAutoSummarizeEnabled: true
+      }
     },
     governance: {
       capabilityEnvelope: null,
@@ -92,7 +102,7 @@ function createWarmInput() {
       memoryControl: null,
       tasksControl: null,
       toolCredentialRefs: {},
-      toolQuotaPolicy: [],
+      toolPolicies: [],
       quota: {
         planCode: "free",
         workspaceQuotaBytes: 1024,
