@@ -15,7 +15,6 @@ import type {
   ProviderGatewayTextMessage,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
-  ProviderGatewayTextStreamEvent,
   RuntimeKnowledgeFetchToolResult,
   RuntimeKnowledgeSearchToolResult,
   RuntimeSharedCompactionToolResult,
