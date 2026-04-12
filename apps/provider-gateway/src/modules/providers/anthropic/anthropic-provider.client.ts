@@ -7,6 +7,7 @@ import type {
   ProviderGatewayTextFailedEvent,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
+  ProviderGatewayTextToolCallsEvent,
   ProviderGatewayTextStreamEvent,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
@@ -178,63 +179,169 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     input: ProviderGatewayTextGenerateRequest,
     signal?: AbortSignal
   ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
-    if (
-      (input.tools?.length ?? 0) > 0 ||
-      input.toolChoice !== undefined ||
-      (input.toolHistory?.length ?? 0) > 0
-    ) {
-      throw new Error("Tool-capable Anthropic streaming is not implemented.");
-    }
     if (this.client === null) {
       throw new Error("Anthropic provider client is not warmed.");
     }
 
     let accumulatedText = "";
     let latestUsage: RuntimeUsageSnapshot | null = null;
+    let latestStopReason: string | null = null;
+    const streamedToolCalls = new Map<
+      number,
+      {
+        id: string;
+        name: string;
+        inputJson: string;
+      }
+    >();
     const { signal: timedSignal, dispose } = this.createTimedSignal(
       this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS,
       signal
     );
 
     try {
-      const stream = await this.client.messages.create(
-        {
-          model: input.model,
-          max_tokens: input.maxOutputTokens ?? 1_024,
-          ...(input.systemPrompt === null ? {} : { system: input.systemPrompt }),
-          messages: this.buildAnthropicMessages(input) as AnthropicMessageParams,
-          stream: true
-        },
+      const toolChoice = this.toAnthropicToolChoice(input);
+      const payload: Record<string, unknown> = {
+        model: input.model,
+        max_tokens: input.maxOutputTokens ?? 1_024,
+        messages: this.buildAnthropicMessages(input) as AnthropicMessageParams,
+        stream: true
+      };
+      if (input.systemPrompt !== null) {
+        payload.system = input.systemPrompt;
+      }
+      if ((input.tools?.length ?? 0) > 0) {
+        payload.tools = this.toAnthropicTools(input) as AnthropicToolsParam;
+      }
+      if (toolChoice !== undefined) {
+        payload.tool_choice = toolChoice;
+      }
+      const stream = (await this.client.messages.create(
+        payload as unknown as AnthropicCreateMessageParams,
         { signal: timedSignal }
-      );
+      )) as AsyncIterable<Record<string, unknown>>;
 
-      for await (const event of stream) {
-        if (event.type === "message_start") {
-          latestUsage = this.toUsageSnapshot(input.model, event.message.usage);
+      for await (const rawEvent of stream) {
+        const event = this.asObject(rawEvent);
+        if (event?.type === "message_start") {
+          const message = this.asObject(event.message);
+          latestUsage = this.toUsageSnapshot(
+            input.model,
+            message?.usage as Anthropic.Messages.Usage | null | undefined
+          );
           continue;
         }
 
-        if (event.type === "message_delta") {
-          latestUsage = this.toUsageSnapshot(input.model, event.usage);
+        if (event?.type === "message_delta") {
+          latestUsage = this.toUsageSnapshot(
+            input.model,
+            event.usage as Anthropic.Messages.MessageDeltaUsage | null | undefined
+          );
+          const stopReason = this.readAnthropicStreamStopReason(event);
+          latestStopReason = stopReason ?? latestStopReason;
+          if (stopReason === "tool_use") {
+            const toolCalls = this.finalizeAnthropicStreamToolCalls(streamedToolCalls);
+            if (toolCalls.length === 0) {
+              const failedEvent: ProviderGatewayTextFailedEvent = {
+                type: "failed",
+                code: "provider_invalid_response",
+                message: "Anthropic provider stream stopped for tool use without any tool calls."
+              };
+              yield failedEvent;
+              return;
+            }
+            const toolCallsEvent: ProviderGatewayTextToolCallsEvent = {
+              type: "tool_calls",
+              result: {
+                provider: "anthropic",
+                model: input.model,
+                text: this.normalizeOptionalText(accumulatedText),
+                respondedAt: new Date().toISOString(),
+                usage: latestUsage,
+                stopReason: "tool_calls",
+                toolCalls
+              }
+            };
+            yield toolCallsEvent;
+            return;
+          }
           continue;
         }
 
-        if (
-          event.type === "content_block_delta" &&
-          event.delta.type === "text_delta" &&
-          event.delta.text.length > 0
-        ) {
-          accumulatedText += event.delta.text;
-          const deltaEvent: ProviderGatewayTextDeltaEvent = {
-            type: "text_delta",
-            delta: event.delta.text,
-            accumulatedText
-          };
-          yield deltaEvent;
+        if (event?.type === "content_block_start" && typeof event.index === "number") {
+          const contentBlock = this.asObject(event.content_block);
+          if (
+            contentBlock?.type === "tool_use" &&
+            typeof contentBlock.id === "string" &&
+            typeof contentBlock.name === "string"
+          ) {
+            streamedToolCalls.set(event.index, {
+              id: contentBlock.id,
+              name: contentBlock.name,
+              inputJson: ""
+            });
+          }
           continue;
         }
 
-        if (event.type === "message_stop") {
+        if (event?.type === "content_block_delta") {
+          const delta = this.asObject(event.delta);
+          if (
+            delta?.type === "text_delta" &&
+            typeof delta.text === "string" &&
+            delta.text.length > 0
+          ) {
+            accumulatedText += delta.text;
+            const deltaEvent: ProviderGatewayTextDeltaEvent = {
+              type: "text_delta",
+              delta: delta.text,
+              accumulatedText
+            };
+            yield deltaEvent;
+            continue;
+          }
+
+          if (
+            delta?.type === "input_json_delta" &&
+            typeof event.index === "number" &&
+            typeof delta.partial_json === "string"
+          ) {
+            const toolCall = streamedToolCalls.get(event.index);
+            if (toolCall !== undefined) {
+              toolCall.inputJson += delta.partial_json;
+            }
+            continue;
+          }
+        }
+
+        if (event?.type === "message_stop") {
+          const toolCalls = this.finalizeAnthropicStreamToolCalls(streamedToolCalls);
+          if (toolCalls.length > 0 || latestStopReason === "tool_use") {
+            if (toolCalls.length === 0) {
+              const failedEvent: ProviderGatewayTextFailedEvent = {
+                type: "failed",
+                code: "provider_invalid_response",
+                message: "Anthropic provider stream stopped for tool use without any tool calls."
+              };
+              yield failedEvent;
+              return;
+            }
+            const toolCallsEvent: ProviderGatewayTextToolCallsEvent = {
+              type: "tool_calls",
+              result: {
+                provider: "anthropic",
+                model: input.model,
+                text: this.normalizeOptionalText(accumulatedText),
+                respondedAt: new Date().toISOString(),
+                usage: latestUsage,
+                stopReason: "tool_calls",
+                toolCalls
+              }
+            };
+            yield toolCallsEvent;
+            return;
+          }
+
           const text = accumulatedText.trim();
           if (!text) {
             const failedEvent: ProviderGatewayTextFailedEvent = {
@@ -392,6 +499,54 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       .join("\n")
       .trim();
     return text.length > 0 ? text : null;
+  }
+
+  private normalizeOptionalText(value: string): string | null {
+    return value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private finalizeAnthropicStreamToolCalls(
+    streamedToolCalls: Map<
+      number,
+      {
+        id: string;
+        name: string;
+        inputJson: string;
+      }
+    >
+  ): ProviderGatewayToolCall[] {
+    return Array.from(streamedToolCalls.values()).map((toolCall) => ({
+      id: toolCall.id,
+      name: toolCall.name,
+      arguments: this.parseAnthropicToolInput(toolCall.inputJson, toolCall.name)
+    }));
+  }
+
+  private parseAnthropicToolInput(rawInputJson: string, toolName: string): Record<string, unknown> {
+    if (rawInputJson.trim().length === 0) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(rawInputJson);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error();
+      }
+      return parsed as Record<string, unknown>;
+    } catch {
+      throw new Error(`Anthropic tool call "${toolName}" returned invalid JSON arguments.`);
+    }
+  }
+
+  private readAnthropicStreamStopReason(event: unknown): string | null {
+    const row = this.asObject(event);
+    const delta = this.asObject(row?.delta);
+    return typeof delta?.stop_reason === "string" ? delta.stop_reason : null;
+  }
+
+  private asObject(value: unknown): Record<string, unknown> | null {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   }
 
   private toAnthropicMessageContent(

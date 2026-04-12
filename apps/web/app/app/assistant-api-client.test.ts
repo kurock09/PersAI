@@ -563,6 +563,38 @@ describe("streamAssistantWebChatTurn", () => {
       willRetry: false
     });
   });
+
+  it("forwards tool lifecycle events from the stream", async () => {
+    const onTool = vi.fn();
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          `event: tool\ndata: ${JSON.stringify({ phase: "start", toolName: "summarize_context", toolCallId: "tool-1", isError: false })}\n\n`,
+          `event: tool\ndata: ${JSON.stringify({ phase: "end", toolName: "summarize_context", toolCallId: "tool-1", isError: false })}\n\n`,
+          `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}\n\n`
+        ])
+      ) as typeof fetch;
+
+    await streamAssistantWebChatTurn(
+      "token-1",
+      { surfaceThreadKey: "thread-1", message: "Hello" },
+      { onTool }
+    );
+
+    expect(onTool).toHaveBeenNthCalledWith(1, {
+      phase: "start",
+      toolName: "summarize_context",
+      toolCallId: "tool-1",
+      isError: false
+    });
+    expect(onTool).toHaveBeenNthCalledWith(2, {
+      phase: "end",
+      toolName: "summarize_context",
+      toolCallId: "tool-1",
+      isError: false
+    });
+  });
 });
 
 describe("toWebChatUxIssue", () => {

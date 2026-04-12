@@ -84,6 +84,21 @@ describe("StreamNativeWebChatTurnService", () => {
             accumulatedText: "hello"
           }),
           JSON.stringify({
+            type: "tool_started",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1",
+            toolCallId: "tool-1",
+            toolName: "summarize_context"
+          }),
+          JSON.stringify({
+            type: "tool_finished",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1",
+            toolCallId: "tool-1",
+            toolName: "summarize_context",
+            isError: false
+          }),
+          JSON.stringify({
             type: "completed",
             result: {
               requestId: "runtime-request-1",
@@ -146,6 +161,19 @@ describe("StreamNativeWebChatTurnService", () => {
       );
       assert.deepEqual(chunks, [
         { type: "delta", delta: "hello", accumulated: "hello" },
+        {
+          type: "tool",
+          toolPhase: "start",
+          toolName: "summarize_context",
+          toolCallId: "tool-1"
+        },
+        {
+          type: "tool",
+          toolPhase: "end",
+          toolName: "summarize_context",
+          toolCallId: "tool-1",
+          isError: false
+        },
         { type: "delta", delta: " native", accumulated: "hello native" },
         {
           type: "done",

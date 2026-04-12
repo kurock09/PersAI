@@ -232,6 +232,7 @@ describe("StreamWebChatTurnService", () => {
 
   test("routes stream web turns through the native runtime service when the mode is native", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
+    const toolEvents: Array<Record<string, unknown>> = [];
     let legacyRuntimeCalls = 0;
     let nativeRuntimeCalls = 0;
     let bootstrapConsumeCalls = 0;
@@ -286,6 +287,19 @@ describe("StreamWebChatTurnService", () => {
           nativeRuntimeCalls += 1;
           capturedNativeUserMessage = input.userMessage;
           yield { type: "delta", delta: "native", accumulated: "native" };
+          yield {
+            type: "tool",
+            toolPhase: "start",
+            toolName: "summarize_context",
+            toolCallId: "tool-1"
+          };
+          yield {
+            type: "tool",
+            toolPhase: "end",
+            toolName: "summarize_context",
+            toolCallId: "tool-1",
+            isError: false
+          };
           yield { type: "done", respondedAt: "2026-04-05T12:00:01.000Z" };
         }
       } as never,
@@ -361,6 +375,9 @@ describe("StreamWebChatTurnService", () => {
         isClientAborted: () => false,
         onDelta: () => undefined,
         onThinking: () => undefined,
+        onTool: (payload: Record<string, unknown>) => {
+          toolEvents.push(payload);
+        },
         onDone: () => undefined
       }
     );
@@ -373,6 +390,20 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(capturedNativeUserMessage, "hello");
     assert.equal(createdMessages.length, 1);
     assert.equal(createdMessages[0]?.content, "native");
+    assert.deepEqual(toolEvents, [
+      {
+        phase: "start",
+        toolName: "summarize_context",
+        toolCallId: "tool-1",
+        isError: false
+      },
+      {
+        phase: "end",
+        toolName: "summarize_context",
+        toolCallId: "tool-1",
+        isError: false
+      }
+    ]);
   });
 
   test("keeps legacy stream primary and queues native shadow comparison in shadow mode", async () => {

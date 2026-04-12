@@ -80,6 +80,8 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   } | null = null;
   let capturedStreamPayload: {
     messages?: unknown;
+    tools?: unknown;
+    tool_choice?: unknown;
   } | null = null;
 
   (client as unknown as { client: unknown }).client = {
@@ -92,6 +94,47 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       }) => {
         if (payload.stream) {
           capturedStreamPayload = payload as unknown as Record<string, unknown>;
+          if (payload.tools !== undefined) {
+            return (async function* (): AsyncGenerator<unknown> {
+              yield {
+                type: "message_start",
+                message: {
+                  usage: {
+                    input_tokens: 10,
+                    output_tokens: 0
+                  }
+                }
+              };
+              yield {
+                type: "content_block_start",
+                index: 0,
+                content_block: {
+                  type: "tool_use",
+                  id: "toolu_stream",
+                  name: "knowledge_fetch",
+                  input: {}
+                }
+              };
+              yield {
+                type: "content_block_delta",
+                index: 0,
+                delta: {
+                  type: "input_json_delta",
+                  partial_json: '{"source":"memory","referenceId":"memory-1"}'
+                }
+              };
+              yield {
+                type: "message_delta",
+                delta: {
+                  stop_reason: "tool_use",
+                  stop_sequence: null
+                },
+                usage: {
+                  output_tokens: 2
+                }
+              };
+            })();
+          }
           return (async function* (): AsyncGenerator<unknown> {
             yield {
               type: "message_start",
@@ -322,4 +365,99 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     events.map((event) => event.type),
     ["text_delta", "completed"]
   );
+
+  const toolStream = await client.streamText(toolRequest);
+  const toolStreamEvents = await collectStream(toolStream);
+  assert.deepEqual(capturedStreamPayload!.tools, [
+    {
+      name: "knowledge_fetch",
+      description: "Fetch one known knowledge item.",
+      input_schema: {
+        type: "object",
+        properties: {
+          source: { type: "string" },
+          referenceId: { type: "string" }
+        }
+      }
+    }
+  ]);
+  assert.deepEqual(capturedStreamPayload!.tool_choice, {
+    type: "auto"
+  });
+  assert.deepEqual(capturedStreamPayload!.messages, [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "look at this"
+        },
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/jpeg",
+            data: "aGVsbG8="
+          }
+        },
+        {
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: "cGRmLWRhdGE="
+          },
+          title: "report.pdf"
+        }
+      ]
+    },
+    {
+      role: "assistant",
+      content: "what should I inspect?"
+    },
+    {
+      role: "user",
+      content: "the connector pins"
+    },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_prev",
+          name: "knowledge_search",
+          input: {
+            source: "memory",
+            query: "connector pins"
+          }
+        }
+      ]
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_prev",
+          content: '{"toolCode":"knowledge_search","action":"skipped"}',
+          is_error: false
+        }
+      ]
+    }
+  ]);
+  assert.deepEqual(
+    toolStreamEvents.map((event) => event.type),
+    ["tool_calls"]
+  );
+  const toolStreamEvent = toolStreamEvents[0];
+  assert.equal(toolStreamEvent?.type, "tool_calls");
+  if (toolStreamEvent?.type === "tool_calls") {
+    assert.equal(toolStreamEvent.result.stopReason, "tool_calls");
+    assert.equal(toolStreamEvent.result.toolCalls[0]?.id, "toolu_stream");
+    assert.equal(toolStreamEvent.result.toolCalls[0]?.name, "knowledge_fetch");
+    assert.deepEqual(toolStreamEvent.result.toolCalls[0]?.arguments, {
+      source: "memory",
+      referenceId: "memory-1"
+    });
+  }
 }

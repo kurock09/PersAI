@@ -185,6 +185,12 @@ export class StreamWebChatTurnService {
       clientAbortSignal?: AbortSignal;
       onDelta: (delta: string, accumulated: string) => void;
       onThinking: (delta: string, accumulated: string) => void;
+      onTool?: (payload: {
+        phase: "start" | "end";
+        toolName: string;
+        toolCallId: string;
+        isError: boolean;
+      }) => void;
       onDone: (respondedAt: string) => void;
     }
   ): Promise<StreamWebChatTurnOutcome> {
@@ -291,6 +297,20 @@ export class StreamWebChatTurnService {
           typeof chunk.accumulated === "string"
         ) {
           callbacks.onThinking(chunk.delta, chunk.accumulated);
+        }
+
+        if (
+          chunk.type === "tool" &&
+          (chunk.toolPhase === "start" || chunk.toolPhase === "end") &&
+          typeof chunk.toolName === "string" &&
+          typeof chunk.toolCallId === "string"
+        ) {
+          callbacks.onTool?.({
+            phase: chunk.toolPhase,
+            toolName: chunk.toolName,
+            toolCallId: chunk.toolCallId,
+            isError: chunk.isError === true
+          });
         }
 
         if (chunk.type === "media" && Array.isArray(chunk.media)) {

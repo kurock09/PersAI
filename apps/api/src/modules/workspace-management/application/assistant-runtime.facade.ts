@@ -90,7 +90,7 @@ export interface AssistantRuntimeSetupPreviewTurnResult {
 }
 
 export interface AssistantRuntimeWebChatTurnStreamChunk {
-  type: "delta" | "thinking" | "done" | "failed" | "media" | "compaction";
+  type: "delta" | "thinking" | "done" | "failed" | "media" | "compaction" | "tool";
   delta?: string;
   accumulated?: string;
   respondedAt?: string;
@@ -100,6 +100,10 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   phase?: "start" | "end";
   completed?: boolean;
   willRetry?: boolean;
+  toolPhase?: "start" | "end";
+  toolName?: string;
+  toolCallId?: string;
+  isError?: boolean;
   runtimeTrace?: {
     scope: string;
     status: string;

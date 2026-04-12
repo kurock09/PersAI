@@ -411,6 +411,9 @@ export class ProviderGatewayClientService {
     if (row?.type === "completed") {
       return this.isTextGenerateResult(row.result);
     }
+    if (row?.type === "tool_calls") {
+      return this.isTextGenerateResult(row.result) && row.result.stopReason === "tool_calls";
+    }
     if (row?.type === "failed") {
       return typeof row.code === "string" && typeof row.message === "string";
     }

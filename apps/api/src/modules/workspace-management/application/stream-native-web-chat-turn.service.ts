@@ -167,6 +167,23 @@ export class StreamNativeWebChatTurnService {
               accumulated: event.accumulatedText
             };
             continue;
+          case "tool_started":
+            yield {
+              type: "tool",
+              toolPhase: "start",
+              toolName: event.toolName,
+              toolCallId: event.toolCallId
+            };
+            continue;
+          case "tool_finished":
+            yield {
+              type: "tool",
+              toolPhase: "end",
+              toolName: event.toolName,
+              toolCallId: event.toolCallId,
+              isError: event.isError
+            };
+            continue;
           case "artifact":
             throw new AssistantRuntimeError(
               "invalid_response",
@@ -340,6 +357,27 @@ export class StreamNativeWebChatTurnService {
           typeof row.requestId === "string" &&
           typeof row.sessionId === "string" &&
           this.asObject(row.artifact) !== null
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "tool_started":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          typeof row.toolCallId === "string" &&
+          typeof row.toolName === "string"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "tool_finished":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          typeof row.toolCallId === "string" &&
+          typeof row.toolName === "string" &&
+          typeof row.isError === "boolean"
         ) {
           return parsed as RuntimeTurnStreamEvent;
         }

@@ -8,6 +8,7 @@ import type {
   ProviderGatewayTextFailedEvent,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
+  ProviderGatewayTextToolCallsEvent,
   ProviderGatewayTextStreamEvent,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
@@ -223,39 +224,57 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     input: ProviderGatewayTextGenerateRequest,
     signal?: AbortSignal
   ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
-    if (
-      (input.tools?.length ?? 0) > 0 ||
-      input.toolChoice !== undefined ||
-      (input.toolHistory?.length ?? 0) > 0
-    ) {
-      throw new Error("Tool-capable OpenAI streaming is not implemented.");
-    }
     if (this.client === null) {
       throw new Error("OpenAI provider client is not warmed.");
     }
 
     let accumulatedText = "";
+    const streamedToolCalls = new Map<
+      string,
+      {
+        id: string;
+        name: string | null;
+        argumentsText: string;
+      }
+    >();
     const { signal: timedSignal, dispose } = this.createTimedSignal(
       this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS,
       signal
     );
 
     try {
-      const stream = await this.client.responses.create(
+      const toolChoice = this.toOpenAIToolChoice(input);
+      const payload: Record<string, unknown> = {
+        model: input.model,
+        input: this.buildOpenAIInputItems(input) as OpenAIResponseInputParam,
+        stream: true
+      };
+      if (input.systemPrompt !== null) {
+        payload.instructions = input.systemPrompt;
+      }
+      if (input.maxOutputTokens !== undefined) {
+        payload.max_output_tokens = input.maxOutputTokens;
+      }
+      if ((input.tools?.length ?? 0) > 0) {
+        payload.tools = this.toOpenAITools(input) as OpenAIResponseToolsParam;
+      }
+      if (toolChoice !== undefined) {
+        payload.tool_choice = toolChoice;
+      }
+      const stream = (await this.client.responses.create(
+        payload as unknown as OpenAIResponseCreateParams,
         {
-          model: input.model,
-          ...(input.systemPrompt === null ? {} : { instructions: input.systemPrompt }),
-          input: this.buildOpenAIInputItems(input) as OpenAIResponseInputParam,
-          ...(input.maxOutputTokens === undefined
-            ? {}
-            : { max_output_tokens: input.maxOutputTokens }),
-          stream: true
-        },
-        { signal: timedSignal }
-      );
+          signal: timedSignal
+        }
+      )) as AsyncIterable<Record<string, unknown>>;
 
-      for await (const event of stream) {
-        if (event.type === "response.output_text.delta" && event.delta.length > 0) {
+      for await (const rawEvent of stream) {
+        const event = this.asObject(rawEvent);
+        if (
+          event?.type === "response.output_text.delta" &&
+          typeof event.delta === "string" &&
+          event.delta.length > 0
+        ) {
           accumulatedText += event.delta;
           const deltaEvent: ProviderGatewayTextDeltaEvent = {
             type: "text_delta",
@@ -266,12 +285,44 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           continue;
         }
 
-        if (event.type === "response.completed") {
+        const streamedToolCall = this.readOpenAIStreamToolCall(event);
+        if (streamedToolCall !== null) {
+          streamedToolCalls.set(streamedToolCall.id, streamedToolCall);
+          continue;
+        }
+
+        if (event?.type === "response.completed") {
+          const response = this.asObject(event.response);
+          const toolCalls =
+            streamedToolCalls.size > 0
+              ? this.finalizeOpenAIStreamToolCalls(streamedToolCalls)
+              : this.parseOpenAIToolCalls(response?.output);
+          if (toolCalls.length > 0) {
+            const toolCallsEvent: ProviderGatewayTextToolCallsEvent = {
+              type: "tool_calls",
+              result: {
+                provider: "openai",
+                model: input.model,
+                text:
+                  this.normalizeOptionalText(response?.output_text) ??
+                  this.normalizeOptionalText(accumulatedText),
+                respondedAt: new Date().toISOString(),
+                usage: this.toUsageSnapshot(
+                  input.model,
+                  response?.usage as OpenAI.Responses.ResponseUsage | undefined
+                ),
+                stopReason: "tool_calls",
+                toolCalls
+              }
+            };
+            yield toolCallsEvent;
+            return;
+          }
+
           const text =
-            typeof event.response.output_text === "string"
-              ? event.response.output_text.trim()
-              : accumulatedText.trim();
-          if (!text) {
+            this.normalizeOptionalText(response?.output_text) ??
+            this.normalizeOptionalText(accumulatedText);
+          if (text === null) {
             const failedEvent: ProviderGatewayTextFailedEvent = {
               type: "failed",
               code: "provider_invalid_response",
@@ -288,7 +339,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
               model: input.model,
               text,
               respondedAt: new Date().toISOString(),
-              usage: this.toUsageSnapshot(input.model, event.response.usage),
+              usage: this.toUsageSnapshot(
+                input.model,
+                response?.usage as OpenAI.Responses.ResponseUsage | undefined
+              ),
               stopReason: "completed",
               toolCalls: []
             }
@@ -297,23 +351,27 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           return;
         }
 
-        if (event.type === "error") {
+        if (event?.type === "error") {
           const failedEvent: ProviderGatewayTextFailedEvent = {
             type: "failed",
-            code: event.code ?? "provider_stream_error",
-            message: event.message
+            code: typeof event.code === "string" ? event.code : "provider_stream_error",
+            message:
+              typeof event.message === "string" ? event.message : "OpenAI provider stream failed."
           };
           yield failedEvent;
           return;
         }
 
-        if (event.type === "response.failed" || event.type === "response.incomplete") {
+        if (event?.type === "response.failed" || event?.type === "response.incomplete") {
+          const response = this.asObject(event.response);
+          const error = this.asObject(response?.error);
           const failedEvent: ProviderGatewayTextFailedEvent = {
             type: "failed",
             code: "provider_stream_failed",
             message:
-              event.response.error?.message ??
-              "OpenAI provider stream did not complete successfully."
+              typeof error?.message === "string"
+                ? error.message
+                : "OpenAI provider stream did not complete successfully."
           };
           yield failedEvent;
           return;
@@ -433,6 +491,9 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     rawArguments: string,
     toolName: string
   ): Record<string, unknown> {
+    if (rawArguments.trim().length === 0) {
+      return {};
+    }
     try {
       const parsed = JSON.parse(rawArguments);
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -446,6 +507,78 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
   private normalizeOptionalText(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private readOpenAIStreamToolCall(event: unknown): {
+    id: string;
+    name: string | null;
+    argumentsText: string;
+  } | null {
+    const row = this.asObject(event);
+    if (row?.type === "response.output_item.done") {
+      const item = this.asObject(row.item);
+      if (
+        item?.type === "function_call" &&
+        typeof item.call_id === "string" &&
+        typeof item.name === "string" &&
+        typeof item.arguments === "string"
+      ) {
+        return {
+          id: item.call_id,
+          name: item.name,
+          argumentsText: item.arguments
+        };
+      }
+    }
+
+    if (row?.type === "response.function_call_arguments.done") {
+      const callId = typeof row.call_id === "string" ? row.call_id : null;
+      const argumentsText = typeof row.arguments === "string" ? row.arguments : null;
+      if (callId !== null && argumentsText !== null) {
+        return {
+          id: callId,
+          name: typeof row.name === "string" ? row.name : null,
+          argumentsText
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private finalizeOpenAIStreamToolCalls(
+    streamedToolCalls: Map<
+      string,
+      {
+        id: string;
+        name: string | null;
+        argumentsText: string;
+      }
+    >
+  ): ProviderGatewayToolCall[] {
+    const toolCalls: ProviderGatewayToolCall[] = [];
+    for (const streamedToolCall of streamedToolCalls.values()) {
+      if (streamedToolCall.name === null) {
+        throw new Error(
+          `OpenAI provider stream returned a tool call without a tool name for "${streamedToolCall.id}".`
+        );
+      }
+      toolCalls.push({
+        id: streamedToolCall.id,
+        name: streamedToolCall.name,
+        arguments: this.parseOpenAIToolArguments(
+          streamedToolCall.argumentsText,
+          streamedToolCall.name
+        )
+      });
+    }
+    return toolCalls;
+  }
+
+  private asObject(value: unknown): Record<string, unknown> | null {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   }
 
   private defaultAudioFilename(mimeType: string): string {

@@ -343,6 +343,7 @@ class FakeProviderGatewayClientService {
   resultQueue: ProviderGatewayTextGenerateResult[] = [];
   error: Error | null = null;
   streamError: Error | null = null;
+  streamEventsQueue: ProviderGatewayTextStreamEvent[][] = [];
   streamEvents: ProviderGatewayTextStreamEvent[] = [
     {
       type: "text_delta",
@@ -387,7 +388,7 @@ class FakeProviderGatewayClientService {
       throw this.streamError;
     }
 
-    const events = [...this.streamEvents];
+    const events = [...(this.streamEventsQueue.shift() ?? this.streamEvents)];
     return (async function* (): AsyncGenerator<ProviderGatewayTextStreamEvent> {
       for (const event of events) {
         yield event;
@@ -733,16 +734,120 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.streamCalls[0]?.messages,
     turnContextHydrationService.messages
   );
-  assert.equal(providerGatewayClient.streamCalls[0]?.tools, undefined);
-  assert.match(
-    providerGatewayClient.streamCalls[0]?.systemPrompt ?? "",
-    /No model-visible tools are enabled for this turn/
+  assert.deepEqual(
+    providerGatewayClient.streamCalls[0]?.tools?.map((tool) => tool.name),
+    ["summarize_context", "compact_context"]
   );
+  assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /summarize_context/);
+  assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /compact_context/);
   assert.equal(turnFinalizationService.completed.length, completedBeforeStream + 1);
   const completedEvent = streamEvents[2];
   assert.equal(completedEvent?.type, "completed");
   if (completedEvent?.type === "completed") {
     assert.equal(completedEvent.result.assistantText, "runtime reply");
+  }
+
+  providerGatewayClient.streamEventsQueue = [
+    [
+      {
+        type: "text_delta",
+        delta: "reply after ",
+        accumulatedText: "reply after "
+      },
+      {
+        type: "tool_calls",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "reply after ",
+          respondedAt: "2026-04-11T12:00:04.000Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 12,
+            outputTokens: 0,
+            totalTokens: 12
+          },
+          stopReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tool-stream-1",
+              name: "summarize_context",
+              arguments: {
+                instructions: "Preserve open questions."
+              }
+            }
+          ]
+        }
+      }
+    ],
+    [
+      {
+        type: "text_delta",
+        delta: "summary",
+        accumulatedText: "summary"
+      },
+      {
+        type: "completed",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "summary",
+          respondedAt: "2026-04-11T12:00:05.000Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 20,
+            outputTokens: 10,
+            totalTokens: 30
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      }
+    ]
+  ];
+  const summarizeCallsBeforeStreamToolLoop = sessionCompactionService.summarizeCalls.length;
+  const streamCallCountBeforeToolLoop = providerGatewayClient.streamCalls.length;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const toolLoopStream = await service.streamTurn(request);
+  const toolLoopStreamEvents = await collectStreamEvents(toolLoopStream);
+  assert.deepEqual(
+    toolLoopStreamEvents.map((event) => event.type),
+    ["started", "text_delta", "tool_started", "tool_finished", "text_delta", "completed"]
+  );
+  assert.equal(providerGatewayClient.streamCalls.length, streamCallCountBeforeToolLoop + 2);
+  assert.deepEqual(
+    providerGatewayClient.streamCalls.at(-2)?.tools?.map((tool) => tool.name),
+    ["summarize_context", "compact_context"]
+  );
+  assert.equal(providerGatewayClient.streamCalls.at(-1)?.toolHistory?.length, 1);
+  assert.equal(providerGatewayClient.streamCalls.at(-1)?.messages.at(-1)?.role, "assistant");
+  assert.equal(providerGatewayClient.streamCalls.at(-1)?.messages.at(-1)?.content, "reply after");
+  assert.equal(
+    sessionCompactionService.summarizeCalls.length,
+    summarizeCallsBeforeStreamToolLoop + 1
+  );
+  assert.deepEqual(sessionCompactionService.summarizeCalls.at(-1), {
+    runtimeTier: "paid_shared_restricted",
+    conversation: createAcceptedTurn().session.conversation,
+    instructions: "Preserve open questions.",
+    heldLease: {
+      sessionId: "session-1",
+      ownerToken: "lease-owner-1"
+    }
+  });
+  const toolFinishedEvent = toolLoopStreamEvents[3];
+  assert.equal(toolFinishedEvent?.type, "tool_finished");
+  if (toolFinishedEvent?.type === "tool_finished") {
+    assert.equal(toolFinishedEvent.isError, false);
+  }
+  const streamToolLoopCompletedEvent = toolLoopStreamEvents.at(-1);
+  assert.equal(streamToolLoopCompletedEvent?.type, "completed");
+  if (streamToolLoopCompletedEvent?.type === "completed") {
+    assert.equal(streamToolLoopCompletedEvent.result.assistantText, "reply after summary");
   }
 
   providerGatewayClient.resultQueue = [
@@ -785,13 +890,17 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       toolCalls: []
     }
   ];
+  const summarizeCallsBeforeSyncToolLoop = sessionCompactionService.summarizeCalls.length;
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const toolLoopCompleted = await service.createTurn(request);
   assert.equal(toolLoopCompleted.assistantText, "reply after summary");
-  assert.equal(sessionCompactionService.summarizeCalls.length, 1);
-  assert.deepEqual(sessionCompactionService.summarizeCalls[0], {
+  assert.equal(
+    sessionCompactionService.summarizeCalls.length,
+    summarizeCallsBeforeSyncToolLoop + 1
+  );
+  assert.deepEqual(sessionCompactionService.summarizeCalls.at(-1), {
     runtimeTier: "paid_shared_restricted",
     conversation: createAcceptedTurn().session.conversation,
     instructions: "Preserve open questions.",

@@ -80,6 +80,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   } | null = null;
   let capturedStreamPayload: {
     input?: unknown;
+    tools?: unknown;
+    tool_choice?: unknown;
   } | null = null;
   let capturedTranscriptionInput: unknown = null;
 
@@ -103,6 +105,38 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       }) => {
         if (payload.stream) {
           capturedStreamPayload = payload as unknown as Record<string, unknown>;
+          if (payload.tools !== undefined) {
+            return (async function* (): AsyncGenerator<unknown> {
+              yield {
+                type: "response.output_item.done",
+                item: {
+                  type: "function_call",
+                  call_id: "call-stream-1",
+                  name: "knowledge_search",
+                  arguments: '{"source":"web","query":"pricing"}'
+                }
+              };
+              yield {
+                type: "response.completed",
+                response: {
+                  output: [
+                    {
+                      type: "function_call",
+                      call_id: "call-stream-1",
+                      name: "knowledge_search",
+                      arguments: '{"source":"web","query":"pricing"}'
+                    }
+                  ],
+                  output_text: "",
+                  usage: {
+                    input_tokens: 11,
+                    output_tokens: 0,
+                    total_tokens: 11
+                  }
+                }
+              };
+            })();
+          }
           return (async function* (): AsyncGenerator<unknown> {
             yield {
               type: "response.output_text.delta",
@@ -237,7 +271,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
           source: { type: "string" },
           query: { type: "string" }
         }
-      }
+      },
+      strict: false
     }
   ]);
   assert.equal(capturedGeneratePayload!.tool_choice, "auto");
@@ -289,6 +324,80 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     events.map((event) => event.type),
     ["text_delta", "completed"]
   );
+
+  const toolStream = await client.streamText(toolRequest);
+  const toolStreamEvents = await collectStream(toolStream);
+  assert.equal(capturedStreamPayload!.tool_choice, "auto");
+  assert.deepEqual(capturedStreamPayload!.tools, [
+    {
+      type: "function",
+      name: "knowledge_search",
+      description: "Search enabled knowledge sources.",
+      parameters: {
+        type: "object",
+        properties: {
+          source: { type: "string" },
+          query: { type: "string" }
+        }
+      },
+      strict: false
+    }
+  ]);
+  assert.deepEqual(capturedStreamPayload!.input, [
+    {
+      role: "user",
+      content: [
+        {
+          type: "input_text",
+          text: "hello"
+        },
+        {
+          type: "input_image",
+          image_url: "data:image/png;base64,aGVsbG8=",
+          detail: "auto"
+        },
+        {
+          type: "input_file",
+          filename: "manual.pdf",
+          file_data: "data:application/pdf;base64,cGRmLWRhdGE="
+        }
+      ]
+    },
+    {
+      role: "assistant",
+      content: "hi there"
+    },
+    {
+      role: "user",
+      content: "tell me more"
+    },
+    {
+      type: "function_call",
+      call_id: "call-0",
+      name: "knowledge_search",
+      arguments: '{"source":"web","query":"hello"}'
+    },
+    {
+      type: "function_call_output",
+      call_id: "call-0",
+      output: '{"toolCode":"knowledge_search","action":"skipped"}'
+    }
+  ]);
+  assert.deepEqual(
+    toolStreamEvents.map((event) => event.type),
+    ["tool_calls"]
+  );
+  const toolStreamEvent = toolStreamEvents[0];
+  assert.equal(toolStreamEvent?.type, "tool_calls");
+  if (toolStreamEvent?.type === "tool_calls") {
+    assert.equal(toolStreamEvent.result.stopReason, "tool_calls");
+    assert.equal(toolStreamEvent.result.toolCalls[0]?.id, "call-stream-1");
+    assert.equal(toolStreamEvent.result.toolCalls[0]?.name, "knowledge_search");
+    assert.deepEqual(toolStreamEvent.result.toolCalls[0]?.arguments, {
+      source: "web",
+      query: "pricing"
+    });
+  }
 
   const transcription = await client.transcribeAudio({
     buffer: Buffer.from("voice-data"),

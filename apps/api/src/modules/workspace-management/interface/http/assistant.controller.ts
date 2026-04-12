@@ -950,6 +950,9 @@ export class AssistantController {
       onThinking: (delta, accumulated) => {
         sendSse("thinking", { delta, accumulated });
       },
+      onTool: ({ phase, toolName, toolCallId, isError }) => {
+        sendSse("tool", { phase, toolName, toolCallId, isError });
+      },
       onDone: (respondedAt) => {
         sendSse("runtime_done", { respondedAt });
       }

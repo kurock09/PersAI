@@ -354,6 +354,22 @@ export function useChat(threadKey: string): UseChatReturn {
                 pendingDelta.raf = requestAnimationFrame(flushDelta);
               }
             },
+            onTool: ({ phase, toolName, isError }) => {
+              setActivities((prev) => [
+                ...prev,
+                {
+                  id: `activity-tool-${Date.now()}-${phase}-${toolName}`,
+                  type: "tool_use",
+                  label:
+                    phase === "start"
+                      ? `Using ${toolName}`
+                      : isError
+                        ? `${toolName} failed`
+                        : `${toolName} finished`,
+                  afterMessageId: assistantMsgId
+                }
+              ]);
+            },
             onCompaction: ({ phase, completed, willRetry }) => {
               setCompactionRunning(phase === "start" || willRetry);
               const activityDetail = willRetry ? t("compactionWillRetry") : null;

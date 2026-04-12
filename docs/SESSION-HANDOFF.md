@@ -4,15 +4,15 @@
 
 ### What changed
 
-1. `apps/runtime` now exposes only the real shared compaction tools on sync turns, disables all model-visible tools on stream turns, and reuses the accepted-turn lease for in-turn shared compaction.
-2. `knowledge_search`, `knowledge_fetch`, `persai_workspace_attach`, and `persai_tool_quota_status` now stay dark on the ordinary model-visible path until real PersAI-native executors exist.
-3. ADR-072 and the execution ledger now mark `T15-3a` complete: shared runtime hardening is done, and any later always-on helper exposure/admin follow-through is explicitly carried into `T15-7` instead of blocking `T15-3b`.
+1. `apps/provider-gateway` now supports real tool-aware streaming for both OpenAI and Anthropic: stream turns can emit text deltas, stop on `tool_calls`, accept tool history, and resume after tool results instead of going tool-dark.
+2. `apps/runtime` now runs a true streaming tool loop for native web turns: shared compaction tools stay model-visible on both sync and stream paths, assistant text is preserved across provider/tool iterations, `tool_started` / `tool_finished` events are emitted, and in-turn compaction reuses the accepted-turn lease.
+3. `apps/api` plus the web SSE client now forward the new tool lifecycle honestly, while `knowledge_search`, `knowledge_fetch`, `persai_workspace_attach`, and `persai_tool_quota_status` remain gated off until real PersAI-native executors exist. ADR-072 can now close `T15-3a` honestly and move to `T15-3b`.
 
 ### Why
 
-1. `T15-3a` was meant to make the shared runtime safe before later tool families land, not to force fake exposure of helpers that still lack PersAI-native executors.
-2. Stream turns needed to be honest about tool support, and in-turn compaction needed to stop fighting the accepted-turn lease.
-3. The program needed a clean step boundary so `T15-3b` can begin next without reopening the shared runtime hardening baseline.
+1. The previous "tool-dark stream" interpretation was not honest enough for `T15-3a`; the shared runtime needed real tool-capable streaming rather than silent stream-time tool disabling.
+2. Native web streaming now has to stop at a tool call, execute the tool under the active lease, and continue the same reply without pseudo-streaming or losing already-emitted assistant text.
+3. Later Step 15 tool families need one truthful shared transport/runtime baseline instead of separate sync-vs-stream behavior.
 
 ### Current active slice
 
@@ -25,11 +25,22 @@
 ### Files touched
 
 - `packages/runtime-contract/src/index.ts`
-- `apps/runtime/src/modules/turns/native-tool-projection.ts`
-- `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
 - `apps/runtime/src/modules/turns/turn-execution.service.ts`
-- `apps/runtime/test/session-compaction.service.test.ts`
 - `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/test/stream-native-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/assistant-api-client.test.ts`
+- `apps/web/app/app/_components/use-chat.ts`
 - `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
 - `docs/CHANGELOG.md`
 - `docs/SESSION-HANDOFF.md`
@@ -37,23 +48,28 @@
 ### Tests run
 
 - `corepack pnpm --filter @persai/runtime-contract run typecheck`
-- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run test`
 - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
 - `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/run-suite.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web run lint`
 
 ### Risks
 
-1. Tool-capable streaming is still intentionally unsupported; the runtime is now honest by exposing zero model-visible tools on stream turns.
-2. `persai_workspace_attach` and `persai_tool_quota_status` are intentionally dark until later PersAI-native executor/exposure follow-through; they are no longer a blocker for `T15-3a`.
-3. `knowledge_search` / `knowledge_fetch` remain reserved future contracts and must stay disconnected until a real PersAI-native knowledge backend exists.
+1. `persai_workspace_attach` and `persai_tool_quota_status` are still intentionally dark until later PersAI-native executor/exposure follow-through in `T15-7`.
+2. `knowledge_search` / `knowledge_fetch` remain reserved future contracts and must stay disconnected until a real PersAI-native knowledge backend exists.
+3. Future tool families should reuse the new `tool_calls` / `tool_started` / `tool_finished` contracts rather than inventing per-family stream events.
 
 ### Next recommended step
 
-1. Start `T15-3b` and land separate PersAI-native `web_search` / `web_fetch` executors with provider parity, while keeping `knowledge_*` disconnected and leaving helper exposure/admin follow-through to `T15-7`.
+1. Start `T15-3b` and land separate PersAI-native `web_search` / `web_fetch` executors with provider parity on top of the now-shared tool-aware sync/stream runtime, while keeping `knowledge_*` disconnected and leaving helper exposure/admin follow-through to `T15-7`.
 
 ### Ready commit message
 
-- `fix(runtime): close T15-3a shared tool hardening`
+- `fix(runtime): complete T15-3a tool-aware streaming`
 
 ---
 

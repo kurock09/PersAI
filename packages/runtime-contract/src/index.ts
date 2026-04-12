@@ -366,6 +366,11 @@ export interface ProviderGatewayTextCompletedEvent {
   result: ProviderGatewayTextGenerateResult;
 }
 
+export interface ProviderGatewayTextToolCallsEvent {
+  type: "tool_calls";
+  result: ProviderGatewayTextGenerateResult;
+}
+
 export interface ProviderGatewayTextFailedEvent {
   type: "failed";
   code: string;
@@ -375,6 +380,7 @@ export interface ProviderGatewayTextFailedEvent {
 export type ProviderGatewayTextStreamEvent =
   | ProviderGatewayTextDeltaEvent
   | ProviderGatewayTextCompletedEvent
+  | ProviderGatewayTextToolCallsEvent
   | ProviderGatewayTextFailedEvent;
 
 export interface RuntimeStreamStartedEvent {
@@ -396,6 +402,23 @@ export interface RuntimeArtifactEvent {
   requestId: string;
   sessionId: string;
   artifact: RuntimeOutputArtifact;
+}
+
+export interface RuntimeToolStartedEvent {
+  type: "tool_started";
+  requestId: string;
+  sessionId: string;
+  toolCallId: string;
+  toolName: string;
+}
+
+export interface RuntimeToolFinishedEvent {
+  type: "tool_finished";
+  requestId: string;
+  sessionId: string;
+  toolCallId: string;
+  toolName: string;
+  isError: boolean;
 }
 
 export interface RuntimeCompletedEvent {
@@ -426,6 +449,8 @@ export type RuntimeTurnStreamEvent =
   | RuntimeStreamStartedEvent
   | RuntimeTextDeltaEvent
   | RuntimeArtifactEvent
+  | RuntimeToolStartedEvent
+  | RuntimeToolFinishedEvent
   | RuntimeCompletedEvent
   | RuntimeInterruptedEvent
   | RuntimeFailedEvent;

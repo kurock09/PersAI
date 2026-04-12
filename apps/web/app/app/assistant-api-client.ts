@@ -175,6 +175,15 @@ type WebChatStreamEvent =
   | { event: "thinking"; data: { delta: string; accumulated: string } }
   | { event: "delta"; data: { delta: string } }
   | {
+      event: "tool";
+      data: {
+        phase: "start" | "end";
+        toolName: string;
+        toolCallId: string;
+        isError: boolean;
+      };
+    }
+  | {
       event: "compaction";
       data: { phase: "start" | "end"; completed: boolean; willRetry: boolean };
     }
@@ -199,6 +208,12 @@ export interface AssistantWebChatStreamHandlers {
   onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
   onThinking?: (payload: { delta: string; accumulated: string }) => void;
   onDelta?: (payload: { delta: string }) => void;
+  onTool?: (payload: {
+    phase: "start" | "end";
+    toolName: string;
+    toolCallId: string;
+    isError: boolean;
+  }) => void;
   onCompaction?: (payload: {
     phase: "start" | "end";
     completed: boolean;
@@ -682,6 +697,25 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       data: { delta: body.delta, accumulated: body.accumulated }
     };
   }
+  if (eventName === "tool") {
+    if (
+      (body.phase !== "start" && body.phase !== "end") ||
+      typeof body.toolName !== "string" ||
+      typeof body.toolCallId !== "string" ||
+      typeof body.isError !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      event: "tool",
+      data: {
+        phase: body.phase,
+        toolName: body.toolName,
+        toolCallId: body.toolCallId,
+        isError: body.isError
+      }
+    };
+  }
   if (eventName === "runtime_done") {
     if (typeof body.respondedAt !== "string") {
       return null;
@@ -830,6 +864,8 @@ export async function streamAssistantWebChatTurn(
       handlers.onThinking?.(streamEvent.data);
     } else if (streamEvent.event === "delta") {
       handlers.onDelta?.(streamEvent.data);
+    } else if (streamEvent.event === "tool") {
+      handlers.onTool?.(streamEvent.data);
     } else if (streamEvent.event === "compaction") {
       handlers.onCompaction?.(streamEvent.data);
     } else if (streamEvent.event === "runtime_done") {

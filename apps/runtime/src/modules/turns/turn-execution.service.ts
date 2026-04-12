@@ -136,19 +136,9 @@ export class TurnExecutionService {
         return this.replayStreamResult(acceptedTurn.receipt);
       case "accepted": {
         const execution = await this.prepareTurnExecution(input, {
-          allowModelToolExposure: false
+          allowModelToolExposure: true
         });
-        const providerStream = await this.providerGatewayClientService.streamText(
-          execution.providerRequest,
-          options?.signal === undefined ? undefined : { signal: options.signal }
-        );
-        return this.streamAcceptedTurn(
-          acceptedTurn,
-          execution,
-          providerStream,
-          input,
-          options?.signal
-        );
+        return this.streamAcceptedTurn(acceptedTurn, execution, input, options?.signal);
       }
     }
   }
@@ -215,11 +205,11 @@ export class TurnExecutionService {
   private async *streamAcceptedTurn(
     acceptedTurn: AcceptedRuntimeTurn,
     execution: PreparedTurnExecution,
-    providerStream: AsyncGenerator<ProviderGatewayTextStreamEvent>,
     input: RuntimeTurnRequest,
     signal?: AbortSignal
   ): AsyncGenerator<RuntimeTurnStreamEvent> {
     let accumulatedText = "";
+    const toolHistory: ProviderGatewayToolExchange[] = [];
     let completionFinalizationAttempted = false;
 
     yield {
@@ -229,82 +219,149 @@ export class TurnExecutionService {
     };
 
     try {
-      for await (const event of providerStream) {
-        if (signal?.aborted) {
-          await this.interruptAcceptedTurnQuietly({
-            acceptedTurn,
-            event: this.toInterruptedEvent(acceptedTurn, accumulatedText, null)
-          });
-          return;
-        }
+      for (let iteration = 0; iteration < MAX_NATIVE_TOOL_LOOP_ITERATIONS; iteration += 1) {
+        const iterationBaseText = accumulatedText;
+        const providerStream = await this.providerGatewayClientService.streamText(
+          this.buildToolLoopProviderRequest(execution.providerRequest, {
+            assistantText: iterationBaseText,
+            toolHistory
+          }),
+          signal === undefined ? undefined : { signal }
+        );
+        let advancedToNextIteration = false;
 
-        if (event.type === "text_delta" && event.delta !== undefined) {
-          accumulatedText = event.accumulatedText ?? accumulatedText + event.delta;
-          yield {
-            type: "text_delta",
-            requestId: acceptedTurn.receipt.requestId,
-            sessionId: acceptedTurn.session.sessionId,
-            delta: event.delta,
-            accumulatedText
-          };
-          continue;
-        }
-
-        if (event.type === "completed" && event.result !== undefined) {
-          const result = this.buildTurnResult(acceptedTurn, event.result);
-          completionFinalizationAttempted = true;
-          await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
-          this.scheduleAutoCompaction(input, execution.bundle);
-          yield {
-            type: "completed",
-            result
-          };
-          return;
-        }
-
-        if (event.type === "failed") {
-          if (accumulatedText.trim().length > 0) {
-            const interrupted = this.toInterruptedEvent(acceptedTurn, accumulatedText, null);
+        for await (const event of providerStream) {
+          if (signal?.aborted) {
             await this.interruptAcceptedTurnQuietly({
               acceptedTurn,
-              event: interrupted
+              event: this.toInterruptedEvent(acceptedTurn, accumulatedText, null)
             });
-            yield interrupted;
             return;
           }
 
-          const failed = await this.failAcceptedTurnQuietly(acceptedTurn, {
-            type: "failed",
-            requestId: acceptedTurn.receipt.requestId,
-            sessionId: acceptedTurn.session.sessionId,
-            code: event.code ?? "provider_stream_failed",
-            message: event.message ?? "Provider stream failed.",
-            willRetry: false
+          if (event.type === "text_delta" && event.delta !== undefined) {
+            accumulatedText = this.mergeAssistantTurnText(iterationBaseText, event.accumulatedText);
+            yield {
+              type: "text_delta",
+              requestId: acceptedTurn.receipt.requestId,
+              sessionId: acceptedTurn.session.sessionId,
+              delta: event.delta,
+              accumulatedText
+            };
+            continue;
+          }
+
+          if (event.type === "tool_calls") {
+            accumulatedText = this.mergeAssistantTurnText(accumulatedText, event.result.text);
+            if (event.result.toolCalls.length === 0) {
+              throw new TurnExecutionError(
+                "native_tool_result_invalid",
+                new ServiceUnavailableException(
+                  "Provider stream returned a tool-call stop without any tool calls."
+                )
+              );
+            }
+
+            for (const toolCall of event.result.toolCalls) {
+              yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
+              let outcome: ToolExecutionOutcome;
+              try {
+                outcome = await this.executeProjectedToolCall(execution, acceptedTurn, toolCall);
+              } catch (error) {
+                yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
+                throw error;
+              }
+              toolHistory.push(outcome.exchange);
+              yield this.createToolFinishedStreamEvent(
+                acceptedTurn,
+                toolCall,
+                outcome.exchange.toolResult.isError
+              );
+            }
+
+            advancedToNextIteration = true;
+            break;
+          }
+
+          if (event.type === "completed" && event.result !== undefined) {
+            const completedProviderResult = this.withAssistantText(
+              event.result,
+              this.resolveCompletedStreamAssistantText(
+                iterationBaseText,
+                accumulatedText,
+                event.result.text
+              )
+            );
+            const result = this.buildTurnResult(acceptedTurn, completedProviderResult);
+            completionFinalizationAttempted = true;
+            await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
+            this.scheduleAutoCompaction(input, execution.bundle);
+            yield {
+              type: "completed",
+              result
+            };
+            return;
+          }
+
+          if (event.type === "failed") {
+            if (accumulatedText.trim().length > 0) {
+              const interrupted = this.toInterruptedEvent(acceptedTurn, accumulatedText, null);
+              await this.interruptAcceptedTurnQuietly({
+                acceptedTurn,
+                event: interrupted
+              });
+              yield interrupted;
+              return;
+            }
+
+            const failed = await this.failAcceptedTurnQuietly(acceptedTurn, {
+              type: "failed",
+              requestId: acceptedTurn.receipt.requestId,
+              sessionId: acceptedTurn.session.sessionId,
+              code: event.code ?? "provider_stream_failed",
+              message: event.message ?? "Provider stream failed.",
+              willRetry: false
+            });
+            yield failed;
+            return;
+          }
+        }
+
+        if (advancedToNextIteration) {
+          continue;
+        }
+
+        if (accumulatedText.trim().length > 0) {
+          const interrupted = this.toInterruptedEvent(acceptedTurn, accumulatedText, null);
+          await this.interruptAcceptedTurnQuietly({
+            acceptedTurn,
+            event: interrupted
           });
-          yield failed;
+          yield interrupted;
           return;
         }
-      }
 
-      if (accumulatedText.trim().length > 0) {
-        const interrupted = this.toInterruptedEvent(acceptedTurn, accumulatedText, null);
-        await this.interruptAcceptedTurnQuietly({
-          acceptedTurn,
-          event: interrupted
+        const failed = await this.failAcceptedTurnQuietly(acceptedTurn, {
+          type: "failed",
+          requestId: acceptedTurn.receipt.requestId,
+          sessionId: acceptedTurn.session.sessionId,
+          code: "provider_stream_ended",
+          message: "Provider stream ended before native turn completion.",
+          willRetry: false
         });
-        yield interrupted;
+        yield failed;
         return;
       }
 
-      const failed = await this.failAcceptedTurnQuietly(acceptedTurn, {
+      const exhausted = await this.failAcceptedTurnQuietly(acceptedTurn, {
         type: "failed",
         requestId: acceptedTurn.receipt.requestId,
         sessionId: acceptedTurn.session.sessionId,
-        code: "provider_stream_ended",
-        message: "Provider stream ended before native turn completion.",
+        code: "native_tool_loop_exhausted",
+        message: `Native tool loop exceeded ${String(MAX_NATIVE_TOOL_LOOP_ITERATIONS)} iterations.`,
         willRetry: false
       });
-      yield failed;
+      yield exhausted;
     } catch (error) {
       if (completionFinalizationAttempted) {
         throw this.toHttpException(error);
@@ -537,13 +594,17 @@ export class TurnExecutionService {
     execution: PreparedTurnExecution
   ): Promise<ProviderGatewayTextGenerateResult> {
     const toolHistory: ProviderGatewayToolExchange[] = [];
+    let accumulatedText = "";
     for (let iteration = 0; iteration < MAX_NATIVE_TOOL_LOOP_ITERATIONS; iteration += 1) {
-      const providerResult = await this.providerGatewayClientService.generateText({
-        ...execution.providerRequest,
-        ...(toolHistory.length === 0 ? {} : { toolHistory })
-      });
+      const providerResult = await this.providerGatewayClientService.generateText(
+        this.buildToolLoopProviderRequest(execution.providerRequest, {
+          assistantText: accumulatedText,
+          toolHistory
+        })
+      );
+      accumulatedText = this.mergeAssistantTurnText(accumulatedText, providerResult.text);
       if (providerResult.stopReason === "completed") {
-        return providerResult;
+        return this.withAssistantText(providerResult, accumulatedText);
       }
       if (providerResult.toolCalls.length === 0) {
         throw new TurnExecutionError(
@@ -746,6 +807,111 @@ export class TurnExecutionService {
         }
       },
       payload
+    };
+  }
+
+  private buildToolLoopProviderRequest(
+    baseRequest: ProviderGatewayTextGenerateRequest,
+    input: {
+      assistantText: string;
+      toolHistory: ProviderGatewayToolExchange[];
+    }
+  ): ProviderGatewayTextGenerateRequest {
+    const assistantText = this.normalizeOptionalText(input.assistantText);
+    return {
+      ...baseRequest,
+      messages:
+        assistantText === null
+          ? baseRequest.messages
+          : [
+              ...baseRequest.messages,
+              {
+                role: "assistant",
+                content: assistantText
+              }
+            ],
+      ...(input.toolHistory.length === 0 ? {} : { toolHistory: input.toolHistory })
+    };
+  }
+
+  private mergeAssistantTurnText(existingText: string, nextText: string | null): string {
+    if (nextText === null || nextText.length === 0 || nextText.trim().length === 0) {
+      return existingText;
+    }
+    if (existingText.length === 0) {
+      return nextText;
+    }
+    if (nextText === existingText) {
+      return existingText;
+    }
+    if (nextText.startsWith(existingText)) {
+      return nextText;
+    }
+    if (existingText.startsWith(nextText)) {
+      return existingText;
+    }
+    return `${existingText}${nextText}`;
+  }
+
+  private withAssistantText(
+    providerResult: ProviderGatewayTextGenerateResult,
+    assistantText: string
+  ): ProviderGatewayTextGenerateResult {
+    return {
+      ...providerResult,
+      text: this.normalizeOptionalText(assistantText)
+    };
+  }
+
+  private resolveCompletedStreamAssistantText(
+    iterationBaseText: string,
+    accumulatedText: string,
+    providerText: string | null
+  ): string {
+    const candidateText = this.mergeAssistantTurnText(iterationBaseText, providerText);
+    if (candidateText.length === 0) {
+      return accumulatedText;
+    }
+    if (accumulatedText.length === 0) {
+      return candidateText;
+    }
+    if (candidateText === accumulatedText) {
+      return accumulatedText;
+    }
+    if (candidateText.startsWith(accumulatedText)) {
+      return candidateText;
+    }
+    if (accumulatedText.startsWith(candidateText)) {
+      return accumulatedText;
+    }
+    return candidateText;
+  }
+
+  private createToolStartedStreamEvent(
+    acceptedTurn: AcceptedRuntimeTurn,
+    toolCall: ProviderGatewayToolCall
+  ): RuntimeTurnStreamEvent {
+    return {
+      type: "tool_started",
+      requestId: acceptedTurn.receipt.requestId,
+      sessionId: acceptedTurn.session.sessionId,
+      toolCallId: toolCall.id,
+      toolName: toolCall.name
+    };
+  }
+
+  private createToolFinishedStreamEvent(
+    acceptedTurn: AcceptedRuntimeTurn,
+    toolCall: ProviderGatewayToolCall,
+    isError: boolean
+  ): RuntimeTurnStreamEvent {
+    return {
+      type: "tool_finished",
+      requestId: acceptedTurn.receipt.requestId,
+      sessionId: acceptedTurn.session.sessionId,
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      isError
     };
   }
 
