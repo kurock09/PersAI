@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { RuntimeConfig } from "@persai/config";
+import type { RuntimeKnowledgeAccessConfig, RuntimeToolPolicy } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
 import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
 import { RuntimeReadinessService } from "../src/modules/platform-core/application/runtime-readiness.service";
@@ -33,6 +34,80 @@ class FakeProviderGatewayClientService {
   }
 }
 
+const KNOWLEDGE_ACCESS_CONFIG = {
+  searchToolCode: "knowledge_search",
+  fetchToolCode: "knowledge_fetch",
+  executionModes: ["inline", "worker"],
+  ragMode: "pattern_only",
+  sources: [
+    {
+      source: "web",
+      searchAliasToolCode: "web_search",
+      fetchAliasToolCode: "web_fetch",
+      searchCredentialToolCode: "web_search",
+      fetchCredentialToolCode: "web_fetch"
+    },
+    {
+      source: "memory",
+      searchAliasToolCode: "memory_search",
+      fetchAliasToolCode: "memory_get",
+      searchCredentialToolCode: "memory_search",
+      fetchCredentialToolCode: null
+    }
+  ]
+} satisfies RuntimeKnowledgeAccessConfig;
+
+const KNOWLEDGE_TOOL_POLICIES = [
+  {
+    toolCode: "web_search",
+    displayName: "Web Search",
+    description: "Search the public web.",
+    kind: "plan",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
+  {
+    toolCode: "web_fetch",
+    displayName: "Web Fetch",
+    description: "Fetch structured web content.",
+    kind: "plan",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
+  {
+    toolCode: "memory_search",
+    displayName: "Memory Search",
+    description: "Search assistant memory.",
+    kind: "plan",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
+  {
+    toolCode: "memory_get",
+    displayName: "Memory Get",
+    description: "Fetch one assistant memory item.",
+    kind: "plan",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  }
+] satisfies RuntimeToolPolicy[];
+
 function createWarmInput(bundleId: string, assistantId: string, publishedVersionId: string) {
   const artifact = compileAssistantRuntimeBundle({
     metadata: {
@@ -63,6 +138,7 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
       runtimeProviderProfile: null,
       runtimeProviderRouting: null,
       optimizationPolicy: null,
+      knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       sharedCompaction: {
         summarizeToolCode: "summarize_context",
         compactToolCode: "compact_context",
@@ -83,7 +159,7 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
       memoryControl: null,
       tasksControl: null,
       toolCredentialRefs: {},
-      toolPolicies: [],
+      toolPolicies: [...KNOWLEDGE_TOOL_POLICIES],
       quota: {
         planCode: "free",
         workspaceQuotaBytes: 1024,
@@ -166,6 +242,7 @@ function createWarmInputMissingToolPolicy() {
       runtimeProviderProfile: null,
       runtimeProviderRouting: null,
       optimizationPolicy: null,
+      knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       sharedCompaction: {
         summarizeToolCode: "summarize_context",
         compactToolCode: "compact_context",
@@ -257,6 +334,22 @@ function createWarmInputInvalidSharedCompaction() {
   };
 }
 
+function createWarmInputInvalidKnowledgeAccess() {
+  const input = createWarmInput(
+    "bundle-invalid-knowledge-access",
+    "assistant-invalid-knowledge-access",
+    "version-invalid-knowledge-access"
+  );
+  const bundleDocument = JSON.parse(input.bundleDocument) as {
+    runtime: { knowledgeAccess: { ragMode: string } };
+  };
+  bundleDocument.runtime.knowledgeAccess.ragMode = "separate_tool";
+  return {
+    ...input,
+    bundleDocument: JSON.stringify(bundleDocument)
+  };
+}
+
 export async function runRuntimeBundleRegistryServiceTest(): Promise<void> {
   const observabilityService = new RuntimeObservabilityService();
   const registryService = new RuntimeBundleRegistryService(createConfig(), observabilityService);
@@ -315,6 +408,10 @@ export async function runRuntimeBundleRegistryServiceTest(): Promise<void> {
   assert.throws(
     () => registryService.validateWarmBundleInput(createWarmInputInvalidSharedCompaction()),
     /sharedCompaction\.webSuggestionLatencyMs/
+  );
+  assert.throws(
+    () => registryService.validateWarmBundleInput(createWarmInputInvalidKnowledgeAccess()),
+    /knowledgeAccess\.ragMode/
   );
 
   const overriddenWarm = registryService.warmBundle(

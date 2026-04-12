@@ -89,6 +89,52 @@ function createInput(order: "alpha" | "beta") {
         order === "alpha"
           ? { heartbeat: { every: "0m", target: "none" } }
           : { heartbeat: { target: "none", every: "0m" } },
+      knowledgeAccess:
+        order === "alpha"
+          ? {
+              searchToolCode: "knowledge_search",
+              fetchToolCode: "knowledge_fetch",
+              executionModes: ["inline", "worker"],
+              ragMode: "pattern_only",
+              sources: [
+                {
+                  source: "web",
+                  searchAliasToolCode: "web_search",
+                  fetchAliasToolCode: "web_fetch",
+                  searchCredentialToolCode: "web_search",
+                  fetchCredentialToolCode: "web_fetch"
+                },
+                {
+                  source: "memory",
+                  searchAliasToolCode: "memory_search",
+                  fetchAliasToolCode: "memory_get",
+                  searchCredentialToolCode: "memory_search",
+                  fetchCredentialToolCode: null
+                }
+              ]
+            }
+          : {
+              sources: [
+                {
+                  fetchCredentialToolCode: "web_fetch",
+                  searchCredentialToolCode: "web_search",
+                  fetchAliasToolCode: "web_fetch",
+                  searchAliasToolCode: "web_search",
+                  source: "web"
+                },
+                {
+                  fetchCredentialToolCode: null,
+                  searchCredentialToolCode: "memory_search",
+                  fetchAliasToolCode: "memory_get",
+                  searchAliasToolCode: "memory_search",
+                  source: "memory"
+                }
+              ],
+              ragMode: "pattern_only",
+              executionModes: ["inline", "worker"],
+              fetchToolCode: "knowledge_fetch",
+              searchToolCode: "knowledge_search"
+            },
       sharedCompaction:
         order === "alpha"
           ? {
@@ -211,6 +257,28 @@ async function run(): Promise<void> {
     recentTurnsPreserve: 4,
     suggestByMessageCount: false,
     telegramAutoSummarizeEnabled: true
+  });
+  assert.deepEqual(alpha.bundle.runtime.knowledgeAccess, {
+    searchToolCode: "knowledge_search",
+    fetchToolCode: "knowledge_fetch",
+    executionModes: ["inline", "worker"],
+    ragMode: "pattern_only",
+    sources: [
+      {
+        source: "web",
+        searchAliasToolCode: "web_search",
+        fetchAliasToolCode: "web_fetch",
+        searchCredentialToolCode: "web_search",
+        fetchCredentialToolCode: "web_fetch"
+      },
+      {
+        source: "memory",
+        searchAliasToolCode: "memory_search",
+        fetchAliasToolCode: "memory_get",
+        searchCredentialToolCode: "memory_search",
+        fetchCredentialToolCode: null
+      }
+    ]
   });
   assert.equal(alpha.document, beta.document);
   assert.equal(alpha.hash, beta.hash);

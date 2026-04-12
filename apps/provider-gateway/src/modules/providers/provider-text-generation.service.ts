@@ -62,6 +62,9 @@ export class ProviderTextGenerationService {
     ) {
       throw new BadRequestException("maxOutputTokens must be a positive integer when provided");
     }
+    const declaredToolNames = this.assertValidTools(input);
+    this.assertValidToolChoice(input, declaredToolNames);
+    this.assertValidToolHistory(input, declaredToolNames);
   }
 
   private assertProviderReady(input: ProviderGatewayTextGenerateRequest): void {
@@ -116,6 +119,103 @@ export class ProviderTextGenerationService {
       if (block.dataBase64.trim().length === 0) {
         throw new BadRequestException(
           `messages[${index}].content[${blockIndex}].dataBase64 must be non-empty`
+        );
+      }
+    }
+  }
+
+  private assertValidTools(input: ProviderGatewayTextGenerateRequest): Set<string> {
+    const declaredToolNames = new Set<string>();
+    if (input.tools === undefined) {
+      return declaredToolNames;
+    }
+    for (const [index, tool] of input.tools.entries()) {
+      if (tool.name.trim().length === 0) {
+        throw new BadRequestException(`tools[${index}].name must be a non-empty string`);
+      }
+      if (tool.description.trim().length === 0) {
+        throw new BadRequestException(`tools[${index}].description must be a non-empty string`);
+      }
+      if (
+        tool.inputSchema === null ||
+        typeof tool.inputSchema !== "object" ||
+        Array.isArray(tool.inputSchema)
+      ) {
+        throw new BadRequestException(`tools[${index}].inputSchema must be an object`);
+      }
+      if (declaredToolNames.has(tool.name)) {
+        throw new BadRequestException(`tools has duplicate name "${tool.name}"`);
+      }
+      declaredToolNames.add(tool.name);
+    }
+    return declaredToolNames;
+  }
+
+  private assertValidToolChoice(
+    input: ProviderGatewayTextGenerateRequest,
+    declaredToolNames: Set<string>
+  ): void {
+    if (
+      input.toolChoice === undefined ||
+      input.toolChoice === "auto" ||
+      input.toolChoice === "none"
+    ) {
+      return;
+    }
+    if (input.toolChoice.type !== "tool" || input.toolChoice.name.trim().length === 0) {
+      throw new BadRequestException("toolChoice must be auto, none, or a named tool selection");
+    }
+    if (!declaredToolNames.has(input.toolChoice.name)) {
+      throw new BadRequestException(
+        `toolChoice references undeclared tool "${input.toolChoice.name}"`
+      );
+    }
+  }
+
+  private assertValidToolHistory(
+    input: ProviderGatewayTextGenerateRequest,
+    declaredToolNames: Set<string>
+  ): void {
+    if (input.toolHistory === undefined) {
+      return;
+    }
+    const seenCallIds = new Set<string>();
+    for (const [index, exchange] of input.toolHistory.entries()) {
+      if (exchange.toolCall.id.trim().length === 0) {
+        throw new BadRequestException(`toolHistory[${index}].toolCall.id must be non-empty`);
+      }
+      if (seenCallIds.has(exchange.toolCall.id)) {
+        throw new BadRequestException(
+          `toolHistory has duplicate toolCall.id "${exchange.toolCall.id}"`
+        );
+      }
+      seenCallIds.add(exchange.toolCall.id);
+      if (exchange.toolCall.name.trim().length === 0) {
+        throw new BadRequestException(`toolHistory[${index}].toolCall.name must be non-empty`);
+      }
+      if (
+        exchange.toolCall.arguments === null ||
+        typeof exchange.toolCall.arguments !== "object" ||
+        Array.isArray(exchange.toolCall.arguments)
+      ) {
+        throw new BadRequestException(`toolHistory[${index}].toolCall.arguments must be an object`);
+      }
+      if (exchange.toolResult.toolCallId !== exchange.toolCall.id) {
+        throw new BadRequestException(
+          `toolHistory[${index}].toolResult.toolCallId must match toolCall.id`
+        );
+      }
+      if (exchange.toolResult.name !== exchange.toolCall.name) {
+        throw new BadRequestException(
+          `toolHistory[${index}].toolResult.name must match toolCall.name`
+        );
+      }
+      if (exchange.toolResult.content.trim().length === 0) {
+        throw new BadRequestException(`toolHistory[${index}].toolResult.content must be non-empty`);
+      }
+      if (declaredToolNames.size > 0 && !declaredToolNames.has(exchange.toolCall.name)) {
+        throw new BadRequestException(
+          `toolHistory[${index}] references undeclared tool "${exchange.toolCall.name}"`
         );
       }
     }

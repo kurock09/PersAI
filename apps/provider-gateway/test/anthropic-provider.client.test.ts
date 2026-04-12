@@ -73,14 +73,25 @@ async function collectStream(
 
 export async function runAnthropicProviderClientTest(): Promise<void> {
   const client = new AnthropicProviderClient(createConfig());
-  let capturedGenerateInput: unknown = null;
-  let capturedStreamInput: unknown = null;
+  let capturedGeneratePayload: {
+    messages?: unknown;
+    tools?: unknown;
+    tool_choice?: unknown;
+  } | null = null;
+  let capturedStreamPayload: {
+    messages?: unknown;
+  } | null = null;
 
   (client as unknown as { client: unknown }).client = {
     messages: {
-      create: async (payload: { stream?: boolean; messages: unknown }) => {
+      create: async (payload: {
+        stream?: boolean;
+        messages: unknown;
+        tools?: unknown;
+        tool_choice?: unknown;
+      }) => {
         if (payload.stream) {
-          capturedStreamInput = payload.messages;
+          capturedStreamPayload = payload as unknown as Record<string, unknown>;
           return (async function* (): AsyncGenerator<unknown> {
             yield {
               type: "message_start",
@@ -110,7 +121,26 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
           })();
         }
 
-        capturedGenerateInput = payload.messages;
+        capturedGeneratePayload = payload as unknown as Record<string, unknown>;
+        if (payload.tools !== undefined) {
+          return {
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_1",
+                name: "knowledge_fetch",
+                input: {
+                  source: "memory",
+                  referenceId: "memory-1"
+                }
+              }
+            ],
+            usage: {
+              input_tokens: 10,
+              output_tokens: 2
+            }
+          };
+        }
         return {
           content: [
             {
@@ -130,7 +160,8 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   const request = createRequest();
   const result = await client.generateText(request);
   assert.equal(result.text, "done");
-  assert.deepEqual(capturedGenerateInput, [
+  assert.equal(result.stopReason, "completed");
+  assert.deepEqual(capturedGeneratePayload!.messages, [
     {
       role: "user",
       content: [
@@ -166,10 +197,127 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       content: "the connector pins"
     }
   ]);
+  const baselineGenerateMessages = capturedGeneratePayload!.messages;
+
+  const toolRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    tools: [
+      {
+        name: "knowledge_fetch",
+        description: "Fetch one known knowledge item.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            source: { type: "string" },
+            referenceId: { type: "string" }
+          }
+        }
+      }
+    ],
+    toolChoice: "auto",
+    toolHistory: [
+      {
+        toolCall: {
+          id: "toolu_prev",
+          name: "knowledge_search",
+          arguments: {
+            source: "memory",
+            query: "connector pins"
+          }
+        },
+        toolResult: {
+          toolCallId: "toolu_prev",
+          name: "knowledge_search",
+          content: '{"toolCode":"knowledge_search","action":"skipped"}',
+          isError: false
+        }
+      }
+    ]
+  };
+  const toolResult = await client.generateText(toolRequest);
+  assert.equal(toolResult.stopReason, "tool_calls");
+  assert.equal(toolResult.toolCalls[0]?.name, "knowledge_fetch");
+  assert.deepEqual(capturedGeneratePayload!.tools, [
+    {
+      name: "knowledge_fetch",
+      description: "Fetch one known knowledge item.",
+      input_schema: {
+        type: "object",
+        properties: {
+          source: { type: "string" },
+          referenceId: { type: "string" }
+        }
+      }
+    }
+  ]);
+  assert.deepEqual(capturedGeneratePayload!.tool_choice, {
+    type: "auto"
+  });
+  assert.deepEqual(capturedGeneratePayload!.messages, [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "look at this"
+        },
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/jpeg",
+            data: "aGVsbG8="
+          }
+        },
+        {
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: "cGRmLWRhdGE="
+          },
+          title: "report.pdf"
+        }
+      ]
+    },
+    {
+      role: "assistant",
+      content: "what should I inspect?"
+    },
+    {
+      role: "user",
+      content: "the connector pins"
+    },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_prev",
+          name: "knowledge_search",
+          input: {
+            source: "memory",
+            query: "connector pins"
+          }
+        }
+      ]
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_prev",
+          content: '{"toolCode":"knowledge_search","action":"skipped"}',
+          is_error: false
+        }
+      ]
+    }
+  ]);
 
   const stream = await client.streamText(request);
   const events = await collectStream(stream);
-  assert.deepEqual(capturedStreamInput, capturedGenerateInput);
+  assert.deepEqual(capturedStreamPayload!.messages, baselineGenerateMessages);
   assert.deepEqual(
     events.map((event) => event.type),
     ["text_delta", "completed"]

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { BadRequestException, ServiceUnavailableException } from "@nestjs/common";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
+  RuntimeKnowledgeAccessConfig,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent,
@@ -25,6 +26,29 @@ import type {
   FinalizedRuntimeTurn,
   TurnFinalizationService
 } from "../src/modules/turns/turn-finalization.service";
+
+const KNOWLEDGE_ACCESS_CONFIG = {
+  searchToolCode: "knowledge_search",
+  fetchToolCode: "knowledge_fetch",
+  executionModes: ["inline", "worker"],
+  ragMode: "pattern_only",
+  sources: [
+    {
+      source: "web",
+      searchAliasToolCode: "web_search",
+      fetchAliasToolCode: "web_fetch",
+      searchCredentialToolCode: "web_search",
+      fetchCredentialToolCode: "web_fetch"
+    },
+    {
+      source: "memory",
+      searchAliasToolCode: "memory_search",
+      fetchAliasToolCode: "memory_get",
+      searchCredentialToolCode: "memory_search",
+      fetchCredentialToolCode: null
+    }
+  ]
+} satisfies RuntimeKnowledgeAccessConfig;
 
 function createRuntimeTurnRequest(): RuntimeTurnRequest {
   return {
@@ -102,6 +126,7 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
         }
       },
       optimizationPolicy: null,
+      knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       sharedCompaction: {
         summarizeToolCode: "summarize_context",
         compactToolCode: "compact_context",
@@ -122,7 +147,80 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       memoryControl: null,
       tasksControl: null,
       toolCredentialRefs: {},
-      toolPolicies: [],
+      toolPolicies: [
+        {
+          toolCode: "web_search",
+          displayName: "Web Search",
+          description: "Search the web.",
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: 10
+        },
+        {
+          toolCode: "web_fetch",
+          displayName: "Web Fetch",
+          description: "Fetch web pages.",
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: 10
+        },
+        {
+          toolCode: "memory_search",
+          displayName: "Memory Search",
+          description: "Search memory.",
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "memory_get",
+          displayName: "Memory Fetch",
+          description: "Fetch memory entries.",
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "persai_workspace_attach",
+          displayName: "Workspace Attach",
+          description: "Attach an existing workspace file.",
+          kind: "system",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: false,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "persai_tool_quota_status",
+          displayName: "Tool Quota Status",
+          description: "Read live quota usage.",
+          kind: "system",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: false,
+          dailyCallLimit: null
+        }
+      ],
       quota: {
         planCode: "paid",
         workspaceQuotaBytes: 1024,
@@ -153,7 +251,8 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       soul: "# SOUL\nStay on mission.",
       user: "# USER\nBe mindful of user context.",
       identity: "# IDENTITY\nYou are PersAI.",
-      tools: "",
+      tools:
+        "# TOOLS.md\n- web_search\n- memory_search\n- persai_workspace_attach\n- persai_tool_quota_status",
       agents: "",
       heartbeat: "",
       bootstrap: ""
@@ -237,8 +336,11 @@ class FakeProviderGatewayClientService {
       inputTokens: 10,
       outputTokens: 20,
       totalTokens: 30
-    }
+    },
+    stopReason: "completed",
+    toolCalls: []
   };
+  resultQueue: ProviderGatewayTextGenerateResult[] = [];
   error: Error | null = null;
   streamError: Error | null = null;
   streamEvents: ProviderGatewayTextStreamEvent[] = [
@@ -260,7 +362,9 @@ class FakeProviderGatewayClientService {
           inputTokens: 10,
           outputTokens: 20,
           totalTokens: 30
-        }
+        },
+        stopReason: "completed",
+        toolCalls: []
       }
     }
   ];
@@ -272,7 +376,7 @@ class FakeProviderGatewayClientService {
     if (this.error !== null) {
       throw this.error;
     }
-    return this.result;
+    return this.resultQueue.shift() ?? this.result;
   }
 
   async streamText(
@@ -343,7 +447,22 @@ class FakeTurnFinalizationService {
 }
 
 class FakeSessionCompactionService {
-  calls: RuntimeCompactionRequest[] = [];
+  calls: Array<
+    RuntimeCompactionRequest & {
+      heldLease?: {
+        sessionId: string;
+        ownerToken: string;
+      };
+    }
+  > = [];
+  summarizeCalls: Array<
+    RuntimeCompactionRequest & {
+      heldLease?: {
+        sessionId: string;
+        ownerToken: string;
+      };
+    }
+  > = [];
 
   async compactSession(input: RuntimeCompactionRequest) {
     this.calls.push(input);
@@ -352,7 +471,61 @@ class FakeSessionCompactionService {
       reason: "threshold_not_reached",
       tokensBefore: 30,
       tokensAfter: null,
-      session: null
+      session: null,
+      toolResult: {
+        toolCode: "compact_context",
+        action: "skipped",
+        reason: "threshold_not_reached",
+        sessionId: null,
+        compactionRecordId: null,
+        before: null,
+        after: null,
+        preservedRecentTurns: 4,
+        summaryText: null,
+        summaryPayload: null,
+        reusableInLaterTurns: false
+      }
+    };
+  }
+
+  async summarizeContext(input: RuntimeCompactionRequest) {
+    this.summarizeCalls.push(input);
+    return {
+      compacted: false,
+      reason: "summarized",
+      tokensBefore: 30,
+      tokensAfter: null,
+      session: null,
+      toolResult: {
+        toolCode: "summarize_context",
+        action: "summarized",
+        reason: "summarized",
+        sessionId: "session-1",
+        compactionRecordId: null,
+        before: {
+          sessionId: "session-1",
+          currentTokens: 30,
+          compactionCount: 0,
+          summarizedMessageCount: 6,
+          preservedRecentMessageCount: 4
+        },
+        after: {
+          sessionId: "session-1",
+          currentTokens: 30,
+          compactionCount: 0,
+          summarizedMessageCount: 6,
+          preservedRecentMessageCount: 4
+        },
+        preservedRecentTurns: 4,
+        summaryText: "Temporary summary text",
+        summaryPayload: {
+          schema: "persai.runtimeSessionCompaction.v1",
+          summarizeToolCode: "summarize_context",
+          toolCode: "summarize_context",
+          summaryText: "Temporary summary text"
+        },
+        reusableInLaterTurns: false
+      }
     };
   }
 }
@@ -398,6 +571,17 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(providerGatewayClient.calls[0]?.provider, "openai");
   assert.equal(providerGatewayClient.calls[0]?.model, "gpt-5.4");
   assert.deepEqual(providerGatewayClient.calls[0]?.messages, turnContextHydrationService.messages);
+  assert.deepEqual(
+    providerGatewayClient.calls[0]?.tools?.map((tool) => tool.name),
+    ["summarize_context", "compact_context"]
+  );
+  assert.equal(providerGatewayClient.calls[0]?.toolChoice, "auto");
+  assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /summarize_context/);
+  assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /compact_context/);
+  assert.doesNotMatch(
+    providerGatewayClient.calls[0]?.systemPrompt ?? "",
+    /knowledge_search|knowledge_fetch|web_search|memory_search|persai_workspace_attach|persai_tool_quota_status/
+  );
   assert.equal(turnFinalizationService.completed.length, 1);
   assert.equal(turnFinalizationService.failed.length, 0);
   await flushTaskQueue();
@@ -421,7 +605,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       inputTokens: 11,
       outputTokens: 22,
       totalTokens: 33
-    }
+    },
+    stopReason: "completed",
+    toolCalls: []
   };
   const overrideCompleted = await service.createTurn(overrideRequest);
   assert.equal(overrideCompleted.assistantText, "override reply");
@@ -547,10 +733,76 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.streamCalls[0]?.messages,
     turnContextHydrationService.messages
   );
+  assert.equal(providerGatewayClient.streamCalls[0]?.tools, undefined);
+  assert.match(
+    providerGatewayClient.streamCalls[0]?.systemPrompt ?? "",
+    /No model-visible tools are enabled for this turn/
+  );
   assert.equal(turnFinalizationService.completed.length, completedBeforeStream + 1);
   const completedEvent = streamEvents[2];
   assert.equal(completedEvent?.type, "completed");
   if (completedEvent?.type === "completed") {
     assert.equal(completedEvent.result.assistantText, "runtime reply");
   }
+
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-11T12:00:04.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 12,
+        outputTokens: 0,
+        totalTokens: 12
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-1",
+          name: "summarize_context",
+          arguments: {
+            instructions: "Preserve open questions."
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after summary",
+      respondedAt: "2026-04-11T12:00:05.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 20,
+        outputTokens: 10,
+        totalTokens: 30
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const toolLoopCompleted = await service.createTurn(request);
+  assert.equal(toolLoopCompleted.assistantText, "reply after summary");
+  assert.equal(sessionCompactionService.summarizeCalls.length, 1);
+  assert.deepEqual(sessionCompactionService.summarizeCalls[0], {
+    runtimeTier: "paid_shared_restricted",
+    conversation: createAcceptedTurn().session.conversation,
+    instructions: "Preserve open questions.",
+    heldLease: {
+      sessionId: "session-1",
+      ownerToken: "lease-owner-1"
+    }
+  });
+  assert.equal(providerGatewayClient.calls.at(-1)?.toolHistory?.length, 1);
+  assert.match(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "",
+    /Temporary summary text/
+  );
 }

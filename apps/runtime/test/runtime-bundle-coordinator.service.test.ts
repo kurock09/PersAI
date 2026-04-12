@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { RuntimeConfig } from "@persai/config";
-import type { RuntimeBundleRef } from "@persai/runtime-contract";
+import type {
+  RuntimeBundleRef,
+  RuntimeKnowledgeAccessConfig,
+  RuntimeToolPolicy
+} from "@persai/runtime-contract";
 import { RuntimeBundleCoordinatorService } from "../src/modules/bundles/runtime-bundle-coordinator.service";
 import { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
 import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
@@ -34,6 +38,80 @@ type CapturedMarkBundleStateWarmedCall = {
   publishedVersionId: string;
   warmedAt: Date;
 };
+
+const KNOWLEDGE_ACCESS_CONFIG = {
+  searchToolCode: "knowledge_search",
+  fetchToolCode: "knowledge_fetch",
+  executionModes: ["inline", "worker"],
+  ragMode: "pattern_only",
+  sources: [
+    {
+      source: "web",
+      searchAliasToolCode: "web_search",
+      fetchAliasToolCode: "web_fetch",
+      searchCredentialToolCode: "web_search",
+      fetchCredentialToolCode: "web_fetch"
+    },
+    {
+      source: "memory",
+      searchAliasToolCode: "memory_search",
+      fetchAliasToolCode: "memory_get",
+      searchCredentialToolCode: "memory_search",
+      fetchCredentialToolCode: null
+    }
+  ]
+} satisfies RuntimeKnowledgeAccessConfig;
+
+const KNOWLEDGE_TOOL_POLICIES = [
+  {
+    toolCode: "web_search",
+    displayName: "Web Search",
+    description: "Search the public web.",
+    kind: "plan",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
+  {
+    toolCode: "web_fetch",
+    displayName: "Web Fetch",
+    description: "Fetch structured web content.",
+    kind: "plan",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
+  {
+    toolCode: "memory_search",
+    displayName: "Memory Search",
+    description: "Search assistant memory.",
+    kind: "plan",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
+  {
+    toolCode: "memory_get",
+    displayName: "Memory Get",
+    description: "Fetch one assistant memory item.",
+    kind: "plan",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  }
+] satisfies RuntimeToolPolicy[];
 
 function createConfig(): RuntimeConfig {
   return {
@@ -82,6 +160,7 @@ function createWarmInput() {
       runtimeProviderProfile: null,
       runtimeProviderRouting: null,
       optimizationPolicy: null,
+      knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       sharedCompaction: {
         summarizeToolCode: "summarize_context",
         compactToolCode: "compact_context",
@@ -102,7 +181,7 @@ function createWarmInput() {
       memoryControl: null,
       tasksControl: null,
       toolCredentialRefs: {},
-      toolPolicies: [],
+      toolPolicies: [...KNOWLEDGE_TOOL_POLICIES],
       quota: {
         planCode: "free",
         workspaceQuotaBytes: 1024,

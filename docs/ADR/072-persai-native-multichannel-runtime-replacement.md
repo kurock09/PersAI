@@ -399,7 +399,7 @@ The PersAI-native runtime uses three explicit tool classes:
 - **System tools**
   Always-available platform capabilities that are part of the runtime contract rather than plan upsell. Examples: shared context summarization/compaction, runtime quota/status inspection, attachment/context helpers, and other bounded platform-owned execution helpers.
 - **Plan tools**
-  Product capabilities enabled or disabled by plan/admin policy. Examples: `web_search`, `knowledge_search`, `knowledge_fetch`, external API tools, `tts`, `image_generate`, `image_edit`, and `video_generate`.
+  Product capabilities enabled or disabled by plan/admin policy. Examples: `web_search`, `web_fetch`, future knowledge-layer tools such as `knowledge_search` / `knowledge_fetch`, external API tools, `tts`, `image_generate`, `image_edit`, and `video_generate`.
 - **Sandbox tools**
   High-risk workspace/code/file/system operations such as `read_file`, `write_file`, `edit_file`, `exec`, `shell`, and similar filesystem/process tools. These are not ordinary runtime tools and land only behind the isolated sandbox boundary in Step 16.
 
@@ -419,27 +419,48 @@ Every tool exposed to the model must carry explicit PersAI-owned usage policy in
 
 The model must not infer tool policy heuristically. Tool usage policy must be explicit in the runtime bundle/system policy, and runtime enforcement must validate it on every call.
 
+Tool planning must keep four different concerns separate:
+
+- **Current inventory baseline**
+  Preserve the real current catalog/UI/runtime surface so migration does not silently delete existing product capabilities.
+- **Canonical runtime contract**
+  Define the long-term PersAI-native executor families and names the runtime is built around.
+- **Migration aliases**
+  Preserve only truly transitional names when a future family is remapped. In the current ADR-072 plan, `web_search` and `web_fetch` are first-class product-facing tool names, not aliases. Future knowledge-family names such as `memory_search` and `memory_get` may become aliases only when a real PersAI-native knowledge layer exists.
+- **Implementation order**
+  Decide what lands next. Implementation order must not redefine the target contract.
+
+These layers must not be conflated. A preserved catalog name is not permission to create a separate executor family, and a canonical target contract is not permission to expose a tool before a real native executor exists.
+
+Every steady-state model-visible tool must be backed by a real PersAI-native executor, runtime policy gate, quota/audit behavior, and honest result contract on the native path. Dark transport validation is allowed, but prompt-only, placeholder, or OpenClaw-backed tool exposure is not acceptable steady-state behavior.
+
+Derived prompt artifacts such as `TOOLS.md` are operator/model guidance only. They are never the source of truth; the source of truth lives in PersAI control-plane data compiled into `AssistantRuntimeBundle`.
+
+Step 15 must treat OpenClaw as a read-only semantic reference only. If a capability is not executable inside PersAI-native runtime or worker ownership, it is not ready.
+
 Shared context summarization/compaction is a first-class system capability, not a channel-only special case:
 
 - the user may explicitly ask the model to compress/summarize context
 - Telegram keeps an owner-facing `auto summarize` setting
 - web keeps a compaction/summarization banner when rolling turn latency exceeds `7s` or the runtime context pressure threshold is crossed
 
-Search/RAG must be designed as a reusable knowledge access layer rather than a one-off tool:
+Web retrieval is a first-class separate plan-tool family in the ADR-072 program:
 
-- the final target contract centers on two actions:
-  - `knowledge_search`
-  - `knowledge_fetch`
-- `RAG` is not a separate tool; it is a retrieval/use pattern built on top of the knowledge layer
-- `memory_search` / `memory_get` belong to this same layer in the target model:
-  - `memory_search` -> `knowledge_search(source=memory)`
-  - `memory_get` -> `knowledge_fetch(source=memory)`
-- `web_search` / `web_fetch` may remain product-visible aliases or source-specific variants, but they must ride the same underlying knowledge contract:
-  - `web_search` -> `knowledge_search(source=web)`
-  - `web_fetch` -> `knowledge_fetch(source=web)`
-- future knowledge backends may include relational databases, vector indexes, document stores, or other internal knowledge systems
-- bounded single-source lookups may stay inline
-- multi-source or slow retrieval must move to workers
+- `web_search` remains an explicit product-facing tool
+- `web_fetch` remains an explicit product-facing tool
+- both must be implemented through PersAI-native executors with separate provider/API seams rather than hidden behind a placeholder knowledge layer
+- `web_search` keeps the current provider seam family such as `Brave`, `Tavily`, `Perplexity`, and `Google (Gemini)`
+- `web_fetch` keeps the current fetch/crawl seam such as `Firecrawl`
+- `browser` remains a different tool family from both `web_search` and `web_fetch`
+- bounded low-latency retrieval may stay inline; slower or heavier fetch paths may move to workers
+
+Future knowledge/RAG remains part of the ADR-072 target architecture, but it is not activated on the native runtime path until real PersAI-native knowledge sources exist:
+
+- `knowledge_search` and `knowledge_fetch` remain planned future contract names inside ADR-072
+- `RAG` is a future retrieval/use pattern over that later knowledge layer
+- future knowledge backends may include product memory, user/workspace knowledge stores, relational databases, vector indexes, document stores, or other internal knowledge systems
+- `memory_search` / `memory_get` belong to that future layer only when a real PersAI-native knowledge source exists
+- do not expose or depend on a native `knowledge_*` family during current Step 15 execution until the program first lands a real PersAI-native knowledge backend
 
 Media generation/editing tools must be provider-agnostic:
 
@@ -503,16 +524,16 @@ Current catalog/UI/runtime parity map for `T15-0`:
 
 | Current tool | Current catalog/UI/runtime truth | Required Step 15 parity landing |
 |---|---|---|
-| `web_search` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_web_search` with current provider options `Tavily`, `Brave`, `Perplexity`, `Google (Gemini)` | Preserve inside `T15-3`; final clean target may implement this as `knowledge_search(source=web)` or a product-visible alias over that contract, but broader knowledge-layer work must not remove the current web-search surface |
-| `web_fetch` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_web_fetch` (`Firecrawl`) | Preserve inside `T15-3`; final clean target may implement this as `knowledge_fetch(source=web)` or a product-visible alias over that contract, but today's `web_fetch` semantics must remain explicit during migration |
-| `browser` | `plan_managed`, cost-driving, visible in the plan editor; no separate tool credential seam exists in the current PersAI control plane | Preserve as a plan-managed web-interaction capability in `T15-3`; search/fetch work does not authorize silently dropping the current browsing surface |
-| `image_generate` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_image_generate` | Preserve as the Step 15 media-generation plan tool in `T15-4`; later `image_edit` / `video_generate` additions are additive, not replacements for today's image-generation capability |
-| `tts` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_tts` with current provider options `OpenAI`, `ElevenLabs`, `Yandex SpeechKit` | Preserve as the explicit Step 15 `tts` plan tool in `T15-4`; `Step 15a` channel voice output does not replace tool-driven TTS semantics |
-| `memory_search` | `plan_managed`, utility, visible in the plan editor; credential seam `tool_memory_search` | Preserve inside `T15-3`; final clean target should treat this as `knowledge_search(source=memory)` or an explicit alias over that contract, not as a separate long-term architecture |
-| `memory_get` | `plan_managed`, utility, visible in the plan editor; no separate credential seam today | Preserve inside `T15-3`; final clean target should treat this as `knowledge_fetch(source=memory)` or an explicit alias over that contract, and it must not disappear into search-only behavior without an explicit product decision |
-| `reminder_task` | `plan_managed`, utility, visible in the plan editor; current product-facing reminder/task tool over the PersAI-owned reminder control-plane plus cron/webhook bridge | Preserve as the Step 15 reminder/task plan tool; later runtime/worker cleanup must keep the current product-facing reminder semantics and must not regress the surface back to raw `cron` |
-| `persai_workspace_attach` | `platform_managed`, utility, read-only in plan surfaces; projected into the native runtime bundle `toolPolicies` / `TOOLS.md` as a platform-owned helper | Preserve as an always-on Step 15 system tool in `T15-1/T15-5`; it is not a plan toggle and it is not part of the generic Step 16 sandbox file/process matrix |
-| `persai_tool_quota_status` | `platform_managed`, utility, read-only in plan surfaces; projected into the native runtime bundle `toolPolicies` / `TOOLS.md` as the live quota-status helper | Preserve as an always-on Step 15 system tool in `T15-1/T15-5`; the model/runtime must continue to treat live quota inspection as platform-owned rather than a plan-managed upsell tool |
+| `web_search` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_web_search` with current provider options `Tavily`, `Brave`, `Perplexity`, `Google (Gemini)` | Preserve inside `T15-3b` as a separate web-retrieval plan tool with its own PersAI-native executor and provider routing; it must not be hidden behind `knowledge_search` during ADR-072 |
+| `web_fetch` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_web_fetch` (`Firecrawl`) | Preserve inside `T15-3b` as a separate web-fetch/crawl plan tool with its own PersAI-native executor and provider routing; it must not be hidden behind `knowledge_fetch` during ADR-072 |
+| `browser` | `plan_managed`, cost-driving, visible in the plan editor; no separate tool credential seam exists in the current PersAI control plane | Preserve as a separate plan-managed web-interaction capability in `T15-4`; search/fetch work does not authorize silently dropping the current browsing surface |
+| `image_generate` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_image_generate` | Preserve as the Step 15 media-generation plan tool in `T15-6`; later `image_edit` / `video_generate` additions are additive, not replacements for today's image-generation capability |
+| `tts` | `plan_managed`, cost-driving, visible in the plan editor; credential seam `tool_tts` with current provider options `OpenAI`, `ElevenLabs`, `Yandex SpeechKit` | Preserve as the explicit Step 15 `tts` plan tool in `T15-6`; `Step 15a` channel voice output does not replace tool-driven TTS semantics |
+| `memory_search` | `plan_managed`, utility, visible in the plan editor; credential seam `tool_memory_search` | Preserve in `T15-0` inventory truth and keep it tied to the future ADR-072 knowledge layer; do not expose it on the current native runtime path until a real PersAI-native knowledge source exists |
+| `memory_get` | `plan_managed`, utility, visible in the plan editor; no separate credential seam today | Preserve in `T15-0` inventory truth and keep it tied to the future ADR-072 knowledge layer; do not expose it on the current native runtime path until a real PersAI-native knowledge source exists |
+| `reminder_task` | `plan_managed`, utility, visible in the plan editor; current product-facing reminder/task tool over the PersAI-owned reminder control-plane plus cron/webhook bridge | Preserve in `T15-5`; later runtime/worker cleanup must keep the current product-facing reminder semantics and must not regress the surface back to raw `cron` |
+| `persai_workspace_attach` | `platform_managed`, utility, read-only in plan surfaces; projected into the native runtime bundle `toolPolicies` / `TOOLS.md` as a platform-owned helper | Preserve as an always-on Step 15 system tool in `T15-3a/T15-7`; it is not a plan toggle and it is not part of the generic Step 16 sandbox file/process matrix |
+| `persai_tool_quota_status` | `platform_managed`, utility, read-only in plan surfaces; projected into the native runtime bundle `toolPolicies` / `TOOLS.md` as the live quota-status helper | Preserve as an always-on Step 15 system tool in `T15-3a/T15-7`; the model/runtime must continue to treat live quota inspection as platform-owned rather than a plan-managed upsell tool |
 | `cron` | `hidden_internal`, utility, not visible in the plan editor and intentionally suppressed from user-visible `TOOLS.md`; currently backs reminder/internal callback flows only | Keep hidden-internal only; Step 15 must not re-expose `cron` as a user/model-facing plan tool even if later worker/scheduler internals change |
 
 Step 15 must begin by preserving and remapping this existing product/control-plane tool surface into the PersAI-native tool runtime. It must not silently drop existing tools already present in the catalog, plan editor, or user-facing runtime behavior.
@@ -1438,6 +1459,13 @@ Restore necessary capability without polluting ordinary chat latency.
 - models must receive explicit tool usage policy; do not rely on heuristic tool discovery or prompt folklore
 - shared compaction capability belongs here as a runtime/tool surface for user-invoked and automatic flows; do not reintroduce channel-specific slash-command compaction before this step
 - existing useful OpenClaw tool behavior may be referenced only to preserve product semantics; do not copy OpenClaw ownership or shape into the new runtime
+- Step 15 order is strict: `T15-0 -> T15-1 -> T15-2 -> T15-3a -> T15-3b -> T15-4 -> T15-5 -> T15-6 -> T15-7`
+- `web_search` and `web_fetch` are explicit first-class Step 15 plan tools with separate PersAI-native executors and provider/API seams
+- `knowledge_search` / `knowledge_fetch` remain planned future knowledge-layer contracts inside ADR-072, but they must stay disconnected from the active native runtime path until a real PersAI-native knowledge backend exists
+- `memory_search` / `memory_get` remain tracked in `T15-0` inventory truth, but they do not justify exposing a fake native knowledge layer during ADR-072
+- `browser` remains a separate plan-managed family and must not be folded into search/fetch
+- `T15-3a` owns shared tool transport, executor gating, stream honesty, lease safety, and remaining always-on system helpers for all future Step 15 tools; do not bury these concerns inside one tool family
+- if current code/doc truth ever exposes a tool before its PersAI-native executor exists, treat that as temporary implementation debt to fix before continuing with later slices
 
 **Rollback notes**
 
@@ -1505,33 +1533,97 @@ Restore necessary capability without polluting ordinary chat latency.
   - web/Telegram parity tests
   - latency-triggered banner tests
   - session summary reuse on later turns
+- **Completion notes (2026-04-12)**
+  - dev rollout and live validation confirmed the shared compaction path on both web and Telegram after the final `T15-2` package landed
+  - the one observed "double OpenAI request" during Telegram validation was traced to the internal shared-compaction provider call from the previously applied bundle, not a duplicate Telegram update
+  - compaction threshold/policy changes only affect live runtime behavior after `reapply`, because `apps/runtime` executes against applied/materialized bundle truth rather than draft admin edits
 
-##### Tool slice T15-3 — Unified knowledge access layer
+##### Tool slice T15-3a — Shared native tool runtime hardening and system helpers
 
 - **Goal**
-  Establish one clear knowledge access layer the model can rely on without inventing access patterns or duplicating near-identical tools.
+  Stabilize one PersAI-native machine-readable tool runtime before additional plan-tool families land, and finish the remaining always-on system helpers on top of that shared runtime.
 - **Included**
-  - `knowledge_search`
-  - `knowledge_fetch`
-  - `RAG` as a usage pattern over the layer, not a separate tool
-  - current `memory_search` / `memory_get` mapped into the same layer as `source=memory` variants or temporary aliases during migration
-  - current `web_search` / `web_fetch` mapped into the same layer as `source=web` variants or temporary aliases during migration
-  - bounded inline retrieval
-  - worker-backed multi-source or slow retrieval
-  - citation/attribution-ready result contract
-  - future DB/vector/doc/internal knowledge sources through the same contract
+  - shared tool transport contract (`tools`, `toolChoice`, `toolHistory`, tool calls, tool results) owned by the PersAI runtime/provider boundary
+  - bundle-derived projection from `toolPolicies`, `runtime.sharedCompaction`, and later native runtime config blocks
+  - executor-availability gating: no ordinary model-visible tool without a real PersAI-native executor
+  - honest sync/stream behavior for tool-capable turns; never pseudo-stream while hidden buffered tool work is still running
+  - lease-safe in-turn tool execution and durable post-tool state updates
+  - structured tool result/audit envelopes reusable by later tool families
+  - remaining always-on system helpers such as `persai_workspace_attach` and `persai_tool_quota_status`; if they are not truly executable yet, they stay gated off the ordinary model-visible path and their later exposure/admin treatment moves to `T15-7`
+  - `TOOLS.md` and similar artifacts as derived guidance only, never the source of truth
 - **Excluded**
-  - interactive `browser` automation; it remains a separate plan-managed tool
-  - separate `rag` / `memory_search` / `memory_get` long-term runtime architecture
-  - sandbox file search
-  - one-off provider-specific search hacks
+  - new knowledge-source executors
+  - browser automation
+  - reminder/scheduled-action implementation
+  - media generation/editing implementation
+  - sandbox tools
 - **Validation**
-  - deterministic `knowledge_search` / `knowledge_fetch` contract tests across `web`, `memory`, and future internal sources
-  - alias/source-mode parity tests for the current product-visible surfaces
-  - inline vs async routing tests
-  - future-backend-ready interface for DB/vector/doc knowledge stores
+  - runtime refuses to project a model-visible tool unless native policy and executor availability both agree
+  - tool-capable sync/stream tests prove honest behavior and lease safety
+  - system helpers are either backed by PersAI-owned executors or remain non-model-visible until those executors exist
+  - prompt/runtime parity tests confirm derived guidance matches bundle truth
 
-##### Tool slice T15-4 — Media generation and editing plan tools
+##### Tool slice T15-3b — Web search and fetch plan tools
+
+- **Goal**
+  Restore the current web-retrieval product surface as explicit PersAI-native plan tools, without routing it through a fake or premature knowledge layer.
+- **Included**
+  - `web_search`
+  - `web_fetch`
+  - PersAI-native provider/API executors for both tools
+  - current provider seams for `web_search`: `Brave`, `Tavily`, `Perplexity`, `Google (Gemini)`
+  - current provider seam for `web_fetch`: `Firecrawl`
+  - normalized result contracts, attribution, quotas, and audit behavior for separate search vs fetch semantics
+  - bounded inline use where latency budgets allow, with worker offload for slower/heavier fetch paths
+- **Excluded**
+  - transport/gating redesign already owned by `T15-3a`
+  - interactive `browser` automation; it remains a separate plan-managed tool family
+  - `knowledge_search` / `knowledge_fetch`
+  - `memory_search` / `memory_get`
+  - sandbox file search
+  - one-off provider-specific search hacks outside the explicit provider routing surface
+- **Validation**
+  - provider/credential parity tests for `web_search` and `web_fetch`
+  - deterministic result-contract tests for separate search vs fetch behavior
+  - no user/model-visible web retrieval path depends on `knowledge_*` placeholders
+  - inline vs async routing tests where fetch work crosses latency budgets
+  - quota/audit coverage for both tools
+
+##### Tool slice T15-4 — Browser and web-interaction plan tools
+
+- **Goal**
+  Preserve the current browsing capability as an explicit plan-managed family instead of smuggling interactive web actions into `web_search` / `web_fetch`.
+- **Included**
+  - `browser` as a separate plan-managed capability
+  - navigation/page interaction contract distinct from `knowledge_search` / `knowledge_fetch`
+  - worker isolation whenever interaction latency or side effects exceed bounded inline rules
+  - explicit audit/confirmation rules for higher-risk actions
+- **Excluded**
+  - folding browser into the knowledge layer
+  - sandbox file/process permissions
+- **Validation**
+  - browser exposure/config tests
+  - audit trail coverage
+  - clear runtime/model distinction between browser interaction and retrieval
+
+##### Tool slice T15-5 — Reminder and scheduled action plan tools
+
+- **Goal**
+  Rebuild the current reminder/task product surface on PersAI-native worker/scheduler ownership without re-exposing raw internal cron mechanics.
+- **Included**
+  - `reminder_task`
+  - PersAI-owned scheduling/job orchestration
+  - current reminder semantics preserved as the product-facing surface
+  - hidden internal scheduler primitives such as `cron` kept internal-only
+- **Excluded**
+  - exposing raw `cron` as a model/user-facing tool
+  - browser/media work
+- **Validation**
+  - reminder scheduling/execution tests
+  - idempotent job delivery and retry behavior
+  - internal cron/scheduler seams stay hidden from plan/model surfaces
+
+##### Tool slice T15-6 — Media generation and editing plan tools
 
 - **Goal**
   Restore product-critical media tools through PersAI-owned contracts rather than runtime-specific plugins.
@@ -1550,12 +1642,13 @@ Restore necessary capability without polluting ordinary chat latency.
   - queue/worker latency tests
   - quota/audit coverage per media tool
 
-##### Tool slice T15-5 — Plan/admin exposure, quotas, and model guidance
+##### Tool slice T15-7 — Plan/admin exposure, quotas, and model guidance
 
 - **Goal**
-  Make tool exposure predictable for operators, users, and the model.
+  Make tool exposure predictable for operators, users, and the model after the executor families are real.
 - **Included**
   - `system tools` always-on policy
+  - future user/model/admin exposure of always-on helpers that stayed dark in `T15-3a` until real PersAI-native executors existed
   - `plan tools` enabled/disabled by plan/admin policy
   - per-tool quotas and audit rules
   - user/model-facing descriptions of what each tool is for
@@ -1568,6 +1661,13 @@ Restore necessary capability without polluting ordinary chat latency.
   - plan/admin exposure tests
   - quota enforcement tests
   - prompt/runtime alignment checks so the model does not hallucinate unavailable tools
+
+#### Deferred activation within ADR-072 — Future knowledge access layer
+
+- `knowledge_search` and `knowledge_fetch` remain part of the ADR-072 target architecture, but they are not current Step 15 delivery items
+- `memory_search` / `memory_get` and any later product-memory or user/workspace knowledge sources belong here only when a real PersAI-native backend exists
+- if PersAI later grows a real product-memory, workspace-knowledge, or internal document/vector store, activate this planned ADR-072 branch instead of retrofitting that behavior into `web_search` / `web_fetch`
+- current partial repo contracts around `runtime.knowledgeAccess` should be treated as reserved future scaffolding until such a real source exists; they must not define the current Step 15 production scope
 
 ### Step 15a — Native web TTS streaming/output
 
@@ -1839,9 +1939,9 @@ Use only these statuses:
 | Item | Status | Notes |
 |---|---|---|
 | ADR-072 document | completed | Target architecture, slices, and step order are documented |
-| Runtime replacement implementation | in_progress | Steps 1-14 are complete. PersAI now owns Telegram webhook ingress/delivery, group/chat metadata sync, canonical Telegram transcript persistence, and native request-time text/group execution. Step 15 is now active with `T15-0`, `T15-1`, and `T15-2` complete: shared compaction now has a typed native bundle contract, dark native runtime seams, public web manual/state/banner routing on native truth, Telegram auto summarize through the same runtime-owned compaction service, rolling-latency web banner signaling, and later-turn summary reuse before admin/tool exposure and later OpenClaw removal land |
+| Runtime replacement implementation | in_progress | Steps 1-14 are complete. PersAI now owns Telegram webhook ingress/delivery, group/chat metadata sync, canonical Telegram transcript persistence, and native request-time text/group execution. Step 15 is now active with `T15-0`, `T15-1`, `T15-2`, and `T15-3a` complete: shared compaction now has a typed native bundle contract, dark native runtime seams, public web manual/state/banner routing on native truth, Telegram auto summarize through the same runtime-owned compaction service, rolling-latency web banner signaling, later-turn summary reuse, and a hardened shared tool runtime that exposes only real compaction tools on sync turns, keeps stream turns tool-dark, and reuses the accepted-turn lease for in-turn compaction. The next active slice is `T15-3b`, while `persai_workspace_attach` / `persai_tool_quota_status` remain intentionally dark until later `T15-7` exposure/executor follow-through |
 | Current active slice | in_progress | `Slice 6 — Tools, control-plane UX, and sandbox separation` is now the next active migration area after Step 14 closeout |
-| Current active step | in_progress | `Step 15 — Introduce bounded inline tools and async worker jobs` is active; `T15-0`, `T15-1`, and `T15-2 — Shared summarization and compaction tools` are complete, so `T15-3 — Unified knowledge access layer` is the next remaining tool slice in Step 15 |
+| Current active step | in_progress | `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-0`, `T15-1`, `T15-2`, and `T15-3a — Shared native tool runtime hardening and system helpers` are now complete. The next active tool slice is `T15-3b — Web search and fetch plan tools`, while `persai_workspace_attach` and `persai_tool_quota_status` stay non-model-visible until later `T15-7` exposure/executor follow-through |
 
 ### Slice ledger
 
@@ -1873,7 +1973,7 @@ Use only these statuses:
 | Step 12 — Implement native STT | completed | Steps 4, 11 | Voice/media transcription now streams audio through `apps/api -> apps/runtime -> apps/provider-gateway -> OpenAI` without OpenClaw request-time transcription or workspace-media staging |
 | Step 13 — Replace Telegram proxy with a native Telegram adapter | completed | Steps 8, 9, 11, 12 | Public Telegram webhook ingress, owner gate handling, group/chat metadata sync, Bot API media download/delivery, and canonical transcript persistence now run in `apps/api`; the old PersAI internal Telegram ingress/callback endpoints were removed with the proxy loop |
 | Step 14 — Cut over Telegram text and groups | completed | Step 13 | Telegram text/group request-time execution now routes through native `apps/runtime` with shared conversation identity/history hydration, live dev Telegram validation passed, and the temporary Telegram-only `/compact`/hint seam was removed instead of being carried forward |
-| Step 15 — Introduce bounded inline tools and async worker jobs | in_progress | Steps 9-10 | `T15-0` now freezes the current catalog/UI/runtime tool surface, `T15-1` now adds explicit native `toolPolicies` metadata (`system|plan|internal`, `allowed|forbidden`, `inline|worker|sandbox`) plus prompt/runtime parity, and `T15-2` is now complete with the typed `runtime.sharedCompaction` bundle contract, dark native compaction/session-resolve seams, public web manual compaction and state/banner reads on native runtime truth, Telegram auto summarize on the runtime-owned compaction path, rolling-latency banner triggering, and later-turn summary reuse. `T15-3` is next |
+| Step 15 — Introduce bounded inline tools and async worker jobs | in_progress | Steps 9-10 | `T15-0` now freezes the current catalog/UI/runtime tool surface, `T15-1` adds explicit native `toolPolicies` metadata (`system|plan|internal`, `allowed|forbidden`, `inline|worker|sandbox`) plus prompt/runtime parity, `T15-2` completes the typed `runtime.sharedCompaction` contract plus native compaction/session-resolve seams and caller cutovers, and `T15-3a` now closes the shared runtime hardening pass: sync turns expose only real compaction tools, stream turns keep model-visible tools disabled, compaction tool calls reuse the accepted-turn lease, and helper tools without PersAI-native executors stay dark. The next Step 15 slice is `T15-3b`, while later helper exposure/admin follow-through lives in `T15-7` |
 | Step 15a — Native web TTS streaming/output | planned | Steps 9, 10, 15 | Native web voice output is a channel capability and no longer relies on post-turn attachment delivery to feel complete |
 | Step 15b — Replace bootstrap preset and lifecycle UI with native prompt surfaces | planned | Steps 2, 7, 15 | Admin/setup UX stops treating OpenClaw bootstrap docs as the product contract; create/preview/publish/reapply/reset/recreate align to the native bundle pipeline |
 | Step 16 — Build isolated sandbox service | planned | Step 15 | Sandbox exists outside ordinary chat path |
@@ -1887,9 +1987,12 @@ Use only these statuses:
 | T15-0 — Current tool inventory baseline | completed | Step 15 | ADR-072 now captures the current catalog/UI/runtime tool surface, provider seams, and explicit parity landing rules for every existing tool before later Step 15 redesign work |
 | T15-1 — Tool taxonomy and usage policy baseline | completed | Step 15 | Native runtime bundles now carry explicit `toolPolicies`, `TOOLS.md` is derived from the same policy list, and runtime warm validation rejects tool surfaces that lack matching policy metadata |
 | T15-2 — Shared summarization and compaction tools | completed | Step 15 | `runtime.sharedCompaction` now materializes the shared `summarize_context` / `compact_context` naming plus web latency/token-threshold knobs and Telegram auto-summarize policy, `apps/runtime` now has dark native `POST /api/v1/turns/compact` and `POST /api/v1/turns/session/resolve` seams for shared compaction execution and session-state reads, public web manual compaction plus GET/banner state call those seams, Telegram owner auto summarize now reuses the same runtime-owned compaction path after native turns, web banner suggestions also honor rolling reply latency, and later runtime turns reuse the latest durable session compaction summary |
-| T15-3 — Unified knowledge access layer | planned | Step 15 | One `knowledge_search` / `knowledge_fetch` contract over web, memory, and future DB/vector/doc/internal sources with explicit migration paths for current tool names |
-| T15-4 — Media generation and editing plan tools | planned | Step 15 | `tts`, `image_generate`, `image_edit`, `video_generate`, provider-agnostic routing |
-| T15-5 — Plan/admin exposure, quotas, and model guidance | planned | Step 15 | Always-on system tools, plan-controlled tools, quotas, and prompt/runtime alignment |
+| T15-3a — Shared native tool runtime hardening and system helpers | completed | Step 15 | Shared runtime hardening is now landed: sync turns expose only real `summarize_context` / `compact_context` tools, stream turns keep model-visible tools disabled instead of pseudo-streaming hidden tool work, compaction tool calls reuse the accepted-turn lease, and prompt guidance is derived from projected runtime truth rather than `TOOLS.md`. `persai_workspace_attach` / `persai_tool_quota_status` stay explicitly dark until later `T15-7` exposure/executor follow-through instead of blocking later Step 15 tool families |
+| T15-3b — Web search and fetch plan tools | planned | Step 15 | `web_search` and `web_fetch` land as separate provider-backed PersAI-native executors with current catalog/provider seam parity; they must not be hidden behind a premature `knowledge_*` layer |
+| T15-4 — Browser and web-interaction plan tools | planned | Step 15 | `browser` stays a separate plan-managed family instead of being folded into retrieval/search |
+| T15-5 — Reminder and scheduled action plan tools | planned | Step 15 | `reminder_task` stays the product-facing surface while `cron` remains hidden internal runtime/worker machinery |
+| T15-6 — Media generation and editing plan tools | planned | Step 15 | `tts`, `image_generate`, `image_edit`, `video_generate`, provider-agnostic routing |
+| T15-7 — Plan/admin exposure, quotas, and model guidance | planned | Step 15 | Always-on system tools, plan-controlled tools, quotas, audit, and prompt/runtime alignment after the executor families are real |
 | Sandbox tool matrix | planned | Step 16 | `read_file`, `write_file`, `edit_file`, `exec`, `shell`, and related isolated tools |
 
 ## Universal Cursor master prompt
@@ -1929,7 +2032,7 @@ Required workflow:
 1. Read the source-of-truth docs in order.
 2. Inspect the execution ledger in ADR-072 and the latest checkpoint in docs/SESSION-HANDOFF.md.
 3. Choose the highest-priority unfinished step whose dependencies are satisfied.
-3a. If the active step is Step 15, choose the highest-priority unfinished item from the Step 15 tool slice ledger instead of trying to implement all tools at once. Start with `T15-0 — Current tool inventory baseline` unless it is already complete.
+3a. If the active step is Step 15, follow the tool-slice order exactly: `T15-0 -> T15-1 -> T15-2 -> T15-3a -> T15-3b -> T15-4 -> T15-5 -> T15-6 -> T15-7`. `web_search` and `web_fetch` are separate plan tools in `T15-3b`; do not hide them behind `knowledge_*`. `knowledge_search` / `knowledge_fetch` remain planned future contracts inside ADR-072, but they must stay disconnected until a real PersAI-native knowledge backend exists.
 4. Before editing, state explicitly:
    - current slice
    - current step

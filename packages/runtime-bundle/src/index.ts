@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   PERSAI_RUNTIME_CONTRACT_SCHEMA,
+  type RuntimeKnowledgeAccessConfig,
   type RuntimeSharedCompactionConfig,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
@@ -60,6 +61,7 @@ export interface AssistantRuntimeBundleRuntimeConfig {
   runtimeProviderRouting: unknown;
   optimizationPolicy: unknown;
   sharedCompaction: RuntimeSharedCompactionConfig;
+  knowledgeAccess: RuntimeKnowledgeAccessConfig;
 }
 
 export interface AssistantRuntimeBundleGovernance {

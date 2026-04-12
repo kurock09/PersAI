@@ -119,7 +119,9 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
               model: "gpt-5.4",
               text: "generated text",
               respondedAt: "2026-04-11T12:00:01.000Z",
-              usage: null
+              usage: null,
+              stopReason: "completed",
+              toolCalls: []
             }
           })
         ].join("\n"),
@@ -170,7 +172,9 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       model: "gpt-5.4",
       text: "generated text",
       respondedAt: "2026-04-11T12:00:01.000Z",
-      usage: null
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
     };
     return new Response(JSON.stringify(payload), {
       status: 200,

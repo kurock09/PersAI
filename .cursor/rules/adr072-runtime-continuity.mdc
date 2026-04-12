@@ -11,7 +11,7 @@ alwaysApply: true
 - Treat `docs/CHANGELOG.md` as the source of truth for what has actually landed.
 - If ADR, handoff, changelog, and code disagree, stop and reconcile docs before code changes.
 - One session = one smallest executable step or tightly coupled sub-step from ADR-072. Do not expand scope or skip dependencies.
-- If the active step is Step 15, choose one explicit item from the Step 15 tool slice ledger instead of trying to implement all tools at once. Start with `T15-0 — Current tool inventory baseline` unless it is already complete.
+- If the active step is Step 15, follow the tool-slice order exactly: `T15-0 -> T15-1 -> T15-2 -> T15-3a -> T15-3b -> T15-4 -> T15-5 -> T15-6 -> T15-7`. `web_search` and `web_fetch` are separate plan tools in `T15-3b`; do not hide them behind `knowledge_*`. `knowledge_search` / `knowledge_fetch` remain planned future contracts inside ADR-072, but they must stay disconnected until a real PersAI-native knowledge backend exists.
 - At session start, identify the highest-priority unfinished step whose dependencies are satisfied and restate: current slice, current step, purpose, likely affected files/modules, and what is out of scope.
 - Keep the final architecture fully PersAI-native. Do not preserve OpenClaw request-time compatibility in target-state code.
 - Do not keep `openclawBootstrap` / `openclawWorkspace` as long-term runtime truth. Do not reintroduce filesystem-owned session state. Do not put sandbox or heavy agent boot into the ordinary chat path.

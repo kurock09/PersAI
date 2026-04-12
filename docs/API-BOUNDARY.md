@@ -592,7 +592,9 @@ Behavior baseline:
   - cost/token-driving tool-class quota limit when class is quota-governed
 - Materialization now carries explicit `toolAvailability` (`persai.effectiveToolAvailability.v1`) for OpenClaw alongside `effectiveCapabilities`, while the native runtime bundle carries explicit `toolPolicies` derived from that same effective tool surface.
 - `ADR-072` `T15-2` also starts a typed native `runtime.sharedCompaction` contract in the runtime bundle. It carries fixed shared tool names (`summarize_context`, `compact_context`), the web suggestion latency threshold (`7000ms`), the current token-preservation knobs sourced from admin runtime compaction policy, and the assistant-scoped Telegram `autoCompactionEnabled` flag so later shared compaction execution does not recreate a second policy source.
+- `ADR-072` `T15-3` now also starts a typed native `runtime.knowledgeAccess` contract in the runtime bundle. It fixes canonical `knowledge_search` / `knowledge_fetch` tool names, preserves the current `web_search` / `web_fetch` and `memory_search` / `memory_get` alias + credential mapping inside one knowledge layer, declares `inline|worker` as the allowed execution modes, keeps `ragMode=pattern_only`, and leaves `browser` outside this contract on purpose.
 - The first dark native shared-compaction executor now lives in `apps/runtime` as `POST /api/v1/turns/compact`; it is internal runtime surface only for now and does not yet replace the live web compaction HTTP boundary.
+- `runtime.knowledgeAccess` is currently a bundle/runtime contract baseline only. No new public HTTP surface or executor cutover lands in this sub-step yet; later `T15-3` work routes the existing product-visible knowledge tools through that contract.
 
 ## Step 7 P7 plan visibility read models
 

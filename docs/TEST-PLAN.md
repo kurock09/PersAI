@@ -890,6 +890,11 @@ Required in CI:
   - completed native Telegram turns with `telegramAutoSummarizeEnabled=true` trigger the same runtime-owned compaction path without reviving Telegram-only `/compact`
   - later native turns reuse the latest durable `runtime_session_compactions.summary_payload` summary instead of replaying all previously summarized canonical history
   - web compaction/banner state suggests compression when rolling reply latency crosses the shared `7000ms` threshold even when token pressure is still below the compaction token threshold
+- Knowledge access contract baseline validates:
+  - `runtime.knowledgeAccess` exists on the native runtime bundle with fixed `knowledge_search` / `knowledge_fetch` names
+  - `runtime.knowledgeAccess.executionModes` includes both `inline` and `worker`, and `runtime.knowledgeAccess.ragMode` stays `pattern_only`
+  - the current `web` source maps to `web_search` / `web_fetch`, the current `memory` source maps to `memory_search` / `memory_get`, and `browser` does not get folded into the knowledge layer
+  - runtime warm validation rejects alias/source drift when `runtime.knowledgeAccess` no longer matches the preserved tool-policy surface
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift

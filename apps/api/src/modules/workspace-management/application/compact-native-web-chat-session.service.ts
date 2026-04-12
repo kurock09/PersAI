@@ -167,12 +167,17 @@ export class CompactNativeWebChatSessionService {
 
   private isRuntimeCompactionResult(value: unknown): value is RuntimeCompactionResult {
     const row = this.asObject(value);
+    const toolResult = this.asObject(row?.toolResult);
     return (
       typeof row?.compacted === "boolean" &&
       (typeof row.reason === "string" || row.reason === null) &&
       (typeof row.tokensBefore === "number" || row.tokensBefore === null) &&
       (typeof row.tokensAfter === "number" || row.tokensAfter === null) &&
-      (row.session === null || this.asObject(row.session) !== null)
+      (row.session === null || this.asObject(row.session) !== null) &&
+      toolResult !== null &&
+      typeof toolResult.toolCode === "string" &&
+      typeof toolResult.action === "string" &&
+      (typeof toolResult.reason === "string" || toolResult.reason === null)
     );
   }
 }

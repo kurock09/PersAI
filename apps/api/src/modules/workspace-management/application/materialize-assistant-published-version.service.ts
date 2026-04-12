@@ -35,6 +35,7 @@ import {
   buildRuntimeToolPoliciesMarkdown,
   resolveRuntimeToolPolicies
 } from "./runtime-tool-policy";
+import { buildRuntimeKnowledgeAccessConfig } from "./runtime-knowledge-access";
 import { buildRuntimeSharedCompactionConfig } from "./runtime-shared-compaction";
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
@@ -315,6 +316,7 @@ export class MaterializeAssistantPublishedVersionService {
       planToolQuotaPolicy
     });
     const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
+    const knowledgeAccess = buildRuntimeKnowledgeAccessConfig();
     const sharedCompaction = buildRuntimeSharedCompactionConfig({
       compactionPolicy: platformRuntimeProviderSettings.optimizationPolicy.compaction,
       telegramAutoSummarizeEnabled: telegramChannel.autoCompactionEnabled
@@ -419,7 +421,8 @@ export class MaterializeAssistantPublishedVersionService {
         runtimeProviderProfile,
         runtimeProviderRouting,
         optimizationPolicy: platformRuntimeProviderSettings.optimizationPolicy,
-        sharedCompaction
+        sharedCompaction,
+        knowledgeAccess
       },
       governance: {
         capabilityEnvelope: governance.capabilityEnvelope,

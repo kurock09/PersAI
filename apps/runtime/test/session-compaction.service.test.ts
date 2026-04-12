@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextGenerateRequest,
+  RuntimeKnowledgeAccessConfig,
   RuntimeCompactionRequest,
   RuntimeSessionSummary
 } from "@persai/runtime-contract";
@@ -18,6 +19,29 @@ import type {
   RuntimeCompactionMessageSource,
   TurnContextHydrationService
 } from "../src/modules/turns/turn-context-hydration.service";
+
+const KNOWLEDGE_ACCESS_CONFIG = {
+  searchToolCode: "knowledge_search",
+  fetchToolCode: "knowledge_fetch",
+  executionModes: ["inline", "worker"],
+  ragMode: "pattern_only",
+  sources: [
+    {
+      source: "web",
+      searchAliasToolCode: "web_search",
+      fetchAliasToolCode: "web_fetch",
+      searchCredentialToolCode: "web_search",
+      fetchCredentialToolCode: "web_fetch"
+    },
+    {
+      source: "memory",
+      searchAliasToolCode: "memory_search",
+      fetchAliasToolCode: "memory_get",
+      searchCredentialToolCode: "memory_search",
+      fetchCredentialToolCode: null
+    }
+  ]
+} satisfies RuntimeKnowledgeAccessConfig;
 
 function createCompactionRequest(input?: {
   instructions?: string | null;
@@ -97,6 +121,7 @@ function createBundleEntry() {
         }
       },
       optimizationPolicy: null,
+      knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       sharedCompaction: {
         summarizeToolCode: "summarize_context",
         compactToolCode: "compact_context",
@@ -194,7 +219,9 @@ class FakeProviderGatewayClientService {
         inputTokens: 120,
         outputTokens: 40,
         totalTokens: 160
-      }
+      },
+      stopReason: "completed" as const,
+      toolCalls: []
     };
   }
 }
@@ -249,9 +276,11 @@ class FakeSessionLeaseService {
     sessionId: "session-1",
     ownerToken: "lease-owner-1"
   };
+  acquireCalls: string[] = [];
   released: RuntimeSessionLease[] = [];
 
-  async acquireLease() {
+  async acquireLease(sessionId: string) {
+    this.acquireCalls.push(sessionId);
     return this.lease;
   }
 
@@ -277,7 +306,10 @@ class FakeRuntimeStatePostgresService {
 
   async appendSessionCompaction(input: unknown) {
     this.appendCalls.push(input);
-    return input;
+    return {
+      id: `compaction-${String(this.appendCalls.length)}`,
+      ...((input ?? {}) as Record<string, unknown>)
+    };
   }
 }
 
@@ -303,6 +335,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   );
   assert.equal(belowThreshold.compacted, false);
   assert.equal(belowThreshold.reason, "threshold_not_reached");
+  assert.equal(belowThreshold.toolResult.action, "skipped");
   assert.equal(providerGateway.requests.length, 0);
   assert.equal(postgres.appendCalls.length, 0);
 
@@ -310,6 +343,9 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   const manualWebCompaction = await service.compactSession(createCompactionRequest());
   assert.equal(manualWebCompaction.compacted, true);
   assert.equal(manualWebCompaction.reason, "compacted");
+  assert.equal(manualWebCompaction.toolResult.action, "compacted");
+  assert.equal(manualWebCompaction.toolResult.compactionRecordId, "compaction-1");
+  assert.equal(manualWebCompaction.toolResult.reusableInLaterTurns, true);
   assert.equal(providerGateway.requests.length, 1);
   assert.deepEqual(postgres.appendCalls.at(-1), {
     runtimeSessionId: "session-1",
@@ -338,6 +374,9 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(compacted.tokensBefore, 30000);
   assert.equal(compacted.tokensAfter, null);
   assert.equal(compacted.session?.compactionCount, 3);
+  assert.equal(compacted.toolResult.action, "compacted");
+  assert.equal(compacted.toolResult.summaryText, "Compacted summary text");
+  assert.equal(compacted.toolResult.preservedRecentTurns, 4);
   assert.equal(hydration.inputs.at(-1)?.keepRecentMessageCount, 8);
   assert.equal(providerGateway.requests.length, 2);
   assert.match(
@@ -367,6 +406,31 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     tokensAfter: null
   });
   assert.equal(leaseService.released.length, 3);
+
+  const summarized = await service.summarizeContext(
+    createCompactionRequest({ instructions: "Keep durable facts only." })
+  );
+  assert.equal(summarized.compacted, false);
+  assert.equal(summarized.reason, "summarized");
+  assert.equal(summarized.toolResult.action, "summarized");
+  assert.equal(summarized.toolResult.compactionRecordId, null);
+  assert.equal(summarized.toolResult.reusableInLaterTurns, false);
+  assert.equal(summarized.toolResult.summaryText, "Compacted summary text");
+  assert.equal(postgres.appendCalls.length, 2);
+  assert.equal(sessionStore.updateCalls.length, 2);
+
+  const acquireCallsBeforeHeldLease = leaseService.acquireCalls.length;
+  const releasedBeforeHeldLease = leaseService.released.length;
+  const summarizedWithHeldLease = await service.summarizeContext({
+    ...createCompactionRequest({ instructions: "Reuse the accepted turn lease." }),
+    heldLease: {
+      sessionId: "session-1",
+      ownerToken: "accepted-turn-lease"
+    }
+  });
+  assert.equal(summarizedWithHeldLease.reason, "summarized");
+  assert.equal(leaseService.acquireCalls.length, acquireCallsBeforeHeldLease);
+  assert.equal(leaseService.released.length, releasedBeforeHeldLease);
 }
 
 void runSessionCompactionServiceTest();

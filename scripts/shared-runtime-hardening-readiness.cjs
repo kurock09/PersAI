@@ -230,8 +230,8 @@ function main() {
   if (sandboxMode !== "off") {
     configBlockers.push('openclaw.agentDefaults.sandbox.mode must stay "off" until canary-ready sandbox rollout.');
   }
-  if (sandboxScope !== "agent") {
-    configBlockers.push('openclaw.agentDefaults.sandbox.scope must be "agent".');
+  if (sandboxScope !== "session") {
+    configBlockers.push('openclaw.agentDefaults.sandbox.scope must be "session".');
   }
   if (sandboxWorkspaceAccess !== "rw") {
     configBlockers.push('openclaw.agentDefaults.sandbox.workspaceAccess must currently be "rw" in the prepared baseline.');

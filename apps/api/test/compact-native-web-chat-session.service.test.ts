@@ -58,6 +58,36 @@ describe("CompactNativeWebChatSessionService", () => {
             providerKey: "openai",
             modelKey: "gpt-4.1",
             updatedAt: "2026-04-12T20:00:00.000Z"
+          },
+          toolResult: {
+            toolCode: "compact_context",
+            action: "compacted",
+            reason: "compacted",
+            sessionId: "runtime-session-1",
+            compactionRecordId: "compaction-1",
+            before: {
+              sessionId: "runtime-session-1",
+              currentTokens: 18250,
+              compactionCount: 0,
+              summarizedMessageCount: 8,
+              preservedRecentMessageCount: 4
+            },
+            after: {
+              sessionId: "runtime-session-1",
+              currentTokens: null,
+              compactionCount: 1,
+              summarizedMessageCount: 8,
+              preservedRecentMessageCount: 4
+            },
+            preservedRecentTurns: 4,
+            summaryText: "Compacted summary text",
+            summaryPayload: {
+              schema: "persai.runtimeSessionCompaction.v1",
+              summarizeToolCode: "summarize_context",
+              toolCode: "compact_context",
+              summaryText: "Compacted summary text"
+            },
+            reusableInLaterTurns: true
           }
         }),
         {

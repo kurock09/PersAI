@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
+  ProviderGatewayToolCall,
   ProviderGatewayAudioTranscriptionResult,
   ProviderGatewayTextCompletedEvent,
   ProviderGatewayTextDeltaEvent,
@@ -16,6 +17,56 @@ import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 import type { ProviderWarmableClient } from "../provider-client.types";
 
 const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
+type OpenAIResponseCreateParams = Parameters<OpenAI["responses"]["create"]>[0];
+type OpenAINonStreamingCreateParams = Exclude<OpenAIResponseCreateParams, { stream: true }>;
+type OpenAIResponseInputParam = NonNullable<OpenAINonStreamingCreateParams["input"]>;
+type OpenAIResponseToolsParam = NonNullable<OpenAINonStreamingCreateParams["tools"]>;
+type OpenAIResponseToolChoice = OpenAIResponseCreateParams["tool_choice"];
+type OpenAINonStreamingResponse = Extract<
+  Awaited<ReturnType<OpenAI["responses"]["create"]>>,
+  { output: unknown }
+>;
+type OpenAIInputContent =
+  | string
+  | Array<
+      | {
+          type: "input_text";
+          text: string;
+        }
+      | {
+          type: "input_image";
+          image_url: string;
+          detail: "auto";
+        }
+      | {
+          type: "input_file";
+          filename: string;
+          file_data: string;
+        }
+    >;
+type OpenAIBuiltInputItem =
+  | {
+      role: "user" | "assistant";
+      content: OpenAIInputContent;
+    }
+  | {
+      type: "function_call";
+      call_id: string;
+      name: string;
+      arguments: string;
+    }
+  | {
+      type: "function_call_output";
+      call_id: string;
+      output: string;
+    };
+type OpenAIBuiltTool = {
+  type: "function";
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  strict: false;
+};
 
 @Injectable()
 export class OpenAIProviderClient implements ProviderWarmableClient {
@@ -53,20 +104,47 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
     );
     try {
-      const response = await this.client.responses.create(
-        {
+      const toolChoice = this.toOpenAIToolChoice(input);
+      const payload: OpenAINonStreamingCreateParams = {
+        model: input.model,
+        input: this.buildOpenAIInputItems(input) as OpenAIResponseInputParam
+      };
+      if (input.systemPrompt !== null) {
+        payload.instructions = input.systemPrompt;
+      }
+      if (input.maxOutputTokens !== undefined) {
+        payload.max_output_tokens = input.maxOutputTokens;
+      }
+      if ((input.tools?.length ?? 0) > 0) {
+        payload.tools = this.toOpenAITools(input) as OpenAIResponseToolsParam;
+      }
+      if (toolChoice !== undefined) {
+        payload.tool_choice = toolChoice;
+      }
+      const response = (await this.client.responses.create(payload, {
+        signal
+      })) as OpenAINonStreamingResponse;
+      const toolCalls = this.parseOpenAIToolCalls(response.output);
+      if (toolCalls.length > 0) {
+        return {
+          provider: "openai",
           model: input.model,
-          ...(input.systemPrompt === null ? {} : { instructions: input.systemPrompt }),
-          input: input.messages.map((message) => ({
-            role: message.role,
-            content: this.toOpenAIMessageContent(message.content)
-          })),
-          ...(input.maxOutputTokens === undefined
-            ? {}
-            : { max_output_tokens: input.maxOutputTokens })
-        },
-        { signal }
-      );
+          text: this.normalizeOptionalText(response.output_text),
+          respondedAt: new Date().toISOString(),
+          usage:
+            response.usage === undefined
+              ? null
+              : {
+                  providerKey: "openai",
+                  modelKey: input.model,
+                  inputTokens: response.usage.input_tokens ?? null,
+                  outputTokens: response.usage.output_tokens ?? null,
+                  totalTokens: response.usage.total_tokens ?? null
+                },
+          stopReason: "tool_calls",
+          toolCalls
+        };
+      }
 
       const text = typeof response.output_text === "string" ? response.output_text.trim() : "";
       if (!text) {
@@ -87,7 +165,9 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                 inputTokens: response.usage.input_tokens ?? null,
                 outputTokens: response.usage.output_tokens ?? null,
                 totalTokens: response.usage.total_tokens ?? null
-              }
+              },
+        stopReason: "completed",
+        toolCalls: []
       };
     } finally {
       dispose();
@@ -143,6 +223,13 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     input: ProviderGatewayTextGenerateRequest,
     signal?: AbortSignal
   ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
+    if (
+      (input.tools?.length ?? 0) > 0 ||
+      input.toolChoice !== undefined ||
+      (input.toolHistory?.length ?? 0) > 0
+    ) {
+      throw new Error("Tool-capable OpenAI streaming is not implemented.");
+    }
     if (this.client === null) {
       throw new Error("OpenAI provider client is not warmed.");
     }
@@ -158,10 +245,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         {
           model: input.model,
           ...(input.systemPrompt === null ? {} : { instructions: input.systemPrompt }),
-          input: input.messages.map((message) => ({
-            role: message.role,
-            content: this.toOpenAIMessageContent(message.content)
-          })),
+          input: this.buildOpenAIInputItems(input) as OpenAIResponseInputParam,
           ...(input.maxOutputTokens === undefined
             ? {}
             : { max_output_tokens: input.maxOutputTokens }),
@@ -204,7 +288,9 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
               model: input.model,
               text,
               respondedAt: new Date().toISOString(),
-              usage: this.toUsageSnapshot(input.model, event.response.usage)
+              usage: this.toUsageSnapshot(input.model, event.response.usage),
+              stopReason: "completed",
+              toolCalls: []
             }
           };
           yield completedEvent;
@@ -270,6 +356,98 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         };
   }
 
+  private buildOpenAIInputItems(input: ProviderGatewayTextGenerateRequest): OpenAIBuiltInputItem[] {
+    const items: OpenAIBuiltInputItem[] = input.messages.map((message) => ({
+      role: message.role,
+      content: this.toOpenAIMessageContent(message.content)
+    }));
+    for (const exchange of input.toolHistory ?? []) {
+      items.push({
+        type: "function_call",
+        call_id: exchange.toolCall.id,
+        name: exchange.toolCall.name,
+        arguments: JSON.stringify(exchange.toolCall.arguments)
+      });
+      items.push({
+        type: "function_call_output",
+        call_id: exchange.toolCall.id,
+        output: exchange.toolResult.content
+      });
+    }
+    return items;
+  }
+
+  private toOpenAITools(input: ProviderGatewayTextGenerateRequest): OpenAIBuiltTool[] {
+    return (input.tools ?? []).map((tool) => ({
+      type: "function",
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+      strict: false
+    }));
+  }
+
+  private toOpenAIToolChoice(
+    input: ProviderGatewayTextGenerateRequest
+  ): OpenAIResponseToolChoice | undefined {
+    if (input.toolChoice === undefined || input.toolChoice === "none") {
+      return undefined;
+    }
+    if (input.toolChoice === "auto") {
+      return "auto";
+    }
+    return {
+      type: "function",
+      name: input.toolChoice.name
+    };
+  }
+
+  private parseOpenAIToolCalls(output: unknown): ProviderGatewayToolCall[] {
+    if (!Array.isArray(output)) {
+      return [];
+    }
+    return output
+      .filter((item) => this.isOpenAIFunctionCallItem(item))
+      .map((item) => ({
+        id: item.call_id,
+        name: item.name,
+        arguments: this.parseOpenAIToolArguments(item.arguments, item.name)
+      }));
+  }
+
+  private isOpenAIFunctionCallItem(
+    value: unknown
+  ): value is { type: "function_call"; call_id: string; name: string; arguments: string } {
+    return (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      (value as { type?: unknown }).type === "function_call" &&
+      typeof (value as { call_id?: unknown }).call_id === "string" &&
+      typeof (value as { name?: unknown }).name === "string" &&
+      typeof (value as { arguments?: unknown }).arguments === "string"
+    );
+  }
+
+  private parseOpenAIToolArguments(
+    rawArguments: string,
+    toolName: string
+  ): Record<string, unknown> {
+    try {
+      const parsed = JSON.parse(rawArguments);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error();
+      }
+      return parsed as Record<string, unknown>;
+    } catch {
+      throw new Error(`OpenAI tool call "${toolName}" returned invalid JSON arguments.`);
+    }
+  }
+
+  private normalizeOptionalText(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
   private defaultAudioFilename(mimeType: string): string {
     switch (mimeType) {
       case "audio/mpeg":
@@ -294,24 +472,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
   private toOpenAIMessageContent(
     content: ProviderGatewayTextGenerateRequest["messages"][number]["content"]
-  ):
-    | string
-    | Array<
-        | {
-            type: "input_text";
-            text: string;
-          }
-        | {
-            type: "input_image";
-            image_url: string;
-            detail: "auto";
-          }
-        | {
-            type: "input_file";
-            filename: string;
-            file_data: string;
-          }
-      > {
+  ): OpenAIInputContent {
     if (typeof content === "string") {
       return content;
     }

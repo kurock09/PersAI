@@ -1,5 +1,357 @@
 # SESSION-HANDOFF
 
+## 2026-04-12 - ADR-072 T15-3a closeout
+
+### What changed
+
+1. `apps/runtime` now exposes only the real shared compaction tools on sync turns, disables all model-visible tools on stream turns, and reuses the accepted-turn lease for in-turn shared compaction.
+2. `knowledge_search`, `knowledge_fetch`, `persai_workspace_attach`, and `persai_tool_quota_status` now stay dark on the ordinary model-visible path until real PersAI-native executors exist.
+3. ADR-072 and the execution ledger now mark `T15-3a` complete: shared runtime hardening is done, and any later always-on helper exposure/admin follow-through is explicitly carried into `T15-7` instead of blocking `T15-3b`.
+
+### Why
+
+1. `T15-3a` was meant to make the shared runtime safe before later tool families land, not to force fake exposure of helpers that still lack PersAI-native executors.
+2. Stream turns needed to be honest about tool support, and in-turn compaction needed to stop fighting the accepted-turn lease.
+3. The program needed a clean step boundary so `T15-3b` can begin next without reopening the shared runtime hardening baseline.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-3a — Shared native tool runtime hardening and system helpers` is now complete; `T15-3b — Web search and fetch plan tools` is next; `knowledge_search` / `knowledge_fetch` remain deferred future ADR-072 contracts and stay disconnected)
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks
+
+1. Tool-capable streaming is still intentionally unsupported; the runtime is now honest by exposing zero model-visible tools on stream turns.
+2. `persai_workspace_attach` and `persai_tool_quota_status` are intentionally dark until later PersAI-native executor/exposure follow-through; they are no longer a blocker for `T15-3a`.
+3. `knowledge_search` / `knowledge_fetch` remain reserved future contracts and must stay disconnected until a real PersAI-native knowledge backend exists.
+
+### Next recommended step
+
+1. Start `T15-3b` and land separate PersAI-native `web_search` / `web_fetch` executors with provider parity, while keeping `knowledge_*` disconnected and leaving helper exposure/admin follow-through to `T15-7`.
+
+### Ready commit message
+
+- `fix(runtime): close T15-3a shared tool hardening`
+
+---
+
+## 2026-04-12 - ADR-072 knowledge layer restored inside the target plan
+
+### What changed
+
+1. ADR-072 now again keeps `knowledge_search` / `knowledge_fetch` inside the target architecture of the same ADR instead of wording them as something outside or after ADR-072.
+2. The docs now explicitly separate the two branches: `web_search` / `web_fetch` are the current separate Step 15 plan tools, while `knowledge_search` / `knowledge_fetch` remain the future knowledge layer that stays disconnected until real native sources exist.
+3. The future knowledge section is now phrased as deferred activation within ADR-072, not as a separate later ADR or external track.
+
+### Why
+
+1. The previous wording over-corrected the `web_*` confusion and made it sound like the future `knowledge_*` layer had been removed from ADR-072 itself.
+2. The intended plan is different: keep `knowledge_*` in the target architecture, but do not wire it into the runtime until PersAI has real memory/knowledge backends.
+3. Future sessions need one unambiguous reading: separate current web tools from future knowledge tools without deleting either branch from the architecture.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-3a — Shared native tool runtime hardening and system helpers` remains active; `T15-3b — Web search and fetch plan tools` remains next; `knowledge_search` / `knowledge_fetch` remain in ADR-072 as a future deferred knowledge layer and are still disconnected)
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `.cursor/rules/adr072-runtime-continuity.mdc`
+
+### Tests run
+
+- not run; docs/rule-only correction
+
+### Risks
+
+1. Current code still contains partial historical `runtime.knowledgeAccess` scaffolding, so docs must stay explicit that this is not an active runtime path yet.
+2. Older historical changelog/handoff notes still mention the earlier wording and should be treated as prior checkpoints rather than the current plan statement.
+3. If a new session reads only old code and skips the updated docs, it may still confuse separate web tools with the deferred knowledge layer.
+
+### Next recommended step
+
+1. Continue `T15-3a` only: finish shared native tool-runtime hardening and system-helper decisions before starting the separate `web_search` / `web_fetch` executor work in `T15-3b`.
+
+### Ready commit message
+
+- `docs(adr): restore deferred knowledge layer`
+
+---
+
+## 2026-04-12 - ADR-072 T15-3a shared tool runtime hardening
+
+### What changed
+
+1. `apps/runtime` now keeps ordinary model-visible Step 15 tool exposure honest: sync turns project only `summarize_context` and `compact_context`, while `knowledge_search`, `knowledge_fetch`, `persai_workspace_attach`, and `persai_tool_quota_status` stay gated off until real PersAI-native executors exist.
+2. Stream turns now disable model-visible tools entirely and use the genuine provider stream path directly, so the runtime no longer pseudo-streams hidden tool work.
+3. Shared compaction now accepts an optional held accepted-turn lease, allowing in-turn `summarize_context` / `compact_context` calls to reuse the active session lease instead of colliding with it.
+4. Focused runtime tests now cover projection/gating, honest stream behavior, and held-lease compaction execution.
+
+### Why
+
+1. The earlier `T15-3` baseline could still expose knowledge placeholders or helper names before real native executors existed, which violated the Step 15 rule that ordinary model-visible tools must be truly executable.
+2. Stream turns needed to be explicit about tool support instead of buffering a hidden sync tool loop and only then pretending to stream.
+3. In-turn compaction needed to preserve structured tool results without triggering `session_busy` lease conflicts against the accepted turn.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-3a — Shared native tool runtime hardening and system helpers` remains in progress: shared projection/stream/lease hardening is landed, but `persai_workspace_attach` and `persai_tool_quota_status` still need a real PersAI-native executor decision before `T15-3a` can close; `T15-3b — Web search and fetch plan tools` remains unopened)
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks
+
+1. `persai_workspace_attach` and `persai_tool_quota_status` are still dark because no PersAI-native executors are landed yet; `T15-3a` should remain in progress until that gap is resolved or explicitly deferred.
+2. Tool-capable streaming is still intentionally unsupported; stream turns are now honest by exposing zero model-visible tools instead of attempting hidden tool execution.
+3. Older changelog/handoff entries record the superseded `knowledge_*` projection baseline and remain historical context only.
+
+### Next recommended step
+
+1. Finish the remaining `T15-3a` system-helper decision/work by either landing real PersAI-native executors for `persai_workspace_attach` and `persai_tool_quota_status` or explicitly deferring their executable exposure to `T15-7`; do not start `T15-3b` until that is settled.
+
+### Ready commit message
+
+- `fix(runtime): harden shared native tool exposure`
+
+---
+
+## 2026-04-12 - ADR-072 Step 15 web-tool correction and order cleanup
+
+### What changed
+
+1. ADR-072 now separates four Step 15 concerns explicitly: current tool inventory, canonical runtime contracts, migration aliases, and implementation order.
+2. `web_search` and `web_fetch` are now explicitly documented as separate first-class Step 15 plan tools with their own PersAI-native executors and provider/API seams; they are no longer treated as part of a `knowledge_*` layer.
+3. `T15-3b` is now `Web search and fetch plan tools`, while future `knowledge_search` / `knowledge_fetch` work is explicitly deferred outside the current ADR-072 delivery path until a real PersAI-native knowledge backend exists.
+4. Browser, reminder/scheduled actions, media tools, and final plan/admin exposure remain separate later slices, and the universal Cursor instructions now explicitly forbid hiding `web_search` / `web_fetch` behind `knowledge_*`.
+
+### Why
+
+1. Recent sessions incorrectly conflated `web_search` / `web_fetch` with a future knowledge layer, even though the current product shape needs them as separate provider-backed plan tools.
+2. That confusion made the Step 15 plan unsafe because agents could start building the wrong abstraction or wait for nonexistent product-memory/workspace backends.
+3. The program needed one unambiguous order: finish shared tool-runtime hardening first, then build real `web_search` / `web_fetch`, while deferring `knowledge_*` until a real native knowledge source exists.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-3a — Shared native tool runtime hardening and system helpers` is now the active sub-slice; `T15-3b — Web search and fetch plan tools` follows next; future `knowledge_*` work is intentionally outside the current ADR-072 delivery path)
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `.cursor/rules/adr072-runtime-continuity.mdc`
+
+### Tests run
+
+- not run; docs/rule-only cleanup
+
+### Risks
+
+1. Current code still contains the earlier partial tool-transport baseline, so docs are now stricter than runtime behavior until `T15-3a` code cleanup lands.
+2. Older handoff/changelog entries still mention the previous knowledge-layer framing because they record historical checkpoints rather than the corrected structure.
+3. If a new session ignores the updated Step 15 wording, it may still try to route `web_search` / `web_fetch` through `knowledge_*` instead of implementing them as separate plan tools.
+
+### Next recommended step
+
+1. Run a focused `T15-3a` session that hardens the shared native tool runtime: executor-availability gating, honest tool-capable streaming behavior, lease-safe in-turn execution, and the remaining always-on system helpers, without starting `web_search` / `web_fetch` executor work yet.
+
+### Ready commit message
+
+- `docs(adr): separate web tools from future knowledge layer`
+
+---
+
+## 2026-04-12 - ADR-072 T15-3 tool transport baseline
+
+### What changed
+
+1. `packages/runtime-contract` and the runtime/provider clients now carry machine-readable Step 15 tool transport primitives (`tools`, `toolChoice`, `toolHistory`, tool calls/results) plus explicit structured compaction/knowledge tool-result payloads, so native tool awareness no longer depends only on `TOOLS.md`.
+2. `apps/runtime` now projects model-visible `summarize_context`, `compact_context`, `knowledge_search`, and `knowledge_fetch` definitions directly from native bundle truth (`governance.toolPolicies`, `runtime.sharedCompaction`, `runtime.knowledgeAccess`), runs a bounded synchronous tool loop, and returns rich post-compaction state while truthful knowledge calls currently return explicit structured skipped/source-unavailable payloads until native source executors land.
+3. `apps/provider-gateway` now validates tool-aware requests, maps tool definitions/history into OpenAI and Anthropic synchronous generate calls, parses returned tool calls into the shared contract, and keeps tool-capable streaming explicitly unsupported instead of pretending partial support.
+
+### Why
+
+1. The proven gap was that Step 15 tools still existed mostly as bundle metadata plus `TOOLS.md` prompt text; the model could not actually receive or call native machine-readable tools.
+2. The already-landed shared compaction tools had to become usable end-to-end and return enough structured post-tool state for continued reasoning after compression.
+3. The clean `knowledge_search` / `knowledge_fetch` layer needed the same transport surface now while keeping `browser` separate and sandbox out of scope.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-3 — Unified knowledge access layer` remains in progress with the native contract + tool transport baseline landed; real knowledge executors and broader alias/user-path wiring remain next)
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `packages/runtime-bundle/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-knowledge-access.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/test/compact-native-web-chat-session.service.test.ts`
+- `apps/api/test/manage-web-chat-list.service.test.ts`
+- `apps/api/test/runtime-knowledge-access.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/provider-gateway/src/modules/providers/provider-text-generation.service.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `apps/provider-gateway/test/provider-text-generation.service.test.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-knowledge-access.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-bundle-materialization.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-registry.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-coordinator.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-text-generation.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/openai-provider.client.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/anthropic-provider.client.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/compact-native-web-chat-session.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+
+### Risks
+
+1. `knowledge_search` / `knowledge_fetch` are now transported end-to-end, but native web/memory retrieval still returns structured skipped results until real source executors land.
+2. Tool-capable streaming is intentionally not implemented yet; stream turns with exposed tools fall back to the bounded synchronous loop before emitting the final response.
+3. Current `web_*` / `memory_*` alias families remain preserved in bundle/policy truth, but explicit alias-to-canonical executor routing and broader user-path cutover remain later `T15-3` work.
+
+### Next recommended step
+
+1. Implement the first real native knowledge executor behind `knowledge_search` / `knowledge_fetch` for one allowed source, then route the preserved `web_*` / `memory_*` alias family through that canonical path while keeping `browser` separate.
+
+### Ready commit message
+
+- `feat(runtime): add native tool transport baseline`
+
+---
+
+## 2026-04-12 - ADR-072 T15-2 rollout validation and closeout
+
+### What changed
+
+1. The final `T15-2` package is now rolled out on dev, including the shared compaction closeout work plus the Telegram accepted-update failure hardening that prevents retry-loop "hang" behavior.
+2. Live validation confirmed that public web manual compaction/state/banner and Telegram shared auto summarize are running through native runtime truth after `reapply`.
+3. Investigation of the suspected duplicate Telegram/OpenAI requests showed one completed `runtime_turn_receipts` row per user message plus a later `runtime_session_compactions` row; the larger second provider call was the internal shared-compaction summarize pass from the previously applied bundle, not a duplicate Telegram update.
+4. After `reapply` with non-test compaction thresholds, the phantom second calls disappeared, so `T15-2` is now honestly closed and `T15-3` is the next active tool slice.
+
+### Why
+
+1. `T15-2` was already code-complete, but step closure still required rollout and live validation instead of relying only on local tests.
+2. The suspected Telegram duplicate/provider bug was the last meaningful ambiguity in live behavior and had to be resolved before closing the slice honestly.
+3. The incident exposed one important operational rule for later tool slices: live runtime follows the applied/materialized bundle, so threshold/policy edits do not change behavior until `reapply` refreshes the active bundle.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-2 — Shared summarization and compaction tools` is now closed after rollout/live validation; `T15-3 — Unified knowledge access layer` is next)
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- dev rollout observation of the final `T15-2` package on `api`, `runtime`, and `provider-gateway`
+- live web validation of manual compaction plus native compaction state/banner behavior
+- live Telegram validation of shared auto summarize after `reapply`
+- live runtime-state inspection of `runtime_turn_receipts` versus `runtime_session_compactions` for the tested Telegram thread
+
+### Risks
+
+1. Aggressive compaction thresholds are still acceptable for bounded smoke/test work, but they are not safe prod defaults because they can turn ordinary Telegram turns into large follow-up summarize calls.
+2. Operators can still misread draft threshold edits as live behavior if they forget that the runtime follows the applied/materialized bundle until `reapply`.
+3. Shared compaction operator exposure in `Admin > Tools` remains future `T15-5` work; only the assistant-scoped Telegram toggle is live today.
+
+### Next recommended step
+
+1. Start `T15-3` with the unified `knowledge_search` / `knowledge_fetch` contract and keep the target surface centralized instead of reviving source-specific long-term tool families.
+
+### Ready commit message
+
+- `docs: close T15-2 after rollout validation`
+
+---
+
 ## 2026-04-12 - ADR-072 T15-2 shared compaction completion
 
 ### What changed

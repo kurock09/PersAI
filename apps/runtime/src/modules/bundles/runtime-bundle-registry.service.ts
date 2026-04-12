@@ -5,6 +5,10 @@ import {
 } from "@persai/runtime-bundle";
 import type { RuntimeConfig } from "@persai/config";
 import {
+  PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES,
+  PERSAI_RUNTIME_KNOWLEDGE_RAG_MODES,
+  PERSAI_RUNTIME_KNOWLEDGE_SOURCES,
+  PERSAI_RUNTIME_KNOWLEDGE_TOOL_CODES,
   PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES,
   PERSAI_RUNTIME_TOOL_EXECUTION_MODES,
   PERSAI_RUNTIME_TOOL_KINDS,
@@ -213,7 +217,7 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
 
-  private assertToolPolicyParity(bundle: AssistantRuntimeBundle): void {
+  private assertToolPolicyParity(bundle: AssistantRuntimeBundle): Map<string, RuntimeToolPolicy> {
     const governance = bundle.governance;
     if (!this.isRecord(governance)) {
       throw new BadRequestException("bundleDocument.governance must be an object");
@@ -238,11 +242,11 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
 
     const rawToolAvailability = governance.toolAvailability;
     if (!this.isRecord(rawToolAvailability)) {
-      return;
+      return policyByCode;
     }
     const rawTools = rawToolAvailability.tools;
     if (!Array.isArray(rawTools)) {
-      return;
+      return policyByCode;
     }
 
     for (const tool of rawTools) {
@@ -255,6 +259,8 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
         );
       }
     }
+
+    return policyByCode;
   }
 
   private assertValidToolPolicy(policy: RuntimeToolPolicy): void {
@@ -381,6 +387,200 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
     }
   }
 
+  private assertKnowledgeAccessConfig(
+    bundle: AssistantRuntimeBundle,
+    toolPolicyByCode: Map<string, RuntimeToolPolicy>
+  ): void {
+    const runtime = bundle.runtime;
+    if (!this.isRecord(runtime)) {
+      throw new BadRequestException("bundleDocument.runtime must be an object");
+    }
+
+    const knowledgeAccess = runtime.knowledgeAccess;
+    if (!this.isRecord(knowledgeAccess)) {
+      throw new BadRequestException("bundleDocument.runtime.knowledgeAccess must be an object");
+    }
+
+    const [expectedSearchToolCode, expectedFetchToolCode] = PERSAI_RUNTIME_KNOWLEDGE_TOOL_CODES;
+    if (knowledgeAccess.searchToolCode !== expectedSearchToolCode) {
+      throw new BadRequestException(
+        `bundleDocument.runtime.knowledgeAccess.searchToolCode must be "${expectedSearchToolCode}"`
+      );
+    }
+    if (knowledgeAccess.fetchToolCode !== expectedFetchToolCode) {
+      throw new BadRequestException(
+        `bundleDocument.runtime.knowledgeAccess.fetchToolCode must be "${expectedFetchToolCode}"`
+      );
+    }
+
+    const executionModes = knowledgeAccess.executionModes;
+    if (!Array.isArray(executionModes) || executionModes.length === 0) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.knowledgeAccess.executionModes must be a non-empty array"
+      );
+    }
+    const seenExecutionModes = new Set<string>();
+    for (const mode of executionModes) {
+      if (
+        typeof mode !== "string" ||
+        !PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES.includes(
+          mode as (typeof PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES)[number]
+        )
+      ) {
+        throw new BadRequestException(
+          "bundleDocument.runtime.knowledgeAccess.executionModes contains an invalid mode"
+        );
+      }
+      if (seenExecutionModes.has(mode)) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.knowledgeAccess.executionModes has duplicate mode "${mode}"`
+        );
+      }
+      seenExecutionModes.add(mode);
+    }
+    for (const mode of PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES) {
+      if (!seenExecutionModes.has(mode)) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.knowledgeAccess.executionModes must include "${mode}"`
+        );
+      }
+    }
+
+    if (
+      typeof knowledgeAccess.ragMode !== "string" ||
+      !PERSAI_RUNTIME_KNOWLEDGE_RAG_MODES.includes(
+        knowledgeAccess.ragMode as (typeof PERSAI_RUNTIME_KNOWLEDGE_RAG_MODES)[number]
+      )
+    ) {
+      throw new BadRequestException("bundleDocument.runtime.knowledgeAccess.ragMode is invalid");
+    }
+
+    const sources = knowledgeAccess.sources;
+    if (!Array.isArray(sources) || sources.length === 0) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.knowledgeAccess.sources must be a non-empty array"
+      );
+    }
+
+    const sourceConfigBySource = new Map<string, Record<string, unknown>>();
+    for (const sourceConfig of sources) {
+      if (!this.isRecord(sourceConfig)) {
+        throw new BadRequestException(
+          "bundleDocument.runtime.knowledgeAccess.sources[] must be an object"
+        );
+      }
+      if (
+        typeof sourceConfig.source !== "string" ||
+        !PERSAI_RUNTIME_KNOWLEDGE_SOURCES.includes(
+          sourceConfig.source as (typeof PERSAI_RUNTIME_KNOWLEDGE_SOURCES)[number]
+        )
+      ) {
+        throw new BadRequestException(
+          "bundleDocument.runtime.knowledgeAccess.sources[].source is invalid"
+        );
+      }
+      if (sourceConfigBySource.has(sourceConfig.source)) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.knowledgeAccess.sources has duplicate source "${sourceConfig.source}"`
+        );
+      }
+
+      this.assertNullableNonEmptyString(
+        sourceConfig.searchAliasToolCode,
+        `bundleDocument.runtime.knowledgeAccess.sources["${sourceConfig.source}"].searchAliasToolCode`
+      );
+      this.assertNullableNonEmptyString(
+        sourceConfig.fetchAliasToolCode,
+        `bundleDocument.runtime.knowledgeAccess.sources["${sourceConfig.source}"].fetchAliasToolCode`
+      );
+      this.assertNullableNonEmptyString(
+        sourceConfig.searchCredentialToolCode,
+        `bundleDocument.runtime.knowledgeAccess.sources["${sourceConfig.source}"].searchCredentialToolCode`
+      );
+      this.assertNullableNonEmptyString(
+        sourceConfig.fetchCredentialToolCode,
+        `bundleDocument.runtime.knowledgeAccess.sources["${sourceConfig.source}"].fetchCredentialToolCode`
+      );
+
+      for (const toolCode of [
+        sourceConfig.searchAliasToolCode,
+        sourceConfig.fetchAliasToolCode,
+        sourceConfig.searchCredentialToolCode,
+        sourceConfig.fetchCredentialToolCode
+      ]) {
+        if (toolCode === "browser") {
+          throw new BadRequestException(
+            "bundleDocument.runtime.knowledgeAccess must not map the browser tool into the knowledge layer"
+          );
+        }
+      }
+
+      sourceConfigBySource.set(sourceConfig.source, sourceConfig);
+    }
+
+    this.assertKnowledgeSourceMapping(sourceConfigBySource, toolPolicyByCode, "web", {
+      searchAliasToolCode: "web_search",
+      fetchAliasToolCode: "web_fetch",
+      searchCredentialToolCode: "web_search",
+      fetchCredentialToolCode: "web_fetch"
+    });
+    this.assertKnowledgeSourceMapping(sourceConfigBySource, toolPolicyByCode, "memory", {
+      searchAliasToolCode: "memory_search",
+      fetchAliasToolCode: "memory_get",
+      searchCredentialToolCode: "memory_search",
+      fetchCredentialToolCode: null
+    });
+  }
+
+  private assertKnowledgeSourceMapping(
+    sourceConfigBySource: Map<string, Record<string, unknown>>,
+    toolPolicyByCode: Map<string, RuntimeToolPolicy>,
+    source: "web" | "memory",
+    expected: {
+      searchAliasToolCode: string | null;
+      fetchAliasToolCode: string | null;
+      searchCredentialToolCode: string | null;
+      fetchCredentialToolCode: string | null;
+    }
+  ): void {
+    const sourceConfig = sourceConfigBySource.get(source);
+    if (!sourceConfig) {
+      throw new BadRequestException(
+        `bundleDocument.runtime.knowledgeAccess.sources must include "${source}"`
+      );
+    }
+
+    for (const [field, expectedValue] of Object.entries(expected)) {
+      if (sourceConfig[field] !== expectedValue) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.knowledgeAccess.sources["${source}"].${field} is invalid`
+        );
+      }
+      if (typeof expectedValue === "string") {
+        this.assertKnowledgeToolPolicyReference(toolPolicyByCode, expectedValue, source, field);
+      }
+    }
+  }
+
+  private assertKnowledgeToolPolicyReference(
+    toolPolicyByCode: Map<string, RuntimeToolPolicy>,
+    toolCode: string,
+    source: string,
+    field: string
+  ): void {
+    const policy = toolPolicyByCode.get(toolCode);
+    if (!policy) {
+      throw new BadRequestException(
+        `bundleDocument.runtime.knowledgeAccess.sources["${source}"].${field} references unknown tool "${toolCode}"`
+      );
+    }
+    if (policy.kind === "internal") {
+      throw new BadRequestException(
+        `bundleDocument.runtime.knowledgeAccess.sources["${source}"].${field} cannot reference internal tool "${toolCode}"`
+      );
+    }
+  }
+
   private parseBundleDocument(document: string): AssistantRuntimeBundle {
     let parsed: unknown;
     try {
@@ -399,14 +599,24 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
     }
 
     const bundle = parsed as AssistantRuntimeBundle;
-    this.assertToolPolicyParity(bundle);
+    const toolPolicyByCode = this.assertToolPolicyParity(bundle);
     this.assertSharedCompactionConfig(bundle);
+    this.assertKnowledgeAccessConfig(bundle, toolPolicyByCode);
     return bundle;
   }
 
   private assertNonEmpty(value: unknown, field: string): void {
     if (typeof value !== "string" || value.trim().length === 0) {
       throw new BadRequestException(`${field} must be a non-empty string`);
+    }
+  }
+
+  private assertNullableNonEmptyString(value: unknown, field: string): void {
+    if (value === null) {
+      return;
+    }
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new BadRequestException(`${field} must be null or a non-empty string`);
     }
   }
 }

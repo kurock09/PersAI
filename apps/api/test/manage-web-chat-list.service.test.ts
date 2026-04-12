@@ -178,6 +178,41 @@ function createCompactionSession(
   };
 }
 
+function createCompactionToolResult(
+  overrides?: Partial<{ action: "compacted" | "skipped"; reason: string | null }>
+) {
+  return {
+    toolCode: "compact_context",
+    action: overrides?.action ?? "compacted",
+    reason: overrides?.reason ?? "compacted",
+    sessionId: "runtime-session-1",
+    compactionRecordId: "compaction-1",
+    before: {
+      sessionId: "runtime-session-1",
+      currentTokens: 18_250,
+      compactionCount: 0,
+      summarizedMessageCount: 8,
+      preservedRecentMessageCount: 4
+    },
+    after: {
+      sessionId: "runtime-session-1",
+      currentTokens: null,
+      compactionCount: 1,
+      summarizedMessageCount: 8,
+      preservedRecentMessageCount: 4
+    },
+    preservedRecentTurns: 4,
+    summaryText: "Compacted summary text",
+    summaryPayload: {
+      schema: "persai.runtimeSessionCompaction.v1",
+      summarizeToolCode: "summarize_context",
+      toolCode: "compact_context",
+      summaryText: "Compacted summary text"
+    },
+    reusableInLaterTurns: overrides?.action !== "skipped"
+  };
+}
+
 function createService(overrides?: {
   sessionResolveResult?: {
     found: boolean;
@@ -189,6 +224,7 @@ function createService(overrides?: {
     tokensBefore: number | null;
     tokensAfter: number | null;
     session: ReturnType<typeof createCompactionSession> | null;
+    toolResult: ReturnType<typeof createCompactionToolResult>;
   };
   messages?: Array<{
     id: string;
@@ -298,7 +334,8 @@ function createService(overrides?: {
             reason: "compacted",
             tokensBefore: 18_250,
             tokensAfter: null,
-            session: createCompactionSession()
+            session: createCompactionSession(),
+            toolResult: createCompactionToolResult()
           }
         );
       }
@@ -464,6 +501,10 @@ describe("ManageWebChatListService", () => {
         session: createCompactionSession({
           compactionCount: 0,
           updatedAt: null
+        }),
+        toolResult: createCompactionToolResult({
+          action: "skipped",
+          reason: "threshold_not_reached"
         })
       }
     });
@@ -503,7 +544,11 @@ describe("ManageWebChatListService", () => {
         reason: "session_not_found",
         tokensBefore: null,
         tokensAfter: null,
-        session: null
+        session: null,
+        toolResult: createCompactionToolResult({
+          action: "skipped",
+          reason: "session_not_found"
+        })
       }
     });
 

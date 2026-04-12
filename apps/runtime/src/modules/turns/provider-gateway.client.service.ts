@@ -373,8 +373,19 @@ export class ProviderGatewayClientService {
       row.provider !== null &&
       (row.provider === "openai" || row.provider === "anthropic") &&
       typeof row.model === "string" &&
-      typeof row.text === "string" &&
+      (typeof row.text === "string" || row.text === null) &&
       typeof row.respondedAt === "string" &&
+      (row.stopReason === "completed" || row.stopReason === "tool_calls") &&
+      Array.isArray(row.toolCalls) &&
+      row.toolCalls.every(
+        (toolCall) =>
+          this.asObject(toolCall) !== null &&
+          typeof this.asObject(toolCall)?.id === "string" &&
+          typeof this.asObject(toolCall)?.name === "string" &&
+          this.asObject(toolCall)?.arguments !== null &&
+          typeof this.asObject(toolCall)?.arguments === "object" &&
+          !Array.isArray(this.asObject(toolCall)?.arguments)
+      ) &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage)))
     );

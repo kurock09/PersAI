@@ -10,9 +10,15 @@ import {
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   RuntimeCompactionRequest,
+  ProviderGatewayToolCall,
+  ProviderGatewayToolExchange,
   ProviderGatewayTextMessage,
   ProviderGatewayTextGenerateRequest,
+  ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent,
+  RuntimeKnowledgeFetchToolResult,
+  RuntimeKnowledgeSearchToolResult,
+  RuntimeSharedCompactionToolResult,
   RuntimeFailedEvent,
   RuntimeInterruptedEvent,
   RuntimeTurnRequest,
@@ -22,6 +28,10 @@ import type {
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
 import type { RuntimeTurnReceiptSummary } from "./idempotency.service";
+import {
+  projectRuntimeNativeTools,
+  type RuntimeNativeToolProjection
+} from "./native-tool-projection";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
@@ -37,7 +47,18 @@ type ProviderSelection = {
 
 type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
+  projectedTools: RuntimeNativeToolProjection;
+  runtimeTier: RuntimeTurnRequest["runtimeTier"];
   providerRequest: ProviderGatewayTextGenerateRequest;
+};
+
+type ToolExecutionOutcome = {
+  exchange: ProviderGatewayToolExchange;
+  payload:
+    | RuntimeSharedCompactionToolResult
+    | RuntimeKnowledgeSearchToolResult
+    | RuntimeKnowledgeFetchToolResult
+    | Record<string, unknown>;
 };
 
 class TurnExecutionError extends Error {
@@ -48,6 +69,8 @@ class TurnExecutionError extends Error {
     super(exception.message);
   }
 }
+
+const MAX_NATIVE_TOOL_LOOP_ITERATIONS = 4;
 
 @Injectable()
 export class TurnExecutionService {
@@ -80,7 +103,9 @@ export class TurnExecutionService {
       case "replayed":
         return this.resolveReplayResult(acceptedTurn.receipt);
       case "accepted": {
-        const execution = await this.prepareTurnExecution(input);
+        const execution = await this.prepareTurnExecution(input, {
+          allowModelToolExposure: true
+        });
         const result = await this.executeAcceptedTurn(acceptedTurn, execution);
         await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
         this.scheduleAutoCompaction(input, execution.bundle);
@@ -110,7 +135,9 @@ export class TurnExecutionService {
       case "replayed":
         return this.replayStreamResult(acceptedTurn.receipt);
       case "accepted": {
-        const execution = await this.prepareTurnExecution(input);
+        const execution = await this.prepareTurnExecution(input, {
+          allowModelToolExposure: false
+        });
         const providerStream = await this.providerGatewayClientService.streamText(
           execution.providerRequest,
           options?.signal === undefined ? undefined : { signal: options.signal }
@@ -131,10 +158,7 @@ export class TurnExecutionService {
     execution: PreparedTurnExecution
   ): Promise<RuntimeTurnResult> {
     try {
-      const providerResult = await this.providerGatewayClientService.generateText(
-        execution.providerRequest
-      );
-
+      const providerResult = await this.executeProviderToolLoop(acceptedTurn, execution);
       return this.buildTurnResult(acceptedTurn, providerResult);
     } catch (error) {
       await this.failAcceptedTurnQuietly(acceptedTurn, error);
@@ -142,7 +166,10 @@ export class TurnExecutionService {
     }
   }
 
-  private async prepareTurnExecution(input: RuntimeTurnRequest): Promise<PreparedTurnExecution> {
+  private async prepareTurnExecution(
+    input: RuntimeTurnRequest,
+    options?: { allowModelToolExposure?: boolean }
+  ): Promise<PreparedTurnExecution> {
     const bundleEntry = this.runtimeBundleRegistryService.getBundle(input.bundle.bundleId);
     if (bundleEntry === null) {
       throw new TurnExecutionError(
@@ -169,12 +196,18 @@ export class TurnExecutionService {
 
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, input);
     const hydratedMessages = await this.turnContextHydrationService.buildMessages(input);
+    const projectedTools = projectRuntimeNativeTools(bundleEntry.parsedBundle, {
+      allowModelToolExposure: options?.allowModelToolExposure ?? true
+    });
     return {
       bundle: bundleEntry.parsedBundle,
+      projectedTools,
+      runtimeTier: input.runtimeTier,
       providerRequest: this.buildProviderRequest(
         bundleEntry.parsedBundle,
         providerSelection,
-        hydratedMessages
+        hydratedMessages,
+        projectedTools
       )
     };
   }
@@ -314,12 +347,14 @@ export class TurnExecutionService {
 
   private buildTurnResult(
     acceptedTurn: AcceptedRuntimeTurn,
-    providerResult: {
-      text: string;
-      respondedAt: string;
-      usage: RuntimeUsageSnapshot | null;
-    }
+    providerResult: ProviderGatewayTextGenerateResult
   ): RuntimeTurnResult {
+    if (providerResult.stopReason !== "completed" || providerResult.text === null) {
+      throw new InternalServerErrorException(
+        `Turn "${acceptedTurn.receipt.requestId}" did not finish with a completed text result.`
+      );
+    }
+
     return {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
@@ -357,17 +392,27 @@ export class TurnExecutionService {
   private buildProviderRequest(
     bundle: AssistantRuntimeBundle,
     providerSelection: ProviderSelection,
-    messages: ProviderGatewayTextMessage[]
+    messages: ProviderGatewayTextMessage[],
+    projectedTools: RuntimeNativeToolProjection
   ): ProviderGatewayTextGenerateRequest {
     return {
       provider: providerSelection.provider,
       model: providerSelection.model,
-      systemPrompt: this.buildSystemPrompt(bundle),
-      messages
+      systemPrompt: this.buildSystemPrompt(bundle, projectedTools),
+      messages,
+      ...(projectedTools.tools.length === 0
+        ? {}
+        : {
+            tools: projectedTools.tools,
+            toolChoice: "auto" as const
+          })
     };
   }
 
-  private buildSystemPrompt(bundle: AssistantRuntimeBundle): string | null {
+  private buildSystemPrompt(
+    bundle: AssistantRuntimeBundle,
+    projectedTools: RuntimeNativeToolProjection
+  ): string | null {
     const sections = [
       bundle.persona.displayName === null
         ? null
@@ -381,12 +426,29 @@ export class TurnExecutionService {
       this.normalizeOptionalText(bundle.promptDocuments.soul),
       this.normalizeOptionalText(bundle.promptDocuments.user),
       this.normalizeOptionalText(bundle.promptDocuments.identity),
-      this.normalizeOptionalText(bundle.promptDocuments.tools),
+      this.buildToolRuntimeGuidance(projectedTools),
       this.normalizeOptionalText(bundle.promptDocuments.agents),
       this.normalizeOptionalText(bundle.promptDocuments.heartbeat)
     ].filter((section): section is string => section !== null);
 
     return sections.length === 0 ? null : sections.join("\n\n");
+  }
+
+  private buildToolRuntimeGuidance(projectedTools: RuntimeNativeToolProjection): string {
+    if (projectedTools.tools.length === 0) {
+      return [
+        "Native tool runtime:",
+        "- No model-visible tools are enabled for this turn.",
+        "- Do not claim or invent access to tools that are not declared as machine-readable tools for this request."
+      ].join("\n");
+    }
+
+    return [
+      "Native tool runtime:",
+      "- Use only the machine-readable tools declared for this turn.",
+      "- Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.",
+      ...projectedTools.tools.map((tool) => `- ${tool.name}: ${tool.description}`)
+    ].join("\n");
   }
 
   private resolveProviderSelection(
@@ -468,6 +530,242 @@ export class TurnExecutionService {
         );
       }
     }
+  }
+
+  private async executeProviderToolLoop(
+    acceptedTurn: AcceptedRuntimeTurn,
+    execution: PreparedTurnExecution
+  ): Promise<ProviderGatewayTextGenerateResult> {
+    const toolHistory: ProviderGatewayToolExchange[] = [];
+    for (let iteration = 0; iteration < MAX_NATIVE_TOOL_LOOP_ITERATIONS; iteration += 1) {
+      const providerResult = await this.providerGatewayClientService.generateText({
+        ...execution.providerRequest,
+        ...(toolHistory.length === 0 ? {} : { toolHistory })
+      });
+      if (providerResult.stopReason === "completed") {
+        return providerResult;
+      }
+      if (providerResult.toolCalls.length === 0) {
+        throw new TurnExecutionError(
+          "native_tool_result_invalid",
+          new ServiceUnavailableException(
+            "Provider returned a tool-call stop without any tool calls."
+          )
+        );
+      }
+
+      const exchanges: ProviderGatewayToolExchange[] = [];
+      for (const toolCall of providerResult.toolCalls) {
+        const outcome = await this.executeProjectedToolCall(execution, acceptedTurn, toolCall);
+        exchanges.push(outcome.exchange);
+      }
+      toolHistory.push(...exchanges);
+    }
+
+    throw new TurnExecutionError(
+      "native_tool_loop_exhausted",
+      new ServiceUnavailableException(
+        `Native tool loop exceeded ${String(MAX_NATIVE_TOOL_LOOP_ITERATIONS)} iterations.`
+      )
+    );
+  }
+
+  private async executeProjectedToolCall(
+    execution: PreparedTurnExecution,
+    acceptedTurn: AcceptedRuntimeTurn,
+    toolCall: ProviderGatewayToolCall
+  ): Promise<ToolExecutionOutcome> {
+    const allowedToolNames = new Set(
+      execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
+    );
+    if (!allowedToolNames.has(toolCall.name)) {
+      return this.createToolExecutionOutcome(toolCall, {
+        toolCode: toolCall.name,
+        action: "skipped",
+        reason: "tool_not_projected"
+      });
+    }
+
+    switch (toolCall.name) {
+      case execution.bundle.runtime.sharedCompaction.summarizeToolCode: {
+        const instructions = this.readOptionalInstructions(toolCall.arguments);
+        if (instructions instanceof Error) {
+          return this.createToolExecutionOutcome(
+            toolCall,
+            {
+              toolCode: toolCall.name,
+              action: "skipped",
+              reason: "invalid_arguments"
+            },
+            true
+          );
+        }
+        const result = await this.sessionCompactionService.summarizeContext({
+          runtimeTier: execution.runtimeTier,
+          conversation: acceptedTurn.session.conversation,
+          instructions,
+          heldLease: acceptedTurn.lease
+        });
+        return this.createToolExecutionOutcome(toolCall, result.toolResult);
+      }
+      case execution.bundle.runtime.sharedCompaction.compactToolCode: {
+        const instructions = this.readOptionalInstructions(toolCall.arguments);
+        if (instructions instanceof Error) {
+          return this.createToolExecutionOutcome(
+            toolCall,
+            {
+              toolCode: toolCall.name,
+              action: "skipped",
+              reason: "invalid_arguments"
+            },
+            true
+          );
+        }
+        const result = await this.sessionCompactionService.compactSession({
+          runtimeTier: execution.runtimeTier,
+          conversation: acceptedTurn.session.conversation,
+          instructions,
+          heldLease: acceptedTurn.lease
+        });
+        return this.createToolExecutionOutcome(toolCall, result.toolResult);
+      }
+      case execution.bundle.runtime.knowledgeAccess.searchToolCode:
+        return this.executeKnowledgeSearchTool(execution, toolCall);
+      case execution.bundle.runtime.knowledgeAccess.fetchToolCode:
+        return this.executeKnowledgeFetchTool(execution, toolCall);
+      default:
+        return this.createToolExecutionOutcome(toolCall, {
+          toolCode: toolCall.name,
+          action: "skipped",
+          reason: "tool_not_supported"
+        });
+    }
+  }
+
+  private executeKnowledgeSearchTool(
+    execution: PreparedTurnExecution,
+    toolCall: ProviderGatewayToolCall
+  ): ToolExecutionOutcome {
+    const unknownKeys = Object.keys(toolCall.arguments).filter(
+      (key) => key !== "source" && key !== "query" && key !== "maxResults"
+    );
+    const source = this.asNonEmptyString(toolCall.arguments.source);
+    const query = this.asNonEmptyString(toolCall.arguments.query);
+    const maxResults =
+      toolCall.arguments.maxResults === undefined || toolCall.arguments.maxResults === null
+        ? null
+        : Number.isInteger(toolCall.arguments.maxResults) &&
+            Number(toolCall.arguments.maxResults) > 0
+          ? Number(toolCall.arguments.maxResults)
+          : null;
+    if (
+      unknownKeys.length > 0 ||
+      source === null ||
+      query === null ||
+      ("maxResults" in toolCall.arguments && maxResults === null)
+    ) {
+      return this.createToolExecutionOutcome(
+        toolCall,
+        {
+          toolCode: execution.bundle.runtime.knowledgeAccess.searchToolCode,
+          source: source ?? "internal",
+          executionMode: "inline",
+          hits: [],
+          action: "skipped",
+          reason: "invalid_arguments"
+        },
+        true
+      );
+    }
+    const sourceAllowed = execution.projectedTools.knowledgeSearchSources.some(
+      (sourceConfig) => sourceConfig.source === source
+    );
+    return this.createToolExecutionOutcome(toolCall, {
+      toolCode: execution.bundle.runtime.knowledgeAccess.searchToolCode,
+      source: source as RuntimeKnowledgeSearchToolResult["source"],
+      executionMode: "inline",
+      hits: [],
+      action: "skipped",
+      reason: sourceAllowed ? "native_knowledge_search_not_implemented" : "source_unavailable"
+    });
+  }
+
+  private executeKnowledgeFetchTool(
+    execution: PreparedTurnExecution,
+    toolCall: ProviderGatewayToolCall
+  ): ToolExecutionOutcome {
+    const unknownKeys = Object.keys(toolCall.arguments).filter(
+      (key) => key !== "source" && key !== "referenceId"
+    );
+    const source = this.asNonEmptyString(toolCall.arguments.source);
+    const referenceId = this.asNonEmptyString(toolCall.arguments.referenceId);
+    if (unknownKeys.length > 0 || source === null || referenceId === null) {
+      return this.createToolExecutionOutcome(
+        toolCall,
+        {
+          toolCode: execution.bundle.runtime.knowledgeAccess.fetchToolCode,
+          source: source ?? "internal",
+          executionMode: "inline",
+          document: null,
+          action: "skipped",
+          reason: "invalid_arguments"
+        },
+        true
+      );
+    }
+    const sourceAllowed = execution.projectedTools.knowledgeFetchSources.some(
+      (sourceConfig) => sourceConfig.source === source
+    );
+    return this.createToolExecutionOutcome(toolCall, {
+      toolCode: execution.bundle.runtime.knowledgeAccess.fetchToolCode,
+      source: source as RuntimeKnowledgeFetchToolResult["source"],
+      executionMode: "inline",
+      document: null,
+      action: "skipped",
+      reason: sourceAllowed ? "native_knowledge_fetch_not_implemented" : "source_unavailable"
+    });
+  }
+
+  private createToolExecutionOutcome(
+    toolCall: ProviderGatewayToolCall,
+    payload:
+      | RuntimeSharedCompactionToolResult
+      | RuntimeKnowledgeSearchToolResult
+      | RuntimeKnowledgeFetchToolResult
+      | Record<string, unknown>,
+    isError = false
+  ): ToolExecutionOutcome {
+    return {
+      exchange: {
+        toolCall,
+        toolResult: {
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          content: JSON.stringify(payload),
+          isError
+        }
+      },
+      payload
+    };
+  }
+
+  private readOptionalInstructions(
+    argumentsObject: Record<string, unknown>
+  ): string | null | Error {
+    const unknownKeys = Object.keys(argumentsObject).filter((key) => key !== "instructions");
+    if (unknownKeys.length > 0) {
+      return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
+    }
+    if (!("instructions" in argumentsObject)) {
+      return null;
+    }
+    const instructions = argumentsObject.instructions;
+    if (instructions === null || instructions === undefined) {
+      return null;
+    }
+    return typeof instructions === "string" && instructions.trim().length > 0
+      ? instructions.trim()
+      : new Error("instructions must be a non-empty string when provided");
   }
 
   private normalizeOptionalText(value: string | null): string | null {

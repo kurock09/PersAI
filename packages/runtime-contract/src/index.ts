@@ -147,6 +147,103 @@ export interface RuntimeSharedCompactionConfig {
   telegramAutoSummarizeEnabled: boolean;
 }
 
+export const PERSAI_RUNTIME_KNOWLEDGE_TOOL_CODES = ["knowledge_search", "knowledge_fetch"] as const;
+
+export type PersaiRuntimeKnowledgeToolCode = (typeof PERSAI_RUNTIME_KNOWLEDGE_TOOL_CODES)[number];
+
+export const PERSAI_RUNTIME_KNOWLEDGE_SOURCES = [
+  "web",
+  "memory",
+  "document",
+  "database",
+  "vector",
+  "internal"
+] as const;
+
+export type PersaiRuntimeKnowledgeSource = (typeof PERSAI_RUNTIME_KNOWLEDGE_SOURCES)[number];
+
+export const PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES = ["inline", "worker"] as const;
+
+export type PersaiRuntimeKnowledgeExecutionMode =
+  (typeof PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES)[number];
+
+export const PERSAI_RUNTIME_KNOWLEDGE_RAG_MODES = ["pattern_only"] as const;
+
+export type PersaiRuntimeKnowledgeRagMode = (typeof PERSAI_RUNTIME_KNOWLEDGE_RAG_MODES)[number];
+
+export interface RuntimeKnowledgeAccessSourceConfig {
+  source: PersaiRuntimeKnowledgeSource;
+  searchAliasToolCode: string | null;
+  fetchAliasToolCode: string | null;
+  searchCredentialToolCode: string | null;
+  fetchCredentialToolCode: string | null;
+}
+
+export interface RuntimeKnowledgeAccessConfig {
+  searchToolCode: "knowledge_search";
+  fetchToolCode: "knowledge_fetch";
+  executionModes: PersaiRuntimeKnowledgeExecutionMode[];
+  ragMode: PersaiRuntimeKnowledgeRagMode;
+  sources: RuntimeKnowledgeAccessSourceConfig[];
+}
+
+export interface RuntimeKnowledgeSearchRequest {
+  toolCode: "knowledge_search";
+  source: PersaiRuntimeKnowledgeSource;
+  query: string;
+  maxResults: number | null;
+}
+
+export interface RuntimeKnowledgeSearchHit {
+  referenceId: string;
+  source: PersaiRuntimeKnowledgeSource;
+  title: string | null;
+  locator: string | null;
+  snippet: string | null;
+  score: number | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface RuntimeKnowledgeSearchResult {
+  toolCode: "knowledge_search";
+  source: PersaiRuntimeKnowledgeSource;
+  executionMode: PersaiRuntimeKnowledgeExecutionMode;
+  hits: RuntimeKnowledgeSearchHit[];
+}
+
+export interface RuntimeKnowledgeFetchRequest {
+  toolCode: "knowledge_fetch";
+  source: PersaiRuntimeKnowledgeSource;
+  referenceId: string;
+}
+
+export interface RuntimeKnowledgeDocument {
+  referenceId: string;
+  source: PersaiRuntimeKnowledgeSource;
+  title: string | null;
+  locator: string | null;
+  content: string;
+  snippet: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface RuntimeKnowledgeFetchResult {
+  toolCode: "knowledge_fetch";
+  source: PersaiRuntimeKnowledgeSource;
+  executionMode: PersaiRuntimeKnowledgeExecutionMode;
+  document: RuntimeKnowledgeDocument | null;
+}
+
+export interface RuntimeKnowledgeSearchToolResult extends RuntimeKnowledgeSearchResult {
+  action: "results" | "skipped";
+  reason: string | null;
+}
+
+export interface RuntimeKnowledgeFetchToolResult extends RuntimeKnowledgeFetchResult {
+  action: "fetched" | "skipped";
+  reason: string | null;
+}
+
 export interface RuntimeTurnRequest {
   requestId: string;
   idempotencyKey: string;
@@ -199,20 +296,56 @@ export type ProviderGatewayMessageContentBlock =
 
 export type ProviderGatewayMessageContent = string | ProviderGatewayMessageContentBlock[];
 
+export interface ProviderGatewayToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface ProviderGatewayNamedToolChoice {
+  type: "tool";
+  name: string;
+}
+
+export type ProviderGatewayToolChoice = "auto" | "none" | ProviderGatewayNamedToolChoice;
+
+export interface ProviderGatewayToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ProviderGatewayToolResult {
+  toolCallId: string;
+  name: string;
+  content: string;
+  isError: boolean;
+}
+
+export interface ProviderGatewayToolExchange {
+  toolCall: ProviderGatewayToolCall;
+  toolResult: ProviderGatewayToolResult;
+}
+
 export interface ProviderGatewayTextGenerateRequest {
   provider: "openai" | "anthropic";
   model: string;
   systemPrompt: string | null;
   messages: ProviderGatewayTextMessage[];
   maxOutputTokens?: number;
+  tools?: ProviderGatewayToolDefinition[];
+  toolChoice?: ProviderGatewayToolChoice;
+  toolHistory?: ProviderGatewayToolExchange[];
 }
 
 export interface ProviderGatewayTextGenerateResult {
   provider: "openai" | "anthropic";
   model: string;
-  text: string;
+  text: string | null;
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
+  stopReason: "completed" | "tool_calls";
+  toolCalls: ProviderGatewayToolCall[];
 }
 
 export interface ProviderGatewayAudioTranscriptionResult {
@@ -333,12 +466,35 @@ export interface RuntimeCompactionRequest {
   instructions: string | null;
 }
 
+export interface RuntimeSharedCompactionToolResultState {
+  sessionId: string | null;
+  currentTokens: number | null;
+  compactionCount: number | null;
+  summarizedMessageCount: number | null;
+  preservedRecentMessageCount: number | null;
+}
+
+export interface RuntimeSharedCompactionToolResult {
+  toolCode: PersaiRuntimeSharedCompactionToolCode;
+  action: "summarized" | "compacted" | "skipped";
+  reason: string | null;
+  sessionId: string | null;
+  compactionRecordId: string | null;
+  before: RuntimeSharedCompactionToolResultState | null;
+  after: RuntimeSharedCompactionToolResultState | null;
+  preservedRecentTurns: number | null;
+  summaryText: string | null;
+  summaryPayload: Record<string, unknown> | null;
+  reusableInLaterTurns: boolean;
+}
+
 export interface RuntimeCompactionResult {
   compacted: boolean;
   reason: string | null;
   tokensBefore: number | null;
   tokensAfter: number | null;
   session: RuntimeSessionSummary | null;
+  toolResult: RuntimeSharedCompactionToolResult;
   trace?: RuntimeTrace;
 }
 

@@ -63,7 +63,9 @@ class FakeOpenAIProviderClient {
       model: input.model,
       text: "openai-result",
       respondedAt: "2026-04-11T12:00:01.000Z",
-      usage: null
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
     };
   }
 
@@ -83,7 +85,9 @@ class FakeOpenAIProviderClient {
         model: input.model,
         text: "openai-stream",
         respondedAt: "2026-04-11T12:00:03.000Z",
-        usage: null
+        usage: null,
+        stopReason: "completed",
+        toolCalls: []
       }
     };
   }
@@ -102,7 +106,9 @@ class FakeAnthropicProviderClient {
       model: input.model,
       text: "anthropic-result",
       respondedAt: "2026-04-11T12:00:02.000Z",
-      usage: null
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
     };
   }
 
@@ -122,7 +128,9 @@ class FakeAnthropicProviderClient {
         model: input.model,
         text: "anthropic-stream",
         respondedAt: "2026-04-11T12:00:04.000Z",
-        usage: null
+        usage: null,
+        stopReason: "completed",
+        toolCalls: []
       }
     };
   }

@@ -73,8 +73,14 @@ async function collectStream(
 
 export async function runOpenAIProviderClientTest(): Promise<void> {
   const client = new OpenAIProviderClient(createConfig());
-  let capturedGenerateInput: unknown = null;
-  let capturedStreamInput: unknown = null;
+  let capturedGeneratePayload: {
+    input?: unknown;
+    tools?: unknown;
+    tool_choice?: unknown;
+  } | null = null;
+  let capturedStreamPayload: {
+    input?: unknown;
+  } | null = null;
   let capturedTranscriptionInput: unknown = null;
 
   (client as unknown as { client: unknown }).client = {
@@ -89,9 +95,14 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       }
     },
     responses: {
-      create: async (payload: { stream?: boolean; input: unknown }) => {
+      create: async (payload: {
+        stream?: boolean;
+        input: unknown;
+        tools?: unknown;
+        tool_choice?: unknown;
+      }) => {
         if (payload.stream) {
-          capturedStreamInput = payload.input;
+          capturedStreamPayload = payload as unknown as Record<string, unknown>;
           return (async function* (): AsyncGenerator<unknown> {
             yield {
               type: "response.output_text.delta",
@@ -111,7 +122,25 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
           })();
         }
 
-        capturedGenerateInput = payload.input;
+        capturedGeneratePayload = payload as unknown as Record<string, unknown>;
+        if (payload.tools !== undefined) {
+          return {
+            output: [
+              {
+                type: "function_call",
+                call_id: "call-1",
+                name: "knowledge_search",
+                arguments: '{"source":"web","query":"pricing"}'
+              }
+            ],
+            output_text: "",
+            usage: {
+              input_tokens: 11,
+              output_tokens: 0,
+              total_tokens: 11
+            }
+          };
+        }
         return {
           output_text: "done",
           usage: {
@@ -127,7 +156,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   const request = createRequest();
   const result = await client.generateText(request);
   assert.equal(result.text, "done");
-  assert.deepEqual(capturedGenerateInput, [
+  assert.equal(result.stopReason, "completed");
+  assert.deepEqual(capturedGeneratePayload!.input, [
     {
       role: "user",
       content: [
@@ -156,10 +186,105 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       content: "tell me more"
     }
   ]);
+  const baselineGenerateInput = capturedGeneratePayload!.input;
+
+  const toolRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    tools: [
+      {
+        name: "knowledge_search",
+        description: "Search enabled knowledge sources.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            source: { type: "string" },
+            query: { type: "string" }
+          }
+        }
+      }
+    ],
+    toolChoice: "auto",
+    toolHistory: [
+      {
+        toolCall: {
+          id: "call-0",
+          name: "knowledge_search",
+          arguments: {
+            source: "web",
+            query: "hello"
+          }
+        },
+        toolResult: {
+          toolCallId: "call-0",
+          name: "knowledge_search",
+          content: '{"toolCode":"knowledge_search","action":"skipped"}',
+          isError: false
+        }
+      }
+    ]
+  };
+  const toolResult = await client.generateText(toolRequest);
+  assert.equal(toolResult.stopReason, "tool_calls");
+  assert.equal(toolResult.toolCalls[0]?.name, "knowledge_search");
+  assert.deepEqual(capturedGeneratePayload!.tools, [
+    {
+      type: "function",
+      name: "knowledge_search",
+      description: "Search enabled knowledge sources.",
+      parameters: {
+        type: "object",
+        properties: {
+          source: { type: "string" },
+          query: { type: "string" }
+        }
+      }
+    }
+  ]);
+  assert.equal(capturedGeneratePayload!.tool_choice, "auto");
+  assert.deepEqual(capturedGeneratePayload!.input, [
+    {
+      role: "user",
+      content: [
+        {
+          type: "input_text",
+          text: "hello"
+        },
+        {
+          type: "input_image",
+          image_url: "data:image/png;base64,aGVsbG8=",
+          detail: "auto"
+        },
+        {
+          type: "input_file",
+          filename: "manual.pdf",
+          file_data: "data:application/pdf;base64,cGRmLWRhdGE="
+        }
+      ]
+    },
+    {
+      role: "assistant",
+      content: "hi there"
+    },
+    {
+      role: "user",
+      content: "tell me more"
+    },
+    {
+      type: "function_call",
+      call_id: "call-0",
+      name: "knowledge_search",
+      arguments: '{"source":"web","query":"hello"}'
+    },
+    {
+      type: "function_call_output",
+      call_id: "call-0",
+      output: '{"toolCode":"knowledge_search","action":"skipped"}'
+    }
+  ]);
 
   const stream = await client.streamText(request);
   const events = await collectStream(stream);
-  assert.deepEqual(capturedStreamInput, capturedGenerateInput);
+  assert.deepEqual(capturedStreamPayload!.input, baselineGenerateInput);
   assert.deepEqual(
     events.map((event) => event.type),
     ["text_delta", "completed"]
