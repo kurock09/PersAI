@@ -128,6 +128,9 @@ The final target state is:
 10. **Deletion is preferred over adaptation**
     If a concept exists only to support the OpenClaw request path, it must not survive the final architecture.
 
+11. **Admin and setup surfaces follow native runtime truth**
+    Operator and user-facing editors, previews, and lifecycle actions must read/write PersAI-native bundle source fields. OpenClaw-style file labels such as `SOUL.md`, `USER.md`, `IDENTITY.md`, and `TOOLS.md` may survive only as temporary migration labels inside control-plane compilation, not as the final product contract.
+
 ## Target architecture
 
 #### 1. PersAI control plane
@@ -139,6 +142,7 @@ The final target state is:
 - canonical chats/messages/attachments metadata
 - runtime bundle compilation and registry
 - admin provider/runtime settings
+- admin prompt template editor and assistant lifecycle control surfaces
 - rollout flags and runtime routing policy
 - audit and operator control surfaces
 
@@ -150,6 +154,7 @@ The final target state is:
 - Telegram delivery retries
 - media binary transforms
 - sandbox execution
+- workspace-owned bootstrap markdown files as long-term admin/runtime source of truth
 
 **Sync/async role**
 
@@ -387,6 +392,156 @@ The final target state is:
 
 - minimal delivery metadata and receipts
 
+#### 9. Tool model and usage policy
+
+The PersAI-native runtime uses three explicit tool classes:
+
+- **System tools**
+  Always-available platform capabilities that are part of the runtime contract rather than plan upsell. Examples: shared context summarization/compaction, runtime quota/status inspection, attachment/context helpers, and other bounded platform-owned execution helpers.
+- **Plan tools**
+  Product capabilities enabled or disabled by plan/admin policy. Examples: `web_search`, `knowledge_search`, `knowledge_fetch`, external API tools, `tts`, `image_generate`, `image_edit`, and `video_generate`.
+- **Sandbox tools**
+  High-risk workspace/code/file/system operations such as `read_file`, `write_file`, `edit_file`, `exec`, `shell`, and similar filesystem/process tools. These are not ordinary runtime tools and land only behind the isolated sandbox boundary in Step 16.
+
+Current OpenClaw tool behavior may be studied as a reference for useful product semantics, but it must not define the target architecture, naming, or runtime ownership model.
+
+Every tool exposed to the model must carry explicit PersAI-owned usage policy in the bundle/runtime contract:
+
+- invocation mode: `inline` | `worker` | `sandbox`
+- usage rule: `required` | `allowed` | `forbidden`
+- trigger policy: when the model must use the tool, may use it, or must not use it
+- sync vs async behavior
+- timeout budget
+- quota/audit policy
+- confirmation rules for risky actions
+- provider support, when relevant
+- failure behavior and fallback behavior
+
+The model must not infer tool policy heuristically. Tool usage policy must be explicit in the runtime bundle/system policy, and runtime enforcement must validate it on every call.
+
+Shared context summarization/compaction is a first-class system capability, not a channel-only special case:
+
+- the user may explicitly ask the model to compress/summarize context
+- Telegram keeps an owner-facing `auto summarize` setting
+- web keeps a compaction/summarization banner when rolling turn latency exceeds `7s` or the runtime context pressure threshold is crossed
+
+Search/RAG must be designed as a reusable knowledge access layer rather than a one-off tool:
+
+- future knowledge backends may include relational databases, vector indexes, document stores, or other internal knowledge systems
+- bounded single-source lookups may stay inline
+- multi-source or slow retrieval must move to workers
+
+Media generation/editing tools must be provider-agnostic:
+
+- `image_generate`, `image_edit`, `video_generate`, and related tools are exposed through the provider gateway/tool runtime, not hardcoded to one provider
+- the first target providers may include `OpenAI` and `Google Gemini`, with later providers added through the same PersAI-owned contract
+
+Current tool inventory baseline must not be skipped before Step 15 implementation. The current PersAI control-plane truth already contains the following tool surface:
+
+- **Plan-managed, cost-driving**
+  - `web_search`
+  - `web_fetch`
+  - `image_generate`
+  - `tts`
+  - `browser`
+- **Plan-managed, utility**
+  - `memory_search`
+  - `memory_get`
+  - `reminder_task`
+- **Platform-managed**
+  - `persai_workspace_attach`
+  - `persai_tool_quota_status`
+- **Hidden internal**
+  - `cron`
+
+This baseline is already reflected in current PersAI control-plane/UI truth:
+
+- tool catalog seed and policy class source:
+  - `apps/api/prisma/tool-catalog-data.ts`
+- catalog persistence and plan-activation read model:
+  - `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-tool-catalog.repository.ts`
+  - `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- admin plan UI grouping:
+  - `apps/web/app/admin/plans/page.tsx`
+- runtime security matrix:
+  - `apps/api/src/modules/workspace-management/application/runtime-tier-security-policy.ts`
+
+Current provider/credential seams that must be preserved in the new tool runtime:
+
+- `web_search`
+  - current provider options: `Tavily`, `Brave`, `Perplexity`, `Google (Gemini)`
+- `web_fetch`
+  - current credential seam: `Firecrawl`
+- `image_generate`
+  - current image-generation credential seam already exists in PersAI control plane
+- `tts`
+  - current provider options: `OpenAI`, `ElevenLabs`, `Yandex SpeechKit`
+- `memory_search`
+  - current embeddings credential seam already exists in PersAI control plane
+
+Step 15 must begin by preserving and remapping this existing product/control-plane tool surface into the PersAI-native tool runtime. It must not silently drop existing tools already present in the catalog, plan editor, or user-facing runtime behavior.
+
+#### 10. Admin prompt and lifecycle surfaces
+
+**Responsibilities**
+
+- PersAI-native prompt template editor for runtime system-prompt material
+- operator visibility into which prompt sections compile into runtime `promptDocuments`
+- separate ownership of first-turn/bootstrap greeting material if that behavior remains product-visible
+- setup preview, create, publish, reapply, reset, and recreate flows over the same bundle compiler and preview/apply path
+- admin visibility into plan/tool exposure text that reaches the model
+
+**Non-responsibilities**
+
+- editing raw OpenClaw workspace files or bootstrap documents as the long-term product contract
+- hidden prompt logic that affects runtime behavior without a control-plane API/UI owner
+- direct runtime session mutation from admin UI
+
+**Sync/async role**
+
+- sync for template CRUD, setup preview, and lifecycle confirmations
+- async for bulk reapply, warmup, and operator-triggered regeneration jobs
+
+**Scaling model**
+
+- stateless admin/setup surfaces backed by control-plane APIs
+
+**Data ownership**
+
+- prompt template sources
+- lifecycle intents and confirmations
+- preview artifacts and audit history
+
+**Current migration baseline that must not be skipped**
+
+- current admin preset editor:
+  - `apps/web/app/admin/presets/page.tsx`
+- current preset CRUD service:
+  - `apps/api/src/modules/workspace-management/application/manage-bootstrap-presets.service.ts`
+- current preset defaults:
+  - `apps/api/prisma/bootstrap-preset-data.ts`
+- current materialization loader:
+  - `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- current editable preset ids:
+  - `soul`, `user`, `identity`, `agents`, `tools`
+- current non-admin-owned prompt sections:
+  - `heartbeat` and `bootstrap` are still generated in code today
+- current setup/create flow:
+  - `postOnboarding -> POST /assistant -> PATCH /assistant/draft -> POST /assistant/setup/preview -> POST /assistant/publish`
+- current recreate/reset/reapply surfaces:
+  - `apps/web/app/app/_components/assistant-settings.tsx`
+  - `apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.ts`
+  - `apps/api/src/modules/workspace-management/application/publish-assistant-draft.service.ts`
+  - `apps/api/src/modules/workspace-management/application/reapply-assistant.service.ts`
+  - `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+
+**Target-state rules**
+
+- final admin/setup UX must stop exposing OpenClaw bootstrap-document mental models as the product contract
+- every prompt section that actually reaches runtime turn execution must have explicit control-plane ownership and previewability
+- create/publish/reapply/reset/recreate must compile from the same PersAI-native bundle and prompt-template pipeline
+- destructive recreate/reset UX must explicitly describe what state is deleted and must not rely on OpenClaw workspace-file semantics
+
 ## Rejected alternatives
 
 ### 1. Keep OpenClaw as the long-term request-time executor and optimize it
@@ -463,6 +618,9 @@ Rejected because it would reintroduce latency instability into ordinary chat tur
 8. **Channel expansion uncertainty**
    `max_ru` is part of the target channel envelope, but its exact delivery contract still needs separate adapter specification.
 
+9. **Admin/runtime UX drift risk**
+   If admin/setup surfaces continue to expose legacy bootstrap-document concepts while runtime execution moves to native bundle/prompt truth, operators will not understand what create, preview, publish, reapply, reset, and recreate actually do.
+
 ## Success metrics
 
 The replacement is considered successful only when all of the following are true in production:
@@ -491,6 +649,8 @@ The replacement is considered successful only when all of the following are true
 - no `openclawBootstrap` or `openclawWorkspace` reads in active request paths
 - no runtime freshness or provider-secret callbacks from execution path back into the control plane
 - no local filesystem authority for sessions, transcripts, attachments, or stream state
+- no admin or setup surface requires OpenClaw bootstrap-document terminology as final-state runtime contract
+- setup preview, publish, reapply, reset, and recreate all use the same native bundle compilation path
 
 ### Operational efficiency
 
@@ -700,11 +860,11 @@ Replace the Telegram webhook proxy loop with a PersAI-native adapter over the sa
 - group smoke flows
 - live delivery latency and duplicate suppression metrics
 
-### Slice 6 — Async tools, workers, and sandbox separation
+### Slice 6 — Tools, control-plane UX, and sandbox separation
 
 **Goal**
 
-Move heavy execution off the ordinary chat path while preserving product capability growth.
+Move heavy execution off the ordinary chat path while aligning operator/user surfaces to native runtime truth.
 
 **Scope**
 
@@ -712,11 +872,18 @@ Move heavy execution off the ordinary chat path while preserving product capabil
 - async worker queue
 - sandbox service
 - job polling and artifact return path
+- system tools, plan tools, and sandbox tools split
+- admin prompt/lifecycle surface cleanup
 
 **What is included**
 
-- inline bounded tools
-- queued heavy tools
+- inline bounded system tools
+- queued heavy plan tools
+- shared summarization/compaction capability
+- search/RAG and future knowledge-access tools
+- media generation/editing tool runtime
+- native prompt-template/system-prompt editor
+- setup preview, publish, reapply, and reset/recreate lifecycle cleanup
 - isolated sandbox service contract
 - runtime job enqueue/poll interfaces
 
@@ -724,17 +891,20 @@ Move heavy execution off the ordinary chat path while preserving product capabil
 
 - generic plugin framework parity
 - arbitrary synchronous code execution
+- keeping Telegram-only or OpenClaw-shaped tool behavior as final architecture
 
 **Risks**
 
 - operator confusion between inline and async execution
 - result-delivery UX gaps
+- prompt/admin surfaces lagging behind runtime truth
 
 **Validation**
 
 - queue latency measurements
 - no regression in ordinary chat latency
 - sandbox isolation tests
+- prompt preview vs publish/reapply parity checks
 
 ### Slice 7 — OpenClaw removal and schema cleanup
 
@@ -822,6 +992,7 @@ Replace `openclawBootstrap/openclawWorkspace` as the future runtime artifact.
 - dual-write native bundle beside legacy fields
 - do not remove old columns yet
 - `runtimeBundle.userContext` plus compiled `promptDocuments` are the future runtime truth for bootstrap/user/persona prompt material; legacy `USER.md` / `BOOTSTRAP.md` files may still be materialized only as temporary OpenClaw tails until Step 17 removes them
+- the current `Bootstrap Document Presets` page is migration scaffolding only; final admin ownership must move to PersAI-native prompt/lifecycle surfaces before OpenClaw removal
 
 **Rollback notes**
 
@@ -1194,6 +1365,13 @@ Make Telegram the second production text channel on the new runtime core.
 - keep Telegram as a thin adapter over shared runtime turn execution and canonical history hydration
 - do not preserve a Telegram-only `/compact` or hint path; shared compaction UX/tooling is deferred to Step 15
 
+**Completion notes (2026-04-12)**
+
+- Telegram direct/group request-time execution now runs through native `apps/runtime` turns with shared `RuntimeConversationAddress` identity and canonical-history hydration.
+- Live dev Telegram validation confirmed the native text/group path works through the public API-side webhook adapter.
+- The temporary Telegram-only `/compact` command and compaction-hint seam were removed instead of being carried into the target architecture.
+- Dev live testing exposed overly aggressive peer slowdown defaults for one Telegram chat/thread, so dev values now raise the peer slowdown/block thresholds and shorten slowdown duration while keeping abuse protection enabled.
+
 **Rollback notes**
 
 - webhook routing rollback only; no hidden dual runtime in final architecture
@@ -1216,13 +1394,130 @@ Restore necessary capability without polluting ordinary chat latency.
 
 **Migration notes**
 
+- Step 15 defines the PersAI-native tool runtime for **system tools** and **plan tools**
+- Step 15 starts with the existing current-tool inventory baseline from PersAI control-plane/UI truth; do not invent a new tool list before preserving and remapping the current one
 - only bounded inline tools enter ordinary chat path
 - all heavy tools queue jobs
+- sandbox tools are explicitly excluded from Step 15 and land only in Step 16
+- models must receive explicit tool usage policy; do not rely on heuristic tool discovery or prompt folklore
 - shared compaction capability belongs here as a runtime/tool surface for user-invoked and automatic flows; do not reintroduce channel-specific slash-command compaction before this step
+- existing useful OpenClaw tool behavior may be referenced only to preserve product semantics; do not copy OpenClaw ownership or shape into the new runtime
 
 **Rollback notes**
 
 - disable individual tool classes or queue-backed features without touching chat core
+
+#### Step 15 tool slices
+
+##### Tool slice T15-0 — Current tool inventory baseline
+
+- **Goal**
+  Freeze the actual current PersAI tool surface before redesigning Step 15 execution, so the new runtime does not silently lose tools that already exist in the catalog, admin plan UI, or product behavior.
+- **Included**
+  - current catalog inventory from `apps/api/prisma/tool-catalog-data.ts`
+  - current policy classes: `plan_managed`, `platform_managed`, `hidden_internal`
+  - current admin plan UI grouping and visibility model
+  - current provider/credential seams for provider-backed tools
+  - explicit parity map from current tool names into the future PersAI-native tool runtime
+- **Excluded**
+  - sandbox/file/process tools beyond recording their current separation expectations
+  - final implementation of the new runtime tool executor
+- **Validation**
+  - catalog/UI/runtime inventory parity document exists in ADR-072
+  - no Step 15 implementation starts until the current-tool baseline is explicit
+  - future tool slices reference the preserved baseline instead of inventing a new surface
+
+##### Tool slice T15-1 — Tool taxonomy and usage policy baseline
+
+- **Goal**
+  Define the PersAI-owned tool model so the runtime and the model both know exactly how tools are meant to be used.
+- **Included**
+  - `system tools` vs `plan tools` taxonomy
+  - `sandbox tools` explicitly excluded to Step 16
+  - tool policy contract in bundle/runtime metadata
+  - `required | allowed | forbidden` invocation rules
+  - `inline | worker | sandbox` execution modes
+- **Excluded**
+  - sandbox/file/process tools
+  - UI cleanup
+- **Validation**
+  - bundle/runtime contract tests
+  - prompt/runtime policy parity tests
+  - no tool call proceeds without explicit policy metadata
+
+##### Tool slice T15-2 — Shared summarization and compaction tools
+
+- **Goal**
+  Replace channel-specific compaction behavior with one shared PersAI-native capability.
+- **Included**
+  - shared `summarize_context` / `compact_context` system capability
+  - user-requested compaction path
+  - Telegram owner setting for `auto summarize`
+  - web banner that suggests context compression when rolling turn latency exceeds `7s` or context pressure crosses threshold
+  - durable summary/compaction state updates in runtime/session metadata
+- **Excluded**
+  - Telegram-only slash-command ownership in the final architecture
+  - sandbox-assisted summarization
+- **Validation**
+  - web/Telegram parity tests
+  - latency-triggered banner tests
+  - session summary reuse on later turns
+
+##### Tool slice T15-3 — Search, RAG, and external knowledge tools
+
+- **Goal**
+  Establish the future-proof knowledge/search layer the model can rely on without inventing access patterns.
+- **Included**
+  - `web_search`
+  - `knowledge_search`
+  - `knowledge_fetch`
+  - bounded inline retrieval
+  - worker-backed multi-source or slow retrieval
+  - citation/attribution-ready result contract
+- **Excluded**
+  - sandbox file search
+  - one-off provider-specific search hacks
+- **Validation**
+  - deterministic search-result contract tests
+  - inline vs async routing tests
+  - future-backend-ready interface for DB/vector/doc knowledge stores
+
+##### Tool slice T15-4 — Media generation and editing plan tools
+
+- **Goal**
+  Restore product-critical media tools through PersAI-owned contracts rather than runtime-specific plugins.
+- **Included**
+  - `tts` as a tool capability where product semantics require explicit tool invocation
+  - `image_generate`
+  - `image_edit`
+  - `video_generate`
+  - provider-agnostic routing through the provider gateway
+  - first providers may include `OpenAI` and `Google Gemini`
+- **Excluded**
+  - synchronous heavy video generation in ordinary chat
+  - direct provider-specific plugin ownership
+- **Validation**
+  - provider routing/fallback tests
+  - queue/worker latency tests
+  - quota/audit coverage per media tool
+
+##### Tool slice T15-5 — Plan/admin exposure, quotas, and model guidance
+
+- **Goal**
+  Make tool exposure predictable for operators, users, and the model.
+- **Included**
+  - `system tools` always-on policy
+  - `plan tools` enabled/disabled by plan/admin policy
+  - per-tool quotas and audit rules
+  - user/model-facing descriptions of what each tool is for
+  - channel/runtime rules for which tools are legal in which contexts
+- **Excluded**
+  - final admin/UI dead-tail cleanup (handled in Step 15b)
+  - sandbox permissions matrix
+- **Validation**
+  - plan/admin exposure tests
+  - quota enforcement tests
+  - prompt/runtime alignment checks so the model does not hallucinate unavailable tools
 
 ### Step 15a — Native web TTS streaming/output
 
@@ -1249,12 +1544,53 @@ Deliver real web voice output as a PersAI-native channel capability rather than 
 - live web voice output must not depend on post-turn attachment persistence to feel complete
 - persisted audio attachments may remain optional archival or replay artifacts, but they are not the primary contract for native web voice output
 - the model may still use explicit `tts` tools where product semantics require tool-driven audio generation, but ordinary web voice playback remains owned by the channel/output layer
+- Step 15a is not the whole TTS tool program; it covers native web voice output as a channel capability while explicit `tts` tool semantics stay under Step 15 tool slices
 - keep text-only web turn behavior healthy when voice output is disabled or unavailable
 
 **Rollback notes**
 
 - disable web voice-output streaming independently of text turn execution
 - fall back to text-only response rather than a hidden attachment-only substitute
+
+### Step 15b — Replace bootstrap preset and lifecycle UI with native prompt surfaces
+
+**Purpose**
+
+Move admin/setup UX onto the PersAI-native prompt and lifecycle model before final OpenClaw removal.
+
+**Files/modules likely affected**
+
+- `apps/web/app/admin/presets/page.tsx`
+- `apps/web/app/admin/layout.tsx`
+- `apps/api/src/modules/workspace-management/application/manage-bootstrap-presets.service.ts`
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/web/app/app/setup/page.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/api/src/modules/workspace-management/application/create-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.ts`
+- `apps/api/src/modules/workspace-management/application/publish-assistant-draft.service.ts`
+- `apps/api/src/modules/workspace-management/application/reapply-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+- new admin/control-plane prompt editor modules under `apps/api/src/modules/workspace-management/application/` and `interface/http/`
+
+**Dependencies**
+
+- Steps 2, 7, 15
+
+**Migration notes**
+
+- replace `Bootstrap Document Presets` with a PersAI-native prompt template editor; old file labels may survive only as temporary migration labels during transition
+- the system-prompt editor must cover every prompt section that actually reaches runtime turn execution; do not leave hidden prompt behavior outside admin ownership
+- first-turn/bootstrap greeting behavior, if retained, must be separated from ordinary system-prompt editing so operators understand what affects runtime turns vs onboarding/recreate flow
+- setup preview, create, publish, reapply, reset, and recreate must compile through the same bundle/prompt-template pipeline
+- destructive reset/recreate UX must state which state is deleted: chats, memory, tasks, published versions, materialized bundles/specs, and media artifacts
+- do not preserve OpenClaw workspace-file semantics as the user-facing explanation of these lifecycle actions
+
+**Rollback notes**
+
+- temporarily keep the legacy preset UI label while continuing to compile the native prompt templates underneath
+- runtime execution remains native even if the admin surface rollback is needed
 
 ### Step 16 — Build isolated sandbox service
 
@@ -1276,6 +1612,14 @@ Move code execution into a separate system with no request-path contamination.
 
 - sandbox is opt-in and async only
 - ordinary web and Telegram turns must not wait on it by default
+- sandbox tools live here, not in Step 15:
+  - `read_file`
+  - `write_file`
+  - `edit_file`
+  - `exec`
+  - `shell`
+  - related filesystem/process tools
+- sandbox tools require separate permissions, limits, audit, and isolation policy from ordinary runtime tools
 
 **Rollback notes**
 
@@ -1296,7 +1640,7 @@ Delete the legacy request-time executor once native runtime is primary.
 
 **Dependencies**
 
-- Steps 10, 12, 14, 15, 16
+- Steps 10, 12, 14, 15, 15b, 16
 
 **Migration notes**
 
@@ -1445,9 +1789,9 @@ Use only these statuses:
 | Item | Status | Notes |
 |---|---|---|
 | ADR-072 document | completed | Target architecture, slices, and step order are documented |
-| Runtime replacement implementation | in_progress | Steps 1-13 are complete. PersAI now owns Telegram webhook ingress/delivery, group/chat metadata sync, canonical Telegram transcript persistence, and native request-time text execution. Step 14 is now in progress for validation/closeout, while shared compaction/tool producers and later temporary-route cleanup remain follow-up work |
-| Current active slice | in_progress | `Slice 5 — Telegram native adapter and group semantics` remains active while Step 14 validation/closeout is still pending |
-| Current active step | in_progress | `Step 14 — Cut over Telegram text and groups` now routes Telegram text/group turns through the native runtime core; shared compaction is explicitly deferred to Step 15 |
+| Runtime replacement implementation | in_progress | Steps 1-14 are complete. PersAI now owns Telegram webhook ingress/delivery, group/chat metadata sync, canonical Telegram transcript persistence, and native request-time text/group execution. Shared compaction/tool producers, control-plane UX cleanup, and later OpenClaw removal remain follow-up work |
+| Current active slice | in_progress | `Slice 6 — Tools, control-plane UX, and sandbox separation` is now the next active migration area after Step 14 closeout |
+| Current active step | planned | `Step 15 — Introduce bounded inline tools and async worker jobs` is the next active step now that Step 14 is complete |
 
 ### Slice ledger
 
@@ -1457,8 +1801,8 @@ Use only these statuses:
 | Slice 2 — Provider gateway and runtime shell | completed | `apps/provider-gateway` and `apps/runtime` now exist with warmup/bundle shells plus health, readiness, and metrics |
 | Slice 3 — Distributed session/state core and web runtime | completed | Web request-time text execution now runs through native runtime on Redis/Postgres session state, with Step 10 closed after bounded shadow evidence plus live native cutover validation in dev |
 | Slice 4 — Attachment context and STT cutover | completed | Attachment staging now lives in PersAI-owned object storage with bounded current-turn multimodal input, richer canonical extracts, and native STT routed through `apps/runtime` / `apps/provider-gateway` instead of OpenClaw |
-| Slice 5 — Telegram native adapter and group semantics | in_progress | Telegram ingress/delivery now run through the PersAI API-side adapter; native Telegram request-time execution is the remaining active cutover over the shared runtime core |
-| Slice 6 — Async tools, workers, and sandbox separation | planned | Heavy tools and sandbox are isolated from ordinary chat latency |
+| Slice 5 — Telegram native adapter and group semantics | completed | Telegram ingress/delivery and native Telegram request-time text/group execution now run through PersAI over the shared runtime core |
+| Slice 6 — Tools, control-plane UX, and sandbox separation | in_progress | Heavy tools and sandbox are isolated from ordinary chat latency, and admin/setup surfaces align to native prompt/runtime truth |
 | Slice 7 — OpenClaw removal and schema cleanup | planned | OpenClaw request-time path and `openclaw*` runtime artifacts are removed from PersAI |
 
 ### Step ledger
@@ -1478,12 +1822,25 @@ Use only these statuses:
 | Step 11 — Implement native attachment staging | completed | Steps 4, 5, 6 | Active web/inbound attachment persistence now writes to PersAI-owned object storage, cleanup paths delete PersAI media objects, failed staged uploads roll back their transient empty rows, direct uploads also persist canonical preview/transcription metadata plus Office/text-style extracts, and native web turns now hydrate current/historical attachment context from canonical attachment rows plus object-key refs while sending current inbound images/PDFs as real provider input only for the current turn under a bounded request-size budget. Historical attachments intentionally stay summary/extract-only so binary payload does not replay through long chat history |
 | Step 12 — Implement native STT | completed | Steps 4, 11 | Voice/media transcription now streams audio through `apps/api -> apps/runtime -> apps/provider-gateway -> OpenAI` without OpenClaw request-time transcription or workspace-media staging |
 | Step 13 — Replace Telegram proxy with a native Telegram adapter | completed | Steps 8, 9, 11, 12 | Public Telegram webhook ingress, owner gate handling, group/chat metadata sync, Bot API media download/delivery, and canonical transcript persistence now run in `apps/api`; the old PersAI internal Telegram ingress/callback endpoints were removed with the proxy loop |
-| Step 14 — Cut over Telegram text and groups | in_progress | Step 13 | Telegram text/group request-time execution now routes through native `apps/runtime` with shared conversation identity/history hydration; the temporary Telegram-only `/compact` and hint seam was removed instead of being carried forward, and final validation/deploy closeout remains |
-| Step 15 — Introduce bounded inline tools and async worker jobs | planned | Steps 9-10 | Tool execution is cleanly separated by latency class, including the future shared compaction capability |
+| Step 14 — Cut over Telegram text and groups | completed | Step 13 | Telegram text/group request-time execution now routes through native `apps/runtime` with shared conversation identity/history hydration, live dev Telegram validation passed, and the temporary Telegram-only `/compact`/hint seam was removed instead of being carried forward |
+| Step 15 — Introduce bounded inline tools and async worker jobs | planned | Steps 9-10 | Tool execution is cleanly separated by latency class, split into system tools, plan tools, and future worker-backed heavy capabilities, including shared compaction/summarization |
 | Step 15a — Native web TTS streaming/output | planned | Steps 9, 10, 15 | Native web voice output is a channel capability and no longer relies on post-turn attachment delivery to feel complete |
+| Step 15b — Replace bootstrap preset and lifecycle UI with native prompt surfaces | planned | Steps 2, 7, 15 | Admin/setup UX stops treating OpenClaw bootstrap docs as the product contract; create/preview/publish/reapply/reset/recreate align to the native bundle pipeline |
 | Step 16 — Build isolated sandbox service | planned | Step 15 | Sandbox exists outside ordinary chat path |
-| Step 17 — Remove OpenClaw runtime integration from PersAI active paths | planned | Steps 10, 12, 14, 15, 16 | Legacy active request-time runtime path is deleted |
+| Step 17 — Remove OpenClaw runtime integration from PersAI active paths | planned | Steps 10, 12, 14, 15, 15b, 16 | Legacy active request-time runtime path is deleted |
 | Step 18 — Remove OpenClaw-shaped schema and document cleanup | planned | Step 17 | Final architectural cleanup is complete |
+
+### Step 15 tool slice ledger
+
+| Tool slice | Status | Lands in | Scope |
+|---|---|---|---|
+| T15-0 — Current tool inventory baseline | planned | Step 15 | Preserve the real current catalog/UI/runtime tool surface before redesigning execution |
+| T15-1 — Tool taxonomy and usage policy baseline | planned | Step 15 | PersAI-owned tool classes and explicit model/runtime usage policy |
+| T15-2 — Shared summarization and compaction tools | planned | Step 15 | Shared context compression, Telegram auto summarize, web compaction banner |
+| T15-3 — Search, RAG, and external knowledge tools | planned | Step 15 | Search and future DB/vector/doc knowledge access |
+| T15-4 — Media generation and editing plan tools | planned | Step 15 | `tts`, `image_generate`, `image_edit`, `video_generate`, provider-agnostic routing |
+| T15-5 — Plan/admin exposure, quotas, and model guidance | planned | Step 15 | Always-on system tools, plan-controlled tools, quotas, and prompt/runtime alignment |
+| Sandbox tool matrix | planned | Step 16 | `read_file`, `write_file`, `edit_file`, `exec`, `shell`, and related isolated tools |
 
 ## Universal Cursor master prompt
 
@@ -1522,6 +1879,7 @@ Required workflow:
 1. Read the source-of-truth docs in order.
 2. Inspect the execution ledger in ADR-072 and the latest checkpoint in docs/SESSION-HANDOFF.md.
 3. Choose the highest-priority unfinished step whose dependencies are satisfied.
+3a. If the active step is Step 15, choose the highest-priority unfinished item from the Step 15 tool slice ledger instead of trying to implement all tools at once. Start with `T15-0 — Current tool inventory baseline` unless it is already complete.
 4. Before editing, state explicitly:
    - current slice
    - current step

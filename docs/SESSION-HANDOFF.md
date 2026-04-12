@@ -1,5 +1,160 @@
 # SESSION-HANDOFF
 
+## 2026-04-12 - ADR-072 Step 14 closeout and Telegram dev abuse tuning
+
+### What changed
+
+1. Step 14 is now closed honestly: Telegram direct/group text turns run through native `apps/runtime` execution with shared `RuntimeConversationAddress` identity and canonical-history hydration.
+2. Live Telegram validation on dev confirmed the public API-side webhook adapter works on the native DM/group path, so repo truth no longer treats Step 14 as only “in progress for validation”.
+3. Dev rollout config now prepares a softer abuse-guard baseline for one Telegram chat/thread during live testing by raising peer slowdown/block thresholds and shortening slowdown duration, while `EnforceAbuseRateLimitService` now logs explicit peer/distributed rate-limit decisions for easier kube-log diagnosis.
+
+### Why
+
+1. The native Telegram text/group runtime path is healthy enough to stop carrying Step 14 as an open cutover seam.
+2. The only live issue observed after rollout was false-positive Telegram rate limiting from very low peer defaults, not runtime degradation.
+3. Step 15 should begin from the shared tool/compaction/control-plane plan already added to ADR-072, instead of keeping Telegram cutover work artificially open.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/enforce-abuse-rate-limit.service.ts`
+- `infra/helm/values-dev.yaml`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm exec tsx apps/api/test/enforce-abuse-rate-limit.test.ts`
+- `corepack pnpm exec tsx apps/api/test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm exec tsx apps/api/test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm exec tsx apps/api/test/send-native-telegram-turn.service.test.ts`
+- `corepack pnpm exec tsx apps/runtime/test/turn-context-hydration.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `kubectl get pods -n persai-dev -o wide`
+- `kubectl exec -n persai-dev deployment/api -c api -- node -e "(async()=>{for (const url of ['http://provider-gateway:3011/ready','http://runtime:3012/ready']) { const res = await fetch(url); console.log(url); console.log(res.status); console.log(await res.text()); }} )().catch((error)=>{console.error(error); process.exit(1);})"`
+
+### Risks
+
+1. The dev abuse-threshold tuning is only local repo truth right now and was not pushed/deployed in this session by user request.
+2. Shared compaction/manual-auto summarization is still intentionally deferred to Step 15 and does not exist on the live Telegram product path yet.
+3. Telegram outbound media still uses the bounded legacy artifact-download seam in `telegram-bot.client.service.ts`; this no longer blocks Step 14 closeout but remains follow-up cleanup.
+
+### Next recommended step
+
+1. Start Step 15 with `T15-0 — Current tool inventory baseline`, then `T15-1/T15-2` so shared compaction/summarization returns as a system capability instead of a channel command.
+2. When you are ready to ship the Telegram abuse tuning, push/deploy the current local `values-dev` + logging changes and verify the false-positive rate-limit message disappears under the same DM/group test cadence.
+
+### Ready commit message
+
+- `fix(telegram): relax dev peer abuse thresholds and close step 14`
+
+## 2026-04-12 - ADR-072 native prompt and lifecycle UI planning
+
+### What changed
+
+1. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now treats admin/setup UX as part of the target architecture, not as a vague cleanup tail.
+2. The ADR now adds `Admin prompt and lifecycle surfaces` and records the current migration baseline for `Bootstrap Document Presets`, setup preview, publish, reapply, and reset flows.
+3. The implementation plan now includes `Step 15b — Replace bootstrap preset and lifecycle UI with native prompt surfaces`, and `Slice 6` now explicitly includes control-plane UX cleanup.
+
+### Why
+
+1. The current product still explains prompt behavior through bootstrap-document concepts, but the native runtime is moving to bundle/prompt truth.
+2. Current code shows that only part of the prompt surface is admin-owned today (`soul`, `user`, `identity`, `agents`, `tools`), while `heartbeat` and `bootstrap` are still generated in code.
+3. Without an explicit step, future sessions could finish runtime cutover but leave operators and users on a misleading OpenClaw-shaped mental model for create/preview/publish/reapply/reset/recreate.
+
+### Current active slice
+
+- `Slice 5 — Telegram native adapter and group semantics`
+
+### Current active step
+
+- `Step 14 — Cut over Telegram text and groups`
+
+### Next recommended step
+
+- Finish Step 14 validation/closeout. After that, begin Step 15 with `T15-0 — Current tool inventory baseline`. `Step 15b` is now mandatory before `Step 17` OpenClaw removal.
+
+### Ready commit message
+
+- `docs: add native prompt lifecycle UI step to ADR-072`
+
+---
+
+## 2026-04-12 - ADR-072 Step 15 current-tool baseline
+
+### What changed
+
+1. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now adds `T15-0 — Current tool inventory baseline` as the required first item inside Step 15.
+2. The ADR now explicitly records the current PersAI tool surface from catalog/UI/runtime truth: `web_search`, `web_fetch`, `image_generate`, `tts`, `browser`, `memory_search`, `memory_get`, `reminder_task`, `persai_workspace_attach`, `persai_tool_quota_status`, and hidden `cron`.
+3. The ADR and always-on Cursor rule now both state that Step 15 must start from this preserved baseline instead of inventing a new tool list.
+
+### Why
+
+1. Step 15 was still missing one critical guardrail: preserving the actual already-shipped tool surface before redesigning execution.
+2. Without an explicit baseline, future sessions could accidentally drop reminder/search/fetch/platform tools from the new runtime plan and only notice much later in UI or product behavior.
+3. Existing provider/credential seams for provider-backed tools are already part of PersAI control-plane truth and must be carried forward intentionally.
+
+### Current active slice
+
+- `Slice 5 — Telegram native adapter and group semantics`
+
+### Current active step
+
+- `Step 14 — Cut over Telegram text and groups`
+
+### Next recommended step
+
+- Finish Step 14 validation/closeout. After that, start Step 15 with `T15-0 — Current tool inventory baseline`, not with generic tool implementation.
+
+### Ready commit message
+
+- `docs: add Step 15 current tool baseline to ADR-072`
+
+---
+
+## 2026-04-12 - ADR-072 Step 15 tool slice planning
+
+### What changed
+
+1. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now defines a formal tool model: `system tools`, `plan tools`, and `sandbox tools`.
+2. Step 15 is now split into explicit tool slices for policy/taxonomy, shared summarization/compaction, search/RAG, media generation/editing, and plan/admin exposure.
+3. Step 16 now explicitly owns sandbox/file/process tools such as `read_file`, `write_file`, `edit_file`, `exec`, and `shell` with separate permissions, limits, audit, and isolation policy.
+
+### Why
+
+1. Upcoming Step 15 work was still too coarse and risked turning into one invented “all tools at once” milestone.
+2. The model/runtime need explicit tool usage policy instead of heuristic tool behavior.
+3. Shared compaction/summarization, search/RAG, media tools, and sandbox tools need separate rollout and ownership boundaries.
+
+### Current active slice
+
+- `Slice 5 — Telegram native adapter and group semantics`
+
+### Current active step
+
+- `Step 14 — Cut over Telegram text and groups`
+
+### Next recommended step
+
+- Finish Step 14 validation/closeout. After that, begin Step 15 through the new tool slice ledger in ADR-072 rather than treating all tools as one undifferentiated step.
+
+### Ready commit message
+
+- `docs: expand ADR-072 tool slices for step 15`
+
+---
+
 ## 2026-04-12 - ADR-072 Step 14 native Telegram text cutover (in progress)
 
 ### What changed
