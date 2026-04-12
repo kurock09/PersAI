@@ -9,7 +9,9 @@ import {
 } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
+  PersaiRuntimeSharedCompactionToolCode,
   RuntimeCompactionRequest,
+  ProviderGatewayRequestMetadata,
   ProviderGatewayToolCall,
   ProviderGatewayToolExchange,
   ProviderGatewayTextMessage,
@@ -51,6 +53,20 @@ type PreparedTurnExecution = {
   providerRequest: ProviderGatewayTextGenerateRequest;
 };
 
+type TurnProviderRequestClassification = "main_turn" | "tool_loop_followup";
+
+type TurnExecutionState = {
+  sharedCompaction: {
+    invoked: boolean;
+    durableStatePersisted: boolean;
+  };
+};
+
+type AutoCompactionRequest = RuntimeCompactionRequest & {
+  trigger: "auto_compaction";
+  runtimeRequestId: string;
+};
+
 type ToolExecutionOutcome = {
   exchange: ProviderGatewayToolExchange;
   payload:
@@ -58,6 +74,10 @@ type ToolExecutionOutcome = {
     | RuntimeKnowledgeSearchToolResult
     | RuntimeKnowledgeFetchToolResult
     | Record<string, unknown>;
+  sharedCompaction?: {
+    toolCode: PersaiRuntimeSharedCompactionToolCode;
+    durableStatePersisted: boolean;
+  };
 };
 
 class TurnExecutionError extends Error {
@@ -105,9 +125,10 @@ export class TurnExecutionService {
         const execution = await this.prepareTurnExecution(input, {
           allowModelToolExposure: true
         });
-        const result = await this.executeAcceptedTurn(acceptedTurn, execution);
+        const turnState = this.createTurnExecutionState();
+        const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
         await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
-        this.scheduleAutoCompaction(input, execution.bundle);
+        this.scheduleAutoCompaction(input, execution.bundle, turnState);
         return result;
       }
     }
@@ -137,17 +158,30 @@ export class TurnExecutionService {
         const execution = await this.prepareTurnExecution(input, {
           allowModelToolExposure: true
         });
-        return this.streamAcceptedTurn(acceptedTurn, execution, input, options?.signal);
+        return this.streamAcceptedTurn(
+          acceptedTurn,
+          execution,
+          input,
+          this.createTurnExecutionState(),
+          options?.signal
+        );
       }
     }
   }
 
   private async executeAcceptedTurn(
     acceptedTurn: AcceptedRuntimeTurn,
-    execution: PreparedTurnExecution
+    execution: PreparedTurnExecution,
+    input: RuntimeTurnRequest,
+    turnState: TurnExecutionState
   ): Promise<RuntimeTurnResult> {
     try {
-      const providerResult = await this.executeProviderToolLoop(acceptedTurn, execution);
+      const providerResult = await this.executeProviderToolLoop(
+        acceptedTurn,
+        execution,
+        input,
+        turnState
+      );
       return this.buildTurnResult(acceptedTurn, providerResult);
     } catch (error) {
       await this.failAcceptedTurnQuietly(acceptedTurn, error);
@@ -205,6 +239,7 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn,
     execution: PreparedTurnExecution,
     input: RuntimeTurnRequest,
+    turnState: TurnExecutionState,
     signal?: AbortSignal
   ): AsyncGenerator<RuntimeTurnStreamEvent> {
     let accumulatedText = "";
@@ -223,7 +258,12 @@ export class TurnExecutionService {
         const providerStream = await this.providerGatewayClientService.streamText(
           this.buildToolLoopProviderRequest(execution.providerRequest, {
             assistantText: iterationBaseText,
-            toolHistory
+            toolHistory,
+            requestMetadata: this.createTurnProviderRequestMetadata({
+              acceptedTurn,
+              classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
+              toolLoopIteration: iteration
+            })
           }),
           signal === undefined ? undefined : { signal }
         );
@@ -261,6 +301,7 @@ export class TurnExecutionService {
               );
             }
 
+            let durableCompactionExecuted = false;
             for (const toolCall of event.result.toolCalls) {
               yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
               let outcome: ToolExecutionOutcome;
@@ -271,10 +312,21 @@ export class TurnExecutionService {
                 throw error;
               }
               toolHistory.push(outcome.exchange);
+              this.applyToolExecutionOutcome(turnState, outcome);
+              durableCompactionExecuted =
+                durableCompactionExecuted ||
+                outcome.sharedCompaction?.durableStatePersisted === true;
               yield this.createToolFinishedStreamEvent(
                 acceptedTurn,
                 toolCall,
                 outcome.exchange.toolResult.isError
+              );
+            }
+
+            if (durableCompactionExecuted) {
+              execution.providerRequest = await this.refreshProviderRequestMessages(
+                execution.providerRequest,
+                input
               );
             }
 
@@ -294,7 +346,7 @@ export class TurnExecutionService {
             const result = this.buildTurnResult(acceptedTurn, completedProviderResult);
             completionFinalizationAttempted = true;
             await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
-            this.scheduleAutoCompaction(input, execution.bundle);
+            this.scheduleAutoCompaction(input, execution.bundle, turnState);
             yield {
               type: "completed",
               result
@@ -590,7 +642,9 @@ export class TurnExecutionService {
 
   private async executeProviderToolLoop(
     acceptedTurn: AcceptedRuntimeTurn,
-    execution: PreparedTurnExecution
+    execution: PreparedTurnExecution,
+    input: RuntimeTurnRequest,
+    turnState: TurnExecutionState
   ): Promise<ProviderGatewayTextGenerateResult> {
     const toolHistory: ProviderGatewayToolExchange[] = [];
     let accumulatedText = "";
@@ -598,7 +652,12 @@ export class TurnExecutionService {
       const providerResult = await this.providerGatewayClientService.generateText(
         this.buildToolLoopProviderRequest(execution.providerRequest, {
           assistantText: accumulatedText,
-          toolHistory
+          toolHistory,
+          requestMetadata: this.createTurnProviderRequestMetadata({
+            acceptedTurn,
+            classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
+            toolLoopIteration: iteration
+          })
         })
       );
       accumulatedText = this.mergeAssistantTurnText(accumulatedText, providerResult.text);
@@ -615,11 +674,21 @@ export class TurnExecutionService {
       }
 
       const exchanges: ProviderGatewayToolExchange[] = [];
+      let durableCompactionExecuted = false;
       for (const toolCall of providerResult.toolCalls) {
         const outcome = await this.executeProjectedToolCall(execution, acceptedTurn, toolCall);
         exchanges.push(outcome.exchange);
+        this.applyToolExecutionOutcome(turnState, outcome);
+        durableCompactionExecuted =
+          durableCompactionExecuted || outcome.sharedCompaction?.durableStatePersisted === true;
       }
       toolHistory.push(...exchanges);
+      if (durableCompactionExecuted) {
+        execution.providerRequest = await this.refreshProviderRequestMessages(
+          execution.providerRequest,
+          input
+        );
+      }
     }
 
     throw new TurnExecutionError(
@@ -664,9 +733,19 @@ export class TurnExecutionService {
           runtimeTier: execution.runtimeTier,
           conversation: acceptedTurn.session.conversation,
           instructions,
-          heldLease: acceptedTurn.lease
+          heldLease: acceptedTurn.lease,
+          trigger: "manual_compaction",
+          runtimeRequestId: acceptedTurn.receipt.requestId
         });
-        return this.createToolExecutionOutcome(toolCall, result.toolResult);
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.toolResult,
+          result.reason === "invalid_summary_output",
+          {
+            toolCode: "summarize_context",
+            durableStatePersisted: false
+          }
+        );
       }
       case execution.bundle.runtime.sharedCompaction.compactToolCode: {
         const instructions = this.readOptionalInstructions(toolCall.arguments);
@@ -685,9 +764,19 @@ export class TurnExecutionService {
           runtimeTier: execution.runtimeTier,
           conversation: acceptedTurn.session.conversation,
           instructions,
-          heldLease: acceptedTurn.lease
+          heldLease: acceptedTurn.lease,
+          trigger: "manual_compaction",
+          runtimeRequestId: acceptedTurn.receipt.requestId
         });
-        return this.createToolExecutionOutcome(toolCall, result.toolResult);
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.toolResult,
+          result.reason === "invalid_summary_output",
+          {
+            toolCode: "compact_context",
+            durableStatePersisted: result.compacted && result.toolResult.reusableInLaterTurns
+          }
+        );
       }
       case execution.bundle.runtime.knowledgeAccess.searchToolCode:
         return this.executeKnowledgeSearchTool(execution, toolCall);
@@ -793,7 +882,8 @@ export class TurnExecutionService {
       | RuntimeKnowledgeSearchToolResult
       | RuntimeKnowledgeFetchToolResult
       | Record<string, unknown>,
-    isError = false
+    isError = false,
+    sharedCompaction?: ToolExecutionOutcome["sharedCompaction"]
   ): ToolExecutionOutcome {
     return {
       exchange: {
@@ -805,7 +895,8 @@ export class TurnExecutionService {
           isError
         }
       },
-      payload
+      payload,
+      ...(sharedCompaction === undefined ? {} : { sharedCompaction })
     };
   }
 
@@ -814,6 +905,7 @@ export class TurnExecutionService {
     input: {
       assistantText: string;
       toolHistory: ProviderGatewayToolExchange[];
+      requestMetadata: ProviderGatewayRequestMetadata;
     }
   ): ProviderGatewayTextGenerateRequest {
     const assistantText = this.normalizeOptionalText(input.assistantText);
@@ -829,7 +921,8 @@ export class TurnExecutionService {
                 content: assistantText
               }
             ],
-      ...(input.toolHistory.length === 0 ? {} : { toolHistory: input.toolHistory })
+      ...(input.toolHistory.length === 0 ? {} : { toolHistory: input.toolHistory }),
+      requestMetadata: input.requestMetadata
     };
   }
 
@@ -914,6 +1007,52 @@ export class TurnExecutionService {
     };
   }
 
+  private createTurnExecutionState(): TurnExecutionState {
+    return {
+      sharedCompaction: {
+        invoked: false,
+        durableStatePersisted: false
+      }
+    };
+  }
+
+  private applyToolExecutionOutcome(
+    turnState: TurnExecutionState,
+    outcome: ToolExecutionOutcome
+  ): void {
+    if (outcome.sharedCompaction === undefined) {
+      return;
+    }
+    turnState.sharedCompaction.invoked = true;
+    turnState.sharedCompaction.durableStatePersisted =
+      turnState.sharedCompaction.durableStatePersisted ||
+      outcome.sharedCompaction.durableStatePersisted;
+  }
+
+  private async refreshProviderRequestMessages(
+    baseRequest: ProviderGatewayTextGenerateRequest,
+    input: RuntimeTurnRequest
+  ): Promise<ProviderGatewayTextGenerateRequest> {
+    return {
+      ...baseRequest,
+      messages: await this.turnContextHydrationService.buildMessages(input)
+    };
+  }
+
+  private createTurnProviderRequestMetadata(input: {
+    acceptedTurn: AcceptedRuntimeTurn;
+    classification: TurnProviderRequestClassification;
+    toolLoopIteration: number;
+  }): ProviderGatewayRequestMetadata {
+    return {
+      classification: input.classification,
+      runtimeRequestId: input.acceptedTurn.receipt.requestId,
+      runtimeSessionId: input.acceptedTurn.session.sessionId,
+      toolLoopIteration: input.toolLoopIteration,
+      compactionToolCode: null
+    };
+  }
+
   private readOptionalInstructions(
     argumentsObject: Record<string, unknown>
   ): string | null | Error {
@@ -937,7 +1076,15 @@ export class TurnExecutionService {
     return value === null || value.trim().length === 0 ? null : value.trim();
   }
 
-  private scheduleAutoCompaction(input: RuntimeTurnRequest, bundle: AssistantRuntimeBundle): void {
+  private scheduleAutoCompaction(
+    input: RuntimeTurnRequest,
+    bundle: AssistantRuntimeBundle,
+    turnState: TurnExecutionState
+  ): void {
+    if (turnState.sharedCompaction.durableStatePersisted) {
+      return;
+    }
+
     const request = this.buildAutoCompactionRequest(input, bundle);
     if (request === null) {
       return;
@@ -951,7 +1098,7 @@ export class TurnExecutionService {
   private buildAutoCompactionRequest(
     input: RuntimeTurnRequest,
     bundle: AssistantRuntimeBundle
-  ): RuntimeCompactionRequest | null {
+  ): AutoCompactionRequest | null {
     if (
       input.conversation.channel !== "telegram" ||
       bundle.runtime.sharedCompaction.telegramAutoSummarizeEnabled !== true
@@ -962,11 +1109,13 @@ export class TurnExecutionService {
     return {
       runtimeTier: input.runtimeTier,
       conversation: input.conversation,
-      instructions: null
+      instructions: null,
+      trigger: "auto_compaction",
+      runtimeRequestId: input.requestId
     };
   }
 
-  private async runAutoCompaction(request: RuntimeCompactionRequest): Promise<void> {
+  private async runAutoCompaction(request: AutoCompactionRequest): Promise<void> {
     try {
       const result = await this.sessionCompactionService.compactSession(request);
       if (

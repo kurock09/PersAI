@@ -12,6 +12,7 @@ import { RuntimeStatePostgresService } from "../runtime-state/infrastructure/per
 import { RuntimeStatePrismaService } from "../runtime-state/infrastructure/persistence/runtime-state-prisma.service";
 import { RuntimeStateKeyspaceService } from "../runtime-state/runtime-state-keyspace.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
+import { parseStoredReusableCompactionState } from "./shared-compaction-state";
 
 const MAX_CANONICAL_CONTEXT_MESSAGES = 20;
 const MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -303,26 +304,14 @@ export class TurnContextHydrationService {
   }
 
   private parseReusableCompactionSummary(payload: unknown): ReusableCompactionSummary | null {
-    const row = this.asObject(payload);
-    if (row?.schema !== "persai.runtimeSessionCompaction.v1") {
-      return null;
-    }
-
-    const summaryText =
-      typeof row.summaryText === "string" && row.summaryText.trim().length > 0
-        ? row.summaryText.trim()
-        : null;
-    const summarizedMessageCount =
-      Number.isInteger(row.summarizedMessageCount) && Number(row.summarizedMessageCount) > 0
-        ? Number(row.summarizedMessageCount)
-        : null;
-    if (summaryText === null || summarizedMessageCount === null) {
+    const parsed = parseStoredReusableCompactionState(payload);
+    if (parsed === null) {
       return null;
     }
 
     return {
-      summaryText,
-      summarizedMessageCount
+      summaryText: parsed.summaryText,
+      summarizedMessageCount: parsed.summarizedMessageCount
     };
   }
 

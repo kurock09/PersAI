@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, ServiceUnavailableException } from "@n
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   PersaiRuntimeSharedCompactionToolCode,
+  ProviderGatewayRequestMetadata,
   ProviderGatewayTextGenerateRequest,
   RuntimeCompactionRequest,
   RuntimeCompactionResult,
@@ -13,6 +14,10 @@ import { type RuntimeSessionLease, SessionLeaseService } from "../sessions/sessi
 import { SessionStoreService } from "../sessions/session-store.service";
 import { RuntimeStatePostgresService } from "../runtime-state/infrastructure/persistence/runtime-state-postgres.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import {
+  MAX_REUSABLE_COMPACTION_SECTION_ITEMS,
+  normalizeReusableCompactionStateFromModelOutput
+} from "./shared-compaction-state";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
@@ -22,8 +27,12 @@ type ProviderSelection = {
   model: string;
 };
 
+type SharedCompactionTrigger = "manual_compaction" | "auto_compaction";
+
 type SharedCompactionRequest = RuntimeCompactionRequest & {
   heldLease?: RuntimeSessionLease;
+  trigger?: SharedCompactionTrigger;
+  runtimeRequestId?: string | null;
 };
 
 const MIN_SUMMARIZED_MESSAGE_COUNT = 2;
@@ -44,7 +53,7 @@ export class SessionCompactionService {
       input,
       toolCode: "compact_context",
       persistSummary: true,
-      manualTrigger: this.isManualCompactionRequest(input)
+      trigger: input.trigger ?? "manual_compaction"
     });
   }
 
@@ -53,7 +62,7 @@ export class SessionCompactionService {
       input,
       toolCode: "summarize_context",
       persistSummary: false,
-      manualTrigger: true
+      trigger: "manual_compaction"
     });
   }
 
@@ -61,9 +70,10 @@ export class SessionCompactionService {
     input: SharedCompactionRequest;
     toolCode: PersaiRuntimeSharedCompactionToolCode;
     persistSummary: boolean;
-    manualTrigger: boolean;
+    trigger: SharedCompactionTrigger;
   }): Promise<RuntimeCompactionResult> {
     const instructions = this.normalizeOptionalText(input.input.instructions);
+    const manualTrigger = input.trigger === "manual_compaction";
     const resolvedSession = await this.sessionStoreService.resolveSession({
       runtimeTier: input.input.runtimeTier,
       conversation: input.input.conversation
@@ -189,11 +199,11 @@ export class SessionCompactionService {
         1,
         sharedCompaction.reserveTokens - sharedCompaction.keepRecentTokens
       );
-      if (
-        !input.manualTrigger &&
-        resolvedSession.session.currentTokens !== null &&
-        resolvedSession.session.currentTokens < tokenThreshold
-      ) {
+      const freshCurrentTokens =
+        resolvedSession.session.totalTokensFresh === true
+          ? resolvedSession.session.currentTokens
+          : null;
+      if (!manualTrigger && (freshCurrentTokens === null || freshCurrentTokens < tokenThreshold)) {
         return this.buildCompactionResult({
           toolCode: input.toolCode,
           action: "skipped",
@@ -255,6 +265,9 @@ export class SessionCompactionService {
           bundle: bundleEntry.parsedBundle,
           providerSelection,
           toolCode: input.toolCode,
+          trigger: input.trigger,
+          runtimeRequestId: input.input.runtimeRequestId ?? null,
+          runtimeSessionId: resolvedSession.session.sessionId,
           persistSummary: input.persistSummary,
           instructions,
           summarizedMessageCount: compactionSource.summarizedMessageCount,
@@ -268,14 +281,37 @@ export class SessionCompactionService {
         );
       }
 
-      const summaryPayload = {
-        schema: "persai.runtimeSessionCompaction.v1",
-        summarizeToolCode: sharedCompaction.summarizeToolCode,
+      const normalizedSummary = normalizeReusableCompactionStateFromModelOutput({
+        rawOutputText: providerResult.text,
         toolCode: input.toolCode,
-        summaryText: providerResult.text,
         summarizedMessageCount: compactionSource.summarizedMessageCount,
         preservedRecentMessageCount: compactionSource.preservedRecentMessageCount
-      } satisfies Record<string, unknown>;
+      });
+      if (normalizedSummary === null) {
+        return this.buildCompactionResult({
+          toolCode: input.toolCode,
+          action: "skipped",
+          reason: "invalid_summary_output",
+          compacted: false,
+          session: resolvedSession.session,
+          sessionId: resolvedSession.session.sessionId,
+          beforeState: this.createToolResultState({
+            session: resolvedSession.session,
+            summarizedMessageCount: compactionSource.summarizedMessageCount,
+            preservedRecentMessageCount: compactionSource.preservedRecentMessageCount
+          }),
+          afterState: this.createToolResultState({
+            session: resolvedSession.session,
+            summarizedMessageCount: compactionSource.summarizedMessageCount,
+            preservedRecentMessageCount: compactionSource.preservedRecentMessageCount
+          }),
+          compactionRecordId: null,
+          summaryText: null,
+          summaryPayload: null,
+          preservedRecentTurns: sharedCompaction.recentTurnsPreserve,
+          reusableInLaterTurns: false
+        });
+      }
 
       let compactionRecordId: string | null = null;
       let updatedSession = resolvedSession.session;
@@ -284,9 +320,10 @@ export class SessionCompactionService {
           runtimeSessionId: persistedSession.id,
           assistantId: persistedSession.assistantId,
           workspaceId: persistedSession.workspaceId,
-          reason: input.manualTrigger ? "manual_request" : "shared_compaction",
+          requestId: input.input.runtimeRequestId ?? null,
+          reason: input.trigger,
           instructions,
-          summaryPayload,
+          summaryPayload: normalizedSummary.payload,
           tokensBefore: resolvedSession.session.currentTokens,
           tokensAfter: null
         });
@@ -295,7 +332,9 @@ export class SessionCompactionService {
         updatedSession = await this.sessionStoreService.updateSessionSummary({
           sessionId: persistedSession.id,
           compactionCount: persistedSession.compactionCount + 1,
-          compactionHintTokens: resolvedSession.session.currentTokens
+          compactionHintTokens: resolvedSession.session.currentTokens,
+          currentTokens: null,
+          totalTokensFresh: false
         });
       }
 
@@ -312,18 +351,13 @@ export class SessionCompactionService {
           preservedRecentMessageCount: compactionSource.preservedRecentMessageCount
         }),
         afterState: this.createToolResultState({
-          session: input.persistSummary
-            ? {
-                ...updatedSession,
-                currentTokens: null
-              }
-            : updatedSession,
+          session: updatedSession,
           summarizedMessageCount: compactionSource.summarizedMessageCount,
           preservedRecentMessageCount: compactionSource.preservedRecentMessageCount
         }),
         compactionRecordId,
-        summaryText: providerResult.text,
-        summaryPayload,
+        summaryText: normalizedSummary.summaryText,
+        summaryPayload: normalizedSummary.payload,
         preservedRecentTurns: sharedCompaction.recentTurnsPreserve,
         reusableInLaterTurns: input.persistSummary
       });
@@ -338,6 +372,9 @@ export class SessionCompactionService {
     bundle: AssistantRuntimeBundle;
     providerSelection: ProviderSelection;
     toolCode: PersaiRuntimeSharedCompactionToolCode;
+    trigger: SharedCompactionTrigger;
+    runtimeRequestId: string | null;
+    runtimeSessionId: string;
     persistSummary: boolean;
     instructions: string | null;
     summarizedMessageCount: number;
@@ -347,9 +384,12 @@ export class SessionCompactionService {
     const sections = [
       "You are the PersAI native shared compaction tool.",
       "Summarize earlier conversation context so later runtime turns can preserve durable facts and open threads without replaying all old messages.",
-      "Return plain text only.",
-      "Preserve stable user facts, assistant commitments, active reminders/tasks, unresolved questions, preferences, important external references, and any constraints that still matter.",
-      "Avoid pleasantries, duplicated wording, and transient chatter that does not change future behavior.",
+      "Return exactly one JSON object and nothing else. Do not use markdown or code fences.",
+      'Required JSON shape: {"stableFacts":[],"userPreferences":[],"assistantCommitments":[],"openThreads":[],"importantReferences":[]}.',
+      "Use empty arrays when a section has nothing durable to keep.",
+      "Each array item must be a short neutral factual note, not a direct reply to the user.",
+      "Do not include greetings, reassurance, sign-offs, first-person assistant language, or transient chatter.",
+      `Limit each section to at most ${String(MAX_REUSABLE_COMPACTION_SECTION_ITEMS)} items and keep each item concise.`,
       input.persistSummary
         ? "This result will become the durable shared compaction state for later turns."
         : "This result is for the current tool call only and must not claim durable later-turn reuse.",
@@ -371,7 +411,13 @@ export class SessionCompactionService {
       provider: input.providerSelection.provider,
       model: input.providerSelection.model,
       systemPrompt: sections.join("\n\n"),
-      messages: input.messages
+      messages: input.messages,
+      requestMetadata: this.createRequestMetadata({
+        classification: input.trigger,
+        runtimeRequestId: input.runtimeRequestId,
+        runtimeSessionId: input.runtimeSessionId,
+        compactionToolCode: input.toolCode
+      })
     };
   }
 
@@ -407,15 +453,6 @@ export class SessionCompactionService {
 
     throw new ServiceUnavailableException(
       "Runtime bundle does not declare a native managed provider/model for shared compaction."
-    );
-  }
-
-  private isManualCompactionRequest(input: RuntimeCompactionRequest): boolean {
-    // Public web compaction is an explicit user action, so only auto/system triggers remain
-    // token-threshold gated.
-    return (
-      input.conversation.channel === "web" ||
-      this.normalizeOptionalText(input.instructions) !== null
     );
   }
 
@@ -472,6 +509,21 @@ export class SessionCompactionService {
 
   private normalizeOptionalText(value: string | null): string | null {
     return value === null || value.trim().length === 0 ? null : value.trim();
+  }
+
+  private createRequestMetadata(input: {
+    classification: SharedCompactionTrigger;
+    runtimeRequestId: string | null;
+    runtimeSessionId: string;
+    compactionToolCode: PersaiRuntimeSharedCompactionToolCode;
+  }): ProviderGatewayRequestMetadata {
+    return {
+      classification: input.classification,
+      runtimeRequestId: input.runtimeRequestId,
+      runtimeSessionId: input.runtimeSessionId,
+      toolLoopIteration: null,
+      compactionToolCode: input.compactionToolCode
+    };
   }
 
   private asObject(value: unknown): Record<string, unknown> | null {

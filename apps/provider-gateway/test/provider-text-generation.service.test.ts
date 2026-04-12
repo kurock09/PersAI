@@ -265,4 +265,19 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
       }),
     /dataBase64 must be non-empty/
   );
+
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        requestMetadata: {
+          classification: "tool_loop_followup",
+          runtimeRequestId: "request-1",
+          runtimeSessionId: "session-1",
+          toolLoopIteration: 0,
+          compactionToolCode: null
+        }
+      }),
+    /toolLoopIteration must be >= 1/
+  );
 }

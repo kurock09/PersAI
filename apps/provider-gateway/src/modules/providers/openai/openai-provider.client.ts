@@ -122,6 +122,12 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       if (toolChoice !== undefined) {
         payload.tool_choice = toolChoice;
       }
+      const metadata = this.toOpenAIMetadata(input.requestMetadata);
+      if (metadata !== undefined) {
+        (
+          payload as OpenAINonStreamingCreateParams & { metadata?: Record<string, string> }
+        ).metadata = metadata;
+      }
       const response = (await this.client.responses.create(payload, {
         signal
       })) as OpenAINonStreamingResponse;
@@ -260,6 +266,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       }
       if (toolChoice !== undefined) {
         payload.tool_choice = toolChoice;
+      }
+      const metadata = this.toOpenAIMetadata(input.requestMetadata);
+      if (metadata !== undefined) {
+        payload.metadata = metadata;
       }
       const stream = (await this.client.responses.create(
         payload as unknown as OpenAIResponseCreateParams,
@@ -457,6 +467,23 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     return {
       type: "function",
       name: input.toolChoice.name
+    };
+  }
+
+  private toOpenAIMetadata(
+    metadata: ProviderGatewayTextGenerateRequest["requestMetadata"]
+  ): Record<string, string> | undefined {
+    if (metadata === undefined) {
+      return undefined;
+    }
+
+    return {
+      persai_request_classification: metadata.classification,
+      persai_runtime_request_id: metadata.runtimeRequestId ?? "",
+      persai_runtime_session_id: metadata.runtimeSessionId ?? "",
+      persai_tool_loop_iteration:
+        metadata.toolLoopIteration === null ? "" : String(metadata.toolLoopIteration),
+      persai_compaction_tool_code: metadata.compactionToolCode ?? ""
     };
   }
 

@@ -3,6 +3,7 @@ import { BadRequestException, ServiceUnavailableException } from "@nestjs/common
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   RuntimeKnowledgeAccessConfig,
+  RuntimeCompactionResult,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent,
@@ -447,87 +448,97 @@ class FakeTurnFinalizationService {
   }
 }
 
-class FakeSessionCompactionService {
-  calls: Array<
-    RuntimeCompactionRequest & {
-      heldLease?: {
-        sessionId: string;
-        ownerToken: string;
-      };
-    }
-  > = [];
-  summarizeCalls: Array<
-    RuntimeCompactionRequest & {
-      heldLease?: {
-        sessionId: string;
-        ownerToken: string;
-      };
-    }
-  > = [];
+const TEMPORARY_SUMMARY_TEXT = "Stable facts:\n- Temporary summary text";
 
-  async compactSession(input: RuntimeCompactionRequest) {
-    this.calls.push(input);
-    return {
-      compacted: false,
+const TEMPORARY_SUMMARY_PAYLOAD = {
+  schema: "persai.runtimeSessionCompaction.v2",
+  toolCode: "summarize_context",
+  sections: {
+    stableFacts: ["Temporary summary text"],
+    userPreferences: [],
+    assistantCommitments: [],
+    openThreads: [],
+    importantReferences: []
+  },
+  summarizedMessageCount: 6,
+  preservedRecentMessageCount: 4
+};
+
+type RecordedCompactionRequest = RuntimeCompactionRequest & {
+  heldLease?: {
+    sessionId: string;
+    ownerToken: string;
+  };
+  trigger?: "manual_compaction" | "auto_compaction";
+  runtimeRequestId?: string | null;
+};
+
+class FakeSessionCompactionService {
+  calls: RecordedCompactionRequest[] = [];
+  summarizeCalls: RecordedCompactionRequest[] = [];
+  onCompact: (() => void) | null = null;
+  compactResult: RuntimeCompactionResult = {
+    compacted: false,
+    reason: "threshold_not_reached",
+    tokensBefore: 30,
+    tokensAfter: null,
+    session: null,
+    toolResult: {
+      toolCode: "compact_context" as const,
+      action: "skipped" as const,
       reason: "threshold_not_reached",
-      tokensBefore: 30,
-      tokensAfter: null,
-      session: null,
-      toolResult: {
-        toolCode: "compact_context",
-        action: "skipped",
-        reason: "threshold_not_reached",
-        sessionId: null,
-        compactionRecordId: null,
-        before: null,
-        after: null,
-        preservedRecentTurns: 4,
-        summaryText: null,
-        summaryPayload: null,
-        reusableInLaterTurns: false
-      }
-    };
+      sessionId: null,
+      compactionRecordId: null,
+      before: null,
+      after: null,
+      preservedRecentTurns: 4,
+      summaryText: null,
+      summaryPayload: null,
+      reusableInLaterTurns: false
+    }
+  };
+  summarizeResult: RuntimeCompactionResult = {
+    compacted: false,
+    reason: "summarized",
+    tokensBefore: 30,
+    tokensAfter: null,
+    session: null,
+    toolResult: {
+      toolCode: "summarize_context" as const,
+      action: "summarized" as const,
+      reason: "summarized",
+      sessionId: "session-1",
+      compactionRecordId: null,
+      before: {
+        sessionId: "session-1",
+        currentTokens: 30,
+        compactionCount: 0,
+        summarizedMessageCount: 6,
+        preservedRecentMessageCount: 4
+      },
+      after: {
+        sessionId: "session-1",
+        currentTokens: 30,
+        compactionCount: 0,
+        summarizedMessageCount: 6,
+        preservedRecentMessageCount: 4
+      },
+      preservedRecentTurns: 4,
+      summaryText: TEMPORARY_SUMMARY_TEXT,
+      summaryPayload: TEMPORARY_SUMMARY_PAYLOAD,
+      reusableInLaterTurns: false
+    }
+  };
+
+  async compactSession(input: RecordedCompactionRequest) {
+    this.calls.push(input);
+    this.onCompact?.();
+    return this.compactResult;
   }
 
-  async summarizeContext(input: RuntimeCompactionRequest) {
+  async summarizeContext(input: RecordedCompactionRequest) {
     this.summarizeCalls.push(input);
-    return {
-      compacted: false,
-      reason: "summarized",
-      tokensBefore: 30,
-      tokensAfter: null,
-      session: null,
-      toolResult: {
-        toolCode: "summarize_context",
-        action: "summarized",
-        reason: "summarized",
-        sessionId: "session-1",
-        compactionRecordId: null,
-        before: {
-          sessionId: "session-1",
-          currentTokens: 30,
-          compactionCount: 0,
-          summarizedMessageCount: 6,
-          preservedRecentMessageCount: 4
-        },
-        after: {
-          sessionId: "session-1",
-          currentTokens: 30,
-          compactionCount: 0,
-          summarizedMessageCount: 6,
-          preservedRecentMessageCount: 4
-        },
-        preservedRecentTurns: 4,
-        summaryText: "Temporary summary text",
-        summaryPayload: {
-          schema: "persai.runtimeSessionCompaction.v1",
-          summarizeToolCode: "summarize_context",
-          toolCode: "summarize_context",
-          summaryText: "Temporary summary text"
-        },
-        reusableInLaterTurns: false
-      }
-    };
+    return this.summarizeResult;
   }
 }
 
@@ -572,6 +583,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(providerGatewayClient.calls[0]?.provider, "openai");
   assert.equal(providerGatewayClient.calls[0]?.model, "gpt-5.4");
   assert.deepEqual(providerGatewayClient.calls[0]?.messages, turnContextHydrationService.messages);
+  assert.deepEqual(providerGatewayClient.calls[0]?.requestMetadata, {
+    classification: "main_turn",
+    runtimeRequestId: "request-1",
+    runtimeSessionId: "session-1",
+    toolLoopIteration: 0,
+    compactionToolCode: null
+  });
   assert.deepEqual(
     providerGatewayClient.calls[0]?.tools?.map((tool) => tool.name),
     ["summarize_context", "compact_context"]
@@ -638,7 +656,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.deepEqual(sessionCompactionService.calls.at(-1), {
     runtimeTier: "paid_shared_restricted",
     conversation: telegramRequest.conversation,
-    instructions: null
+    instructions: null,
+    trigger: "auto_compaction",
+    runtimeRequestId: "request-1"
   });
 
   if (bundleRegistry.entry !== null) {
@@ -656,6 +676,172 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.runtime.sharedCompaction.telegramAutoSummarizeEnabled = true;
   }
+
+  const providerCallsBeforeManualDurableCompaction = providerGatewayClient.calls.length;
+  const compactionCallsBeforeManualDurableCompaction = sessionCompactionService.calls.length;
+  const refreshedMessagesAfterCompaction: ProviderGatewayTextGenerateRequest["messages"] = [
+    {
+      role: "assistant",
+      content:
+        "[Earlier conversation summary retained by shared compaction]\nStable facts:\n- Durable compacted context."
+    },
+    {
+      role: "user",
+      content: "hello runtime"
+    }
+  ];
+  sessionCompactionService.compactResult = {
+    compacted: true,
+    reason: "compacted",
+    tokensBefore: 120,
+    tokensAfter: null,
+    session: null,
+    toolResult: {
+      toolCode: "compact_context",
+      action: "compacted",
+      reason: "compacted",
+      sessionId: "session-1",
+      compactionRecordId: "compaction-1",
+      before: {
+        sessionId: "session-1",
+        currentTokens: 120,
+        compactionCount: 0,
+        summarizedMessageCount: 6,
+        preservedRecentMessageCount: 2
+      },
+      after: {
+        sessionId: "session-1",
+        currentTokens: null,
+        compactionCount: 1,
+        summarizedMessageCount: 6,
+        preservedRecentMessageCount: 2
+      },
+      preservedRecentTurns: 4,
+      summaryText: "Stable facts:\n- Durable compacted context.",
+      summaryPayload: {
+        schema: "persai.runtimeSessionCompaction.v2",
+        toolCode: "compact_context",
+        sections: {
+          stableFacts: ["Durable compacted context."],
+          userPreferences: [],
+          assistantCommitments: [],
+          openThreads: [],
+          importantReferences: []
+        },
+        summarizedMessageCount: 6,
+        preservedRecentMessageCount: 2
+      },
+      reusableInLaterTurns: true
+    }
+  };
+  sessionCompactionService.onCompact = () => {
+    turnContextHydrationService.messages = refreshedMessagesAfterCompaction;
+  };
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-11T12:00:04.500Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 40,
+        outputTokens: 0,
+        totalTokens: 40
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-compact-1",
+          name: "compact_context",
+          arguments: {}
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "post-compaction reply",
+      respondedAt: "2026-04-11T12:00:05.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 20,
+        outputTokens: 5,
+        totalTokens: 25
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  turnContextHydrationService.messages = [
+    {
+      role: "user",
+      content: "pre-compaction full history"
+    }
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).session.conversation = {
+    ...telegramRequest.conversation
+  };
+  const manualDurableCompactionTurn = await service.createTurn(telegramRequest);
+  assert.equal(manualDurableCompactionTurn.assistantText, "post-compaction reply");
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeManualDurableCompaction + 2);
+  assert.deepEqual(providerGatewayClient.calls.at(-1)?.messages, refreshedMessagesAfterCompaction);
+  assert.deepEqual(providerGatewayClient.calls.at(-1)?.requestMetadata, {
+    classification: "tool_loop_followup",
+    runtimeRequestId: "request-1",
+    runtimeSessionId: "session-1",
+    toolLoopIteration: 1,
+    compactionToolCode: null
+  });
+  assert.deepEqual(sessionCompactionService.calls.at(-1), {
+    runtimeTier: "paid_shared_restricted",
+    conversation: telegramRequest.conversation,
+    instructions: null,
+    heldLease: {
+      sessionId: "session-1",
+      ownerToken: "lease-owner-1"
+    },
+    trigger: "manual_compaction",
+    runtimeRequestId: "request-1"
+  });
+  await flushTaskQueue();
+  assert.equal(
+    sessionCompactionService.calls.length,
+    compactionCallsBeforeManualDurableCompaction + 1
+  );
+  sessionCompactionService.onCompact = null;
+  sessionCompactionService.compactResult = {
+    compacted: false,
+    reason: "threshold_not_reached",
+    tokensBefore: 30,
+    tokensAfter: null,
+    session: null,
+    toolResult: {
+      toolCode: "compact_context",
+      action: "skipped",
+      reason: "threshold_not_reached",
+      sessionId: null,
+      compactionRecordId: null,
+      before: null,
+      after: null,
+      preservedRecentTurns: 4,
+      summaryText: null,
+      summaryPayload: null,
+      reusableInLaterTurns: false
+    }
+  };
+  providerGatewayClient.resultQueue = [];
+  turnContextHydrationService.messages = [
+    {
+      role: "user",
+      content: "hello runtime"
+    }
+  ];
 
   const replayedResult = {
     ...completed,
@@ -734,6 +920,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.streamCalls[0]?.messages,
     turnContextHydrationService.messages
   );
+  assert.deepEqual(providerGatewayClient.streamCalls[0]?.requestMetadata, {
+    classification: "main_turn",
+    runtimeRequestId: "request-1",
+    runtimeSessionId: "session-1",
+    toolLoopIteration: 0,
+    compactionToolCode: null
+  });
   assert.deepEqual(
     providerGatewayClient.streamCalls[0]?.tools?.map((tool) => tool.name),
     ["summarize_context", "compact_context"]
@@ -824,6 +1017,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ["summarize_context", "compact_context"]
   );
   assert.equal(providerGatewayClient.streamCalls.at(-1)?.toolHistory?.length, 1);
+  assert.deepEqual(providerGatewayClient.streamCalls.at(-1)?.requestMetadata, {
+    classification: "tool_loop_followup",
+    runtimeRequestId: "request-1",
+    runtimeSessionId: "session-1",
+    toolLoopIteration: 1,
+    compactionToolCode: null
+  });
   assert.equal(providerGatewayClient.streamCalls.at(-1)?.messages.at(-1)?.role, "assistant");
   assert.equal(providerGatewayClient.streamCalls.at(-1)?.messages.at(-1)?.content, "reply after");
   assert.equal(
@@ -837,7 +1037,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     heldLease: {
       sessionId: "session-1",
       ownerToken: "lease-owner-1"
-    }
+    },
+    trigger: "manual_compaction",
+    runtimeRequestId: "request-1"
   });
   const toolFinishedEvent = toolLoopStreamEvents[3];
   assert.equal(toolFinishedEvent?.type, "tool_finished");
@@ -907,9 +1109,18 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     heldLease: {
       sessionId: "session-1",
       ownerToken: "lease-owner-1"
-    }
+    },
+    trigger: "manual_compaction",
+    runtimeRequestId: "request-1"
   });
   assert.equal(providerGatewayClient.calls.at(-1)?.toolHistory?.length, 1);
+  assert.deepEqual(providerGatewayClient.calls.at(-1)?.requestMetadata, {
+    classification: "tool_loop_followup",
+    runtimeRequestId: "request-1",
+    runtimeSessionId: "session-1",
+    toolLoopIteration: 1,
+    compactionToolCode: null
+  });
   assert.match(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "",
     /Temporary summary text/

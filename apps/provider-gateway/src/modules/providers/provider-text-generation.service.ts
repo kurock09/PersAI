@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
-import type {
-  ProviderGatewayMessageContent,
-  ProviderGatewayTextGenerateRequest,
-  ProviderGatewayTextGenerateResult,
-  ProviderGatewayTextStreamEvent
+import {
+  PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS,
+  PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES,
+  type ProviderGatewayMessageContent,
+  type ProviderGatewayTextGenerateRequest,
+  type ProviderGatewayTextGenerateResult,
+  type ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
@@ -65,6 +67,7 @@ export class ProviderTextGenerationService {
     const declaredToolNames = this.assertValidTools(input);
     this.assertValidToolChoice(input, declaredToolNames);
     this.assertValidToolHistory(input, declaredToolNames);
+    this.assertValidRequestMetadata(input);
   }
 
   private assertProviderReady(input: ProviderGatewayTextGenerateRequest): void {
@@ -219,5 +222,109 @@ export class ProviderTextGenerationService {
         );
       }
     }
+  }
+
+  private assertValidRequestMetadata(input: ProviderGatewayTextGenerateRequest): void {
+    const metadata = input.requestMetadata;
+    if (metadata === undefined) {
+      return;
+    }
+    if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+      throw new BadRequestException("requestMetadata must be an object when provided");
+    }
+
+    if (
+      !PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS.includes(
+        metadata.classification as (typeof PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS)[number]
+      )
+    ) {
+      throw new BadRequestException(
+        "requestMetadata.classification must be a supported provider request classification"
+      );
+    }
+
+    this.assertNullableNonEmptyString(
+      metadata.runtimeRequestId,
+      "requestMetadata.runtimeRequestId"
+    );
+    const runtimeSessionId = this.assertNullableNonEmptyString(
+      metadata.runtimeSessionId,
+      "requestMetadata.runtimeSessionId"
+    );
+    if (
+      metadata.toolLoopIteration !== null &&
+      (!Number.isInteger(metadata.toolLoopIteration) || metadata.toolLoopIteration < 0)
+    ) {
+      throw new BadRequestException(
+        "requestMetadata.toolLoopIteration must be a non-negative integer or null"
+      );
+    }
+    if (
+      metadata.compactionToolCode !== null &&
+      !PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES.includes(metadata.compactionToolCode)
+    ) {
+      throw new BadRequestException(
+        "requestMetadata.compactionToolCode must be a supported shared compaction tool code or null"
+      );
+    }
+
+    switch (metadata.classification) {
+      case "main_turn":
+        if (metadata.toolLoopIteration !== 0) {
+          throw new BadRequestException(
+            "requestMetadata.toolLoopIteration must be 0 for main_turn requests"
+          );
+        }
+        if (runtimeSessionId === null) {
+          throw new BadRequestException(
+            "requestMetadata.runtimeSessionId must be set for main_turn requests"
+          );
+        }
+        break;
+      case "tool_loop_followup":
+        if (
+          metadata.toolLoopIteration === null ||
+          !Number.isInteger(metadata.toolLoopIteration) ||
+          metadata.toolLoopIteration < 1
+        ) {
+          throw new BadRequestException(
+            "requestMetadata.toolLoopIteration must be >= 1 for tool_loop_followup requests"
+          );
+        }
+        if (runtimeSessionId === null) {
+          throw new BadRequestException(
+            "requestMetadata.runtimeSessionId must be set for tool_loop_followup requests"
+          );
+        }
+        break;
+      case "manual_compaction":
+      case "auto_compaction":
+        if (runtimeSessionId === null) {
+          throw new BadRequestException(
+            "requestMetadata.runtimeSessionId must be set for shared compaction requests"
+          );
+        }
+        if (metadata.compactionToolCode === null) {
+          throw new BadRequestException(
+            "requestMetadata.compactionToolCode must be set for shared compaction requests"
+          );
+        }
+        if (metadata.toolLoopIteration !== null) {
+          throw new BadRequestException(
+            "requestMetadata.toolLoopIteration must be null for shared compaction requests"
+          );
+        }
+        break;
+    }
+  }
+
+  private assertNullableNonEmptyString(value: unknown, field: string): string | null {
+    if (value === null) {
+      return null;
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+    throw new BadRequestException(`${field} must be a non-empty string or null`);
   }
 }

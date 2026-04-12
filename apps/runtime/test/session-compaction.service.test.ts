@@ -43,6 +43,29 @@ const KNOWLEDGE_ACCESS_CONFIG = {
   ]
 } satisfies RuntimeKnowledgeAccessConfig;
 
+const VALID_COMPACTION_SECTIONS = {
+  stableFacts: ["User is working on the PersAI runtime."],
+  userPreferences: ["Prefers direct production-safe fixes."],
+  assistantCommitments: ["Assistant owes a verified shared compaction fix."],
+  openThreads: ["Need to stabilize native shared compaction semantics."],
+  importantReferences: ["Session thread key is thread-1."]
+};
+
+const VALID_COMPACTION_OUTPUT = JSON.stringify(VALID_COMPACTION_SECTIONS);
+
+const RENDERED_COMPACTION_SUMMARY = [
+  "Stable facts:",
+  "- User is working on the PersAI runtime.",
+  "User preferences:",
+  "- Prefers direct production-safe fixes.",
+  "Assistant commitments:",
+  "- Assistant owes a verified shared compaction fix.",
+  "Open threads:",
+  "- Need to stabilize native shared compaction semantics.",
+  "Important references:",
+  "- Session thread key is thread-1."
+].join("\n");
+
 function createCompactionRequest(input?: {
   instructions?: string | null;
   channel?: "web" | "telegram";
@@ -205,13 +228,14 @@ class FakeRuntimeBundleRegistryService {
 
 class FakeProviderGatewayClientService {
   requests: ProviderGatewayTextGenerateRequest[] = [];
+  textOutput = VALID_COMPACTION_OUTPUT;
 
   async generateText(input: ProviderGatewayTextGenerateRequest) {
     this.requests.push(input);
     return {
       provider: "openai" as const,
       model: "gpt-5.4",
-      text: "Compacted summary text",
+      text: this.textOutput,
       respondedAt: "2026-04-12T12:00:02.000Z",
       usage: {
         providerKey: "openai",
@@ -248,11 +272,17 @@ class FakeTurnContextHydrationService {
 class FakeSessionStoreService {
   resolvedSession = createResolvedSession(30_000);
   updatedSession = {
-    ...createResolvedSession(30_000),
+    ...createResolvedSession(null),
     compactionCount: 3,
-    compactionHintTokens: 30_000
+    compactionHintTokens: 30_000,
+    totalTokensFresh: false
   };
-  updateCalls: Array<{ compactionCount?: number; compactionHintTokens?: number | null }> = [];
+  updateCalls: Array<{
+    compactionCount?: number;
+    compactionHintTokens?: number | null;
+    currentTokens?: number | null;
+    totalTokensFresh?: boolean;
+  }> = [];
 
   async resolveSession() {
     return {
@@ -265,6 +295,8 @@ class FakeSessionStoreService {
   async updateSessionSummary(input: {
     compactionCount?: number;
     compactionHintTokens?: number | null;
+    currentTokens?: number | null;
+    totalTokensFresh?: boolean;
   }) {
     this.updateCalls.push(input);
     return this.updatedSession;
@@ -330,9 +362,10 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   );
 
   sessionStore.resolvedSession = createResolvedSession(7000);
-  const belowThreshold = await service.compactSession(
-    createCompactionRequest({ channel: "telegram" })
-  );
+  const belowThreshold = await service.compactSession({
+    ...createCompactionRequest({ channel: "telegram" }),
+    trigger: "auto_compaction"
+  });
   assert.equal(belowThreshold.compacted, false);
   assert.equal(belowThreshold.reason, "threshold_not_reached");
   assert.equal(belowThreshold.toolResult.action, "skipped");
@@ -346,18 +379,27 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(manualWebCompaction.toolResult.action, "compacted");
   assert.equal(manualWebCompaction.toolResult.compactionRecordId, "compaction-1");
   assert.equal(manualWebCompaction.toolResult.reusableInLaterTurns, true);
+  assert.equal(manualWebCompaction.session?.currentTokens, null);
+  assert.equal(manualWebCompaction.session?.totalTokensFresh, false);
   assert.equal(providerGateway.requests.length, 1);
+  assert.deepEqual(providerGateway.requests[0]?.requestMetadata, {
+    classification: "manual_compaction",
+    runtimeRequestId: null,
+    runtimeSessionId: "session-1",
+    toolLoopIteration: null,
+    compactionToolCode: "compact_context"
+  });
   assert.deepEqual(postgres.appendCalls.at(-1), {
     runtimeSessionId: "session-1",
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    reason: "manual_request",
+    requestId: null,
+    reason: "manual_compaction",
     instructions: null,
     summaryPayload: {
-      schema: "persai.runtimeSessionCompaction.v1",
-      summarizeToolCode: "summarize_context",
+      schema: "persai.runtimeSessionCompaction.v2",
       toolCode: "compact_context",
-      summaryText: "Compacted summary text",
+      sections: VALID_COMPACTION_SECTIONS,
       summarizedMessageCount: 4,
       preservedRecentMessageCount: 8
     },
@@ -375,10 +417,17 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(compacted.tokensAfter, null);
   assert.equal(compacted.session?.compactionCount, 3);
   assert.equal(compacted.toolResult.action, "compacted");
-  assert.equal(compacted.toolResult.summaryText, "Compacted summary text");
+  assert.equal(compacted.toolResult.summaryText, RENDERED_COMPACTION_SUMMARY);
   assert.equal(compacted.toolResult.preservedRecentTurns, 4);
   assert.equal(hydration.inputs.at(-1)?.keepRecentMessageCount, 8);
   assert.equal(providerGateway.requests.length, 2);
+  assert.deepEqual(providerGateway.requests[1]?.requestMetadata, {
+    classification: "manual_compaction",
+    runtimeRequestId: null,
+    runtimeSessionId: "session-1",
+    toolLoopIteration: null,
+    compactionToolCode: "compact_context"
+  });
   assert.match(
     providerGateway.requests[1]?.systemPrompt ?? "",
     /Additional operator instructions: Keep commitments and open questions\./
@@ -386,19 +435,21 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.deepEqual(sessionStore.updateCalls.at(-1), {
     sessionId: "session-1",
     compactionCount: 3,
-    compactionHintTokens: 30000
+    compactionHintTokens: 30000,
+    currentTokens: null,
+    totalTokensFresh: false
   });
   assert.deepEqual(postgres.appendCalls.at(-1), {
     runtimeSessionId: "session-1",
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    reason: "manual_request",
+    requestId: null,
+    reason: "manual_compaction",
     instructions: "Keep commitments and open questions.",
     summaryPayload: {
-      schema: "persai.runtimeSessionCompaction.v1",
-      summarizeToolCode: "summarize_context",
+      schema: "persai.runtimeSessionCompaction.v2",
       toolCode: "compact_context",
-      summaryText: "Compacted summary text",
+      sections: VALID_COMPACTION_SECTIONS,
       summarizedMessageCount: 4,
       preservedRecentMessageCount: 8
     },
@@ -406,6 +457,27 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     tokensAfter: null
   });
   assert.equal(leaseService.released.length, 3);
+
+  sessionStore.resolvedSession = sessionStore.updatedSession;
+  const autoAfterCompaction = await service.compactSession({
+    ...createCompactionRequest({ channel: "telegram" }),
+    trigger: "auto_compaction",
+    runtimeRequestId: "request-auto-1"
+  });
+  assert.equal(autoAfterCompaction.compacted, false);
+  assert.equal(autoAfterCompaction.reason, "threshold_not_reached");
+  assert.equal(providerGateway.requests.length, 2);
+
+  providerGateway.textOutput = "Sure, here's a helpful summary for you.";
+  sessionStore.resolvedSession = createResolvedSession(30000);
+  const invalidSummary = await service.compactSession(
+    createCompactionRequest({ instructions: "Keep durable facts only." })
+  );
+  assert.equal(invalidSummary.compacted, false);
+  assert.equal(invalidSummary.reason, "invalid_summary_output");
+  assert.equal(postgres.appendCalls.length, 2);
+  assert.equal(sessionStore.updateCalls.length, 2);
+  providerGateway.textOutput = VALID_COMPACTION_OUTPUT;
 
   const summarized = await service.summarizeContext(
     createCompactionRequest({ instructions: "Keep durable facts only." })
@@ -415,7 +487,14 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(summarized.toolResult.action, "summarized");
   assert.equal(summarized.toolResult.compactionRecordId, null);
   assert.equal(summarized.toolResult.reusableInLaterTurns, false);
-  assert.equal(summarized.toolResult.summaryText, "Compacted summary text");
+  assert.equal(summarized.toolResult.summaryText, RENDERED_COMPACTION_SUMMARY);
+  assert.deepEqual(providerGateway.requests.at(-1)?.requestMetadata, {
+    classification: "manual_compaction",
+    runtimeRequestId: null,
+    runtimeSessionId: "session-1",
+    toolLoopIteration: null,
+    compactionToolCode: "summarize_context"
+  });
   assert.equal(postgres.appendCalls.length, 2);
   assert.equal(sessionStore.updateCalls.length, 2);
 

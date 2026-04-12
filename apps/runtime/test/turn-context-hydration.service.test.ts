@@ -370,7 +370,41 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   runtimeStatePostgres.latestCompaction = {
     summaryPayload: {
       schema: "persai.runtimeSessionCompaction.v1",
-      summaryText: "Durable summary of older context.",
+      summaryText: "Sure, here's a quick summary for you.",
+      summarizedMessageCount: 1
+    }
+  };
+  const ignoredInvalidSummary = await service.buildMessages({
+    ...request,
+    idempotencyKey: "message-21",
+    message: {
+      ...request.message,
+      text: "current turn after invalid compaction",
+      attachments: []
+    }
+  });
+  assert.equal(ignoredInvalidSummary.length, 20);
+  assert.deepEqual(ignoredInvalidSummary.at(0), {
+    role: "user",
+    content: "message-3"
+  });
+  assert.deepEqual(ignoredInvalidSummary.at(-2), {
+    role: "user",
+    content: "current turn after invalid compaction"
+  });
+
+  runtimeStatePostgres.latestCompaction = {
+    summaryPayload: {
+      schema: "persai.runtimeSessionCompaction.v2",
+      toolCode: "compact_context",
+      preservedRecentMessageCount: 21,
+      sections: {
+        stableFacts: ["Durable summary of older context."],
+        userPreferences: [],
+        assistantCommitments: [],
+        openThreads: [],
+        importantReferences: []
+      },
       summarizedMessageCount: 1
     }
   };
@@ -387,7 +421,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   assert.deepEqual(reusedSummary.at(0), {
     role: "assistant",
     content:
-      "[Earlier conversation summary retained by shared compaction]\nDurable summary of older context."
+      "[Earlier conversation summary retained by shared compaction]\nStable facts:\n- Durable summary of older context."
   });
   assert.deepEqual(reusedSummary.at(1), {
     role: "assistant",

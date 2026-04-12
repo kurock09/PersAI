@@ -327,6 +327,24 @@ export interface ProviderGatewayToolExchange {
   toolResult: ProviderGatewayToolResult;
 }
 
+export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
+  "main_turn",
+  "tool_loop_followup",
+  "manual_compaction",
+  "auto_compaction"
+] as const;
+
+export type ProviderGatewayRequestClassification =
+  (typeof PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS)[number];
+
+export interface ProviderGatewayRequestMetadata {
+  classification: ProviderGatewayRequestClassification;
+  runtimeRequestId: string | null;
+  runtimeSessionId: string | null;
+  toolLoopIteration: number | null;
+  compactionToolCode: PersaiRuntimeSharedCompactionToolCode | null;
+}
+
 export interface ProviderGatewayTextGenerateRequest {
   provider: "openai" | "anthropic";
   model: string;
@@ -336,6 +354,7 @@ export interface ProviderGatewayTextGenerateRequest {
   tools?: ProviderGatewayToolDefinition[];
   toolChoice?: ProviderGatewayToolChoice;
   toolHistory?: ProviderGatewayToolExchange[];
+  requestMetadata?: ProviderGatewayRequestMetadata;
 }
 
 export interface ProviderGatewayTextGenerateResult {

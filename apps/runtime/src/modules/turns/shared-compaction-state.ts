@@ -1,0 +1,268 @@
+import type { PersaiRuntimeSharedCompactionToolCode } from "@persai/runtime-contract";
+
+const MAX_PROVIDER_OUTPUT_CHARS = 12_000;
+const MAX_SECTION_ITEMS = 6;
+const MAX_TOTAL_ITEMS = 24;
+const MAX_ITEM_CHARS = 240;
+const MAX_RENDERED_SUMMARY_CHARS = 2_500;
+
+const SHARED_COMPACTION_SECTION_ORDER = [
+  "stableFacts",
+  "userPreferences",
+  "assistantCommitments",
+  "openThreads",
+  "importantReferences"
+] as const;
+
+type SharedCompactionSectionKey = (typeof SHARED_COMPACTION_SECTION_ORDER)[number];
+
+type SharedCompactionSections = Record<SharedCompactionSectionKey, string[]>;
+
+type SharedCompactionSectionDefinition = {
+  key: SharedCompactionSectionKey;
+  label: string;
+};
+
+const SHARED_COMPACTION_SECTION_DEFINITIONS: SharedCompactionSectionDefinition[] = [
+  {
+    key: "stableFacts",
+    label: "Stable facts"
+  },
+  {
+    key: "userPreferences",
+    label: "User preferences"
+  },
+  {
+    key: "assistantCommitments",
+    label: "Assistant commitments"
+  },
+  {
+    key: "openThreads",
+    label: "Open threads"
+  },
+  {
+    key: "importantReferences",
+    label: "Important references"
+  }
+];
+
+export const REUSABLE_SHARED_COMPACTION_SCHEMA = "persai.runtimeSessionCompaction.v2" as const;
+export const MAX_REUSABLE_COMPACTION_SECTION_ITEMS = MAX_SECTION_ITEMS;
+
+export interface StoredReusableCompactionState extends Record<string, unknown> {
+  schema: typeof REUSABLE_SHARED_COMPACTION_SCHEMA;
+  toolCode: PersaiRuntimeSharedCompactionToolCode;
+  summarizedMessageCount: number;
+  preservedRecentMessageCount: number;
+  sections: SharedCompactionSections;
+}
+
+export interface ParsedReusableCompactionState {
+  payload: StoredReusableCompactionState;
+  summaryText: string;
+  summarizedMessageCount: number;
+}
+
+export function normalizeReusableCompactionStateFromModelOutput(input: {
+  rawOutputText: string;
+  toolCode: PersaiRuntimeSharedCompactionToolCode;
+  summarizedMessageCount: number;
+  preservedRecentMessageCount: number;
+}): ParsedReusableCompactionState | null {
+  const normalizedOutput = normalizeOptionalText(input.rawOutputText);
+  if (normalizedOutput === null || normalizedOutput.length > MAX_PROVIDER_OUTPUT_CHARS) {
+    return null;
+  }
+
+  const parsed = parseJsonObject(unwrapJsonCodeFence(normalizedOutput));
+  if (parsed === null) {
+    return null;
+  }
+
+  const sections = normalizeReusableCompactionSections(parsed);
+  if (sections === null) {
+    return null;
+  }
+
+  const payload: StoredReusableCompactionState = {
+    schema: REUSABLE_SHARED_COMPACTION_SCHEMA,
+    toolCode: input.toolCode,
+    summarizedMessageCount: input.summarizedMessageCount,
+    preservedRecentMessageCount: input.preservedRecentMessageCount,
+    sections
+  };
+  const summaryText = renderReusableCompactionSummaryText(sections);
+  return {
+    payload,
+    summaryText,
+    summarizedMessageCount: input.summarizedMessageCount
+  };
+}
+
+export function parseStoredReusableCompactionState(
+  payload: unknown
+): ParsedReusableCompactionState | null {
+  const row = asObject(payload);
+  if (row?.schema !== REUSABLE_SHARED_COMPACTION_SCHEMA) {
+    return null;
+  }
+
+  const toolCode = row.toolCode;
+  if (toolCode !== "compact_context" && toolCode !== "summarize_context") {
+    return null;
+  }
+
+  const summarizedMessageCount =
+    Number.isInteger(row.summarizedMessageCount) && Number(row.summarizedMessageCount) > 0
+      ? Number(row.summarizedMessageCount)
+      : null;
+  const preservedRecentMessageCount =
+    Number.isInteger(row.preservedRecentMessageCount) &&
+    Number(row.preservedRecentMessageCount) >= 0
+      ? Number(row.preservedRecentMessageCount)
+      : null;
+  const sections = normalizeReusableCompactionSections(row.sections);
+  if (
+    summarizedMessageCount === null ||
+    preservedRecentMessageCount === null ||
+    sections === null
+  ) {
+    return null;
+  }
+
+  const normalizedPayload: StoredReusableCompactionState = {
+    schema: REUSABLE_SHARED_COMPACTION_SCHEMA,
+    toolCode,
+    summarizedMessageCount,
+    preservedRecentMessageCount,
+    sections
+  };
+  return {
+    payload: normalizedPayload,
+    summaryText: renderReusableCompactionSummaryText(sections),
+    summarizedMessageCount
+  };
+}
+
+export function renderReusableCompactionSummaryText(sections: SharedCompactionSections): string {
+  const lines: string[] = [];
+  for (const definition of SHARED_COMPACTION_SECTION_DEFINITIONS) {
+    const items = sections[definition.key];
+    if (items.length === 0) {
+      continue;
+    }
+    lines.push(`${definition.label}:`);
+    for (const item of items) {
+      lines.push(`- ${item}`);
+    }
+  }
+
+  const summaryText =
+    lines.length === 0
+      ? "No durable facts or open threads were retained from earlier summarized context."
+      : lines.join("\n");
+  return summaryText.length <= MAX_RENDERED_SUMMARY_CHARS ? summaryText : "";
+}
+
+function normalizeReusableCompactionSections(payload: unknown): SharedCompactionSections | null {
+  const row = asObject(payload);
+  if (row === null) {
+    return null;
+  }
+
+  const sections = createEmptySharedCompactionSections();
+  let totalItems = 0;
+  for (const key of SHARED_COMPACTION_SECTION_ORDER) {
+    const rawItems = row[key];
+    if (!Array.isArray(rawItems)) {
+      return null;
+    }
+
+    const seenItems = new Set<string>();
+    for (const rawItem of rawItems) {
+      if (typeof rawItem !== "string") {
+        return null;
+      }
+
+      const normalizedItem = normalizeCompactionItem(rawItem);
+      if (normalizedItem === null) {
+        return null;
+      }
+      if (normalizedItem.length === 0) {
+        continue;
+      }
+
+      const dedupeKey = normalizedItem.toLowerCase();
+      if (seenItems.has(dedupeKey)) {
+        continue;
+      }
+
+      sections[key].push(normalizedItem);
+      seenItems.add(dedupeKey);
+      totalItems += 1;
+
+      if (sections[key].length > MAX_SECTION_ITEMS || totalItems > MAX_TOTAL_ITEMS) {
+        return null;
+      }
+    }
+  }
+
+  const renderedSummaryText = renderReusableCompactionSummaryText(sections);
+  return renderedSummaryText.length === 0 ? null : sections;
+}
+
+function normalizeCompactionItem(value: string): string | null {
+  const normalized = value
+    .replace(/\s+/g, " ")
+    .replace(/^[-*]\s+/, "")
+    .trim();
+  if (normalized.length === 0) {
+    return "";
+  }
+  if (normalized.length > MAX_ITEM_CHARS || looksConversational(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+function looksConversational(value: string): boolean {
+  return (
+    /^(hi|hello|hey|sure|absolutely|of course|certainly|thanks|thank you|here(?:'s| is)|i can|i could|i have|i've|i am|i'm|let me|feel free|would you like|if you'd like|please)\b/i.test(
+      value
+    ) || /\b(how can i|let me know|happy to help)\b/i.test(value)
+  );
+}
+
+function unwrapJsonCodeFence(value: string): string {
+  const match = value.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match?.[1]?.trim() ?? value;
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value);
+    return asObject(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function createEmptySharedCompactionSections(): SharedCompactionSections {
+  return {
+    stableFacts: [],
+    userPreferences: [],
+    assistantCommitments: [],
+    openThreads: [],
+    importantReferences: []
+  };
+}
+
+function normalizeOptionalText(value: string | null): string | null {
+  return value === null || value.trim().length === 0 ? null : value.trim();
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}

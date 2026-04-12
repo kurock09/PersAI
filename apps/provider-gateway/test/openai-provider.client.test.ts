@@ -77,11 +77,13 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     input?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
+    metadata?: unknown;
   } | null = null;
   let capturedStreamPayload: {
     input?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
+    metadata?: unknown;
   } | null = null;
   let capturedTranscriptionInput: unknown = null;
 
@@ -188,6 +190,13 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   };
 
   const request = createRequest();
+  request.requestMetadata = {
+    classification: "main_turn",
+    runtimeRequestId: "request-1",
+    runtimeSessionId: "session-1",
+    toolLoopIteration: 0,
+    compactionToolCode: null
+  };
   const result = await client.generateText(request);
   assert.equal(result.text, "done");
   assert.equal(result.stopReason, "completed");
@@ -220,6 +229,13 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       content: "tell me more"
     }
   ]);
+  assert.deepEqual(capturedGeneratePayload!.metadata, {
+    persai_request_classification: "main_turn",
+    persai_runtime_request_id: "request-1",
+    persai_runtime_session_id: "session-1",
+    persai_tool_loop_iteration: "0",
+    persai_compaction_tool_code: ""
+  });
   const baselineGenerateInput = capturedGeneratePayload!.input;
 
   const toolRequest: ProviderGatewayTextGenerateRequest = {
@@ -255,7 +271,14 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
           isError: false
         }
       }
-    ]
+    ],
+    requestMetadata: {
+      classification: "tool_loop_followup",
+      runtimeRequestId: "request-1",
+      runtimeSessionId: "session-1",
+      toolLoopIteration: 1,
+      compactionToolCode: null
+    }
   };
   const toolResult = await client.generateText(toolRequest);
   assert.equal(toolResult.stopReason, "tool_calls");
@@ -276,6 +299,13 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     }
   ]);
   assert.equal(capturedGeneratePayload!.tool_choice, "auto");
+  assert.deepEqual(capturedGeneratePayload!.metadata, {
+    persai_request_classification: "tool_loop_followup",
+    persai_runtime_request_id: "request-1",
+    persai_runtime_session_id: "session-1",
+    persai_tool_loop_iteration: "1",
+    persai_compaction_tool_code: ""
+  });
   assert.deepEqual(capturedGeneratePayload!.input, [
     {
       role: "user",
@@ -320,6 +350,13 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   const stream = await client.streamText(request);
   const events = await collectStream(stream);
   assert.deepEqual(capturedStreamPayload!.input, baselineGenerateInput);
+  assert.deepEqual(capturedStreamPayload!.metadata, {
+    persai_request_classification: "main_turn",
+    persai_runtime_request_id: "request-1",
+    persai_runtime_session_id: "session-1",
+    persai_tool_loop_iteration: "0",
+    persai_compaction_tool_code: ""
+  });
   assert.deepEqual(
     events.map((event) => event.type),
     ["text_delta", "completed"]
@@ -328,6 +365,13 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   const toolStream = await client.streamText(toolRequest);
   const toolStreamEvents = await collectStream(toolStream);
   assert.equal(capturedStreamPayload!.tool_choice, "auto");
+  assert.deepEqual(capturedStreamPayload!.metadata, {
+    persai_request_classification: "tool_loop_followup",
+    persai_runtime_request_id: "request-1",
+    persai_runtime_session_id: "session-1",
+    persai_tool_loop_iteration: "1",
+    persai_compaction_tool_code: ""
+  });
   assert.deepEqual(capturedStreamPayload!.tools, [
     {
       type: "function",

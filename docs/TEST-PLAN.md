@@ -889,7 +889,14 @@ Required in CI:
   - public `GET /api/v1/assistant/chats/web/:chatId/compaction` preserves the existing assistant API contract while routing through native `POST /api/v1/turns/session/resolve` for banner/state reads
   - completed native Telegram turns with `telegramAutoSummarizeEnabled=true` trigger the same runtime-owned compaction path without reviving Telegram-only `/compact`
   - later native turns reuse the latest durable `runtime_session_compactions.summary_payload` summary instead of replaying all previously summarized canonical history
+  - later native turns reuse only validated machine-summary payloads; old `v1` or assistant-like poisoned compaction rows are ignored on the read path
+  - manual in-turn durable `compact_context` does not trigger a second hidden post-turn auto-compaction in the same logical turn
+  - same-turn follow-up after durable compaction rebuilds provider messages from refreshed compaction state instead of stale pre-compaction history
+  - durable compaction resets stale token freshness (`currentTokens=null`, `totalTokensFresh=false`) so later auto-compaction decisions do not trust pre-compaction totals
   - web compaction/banner state suggests compression when rolling reply latency crosses the shared `7000ms` threshold even when token pressure is still below the compaction token threshold
+- Shared tool-runtime observability validates:
+  - provider/runtime request metadata distinguishes `main_turn`, `tool_loop_followup`, `manual_compaction`, and `auto_compaction`
+  - internal tool and compaction hops no longer need to be inferred from provider-side pseudo-message logs
 - Knowledge access contract baseline validates:
   - `runtime.knowledgeAccess` exists on the native runtime bundle with fixed `knowledge_search` / `knowledge_fetch` names
   - `runtime.knowledgeAccess.executionModes` includes both `inline` and `worker`, and `runtime.knowledgeAccess.ragMode` stays `pattern_only`

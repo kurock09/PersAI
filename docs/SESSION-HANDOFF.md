@@ -1,5 +1,76 @@
 # SESSION-HANDOFF
 
+## 2026-04-12 - ADR-072 shared compaction stability hardening
+
+### What changed
+
+1. `apps/runtime` now carries explicit shared-compaction runtime semantics instead of channel/instruction heuristics: provider/runtime requests are classified as `main_turn`, `tool_loop_followup`, `manual_compaction`, or `auto_compaction`.
+2. Same-turn durable `compact_context` now sets turn-local state, suppresses redundant post-turn auto compaction, and forces the next tool-loop follow-up provider call to rebuild hydrated messages from refreshed shared-compaction state instead of stale pre-compaction history.
+3. Durable reusable compaction state is now a strict validated `persai.runtimeSessionCompaction.v2` payload rather than arbitrary free-form summary text; invalid or assistant-like compaction output no longer persists as reusable state, and old bad rows are ignored safely on the read path.
+4. Session token/accounting semantics after durable compaction are now honest: runtime clears `currentTokens`, marks `totalTokensFresh=false`, and keeps `compactionHintTokens` as the last known pre-compaction estimate so stale token state does not trigger unpredictable follow-up compaction decisions.
+5. `apps/provider-gateway` now validates request classification metadata, and the OpenAI path forwards that metadata upstream so internal tool/compaction requests stop looking like ordinary user turns in provider-side observability.
+
+### Why
+
+1. The earlier shared-compaction path could still persist arbitrary assistant-like text as durable truth and then poison later turns when that text was blindly reused.
+2. Runtime had no explicit memory that durable compaction had already happened inside the current logical turn, so manual `compact_context` could still be followed by an extra hidden auto-compaction attempt.
+3. The in-turn follow-up after durable compaction was still capable of reasoning on stale hydrated context rather than the newly compacted reusable state.
+4. Provider/internal logs needed a truthful distinction between user turns, tool-loop follow-ups, and compaction-only requests.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, and `T15-3a` remain complete; this session was a production-hardening follow-through for shared compaction semantics; the next planned delivery slice is still `T15-3b — Web search and fetch plan tools`)
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/shared-compaction-state.ts`
+- `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/provider-gateway/src/modules/providers/provider-text-generation.service.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-text-generation.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/provider-gateway run lint`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+
+### Risks
+
+1. Old `runtime_session_compactions` rows that still use free-form `v1` payloads are now intentionally ignored on reuse; a session needs one fresh valid compaction to rebuild reusable durable state.
+2. The OpenAI provider path now carries classification metadata upstream, but live Telegram/web/provider-log validation still has not been rerun after this hardening.
+3. This hardening fixes shared-compaction semantics, not the next Step 15 executor family; `web_search` / `web_fetch` work is still untouched.
+
+### Next recommended step
+
+1. Run one bounded live validation pack on native web plus Telegram after reapply, specifically checking that manual `compact_context` no longer triggers a second hidden compaction, that invalid old compaction rows are ignored, and that provider logs now distinguish `main_turn` vs `tool_loop_followup` vs `manual_compaction` / `auto_compaction`.
+2. After that verification, continue with `T15-3b — Web search and fetch plan tools`.
+
+### Ready commit message
+
+- `fix(runtime): harden shared compaction semantics`
+
+---
+
 ## 2026-04-12 - ADR-072 T15-3a closeout
 
 ### What changed
