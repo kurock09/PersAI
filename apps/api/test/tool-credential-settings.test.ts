@@ -61,7 +61,8 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal(state.credentials.length, 6);
+  assert.equal(state.credentials.length, 8);
+  assert.equal(state.ttsPrimaryProviderId, "elevenlabs");
   assert.deepEqual(
     state.credentials.find((credential) => credential.credentialKey === "tool_browser"),
     {
@@ -79,6 +80,19 @@ async function run(): Promise<void> {
           envVar: "BROWSERLESS_API_KEY"
         }
       ]
+    }
+  );
+  assert.deepEqual(
+    state.credentials.find((credential) => credential.credentialKey === "tool_tts_openai"),
+    {
+      credentialKey: "tool_tts_openai",
+      toolCode: "tts",
+      displayName: "Text-to-Speech API Key (OpenAI)",
+      configured: false,
+      lastFour: null,
+      updatedAt: null,
+      providerId: null,
+      providerOptions: null
     }
   );
 }

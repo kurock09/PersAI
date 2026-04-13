@@ -150,6 +150,139 @@ function ActionButton({
   );
 }
 
+type AssistantVoiceProfile = {
+  schema: "persai.assistantVoiceProfile.v1";
+  defaultLocale: string;
+  deliveryKind: "voice_note" | "audio";
+  elevenlabs: {
+    voiceId: string | null;
+  };
+  yandex: {
+    voice: (typeof YANDEX_TTS_VOICES)[number] | null;
+    role: (typeof YANDEX_TTS_ROLES)[number] | null;
+  };
+  openai: {
+    voice: (typeof OPENAI_TTS_VOICES)[number] | null;
+  };
+};
+
+const DEFAULT_VOICE_PROFILE: AssistantVoiceProfile = {
+  schema: "persai.assistantVoiceProfile.v1",
+  defaultLocale: "ru-RU",
+  deliveryKind: "voice_note",
+  elevenlabs: {
+    voiceId: null
+  },
+  yandex: {
+    voice: "marina",
+    role: "friendly"
+  },
+  openai: {
+    voice: "marin"
+  }
+};
+
+const YANDEX_TTS_VOICES = [
+  "marina",
+  "jane",
+  "ermil",
+  "zahar",
+  "lera",
+  "masha",
+  "dasha",
+  "alexander",
+  "kirill",
+  "anton"
+] as const;
+
+const YANDEX_TTS_ROLES = ["neutral", "good", "friendly", "strict", "whisper", "evil"] as const;
+
+const OPENAI_TTS_VOICES = [
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "fable",
+  "onyx",
+  "nova",
+  "sage",
+  "shimmer",
+  "verse",
+  "marin",
+  "cedar"
+] as const;
+
+function normalizeVoiceProfile(value: unknown): AssistantVoiceProfile {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return DEFAULT_VOICE_PROFILE;
+  }
+  const record = value as Record<string, unknown>;
+  const elevenlabs =
+    record.elevenlabs !== null &&
+    typeof record.elevenlabs === "object" &&
+    !Array.isArray(record.elevenlabs)
+      ? (record.elevenlabs as Record<string, unknown>)
+      : {};
+  const yandex =
+    record.yandex !== null && typeof record.yandex === "object" && !Array.isArray(record.yandex)
+      ? (record.yandex as Record<string, unknown>)
+      : {};
+  const openai =
+    record.openai !== null && typeof record.openai === "object" && !Array.isArray(record.openai)
+      ? (record.openai as Record<string, unknown>)
+      : {};
+
+  return {
+    schema: DEFAULT_VOICE_PROFILE.schema,
+    defaultLocale:
+      typeof record.defaultLocale === "string" && record.defaultLocale.trim().length > 0
+        ? record.defaultLocale
+        : DEFAULT_VOICE_PROFILE.defaultLocale,
+    deliveryKind:
+      record.deliveryKind === "audio" || record.deliveryKind === "voice_note"
+        ? record.deliveryKind
+        : DEFAULT_VOICE_PROFILE.deliveryKind,
+    elevenlabs: {
+      voiceId:
+        typeof elevenlabs.voiceId === "string" && elevenlabs.voiceId.trim().length > 0
+          ? elevenlabs.voiceId
+          : null
+    },
+    yandex: {
+      voice:
+        typeof yandex.voice === "string" && YANDEX_TTS_VOICES.includes(yandex.voice as never)
+          ? (yandex.voice as (typeof YANDEX_TTS_VOICES)[number])
+          : DEFAULT_VOICE_PROFILE.yandex.voice,
+      role:
+        typeof yandex.role === "string" && YANDEX_TTS_ROLES.includes(yandex.role as never)
+          ? (yandex.role as (typeof YANDEX_TTS_ROLES)[number])
+          : DEFAULT_VOICE_PROFILE.yandex.role
+    },
+    openai: {
+      voice:
+        typeof openai.voice === "string" && OPENAI_TTS_VOICES.includes(openai.voice as never)
+          ? (openai.voice as (typeof OPENAI_TTS_VOICES)[number])
+          : DEFAULT_VOICE_PROFILE.openai.voice
+    }
+  };
+}
+
+function trimToNull(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function formatOptionLabel(value: string): string {
+  return value
+    .split(/[_-]+/)
+    .map((part) => (part.length > 0 ? part[0]!.toUpperCase() + part.slice(1) : part))
+    .join(" ");
+}
+
 export function AssistantSettings({ data, initialSection }: AssistantSettingsProps) {
   const router = useRouter();
   const { getToken } = useAuth();
@@ -188,6 +321,9 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   );
   const [draftAssistantGender, setDraftAssistantGender] = useState<AssistantGender>(
     normalizeAssistantGender(assistant?.draft.assistantGender)
+  );
+  const [draftVoiceProfile, setDraftVoiceProfile] = useState<AssistantVoiceProfile>(
+    normalizeVoiceProfile(assistant?.draft.voiceProfile)
   );
   const [avatarPreviewBlobUrl, setAvatarPreviewBlobUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -301,6 +437,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     setDraftAvatarEmoji(assistant?.draft.avatarEmoji ?? null);
     setDraftAvatarUrl(assistant?.draft.avatarUrl ?? null);
     setDraftAssistantGender(normalizeAssistantGender(assistant?.draft.assistantGender));
+    setDraftVoiceProfile(normalizeVoiceProfile(assistant?.draft.voiceProfile));
     setAvatarPreviewBlobUrl(null);
   }, [assistant]);
 
@@ -401,7 +538,13 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
         traits: draftTraits,
         avatarEmoji: draftAvatarEmoji,
         avatarUrl: draftAvatarUrl,
-        assistantGender: draftAssistantGender
+        assistantGender: draftAssistantGender,
+        voiceProfile: {
+          ...draftVoiceProfile,
+          elevenlabs: {
+            voiceId: trimToNull(draftVoiceProfile.elevenlabs.voiceId)
+          }
+        }
       });
       await postAssistantPublish(token);
       setSaveFb({ type: "ok", text: t("savedAndApplied") });
@@ -418,6 +561,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     draftAvatarEmoji,
     draftAvatarUrl,
     draftAssistantGender,
+    draftVoiceProfile,
     data
   ]);
 
@@ -662,6 +806,138 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                   {tp(opt.labelKey)}
                 </button>
               ))}
+            </div>
+            <div className="mt-4 rounded-xl border border-border bg-surface-raised p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-text">{t("voice")}</p>
+                  <p className="mt-1 text-xs text-text-muted">{t("voiceDescription")}</p>
+                </div>
+                <span className="rounded-full bg-surface px-2 py-1 text-[10px] text-text-muted">
+                  {t("voiceLocale", { locale: draftVoiceProfile.defaultLocale })}
+                </span>
+              </div>
+              <p className="mt-2 text-[11px] text-text-subtle">{t("voiceToneNote")}</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-[11px] text-text-muted">
+                    {t("voiceDelivery")}
+                  </span>
+                  <select
+                    value={draftVoiceProfile.deliveryKind}
+                    onChange={(e) =>
+                      setDraftVoiceProfile((prev) => ({
+                        ...prev,
+                        deliveryKind: e.target.value as AssistantVoiceProfile["deliveryKind"]
+                      }))
+                    }
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                  >
+                    <option value="voice_note">{t("voiceDeliveryVoiceNote")}</option>
+                    <option value="audio">{t("voiceDeliveryAudio")}</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] text-text-muted">
+                    {t("voiceElevenlabsVoiceId")}
+                  </span>
+                  <input
+                    type="text"
+                    value={draftVoiceProfile.elevenlabs.voiceId ?? ""}
+                    onChange={(e) =>
+                      setDraftVoiceProfile((prev) => ({
+                        ...prev,
+                        elevenlabs: {
+                          voiceId: e.target.value
+                        }
+                      }))
+                    }
+                    placeholder={t("voiceElevenlabsVoiceIdPlaceholder")}
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] text-text-muted">
+                    {t("voiceYandexVoice")}
+                  </span>
+                  <select
+                    value={draftVoiceProfile.yandex.voice ?? ""}
+                    onChange={(e) =>
+                      setDraftVoiceProfile((prev) => ({
+                        ...prev,
+                        yandex: {
+                          ...prev.yandex,
+                          voice:
+                            e.target.value === ""
+                              ? null
+                              : (e.target.value as (typeof YANDEX_TTS_VOICES)[number])
+                        }
+                      }))
+                    }
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                  >
+                    {YANDEX_TTS_VOICES.map((voice) => (
+                      <option key={voice} value={voice}>
+                        {formatOptionLabel(voice)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] text-text-muted">
+                    {t("voiceYandexRole")}
+                  </span>
+                  <select
+                    value={draftVoiceProfile.yandex.role ?? ""}
+                    onChange={(e) =>
+                      setDraftVoiceProfile((prev) => ({
+                        ...prev,
+                        yandex: {
+                          ...prev.yandex,
+                          role:
+                            e.target.value === ""
+                              ? null
+                              : (e.target.value as (typeof YANDEX_TTS_ROLES)[number])
+                        }
+                      }))
+                    }
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                  >
+                    {YANDEX_TTS_ROLES.map((role) => (
+                      <option key={role} value={role}>
+                        {formatOptionLabel(role)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block md:col-span-2">
+                  <span className="mb-1 block text-[11px] text-text-muted">
+                    {t("voiceOpenaiVoice")}
+                  </span>
+                  <select
+                    value={draftVoiceProfile.openai.voice ?? ""}
+                    onChange={(e) =>
+                      setDraftVoiceProfile((prev) => ({
+                        ...prev,
+                        openai: {
+                          voice:
+                            e.target.value === ""
+                              ? null
+                              : (e.target.value as (typeof OPENAI_TTS_VOICES)[number])
+                        }
+                      }))
+                    }
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                  >
+                    {OPENAI_TTS_VOICES.map((voice) => (
+                      <option key={voice} value={voice}>
+                        {formatOptionLabel(voice)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <p className="mt-2 text-[11px] text-text-subtle">{t("voiceElevenlabsHint")}</p>
             </div>
             <div className="mt-3 space-y-3">
               {TRAIT_SLIDERS.map(({ key, labelLeftKey, labelRightKey }) => (

@@ -10,6 +10,10 @@ import type { AssistantPublishedVersion } from "../domain/assistant-published-ve
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { toAssistantInboundHttpException } from "./assistant-inbound-error";
+import {
+  applyAssistantGenderVoiceDefaults,
+  normalizeAssistantVoiceProfile
+} from "./assistant-voice-profile";
 import { normalizeAssistantGender } from "./assistant-gender";
 import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
 
@@ -40,6 +44,11 @@ export class PreviewAssistantSetupService {
     const latestVersion = await this.assistantPublishedVersionRepository.findLatestByAssistantId(
       assistant.id
     );
+    const assistantGender = normalizeAssistantGender(assistant.draftAssistantGender);
+    const draftVoiceProfile = applyAssistantGenderVoiceDefaults({
+      assistantGender,
+      voiceProfile: normalizeAssistantVoiceProfile(assistant.draftVoiceProfile)
+    });
     const previewVersion: AssistantPublishedVersion = {
       id: randomUUID(),
       assistantId: assistant.id,
@@ -49,7 +58,8 @@ export class PreviewAssistantSetupService {
       snapshotTraits: assistant.draftTraits,
       snapshotAvatarEmoji: assistant.draftAvatarEmoji,
       snapshotAvatarUrl: assistant.draftAvatarUrl,
-      snapshotAssistantGender: normalizeAssistantGender(assistant.draftAssistantGender),
+      snapshotAssistantGender: assistantGender,
+      snapshotVoiceProfile: draftVoiceProfile,
       publishedByUserId: userId,
       createdAt: new Date()
     };

@@ -30,6 +30,7 @@ import {
   type RuntimeOutputArtifact,
   type RuntimeScheduledActionToolResult,
   type RuntimeSharedCompactionToolResult,
+  type RuntimeTtsToolResult,
   type RuntimeToolPolicy,
   type RuntimeFailedEvent,
   type RuntimeInterruptedEvent,
@@ -52,6 +53,7 @@ import { ProviderGatewayClientService } from "./provider-gateway.client.service"
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
+import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
@@ -95,6 +97,7 @@ type ToolExecutionOutcome = {
     | RuntimeBrowserToolResult
     | RuntimeImageGenerateToolResult
     | RuntimeScheduledActionToolResult
+    | RuntimeTtsToolResult
     | RuntimeWebSearchToolResult
     | RuntimeWebFetchToolResult
     | Record<string, unknown>;
@@ -126,6 +129,7 @@ const WEB_FETCH_MIN_MAX_CHARS = 100;
 const WEB_FETCH_MAX_MAX_CHARS = 50_000;
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
+const TTS_TOOL_CODE = "tts";
 
 @Injectable()
 export class TurnExecutionService {
@@ -141,7 +145,8 @@ export class TurnExecutionService {
     private readonly sessionCompactionService: SessionCompactionService,
     private readonly runtimeBrowserToolService: RuntimeBrowserToolService,
     private readonly runtimeImageGenerateToolService: RuntimeImageGenerateToolService,
-    private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService
+    private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
+    private readonly runtimeTtsToolService: RuntimeTtsToolService
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -866,6 +871,21 @@ export class TurnExecutionService {
           result.artifacts
         );
       }
+      case TTS_TOOL_CODE: {
+        const result = await this.runtimeTtsToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          sessionId: acceptedTurn.session.sessionId,
+          requestId: acceptedTurn.receipt.requestId
+        });
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.payload,
+          result.isError,
+          undefined,
+          result.artifacts
+        );
+      }
       case SCHEDULED_ACTION_TOOL_CODE: {
         const result = await this.runtimeScheduledActionToolService.executeToolCall({
           bundle: execution.bundle,
@@ -1233,6 +1253,7 @@ export class TurnExecutionService {
       | RuntimeBrowserToolResult
       | RuntimeImageGenerateToolResult
       | RuntimeScheduledActionToolResult
+      | RuntimeTtsToolResult
       | RuntimeWebSearchToolResult
       | RuntimeWebFetchToolResult
       | Record<string, unknown>,

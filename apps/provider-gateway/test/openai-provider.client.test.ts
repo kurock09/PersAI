@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayImageGenerateRequest,
+  ProviderGatewaySpeechGenerateRequest,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
@@ -86,6 +87,41 @@ function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
   };
 }
 
+function createSpeechGenerateRequest(): ProviderGatewaySpeechGenerateRequest {
+  return {
+    text: "Привет, это тестовый голосовой ответ.",
+    locale: "ru-RU",
+    toneTag: "warm",
+    deliveryKind: "voice_note",
+    assistantGender: "female",
+    traits: {
+      warmth: 80,
+      formality: 45,
+      playfulness: 30
+    },
+    voiceProfile: {
+      schema: "persai.assistantVoiceProfile.v1",
+      defaultLocale: "ru-RU",
+      deliveryKind: "voice_note",
+      elevenlabs: {
+        voiceId: "voice-eleven"
+      },
+      yandex: {
+        voice: "jane",
+        role: "friendly"
+      },
+      openai: {
+        voice: "marin"
+      }
+    },
+    credential: {
+      toolCode: "tts",
+      secretId: "tool/tts/openai",
+      providerId: "openai"
+    }
+  };
+}
+
 export async function runOpenAIProviderClientTest(): Promise<void> {
   const client = new OpenAIProviderClient(createConfig());
   let capturedGeneratePayload: {
@@ -104,7 +140,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   } | null = null;
   let capturedTranscriptionInput: unknown = null;
   let capturedImagePayload: unknown = null;
-  let capturedImageApiKey: string | undefined;
+  let capturedSpeechPayload: unknown = null;
+  let capturedToolApiKey: string | undefined;
   const generateImage = async (payload: unknown) => {
     capturedImagePayload = payload;
     return {
@@ -126,9 +163,18 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       }
     };
   };
+  const generateSpeech = async (payload: unknown) => {
+    capturedSpeechPayload = payload;
+    return {
+      arrayBuffer: async () => Buffer.from("speech-bytes")
+    };
+  };
 
   (client as unknown as { client: unknown }).client = {
     audio: {
+      speech: {
+        create: generateSpeech
+      },
       transcriptions: {
         create: async (payload: unknown) => {
           capturedTranscriptionInput = payload;
@@ -233,17 +279,27 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   };
   (
     client as unknown as {
-      getImageClient(apiKey?: string): {
+      getApiClient(apiKey?: string): {
         images: {
           generate(payload: unknown): Promise<unknown>;
         };
+        audio: {
+          speech: {
+            create(payload: unknown): Promise<unknown>;
+          };
+        };
       };
     }
-  ).getImageClient = (apiKey?: string) => {
-    capturedImageApiKey = apiKey;
+  ).getApiClient = (apiKey?: string) => {
+    capturedToolApiKey = apiKey;
     return {
       images: {
         generate: generateImage
+      },
+      audio: {
+        speech: {
+          create: generateSpeech
+        }
       }
     };
   };
@@ -604,12 +660,26 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     output_format: "png",
     size: "1024x1024"
   });
-  assert.equal(capturedImageApiKey, "tool-openai-key");
+  assert.equal(capturedToolApiKey, "tool-openai-key");
   assert.deepEqual(imageResult.usage, {
     providerKey: "openai",
     modelKey: "gpt-image-1",
     inputTokens: 30,
     outputTokens: 60,
     totalTokens: 90
+  });
+
+  const speechResult = await client.generateSpeech(createSpeechGenerateRequest(), {
+    apiKey: "tool-openai-key"
+  });
+  assert.equal(speechResult.model, "gpt-4o-mini-tts");
+  assert.equal(speechResult.mimeType, "audio/ogg");
+  assert.deepEqual(capturedSpeechPayload, {
+    model: "gpt-4o-mini-tts",
+    voice: "marin",
+    input: "Привет, это тестовый голосовой ответ.",
+    response_format: "opus",
+    instructions:
+      "Speak naturally in ru-RU. Keep the delivery warm, close, and human. Use a feminine vocal character. Sound caring, kind, and emotionally present. Avoid sounding playful or joking."
   });
 }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { RuntimeConfig } from "@persai/config";
 import type {
   ProviderGatewayBrowserActionRequest,
+  ProviderGatewaySpeechGenerateRequest,
   ProviderGatewayWebSearchRequest,
   ProviderGatewayWebFetchRequest,
   ProviderGatewayImageGenerateRequest,
@@ -87,6 +88,39 @@ function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
     size: "1024x1024",
     credential: {
       toolCode: "image_generate",
+      secretId: "secret-1",
+      providerId: "openai"
+    }
+  };
+}
+
+function createSpeechGenerateRequest(): ProviderGatewaySpeechGenerateRequest {
+  return {
+    text: "Привет, это тестовый voice note.",
+    locale: "ru-RU",
+    toneTag: "warm",
+    deliveryKind: "voice_note",
+    assistantGender: "female",
+    traits: {
+      warmth: 80
+    },
+    voiceProfile: {
+      schema: "persai.assistantVoiceProfile.v1",
+      defaultLocale: "ru-RU",
+      deliveryKind: "voice_note",
+      elevenlabs: {
+        voiceId: "voice-eleven"
+      },
+      yandex: {
+        voice: "jane",
+        role: "friendly"
+      },
+      openai: {
+        voice: "marin"
+      }
+    },
+    credential: {
+      toolCode: "tts",
       secretId: "secret-1",
       providerId: "openai"
     }
@@ -223,6 +257,27 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
             }
           ],
           respondedAt: "2026-04-12T12:00:01.500Z",
+          usage: null,
+          warning: null
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+
+    if (url.endsWith("/api/v1/providers/generate-speech")) {
+      return new Response(
+        JSON.stringify({
+          provider: "openai",
+          model: "gpt-4o-mini-tts",
+          deliveryKind: "voice_note",
+          bytesBase64: "dm9pY2UtYnl0ZXM=",
+          mimeType: "audio/ogg",
+          respondedAt: "2026-04-12T12:00:01.750Z",
           usage: null,
           warning: null
         }),
@@ -388,6 +443,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       filename: "voice.mp3"
     });
     const imageGenerate = await service.generateImage(createImageGenerateRequest());
+    const speechGenerate = await service.generateSpeech(createSpeechGenerateRequest());
     const webFetch = await service.webFetch(createWebFetchRequest());
     const webSearch = await service.webSearch(createWebSearchRequest());
     const browserAction = await service.browserAction(createBrowserActionRequest(), {
@@ -396,10 +452,12 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(transcription.text, "hello from audio");
     assert.equal(imageGenerate.model, "gpt-image-1");
     assert.equal(imageGenerate.images[0]?.mimeType, "image/png");
+    assert.equal(speechGenerate.model, "gpt-4o-mini-tts");
+    assert.equal(speechGenerate.mimeType, "audio/ogg");
     assert.equal(webFetch.provider, "firecrawl");
     assert.equal(webSearch.provider, "tavily");
     assert.equal(browserAction.provider, "browserless");
-    assert.equal(requests.length, 8);
+    assert.equal(requests.length, 9);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
@@ -417,12 +475,17 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.ok(requests[3]?.init?.body instanceof FormData);
     assert.equal(requests[4]?.url, "http://provider-gateway.local/api/v1/providers/generate-image");
     assert.equal(requests[4]?.init?.method, "POST");
-    assert.equal(requests[5]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
+    assert.equal(
+      requests[5]?.url,
+      "http://provider-gateway.local/api/v1/providers/generate-speech"
+    );
     assert.equal(requests[5]?.init?.method, "POST");
-    assert.equal(requests[6]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
+    assert.equal(requests[6]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
     assert.equal(requests[6]?.init?.method, "POST");
-    assert.equal(requests[7]?.url, "http://provider-gateway.local/api/v1/providers/browser-action");
+    assert.equal(requests[7]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
     assert.equal(requests[7]?.init?.method, "POST");
+    assert.equal(requests[8]?.url, "http://provider-gateway.local/api/v1/providers/browser-action");
+    assert.equal(requests[8]?.init?.method, "POST");
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();
@@ -440,6 +503,10 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     );
     await assert.rejects(
       () => unconfiguredService.generateImage(createImageGenerateRequest()),
+      /base URL is not configured/
+    );
+    await assert.rejects(
+      () => unconfiguredService.generateSpeech(createSpeechGenerateRequest()),
       /base URL is not configured/
     );
     await assert.rejects(

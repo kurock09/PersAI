@@ -24,6 +24,8 @@ type ToolCredentialStatus = {
 type AdminToolCredentialsState = {
   schema: string;
   credentials: ToolCredentialStatus[];
+  ttsPrimaryProviderId: string;
+  ttsPrimaryProviderOptions: ProviderOption[];
   notes: string[];
 };
 
@@ -35,6 +37,7 @@ export default function AdminToolsPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [providerInputs, setProviderInputs] = useState<Record<string, string>>({});
+  const [ttsPrimaryProviderInput, setTtsPrimaryProviderInput] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -85,7 +88,17 @@ export default function AdminToolsPage() {
         if (value.trim()) providersToSend[key] = value.trim();
       }
 
-      if (Object.keys(keysToSend).length === 0 && Object.keys(providersToSend).length === 0) {
+      const nextTtsPrimaryProviderId =
+        ttsPrimaryProviderInput !== null &&
+        ttsPrimaryProviderInput !== (state?.ttsPrimaryProviderId ?? null)
+          ? ttsPrimaryProviderInput
+          : undefined;
+
+      if (
+        Object.keys(keysToSend).length === 0 &&
+        Object.keys(providersToSend).length === 0 &&
+        nextTtsPrimaryProviderId === undefined
+      ) {
         setFeedback("No changes to save.");
         setSaving(false);
         return;
@@ -98,7 +111,13 @@ export default function AdminToolsPage() {
           "Content-Type": "application/json",
           "x-persai-step-up-token": stepUpToken
         },
-        body: JSON.stringify({ keys: keysToSend, providers: providersToSend })
+        body: JSON.stringify({
+          keys: keysToSend,
+          providers: providersToSend,
+          ...(nextTtsPrimaryProviderId === undefined
+            ? {}
+            : { ttsPrimaryProviderId: nextTtsPrimaryProviderId })
+        })
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -107,12 +126,13 @@ export default function AdminToolsPage() {
       setFeedback("Saved successfully.");
       setKeyInputs({});
       setProviderInputs({});
+      setTtsPrimaryProviderInput(null);
       await load();
     } catch (e) {
       setFeedback(e instanceof Error ? e.message : "Save failed.");
     }
     setSaving(false);
-  }, [getToken, keyInputs, providerInputs, load]);
+  }, [getToken, keyInputs, providerInputs, ttsPrimaryProviderInput, state, load]);
 
   const updateKeyInput = (credentialKey: string, value: string) => {
     setKeyInputs((prev) => ({ ...prev, [credentialKey]: value }));
@@ -148,6 +168,27 @@ export default function AdminToolsPage() {
       )}
 
       <div className="max-w-lg space-y-4">
+        {state && state.ttsPrimaryProviderOptions.length > 0 && (
+          <div className="rounded-lg border border-border bg-surface-raised p-4">
+            <div className="mb-2">
+              <p className="text-sm font-medium text-text">TTS primary provider</p>
+              <p className="text-[11px] text-text-muted">
+                PersAI will try this provider first for the `tts` tool, then fall back.
+              </p>
+            </div>
+            <select
+              value={ttsPrimaryProviderInput ?? state.ttsPrimaryProviderId}
+              onChange={(e) => setTtsPrimaryProviderInput(e.target.value)}
+              className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+            >
+              {state.ttsPrimaryProviderOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {state?.credentials.map((cred) => (
           <div
             key={cred.credentialKey}

@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { AssistantPublishedVersion as PrismaAssistantPublishedVersion } from "@prisma/client";
+import type { RuntimeAssistantVoiceProfile } from "@persai/runtime-contract";
 import type {
   AssistantPublishedVersionRepository,
   CreateAssistantPublishedVersionInput
@@ -64,6 +65,12 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
             ...(input.snapshotAssistantGender != null
               ? { snapshotAssistantGender: input.snapshotAssistantGender }
               : {}),
+            ...(input.snapshotVoiceProfile != null
+              ? {
+                  snapshotVoiceProfile:
+                    input.snapshotVoiceProfile as unknown as Prisma.InputJsonValue
+                }
+              : {}),
             publishedByUserId: input.publishedByUserId
           }
         });
@@ -92,6 +99,8 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
       snapshotAvatarEmoji: publishedVersion.snapshotAvatarEmoji,
       snapshotAvatarUrl: publishedVersion.snapshotAvatarUrl,
       snapshotAssistantGender: publishedVersion.snapshotAssistantGender,
+      snapshotVoiceProfile:
+        publishedVersion.snapshotVoiceProfile as RuntimeAssistantVoiceProfile | null,
       publishedByUserId: publishedVersion.publishedByUserId,
       createdAt: publishedVersion.createdAt
     };

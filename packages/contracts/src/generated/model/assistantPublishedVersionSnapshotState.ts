@@ -6,6 +6,7 @@
  */
 import type { AssistantPublishedVersionSnapshotStateTraits } from "./assistantPublishedVersionSnapshotStateTraits";
 import type { AssistantPublishedVersionSnapshotStateAssistantGender } from "./assistantPublishedVersionSnapshotStateAssistantGender";
+import type { AssistantVoiceProfileState } from "./assistantVoiceProfileState";
 
 export interface AssistantPublishedVersionSnapshotState {
   /** @nullable */
@@ -20,4 +21,5 @@ export interface AssistantPublishedVersionSnapshotState {
   avatarUrl?: string | null;
   /** @nullable */
   assistantGender?: AssistantPublishedVersionSnapshotStateAssistantGender;
+  voiceProfile: AssistantVoiceProfileState;
 }

@@ -21,6 +21,10 @@ import { MaterializeAssistantPublishedVersionService } from "./materialize-assis
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import {
+  applyAssistantGenderVoiceDefaults,
+  normalizeAssistantVoiceProfile
+} from "./assistant-voice-profile";
 import { normalizeAssistantGender } from "./assistant-gender";
 
 @Injectable()
@@ -47,6 +51,11 @@ export class PublishAssistantDraftService {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
+    const assistantGender = normalizeAssistantGender(assistant.draftAssistantGender);
+    const draftVoiceProfile = applyAssistantGenderVoiceDefaults({
+      assistantGender,
+      voiceProfile: normalizeAssistantVoiceProfile(assistant.draftVoiceProfile)
+    });
     const publishedVersion = await this.assistantPublishedVersionRepository.create({
       assistantId: assistant.id,
       publishedByUserId: userId,
@@ -55,7 +64,8 @@ export class PublishAssistantDraftService {
       snapshotTraits: assistant.draftTraits,
       snapshotAvatarEmoji: assistant.draftAvatarEmoji,
       snapshotAvatarUrl: assistant.draftAvatarUrl,
-      snapshotAssistantGender: normalizeAssistantGender(assistant.draftAssistantGender)
+      snapshotAssistantGender: assistantGender,
+      snapshotVoiceProfile: draftVoiceProfile
     });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,

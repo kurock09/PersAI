@@ -1,5 +1,73 @@
 # SESSION-HANDOFF
 
+## 2026-04-13 - ADR-072 T15-6 native tts baseline
+
+### What changed
+
+1. `apps/api` now carries the full control-plane/config truth for native `tts`: Admin Tool Credentials now store provider-specific TTS keys plus the global primary-provider selector, assistant draft/publish state now persists `voiceProfile`, and materialization now carries persona voice settings plus an ordered primary/fallback `toolCredentialRef` chain for `tts`.
+2. `apps/provider-gateway` now exposes `POST /api/v1/providers/generate-speech` with PersAI-internal secret resolution and three concrete adapters: `ElevenLabs`, `Yandex SpeechKit`, and `OpenAI`. The adapters steer voice output using assistant locale, gender, traits, tone, and saved voice-profile settings.
+3. `apps/runtime` now projects model-visible native `tts`, executes it as a real worker tool with quota/credential gating, tone steering, ordered provider fallback, and persisted audio `RuntimeOutputArtifact`s, and the focused `runtime` / `provider-gateway` suites now cover the new speech seam.
+4. Repo-truth docs now say the honest thing: `T15-6` no longer means only the initial `image_generate` landing. Native `tts` is now part of the landed `T15-6` baseline, while `image_edit` and `video_generate` remain later follow-through.
+
+### Why
+
+1. `tts` was already part of the preserved Step 15 tool surface, so the native runtime could not honestly claim `T15-6` progress while leaving speech generation as a dead catalog/control-plane capability.
+2. The product semantics here require explicit tool-driven audio generation, not only future channel-owned voice output. The runtime therefore needed a real worker path with persisted artifacts, policy/quota gating, and provider fallback instead of a one-off channel hack.
+3. Russian-first, persona-aware speech needed both assistant-scoped voice defaults and model-steered tone control; a single flat API key without per-assistant voice state would not preserve that behavior cleanly.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-6 — Media generation and editing plan tools` is still the current slice, but it now has two real landed media tools: `image_generate` and `tts`. `image_edit` and `video_generate` remain the next honest follow-through inside `T15-6`.
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/elevenlabs/elevenlabs-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/yandex/yandex-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-speech-generation.service.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-speech-generation.controller.ts`
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-speech-generation.service.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/runtime-tts-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/runtime-tts-tool.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run test`
+
+### Risks
+
+1. The current `tts` baseline is honest but still pragmatic: `OpenAI` instructions, `ElevenLabs` voice settings, and `Yandex` hints are normalized from the same persona/tone inputs, but live tuning for Russian naturalness still needs bounded real-provider listening checks.
+2. API/web/Telegram delivery paths already understand native runtime media artifacts from the earlier `image_generate` work, but live validation is still needed for `voice_note` vs ordinary `audio` channel behavior after deploy/reapply.
+3. `image_edit` and `video_generate` are still not landed, so `T15-6` remains in progress rather than complete.
+
+### Next recommended step
+
+1. Run bounded live validation of native `tts` after deploy/reapply: verify at least one successful `voice_note` and one `audio` response, plus one forced-fallback path by disabling the primary provider key.
+2. Continue `T15-6` with the next smallest honest media tool, most likely `image_edit`, while preserving the same shared worker/media artifact boundary now used by `image_generate` and `tts`.
+
 ## 2026-04-13 - ADR-072 T15-6 Telegram native media delivery fix
 
 ### What changed

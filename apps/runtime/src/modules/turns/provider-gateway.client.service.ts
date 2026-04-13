@@ -12,6 +12,8 @@ import type {
   ProviderGatewayAudioTranscriptionResult,
   ProviderGatewayImageGenerateRequest,
   ProviderGatewayImageGenerateResult,
+  ProviderGatewaySpeechGenerateRequest,
+  ProviderGatewaySpeechGenerateResult,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent,
@@ -162,6 +164,36 @@ export class ProviderGatewayClientService {
     if (!this.isImageGenerateResult(response.body)) {
       throw new BadGatewayException(
         "Provider gateway returned an invalid image generation response."
+      );
+    }
+
+    return response.body;
+  }
+
+  async generateSpeech(
+    input: ProviderGatewaySpeechGenerateRequest
+  ): Promise<ProviderGatewaySpeechGenerateResult> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
+    }
+
+    const response = await this.fetchJson(
+      this.buildUrl("/api/v1/providers/generate-speech"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      },
+      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      throw this.toGatewayException(response);
+    }
+    if (!this.isSpeechGenerateResult(response.body)) {
+      throw new BadGatewayException(
+        "Provider gateway returned an invalid speech generation response."
       );
     }
 
@@ -545,6 +577,22 @@ export class ProviderGatewayClientService {
           (typeof image.revisedPrompt === "string" || image.revisedPrompt === null)
         );
       }) &&
+      typeof row.respondedAt === "string" &&
+      (row.usage === null ||
+        (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&
+      (typeof row.warning === "string" || row.warning === null)
+    );
+  }
+
+  private isSpeechGenerateResult(value: unknown): value is ProviderGatewaySpeechGenerateResult {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      (row.provider === "elevenlabs" || row.provider === "yandex" || row.provider === "openai") &&
+      typeof row.model === "string" &&
+      (row.deliveryKind === "voice_note" || row.deliveryKind === "audio") &&
+      typeof row.bytesBase64 === "string" &&
+      typeof row.mimeType === "string" &&
       typeof row.respondedAt === "string" &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&

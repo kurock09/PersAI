@@ -48,10 +48,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
     code: "tts",
     displayName: "Text to Speech",
-    description: "Text-to-speech synthesis via OpenAI TTS, ElevenLabs, or other providers.",
+    description:
+      "Text-to-speech synthesis via provider-specific TTS credentials with native provider fallback.",
     capabilityGroup: "communication" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
-    requiredCredentialId: "tool_tts",
     policyClass: "plan_managed"
   },
   {

@@ -1,5 +1,7 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import type { Assistant as PrismaAssistant } from "@prisma/client";
+import type { RuntimeAssistantVoiceProfile } from "@persai/runtime-contract";
 import type { Assistant } from "../../domain/assistant.entity";
 import type {
   AssistantRepository,
@@ -57,6 +59,12 @@ export class PrismaAssistantRepository implements AssistantRepository {
     if (input.draftAvatarUrl !== undefined) data.draftAvatarUrl = input.draftAvatarUrl;
     if (input.draftAssistantGender !== undefined) {
       data.draftAssistantGender = input.draftAssistantGender;
+    }
+    if (input.draftVoiceProfile !== undefined) {
+      data.draftVoiceProfile =
+        input.draftVoiceProfile === null
+          ? Prisma.DbNull
+          : (input.draftVoiceProfile as unknown as Prisma.InputJsonValue);
     }
 
     const assistant = await this.prisma.assistant.update({
@@ -213,6 +221,7 @@ export class PrismaAssistantRepository implements AssistantRepository {
       draftAvatarEmoji: assistant.draftAvatarEmoji,
       draftAvatarUrl: assistant.draftAvatarUrl,
       draftAssistantGender: assistant.draftAssistantGender,
+      draftVoiceProfile: assistant.draftVoiceProfile as RuntimeAssistantVoiceProfile | null,
       draftUpdatedAt: assistant.draftUpdatedAt,
       applyStatus: assistant.applyStatus,
       applyTargetVersionId: assistant.applyTargetVersionId,

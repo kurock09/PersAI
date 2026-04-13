@@ -9,6 +9,8 @@ import {
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
+  PERSAI_RUNTIME_TTS_DELIVERY_KINDS,
+  PERSAI_RUNTIME_TTS_TONE_TAGS,
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
   type ProviderGatewayToolDefinition,
   type PersaiRuntimeBrowserProviderId,
@@ -79,6 +81,15 @@ export function projectRuntimeNativeTools(
     supportsCurrentNativeImageGenerateProvider(imageGenerateCredential.providerId ?? null)
   ) {
     projectedTools.push(createImageGenerateToolDefinition());
+  }
+  const ttsPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "tts", "worker");
+  const ttsCredential = bundle.governance.toolCredentialRefs.tts ?? null;
+  if (
+    ttsPolicy !== null &&
+    ttsCredential !== null &&
+    supportsCurrentNativeTtsProvider(ttsCredential)
+  ) {
+    projectedTools.push(createTtsToolDefinition());
   }
   const scheduledActionPolicy = resolveAllowedModelVisibleToolPolicy(
     bundle,
@@ -294,6 +305,37 @@ function createImageGenerateToolDefinition(): ProviderGatewayToolDefinition {
   };
 }
 
+function createTtsToolDefinition(): ProviderGatewayToolDefinition {
+  return {
+    name: "tts",
+    description:
+      "Generate spoken audio for the current assistant persona. Use this only when the user explicitly wants a voice note, spoken reply, narration, or audio version of text.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["text", "toneTag"],
+      properties: {
+        text: {
+          type: "string",
+          description: "The exact text that should be spoken aloud."
+        },
+        toneTag: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_TTS_TONE_TAGS],
+          description:
+            "Speech tone steering tag. Match the assistant's intended emotional delivery for this audio."
+        },
+        deliveryKind: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_TTS_DELIVERY_KINDS],
+          description:
+            'Optional output kind. Use "voice_note" for a short messaging-style voice note or "audio" for a normal audio file.'
+        }
+      }
+    }
+  };
+}
+
 function createScheduledActionToolDefinition(): ProviderGatewayToolDefinition {
   return {
     name: "scheduled_action",
@@ -447,4 +489,17 @@ function supportsCurrentNativeBrowserProvider(
 
 function supportsCurrentNativeImageGenerateProvider(providerId: string | null): boolean {
   return providerId === null || providerId === "openai";
+}
+
+function supportsCurrentNativeTtsProvider(
+  credential: AssistantRuntimeBundleToolCredentialRef
+): boolean {
+  const candidates = [credential, ...(credential.fallbacks ?? [])];
+  return candidates.some(
+    (entry) =>
+      entry.configured === true &&
+      (entry.providerId === "elevenlabs" ||
+        entry.providerId === "yandex" ||
+        entry.providerId === "openai")
+  );
 }

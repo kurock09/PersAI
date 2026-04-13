@@ -1,3 +1,5 @@
+import type { RuntimeAssistantVoiceProfile } from "@persai/runtime-contract";
+
 export type AssistantApplyStatus =
   | "not_requested"
   | "pending"
@@ -16,6 +18,7 @@ export type Assistant = {
   draftAvatarEmoji: string | null;
   draftAvatarUrl: string | null;
   draftAssistantGender: string | null;
+  draftVoiceProfile: RuntimeAssistantVoiceProfile | null;
   draftUpdatedAt: Date | null;
   applyStatus: AssistantApplyStatus;
   applyTargetVersionId: string | null;

@@ -6,6 +6,7 @@
  */
 import type { AssistantDraftUpdateRequestTraits } from "./assistantDraftUpdateRequestTraits";
 import type { AssistantDraftUpdateRequestAssistantGender } from "./assistantDraftUpdateRequestAssistantGender";
+import type { AssistantDraftUpdateRequestVoiceProfile } from "./assistantDraftUpdateRequestVoiceProfile";
 
 export interface AssistantDraftUpdateRequest {
   /** @nullable */
@@ -20,4 +21,6 @@ export interface AssistantDraftUpdateRequest {
   avatarUrl?: string | null;
   /** @nullable */
   assistantGender?: AssistantDraftUpdateRequestAssistantGender;
+  /** @nullable */
+  voiceProfile?: AssistantDraftUpdateRequestVoiceProfile;
 }

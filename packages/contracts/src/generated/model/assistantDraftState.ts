@@ -6,6 +6,7 @@
  */
 import type { AssistantDraftStateTraits } from "./assistantDraftStateTraits";
 import type { AssistantDraftStateAssistantGender } from "./assistantDraftStateAssistantGender";
+import type { AssistantVoiceProfileState } from "./assistantVoiceProfileState";
 
 export interface AssistantDraftState {
   /** @nullable */
@@ -20,6 +21,7 @@ export interface AssistantDraftState {
   avatarUrl?: string | null;
   /** @nullable */
   assistantGender?: AssistantDraftStateAssistantGender;
+  voiceProfile: AssistantVoiceProfileState;
   /** @nullable */
   updatedAt: string | null;
 }

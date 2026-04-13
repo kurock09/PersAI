@@ -1,3 +1,5 @@
+import type { RuntimeAssistantVoiceProfile } from "@persai/runtime-contract";
+
 export type AssistantPublishedVersion = {
   id: string;
   assistantId: string;
@@ -8,6 +10,7 @@ export type AssistantPublishedVersion = {
   snapshotAvatarEmoji: string | null;
   snapshotAvatarUrl: string | null;
   snapshotAssistantGender: string | null;
+  snapshotVoiceProfile: RuntimeAssistantVoiceProfile | null;
   publishedByUserId: string;
   createdAt: Date;
 };

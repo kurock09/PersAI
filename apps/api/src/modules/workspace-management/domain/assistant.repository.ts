@@ -1,4 +1,5 @@
 import type { Assistant } from "./assistant.entity";
+import type { RuntimeAssistantVoiceProfile } from "@persai/runtime-contract";
 
 export const ASSISTANT_REPOSITORY = Symbol("ASSISTANT_REPOSITORY");
 
@@ -9,6 +10,7 @@ export interface UpdateAssistantDraftInput {
   draftAvatarEmoji?: string | null;
   draftAvatarUrl?: string | null;
   draftAssistantGender?: string | null;
+  draftVoiceProfile?: RuntimeAssistantVoiceProfile | null;
 }
 
 export interface AssistantRepository {

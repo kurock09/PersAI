@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import type { PersaiRuntimeTtsProviderId } from "@persai/runtime-contract";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
@@ -6,6 +7,8 @@ import { AppendAssistantAuditEventService } from "./append-assistant-audit-event
 import type { PlatformRuntimeProviderKeyMetadata } from "./platform-runtime-provider-settings";
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
+  DEFAULT_TTS_PRIMARY_PROVIDER,
+  TTS_PRIMARY_PROVIDER_STORAGE_KEY,
   buildAdminToolCredentialsState,
   parseUpdateToolCredentialsInput,
   providerStorageKey,
@@ -37,7 +40,12 @@ export class ManageAdminToolCredentialsService {
     await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const keyMetadata = await this.loadToolKeyMetadata();
     const providerSelections = await this.loadProviderSelections();
-    return buildAdminToolCredentialsState({ keyMetadata, providerSelections });
+    const ttsPrimaryProviderId = await this.loadTtsPrimaryProviderId();
+    return buildAdminToolCredentialsState({
+      keyMetadata,
+      providerSelections,
+      ttsPrimaryProviderId
+    });
   }
 
   async updateCredentials(
@@ -71,10 +79,22 @@ export class ManageAdminToolCredentialsService {
         );
       }
     }
+    if (input.ttsPrimaryProviderId !== undefined) {
+      await this.platformRuntimeProviderSecretStoreService.upsertProviderKey(
+        TTS_PRIMARY_PROVIDER_STORAGE_KEY,
+        input.ttsPrimaryProviderId,
+        userId
+      );
+    }
 
     const keyMetadata = await this.loadToolKeyMetadata();
     const providerSelections = await this.loadProviderSelections();
-    const state = buildAdminToolCredentialsState({ keyMetadata, providerSelections });
+    const ttsPrimaryProviderId = await this.loadTtsPrimaryProviderId();
+    const state = buildAdminToolCredentialsState({
+      keyMetadata,
+      providerSelections,
+      ttsPrimaryProviderId
+    });
 
     const configGeneration = await this.bumpConfigGenerationService.execute();
 
@@ -89,6 +109,7 @@ export class ManageAdminToolCredentialsService {
         updatedCredentials: Object.entries(input.keys)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
           .map(([key]) => key),
+        ttsPrimaryProviderId: input.ttsPrimaryProviderId ?? null,
         configGeneration
       }
     });
@@ -113,6 +134,17 @@ export class ManageAdminToolCredentialsService {
     return result;
   }
 
+  private async loadTtsPrimaryProviderId(): Promise<PersaiRuntimeTtsProviderId> {
+    const stored =
+      await this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
+        TTS_PRIMARY_PROVIDER_STORAGE_KEY
+      );
+    if (stored === null || stored.trim().length === 0) {
+      return DEFAULT_TTS_PRIMARY_PROVIDER;
+    }
+    return stored as PersaiRuntimeTtsProviderId;
+  }
+
   private async loadToolKeyMetadata(): Promise<
     Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata>
   > {
@@ -121,7 +153,9 @@ export class ManageAdminToolCredentialsService {
       tool_web_fetch: { configured: false, lastFour: null, updatedAt: null },
       tool_image_generate: { configured: false, lastFour: null, updatedAt: null },
       tool_browser: { configured: false, lastFour: null, updatedAt: null },
-      tool_tts: { configured: false, lastFour: null, updatedAt: null },
+      tool_tts_elevenlabs: { configured: false, lastFour: null, updatedAt: null },
+      tool_tts_yandex: { configured: false, lastFour: null, updatedAt: null },
+      tool_tts_openai: { configured: false, lastFour: null, updatedAt: null },
       tool_memory_search: { configured: false, lastFour: null, updatedAt: null }
     };
     const allMetadata =

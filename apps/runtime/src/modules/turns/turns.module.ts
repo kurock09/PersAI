@@ -10,6 +10,7 @@ import { ProviderGatewayClientService } from "./provider-gateway.client.service"
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
+import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService } from "./turn-acceptance.service";
@@ -26,6 +27,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
     RuntimeBrowserToolService,
     RuntimeImageGenerateToolService,
     RuntimeScheduledActionToolService,
+    RuntimeTtsToolService,
     IdempotencyService,
     PersaiMediaObjectStorageService,
     TurnContextHydrationService,
@@ -41,6 +43,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
     RuntimeBrowserToolService,
     RuntimeImageGenerateToolService,
     RuntimeScheduledActionToolService,
+    RuntimeTtsToolService,
     IdempotencyService,
     PersaiMediaObjectStorageService,
     TurnContextHydrationService,

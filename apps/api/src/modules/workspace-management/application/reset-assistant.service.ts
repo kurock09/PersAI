@@ -60,6 +60,7 @@ export class ResetAssistantService {
               draftAvatarEmoji: null,
               draftAvatarUrl: null,
               draftAssistantGender: null,
+              draftVoiceProfile: Prisma.DbNull,
               draftUpdatedAt: new Date()
             }
           });

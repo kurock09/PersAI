@@ -3,6 +3,8 @@ import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayImageGenerateRequest,
   ProviderGatewayImageGenerateResult,
+  ProviderGatewaySpeechGenerateRequest,
+  ProviderGatewaySpeechGenerateResult,
   ProviderGatewayToolCall,
   ProviderGatewayAudioTranscriptionResult,
   ProviderGatewayTextCompletedEvent,
@@ -21,12 +23,14 @@ import type { ProviderWarmableClient } from "../provider-client.types";
 
 const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const OPENAI_IMAGE_GENERATION_MODEL = "gpt-image-1";
+const OPENAI_SPEECH_GENERATION_MODEL = "gpt-4o-mini-tts";
 type OpenAIResponseCreateParams = Parameters<OpenAI["responses"]["create"]>[0];
 type OpenAINonStreamingCreateParams = Exclude<OpenAIResponseCreateParams, { stream: true }>;
 type OpenAIResponseInputParam = NonNullable<OpenAINonStreamingCreateParams["input"]>;
 type OpenAIResponseToolsParam = NonNullable<OpenAINonStreamingCreateParams["tools"]>;
 type OpenAIResponseToolChoice = OpenAIResponseCreateParams["tool_choice"];
 type OpenAIImageGenerateParams = Parameters<OpenAI["images"]["generate"]>[0];
+type OpenAISpeechCreateParams = Parameters<OpenAI["audio"]["speech"]["create"]>[0];
 type OpenAIImageGenerateResponse = {
   data?: Array<{
     b64_json?: string;
@@ -247,7 +251,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     input: ProviderGatewayImageGenerateRequest,
     options?: { apiKey?: string }
   ): Promise<ProviderGatewayImageGenerateResult> {
-    const client = this.getImageClient(options?.apiKey);
+    const client = this.getApiClient(options?.apiKey);
     const { signal, dispose } = this.createTimedSignal(
       this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
     );
@@ -296,6 +300,44 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         })),
         respondedAt: new Date().toISOString(),
         usage: this.toImageUsageSnapshot(OPENAI_IMAGE_GENERATION_MODEL, response.usage),
+        warning: null
+      };
+    } finally {
+      dispose();
+    }
+  }
+
+  async generateSpeech(
+    input: ProviderGatewaySpeechGenerateRequest,
+    options?: { apiKey?: string }
+  ): Promise<ProviderGatewaySpeechGenerateResult> {
+    const client = this.getApiClient(options?.apiKey);
+    const { signal, dispose } = this.createTimedSignal(
+      this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
+    );
+    const format = input.deliveryKind === "voice_note" ? "opus" : "mp3";
+    try {
+      const payload: OpenAISpeechCreateParams = {
+        model: OPENAI_SPEECH_GENERATION_MODEL,
+        voice: input.voiceProfile.openai.voice ?? "marin",
+        input: input.text,
+        response_format: format,
+        instructions: this.buildSpeechInstructions(input)
+      };
+      const response = await client.audio.speech.create(payload, { signal });
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length === 0) {
+        throw new Error("OpenAI speech generation returned an empty audio payload.");
+      }
+
+      return {
+        provider: "openai",
+        model: OPENAI_SPEECH_GENERATION_MODEL,
+        deliveryKind: input.deliveryKind,
+        bytesBase64: buffer.toString("base64"),
+        mimeType: format === "opus" ? "audio/ogg" : "audio/mpeg",
+        respondedAt: new Date().toISOString(),
+        usage: null,
         warning: null
       };
     } finally {
@@ -736,7 +778,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       : null;
   }
 
-  private getImageClient(apiKey?: string): OpenAI {
+  private getApiClient(apiKey?: string): OpenAI {
     if (typeof apiKey === "string" && apiKey.trim().length > 0) {
       return new OpenAI({ apiKey: apiKey.trim() });
     }
@@ -744,6 +786,91 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       throw new Error("OpenAI provider client is not warmed.");
     }
     return this.client;
+  }
+
+  private buildSpeechInstructions(input: ProviderGatewaySpeechGenerateRequest): string {
+    const traits = input.traits ?? {};
+    const instructions = [
+      `Speak naturally in ${input.locale}.`,
+      this.describeTone(input.toneTag),
+      this.describeGender(input.assistantGender),
+      this.describeFormality(traits.formality),
+      this.describeWarmth(traits.warmth),
+      this.describePlayfulness(traits.playfulness)
+    ].filter((entry): entry is string => entry !== null);
+    return instructions.join(" ");
+  }
+
+  private describeTone(toneTag: ProviderGatewaySpeechGenerateRequest["toneTag"]): string {
+    switch (toneTag) {
+      case "warm":
+        return "Keep the delivery warm, close, and human.";
+      case "gentle":
+        return "Keep the delivery soft, gentle, and reassuring.";
+      case "calm":
+        return "Keep the delivery calm, steady, and grounded.";
+      case "cheerful":
+        return "Keep the delivery bright, upbeat, and lively.";
+      case "playful":
+        return "Keep the delivery playful, lightly expressive, and energetic.";
+      case "confident":
+        return "Keep the delivery clear, assured, and confident.";
+      case "neutral":
+      default:
+        return "Keep the delivery natural and balanced.";
+    }
+  }
+
+  private describeGender(assistantGender: string | null): string | null {
+    switch (assistantGender) {
+      case "female":
+        return "Use a feminine vocal character.";
+      case "male":
+        return "Use a masculine vocal character.";
+      case "neutral":
+        return "Use a neutral vocal character.";
+      default:
+        return null;
+    }
+  }
+
+  private describeFormality(value: unknown): string | null {
+    if (typeof value !== "number") {
+      return null;
+    }
+    if (value >= 70) {
+      return "Keep the style polished and composed.";
+    }
+    if (value <= 30) {
+      return "Keep the style conversational and relaxed.";
+    }
+    return null;
+  }
+
+  private describeWarmth(value: unknown): string | null {
+    if (typeof value !== "number") {
+      return null;
+    }
+    if (value >= 70) {
+      return "Sound caring, kind, and emotionally present.";
+    }
+    if (value <= 30) {
+      return "Stay measured and emotionally restrained.";
+    }
+    return null;
+  }
+
+  private describePlayfulness(value: unknown): string | null {
+    if (typeof value !== "number") {
+      return null;
+    }
+    if (value >= 70) {
+      return "Allow a touch of playful energy when it feels natural.";
+    }
+    if (value <= 30) {
+      return "Avoid sounding playful or joking.";
+    }
+    return null;
   }
 
   private resolveGeneratedImageMimeType(outputFormat: unknown): string {

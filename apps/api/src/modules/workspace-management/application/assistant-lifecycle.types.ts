@@ -1,3 +1,5 @@
+import type { RuntimeAssistantVoiceProfile } from "@persai/runtime-contract";
+
 export interface AssistantDraftState {
   displayName: string | null;
   instructions: string | null;
@@ -5,6 +7,7 @@ export interface AssistantDraftState {
   avatarEmoji: string | null;
   avatarUrl: string | null;
   assistantGender: string | null;
+  voiceProfile: RuntimeAssistantVoiceProfile;
   updatedAt: string | null;
 }
 
@@ -15,6 +18,7 @@ export interface AssistantPublishedVersionSnapshotState {
   avatarEmoji: string | null;
   avatarUrl: string | null;
   assistantGender: string | null;
+  voiceProfile: RuntimeAssistantVoiceProfile;
 }
 
 export interface AssistantPublishedVersionState {

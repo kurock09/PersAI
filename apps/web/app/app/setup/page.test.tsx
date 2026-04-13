@@ -88,6 +88,21 @@ function makeAssistantState(): AssistantLifecycleState {
       avatarEmoji: null,
       avatarUrl: null,
       assistantGender: "female",
+      voiceProfile: {
+        schema: "persai.assistantVoiceProfile.v1",
+        defaultLocale: "ru-RU",
+        deliveryKind: "voice_note",
+        elevenlabs: {
+          voiceId: null
+        },
+        yandex: {
+          voice: "jane",
+          role: "friendly"
+        },
+        openai: {
+          voice: "marin"
+        }
+      },
       updatedAt: "2026-04-01T10:00:00.000Z"
     },
     latestPublishedVersion: null,

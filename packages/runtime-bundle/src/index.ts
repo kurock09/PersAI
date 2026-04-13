@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   PERSAI_RUNTIME_CONTRACT_SCHEMA,
+  type RuntimeAssistantVoiceProfile,
   type RuntimeBrowserConfig,
   type RuntimeKnowledgeAccessConfig,
   type RuntimeSharedCompactionConfig,
@@ -26,6 +27,7 @@ export interface AssistantRuntimeBundlePersona {
   avatarEmoji: string | null;
   avatarUrl: string | null;
   assistantGender: string | null;
+  voiceProfile: RuntimeAssistantVoiceProfile;
 }
 
 export interface AssistantRuntimeBundleUserContext {
@@ -47,6 +49,7 @@ export interface AssistantRuntimeBundleToolCredentialRef {
   secretRef: AssistantRuntimeBundleSecretRef;
   configured: boolean;
   providerId?: string;
+  fallbacks?: AssistantRuntimeBundleToolCredentialRef[];
 }
 
 export type AssistantRuntimeBundleToolPolicy = RuntimeToolPolicy;

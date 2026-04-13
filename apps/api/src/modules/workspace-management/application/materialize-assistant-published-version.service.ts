@@ -41,6 +41,9 @@ import { buildRuntimeWorkerToolsConfig } from "./runtime-worker-tools";
 import { buildRuntimeSharedCompactionConfig } from "./runtime-shared-compaction";
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
+  DEFAULT_TTS_PRIMARY_PROVIDER,
+  TTS_PRIMARY_PROVIDER_STORAGE_KEY,
+  TTS_PROVIDER_TO_CREDENTIAL_KEY,
   TOOL_CODE_BY_CREDENTIAL_KEY,
   TOOL_DEFAULT_PROVIDER,
   TOOL_PROVIDER_OPTIONS,
@@ -50,11 +53,15 @@ import {
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import {
+  applyAssistantGenderVoiceDefaults,
+  normalizeAssistantVoiceProfile
+} from "./assistant-voice-profile";
 import { normalizeAssistantGender } from "./assistant-gender";
 import { resolveRuntimeAssignmentState } from "./runtime-assignment";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { resolveTelegramBindingMetadataState } from "./telegram-integration.metadata";
-import type { RuntimeToolPolicy } from "@persai/runtime-contract";
+import type { PersaiRuntimeTtsProviderId, RuntimeToolPolicy } from "@persai/runtime-contract";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -377,6 +384,10 @@ export class MaterializeAssistantPublishedVersionService {
     });
 
     const assistantGender = normalizeAssistantGender(publishedVersion.snapshotAssistantGender);
+    const voiceProfile = applyAssistantGenderVoiceDefaults({
+      assistantGender,
+      voiceProfile: normalizeAssistantVoiceProfile(publishedVersion.snapshotVoiceProfile)
+    });
     const openclawWorkspace = {
       schema: OPENCLAW_WORKSPACE_SCHEMA,
       workspace: {
@@ -390,7 +401,8 @@ export class MaterializeAssistantPublishedVersionService {
         traits: publishedVersion.snapshotTraits,
         avatarEmoji: publishedVersion.snapshotAvatarEmoji,
         avatarUrl: publishedVersion.snapshotAvatarUrl,
-        assistantGender
+        assistantGender,
+        voiceProfile
       },
       effectiveCapabilities,
       toolAvailability,
@@ -417,7 +429,8 @@ export class MaterializeAssistantPublishedVersionService {
         traits: publishedVersion.snapshotTraits,
         avatarEmoji: publishedVersion.snapshotAvatarEmoji,
         avatarUrl: publishedVersion.snapshotAvatarUrl,
-        assistantGender
+        assistantGender,
+        voiceProfile
       },
       userContext,
       runtime: {
@@ -501,30 +514,17 @@ export class MaterializeAssistantPublishedVersionService {
   }
 
   private async resolveToolCredentialRefs(): Promise<
-    Record<
-      string,
-      {
-        refKey: string;
-        secretRef: { source: string; provider: string; id: string };
-        configured: boolean;
-        providerId?: string;
-      }
-    >
+    AssistantRuntimeBundle["governance"]["toolCredentialRefs"]
   > {
     const keyMetadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(
       ALL_TOOL_CREDENTIAL_KEYS as unknown as string[]
     );
-    const refs: Record<
-      string,
-      {
-        refKey: string;
-        secretRef: { source: string; provider: string; id: string };
-        configured: boolean;
-        providerId?: string;
-      }
-    > = {};
+    const refs: AssistantRuntimeBundle["governance"]["toolCredentialRefs"] = {};
     for (const credentialKey of ALL_TOOL_CREDENTIAL_KEYS) {
       const toolCode = TOOL_CODE_BY_CREDENTIAL_KEY[credentialKey];
+      if (toolCode === "tts") {
+        continue;
+      }
       const secretRef = buildToolCredentialSecretRef(credentialKey);
 
       let providerId: string | undefined;
@@ -542,7 +542,56 @@ export class MaterializeAssistantPublishedVersionService {
         ...(providerId ? { providerId } : {})
       };
     }
+    refs.tts = this.buildTtsToolCredentialRef(
+      keyMetadata,
+      await this.resolveTtsPrimaryProviderId()
+    );
     return refs;
+  }
+
+  private buildTtsToolCredentialRef(
+    keyMetadata: Record<string, { configured: boolean } | undefined>,
+    primaryProviderId: PersaiRuntimeTtsProviderId
+  ): AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string] {
+    const orderedProviders = this.orderTtsProviders(primaryProviderId);
+    const primaryCredentialKey = TTS_PROVIDER_TO_CREDENTIAL_KEY[primaryProviderId];
+    const primarySecretRef = buildToolCredentialSecretRef(primaryCredentialKey);
+
+    return {
+      ...primarySecretRef,
+      configured: keyMetadata[primaryCredentialKey]?.configured ?? false,
+      providerId: primaryProviderId,
+      fallbacks: orderedProviders.slice(1).map((providerId) => {
+        const credentialKey = TTS_PROVIDER_TO_CREDENTIAL_KEY[providerId];
+        const secretRef = buildToolCredentialSecretRef(credentialKey);
+        return {
+          ...secretRef,
+          configured: keyMetadata[credentialKey]?.configured ?? false,
+          providerId
+        };
+      })
+    };
+  }
+
+  private async resolveTtsPrimaryProviderId(): Promise<PersaiRuntimeTtsProviderId> {
+    const stored =
+      await this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
+        TTS_PRIMARY_PROVIDER_STORAGE_KEY
+      );
+    if (stored === "elevenlabs" || stored === "yandex" || stored === "openai") {
+      return stored;
+    }
+    return DEFAULT_TTS_PRIMARY_PROVIDER;
+  }
+
+  private orderTtsProviders(
+    primaryProviderId: PersaiRuntimeTtsProviderId
+  ): PersaiRuntimeTtsProviderId[] {
+    const fallbackPreference: PersaiRuntimeTtsProviderId[] = ["elevenlabs", "yandex", "openai"];
+    return [
+      primaryProviderId,
+      ...fallbackPreference.filter((providerId) => providerId !== primaryProviderId)
+    ];
   }
 
   private async resolvePlanPrimaryModelKey(planCode: string | null): Promise<string | null> {

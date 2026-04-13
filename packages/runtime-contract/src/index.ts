@@ -461,6 +461,112 @@ export interface RuntimeImageGenerateToolResult {
   warning: string | null;
 }
 
+export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"] as const;
+
+export type PersaiRuntimeTtsProviderId = (typeof PERSAI_RUNTIME_TTS_PROVIDER_IDS)[number];
+
+export const PERSAI_RUNTIME_TTS_DELIVERY_KINDS = ["voice_note", "audio"] as const;
+
+export type PersaiRuntimeTtsDeliveryKind = (typeof PERSAI_RUNTIME_TTS_DELIVERY_KINDS)[number];
+
+export const PERSAI_RUNTIME_TTS_TONE_TAGS = [
+  "neutral",
+  "warm",
+  "gentle",
+  "calm",
+  "cheerful",
+  "playful",
+  "confident"
+] as const;
+
+export type TtsToneTag = (typeof PERSAI_RUNTIME_TTS_TONE_TAGS)[number];
+
+export const PERSAI_RUNTIME_TTS_DEFAULT_LOCALE = "ru-RU" as const;
+export const MAX_RUNTIME_TTS_TEXT_CHARS = 4_000 as const;
+
+export const PERSAI_RUNTIME_YANDEX_TTS_VOICES = [
+  "marina",
+  "jane",
+  "ermil",
+  "zahar",
+  "lera",
+  "masha",
+  "dasha",
+  "alexander",
+  "kirill",
+  "anton"
+] as const;
+
+export type PersaiRuntimeYandexTtsVoice = (typeof PERSAI_RUNTIME_YANDEX_TTS_VOICES)[number];
+
+export const PERSAI_RUNTIME_YANDEX_TTS_ROLES = [
+  "neutral",
+  "good",
+  "friendly",
+  "strict",
+  "whisper",
+  "evil"
+] as const;
+
+export type PersaiRuntimeYandexTtsRole = (typeof PERSAI_RUNTIME_YANDEX_TTS_ROLES)[number];
+
+export const PERSAI_RUNTIME_OPENAI_TTS_VOICES = [
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "fable",
+  "onyx",
+  "nova",
+  "sage",
+  "shimmer",
+  "verse",
+  "marin",
+  "cedar"
+] as const;
+
+export type PersaiRuntimeOpenAITtsVoice = (typeof PERSAI_RUNTIME_OPENAI_TTS_VOICES)[number];
+
+export interface RuntimeAssistantVoiceProfile {
+  schema: "persai.assistantVoiceProfile.v1";
+  defaultLocale: string;
+  deliveryKind: PersaiRuntimeTtsDeliveryKind;
+  elevenlabs: {
+    voiceId: string | null;
+  };
+  yandex: {
+    voice: PersaiRuntimeYandexTtsVoice | null;
+    role: PersaiRuntimeYandexTtsRole | null;
+  };
+  openai: {
+    voice: PersaiRuntimeOpenAITtsVoice | null;
+  };
+}
+
+export interface RuntimeTtsRequest {
+  toolCode: "tts";
+  text: string;
+  toneTag: TtsToneTag;
+  deliveryKind: PersaiRuntimeTtsDeliveryKind | null;
+}
+
+export interface RuntimeTtsToolResult {
+  toolCode: "tts";
+  executionMode: "worker";
+  provider: PersaiRuntimeTtsProviderId | null;
+  model: string | null;
+  requestedText: string | null;
+  toneTag: TtsToneTag | null;
+  deliveryKind: PersaiRuntimeTtsDeliveryKind | null;
+  artifact: RuntimeOutputArtifact | null;
+  attemptedProviders: PersaiRuntimeTtsProviderId[];
+  usage: RuntimeUsageSnapshot | null;
+  action: "generated" | "skipped";
+  reason: string | null;
+  warning: string | null;
+}
+
 export const PERSAI_RUNTIME_WEB_SEARCH_PROVIDER_IDS = [
   "tavily",
   "brave",
@@ -749,6 +855,32 @@ export interface ProviderGatewayAudioTranscriptionResult {
   model: string;
   text: string;
   respondedAt: IsoTimestamp;
+}
+
+export interface ProviderGatewaySpeechGenerateRequest {
+  text: string;
+  locale: string;
+  toneTag: TtsToneTag;
+  deliveryKind: PersaiRuntimeTtsDeliveryKind;
+  assistantGender: string | null;
+  traits: Record<string, number> | null;
+  voiceProfile: RuntimeAssistantVoiceProfile;
+  credential: {
+    toolCode: "tts";
+    secretId: string;
+    providerId: PersaiRuntimeTtsProviderId | null;
+  };
+}
+
+export interface ProviderGatewaySpeechGenerateResult {
+  provider: PersaiRuntimeTtsProviderId;
+  model: string;
+  deliveryKind: PersaiRuntimeTtsDeliveryKind;
+  bytesBase64: string;
+  mimeType: string;
+  respondedAt: IsoTimestamp;
+  usage: RuntimeUsageSnapshot | null;
+  warning: string | null;
 }
 
 export interface ProviderGatewayImageGenerateRequest {

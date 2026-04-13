@@ -23,6 +23,10 @@ import { MaterializeAssistantPublishedVersionService } from "./materialize-assis
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import {
+  applyAssistantGenderVoiceDefaults,
+  normalizeAssistantVoiceProfile
+} from "./assistant-voice-profile";
 import { normalizeAssistantGender } from "./assistant-gender";
 
 export interface RollbackAssistantRequest {
@@ -92,6 +96,12 @@ export class RollbackAssistantService {
       throw new NotFoundException("Requested published version does not exist.");
     }
 
+    const assistantGender = normalizeAssistantGender(targetVersion.snapshotAssistantGender);
+    const snapshotVoiceProfile = applyAssistantGenderVoiceDefaults({
+      assistantGender,
+      voiceProfile: normalizeAssistantVoiceProfile(targetVersion.snapshotVoiceProfile)
+    });
+
     const rolledBackVersion = await this.assistantPublishedVersionRepository.create({
       assistantId: assistant.id,
       publishedByUserId: userId,
@@ -100,7 +110,8 @@ export class RollbackAssistantService {
       snapshotTraits: targetVersion.snapshotTraits,
       snapshotAvatarEmoji: targetVersion.snapshotAvatarEmoji,
       snapshotAvatarUrl: targetVersion.snapshotAvatarUrl,
-      snapshotAssistantGender: normalizeAssistantGender(targetVersion.snapshotAssistantGender)
+      snapshotAssistantGender: assistantGender,
+      snapshotVoiceProfile
     });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
@@ -122,7 +133,8 @@ export class RollbackAssistantService {
       draftTraits: targetVersion.snapshotTraits,
       draftAvatarEmoji: targetVersion.snapshotAvatarEmoji,
       draftAvatarUrl: targetVersion.snapshotAvatarUrl,
-      draftAssistantGender: normalizeAssistantGender(targetVersion.snapshotAssistantGender)
+      draftAssistantGender: assistantGender,
+      draftVoiceProfile: snapshotVoiceProfile
     });
     if (updatedAssistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");

@@ -2403,6 +2403,7 @@ components:
       required:
         - displayName
         - instructions
+        - voiceProfile
         - updatedAt
       properties:
         displayName:
@@ -2426,15 +2427,116 @@ components:
           allOf:
             - $ref: "#/components/schemas/AssistantIdentityGender"
           nullable: true
+        voiceProfile:
+          $ref: "#/components/schemas/AssistantVoiceProfileState"
         updatedAt:
           type: string
           format: date-time
+          nullable: true
+    AssistantVoiceProfileState:
+      type: object
+      required:
+        - schema
+        - defaultLocale
+        - deliveryKind
+        - elevenlabs
+        - yandex
+        - openai
+      properties:
+        schema:
+          type: string
+          enum:
+            - persai.assistantVoiceProfile.v1
+        defaultLocale:
+          type: string
+        deliveryKind:
+          $ref: "#/components/schemas/AssistantVoiceProfileDeliveryKind"
+        elevenlabs:
+          $ref: "#/components/schemas/AssistantVoiceProfileElevenLabsState"
+        yandex:
+          $ref: "#/components/schemas/AssistantVoiceProfileYandexState"
+        openai:
+          $ref: "#/components/schemas/AssistantVoiceProfileOpenAIState"
+    AssistantVoiceProfileDeliveryKind:
+      type: string
+      enum:
+        - voice_note
+        - audio
+    AssistantVoiceProfileElevenLabsState:
+      type: object
+      required:
+        - voiceId
+      properties:
+        voiceId:
+          type: string
+          nullable: true
+    AssistantVoiceProfileYandexVoice:
+      type: string
+      enum:
+        - marina
+        - jane
+        - ermil
+        - zahar
+        - lera
+        - masha
+        - dasha
+        - alexander
+        - kirill
+        - anton
+    AssistantVoiceProfileYandexRole:
+      type: string
+      enum:
+        - neutral
+        - good
+        - friendly
+        - strict
+        - whisper
+        - evil
+    AssistantVoiceProfileYandexState:
+      type: object
+      required:
+        - voice
+        - role
+      properties:
+        voice:
+          allOf:
+            - $ref: "#/components/schemas/AssistantVoiceProfileYandexVoice"
+          nullable: true
+        role:
+          allOf:
+            - $ref: "#/components/schemas/AssistantVoiceProfileYandexRole"
+          nullable: true
+    AssistantVoiceProfileOpenAIVoice:
+      type: string
+      enum:
+        - alloy
+        - ash
+        - ballad
+        - coral
+        - echo
+        - fable
+        - onyx
+        - nova
+        - sage
+        - shimmer
+        - verse
+        - marin
+        - cedar
+    AssistantVoiceProfileOpenAIState:
+      type: object
+      required:
+        - voice
+      properties:
+        voice:
+          allOf:
+            - $ref: "#/components/schemas/AssistantVoiceProfileOpenAIVoice"
           nullable: true
     AssistantPublishedVersionSnapshotState:
       type: object
       required:
         - displayName
         - instructions
+        - voiceProfile
       properties:
         displayName:
           type: string
@@ -2457,6 +2559,8 @@ components:
           allOf:
             - $ref: "#/components/schemas/AssistantIdentityGender"
           nullable: true
+        voiceProfile:
+          $ref: "#/components/schemas/AssistantVoiceProfileState"
     AssistantPublishedVersionState:
       type: object
       required:
@@ -3518,6 +3622,10 @@ components:
         assistantGender:
           allOf:
             - $ref: "#/components/schemas/AssistantIdentityGender"
+          nullable: true
+        voiceProfile:
+          allOf:
+            - $ref: "#/components/schemas/AssistantVoiceProfileState"
           nullable: true
     AssistantIdentityGender:
       type: string

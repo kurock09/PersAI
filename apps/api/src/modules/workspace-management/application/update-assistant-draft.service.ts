@@ -19,7 +19,9 @@ import {
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { parseAssistantVoiceProfileInput } from "./assistant-voice-profile";
 import { VALID_ASSISTANT_GENDERS, type AssistantGender } from "./assistant-gender";
+import type { RuntimeAssistantVoiceProfile } from "@persai/runtime-contract";
 
 export interface UpdateAssistantDraftRequest {
   displayName?: string | null;
@@ -28,6 +30,7 @@ export interface UpdateAssistantDraftRequest {
   avatarEmoji?: string | null;
   avatarUrl?: string | null;
   assistantGender?: string | null;
+  voiceProfile?: RuntimeAssistantVoiceProfile | null;
 }
 
 const DRAFT_FIELD_MAX_LENGTHS: Record<string, number> = {
@@ -100,6 +103,7 @@ export class UpdateAssistantDraftService {
       validateAvatarUrl(avatarUrl);
     }
     const assistantGender = this.parseOptionalAssistantGender(body.assistantGender);
+    const voiceProfile = this.parseOptionalVoiceProfile(body.voiceProfile);
     const traits = this.parseOptionalTraits(body.traits);
 
     if (
@@ -108,7 +112,8 @@ export class UpdateAssistantDraftService {
       traits === undefined &&
       avatarEmoji === undefined &&
       avatarUrl === undefined &&
-      assistantGender === undefined
+      assistantGender === undefined &&
+      voiceProfile === undefined
     ) {
       throw new BadRequestException("At least one draft field must be provided.");
     }
@@ -119,7 +124,8 @@ export class UpdateAssistantDraftService {
       ...(traits !== undefined ? { traits } : {}),
       ...(avatarEmoji !== undefined ? { avatarEmoji } : {}),
       ...(avatarUrl !== undefined ? { avatarUrl } : {}),
-      ...(assistantGender !== undefined ? { assistantGender } : {})
+      ...(assistantGender !== undefined ? { assistantGender } : {}),
+      ...(voiceProfile !== undefined ? { voiceProfile } : {})
     };
   }
 
@@ -146,7 +152,8 @@ export class UpdateAssistantDraftService {
       ...(request.avatarUrl !== undefined ? { draftAvatarUrl: request.avatarUrl } : {}),
       ...(request.assistantGender !== undefined
         ? { draftAssistantGender: request.assistantGender }
-        : {})
+        : {}),
+      ...(request.voiceProfile !== undefined ? { draftVoiceProfile: request.voiceProfile } : {})
     };
 
     const updatedAssistant = await this.assistantRepository.updateDraft(userId, nextDraft);
@@ -172,7 +179,10 @@ export class UpdateAssistantDraftService {
       details: {
         changedFields: {
           displayName: existingAssistant.draftDisplayName !== updatedAssistant.draftDisplayName,
-          instructions: existingAssistant.draftInstructions !== updatedAssistant.draftInstructions
+          instructions: existingAssistant.draftInstructions !== updatedAssistant.draftInstructions,
+          voiceProfile:
+            JSON.stringify(existingAssistant.draftVoiceProfile) !==
+            JSON.stringify(updatedAssistant.draftVoiceProfile)
         }
       }
     });
@@ -218,5 +228,15 @@ export class UpdateAssistantDraftService {
       throw new BadRequestException("assistantGender must be one of male, female, or neutral.");
     }
     return normalized as AssistantGender;
+  }
+
+  private parseOptionalVoiceProfile(
+    value: unknown
+  ): RuntimeAssistantVoiceProfile | null | undefined {
+    const parsed = parseAssistantVoiceProfileInput(value);
+    if (parsed instanceof Error) {
+      throw new BadRequestException(parsed.message);
+    }
+    return parsed;
   }
 }

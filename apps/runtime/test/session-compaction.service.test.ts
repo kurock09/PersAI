@@ -148,7 +148,22 @@ function createBundleEntry() {
       traits: null,
       avatarEmoji: null,
       avatarUrl: null,
-      assistantGender: null
+      assistantGender: null,
+      voiceProfile: {
+        schema: "persai.assistantVoiceProfile.v1",
+        defaultLocale: "ru-RU",
+        deliveryKind: "voice_note",
+        elevenlabs: {
+          voiceId: null
+        },
+        yandex: {
+          voice: "jane",
+          role: null
+        },
+        openai: {
+          voice: "marin"
+        }
+      }
     },
     userContext: {
       displayName: "Alex",

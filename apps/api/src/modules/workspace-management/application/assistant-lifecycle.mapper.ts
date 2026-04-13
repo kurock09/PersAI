@@ -7,6 +7,10 @@ import type {
   AssistantLifecycleState,
   AssistantPublishedVersionState
 } from "./assistant-lifecycle.types";
+import {
+  applyAssistantGenderVoiceDefaults,
+  normalizeAssistantVoiceProfile
+} from "./assistant-voice-profile";
 import { normalizeAssistantGender } from "./assistant-gender";
 import {
   readRuntimeAssignmentStateFromMaterializedLayers,
@@ -16,6 +20,7 @@ import {
 export function toAssistantPublishedVersionState(
   publishedVersion: AssistantPublishedVersion
 ): AssistantPublishedVersionState {
+  const assistantGender = normalizeAssistantGender(publishedVersion.snapshotAssistantGender);
   return {
     id: publishedVersion.id,
     version: publishedVersion.version,
@@ -27,7 +32,11 @@ export function toAssistantPublishedVersionState(
       traits: publishedVersion.snapshotTraits,
       avatarEmoji: publishedVersion.snapshotAvatarEmoji,
       avatarUrl: publishedVersion.snapshotAvatarUrl,
-      assistantGender: normalizeAssistantGender(publishedVersion.snapshotAssistantGender)
+      assistantGender,
+      voiceProfile: applyAssistantGenderVoiceDefaults({
+        assistantGender,
+        voiceProfile: normalizeAssistantVoiceProfile(publishedVersion.snapshotVoiceProfile)
+      })
     }
   };
 }
@@ -38,6 +47,7 @@ export function toAssistantLifecycleState(
   governance: AssistantGovernance | null,
   materialization: AssistantMaterializedSpec | null
 ): AssistantLifecycleState {
+  const assistantGender = normalizeAssistantGender(assistant.draftAssistantGender);
   const governanceState: AssistantGovernanceState = {
     capabilityEnvelope: governance?.capabilityEnvelope ?? null,
     secretRefs: governance?.secretRefs ?? null,
@@ -64,7 +74,11 @@ export function toAssistantLifecycleState(
       traits: assistant.draftTraits,
       avatarEmoji: assistant.draftAvatarEmoji,
       avatarUrl: assistant.draftAvatarUrl,
-      assistantGender: normalizeAssistantGender(assistant.draftAssistantGender),
+      assistantGender,
+      voiceProfile: applyAssistantGenderVoiceDefaults({
+        assistantGender,
+        voiceProfile: normalizeAssistantVoiceProfile(assistant.draftVoiceProfile)
+      }),
       updatedAt: assistant.draftUpdatedAt?.toISOString() ?? null
     },
     latestPublishedVersion:

@@ -39,6 +39,7 @@ import type {
 import { RuntimeBrowserToolService } from "../src/modules/turns/runtime-browser-tool.service";
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-scheduled-action-tool.service";
+import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
   FinalizedRuntimeTurn,
@@ -148,7 +149,22 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       traits: null,
       avatarEmoji: null,
       avatarUrl: null,
-      assistantGender: null
+      assistantGender: null,
+      voiceProfile: {
+        schema: "persai.assistantVoiceProfile.v1",
+        defaultLocale: "ru-RU",
+        deliveryKind: "voice_note",
+        elevenlabs: {
+          voiceId: null
+        },
+        yandex: {
+          voice: "jane",
+          role: null
+        },
+        openai: {
+          voice: "marin"
+        }
+      }
     },
     userContext: {
       displayName: "Alex",
@@ -944,6 +960,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeScheduledActionToolService = new RuntimeScheduledActionToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
+  const runtimeTtsToolService = new RuntimeTtsToolService(
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    mediaObjectStorage as never
+  );
   const service = new TurnExecutionService(
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGatewayClient as unknown as ProviderGatewayClientService,
@@ -954,7 +975,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     sessionCompactionService as never,
     runtimeBrowserToolService,
     runtimeImageGenerateToolService,
-    runtimeScheduledActionToolService
+    runtimeScheduledActionToolService,
+    runtimeTtsToolService
   );
 
   const request = createRuntimeTurnRequest();
