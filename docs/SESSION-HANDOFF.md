@@ -1,5 +1,81 @@
 # SESSION-HANDOFF
 
+## 2026-04-13 - ADR-072 T15-6 native tts stabilization
+
+### What changed
+
+1. `apps/api` now stabilizes native `tts` materialization and assistant voice state instead of only landing the initial baseline: assistant draft/publish normalization now keeps `voiceProfile` aligned with assistant gender, deterministic primary-provider routing, and voice compatibility so an invalid saved provider/voice combination does not silently survive into the materialized runtime bundle.
+2. `apps/provider-gateway` now treats Yandex voice-role compatibility as explicit runtime truth instead of blindly forwarding any saved `role`; unsupported pairs are filtered before the upstream request, which prevents avoidable `400` failures like `jane + friendly`.
+3. `apps/web` now keeps the assistant voice UI aligned with the current TTS control-plane truth: only the active primary provider is shown, visible voice choices are gender-filtered, ElevenLabs voices load from the provider API for selection instead of requiring a manual `voiceId`, and the hidden stale Yandex `role` value is no longer preserved by default.
+4. Focused API/provider/runtime/web regression coverage plus the full required lint/format/typecheck gate now lock the intended `tts` behavior: stable ordered provider chain, gender-safe fallback compatibility, and no random cross-provider jumps after the initial live debugging findings.
+
+### Why
+
+1. Live `kubectl` debugging showed the frequent `ElevenLabs -> Yandex/OpenAI` fallbacks were mostly not true provider outages. The real failures were stale assistant data (`elevenlabs.voiceId = null`) and incompatible Yandex hint combinations (for example `jane + friendly`) surviving into runtime requests.
+2. The initial `tts` baseline was functionally real but still left room for accidental fallback churn and UI confusion. The product needs one stable primary-provider UX plus one deterministic compatibility-aware fallback path, not a hidden chain of random jumps driven by bad saved voice data.
+3. ElevenLabs voice selection also needed a real operator/user path. A free-text `voiceId` field was not an honest product surface once the live issue turned out to be a missing saved assistant voice rather than an upstream synthesis outage.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-6 — Media generation and editing plan tools` is still the current slice. Native `image_generate` and native `tts` are now both real landed media tools, and `tts` now also has deterministic voice/provider stabilization on top of the original baseline. `image_edit` and `video_generate` remain the next honest follow-through inside `T15-6`.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-voice-profile.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/update-assistant-draft.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-voice-settings.service.ts`
+- `apps/api/src/modules/workspace-management/application/tts-provider-selection.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/assistant-voice-profile.test.ts`
+- `apps/provider-gateway/src/modules/providers/yandex/yandex-provider.client.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-speech-generation.service.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `apps/provider-gateway/test/yandex-provider.client.test.ts`
+- `apps/runtime/test/runtime-tts-tool.service.test.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/assistant-voice-options.ts`
+- `apps/web/app/app/_components/assistant-voice-options.test.ts`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-voice-profile.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/yandex-provider.client.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-tts-tool.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-voice-options.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks
+
+1. The codebase is now honest about the main live root causes, but already-published assistants still need `publish/reapply` so old materialized bundles stop carrying stale `voiceId` or incompatible fallback data.
+2. The current fix stabilizes explicit tool-driven `tts`; native channel-owned web voice streaming/output still remains separate planned work under `Step 15a`.
+3. `image_edit` and `video_generate` are still not landed, so `T15-6` as a whole remains in progress even though `tts` itself is now on a stable baseline.
+
+### Next recommended step
+
+1. Push the current PersAI commit, deploy/reapply, and run one bounded live retest that proves: `ElevenLabs` works with a saved assistant voice, `voice_note` and `audio` both deliver correctly, and the deterministic fallback path only engages on real provider/credential incompatibility.
+2. Continue `T15-6` with the next smallest honest media follow-through, most likely `image_edit`, while preserving the same shared worker/provider-gateway/media-artifact boundary used by `image_generate` and stabilized `tts`.
+
 ## 2026-04-13 - ADR-072 T15-6 native tts baseline
 
 ### What changed
