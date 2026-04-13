@@ -1,5 +1,46 @@
 # SESSION-HANDOFF
 
+## 2026-04-13 - ADR-072 T15-5 closeout and doc-state sync
+
+### What changed
+
+1. `ADR-072` execution ledger now marks `T15-5 — Reminder and scheduled action plan tools` as `completed` instead of leaving it in the old `code-complete / pre-prod live validation` state.
+2. The current Step 15 baseline now treats the native `scheduled_action` stack as a closed slice: worker-tool materialization, native runtime projection/execution, PersAI-owned scheduler claims, user-vs-assistant audiences, muted assistant-side UI visibility, and the post-validation retry/prompt hardening are all recorded as landed repo truth.
+3. Repo-truth handoff/changelog language now moves the next queued Step 15 tool family to `T15-6 — Media generation and editing plan tools` instead of keeping later sessions anchored on scheduler follow-through.
+
+### Why
+
+1. The bounded live validation plus the post-validation assistant follow-up hardening are already landed, so leaving `T15-5` open in docs is no longer honest.
+2. Keeping the ledgers behind the real migration state would cause later sessions to reopen finished scheduled-action work instead of moving to the next Step 15 family.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-0`, `T15-1`, `T15-2`, `T15-3a`, `T15-3b`, `T15-4`, and `T15-5` are now complete, and the next queued tool family is `T15-6 — Media generation and editing plan tools`
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- none; docs-only closeout
+
+### Risks
+
+1. `T15-5` is now closed in docs, but richer provider-gateway exception-detail logging is still a useful operational follow-up rather than part of the slice exit criteria.
+2. Step 15 itself is still not complete overall; `T15-6`, `T15-6b`, and `T15-7` remain untouched and should not be skipped.
+
+### Next recommended step
+
+1. Start `T15-6 — Media generation and editing plan tools` on the smallest honest baseline slice instead of reopening `scheduled_action` semantics.
+2. Treat any future scheduled-action work as narrow bug/regression follow-through, not as evidence that `T15-5` is still open.
+
 ## 2026-04-13 - ADR-072 T15-5 scheduled_action hard rename and assistant-action split
 
 ### What changed
