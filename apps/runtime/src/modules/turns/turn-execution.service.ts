@@ -30,6 +30,7 @@ import {
   type RuntimeToolPolicy,
   type RuntimeFailedEvent,
   type RuntimeInterruptedEvent,
+  type RuntimeTextDeltaSource,
   type RuntimeTurnRequest,
   type RuntimeTurnResult,
   type RuntimeTurnStreamEvent,
@@ -268,7 +269,9 @@ export class TurnExecutionService {
     turnState: TurnExecutionState,
     signal?: AbortSignal
   ): AsyncGenerator<RuntimeTurnStreamEvent> {
-    let accumulatedText = "";
+    // Keep the fully assembled assistant text separate from the user-visible stream text.
+    let assembledText = "";
+    let deliveredText = "";
     const toolHistory: ProviderGatewayToolExchange[] = [];
     let completionFinalizationAttempted = false;
 
@@ -280,7 +283,7 @@ export class TurnExecutionService {
 
     try {
       for (let iteration = 0; iteration < MAX_NATIVE_TOOL_LOOP_ITERATIONS; iteration += 1) {
-        const iterationBaseText = accumulatedText;
+        const iterationBaseText = assembledText;
         const providerStream = await this.providerGatewayClientService.streamText(
           this.buildToolLoopProviderRequest(execution.providerRequest, {
             assistantText: iterationBaseText,
@@ -299,25 +302,28 @@ export class TurnExecutionService {
           if (signal?.aborted) {
             await this.interruptAcceptedTurnQuietly({
               acceptedTurn,
-              event: this.toInterruptedEvent(acceptedTurn, accumulatedText, null)
+              event: this.toInterruptedEvent(acceptedTurn, deliveredText, null)
             });
             return;
           }
 
           if (event.type === "text_delta" && event.delta !== undefined) {
-            accumulatedText = this.mergeAssistantTurnText(iterationBaseText, event.accumulatedText);
-            yield {
-              type: "text_delta",
-              requestId: acceptedTurn.receipt.requestId,
-              sessionId: acceptedTurn.session.sessionId,
-              delta: event.delta,
-              accumulatedText
-            };
+            assembledText = this.mergeAssistantTurnText(iterationBaseText, event.accumulatedText);
+            const deltaEvent = this.createVisibleTextDeltaStreamEvent({
+              acceptedTurn,
+              previousDeliveredText: deliveredText,
+              nextVisibleText: assembledText,
+              source: "provider_text_delta"
+            });
+            if (deltaEvent !== null) {
+              deliveredText = deltaEvent.accumulatedText;
+              yield deltaEvent;
+            }
             continue;
           }
 
           if (event.type === "tool_calls") {
-            accumulatedText = this.mergeAssistantTurnText(accumulatedText, event.result.text);
+            assembledText = this.mergeAssistantTurnText(assembledText, event.result.text);
             if (event.result.toolCalls.length === 0) {
               throw new TurnExecutionError(
                 "native_tool_result_invalid",
@@ -325,6 +331,17 @@ export class TurnExecutionService {
                   "Provider stream returned a tool-call stop without any tool calls."
                 )
               );
+            }
+
+            const bufferedPrefixEvent = this.createVisibleTextDeltaStreamEvent({
+              acceptedTurn,
+              previousDeliveredText: deliveredText,
+              nextVisibleText: assembledText,
+              source: "provider_tool_calls_result_text"
+            });
+            if (bufferedPrefixEvent !== null) {
+              deliveredText = bufferedPrefixEvent.accumulatedText;
+              yield bufferedPrefixEvent;
             }
 
             let durableCompactionExecuted = false;
@@ -365,7 +382,7 @@ export class TurnExecutionService {
               event.result,
               this.resolveCompletedStreamAssistantText(
                 iterationBaseText,
-                accumulatedText,
+                assembledText,
                 event.result.text
               )
             );
@@ -381,8 +398,8 @@ export class TurnExecutionService {
           }
 
           if (event.type === "failed") {
-            if (accumulatedText.trim().length > 0) {
-              const interrupted = this.toInterruptedEvent(acceptedTurn, accumulatedText, null);
+            if (deliveredText.trim().length > 0) {
+              const interrupted = this.toInterruptedEvent(acceptedTurn, deliveredText, null);
               await this.interruptAcceptedTurnQuietly({
                 acceptedTurn,
                 event: interrupted
@@ -408,8 +425,8 @@ export class TurnExecutionService {
           continue;
         }
 
-        if (accumulatedText.trim().length > 0) {
-          const interrupted = this.toInterruptedEvent(acceptedTurn, accumulatedText, null);
+        if (deliveredText.trim().length > 0) {
+          const interrupted = this.toInterruptedEvent(acceptedTurn, deliveredText, null);
           await this.interruptAcceptedTurnQuietly({
             acceptedTurn,
             event: interrupted
@@ -447,13 +464,13 @@ export class TurnExecutionService {
       if (signal?.aborted || this.isAbortError(error)) {
         await this.interruptAcceptedTurnQuietly({
           acceptedTurn,
-          event: this.toInterruptedEvent(acceptedTurn, accumulatedText, null)
+          event: this.toInterruptedEvent(acceptedTurn, deliveredText, null)
         });
         return;
       }
 
-      if (accumulatedText.trim().length > 0) {
-        const interrupted = this.toInterruptedEvent(acceptedTurn, accumulatedText, null);
+      if (deliveredText.trim().length > 0) {
+        const interrupted = this.toInterruptedEvent(acceptedTurn, deliveredText, null);
         await this.interruptAcceptedTurnQuietly({
           acceptedTurn,
           event: interrupted
@@ -1270,6 +1287,40 @@ export class TurnExecutionService {
       return accumulatedText;
     }
     return candidateText;
+  }
+
+  private createVisibleTextDeltaStreamEvent(input: {
+    acceptedTurn: AcceptedRuntimeTurn;
+    previousDeliveredText: string;
+    nextVisibleText: string;
+    source: RuntimeTextDeltaSource;
+  }): Extract<RuntimeTurnStreamEvent, { type: "text_delta" }> | null {
+    const delta = this.resolveVisibleTextDelta(input.previousDeliveredText, input.nextVisibleText);
+    if (delta === null) {
+      return null;
+    }
+    return {
+      type: "text_delta",
+      requestId: input.acceptedTurn.receipt.requestId,
+      sessionId: input.acceptedTurn.session.sessionId,
+      delta,
+      accumulatedText: input.nextVisibleText,
+      source: input.source
+    };
+  }
+
+  private resolveVisibleTextDelta(previousText: string, nextText: string): string | null {
+    if (nextText.length === 0 || nextText === previousText) {
+      return null;
+    }
+    if (previousText.length === 0) {
+      return nextText;
+    }
+    if (!nextText.startsWith(previousText)) {
+      return null;
+    }
+    const delta = nextText.slice(previousText.length);
+    return delta.length > 0 ? delta : null;
   }
 
   private createToolStartedStreamEvent(

@@ -233,6 +233,7 @@ describe("StreamWebChatTurnService", () => {
   test("routes stream web turns through the native runtime service when the mode is native", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
     const toolEvents: Array<Record<string, unknown>> = [];
+    const callbackOrder: string[] = [];
     let legacyRuntimeCalls = 0;
     let nativeRuntimeCalls = 0;
     let bootstrapConsumeCalls = 0;
@@ -373,12 +374,17 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       {
         isClientAborted: () => false,
-        onDelta: () => undefined,
+        onDelta: (delta: string) => {
+          callbackOrder.push(`delta:${delta}`);
+        },
         onThinking: () => undefined,
         onTool: (payload: Record<string, unknown>) => {
+          callbackOrder.push(`tool:${String(payload.phase)}:${String(payload.toolName)}`);
           toolEvents.push(payload);
         },
-        onDone: () => undefined
+        onDone: (respondedAt: string) => {
+          callbackOrder.push(`done:${respondedAt}`);
+        }
       }
     );
 
@@ -390,6 +396,12 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(capturedNativeUserMessage, "hello");
     assert.equal(createdMessages.length, 1);
     assert.equal(createdMessages[0]?.content, "native");
+    assert.deepEqual(callbackOrder, [
+      "delta:native",
+      "tool:start:summarize_context",
+      "tool:end:summarize_context",
+      "done:2026-04-05T12:00:01.000Z"
+    ]);
     assert.deepEqual(toolEvents, [
       {
         phase: "start",

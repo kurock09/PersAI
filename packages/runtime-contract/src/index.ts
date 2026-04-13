@@ -767,12 +767,15 @@ export interface RuntimeStreamStartedEvent {
   sessionId: string;
 }
 
+export type RuntimeTextDeltaSource = "provider_text_delta" | "provider_tool_calls_result_text";
+
 export interface RuntimeTextDeltaEvent {
   type: "text_delta";
   requestId: string;
   sessionId: string;
   delta: string;
   accumulatedText: string;
+  source?: RuntimeTextDeltaSource;
 }
 
 export interface RuntimeArtifactEvent {

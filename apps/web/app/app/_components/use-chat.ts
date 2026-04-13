@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useAuth } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 import {
@@ -330,6 +331,35 @@ export function useChat(threadKey: string): UseChatReturn {
         );
       };
 
+      const cancelBufferedAssistantFlush = () => {
+        if (pendingDelta.raf) {
+          cancelAnimationFrame(pendingDelta.raf);
+          pendingDelta.raf = 0;
+        }
+        if (pendingThought.raf) {
+          cancelAnimationFrame(pendingThought.raf);
+          pendingThought.raf = 0;
+        }
+      };
+
+      const flushBufferedAssistantState = (forceBoundaryCommit = false) => {
+        const hasPendingText = pendingDelta.text.length > 0;
+        const hasPendingThought = pendingThought.text.length > 0;
+        cancelBufferedAssistantFlush();
+        if (!hasPendingText && !hasPendingThought) {
+          return;
+        }
+        const commit = () => {
+          flushDelta();
+          flushThought();
+        };
+        if (forceBoundaryCommit) {
+          flushSync(commit);
+          return;
+        }
+        commit();
+      };
+
       try {
         await streamAssistantWebChatTurn(
           token,
@@ -355,6 +385,7 @@ export function useChat(threadKey: string): UseChatReturn {
               }
             },
             onTool: ({ phase, toolName, isError }) => {
+              flushBufferedAssistantState(true);
               setActivities((prev) => [
                 ...prev,
                 {
@@ -371,6 +402,7 @@ export function useChat(threadKey: string): UseChatReturn {
               ]);
             },
             onCompaction: ({ phase, completed, willRetry }) => {
+              flushBufferedAssistantState(true);
               setCompactionRunning(phase === "start" || willRetry);
               const activityDetail = willRetry ? t("compactionWillRetry") : null;
               setActivities((prev) => [
@@ -390,10 +422,7 @@ export function useChat(threadKey: string): UseChatReturn {
               ]);
             },
             onRuntimeDone: ({ respondedAt }) => {
-              if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
-              flushDelta();
-              if (pendingThought.raf) cancelAnimationFrame(pendingThought.raf);
-              flushThought();
+              flushBufferedAssistantState(true);
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId && m.thought && !m.thoughtFinishedAt
@@ -417,8 +446,7 @@ export function useChat(threadKey: string): UseChatReturn {
               ]);
             },
             onCompleted: ({ transport }) => {
-              if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
-              flushDelta();
+              flushBufferedAssistantState(true);
               const t = transport as {
                 userMessage?: {
                   id?: string;
@@ -503,6 +531,7 @@ export function useChat(threadKey: string): UseChatReturn {
               // Files are already staged before the stream — no post-stream upload needed
             },
             onInterrupted: () => {
+              flushBufferedAssistantState();
               const interruptedAt = new Date().toISOString();
               setMessages((prev) =>
                 prev.map((m) =>
@@ -520,6 +549,7 @@ export function useChat(threadKey: string): UseChatReturn {
               );
             },
             onFailed: (payload) => {
+              flushBufferedAssistantState();
               setIssue(toWebChatUxIssue(payload));
               const failedAt = new Date().toISOString();
               setMessages((prev) =>
@@ -541,6 +571,7 @@ export function useChat(threadKey: string): UseChatReturn {
           controller.signal
         );
       } catch (error) {
+        flushBufferedAssistantState();
         if (!(error instanceof DOMException && error.name === "AbortError")) {
           setIssue(toWebChatUxIssue(error));
         }
@@ -603,6 +634,26 @@ export function useChat(threadKey: string): UseChatReturn {
         );
       };
 
+      const cancelBufferedAssistantFlush = () => {
+        if (pendingDelta.raf) {
+          cancelAnimationFrame(pendingDelta.raf);
+          pendingDelta.raf = 0;
+        }
+      };
+
+      const flushBufferedAssistantState = (forceBoundaryCommit = false) => {
+        const hasPendingText = pendingDelta.text.length > 0;
+        cancelBufferedAssistantFlush();
+        if (!hasPendingText) {
+          return;
+        }
+        if (forceBoundaryCommit) {
+          flushSync(flushDelta);
+          return;
+        }
+        flushDelta();
+      };
+
       try {
         await streamAssistantWebChatTurn(
           token,
@@ -626,8 +677,7 @@ export function useChat(threadKey: string): UseChatReturn {
               }
             },
             onRuntimeDone: ({ respondedAt }) => {
-              if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
-              flushDelta();
+              flushBufferedAssistantState(true);
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId && m.thought && !m.thoughtFinishedAt
@@ -637,8 +687,7 @@ export function useChat(threadKey: string): UseChatReturn {
               );
             },
             onCompleted: ({ transport }) => {
-              if (pendingDelta.raf) cancelAnimationFrame(pendingDelta.raf);
-              flushDelta();
+              flushBufferedAssistantState(true);
               const t = transport as {
                 assistantMessage?: { id?: string; attachments?: ChatAttachment[] };
                 runtime?: RuntimeTransportMeta;
@@ -671,6 +720,7 @@ export function useChat(threadKey: string): UseChatReturn {
               });
             },
             onInterrupted: () => {
+              flushBufferedAssistantState();
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
@@ -680,6 +730,7 @@ export function useChat(threadKey: string): UseChatReturn {
               );
             },
             onFailed: (payload) => {
+              flushBufferedAssistantState();
               setIssue(toWebChatUxIssue(payload));
               setMessages((prev) =>
                 prev.map((m) =>
@@ -691,6 +742,7 @@ export function useChat(threadKey: string): UseChatReturn {
           controller.signal
         );
       } catch (error) {
+        flushBufferedAssistantState();
         if (!(error instanceof DOMException && error.name === "AbortError")) {
           setIssue(toWebChatUxIssue(error));
         }

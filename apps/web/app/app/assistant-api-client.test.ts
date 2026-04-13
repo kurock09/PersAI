@@ -595,6 +595,36 @@ describe("streamAssistantWebChatTurn", () => {
       isError: false
     });
   });
+
+  it("preserves delta-before-tool ordering within a single SSE chunk", async () => {
+    const order: string[] = [];
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          [
+            `event: delta\ndata: ${JSON.stringify({ delta: "Preface ", accumulated: "Preface " })}\n\n`,
+            `event: tool\ndata: ${JSON.stringify({ phase: "start", toolName: "summarize_context", toolCallId: "tool-1", isError: false })}\n\n`,
+            `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}\n\n`
+          ].join("")
+        ])
+      ) as typeof fetch;
+
+    await streamAssistantWebChatTurn(
+      "token-1",
+      { surfaceThreadKey: "thread-1", message: "Hello" },
+      {
+        onDelta: ({ delta }) => {
+          order.push(`delta:${delta}`);
+        },
+        onTool: ({ phase, toolName }) => {
+          order.push(`tool:${phase}:${toolName}`);
+        }
+      }
+    );
+
+    expect(order).toEqual(["delta:Preface ", "tool:start:summarize_context"]);
+  });
 });
 
 describe("toWebChatUxIssue", () => {

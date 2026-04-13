@@ -1,5 +1,64 @@
 # SESSION-HANDOFF
 
+## 2026-04-13 - Native web stream tool sequencing hardening
+
+### What changed
+
+1. `apps/runtime` native stream tool loop now tracks fully assembled assistant text separately from already delivered user-visible text, so pre-tool prefixes recovered only from provider `tool_calls.result.text` are flushed as real `text_delta` events before `tool_started` instead of appearing only in the final assembled turn text.
+2. `@persai/runtime-contract` now annotates runtime `text_delta` events with an optional source marker, which makes it possible to distinguish ordinary provider stream text from buffered tool-result text during native stream debugging.
+3. `apps/web` now flushes pending buffered assistant text/thought state before tool, compaction, and runtime activity markers, so browser-visible ordering matches the corrected stream semantics even when `requestAnimationFrame` batching would otherwise let `Using summarize_context` render first.
+4. Focused runtime/API/web tests now cover hidden pre-tool prefix flush, API callback ordering, SSE callback ordering inside one chunk, and the UI boundary flush behavior where already received assistant text must not be delayed behind tool lifecycle.
+
+### Why
+
+1. Native tool-capable streaming had a real UX mismatch: the final assembled assistant text already contained a textual prelude, but the browser could still show `Using summarize_context` / `summarize_context finished` before any visible answer text.
+2. The root cause was split across two layers: OpenAI can place pre-tool text only inside `tool_calls.result.text`, and the web client also buffered `delta` rendering behind `requestAnimationFrame` while tool activity rendered immediately.
+3. Fixing only prompts or hiding lifecycle markers would have been dishonest; the runtime and delivery semantics had to preserve real model output ordering without adding an extra provider round-trip.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, `T15-3a`, `T15-3b`, and `T15-4` are complete; the next queued tool family is `T15-5 — Reminder and scheduled action plan tools`)
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/use-chat.test.tsx`
+- `apps/web/app/app/assistant-api-client.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `packages/runtime-contract/src/index.ts`
+
+### Tests run
+
+- `pnpm --filter @persai/runtime run test`
+- `pnpm --filter @persai/api run test`
+- `pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts app/app/_components/use-chat.test.tsx`
+- `pnpm --filter @persai/runtime-contract run typecheck`
+- `pnpm --filter @persai/runtime run typecheck`
+- `pnpm --filter @persai/runtime run lint`
+- `pnpm --filter @persai/api run typecheck`
+- `pnpm --filter @persai/api run lint`
+- `pnpm --filter @persai/web run typecheck`
+- `pnpm --filter @persai/web run lint`
+
+### Risks
+
+1. The runtime only emits a synthetic pre-tool `text_delta` when the newly assembled assistant text is a safe prefix extension of what was already delivered; deliberately ambiguous/non-monotonic provider text still fails closed instead of inventing user-visible ordering.
+2. The new web boundary flush uses synchronous React commits only when a non-text activity event arrives with pending buffered text, so the happy-path token stream still keeps the existing low-latency `requestAnimationFrame` batching.
+
+### Next recommended step
+
+1. Keep the same `assembled vs delivered` stream invariant for later worker families and any future tool-specific UI activity rendering.
+2. If more request-level production debugging is needed later, extend the native runtime trace/receipt story from the new `text_delta.source` marker instead of falling back to broad log spam.
+
 ## 2026-04-13 - ADR-072 T15-4 native browser executor closeout
 
 ### What changed
@@ -4878,6 +4937,7 @@ Three admin pages restructured to enable load observation before SR10 capacity t
 ### Decision: Variant B — keep both quotas, check both at upload time, rename for clarity
 
 **Architecture**:
+
 1. Keep "Workspace storage" as the master limit on total sandbox disk (enforced by OpenClaw)
 2. Keep "Media storage" as user upload budget (enforced by PersAI API, tracked in DB)
 3. Before accepting any user upload, check BOTH:
@@ -4888,6 +4948,7 @@ Three admin pages restructured to enable load observation before SR10 capacity t
    - "Media storage (MB)" → clarify as user upload allowance within the workspace
 
 **Rejected alternatives**:
+
 - Variant A (remove media, keep only workspace): would require HTTP to OpenClaw on every upload, lose granular upload-vs-bot control, and waste SR9c work.
 - Variant C (media = workspace limit, no HTTP): doesn't solve the problem — agent files still invisible to media counter.
 
@@ -6450,12 +6511,14 @@ Three readonly evidence-gathering subagents:
 ### What remains
 
 Inside SR5 (later sub-slices):
+
 - `SR5b`: dind contention and sandbox session concurrency caps under burst
 - `SR5c`: per-tier sandbox concurrency assumptions and predictable degradation documentation
 - `SR5d`: startupProbe budget tightening after Tier 2 measurement of actual startup times
 - `SR5e`: dind sidecar probe addition (requires measuring dind startup variance)
 
 Outside SR5 (later slices):
+
 - `SR6`: storage/workspace path redesign, GCS FUSE pressure
 - `SR7`: media pipeline redesign
 - `SR8`: webhook/realtime burst fan-in
@@ -6499,6 +6562,7 @@ SR5 is not closed. SR5a is closed (Tier 2 confirmed). Remaining SR5 sub-slices c
 Controlled stress test: 4× concurrent `python3 sum(i*i for i in range(10**8))` on all three sandbox pools.
 
 Results:
+
 - `free_shared_restricted_sandbox` (dind 1 core): saturated at 741-1000m, ~4× slowdown, pod stable
 - `paid_shared_restricted_sandbox` (dind 1 core): saturated at 1001m, ~4× slowdown, pod stable
 - `paid_isolated` (dind 2 cores): saturated at 2000m, ~2× slowdown, pod stable, completes ~2× faster
@@ -6510,6 +6574,7 @@ Results:
 ### Cross-pool isolation test (completed same session)
 
 Stressed free pool with 4× concurrent CPU-bound sandbox exec while paid pools idle:
+
 - `free_shared` dind: 712m CPU (saturating) — working as expected
 - `paid_shared` dind: 3m CPU — completely unaffected
 - `paid_isolated` dind: 2m CPU — completely unaffected
@@ -6519,11 +6584,13 @@ Stressed free pool with 4× concurrent CPU-bound sandbox exec while paid pools i
 ### SR5 closure verdict
 
 SR5 exit criteria met: "sandbox-heavy bursts degrade predictably and do not destabilize unrelated tiers"
+
 - SR5a: startup path optimized, ~5-7 min deploy-gap reduction confirmed
 - SR5b: per-tier dind contention measured, linear degradation proven, pod stability confirmed
 - Cross-pool isolation verified under sustained single-pool stress
 
 Accepted known risks carried forward:
+
 - dind CPU limits are product/cost decisions — current limits adequate for current user count
 - sandbox session GC/TTL not stress-tested (5 min hot container window)
 - IO-bound sandbox workloads not tested (CPU-bound only)
@@ -7249,6 +7316,7 @@ Established the documentation/control layer for the scaling-readiness program so
 ### What was done
 
 Live testing via assistant revealed three bugs in workspace quota enforcement:
+
 1. **exec pre-check blocked cleanup commands** (`rm -rf`) when quota exceeded — deadlock, assistant could not free space
 2. **du cache 30s TTL** allowed 1.5 GB burst writes in a single turn before enforcement triggered
 3. **workspaceQuotaBytes resolved from env default** instead of plan's `quotaAccounting`, so admin UI changes did not propagate
@@ -7587,7 +7655,7 @@ No special deploy order needed. The API handles missing `mediaStorageBytesLimit`
 ## 2026-04-05 - Wave 2: OpenClaw fork security fixes + PersAI media cleanup
 
 1. **Cross-assistant file read blocked** — `resolvePersaiWorkspaceMediaStoragePath` in OpenClaw no longer falls back to the global workspace root. Path resolution is strictly constrained to the current assistant's workspace directory. Previously, a crafted `storagePath` like `../../<other-assistant-id>/media/...` could read another assistant's files.
-2. **Lazy _stt_tmp cleanup** — PersAI media preprocessor now calls `deleteChatMediaBatch(assistantId, "_stt_tmp")` before each transcription, clearing any orphan temp files left by prior crashes or incomplete cleanups.
+2. **Lazy \_stt_tmp cleanup** — PersAI media preprocessor now calls `deleteChatMediaBatch(assistantId, "_stt_tmp")` before each transcription, clearing any orphan temp files left by prior crashes or incomplete cleanups.
 
 ### What changed
 
@@ -8439,7 +8507,7 @@ Unchanged — `bf913e276fd52ec4ac3d1259cf8ba50afef4e0b2`
    - runs one embedded PersAI web turn
    - cleans the isolated preview session key
    - deletes the temp preview workspace root
-   This path does **not** write to the applied spec store and does **not** touch the live assistant workspace.
+     This path does **not** write to the applied spec store and does **not** touch the live assistant workspace.
 3. **Docs** — added ADR-062 and updated architecture/API/test docs so setup preview is explicitly modeled as an ephemeral runtime seam rather than "almost normal apply".
 4. **Tests** — added PersAI regression coverage that preview does not use live apply/cleanup/web-turn methods; added OpenClaw preview executor coverage and adapter coverage for the new endpoint.
 

@@ -1248,6 +1248,97 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assert.equal(streamToolLoopCompletedEvent.result.assistantText, "reply after summary");
   }
 
+  providerGatewayClient.streamEventsQueue = [
+    [
+      {
+        type: "tool_calls",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "reply before tool ",
+          respondedAt: "2026-04-11T12:00:06.000Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 16,
+            outputTokens: 0,
+            totalTokens: 16
+          },
+          stopReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tool-stream-hidden-prefix-1",
+              name: "summarize_context",
+              arguments: {
+                instructions: "Keep the running answer intact."
+              }
+            }
+          ]
+        }
+      }
+    ],
+    [
+      {
+        type: "text_delta",
+        delta: "summary",
+        accumulatedText: "summary"
+      },
+      {
+        type: "completed",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "summary",
+          respondedAt: "2026-04-11T12:00:07.000Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 22,
+            outputTokens: 11,
+            totalTokens: 33
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      }
+    ]
+  ];
+  const summarizeCallsBeforeHiddenPrefixToolLoop = sessionCompactionService.summarizeCalls.length;
+  const streamCallCountBeforeHiddenPrefixToolLoop = providerGatewayClient.streamCalls.length;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const hiddenPrefixStream = await service.streamTurn(request);
+  const hiddenPrefixStreamEvents = await collectStreamEvents(hiddenPrefixStream);
+  assert.deepEqual(
+    hiddenPrefixStreamEvents.map((event) => event.type),
+    ["started", "text_delta", "tool_started", "tool_finished", "text_delta", "completed"]
+  );
+  assert.equal(
+    providerGatewayClient.streamCalls.length,
+    streamCallCountBeforeHiddenPrefixToolLoop + 2
+  );
+  const hiddenPrefixDeltaEvent = hiddenPrefixStreamEvents[1];
+  assert.equal(hiddenPrefixDeltaEvent?.type, "text_delta");
+  if (hiddenPrefixDeltaEvent?.type === "text_delta") {
+    assert.equal(hiddenPrefixDeltaEvent.delta, "reply before tool ");
+    assert.equal(hiddenPrefixDeltaEvent.accumulatedText, "reply before tool ");
+    assert.equal(hiddenPrefixDeltaEvent.source, "provider_tool_calls_result_text");
+  }
+  assert.equal(
+    providerGatewayClient.streamCalls.at(-1)?.messages.at(-1)?.content,
+    "reply before tool"
+  );
+  assert.equal(
+    sessionCompactionService.summarizeCalls.length,
+    summarizeCallsBeforeHiddenPrefixToolLoop + 1
+  );
+  const hiddenPrefixCompletedEvent = hiddenPrefixStreamEvents.at(-1);
+  assert.equal(hiddenPrefixCompletedEvent?.type, "completed");
+  if (hiddenPrefixCompletedEvent?.type === "completed") {
+    assert.equal(hiddenPrefixCompletedEvent.result.assistantText, "reply before tool summary");
+  }
+
   providerGatewayClient.resultQueue = [
     {
       provider: "openai",
