@@ -90,6 +90,7 @@ import { WebRuntimeShadowComparisonService } from "./application/web-runtime-sha
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
+import { DeliverReminderNotificationService } from "./application/deliver-reminder-notification.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { CheckInternalRuntimeToolDailyLimitService } from "./application/check-internal-runtime-tool-daily-limit.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
@@ -217,6 +218,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAdminAssistantPlanOverrideService,
     ManageAdminWorkspaceSubscriptionService,
     HandleInternalCronFireService,
+    DeliverReminderNotificationService,
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,
     ConsumeInternalRuntimeToolDailyLimitService,

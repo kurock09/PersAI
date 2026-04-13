@@ -35,6 +35,7 @@ import type {
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeBrowserToolService } from "../src/modules/turns/runtime-browser-tool.service";
+import { RuntimeReminderTaskToolService } from "../src/modules/turns/runtime-reminder-task-tool.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
   FinalizedRuntimeTurn,
@@ -617,12 +618,33 @@ class FakeTurnFinalizationService {
 
 class FakePersaiInternalApiClientService {
   consumeCalls: Array<{ assistantId: string; toolCode: string; dailyCallLimit: number }> = [];
+  reminderTaskListCalls: string[] = [];
+  reminderTaskControlCalls: Array<Record<string, unknown>> = [];
   consumeOutcome: ConsumeToolDailyLimitOutcome = {
     allowed: true,
     currentCount: 1,
     limit: 10
   };
   error: Error | null = null;
+  reminderTaskListError: Error | null = null;
+  reminderTaskControlError: Error | null = null;
+  reminderTaskItems: Array<{
+    id: string;
+    title: string;
+    controlStatus: "active" | "disabled";
+    nextRunAt: string | null;
+    externalRef: string | null;
+  }> = [];
+  reminderTaskControlResult: unknown = {
+    ok: true,
+    created: true,
+    task: {
+      id: "task-1",
+      title: "Sample reminder",
+      controlStatus: "active",
+      nextRunAt: "2026-04-13T12:05:00.000Z"
+    }
+  };
 
   async consumeToolDailyLimit(input: {
     assistantId: string;
@@ -634,6 +656,22 @@ class FakePersaiInternalApiClientService {
       throw this.error;
     }
     return this.consumeOutcome;
+  }
+
+  async listReminderTasks(assistantId: string) {
+    this.reminderTaskListCalls.push(assistantId);
+    if (this.reminderTaskListError !== null) {
+      throw this.reminderTaskListError;
+    }
+    return this.reminderTaskItems;
+  }
+
+  async controlReminderTask(input: Record<string, unknown>) {
+    this.reminderTaskControlCalls.push(input);
+    if (this.reminderTaskControlError !== null) {
+      throw this.reminderTaskControlError;
+    }
+    return this.reminderTaskControlResult;
   }
 }
 
@@ -745,6 +783,41 @@ async function flushTaskQueue(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+function enableReminderTaskTool(entry: RuntimeBundleCacheEntry | null): void {
+  if (entry === null) {
+    return;
+  }
+  if (
+    !entry.parsedBundle.runtime.workerTools.tools.some((tool) => tool.toolCode === "reminder_task")
+  ) {
+    entry.parsedBundle.runtime.workerTools.tools.push({
+      toolCode: "reminder_task",
+      family: "scheduled_action",
+      outcomeKind: "state_mutation",
+      timeoutMs: 30000,
+      confirmationRule: "required_for_mutations",
+      supportsProviderRouting: false,
+      failureBehavior: "retry_then_surface_error"
+    });
+  }
+  if (
+    !entry.parsedBundle.governance.toolPolicies.some((tool) => tool.toolCode === "reminder_task")
+  ) {
+    entry.parsedBundle.governance.toolPolicies.push({
+      toolCode: "reminder_task",
+      displayName: "Reminder Task",
+      description: "Create, list, pause, resume, and cancel reminders or recurring tasks.",
+      kind: "plan",
+      executionMode: "worker",
+      usageRule: "allowed",
+      enabled: true,
+      visibleToModel: true,
+      visibleInPlanEditor: true,
+      dailyCallLimit: null
+    });
+  }
+}
+
 export async function runTurnExecutionServiceTest(): Promise<void> {
   const bundleRegistry = new FakeRuntimeBundleRegistryService();
   const providerGatewayClient = new FakeProviderGatewayClientService();
@@ -757,6 +830,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
+  const runtimeReminderTaskToolService = new RuntimeReminderTaskToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
   const service = new TurnExecutionService(
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGatewayClient as unknown as ProviderGatewayClientService,
@@ -765,7 +841,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnAcceptanceService as unknown as TurnAcceptanceService,
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
-    runtimeBrowserToolService
+    runtimeBrowserToolService,
+    runtimeReminderTaskToolService
   );
 
   const request = createRuntimeTurnRequest();
@@ -1849,6 +1926,249 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   };
   assert.equal(braveProviderToolHistory.provider, "brave");
   assert.equal(braveProviderToolHistory.externalContent?.provider, "brave");
+
+  enableReminderTaskTool(bundleRegistry.entry);
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-13T12:00:01.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 14,
+        outputTokens: 0,
+        totalTokens: 14
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-reminder-create-1",
+          name: "reminder_task",
+          arguments: {
+            action: "create",
+            title: "Pay rent",
+            delayMs: 300000,
+            contextMessages: 2
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after reminder create",
+      respondedAt: "2026-04-13T12:00:02.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 19,
+        outputTokens: 9,
+        totalTokens: 28
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  persaiInternalApiClientService.reminderTaskControlResult = {
+    ok: true,
+    created: true,
+    task: {
+      id: "task-reminder-1",
+      title: "Pay rent",
+      controlStatus: "active",
+      nextRunAt: "2026-04-13T12:05:00.000Z"
+    }
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const reminderCreateCompleted = await service.createTurn(request);
+  assert.equal(reminderCreateCompleted.assistantText, "reply after reminder create");
+  assert.equal(
+    providerGatewayClient.calls.at(-2)?.tools?.some((tool) => tool.name === "reminder_task"),
+    true
+  );
+  assert.deepEqual(persaiInternalApiClientService.reminderTaskControlCalls.at(-1), {
+    assistantId: "assistant-1",
+    action: "create",
+    title: "Pay rent",
+    reminderText: "Pay rent",
+    delayMs: 300000,
+    contextMessages: 2,
+    conversationContext: {
+      channel: "web",
+      externalThreadKey: "thread-1"
+    }
+  });
+  const reminderCreateToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    task?: {
+      id?: string | null;
+      title?: string;
+      controlStatus?: string;
+      nextRunAt?: string | null;
+    } | null;
+  };
+  assert.equal(reminderCreateToolHistory.action, "created");
+  assert.equal(reminderCreateToolHistory.task?.id, "task-reminder-1");
+  assert.equal(reminderCreateToolHistory.task?.title, "Pay rent");
+  assert.equal(reminderCreateToolHistory.task?.controlStatus, "active");
+  assert.equal(reminderCreateToolHistory.task?.nextRunAt, "2026-04-13T12:05:00.000Z");
+
+  persaiInternalApiClientService.reminderTaskItems = [
+    {
+      id: "task-reminder-1",
+      title: "Pay rent",
+      controlStatus: "active",
+      nextRunAt: "2026-04-13T12:05:00.000Z",
+      externalRef: "job-reminder-1"
+    },
+    {
+      id: "task-reminder-2",
+      title: "Stretch break",
+      controlStatus: "disabled",
+      nextRunAt: "2026-04-13T13:00:00.000Z",
+      externalRef: "job-reminder-2"
+    }
+  ];
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-13T12:00:03.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 12,
+        outputTokens: 0,
+        totalTokens: 12
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-reminder-list-1",
+          name: "reminder_task",
+          arguments: {
+            action: "list"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after reminder list",
+      respondedAt: "2026-04-13T12:00:04.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 18,
+        outputTokens: 8,
+        totalTokens: 26
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const reminderListCompleted = await service.createTurn(request);
+  assert.equal(reminderListCompleted.assistantText, "reply after reminder list");
+  assert.equal(persaiInternalApiClientService.reminderTaskListCalls.at(-1), "assistant-1");
+  const reminderListToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    items?: Array<{
+      id?: string | null;
+      title?: string;
+      controlStatus?: string;
+    }>;
+  };
+  assert.equal(reminderListToolHistory.action, "listed");
+  assert.equal(reminderListToolHistory.items?.length, 2);
+  assert.equal(reminderListToolHistory.items?.[0]?.id, "task-reminder-1");
+  assert.equal(reminderListToolHistory.items?.[1]?.controlStatus, "disabled");
+
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-13T12:00:05.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 12,
+        outputTokens: 0,
+        totalTokens: 12
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-reminder-pause-1",
+          name: "reminder_task",
+          arguments: {
+            action: "pause",
+            titleMatch: "rent"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after reminder pause",
+      respondedAt: "2026-04-13T12:00:06.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 16,
+        outputTokens: 7,
+        totalTokens: 23
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  persaiInternalApiClientService.reminderTaskControlResult = {
+    ok: true,
+    paused: true,
+    taskId: "task-reminder-1",
+    title: "Pay rent"
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const reminderPauseCompleted = await service.createTurn(request);
+  assert.equal(reminderPauseCompleted.assistantText, "reply after reminder pause");
+  assert.deepEqual(persaiInternalApiClientService.reminderTaskControlCalls.at(-1), {
+    assistantId: "assistant-1",
+    action: "pause",
+    taskId: "task-reminder-1"
+  });
+  const reminderPauseToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    task?: {
+      id?: string | null;
+      title?: string;
+      controlStatus?: string;
+      nextRunAt?: string | null;
+    } | null;
+  };
+  assert.equal(reminderPauseToolHistory.action, "paused");
+  assert.equal(reminderPauseToolHistory.task?.id, "task-reminder-1");
+  assert.equal(reminderPauseToolHistory.task?.title, "Pay rent");
+  assert.equal(reminderPauseToolHistory.task?.controlStatus, "disabled");
+  assert.equal(reminderPauseToolHistory.task?.nextRunAt, "2026-04-13T12:05:00.000Z");
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.browser = {

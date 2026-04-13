@@ -25,6 +25,7 @@ type CreateReminderTaskControlRequest = {
   reminderText: string;
   callbackBaseUrl: string;
   contextSessionKey?: string;
+  conversationContext?: ReminderTaskConversationContext;
   runAt?: string;
   delayMs?: number;
   everyMs?: number;
@@ -38,6 +39,11 @@ type UpdateReminderTaskControlRequest = {
   assistantId: string;
   action: "pause" | "resume" | "cancel";
   taskId: string;
+};
+
+type ReminderTaskConversationContext = {
+  channel: string;
+  externalThreadKey: string;
 };
 
 export type InternalReminderTaskControlRequest =
@@ -61,6 +67,26 @@ function normalizeOptionalString(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeReminderTaskConversationContext(
+  value: unknown
+): ReminderTaskConversationContext | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const channel = typeof value.channel === "string" ? value.channel.trim() : "";
+  const externalThreadKey =
+    typeof value.externalThreadKey === "string" ? value.externalThreadKey.trim() : "";
+  if (!channel || !externalThreadKey) {
+    throw new BadRequestException(
+      "conversationContext must include non-empty channel and externalThreadKey."
+    );
+  }
+  return {
+    channel,
+    externalThreadKey
+  };
 }
 
 type StoredTelegramReminderTarget = {
@@ -131,9 +157,13 @@ function normalizeReminderTaskTargetsMap(
 function resolveTelegramReminderTargetForCreate(params: {
   metadata: Record<string, unknown>;
   contextSessionKey?: string;
+  conversationContext?: ReminderTaskConversationContext;
 }): StoredTelegramReminderTarget | null {
-  const { metadata, contextSessionKey } = params;
-  const contextChatId = parseTelegramChatIdFromSessionKey(contextSessionKey);
+  const { metadata, contextSessionKey, conversationContext } = params;
+  const contextChatId =
+    conversationContext?.channel.toLowerCase() === "telegram"
+      ? conversationContext.externalThreadKey
+      : parseTelegramChatIdFromSessionKey(contextSessionKey);
   const dmChatId =
     typeof metadata.telegramDmChatId === "string" ? metadata.telegramDmChatId.trim() : "";
   const dmUsername =
@@ -376,6 +406,13 @@ export class ControlInternalAssistantReminderTaskService {
           : normalizeOptionalString(row.sessionKey)
             ? { contextSessionKey: normalizeOptionalString(row.sessionKey)! }
             : {}),
+        ...(normalizeReminderTaskConversationContext(row.conversationContext)
+          ? {
+              conversationContext: normalizeReminderTaskConversationContext(
+                row.conversationContext
+              )!
+            }
+          : {}),
         ...(normalizeOptionalString(row.runAt)
           ? { runAt: normalizeOptionalString(row.runAt)! }
           : {}),
@@ -529,6 +566,7 @@ export class ControlInternalAssistantReminderTaskService {
     await this.persistTelegramReminderTarget(
       input.assistantId,
       syncPayload.externalRef,
+      input.conversationContext,
       input.contextSessionKey
     );
 
@@ -578,6 +616,7 @@ export class ControlInternalAssistantReminderTaskService {
   private async persistTelegramReminderTarget(
     assistantId: string,
     externalRef: string,
+    conversationContext: ReminderTaskConversationContext | undefined,
     contextSessionKey: string | undefined
   ): Promise<void> {
     const binding =
@@ -591,9 +630,11 @@ export class ControlInternalAssistantReminderTaskService {
     }
 
     const metadata = normalizeBindingMetadata(binding.metadata);
-    const target = resolveTelegramReminderTargetForCreate(
-      contextSessionKey !== undefined ? { metadata, contextSessionKey } : { metadata }
-    );
+    const target = resolveTelegramReminderTargetForCreate({
+      metadata,
+      ...(conversationContext === undefined ? {} : { conversationContext }),
+      ...(contextSessionKey === undefined ? {} : { contextSessionKey })
+    });
     if (target === null) {
       return;
     }

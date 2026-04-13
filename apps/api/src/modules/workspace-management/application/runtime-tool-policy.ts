@@ -15,7 +15,7 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   tts: "worker",
   memory_search: "inline",
   memory_get: "inline",
-  reminder_task: "inline",
+  reminder_task: "worker",
   persai_workspace_attach: "inline",
   persai_tool_quota_status: "inline",
   cron: "worker"

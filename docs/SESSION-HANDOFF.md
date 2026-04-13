@@ -1,5 +1,165 @@
 # SESSION-HANDOFF
 
+## 2026-04-13 - ADR-072 T15-5 reminder live-test readiness extraction
+
+### What changed
+
+1. `apps/api` now has a shared `DeliverReminderNotificationService` that owns reminder summary cleanup, inbound capability/quota fallback rendering, Telegram target resolution, Telegram send, and web fallback delivery as one PersAI-owned delivery core.
+2. `HandleInternalCronFireService` is now reduced to the temporary legacy trigger adapter: it still owns replay safety and task-registry sync for cron callback events, but delivery/fanout now delegates into the shared reminder delivery core instead of carrying reminder routing logic inline.
+3. Existing reminder callback tests now exercise the extracted delivery core through the `cron-fire` adapter boundary, so current web/Telegram/quota/replay behavior stays covered after the split.
+
+### Why
+
+1. The previous state still had an important architectural mismatch: reminder creation/management had moved onto native runtime + PersAI control-plane seams, but due reminder delivery logic still lived only inside the legacy callback handler.
+2. Extracting the delivery core is the clean cutover boundary that makes the current reminder/task UI path honestly code-ready for bounded live validation while keeping hidden internal `cron` as only the temporary due-time trigger source.
+3. This avoids inventing a second reminder backend or re-exposing raw scheduler semantics while keeping the future PersAI-owned scheduler free to reuse the exact same delivery path.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, `T15-3a`, `T15-3b`, and `T15-4` are complete; `T15-5 — Reminder and scheduled action plan tools` is now code-ready for bounded live validation of the current UI path, while PersAI-owned due-time pickup still remains later follow-through)
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/deliver-reminder-notification.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-cron-fire.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/handle-internal-cron-fire.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/control-internal-assistant-reminder-task.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks
+
+1. The current reminder/task UI path is now code-ready for live validation, but due-time pickup is still triggered by hidden internal `cron` rather than a PersAI-owned scheduler loop.
+2. Live validation still requires ordinary deploy/reapply/rollout sync; this session only moved the codebase to the point where the existing UI path can be tested honestly.
+
+### Next recommended step
+
+1. Deploy/reapply and run a bounded live smoke through the existing tasks/reminders UI plus one real reminder fire.
+2. After bounded live validation, replace hidden legacy due-time pickup with PersAI-owned scheduler/worker orchestration while reusing the new shared delivery core.
+
+## 2026-04-13 - ADR-072 T15-5 native reminder executor seam
+
+### What changed
+
+1. `apps/runtime` now projects `reminder_task` onto the active native machine-readable tool list and executes `create`, `list`, `pause`, `resume`, and `cancel` through a dedicated native reminder worker service instead of keeping the tool dark after bundle materialization.
+2. The native reminder executor reuses the existing PersAI internal task registry/control-plane endpoints (`GET /api/v1/internal/runtime/tasks/items` and `POST /api/v1/internal/runtime/tasks/control`) so runtime-side reminder writes no longer need raw scheduler semantics or a separate reminder-specific backend bridge.
+3. `apps/api` reminder control now accepts a clean native `conversationContext` on create requests, so Telegram DM/group reminder target resolution works from the native runtime path without inventing a new OpenClaw-shaped session key as the canonical seam.
+4. Focused runtime/API tests now cover reminder tool projection/execution, title-based pause target resolution, structured tool-history payloads, and Telegram group target persistence through the new native context path.
+
+### Why
+
+1. ADR-072 `T15-5` requires `reminder_task` to stay the product-facing reminder surface while the hidden scheduler machinery remains internal-only.
+2. Leaving `reminder_task` as worker-mode bundle truth but dark in runtime execution would still be architecturally incomplete; the native tool loop needed a real reminder executor seam before later scheduler cutover work.
+3. The clean target is PersAI-owned runtime/control-plane composition, not carrying forward raw `cron` semantics or introducing another transitional request-time bridge.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, `T15-3a`, `T15-3b`, and `T15-4` are complete; `T15-5 — Reminder and scheduled action plan tools` remains in progress with native reminder projection/execution now landed while PersAI-owned due-time pickup still remains open)
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+- `apps/api/test/control-internal-assistant-reminder-task.service.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-reminder-task-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `packages/runtime-contract/src/index.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/control-internal-assistant-reminder-task.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks
+
+1. `reminder_task` now has a real native projection/executor path, but due-time pickup and delivery fanout still depend on the current callback bridge rather than a fully PersAI-owned scheduler loop.
+2. Reminder create/pause/resume/cancel now route through clean PersAI internal control seams, but those seams still drive the existing legacy cron backend under the hood until later `T15-5` scheduler follow-through replaces that ownership.
+
+### Next recommended step
+
+1. Extract reminder delivery/fanout out of `HandleInternalCronFireService` into one PersAI-owned delivery core that both the legacy callback path and the future native scheduler can share during cutover.
+2. Replace legacy due-time pickup with PersAI-owned scheduler/worker orchestration while keeping `reminder_task` and task-registry/UI semantics unchanged.
+
+## 2026-04-13 - ADR-072 T15-5 reminder worker-contract baseline
+
+### What changed
+
+1. `apps/api` now classifies `reminder_task` as a `worker` plan tool in native `toolPolicies` instead of leaving reminder scheduling on the old inline classification.
+2. Native bundle materialization now includes `reminder_task` inside `runtime.workerTools` as the `scheduled_action` family with explicit state-mutation, timeout, confirmation, and failure metadata on the shared worker contract.
+3. Focused API tests now cover the reminder worker baseline across tool-policy mapping, worker-tool baseline generation, and native bundle contract serialization.
+
+### Why
+
+1. ADR-072 says `T15-5` must start on the shared `runtime.workerTools` abstraction instead of inventing a reminder-specific async contract beside browser/media/scheduler work.
+2. This keeps the architecture honest: reminder scheduling is no longer modeled as a fake inline capability in bundle truth, but the repo still does not claim a finished native reminder executor or PersAI-owned due-time pickup yet.
+3. Hidden internal `cron` stays internal-only, so the product-facing surface remains `reminder_task` rather than leaking raw scheduler triggers back into plan/model semantics.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, `T15-3a`, `T15-3b`, and `T15-4` are complete; `T15-5 — Reminder and scheduled action plan tools` is now in progress with the worker-contract baseline landed)
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-worker-tools.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/api/test/runtime-worker-tools.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-worker-tools.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-bundle-materialization.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api run lint`
+
+### Risks
+
+1. `reminder_task` now has honest worker-mode bundle truth, but native runtime projection/execution is still not wired, so `T15-5` is only opened, not closed.
+2. Due-time pickup and reminder delivery still use the current callback bridge until later `T15-5` slices replace that ownership with PersAI-native scheduler/worker flow.
+
+### Next recommended step
+
+1. Add a real native `reminder_task` projection/executor seam in `apps/runtime` that reuses the existing PersAI reminder control-plane APIs without exposing raw scheduler triggers.
+2. After the native reminder executor exists, extract reminder delivery/fanout out of `HandleInternalCronFireService` so the legacy callback path and the future PersAI-native scheduler can share one delivery core during cutover.
+
 ## 2026-04-13 - Native web stream tool sequencing hardening
 
 ### What changed

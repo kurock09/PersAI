@@ -926,6 +926,13 @@ Required in CI:
   - runtime projects `browser` only when worker policy + configured credential + supported provider all agree, executes the browser call through the worker path, and records structured tool-history results with page snapshot metadata and provider attribution
   - runtime keeps `browser` dark when the plan/tariff disables the tool even if the Browserless credential remains configured
   - browser projection stays dark when credentials are missing or the selected provider is unsupported
+- T15-5 reminder/scheduled-action worker baseline validates:
+  - `reminder_task` compiles with `executionMode === "worker"` instead of a fake inline classification on the native bundle policy surface
+  - `runtime.workerTools` includes `reminder_task` with `family: "scheduled_action"` plus state-mutation/timeout/confirmation/failure metadata while hidden internal `cron` remains a separate `internal_scheduler` seam
+  - runtime now projects `reminder_task` onto the active native machine-readable tool list only when worker policy allows it and executes `create` / `list` / `pause` through the shared tool loop with structured reminder tool-history payloads
+  - native reminder execution reuses PersAI internal task registry/control endpoints instead of exposing raw scheduler triggers or a reminder-specific provider-gateway seam
+  - API reminder control accepts clean native `conversationContext` so Telegram group/DM reminder target persistence still works on the native create path
+  - current `cron-fire` callback handling now delegates reminder fanout to one shared PersAI-owned delivery core, so web/Telegram delivery, fallback rendering, and replay-safe callback behavior remain covered before later scheduler pickup cutover
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift

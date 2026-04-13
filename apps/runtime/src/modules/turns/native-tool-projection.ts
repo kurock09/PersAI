@@ -22,6 +22,7 @@ export interface RuntimeNativeToolProjection {
 
 const WEB_FETCH_MAX_CHARS_CAP = 50_000;
 const WEB_SEARCH_MAX_COUNT = 20;
+const REMINDER_CONTEXT_MESSAGES_MAX = 10;
 
 export function projectRuntimeNativeTools(
   bundle: AssistantRuntimeBundle,
@@ -63,6 +64,14 @@ export function projectRuntimeNativeTools(
     supportsCurrentNativeBrowserProvider(bundle, browserCredential.providerId ?? null)
   ) {
     projectedTools.push(createBrowserToolDefinition(bundle));
+  }
+  const reminderTaskPolicy = resolveAllowedModelVisibleToolPolicy(
+    bundle,
+    "reminder_task",
+    "worker"
+  );
+  if (reminderTaskPolicy !== null) {
+    projectedTools.push(createReminderTaskToolDefinition());
   }
 
   return {
@@ -229,6 +238,80 @@ function createBrowserToolDefinition(
               }
             }
           }
+        }
+      }
+    }
+  };
+}
+
+function createReminderTaskToolDefinition(): ProviderGatewayToolDefinition {
+  return {
+    name: "reminder_task",
+    description:
+      "Create, list, pause, resume, and cancel reminders or recurring tasks. Use this for user-facing reminder/task requests instead of raw scheduler or cron semantics. For create, title is required and exactly one schedule must be provided: runAt, delayMs, everyMs, or cronExpr. Prefer taskId from an earlier list result when pausing, resuming, or cancelling; if taskId is unavailable, use titleMatch to resolve one current task by title.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action"],
+      properties: {
+        action: {
+          type: "string",
+          enum: ["create", "list", "pause", "resume", "cancel"],
+          description: "Reminder/task action to perform."
+        },
+        title: {
+          type: "string",
+          description: "Required for create. Human-readable reminder title."
+        },
+        reminderText: {
+          type: "string",
+          description:
+            "Optional reminder text delivered when the reminder fires. Defaults to title."
+        },
+        taskId: {
+          type: "string",
+          description:
+            "Preferred task identifier for pause, resume, or cancel. Use the id returned by list or create."
+        },
+        titleMatch: {
+          type: "string",
+          description:
+            "Fallback partial title match for pause, resume, or cancel when taskId is unavailable."
+        },
+        runAt: {
+          type: "string",
+          description:
+            "Absolute future datetime in ISO format for a one-time reminder after the time has already been resolved."
+        },
+        delayMs: {
+          type: "number",
+          minimum: 1,
+          description:
+            "Relative delay in milliseconds for a one-time reminder. Prefer this for requests like 'in 5 minutes'."
+        },
+        everyMs: {
+          type: "number",
+          minimum: 1,
+          description: "Recurring interval in milliseconds."
+        },
+        anchorAt: {
+          type: "string",
+          description: "Optional ISO anchor time for recurring interval schedules."
+        },
+        cronExpr: {
+          type: "string",
+          description: "Cron expression for recurring reminders."
+        },
+        timezone: {
+          type: "string",
+          description: "Optional IANA timezone for cron-based reminders."
+        },
+        contextMessages: {
+          type: "integer",
+          minimum: 0,
+          maximum: REMINDER_CONTEXT_MESSAGES_MAX,
+          description:
+            "Optional number of recent chat messages to include as context when the reminder fires."
         }
       }
     }

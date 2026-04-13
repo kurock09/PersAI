@@ -29,6 +29,14 @@ const WORKER_TOOL_BASELINES: Record<string, Omit<RuntimeWorkerToolConfig, "toolC
     supportsProviderRouting: true,
     failureBehavior: "surface_error"
   },
+  reminder_task: {
+    family: "scheduled_action",
+    outcomeKind: "state_mutation",
+    timeoutMs: 30_000,
+    confirmationRule: "required_for_mutations",
+    supportsProviderRouting: false,
+    failureBehavior: "retry_then_surface_error"
+  },
   cron: {
     family: "internal_scheduler",
     outcomeKind: "state_mutation",

@@ -28,6 +28,40 @@ export type ConsumeToolDailyLimitOutcome =
       message: string;
     };
 
+export type InternalReminderTaskItem = {
+  id: string;
+  title: string;
+  controlStatus: "active" | "disabled";
+  nextRunAt: string | null;
+  externalRef: string | null;
+};
+
+export type InternalReminderConversationContext = {
+  channel: string;
+  externalThreadKey: string;
+};
+
+export type InternalReminderTaskControlInput =
+  | {
+      assistantId: string;
+      action: "create";
+      title: string;
+      reminderText: string;
+      runAt?: string;
+      delayMs?: number;
+      everyMs?: number;
+      anchorAt?: string;
+      cronExpr?: string;
+      timezone?: string;
+      contextMessages?: number;
+      conversationContext?: InternalReminderConversationContext;
+    }
+  | {
+      assistantId: string;
+      action: "pause" | "resume" | "cancel";
+      taskId: string;
+    };
+
 @Injectable()
 export class PersaiInternalApiClientService {
   constructor(@Inject(RUNTIME_CONFIG) private readonly config: RuntimeConfig) {}
@@ -96,6 +130,87 @@ export class PersaiInternalApiClientService {
     );
   }
 
+  async listReminderTasks(assistantId: string): Promise<InternalReminderTaskItem[]> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    if (assistantId.trim().length === 0) {
+      throw new BadRequestException("assistantId is required for reminder task list.");
+    }
+
+    const response = await this.fetchJson(
+      `/api/v1/internal/runtime/tasks/items?assistantId=${encodeURIComponent(assistantId)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`
+        }
+      }
+    );
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const items = payload?.items;
+      if (
+        payload?.ok === true &&
+        Array.isArray(items) &&
+        items.every((item) => this.isInternalReminderTaskItem(item))
+      ) {
+        return items;
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid reminder task list response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API reminder task list request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the reminder task list request."
+    );
+  }
+
+  async controlReminderTask(input: InternalReminderTaskControlInput): Promise<unknown> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/tasks/control", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (payload?.ok === true) {
+        return response.body;
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid reminder task control response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API reminder task control request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the reminder task control request."
+    );
+  }
+
   private buildUrl(pathname: string): string {
     const baseUrl = this.config.PERSAI_API_BASE_URL?.trim();
     if (!baseUrl) {
@@ -142,6 +257,18 @@ export class PersaiInternalApiClientService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private isInternalReminderTaskItem(value: unknown): value is InternalReminderTaskItem {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.id === "string" &&
+      typeof row.title === "string" &&
+      (row.controlStatus === "active" || row.controlStatus === "disabled") &&
+      (row.nextRunAt === null || typeof row.nextRunAt === "string") &&
+      (row.externalRef === null || typeof row.externalRef === "string")
+    );
   }
 
   private extractError(body: unknown): { code: string | null; message: string | null } {

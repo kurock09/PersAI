@@ -31,6 +31,18 @@ const tools = [
     visibleInPlanEditor: true
   },
   {
+    code: "reminder_task",
+    displayName: "Reminder Task",
+    description: "Create and manage reminders.",
+    capabilityGroup: "workspace_ops",
+    toolClass: "utility",
+    policyClass: "plan_managed",
+    catalogStatus: "active",
+    planActivationStatus: "active",
+    effectiveActivation: "active",
+    visibleInPlanEditor: true
+  },
+  {
     code: "persai_tool_quota_status",
     displayName: "Quota Status",
     description: "Check remaining quota.",
@@ -103,6 +115,15 @@ async function run(): Promise<void> {
         dailyCallLimit: 5
       },
       {
+        toolCode: "reminder_task",
+        kind: "plan",
+        executionMode: "worker",
+        usageRule: "allowed",
+        enabled: true,
+        visibleToModel: true,
+        dailyCallLimit: null
+      },
+      {
         toolCode: "persai_tool_quota_status",
         kind: "system",
         executionMode: "inline",
@@ -126,6 +147,7 @@ async function run(): Promise<void> {
   const markdown = buildRuntimeToolPoliciesMarkdown(toolPolicies);
   assert.match(markdown, /## Active Plan Tools/);
   assert.match(markdown, /\*\*web_search\*\* — inline, allowed \(daily limit: 20\)/);
+  assert.match(markdown, /\*\*reminder_task\*\* — worker, allowed/);
   assert.match(markdown, /## Active System Tools/);
   assert.match(markdown, /\*\*persai_tool_quota_status\*\* — inline, allowed/);
   assert.match(markdown, /## Disabled Tools/);

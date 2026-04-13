@@ -1,6 +1,31 @@
 import assert from "node:assert/strict";
+import { DeliverReminderNotificationService } from "../src/modules/workspace-management/application/deliver-reminder-notification.service";
 import { HandleInternalCronFireService } from "../src/modules/workspace-management/application/handle-internal-cron-fire.service";
 import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
+
+function createHandleInternalCronFireService(params: {
+  prisma: unknown;
+  bindingRepository: unknown;
+  platformRuntimeProviderSecretStoreService: unknown;
+  resolveAssistantInboundRuntimeContextService: unknown;
+  enforceAssistantCapabilityAndQuotaService: unknown;
+  renderAssistantInboundSurfaceMessageService: unknown;
+  assistantChatRepository: unknown;
+}): HandleInternalCronFireService {
+  const deliveryService = new DeliverReminderNotificationService(
+    params.prisma as never,
+    params.platformRuntimeProviderSecretStoreService as never,
+    params.resolveAssistantInboundRuntimeContextService as never,
+    params.enforceAssistantCapabilityAndQuotaService as never,
+    params.renderAssistantInboundSurfaceMessageService as never,
+    params.assistantChatRepository as never
+  );
+  return new HandleInternalCronFireService(
+    params.prisma as never,
+    params.bindingRepository as never,
+    deliveryService as never
+  );
+}
 
 async function runWebDeliveryArtifactTest(): Promise<void> {
   const deliveredMessages: string[] = [];
@@ -49,10 +74,11 @@ async function runWebDeliveryArtifactTest(): Promise<void> {
     }
   };
 
-  const service = new HandleInternalCronFireService(
-    prisma as never,
-    platformRuntimeProviderSecretStoreService as never,
-    {
+  const service = createHandleInternalCronFireService({
+    prisma,
+    bindingRepository,
+    platformRuntimeProviderSecretStoreService,
+    resolveAssistantInboundRuntimeContextService: {
       async resolveByAssistantId() {
         return {
           assistant: {
@@ -62,20 +88,19 @@ async function runWebDeliveryArtifactTest(): Promise<void> {
           }
         };
       }
-    } as never,
-    {
+    },
+    enforceAssistantCapabilityAndQuotaService: {
       async enforceInboundTurn() {
         return;
       }
-    } as never,
-    {
+    },
+    renderAssistantInboundSurfaceMessageService: {
       renderError() {
         return { code: "ok", text: "rendered" };
       }
-    } as never,
-    bindingRepository as never,
-    assistantChatRepository as never
-  );
+    },
+    assistantChatRepository
+  });
 
   const result = await service.execute({
     assistantId: "assistant-1",
@@ -157,10 +182,11 @@ async function runTelegramTaskTargetTest(): Promise<void> {
       releaseReminderDeliveryProcessing: async () => undefined
     };
 
-    const service = new HandleInternalCronFireService(
-      prisma as never,
-      platformRuntimeProviderSecretStoreService as never,
-      {
+    const service = createHandleInternalCronFireService({
+      prisma,
+      bindingRepository,
+      platformRuntimeProviderSecretStoreService,
+      resolveAssistantInboundRuntimeContextService: {
         async resolveByAssistantId() {
           return {
             assistant: {
@@ -170,20 +196,19 @@ async function runTelegramTaskTargetTest(): Promise<void> {
             }
           };
         }
-      } as never,
-      {
+      },
+      enforceAssistantCapabilityAndQuotaService: {
         async enforceInboundTurn() {
           return;
         }
-      } as never,
-      {
+      },
+      renderAssistantInboundSurfaceMessageService: {
         renderError() {
           return { code: "ok", text: "rendered" };
         }
-      } as never,
-      bindingRepository as never,
-      assistantChatRepository as never
-    );
+      },
+      assistantChatRepository
+    });
 
     const result = await service.execute({
       assistantId: "assistant-1",
@@ -230,12 +255,13 @@ async function runQuotaRenderedFallbackTest(): Promise<void> {
     }
   };
 
-  const service = new HandleInternalCronFireService(
-    prisma as never,
-    {
+  const service = createHandleInternalCronFireService({
+    prisma,
+    bindingRepository,
+    platformRuntimeProviderSecretStoreService: {
       resolveSecretValueByProviderKey: async () => null
-    } as never,
-    {
+    },
+    resolveAssistantInboundRuntimeContextService: {
       async resolveByAssistantId() {
         throw new ApiErrorHttpException(409, {
           code: "quota_limit_reached",
@@ -243,22 +269,21 @@ async function runQuotaRenderedFallbackTest(): Promise<void> {
           message: "Quota reached."
         });
       }
-    } as never,
-    {
+    },
+    enforceAssistantCapabilityAndQuotaService: {
       async enforceInboundTurn() {
         return;
       }
-    } as never,
-    {
+    },
+    renderAssistantInboundSurfaceMessageService: {
       renderError() {
         return {
           code: "quota_limit_reached",
           text: "Reminder could not be delivered because the current plan limit was reached."
         };
       }
-    } as never,
-    bindingRepository as never,
-    {
+    },
+    assistantChatRepository: {
       findChatBySurfaceThread: async () => null,
       createChat: async () => ({ id: "chat-1" }),
       findOrCreateChatBySurfaceThread: async () => ({ id: "chat-1" }),
@@ -266,8 +291,8 @@ async function runQuotaRenderedFallbackTest(): Promise<void> {
         deliveredMessages.push(input.content);
         return { id: "message-1" };
       }
-    } as never
-  );
+    }
+  });
 
   const result = await service.execute({
     assistantId: "assistant-1",
@@ -352,12 +377,13 @@ async function runReminderReplayDedupTest(): Promise<void> {
     releaseReminderDeliveryProcessing: async () => undefined
   };
 
-  const service = new HandleInternalCronFireService(
-    prisma as never,
-    {
+  const service = createHandleInternalCronFireService({
+    prisma,
+    bindingRepository,
+    platformRuntimeProviderSecretStoreService: {
       resolveSecretValueByProviderKey: async () => null
-    } as never,
-    {
+    },
+    resolveAssistantInboundRuntimeContextService: {
       async resolveByAssistantId() {
         return {
           assistant: {
@@ -367,19 +393,18 @@ async function runReminderReplayDedupTest(): Promise<void> {
           }
         };
       }
-    } as never,
-    {
+    },
+    enforceAssistantCapabilityAndQuotaService: {
       async enforceInboundTurn() {
         return;
       }
-    } as never,
-    {
+    },
+    renderAssistantInboundSurfaceMessageService: {
       renderError() {
         return { code: "ok", text: "rendered" };
       }
-    } as never,
-    bindingRepository as never,
-    {
+    },
+    assistantChatRepository: {
       findChatBySurfaceThread: async () => null,
       createChat: async () => ({ id: "chat-1" }),
       findOrCreateChatBySurfaceThread: async () => ({ id: "chat-1" }),
@@ -387,8 +412,8 @@ async function runReminderReplayDedupTest(): Promise<void> {
         deliveredMessages.push(input.content);
         return { id: "message-1" };
       }
-    } as never
-  );
+    }
+  });
 
   const first = await service.execute({
     assistantId: "assistant-1",

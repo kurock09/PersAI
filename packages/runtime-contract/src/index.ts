@@ -508,6 +508,59 @@ export interface RuntimeWebFetchToolResult extends RuntimeWebFetchResult {
   warning: string | null;
 }
 
+export const PERSAI_RUNTIME_REMINDER_TASK_ACTIONS = [
+  "create",
+  "list",
+  "pause",
+  "resume",
+  "cancel"
+] as const;
+
+export type PersaiRuntimeReminderTaskAction = (typeof PERSAI_RUNTIME_REMINDER_TASK_ACTIONS)[number];
+
+export const PERSAI_RUNTIME_REMINDER_TASK_CONTROL_STATUSES = [
+  "active",
+  "disabled",
+  "cancelled"
+] as const;
+
+export type PersaiRuntimeReminderTaskControlStatus =
+  (typeof PERSAI_RUNTIME_REMINDER_TASK_CONTROL_STATUSES)[number];
+
+export interface RuntimeReminderTaskRequest {
+  toolCode: "reminder_task";
+  action: PersaiRuntimeReminderTaskAction;
+  title?: string;
+  reminderText?: string;
+  taskId?: string;
+  titleMatch?: string;
+  runAt?: string;
+  delayMs?: number;
+  everyMs?: number;
+  anchorAt?: string;
+  cronExpr?: string;
+  timezone?: string;
+  contextMessages?: number;
+}
+
+export interface RuntimeReminderTaskItem {
+  id: string | null;
+  title: string;
+  controlStatus: PersaiRuntimeReminderTaskControlStatus;
+  nextRunAt: string | null;
+}
+
+export interface RuntimeReminderTaskToolResult {
+  toolCode: "reminder_task";
+  executionMode: "worker";
+  requestedAction: PersaiRuntimeReminderTaskAction | null;
+  action: "created" | "listed" | "paused" | "resumed" | "cancelled" | "skipped";
+  reason: string | null;
+  warning: string | null;
+  task: RuntimeReminderTaskItem | null;
+  items: RuntimeReminderTaskItem[] | null;
+}
+
 export interface RuntimeTurnRequest {
   requestId: string;
   idempotencyKey: string;

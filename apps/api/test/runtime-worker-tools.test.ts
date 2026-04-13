@@ -52,6 +52,18 @@ const TOOL_POLICIES = [
     dailyCallLimit: null
   },
   {
+    toolCode: "reminder_task",
+    displayName: "Reminder Task",
+    description: "Create and manage reminders.",
+    kind: "plan",
+    executionMode: "worker",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
+  {
     toolCode: "cron",
     displayName: "Cron",
     description: "Internal scheduler bridge.",
@@ -96,6 +108,15 @@ async function run(): Promise<void> {
         confirmationRule: "none",
         supportsProviderRouting: true,
         failureBehavior: "surface_error"
+      },
+      {
+        toolCode: "reminder_task",
+        family: "scheduled_action",
+        outcomeKind: "state_mutation",
+        timeoutMs: 30000,
+        confirmationRule: "required_for_mutations",
+        supportsProviderRouting: false,
+        failureBehavior: "retry_then_surface_error"
       },
       {
         toolCode: "cron",

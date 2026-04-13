@@ -169,6 +169,15 @@ function createInput(order: "alpha" | "beta") {
                   confirmationRule: "required_for_mutations",
                   supportsProviderRouting: true,
                   failureBehavior: "surface_error"
+                },
+                {
+                  toolCode: "reminder_task",
+                  family: "scheduled_action",
+                  outcomeKind: "state_mutation",
+                  timeoutMs: 30000,
+                  confirmationRule: "required_for_mutations",
+                  supportsProviderRouting: false,
+                  failureBehavior: "retry_then_surface_error"
                 }
               ]
             }
@@ -182,6 +191,15 @@ function createInput(order: "alpha" | "beta") {
                   outcomeKind: "structured_output",
                   family: "browser_interaction",
                   toolCode: "browser"
+                },
+                {
+                  failureBehavior: "retry_then_surface_error",
+                  supportsProviderRouting: false,
+                  confirmationRule: "required_for_mutations",
+                  timeoutMs: 30000,
+                  outcomeKind: "state_mutation",
+                  family: "scheduled_action",
+                  toolCode: "reminder_task"
                 }
               ]
             },
@@ -255,6 +273,18 @@ function createInput(order: "alpha" | "beta") {
           usageRule: "forbidden",
           enabled: false,
           visibleToModel: false,
+          dailyCallLimit: null,
+          visibleInPlanEditor: true
+        },
+        {
+          toolCode: "reminder_task",
+          displayName: "Reminder Task",
+          description: "Create, list, pause, resume, and cancel reminders or recurring tasks.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
           dailyCallLimit: null,
           visibleInPlanEditor: true
         },
@@ -360,6 +390,15 @@ async function run(): Promise<void> {
         confirmationRule: "required_for_mutations",
         supportsProviderRouting: true,
         failureBehavior: "surface_error"
+      },
+      {
+        toolCode: "reminder_task",
+        family: "scheduled_action",
+        outcomeKind: "state_mutation",
+        timeoutMs: 30000,
+        confirmationRule: "required_for_mutations",
+        supportsProviderRouting: false,
+        failureBehavior: "retry_then_surface_error"
       }
     ]
   });
