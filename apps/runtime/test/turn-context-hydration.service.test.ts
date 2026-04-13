@@ -168,6 +168,23 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       ]
     },
     {
+      id: "message-2b",
+      author: "assistant",
+      content: "  ",
+      attachments: [
+        {
+          id: "attachment-2b",
+          attachmentType: "voice",
+          originalFilename: "voice-note-yandex.ogg",
+          mimeType: "audio/ogg",
+          storagePath: "assistant-media/chat-1/voice-note-yandex.ogg",
+          sizeBytes: 48,
+          transcription: null,
+          metadata: null
+        }
+      ]
+    },
+    {
       id: "message-3",
       author: "system",
       content: "ignore this system marker",
@@ -228,7 +245,11 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     {
       role: "assistant",
       content:
-        '[Assistant attachments:\n- attachment (image "reply.png")\nImage attachments are present. Do not guess visual details that are not described in the attachment metadata or message text.\nUse the attachment metadata, transcription, and content preview when available.]\nfirst assistant'
+        'first assistant\n\nAssistant sent an attachment: image "reply.png".'
+    },
+    {
+      role: "assistant",
+      content: 'Assistant sent an attachment: voice "voice-note-yandex.ogg".'
     },
     {
       role: "user",

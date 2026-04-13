@@ -421,8 +421,12 @@ export class TurnContextHydrationService {
       return input.baseContent;
     }
 
+    if (input.author === "assistant") {
+      return this.buildAssistantMessageWithAttachmentSummary(input.baseContent, attachmentLines);
+    }
+
     const attachmentBlock = this.buildAttachmentBlock({
-      title: input.author === "assistant" ? "Assistant attachments" : "Files attached by user",
+      title: "Files attached by user",
       lines: attachmentLines,
       totalImageCount,
       directImageCount: input.directImageCount,
@@ -430,12 +434,25 @@ export class TurnContextHydrationService {
       directPdfCount: input.directPdfCount
     });
     const baseContent =
-      input.baseContent.trim().length > 0
-        ? input.baseContent
-        : input.author === "assistant"
-          ? "Assistant sent attachments."
-          : "User sent attachments only.";
+      input.baseContent.trim().length > 0 ? input.baseContent : "User sent attachments only.";
     return `${attachmentBlock}\n${baseContent}`;
+  }
+
+  private buildAssistantMessageWithAttachmentSummary(
+    baseContent: string,
+    attachmentLines: string[]
+  ): string {
+    const descriptors = attachmentLines.map((line) => this.toAttachmentSummaryDescriptor(line));
+    const attachmentSummary =
+      descriptors.length === 1
+        ? `Assistant sent an attachment: ${descriptors[0]}.`
+        : `Assistant sent attachments: ${descriptors.join("; ")}.`;
+
+    if (baseContent.trim().length > 0) {
+      return `${baseContent}\n\n${attachmentSummary}`;
+    }
+
+    return attachmentSummary;
   }
 
   private async buildDirectInputSelection(
@@ -596,6 +613,13 @@ export class TurnContextHydrationService {
   private formatRuntimeAttachmentLine(attachment: RuntimeAttachmentRef): string {
     const name = attachment.filename ? ` "${attachment.filename}"` : "";
     return `- attachment (${attachment.kind}${name})`;
+  }
+
+  private toAttachmentSummaryDescriptor(line: string): string {
+    if (line.startsWith("- attachment (") && line.endsWith(")")) {
+      return line.slice("- attachment (".length, -1);
+    }
+    return line.replace(/^- /, "");
   }
 
   private buildAttachmentBlock(input: {

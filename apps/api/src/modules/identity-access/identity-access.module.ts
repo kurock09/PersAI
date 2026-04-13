@@ -30,6 +30,7 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/me/onboarding", method: RequestMethod.POST },
       { path: "api/v1/assistant", method: RequestMethod.GET },
       { path: "api/v1/assistant/plan-visibility", method: RequestMethod.GET },
+      { path: "api/v1/assistant/voice/settings", method: RequestMethod.GET },
       { path: "api/v1/assistant/notification-preference", method: RequestMethod.GET },
       { path: "api/v1/assistant", method: RequestMethod.POST },
       { path: "api/v1/assistant/draft", method: RequestMethod.PATCH },
@@ -70,6 +71,10 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/assistant/integrations/telegram/revoke", method: RequestMethod.POST },
       {
         path: "api/v1/assistant/integrations/telegram/emergency-revoke",
+        method: RequestMethod.POST
+      },
+      {
+        path: "api/v1/assistant/integrations/telegram/resend-owner-message",
         method: RequestMethod.POST
       },
       { path: "api/v1/assistant/integrations/telegram/config", method: RequestMethod.PATCH },
