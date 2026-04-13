@@ -6,6 +6,7 @@ import {
   TOOL_CATALOG,
   STARTER_TRIAL_TOOL_POLICY
 } from "../../../../prisma/tool-catalog-data";
+import { upsertToolCatalogEntry } from "../../../../prisma/tool-catalog-sync";
 import { BOOTSTRAP_PRESET_DEFAULTS } from "../../../../prisma/bootstrap-preset-data";
 
 const DEFAULT_PLAN_CODE = "starter_trial";
@@ -33,35 +34,7 @@ export class SeedToolCatalogService implements OnModuleInit {
   private async syncToolCatalog(): Promise<void> {
     let upserted = 0;
     for (const t of TOOL_CATALOG) {
-      const providerHints = t.requiredCredentialId
-        ? {
-            schema: "persai.toolCatalogProviderHints.v2",
-            providerAgnostic: false,
-            requiredCredentialId: t.requiredCredentialId
-          }
-        : { schema: "persai.toolCatalogProviderHints.v1", providerAgnostic: true };
-
-      await this.prisma.toolCatalogTool.upsert({
-        where: { code: t.code },
-        update: {
-          displayName: t.displayName,
-          description: t.description,
-          capabilityGroup: t.capabilityGroup,
-          toolClass: t.toolClass,
-          status: "active",
-          providerHints
-        },
-        create: {
-          id: t.id,
-          code: t.code,
-          displayName: t.displayName,
-          description: t.description,
-          capabilityGroup: t.capabilityGroup,
-          toolClass: t.toolClass,
-          status: "active",
-          providerHints
-        }
-      });
+      await upsertToolCatalogEntry(this.prisma, t);
       upserted++;
     }
     this.logger.log(`Tool catalog synced: ${upserted} entries`);
