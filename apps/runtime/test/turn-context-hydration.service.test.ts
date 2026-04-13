@@ -244,8 +244,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     },
     {
       role: "assistant",
-      content:
-        'first assistant\n\nAssistant sent an attachment: image "reply.png".'
+      content: 'first assistant\n\nAssistant sent an attachment: image "reply.png".'
     },
     {
       role: "assistant",

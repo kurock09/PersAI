@@ -7,9 +7,10 @@ type RecordedRoute = string | { path: string; method: RequestMethod };
 class RecordingMiddlewareConsumer {
   routes: RecordedRoute[] = [];
 
-  apply(..._middleware: unknown[]): {
+  apply(...middleware: unknown[]): {
     forRoutes: (...routes: RecordedRoute[]) => MiddlewareConsumer;
   } {
+    void middleware;
     return {
       forRoutes: (...routes: RecordedRoute[]) => {
         this.routes.push(...routes);
@@ -28,9 +29,7 @@ function hasRoute(
 ): boolean {
   return routes.some(
     (route) =>
-      typeof route !== "string" &&
-      route.path === params.path &&
-      route.method === params.method
+      typeof route !== "string" && route.path === params.path && route.method === params.method
   );
 }
 
