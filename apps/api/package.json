@@ -46,6 +46,7 @@
     "@persai/runtime-contract": "workspace:*",
     "@persai/types": "workspace:*",
     "@prisma/client": "^6.19.2",
+    "croner": "^10.0.1",
     "file-type": "^21.3.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",

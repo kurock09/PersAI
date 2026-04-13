@@ -1,5 +1,70 @@
 # SESSION-HANDOFF
 
+## 2026-04-13 - ADR-072 T15-5 native reminder scheduler cutover
+
+### What changed
+
+1. `apps/api` reminder control now persists new reminder schedule/payload state directly on `assistant_task_registry_items` instead of creating hidden legacy cron jobs for new reminders.
+2. `BuildReminderContextSnapshotService` now captures bounded `Recent context:` snapshots from canonical web/Telegram chats at reminder-create time, and `PersaiReminderSchedulerService` now claims due reminder rows from durable task state with a global scheduler epoch, expiring claims, and retry delay.
+3. The global reminder scheduler epoch now bumps on startup/rollout and makes old execution claims stale for all reminders immediately, so a fresh pod can re-claim due work without waiting for the previous claim TTL to expire.
+4. Due reminder execution now reuses the shared reminder delivery core through the existing finalization path, so replay-safe delivery, Telegram/web routing, and task-registry cleanup stay aligned between the legacy callback adapter and the new native scheduler.
+5. Legacy runtime cron control remains only as fallback for pre-cutover rows that still lack native schedule state, so the active new reminder UI path no longer depends on OpenClaw `cron` for due-time pickup.
+
+### Why
+
+1. The previous state was still not honest for `pre-prod ready live test`: `reminder_task` had native projection/execution and a shared delivery core, but due-time pickup still came from hidden legacy cron.
+2. The clean target for `T15-5` is PersAI-owned scheduler ownership with rollout-safe durable state, not one more callback bridge or pod-local timer.
+3. Keeping the finalization/delivery boundary shared avoids drifting reminder behavior between legacy callback cleanup and the new native scheduler loop.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, `T15-3a`, `T15-3b`, and `T15-4` are complete; `T15-5 — Reminder and scheduled action plan tools` is now code-complete for pre-prod live validation on PersAI-owned due-time pickup)
+
+### Files touched
+
+- `apps/api/package.json`
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260413113000_t15_5_native_reminder_scheduler_state/migration.sql`
+- `apps/api/src/modules/workspace-management/application/build-reminder-context-snapshot.service.ts`
+- `apps/api/src/modules/workspace-management/application/bump-config-generation.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+- `apps/api/src/modules/workspace-management/application/persai-reminder-scheduler.service.ts`
+- `apps/api/src/modules/workspace-management/application/reminder-schedule.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-task-registry.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/control-internal-assistant-reminder-task.service.test.ts`
+- `apps/api/test/persai-reminder-scheduler.service.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `pnpm-lock.yaml`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/api exec tsx test/control-internal-assistant-reminder-task.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/persai-reminder-scheduler.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api exec tsx test/run-suite.ts`
+
+### Risks
+
+1. Bounded live validation still requires the usual deploy/reapply/rollout sync before the running environment stops using the old image.
+2. Hidden legacy `cron-fire` callback support still remains in repo for compatibility with older reminder rows during rollout, even though the active new create/due path no longer depends on it.
+
+### Next recommended step
+
+1. Deploy/reapply and run one bounded live validation pack through the existing UI: create one one-shot reminder, create one recurring reminder, pause/resume it, and confirm one real due fire lands through the native scheduler path.
+2. If that smoke is clean, move the active coding focus from `T15-5` to later Step 15 slices (`T15-6` / `T15-7`) instead of reopening reminder backend ownership again.
+
 ## 2026-04-13 - ADR-072 T15-5 reminder live-test readiness extraction
 
 ### What changed

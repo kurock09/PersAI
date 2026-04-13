@@ -91,6 +91,8 @@ import { PrepareAssistantInboundTurnService } from "./application/prepare-assist
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
 import { DeliverReminderNotificationService } from "./application/deliver-reminder-notification.service";
+import { BuildReminderContextSnapshotService } from "./application/build-reminder-context-snapshot.service";
+import { PersaiReminderSchedulerService } from "./application/persai-reminder-scheduler.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { CheckInternalRuntimeToolDailyLimitService } from "./application/check-internal-runtime-tool-daily-limit.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
@@ -219,6 +221,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAdminWorkspaceSubscriptionService,
     HandleInternalCronFireService,
     DeliverReminderNotificationService,
+    BuildReminderContextSnapshotService,
+    PersaiReminderSchedulerService,
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,
     ConsumeInternalRuntimeToolDailyLimitService,

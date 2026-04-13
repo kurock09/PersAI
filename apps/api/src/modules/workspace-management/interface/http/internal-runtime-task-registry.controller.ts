@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  Post,
-  Query,
-  Req,
-  UnauthorizedException
-} from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Post, Query, Req } from "@nestjs/common";
 import { ControlInternalAssistantReminderTaskService } from "../../application/control-internal-assistant-reminder-task.service";
 import { ListInternalAssistantTaskItemsService } from "../../application/list-internal-assistant-task-items.service";
 import { SyncAssistantTaskRegistryService } from "../../application/sync-assistant-task-registry.service";
@@ -16,27 +7,6 @@ import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-
 type InternalRequestLike = {
   headers: Record<string, string | string[] | undefined>;
 };
-
-function readFirstHeaderValue(value: string | string[] | undefined): string | undefined {
-  if (Array.isArray(value)) {
-    return typeof value[0] === "string" ? value[0] : undefined;
-  }
-  return typeof value === "string" ? value : undefined;
-}
-
-function resolveRequestBaseUrl(req: InternalRequestLike): string {
-  const proto = readFirstHeaderValue(req.headers["x-forwarded-proto"])?.trim() || "http";
-  const host =
-    readFirstHeaderValue(req.headers["x-forwarded-host"])?.trim() ||
-    readFirstHeaderValue(req.headers.host)?.trim() ||
-    "";
-  if (!host) {
-    throw new UnauthorizedException(
-      "Internal runtime task control requires a resolvable request host."
-    );
-  }
-  return `${proto}://${host}`;
-}
 
 @Controller("api/v1/internal/runtime/tasks")
 export class InternalRuntimeTaskRegistryController {
@@ -88,10 +58,7 @@ export class InternalRuntimeTaskRegistryController {
       body !== null && typeof body === "object" && !Array.isArray(body)
         ? (body as Record<string, unknown>)
         : {};
-    const input = this.controlInternalAssistantReminderTaskService.parseInput({
-      ...rawBody,
-      callbackBaseUrl: resolveRequestBaseUrl(req)
-    });
+    const input = this.controlInternalAssistantReminderTaskService.parseInput(rawBody);
     return this.controlInternalAssistantReminderTaskService.execute(input);
   }
 

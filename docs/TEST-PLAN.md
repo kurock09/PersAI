@@ -932,7 +932,10 @@ Required in CI:
   - runtime now projects `reminder_task` onto the active native machine-readable tool list only when worker policy allows it and executes `create` / `list` / `pause` through the shared tool loop with structured reminder tool-history payloads
   - native reminder execution reuses PersAI internal task registry/control endpoints instead of exposing raw scheduler triggers or a reminder-specific provider-gateway seam
   - API reminder control accepts clean native `conversationContext` so Telegram group/DM reminder target persistence still works on the native create path
-  - current `cron-fire` callback handling now delegates reminder fanout to one shared PersAI-owned delivery core, so web/Telegram delivery, fallback rendering, and replay-safe callback behavior remain covered before later scheduler pickup cutover
+  - native reminder create now persists schedule/payload state directly on PersAI task rows instead of creating legacy cron jobs for new reminders
+  - hidden PersAI scheduler pickup claims due reminder rows from durable state, computes the next recurring slot, and defers retries on failures without relying on pod-local reminder ownership
+  - a global reminder scheduler epoch reset invalidates stale execution claims across rollout/startup, so new pods do not wait for the old claim TTL before re-claiming due reminders
+  - current `cron-fire` callback handling now delegates reminder fanout to one shared PersAI-owned delivery core, and the same finalization/replay-safe behavior remains reusable from the native scheduler path
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift

@@ -1,18 +1,19 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  AssistantRuntimeError,
-  type AssistantRuntimeFacade
-} from "./assistant-runtime.facade";
+import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
 } from "../domain/assistant-channel-surface-binding.repository";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { BuildReminderContextSnapshotService } from "./build-reminder-context-snapshot.service";
 import {
-  ASSISTANT_TASK_REGISTRY_REPOSITORY,
-  type AssistantTaskRegistryRepository
-} from "../domain/assistant-task-registry.repository";
+  computeReminderNextRunAtMs,
+  parseReminderSchedule,
+  type ReminderSchedule
+} from "./reminder-schedule";
 import { SyncAssistantTaskRegistryService } from "./sync-assistant-task-registry.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 
@@ -23,7 +24,6 @@ type CreateReminderTaskControlRequest = {
   action: "create";
   title: string;
   reminderText: string;
-  callbackBaseUrl: string;
   contextSessionKey?: string;
   conversationContext?: ReminderTaskConversationContext;
   runAt?: string;
@@ -247,16 +247,11 @@ function resolveTelegramReminderTargetForCreate(params: {
   };
 }
 
-function resolveTaskSourceLabel(job: unknown): string {
-  if (!isRecord(job)) {
-    return "Scheduled reminder";
-  }
-  const schedule = isRecord(job.schedule) ? job.schedule : null;
-  const kind = typeof schedule?.kind === "string" ? schedule.kind.trim().toLowerCase() : "";
-  if (kind === "at") {
+function resolveTaskSourceLabel(schedule: ReminderSchedule): string {
+  if (schedule.kind === "at") {
     return "One-time reminder";
   }
-  if (kind === "every" || kind === "cron") {
+  if (schedule.kind === "every" || schedule.kind === "cron") {
     return "Recurring reminder";
   }
   return "Scheduled reminder";
@@ -284,13 +279,21 @@ function buildTaskRegistrySyncPayload(params: { assistantId: string; job: unknow
     externalRef,
     title,
     sourceSurface: "web" as const,
-    sourceLabel: resolveTaskSourceLabel(params.job),
+    sourceLabel:
+      typeof params.job.schedule === "object" &&
+      params.job.schedule !== null &&
+      "kind" in params.job.schedule &&
+      (params.job.schedule.kind === "at" ||
+        params.job.schedule.kind === "every" ||
+        params.job.schedule.kind === "cron")
+        ? resolveTaskSourceLabel(params.job.schedule as ReminderSchedule)
+        : "Scheduled reminder",
     controlStatus: enabled ? ("active" as const) : ("disabled" as const),
     nextRunAt: nextRunAtMs === null ? null : new Date(nextRunAtMs).toISOString()
   };
 }
 
-function buildSchedule(input: CreateReminderTaskControlRequest) {
+function buildSchedule(input: CreateReminderTaskControlRequest): ReminderSchedule {
   const definedCount =
     Number(Boolean(input.runAt)) +
     Number(input.delayMs !== undefined) +
@@ -318,10 +321,14 @@ function buildSchedule(input: CreateReminderTaskControlRequest) {
     return { kind: "at" as const, at: new Date(Date.now() + delayMs).toISOString() };
   }
   if (input.everyMs !== undefined) {
+    const anchorAtMs = input.anchorAt ? Date.parse(input.anchorAt) : undefined;
+    if (input.anchorAt && !Number.isFinite(anchorAtMs)) {
+      throw new BadRequestException("anchorAt must be a valid ISO datetime.");
+    }
     return {
       kind: "every" as const,
       everyMs: Math.max(1, Math.floor(input.everyMs)),
-      ...(input.anchorAt ? { anchorMs: new Date(input.anchorAt).getTime() } : {})
+      ...(anchorAtMs === undefined ? {} : { anchorMs: anchorAtMs })
     };
   }
   return {
@@ -331,11 +338,6 @@ function buildSchedule(input: CreateReminderTaskControlRequest) {
   };
 }
 
-function buildCronWebhookUrl(callbackBaseUrl: string, assistantId: string): string {
-  const base = callbackBaseUrl.replace(/\/+$/, "");
-  return `${base}/api/v1/internal/cron-fire?assistantId=${encodeURIComponent(assistantId)}`;
-}
-
 @Injectable()
 export class ControlInternalAssistantReminderTaskService {
   constructor(
@@ -343,10 +345,10 @@ export class ControlInternalAssistantReminderTaskService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
-    @Inject(ASSISTANT_TASK_REGISTRY_REPOSITORY)
-    private readonly assistantTaskRegistryRepository: AssistantTaskRegistryRepository,
     @Inject(ASSISTANT_RUNTIME_FACADE)
     private readonly assistantRuntime: AssistantRuntimeFacade,
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly buildReminderContextSnapshotService: BuildReminderContextSnapshotService,
     private readonly syncAssistantTaskRegistryService: SyncAssistantTaskRegistryService,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
   ) {}
@@ -388,19 +390,12 @@ export class ControlInternalAssistantReminderTaskService {
       ) {
         throw new BadRequestException("contextMessages must be a number between 0 and 10.");
       }
-      const callbackBaseUrl = normalizeRequiredString(row.callbackBaseUrl, "callbackBaseUrl");
-      try {
-        new URL(callbackBaseUrl);
-      } catch {
-        throw new BadRequestException("callbackBaseUrl must be a valid URL.");
-      }
       return {
         assistantId,
         action,
         title: normalizeRequiredString(row.title, "title"),
         reminderText:
           normalizeOptionalString(row.reminderText) ?? normalizeRequiredString(row.title, "title"),
-        callbackBaseUrl,
         ...(normalizeOptionalString(row.contextSessionKey)
           ? { contextSessionKey: normalizeOptionalString(row.contextSessionKey)! }
           : normalizeOptionalString(row.sessionKey)
@@ -447,16 +442,40 @@ export class ControlInternalAssistantReminderTaskService {
     }
 
     if (input.action === "create") {
-      return this.createReminderTask(input);
+      return this.createReminderTask(assistant, input);
     }
 
-    const task = await this.assistantTaskRegistryRepository.findByIdAndAssistantId(
-      input.taskId,
-      assistant.id
-    );
+    const task = await this.prisma.assistantTaskRegistryItem.findFirst({
+      where: { id: input.taskId, assistantId: assistant.id },
+      select: {
+        id: true,
+        title: true,
+        controlStatus: true,
+        nextRunAt: true,
+        externalRef: true,
+        scheduleJson: true
+      }
+    });
     if (task === null) {
       throw new NotFoundException("Task not found.");
     }
+
+    const nativeSchedule = parseReminderSchedule(task.scheduleJson);
+    if (nativeSchedule !== null) {
+      return this.controlNativeReminderTask({
+        assistantId: assistant.id,
+        action: input.action,
+        task: {
+          id: task.id,
+          title: task.title,
+          controlStatus: task.controlStatus,
+          nextRunAt: task.nextRunAt,
+          externalRef: task.externalRef,
+          schedule: nativeSchedule
+        }
+      });
+    }
+
     if (!task.externalRef) {
       throw new BadRequestException("Task is missing runtime externalRef.");
     }
@@ -514,80 +533,142 @@ export class ControlInternalAssistantReminderTaskService {
     };
   }
 
-  private async createReminderTask(input: CreateReminderTaskControlRequest): Promise<unknown> {
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      input.assistantId
-    );
-    let createdJob: unknown;
-    try {
-      createdJob = await this.assistantRuntime.controlCronJob({
-        runtimeTier,
-        action: "add",
-        ...(input.contextSessionKey ? { contextSessionKey: input.contextSessionKey } : {}),
-        args: {
-          job: {
-            name: input.title,
-            schedule: buildSchedule(input),
-            payload: {
-              kind: "systemEvent",
-              text: input.reminderText
-            },
-            enabled: true,
-            delivery: {
-              mode: "webhook",
-              to: buildCronWebhookUrl(input.callbackBaseUrl, input.assistantId)
-            }
-          },
-          ...(input.contextMessages !== undefined ? { contextMessages: input.contextMessages } : {})
-        }
-      });
-    } catch (error) {
-      if (
-        error instanceof AssistantRuntimeError &&
-        error.code === "invalid_response" &&
-        error.message.toLowerCase().includes("schedule.at is in the past")
-      ) {
-        throw new BadRequestException(
-          "Reminder time resolved to the past. Please ask again with a future time."
-        );
-      }
-      throw error;
+  private async createReminderTask(
+    assistant: { id: string; userId: string; workspaceId: string },
+    input: CreateReminderTaskControlRequest
+  ): Promise<unknown> {
+    const schedule = buildSchedule(input);
+    const nextRunAtMs = computeReminderNextRunAtMs(schedule, Date.now());
+    if (nextRunAtMs === undefined) {
+      throw new BadRequestException(
+        "Reminder time resolved to the past. Please ask again with a future time."
+      );
     }
-
-    const normalizedJob = this.unwrapToolDetails(createdJob);
-    const syncPayload = buildTaskRegistrySyncPayload({
-      assistantId: input.assistantId,
-      job: normalizedJob
+    const externalRef = randomUUID();
+    const reminderPayloadText = await this.buildReminderContextSnapshotService.execute({
+      assistantId: assistant.id,
+      reminderText: input.reminderText,
+      ...(input.contextMessages === undefined ? {} : { contextMessages: input.contextMessages }),
+      ...(input.conversationContext === undefined
+        ? {}
+        : { conversationContext: input.conversationContext })
     });
-    if (syncPayload === null) {
-      throw new BadRequestException("Runtime create response is missing reminder metadata.");
-    }
-    await this.syncAssistantTaskRegistryService.execute(syncPayload);
+    const created = await this.prisma.assistantTaskRegistryItem.create({
+      data: {
+        assistantId: assistant.id,
+        userId: assistant.userId,
+        workspaceId: assistant.workspaceId,
+        title: input.title,
+        sourceSurface: "web",
+        sourceLabel: resolveTaskSourceLabel(schedule),
+        controlStatus: "active",
+        nextRunAt: new Date(nextRunAtMs),
+        disabledAt: null,
+        cancelledAt: null,
+        externalRef,
+        reminderPayloadText,
+        scheduleJson: schedule as unknown as Prisma.InputJsonValue,
+        retryAfterAt: null,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null
+      },
+      select: {
+        id: true,
+        title: true,
+        controlStatus: true,
+        nextRunAt: true
+      }
+    });
     await this.persistTelegramReminderTarget(
-      input.assistantId,
-      syncPayload.externalRef,
+      assistant.id,
+      externalRef,
       input.conversationContext,
       input.contextSessionKey
     );
 
-    const taskRow = await this.findTaskByExternalRef(input.assistantId, syncPayload.externalRef);
     return {
       ok: true,
       created: true,
-      task: taskRow
-        ? {
-            id: taskRow.id,
-            title: taskRow.title,
-            controlStatus: taskRow.controlStatus,
-            nextRunAt: taskRow.nextRunAt?.toISOString() ?? null
-          }
-        : {
-            id: null,
-            title: syncPayload.title,
-            controlStatus: syncPayload.controlStatus,
-            nextRunAt: syncPayload.nextRunAt
-          }
+      task: {
+        id: created.id,
+        title: created.title,
+        controlStatus: created.controlStatus,
+        nextRunAt: created.nextRunAt?.toISOString() ?? null
+      }
     };
+  }
+
+  private async controlNativeReminderTask(input: {
+    assistantId: string;
+    action: "pause" | "resume" | "cancel";
+    task: {
+      id: string;
+      title: string;
+      controlStatus: "active" | "disabled" | "cancelled";
+      nextRunAt: Date | null;
+      externalRef: string | null;
+      schedule: ReminderSchedule;
+    };
+  }): Promise<unknown> {
+    const externalRef = input.task.externalRef ?? input.task.id;
+    if (input.action === "cancel") {
+      await this.prisma.assistantTaskRegistryItem.delete({
+        where: { id: input.task.id }
+      });
+      await this.deleteTelegramReminderTarget(input.assistantId, externalRef);
+      return {
+        ok: true,
+        cancelled: true,
+        taskId: input.task.id,
+        title: input.task.title
+      };
+    }
+
+    const resumedNextRunAt =
+      input.action === "resume"
+        ? this.resolveResumedNextRunAt(input.task.schedule, input.task.nextRunAt)
+        : input.task.nextRunAt;
+
+    await this.prisma.assistantTaskRegistryItem.update({
+      where: { id: input.task.id },
+      data: {
+        controlStatus: input.action === "pause" ? "disabled" : "active",
+        nextRunAt: resumedNextRunAt,
+        disabledAt: input.action === "pause" ? new Date() : null,
+        cancelledAt: null,
+        retryAfterAt: null,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null
+      }
+    });
+
+    return {
+      ok: true,
+      [input.action === "pause" ? "paused" : "resumed"]: true,
+      taskId: input.task.id,
+      title: input.task.title
+    };
+  }
+
+  private resolveResumedNextRunAt(
+    schedule: ReminderSchedule,
+    existingNextRunAt: Date | null
+  ): Date | null {
+    const nowMs = Date.now();
+    if (existingNextRunAt !== null && existingNextRunAt.getTime() > nowMs) {
+      return existingNextRunAt;
+    }
+    const nextRunAtMs = computeReminderNextRunAtMs(schedule, nowMs);
+    if (nextRunAtMs === undefined) {
+      throw new BadRequestException(
+        "This reminder no longer resolves to a future time. Please create a new reminder."
+      );
+    }
+    return new Date(nextRunAtMs);
   }
 
   private unwrapToolDetails(value: unknown): unknown {
@@ -598,11 +679,6 @@ export class ControlInternalAssistantReminderTaskService {
       return value.details;
     }
     return value;
-  }
-
-  private async findTaskByExternalRef(assistantId: string, externalRef: string) {
-    const items = await this.assistantTaskRegistryRepository.listByAssistantId(assistantId, 80);
-    return items.find((item) => item.externalRef === externalRef) ?? null;
   }
 
   private async deleteTaskRegistryRow(assistantId: string, externalRef: string): Promise<void> {

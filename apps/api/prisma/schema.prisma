@@ -486,9 +486,10 @@ model AdminNotificationDelivery {
 }
 
 model PlatformConfigGeneration {
-  id         String   @id @default("global") @db.VarChar(32)
-  generation Int      @default(1)
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                     String   @id @default("global") @db.VarChar(32)
+  generation             Int      @default(1)
+  reminderSchedulerEpoch Int      @default(1) @map("reminder_scheduler_epoch")
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_config_generations")
 }
@@ -1017,6 +1018,13 @@ model AssistantTaskRegistryItem {
   disabledAt      DateTime?                          @map("disabled_at") @db.Timestamptz(6)
   cancelledAt     DateTime?                          @map("cancelled_at") @db.Timestamptz(6)
   externalRef     String?                            @map("external_ref") @db.VarChar(128)
+  reminderPayloadText String?                        @map("reminder_payload_text") @db.Text
+  scheduleJson    Json?                              @map("schedule_json")
+  retryAfterAt    DateTime?                          @map("retry_after_at") @db.Timestamptz(6)
+  schedulerClaimToken String?                        @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimEpoch Int?                           @map("scheduler_claim_epoch")
+  schedulerClaimedAt DateTime?                       @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt DateTime?                  @map("scheduler_claim_expires_at") @db.Timestamptz(6)
   createdAt       DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
   assistant       Assistant                          @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
@@ -1024,6 +1032,7 @@ model AssistantTaskRegistryItem {
 
   @@unique([assistantId, externalRef])
   @@index([assistantId, controlStatus, nextRunAt])
+  @@index([controlStatus, nextRunAt, retryAfterAt, schedulerClaimExpiresAt])
   @@map("assistant_task_registry_items")
 }
 
