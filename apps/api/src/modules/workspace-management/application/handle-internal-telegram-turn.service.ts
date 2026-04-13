@@ -9,6 +9,11 @@ import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
+import type { AssistantChatMessageAttachment } from "../domain/assistant-chat-message-attachment.entity";
+import {
+  ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
+  type AssistantChatMessageAttachmentRepository
+} from "../domain/assistant-chat-message-attachment.repository";
 import { EnforceAbuseRateLimitService } from "./enforce-abuse-rate-limit.service";
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
@@ -52,6 +57,8 @@ export class HandleInternalTelegramTurnService {
     private readonly assistantRuntime: AssistantRuntimeFacade,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly chatRepository: AssistantChatRepository,
+    @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
+    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
@@ -226,6 +233,7 @@ export class HandleInternalTelegramTurnService {
       });
       trace.stage("assistant_message_saved");
 
+      let outboundMedia = runtimeResponse.media;
       if (runtimeResponse.media.length > 0) {
         await this.mediaDeliveryService.deliver({
           artifacts: runtimeResponse.media,
@@ -235,6 +243,7 @@ export class HandleInternalTelegramTurnService {
           messageId: assistantChatMessage.id,
           workspaceId: resolved.workspaceId
         });
+        outboundMedia = await this.loadPersistedAssistantMedia(assistantChatMessage.id);
         trace.stage("assistant_media_persisted");
       }
 
@@ -264,7 +273,8 @@ export class HandleInternalTelegramTurnService {
       });
       return {
         ...runtimeResponse,
-        assistantMessage
+        assistantMessage,
+        media: outboundMedia
       };
     } catch (error) {
       if (claimedUpdateId !== null) {
@@ -306,6 +316,64 @@ export class HandleInternalTelegramTurnService {
       media: [],
       deduplicated: true
     };
+  }
+
+  private async loadPersistedAssistantMedia(messageId: string): Promise<RuntimeMediaArtifact[]> {
+    const attachments = await this.attachmentRepository.listByMessageId(messageId);
+    const artifacts: RuntimeMediaArtifact[] = [];
+    for (const attachment of attachments) {
+      const artifact = this.toPersistedRuntimeMediaArtifact(attachment);
+      if (artifact !== null) {
+        artifacts.push(artifact);
+      }
+    }
+    return artifacts;
+  }
+
+  private toPersistedRuntimeMediaArtifact(
+    attachment: AssistantChatMessageAttachment
+  ): RuntimeMediaArtifact | null {
+    if (attachment.processingStatus !== "ready") {
+      return null;
+    }
+
+    const baseArtifact = {
+      source: "persai_object_storage" as const,
+      objectKey: attachment.storagePath,
+      mimeType: attachment.mimeType,
+      filename: attachment.originalFilename,
+      sizeBytes: Number(attachment.sizeBytes)
+    };
+
+    switch (attachment.attachmentType) {
+      case "image":
+        return {
+          ...baseArtifact,
+          type: "image"
+        };
+      case "audio":
+        return {
+          ...baseArtifact,
+          type: "audio"
+        };
+      case "voice":
+        return {
+          ...baseArtifact,
+          type: "audio",
+          audioAsVoice: true
+        };
+      case "video":
+        return {
+          ...baseArtifact,
+          type: "video"
+        };
+      case "document":
+      case "tool_output":
+        return {
+          ...baseArtifact,
+          type: "document"
+        };
+    }
   }
 
   private async releaseTelegramUpdateClaimBestEffort(

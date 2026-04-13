@@ -160,6 +160,16 @@ function createMediaDeliveryServiceMock() {
   };
 }
 
+function createAttachmentRepositoryMock(
+  listByMessageIdImpl: (messageId: string) => Promise<unknown[]> = async () => []
+) {
+  return {
+    async listByMessageId(messageId: string) {
+      return listByMessageIdImpl(messageId);
+    }
+  };
+}
+
 async function run(): Promise<void> {
   let resolveFirstRuntime: (() => void) | null = null;
   const firstRuntimeStarted = new Promise<void>((resolve) => {
@@ -175,6 +185,7 @@ async function run(): Promise<void> {
   let concurrentUsageCalls = 0;
   const traceService = createOverviewLatencyTraceServiceMock();
   const chatRepository = createChatRepositoryMock();
+  const attachmentRepository = createAttachmentRepositoryMock();
   const mediaDeliveryService = createMediaDeliveryServiceMock();
   const concurrentService = new HandleInternalTelegramTurnService(
     {
@@ -183,6 +194,7 @@ async function run(): Promise<void> {
       }
     } as never,
     chatRepository as never,
+    attachmentRepository as never,
     concurrentBindingRepository as never,
     {
       async enforceInboundTurn() {
@@ -263,6 +275,7 @@ async function run(): Promise<void> {
   const releasedBindingRepository = createBindingRepository();
   let releaseRuntimeCalls = 0;
   const releasedChatRepository = createChatRepositoryMock();
+  const releasedAttachmentRepository = createAttachmentRepositoryMock();
   const releasedMediaDeliveryService = createMediaDeliveryServiceMock();
   const fixedReleaseService = new HandleInternalTelegramTurnService(
     {
@@ -271,6 +284,7 @@ async function run(): Promise<void> {
       }
     } as never,
     releasedChatRepository as never,
+    releasedAttachmentRepository as never,
     releasedBindingRepository as never,
     {
       async enforceInboundTurn() {
@@ -344,6 +358,134 @@ async function run(): Promise<void> {
   assert.equal(recovered.assistantMessage, "Recovered reply");
   assert.equal(releaseRuntimeCalls, 2);
   assert.equal(releasedBindingRepository.state.telegramLastHandledUpdateId, 88);
+
+  const mediaBindingRepository = createBindingRepository();
+  const mediaChatRepository = createChatRepositoryMock();
+  const deliveryCalls: Array<{ artifacts: unknown[]; messageId: string }> = [];
+  const persistedObjectKey =
+    "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-2/generated.png";
+  const attachmentLookupIds: string[] = [];
+  const mediaAttachmentRepository = createAttachmentRepositoryMock(async (messageId) => {
+    attachmentLookupIds.push(messageId);
+    return [
+      {
+        id: "attachment-1",
+        messageId,
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        attachmentType: "image",
+        storagePath: persistedObjectKey,
+        originalFilename: "tuz_virtual_assistant.png",
+        mimeType: "image/png",
+        sizeBytes: BigInt(123),
+        durationMs: null,
+        width: null,
+        height: null,
+        processingStatus: "ready",
+        transcription: null,
+        metadata: null,
+        createdAt: new Date("2026-04-06T00:00:00.000Z")
+      }
+    ];
+  });
+  const runtimeMedia = [
+    {
+      source: "persai_object_storage" as const,
+      objectKey: "runtime-output/assistant-1/tool/image.png",
+      type: "image" as const,
+      mimeType: "image/png",
+      filename: "tuz_virtual_assistant.png",
+      sizeBytes: 123
+    }
+  ];
+  const mediaRewriteService = new HandleInternalTelegramTurnService(
+    {
+      async consumeBootstrapWorkspace() {
+        return undefined;
+      }
+    } as never,
+    mediaChatRepository as never,
+    mediaAttachmentRepository as never,
+    mediaBindingRepository as never,
+    {
+      async enforceInboundTurn() {
+        return { mode: "allow" };
+      }
+    } as never,
+    {
+      async enforceAndRegisterAttempt() {
+        return undefined;
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return createResolvedAssistant();
+      }
+    } as never,
+    {
+      async recordInboundTurnUsage() {
+        return undefined;
+      }
+    } as never,
+    {
+      workspace: {
+        async findUnique() {
+          return { timezone: "UTC" };
+        }
+      }
+    } as never,
+    {
+      async resolve() {
+        throw new Error("attachments not expected");
+      }
+    } as never,
+    {
+      async deliver(input: { artifacts: unknown[]; messageId: string }) {
+        deliveryCalls.push({
+          artifacts: input.artifacts,
+          messageId: input.messageId
+        });
+        return { attachments: [] };
+      }
+    } as never,
+    traceService as never,
+    {
+      async execute() {
+        return {
+          assistantMessage: "Image ready",
+          respondedAt: "2026-04-06T00:00:02.000Z",
+          media: runtimeMedia
+        };
+      }
+    } as never
+  );
+
+  const rewrittenMedia = await mediaRewriteService.execute({
+    assistantId: "assistant-1",
+    threadId: "chat-1",
+    conversationMode: "direct",
+    externalUserKey: "telegram-user-1",
+    message: "show me an image",
+    updateId: 99
+  });
+  assert.deepEqual(deliveryCalls, [
+    {
+      artifacts: runtimeMedia,
+      messageId: "message-2"
+    }
+  ]);
+  assert.deepEqual(attachmentLookupIds, ["message-2"]);
+  assert.deepEqual(rewrittenMedia.media, [
+    {
+      source: "persai_object_storage",
+      objectKey: persistedObjectKey,
+      type: "image",
+      mimeType: "image/png",
+      filename: "tuz_virtual_assistant.png",
+      sizeBytes: 123
+    }
+  ]);
 }
 
 void run();

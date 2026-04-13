@@ -1,5 +1,52 @@
 # SESSION-HANDOFF
 
+## 2026-04-13 - ADR-072 T15-6 Telegram native media delivery fix
+
+### What changed
+
+1. `apps/api` now keeps Telegram outbound media aligned with canonical PersAI chat attachments: after `MediaDeliveryService.deliver(...)` re-persists native runtime artifacts into assistant-message storage, `HandleInternalTelegramTurnService` reloads those persisted attachments and returns their object keys to the Telegram sender instead of forwarding the transient runtime-output keys.
+2. Focused API coverage now locks the intended handoff: the Telegram turn test verifies that outbound media is rewritten from the runtime temp object into the persisted assistant-message attachment object before Telegram delivery.
+3. Repo-truth docs now record that the current `T15-6` `image_generate` baseline includes the Telegram outbound delivery fix that live validation surfaced.
+
+### Why
+
+1. Live `kubectl` debugging showed that native `image_generate` already succeeded, persisted media, and even created the assistant attachment row, but Telegram outbound delivery still tried to download the old runtime-output object after API-side repersist deleted it.
+2. The honest PersAI-native delivery path for Telegram is `runtime temp artifact -> API canonical chat attachment copy -> Telegram send from the canonical stored attachment`, not `runtime temp artifact -> API copy + delete -> Telegram still reads the deleted temp key`.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-6 — Media generation and editing plan tools` is still the current slice, with `image_generate` landed first and the Telegram delivery follow-through now fixed on top of that baseline.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/test/handle-internal-telegram-turn.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks
+
+1. This fixes the Telegram handoff for persisted native media, but `T15-6` still has larger unfinished follow-through in `tts`, `image_edit`, and `video_generate`.
+2. Live deploy / reapply / Telegram retest is still needed to confirm the running cluster now sends the canonical persisted object path correctly.
+
+### Next recommended step
+
+1. Continue `T15-6` with the next smallest honest media tool, most likely `tts`, while keeping the same persisted-artifact delivery boundary across channels.
+2. If more Telegram media issues appear during live retest, add focused coverage for multi-artifact ordering plus audio-vs-voice delivery variants without reopening the overall media architecture.
+
 ## 2026-04-13 - ADR-072 T15-6 native image_generate baseline
 
 ### What changed
