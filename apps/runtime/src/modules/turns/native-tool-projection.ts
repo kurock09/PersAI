@@ -252,6 +252,7 @@ function createScheduledActionToolDefinition(): ProviderGatewayToolDefinition {
       'Use audience="user" for reminders the user should actually see, for example reminders in a few hours, daily or weekly nudges, and deadlines.',
       'Use audience="assistant" for background checks and reasoning, for example coming back to a project or habit later, inspecting memory, and when available using knowledge_search or knowledge_fetch before deciding whether any gentle user-facing nudge is appropriate.',
       "Background assistant actions MUST NOT directly message the user.",
+      'For assistant-side conditional checks, first verify the condition, then if a user-facing follow-up is requested and the condition is met create a new scheduled_action with audience="user" and an immediate schedule such as delayMs=1; otherwise stay quiet.',
       'They are for checking progress or changes, noticing the user is already doing well and quietly doing nothing, or, when it is helpful and not pushy, scheduling a new scheduled_action with audience="user" and a short human-like message.',
       'Respect explicit "don\'t remind me" or paused/cancelled signals, avoid spamming multiple unsolicited reminders about the same thing, and phrase user-facing reminders as low-pressure offers rather than commands.',
       "For create, title, audience, and exactly one schedule are required: runAt, delayMs, everyMs, or cronExpr.",
