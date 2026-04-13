@@ -26,7 +26,7 @@ import {
   type RuntimeKnowledgeFetchToolResult,
   type RuntimeKnowledgeSearchToolResult,
   type RuntimeBrowserToolResult,
-  type RuntimeReminderTaskToolResult,
+  type RuntimeScheduledActionToolResult,
   type RuntimeSharedCompactionToolResult,
   type RuntimeToolPolicy,
   type RuntimeFailedEvent,
@@ -48,7 +48,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
-import { RuntimeReminderTaskToolService } from "./runtime-reminder-task-tool.service";
+import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
@@ -89,7 +89,7 @@ type ToolExecutionOutcome = {
     | RuntimeKnowledgeSearchToolResult
     | RuntimeKnowledgeFetchToolResult
     | RuntimeBrowserToolResult
-    | RuntimeReminderTaskToolResult
+    | RuntimeScheduledActionToolResult
     | RuntimeWebSearchToolResult
     | RuntimeWebFetchToolResult
     | Record<string, unknown>;
@@ -118,7 +118,7 @@ const WEB_FETCH_TOOL_CODE = "web_fetch";
 const WEB_FETCH_DEFAULT_EXTRACT_MODE: PersaiRuntimeWebFetchExtractMode = "markdown";
 const WEB_FETCH_MIN_MAX_CHARS = 100;
 const WEB_FETCH_MAX_MAX_CHARS = 50_000;
-const REMINDER_TASK_TOOL_CODE = "reminder_task";
+const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
 
 @Injectable()
 export class TurnExecutionService {
@@ -133,7 +133,7 @@ export class TurnExecutionService {
     private readonly turnFinalizationService: TurnFinalizationService,
     private readonly sessionCompactionService: SessionCompactionService,
     private readonly runtimeBrowserToolService: RuntimeBrowserToolService,
-    private readonly runtimeReminderTaskToolService: RuntimeReminderTaskToolService
+    private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -837,8 +837,8 @@ export class TurnExecutionService {
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
-      case REMINDER_TASK_TOOL_CODE: {
-        const result = await this.runtimeReminderTaskToolService.executeToolCall({
+      case SCHEDULED_ACTION_TOOL_CODE: {
+        const result = await this.runtimeScheduledActionToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
           conversation: acceptedTurn.session.conversation
@@ -1202,7 +1202,7 @@ export class TurnExecutionService {
       | RuntimeKnowledgeSearchToolResult
       | RuntimeKnowledgeFetchToolResult
       | RuntimeBrowserToolResult
-      | RuntimeReminderTaskToolResult
+      | RuntimeScheduledActionToolResult
       | RuntimeWebSearchToolResult
       | RuntimeWebFetchToolResult
       | Record<string, unknown>,

@@ -5,6 +5,8 @@ export type AssistantTaskRegistryItemState = {
   title: string;
   sourceSurface: AssistantTaskRegistryItem["sourceSurface"];
   sourceLabel: string | null;
+  audience: AssistantTaskRegistryItem["audience"];
+  actionType: string | null;
   controlStatus: AssistantTaskRegistryItem["controlStatus"];
   nextRunAt: string | null;
   createdAt: string;

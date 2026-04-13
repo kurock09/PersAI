@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post, Query, Req } from "@nestjs/common";
-import { ControlInternalAssistantReminderTaskService } from "../../application/control-internal-assistant-reminder-task.service";
+import { ControlInternalScheduledActionService } from "../../application/control-internal-scheduled-action.service";
 import { ListInternalAssistantTaskItemsService } from "../../application/list-internal-assistant-task-items.service";
 import { SyncAssistantTaskRegistryService } from "../../application/sync-assistant-task-registry.service";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
@@ -13,7 +13,7 @@ export class InternalRuntimeTaskRegistryController {
   constructor(
     private readonly syncAssistantTaskRegistryService: SyncAssistantTaskRegistryService,
     private readonly listInternalAssistantTaskItemsService: ListInternalAssistantTaskItemsService,
-    private readonly controlInternalAssistantReminderTaskService: ControlInternalAssistantReminderTaskService
+    private readonly controlInternalScheduledActionService: ControlInternalScheduledActionService
   ) {}
 
   @Get("items")
@@ -25,6 +25,8 @@ export class InternalRuntimeTaskRegistryController {
     items: Array<{
       id: string;
       title: string;
+      audience: "user" | "assistant";
+      actionType: string | null;
       controlStatus: "active" | "disabled";
       nextRunAt: string | null;
       externalRef: string | null;
@@ -49,7 +51,7 @@ export class InternalRuntimeTaskRegistryController {
 
   @HttpCode(200)
   @Post("control")
-  async controlReminderTask(
+  async controlScheduledAction(
     @Req() req: InternalRequestLike,
     @Body() body: unknown
   ): Promise<unknown> {
@@ -58,8 +60,8 @@ export class InternalRuntimeTaskRegistryController {
       body !== null && typeof body === "object" && !Array.isArray(body)
         ? (body as Record<string, unknown>)
         : {};
-    const input = this.controlInternalAssistantReminderTaskService.parseInput(rawBody);
-    return this.controlInternalAssistantReminderTaskService.execute(input);
+    const input = this.controlInternalScheduledActionService.parseInput(rawBody);
+    return this.controlInternalScheduledActionService.execute(input);
   }
 
   private assertAuthorized(req: InternalRequestLike): void {

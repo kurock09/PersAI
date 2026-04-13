@@ -65,6 +65,8 @@ export class PrismaAssistantTaskRegistryRepository implements AssistantTaskRegis
       title: row.title,
       sourceSurface: row.sourceSurface as AssistantTaskRegistryItem["sourceSurface"],
       sourceLabel: row.sourceLabel,
+      audience: row.audience as AssistantTaskRegistryItem["audience"],
+      actionType: row.actionType,
       controlStatus: row.controlStatus as AssistantTaskRegistryItem["controlStatus"],
       nextRunAt: row.nextRunAt,
       disabledAt: row.disabledAt,

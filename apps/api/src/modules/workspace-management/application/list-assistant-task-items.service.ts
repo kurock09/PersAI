@@ -33,6 +33,8 @@ export class ListAssistantTaskItemsService {
       title: item.title,
       sourceSurface: item.sourceSurface,
       sourceLabel: item.sourceLabel,
+      audience: item.audience,
+      actionType: item.actionType,
       controlStatus: item.controlStatus,
       nextRunAt: item.nextRunAt?.toISOString() ?? null,
       createdAt: item.createdAt.toISOString(),

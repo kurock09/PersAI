@@ -927,15 +927,16 @@ Required in CI:
   - runtime keeps `browser` dark when the plan/tariff disables the tool even if the Browserless credential remains configured
   - browser projection stays dark when credentials are missing or the selected provider is unsupported
 - T15-5 reminder/scheduled-action worker baseline validates:
-  - `reminder_task` compiles with `executionMode === "worker"` instead of a fake inline classification on the native bundle policy surface
-  - `runtime.workerTools` includes `reminder_task` with `family: "scheduled_action"` plus state-mutation/timeout/confirmation/failure metadata while hidden internal `cron` remains a separate `internal_scheduler` seam
-  - runtime now projects `reminder_task` onto the active native machine-readable tool list only when worker policy allows it and executes `create` / `list` / `pause` through the shared tool loop with structured reminder tool-history payloads
-  - native reminder execution reuses PersAI internal task registry/control endpoints instead of exposing raw scheduler triggers or a reminder-specific provider-gateway seam
-  - API reminder control accepts clean native `conversationContext` so Telegram group/DM reminder target persistence still works on the native create path
-  - native reminder create now persists schedule/payload state directly on PersAI task rows instead of creating legacy cron jobs for new reminders
-  - hidden PersAI scheduler pickup claims due reminder rows from durable state, computes the next recurring slot, and defers retries on failures without relying on pod-local reminder ownership
-  - a global reminder scheduler epoch reset invalidates stale execution claims across rollout/startup, so new pods do not wait for the old claim TTL before re-claiming due reminders
-  - current `cron-fire` callback handling now delegates reminder fanout to one shared PersAI-owned delivery core, and the same finalization/replay-safe behavior remains reusable from the native scheduler path
+  - `scheduled_action` compiles with `executionMode === "worker"` instead of a fake inline classification on the native bundle policy surface
+  - `runtime.workerTools` includes `scheduled_action` with `family: "scheduled_action"` plus state-mutation/timeout/confirmation/failure metadata while hidden internal `cron` remains a separate `internal_scheduler` seam
+  - runtime now projects `scheduled_action` onto the active native machine-readable tool list only when worker policy allows it and executes `create` / `list` / `pause` through the shared tool loop with structured scheduled-action tool-history payloads
+  - native scheduled-action execution reuses PersAI internal task registry/control endpoints instead of exposing raw scheduler triggers or a scheduler-specific provider-gateway seam
+  - API create accepts clean native `conversationContext` so Telegram group/DM user-reminder target persistence still works on the native `audience="user"` path
+  - native `audience="assistant"` execution carries `actionType` / `actionPayload` into a hidden native runtime turn that cannot directly create user-visible chat output
+  - native create now persists scheduled-action schedule/payload state directly on PersAI task rows instead of creating legacy cron jobs for new reminders
+  - hidden PersAI scheduler pickup claims due scheduled-action rows from durable state, computes the next recurring slot, and defers retries on failures without relying on pod-local ownership
+  - a global scheduler epoch reset invalidates stale execution claims across rollout/startup, so new pods do not wait for the old claim TTL before re-claiming due work
+  - current `cron-fire` callback handling now delegates user-reminder fanout to one shared PersAI-owned delivery core, and the same finalization/replay-safe behavior remains reusable from the native scheduler path
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift

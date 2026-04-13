@@ -273,6 +273,25 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     [t]
   );
 
+  const getAssistantActionTypeLabel = useCallback(
+    (item: AssistantTaskRegistryItemState): string => {
+      const raw = item.actionType?.trim();
+      if (!raw) {
+        return t("assistantAction");
+      }
+      return raw
+        .split(/[_\s-]+/)
+        .filter((part) => part.length > 0)
+        .map((part) => part[0]!.toUpperCase() + part.slice(1))
+        .join(" ");
+    },
+    [t]
+  );
+
+  const activeTaskItems = taskItems.filter((item) => item.controlStatus === "active");
+  const userTaskItems = activeTaskItems.filter((item) => item.audience === "user");
+  const assistantTaskItems = activeTaskItems.filter((item) => item.audience === "assistant");
+
   useEffect(() => {
     setDraftName(assistant?.draft.displayName ?? "");
     setDraftInstructions(assistant?.draft.instructions ?? "");
@@ -894,49 +913,105 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
           <div className="flex justify-center py-4">
             <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
           </div>
-        ) : taskItems.filter((item) => item.controlStatus === "active").length === 0 ? (
-          <p className="text-xs text-text-subtle">{t("noCurrentTasks")}</p>
         ) : (
-          <ul className="space-y-2">
-            {taskItems
-              .filter((item) => item.controlStatus === "active")
-              .map((item) => (
-                <li key={item.id} className="rounded-lg bg-surface-raised p-3">
-                  <div className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
-                      {item.title}
-                    </span>
-                    <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
-                      {getTaskScheduleKindLabel(item.sourceLabel)}
-                    </span>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                        "bg-success/15 text-success"
-                      )}
+          <div className="space-y-4">
+            {userTaskItems.length === 0 ? (
+              <p className="text-xs text-text-subtle">{t("noCurrentTasks")}</p>
+            ) : (
+              <ul className="space-y-2">
+                {userTaskItems.map((item) => (
+                  <li key={item.id} className="rounded-lg bg-surface-raised p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
+                        {item.title}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                        {getTaskScheduleKindLabel(item.sourceLabel)}
+                      </span>
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                          "bg-success/15 text-success"
+                        )}
+                      >
+                        {getTaskStatusLabel(item.controlStatus)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[11px] text-text-subtle">{getTaskTimingLabel(item)}</p>
+                    <div className="mt-2 flex gap-1.5">
+                      <ActionButton
+                        icon={<RotateCcw className="h-3 w-3" />}
+                        label={t("disable")}
+                        onClick={() => void handleTaskAction(item.id, "disable")}
+                        busy={taskActionId === item.id}
+                      />
+                      <ActionButton
+                        icon={<Trash2 className="h-3 w-3" />}
+                        label={t("cancel")}
+                        variant="danger"
+                        onClick={() => void handleTaskAction(item.id, "cancel")}
+                        busy={taskActionId === item.id}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3">
+              <div className="flex items-center gap-2">
+                <Brain className="h-3.5 w-3.5 text-text-subtle" />
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
+                  {t("assistantActions")}
+                </p>
+              </div>
+              <p className="mt-1 text-[11px] text-text-subtle">
+                {t("assistantActionsDescription")}
+              </p>
+              {assistantTaskItems.length === 0 ? (
+                <p className="mt-3 text-xs text-text-subtle">{t("noAssistantActions")}</p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {assistantTaskItems.map((item) => (
+                    <li
+                      key={item.id}
+                      className="rounded-lg border border-border/60 bg-background/40 p-3"
                     >
-                      {getTaskStatusLabel(item.controlStatus)}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-[11px] text-text-subtle">{getTaskTimingLabel(item)}</p>
-                  <div className="mt-2 flex gap-1.5">
-                    <ActionButton
-                      icon={<RotateCcw className="h-3 w-3" />}
-                      label={t("disable")}
-                      onClick={() => void handleTaskAction(item.id, "disable")}
-                      busy={taskActionId === item.id}
-                    />
-                    <ActionButton
-                      icon={<Trash2 className="h-3 w-3" />}
-                      label={t("cancel")}
-                      variant="danger"
-                      onClick={() => void handleTaskAction(item.id, "cancel")}
-                      busy={taskActionId === item.id}
-                    />
-                  </div>
-                </li>
-              ))}
-          </ul>
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-muted">
+                          {item.title}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
+                          {getAssistantActionTypeLabel(item)}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
+                          {t("assistantAction")}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-[11px] text-text-subtle">
+                        {getTaskTimingLabel(item)}
+                      </p>
+                      <div className="mt-2 flex gap-1.5">
+                        <ActionButton
+                          icon={<RotateCcw className="h-3 w-3" />}
+                          label={t("disable")}
+                          onClick={() => void handleTaskAction(item.id, "disable")}
+                          busy={taskActionId === item.id}
+                        />
+                        <ActionButton
+                          icon={<Trash2 className="h-3 w-3" />}
+                          label={t("cancel")}
+                          variant="danger"
+                          onClick={() => void handleTaskAction(item.id, "cancel")}
+                          busy={taskActionId === item.id}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         )}
       </Section>
 

@@ -2700,6 +2700,11 @@ components:
         - active
         - disabled
         - cancelled
+    AssistantTaskRegistryAudience:
+      type: string
+      enum:
+        - user
+        - assistant
     AssistantTaskRegistryItemState:
       type: object
       required:
@@ -2707,6 +2712,8 @@ components:
         - title
         - sourceSurface
         - sourceLabel
+        - audience
+        - actionType
         - controlStatus
         - nextRunAt
         - createdAt
@@ -2720,6 +2727,11 @@ components:
         sourceSurface:
           $ref: "#/components/schemas/AssistantTaskRegistrySourceSurface"
         sourceLabel:
+          type: string
+          nullable: true
+        audience:
+          $ref: "#/components/schemas/AssistantTaskRegistryAudience"
+        actionType:
           type: string
           nullable: true
         controlStatus:

@@ -48,7 +48,7 @@ const ALWAYS_DENIED_BUILT_INS = [
 ] as const;
 
 const PLATFORM_MANAGED_TOOLS = ["persai_workspace_attach", "persai_tool_quota_status"] as const;
-const PLAN_MANAGED_SERVICE_TOOLS = ["reminder_task"] as const;
+const PLAN_MANAGED_SERVICE_TOOLS = ["scheduled_action"] as const;
 const HIDDEN_INTERNAL_TOOLS = ["cron"] as const;
 
 const TIER_SANDBOX_LIMITS: Record<RuntimeTier, SandboxResourceLimits> = {

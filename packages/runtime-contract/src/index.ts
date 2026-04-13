@@ -508,7 +508,7 @@ export interface RuntimeWebFetchToolResult extends RuntimeWebFetchResult {
   warning: string | null;
 }
 
-export const PERSAI_RUNTIME_REMINDER_TASK_ACTIONS = [
+export const PERSAI_RUNTIME_SCHEDULED_ACTION_ACTIONS = [
   "create",
   "list",
   "pause",
@@ -516,22 +516,31 @@ export const PERSAI_RUNTIME_REMINDER_TASK_ACTIONS = [
   "cancel"
 ] as const;
 
-export type PersaiRuntimeReminderTaskAction = (typeof PERSAI_RUNTIME_REMINDER_TASK_ACTIONS)[number];
+export type PersaiRuntimeScheduledActionAction =
+  (typeof PERSAI_RUNTIME_SCHEDULED_ACTION_ACTIONS)[number];
 
-export const PERSAI_RUNTIME_REMINDER_TASK_CONTROL_STATUSES = [
+export const PERSAI_RUNTIME_SCHEDULED_ACTION_AUDIENCES = ["user", "assistant"] as const;
+
+export type PersaiRuntimeScheduledActionAudience =
+  (typeof PERSAI_RUNTIME_SCHEDULED_ACTION_AUDIENCES)[number];
+
+export const PERSAI_RUNTIME_SCHEDULED_ACTION_CONTROL_STATUSES = [
   "active",
   "disabled",
   "cancelled"
 ] as const;
 
-export type PersaiRuntimeReminderTaskControlStatus =
-  (typeof PERSAI_RUNTIME_REMINDER_TASK_CONTROL_STATUSES)[number];
+export type PersaiRuntimeScheduledActionControlStatus =
+  (typeof PERSAI_RUNTIME_SCHEDULED_ACTION_CONTROL_STATUSES)[number];
 
-export interface RuntimeReminderTaskRequest {
-  toolCode: "reminder_task";
-  action: PersaiRuntimeReminderTaskAction;
+export interface RuntimeScheduledActionRequest {
+  toolCode: "scheduled_action";
+  action: PersaiRuntimeScheduledActionAction;
+  audience?: PersaiRuntimeScheduledActionAudience;
   title?: string;
   reminderText?: string;
+  actionType?: string;
+  actionPayload?: Record<string, unknown>;
   taskId?: string;
   titleMatch?: string;
   runAt?: string;
@@ -543,22 +552,24 @@ export interface RuntimeReminderTaskRequest {
   contextMessages?: number;
 }
 
-export interface RuntimeReminderTaskItem {
+export interface RuntimeScheduledActionItem {
   id: string | null;
   title: string;
-  controlStatus: PersaiRuntimeReminderTaskControlStatus;
+  audience: PersaiRuntimeScheduledActionAudience;
+  actionType: string | null;
+  controlStatus: PersaiRuntimeScheduledActionControlStatus;
   nextRunAt: string | null;
 }
 
-export interface RuntimeReminderTaskToolResult {
-  toolCode: "reminder_task";
+export interface RuntimeScheduledActionToolResult {
+  toolCode: "scheduled_action";
   executionMode: "worker";
-  requestedAction: PersaiRuntimeReminderTaskAction | null;
+  requestedAction: PersaiRuntimeScheduledActionAction | null;
   action: "created" | "listed" | "paused" | "resumed" | "cancelled" | "skipped";
   reason: string | null;
   warning: string | null;
-  task: RuntimeReminderTaskItem | null;
-  items: RuntimeReminderTaskItem[] | null;
+  task: RuntimeScheduledActionItem | null;
+  items: RuntimeScheduledActionItem[] | null;
 }
 
 export interface RuntimeTurnRequest {

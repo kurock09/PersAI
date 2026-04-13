@@ -52,7 +52,7 @@ const TOOL_POLICIES = [
     dailyCallLimit: null
   },
   {
-    toolCode: "reminder_task",
+    toolCode: "scheduled_action",
     displayName: "Reminder Task",
     description: "Create and manage reminders.",
     kind: "plan",
@@ -110,7 +110,7 @@ async function run(): Promise<void> {
         failureBehavior: "surface_error"
       },
       {
-        toolCode: "reminder_task",
+        toolCode: "scheduled_action",
         family: "scheduled_action",
         outcomeKind: "state_mutation",
         timeoutMs: 30000,

@@ -64,6 +64,11 @@ enum AssistantTaskRegistryControlStatus {
   cancelled
 }
 
+enum AssistantTaskRegistryAudience {
+  user
+  assistant
+}
+
 enum AssistantPreferredNotificationChannel {
   web
   telegram
@@ -1013,12 +1018,15 @@ model AssistantTaskRegistryItem {
   title           String                             @db.VarChar(500)
   sourceSurface   AssistantTaskRegistrySourceSurface @map("source_surface")
   sourceLabel     String?                            @map("source_label") @db.VarChar(64)
+  audience        AssistantTaskRegistryAudience      @default(user)
+  actionType      String?                            @map("action_type") @db.VarChar(64)
+  actionPayloadJson Json?                            @map("action_payload_json")
   controlStatus   AssistantTaskRegistryControlStatus @map("control_status")
   nextRunAt       DateTime?                          @map("next_run_at") @db.Timestamptz(6)
   disabledAt      DateTime?                          @map("disabled_at") @db.Timestamptz(6)
   cancelledAt     DateTime?                          @map("cancelled_at") @db.Timestamptz(6)
   externalRef     String?                            @map("external_ref") @db.VarChar(128)
-  reminderPayloadText String?                        @map("reminder_payload_text") @db.Text
+  payloadText     String?                            @map("reminder_payload_text") @db.Text
   scheduleJson    Json?                              @map("schedule_json")
   retryAfterAt    DateTime?                          @map("retry_after_at") @db.Timestamptz(6)
   schedulerClaimToken String?                        @map("scheduler_claim_token") @db.VarChar(64)

@@ -31,9 +31,9 @@ const tools = [
     visibleInPlanEditor: true
   },
   {
-    code: "reminder_task",
-    displayName: "Reminder Task",
-    description: "Create and manage reminders.",
+    code: "scheduled_action",
+    displayName: "Scheduled Action",
+    description: "Create and manage user reminders or hidden assistant actions.",
     capabilityGroup: "workspace_ops",
     toolClass: "utility",
     policyClass: "plan_managed",
@@ -115,7 +115,7 @@ async function run(): Promise<void> {
         dailyCallLimit: 5
       },
       {
-        toolCode: "reminder_task",
+        toolCode: "scheduled_action",
         kind: "plan",
         executionMode: "worker",
         usageRule: "allowed",
@@ -147,7 +147,7 @@ async function run(): Promise<void> {
   const markdown = buildRuntimeToolPoliciesMarkdown(toolPolicies);
   assert.match(markdown, /## Active Plan Tools/);
   assert.match(markdown, /\*\*web_search\*\* — inline, allowed \(daily limit: 20\)/);
-  assert.match(markdown, /\*\*reminder_task\*\* — worker, allowed/);
+  assert.match(markdown, /\*\*scheduled_action\*\* — worker, allowed/);
   assert.match(markdown, /## Active System Tools/);
   assert.match(markdown, /\*\*persai_tool_quota_status\*\* — inline, allowed/);
   assert.match(markdown, /## Disabled Tools/);

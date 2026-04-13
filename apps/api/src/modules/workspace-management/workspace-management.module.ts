@@ -65,7 +65,7 @@ import { ForgetAssistantMemoryItemService } from "./application/forget-assistant
 import { ListAssistantMemoryItemsService } from "./application/list-assistant-memory-items.service";
 import { ListAssistantTaskItemsService } from "./application/list-assistant-task-items.service";
 import { ListInternalAssistantTaskItemsService } from "./application/list-internal-assistant-task-items.service";
-import { ControlInternalAssistantReminderTaskService } from "./application/control-internal-assistant-reminder-task.service";
+import { ControlInternalScheduledActionService } from "./application/control-internal-scheduled-action.service";
 import { DisableAssistantTaskRegistryItemService } from "./application/disable-assistant-task-registry-item.service";
 import { EnableAssistantTaskRegistryItemService } from "./application/enable-assistant-task-registry-item.service";
 import { CancelAssistantTaskRegistryItemService } from "./application/cancel-assistant-task-registry-item.service";
@@ -83,6 +83,7 @@ import { RollbackAssistantService } from "./application/rollback-assistant.servi
 import { PreviewAssistantSetupService } from "./application/preview-assistant-setup.service";
 import { SendNativeTelegramTurnService } from "./application/send-native-telegram-turn.service";
 import { SendNativeWebChatTurnService } from "./application/send-native-web-chat-turn.service";
+import { RunScheduledAssistantActionService } from "./application/run-scheduled-assistant-action.service";
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamNativeWebChatTurnService } from "./application/stream-native-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
@@ -92,7 +93,7 @@ import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
 import { DeliverReminderNotificationService } from "./application/deliver-reminder-notification.service";
 import { BuildReminderContextSnapshotService } from "./application/build-reminder-context-snapshot.service";
-import { PersaiReminderSchedulerService } from "./application/persai-reminder-scheduler.service";
+import { PersaiScheduledActionSchedulerService } from "./application/persai-scheduled-action-scheduler.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { CheckInternalRuntimeToolDailyLimitService } from "./application/check-internal-runtime-tool-daily-limit.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
@@ -222,7 +223,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     HandleInternalCronFireService,
     DeliverReminderNotificationService,
     BuildReminderContextSnapshotService,
-    PersaiReminderSchedulerService,
+    PersaiScheduledActionSchedulerService,
+    RunScheduledAssistantActionService,
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,
     ConsumeInternalRuntimeToolDailyLimitService,
@@ -271,7 +273,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     DoNotRememberAssistantMemoryService,
     ListAssistantTaskItemsService,
     ListInternalAssistantTaskItemsService,
-    ControlInternalAssistantReminderTaskService,
+    ControlInternalScheduledActionService,
     DisableAssistantTaskRegistryItemService,
     EnableAssistantTaskRegistryItemService,
     CancelAssistantTaskRegistryItemService,

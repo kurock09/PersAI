@@ -94,9 +94,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   },
   {
     id: "12121212-1212-1212-1212-121212121212",
-    code: "reminder_task",
-    displayName: "Reminder Task",
-    description: "Create, list, pause, resume, and cancel reminders or recurring tasks.",
+    code: "scheduled_action",
+    displayName: "Scheduled Action",
+    description:
+      "Schedule actions for both user-visible reminders and hidden assistant follow-ups.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -135,7 +136,7 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   memory_search: { active: true, dailyCallLimit: null },
   memory_get: { active: true, dailyCallLimit: null },
   cron: { active: false, dailyCallLimit: null },
-  reminder_task: { active: true, dailyCallLimit: null }
+  scheduled_action: { active: true, dailyCallLimit: null }
 };
 
 const TOOL_ENTRY_BY_CODE = new Map(TOOL_CATALOG.map((tool) => [tool.code, tool]));

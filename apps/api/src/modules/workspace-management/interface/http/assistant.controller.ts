@@ -583,6 +583,8 @@ export class AssistantController {
       title: string;
       sourceSurface: "web";
       sourceLabel: string | null;
+      audience: "user" | "assistant";
+      actionType: string | null;
       controlStatus: "active" | "disabled" | "cancelled";
       nextRunAt: string | null;
       createdAt: string;

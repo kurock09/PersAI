@@ -28,25 +28,30 @@ export type ConsumeToolDailyLimitOutcome =
       message: string;
     };
 
-export type InternalReminderTaskItem = {
+export type InternalScheduledActionItem = {
   id: string;
   title: string;
+  audience: "user" | "assistant";
+  actionType: string | null;
   controlStatus: "active" | "disabled";
   nextRunAt: string | null;
   externalRef: string | null;
 };
 
-export type InternalReminderConversationContext = {
+export type InternalScheduledActionConversationContext = {
   channel: string;
   externalThreadKey: string;
 };
 
-export type InternalReminderTaskControlInput =
+export type InternalScheduledActionControlInput =
   | {
       assistantId: string;
       action: "create";
+      audience: "user" | "assistant";
       title: string;
       reminderText: string;
+      actionType?: string;
+      actionPayload?: Record<string, unknown>;
       runAt?: string;
       delayMs?: number;
       everyMs?: number;
@@ -54,7 +59,7 @@ export type InternalReminderTaskControlInput =
       cronExpr?: string;
       timezone?: string;
       contextMessages?: number;
-      conversationContext?: InternalReminderConversationContext;
+      conversationContext?: InternalScheduledActionConversationContext;
     }
   | {
       assistantId: string;
@@ -130,12 +135,12 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  async listReminderTasks(assistantId: string): Promise<InternalReminderTaskItem[]> {
+  async listScheduledActions(assistantId: string): Promise<InternalScheduledActionItem[]> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
     if (assistantId.trim().length === 0) {
-      throw new BadRequestException("assistantId is required for reminder task list.");
+      throw new BadRequestException("assistantId is required for scheduled action list.");
     }
 
     const response = await this.fetchJson(
@@ -154,28 +159,28 @@ export class PersaiInternalApiClientService {
       if (
         payload?.ok === true &&
         Array.isArray(items) &&
-        items.every((item) => this.isInternalReminderTaskItem(item))
+        items.every((item) => this.isInternalScheduledActionItem(item))
       ) {
         return items;
       }
       throw new BadGatewayException(
-        "PersAI internal API returned an invalid reminder task list response."
+        "PersAI internal API returned an invalid scheduled action list response."
       );
     }
 
     const error = this.extractError(response.body);
     if (response.status >= 500) {
       throw new ServiceUnavailableException(
-        error.message ?? "PersAI internal API reminder task list request failed."
+        error.message ?? "PersAI internal API scheduled action list request failed."
       );
     }
 
     throw new BadRequestException(
-      error.message ?? "PersAI internal API rejected the reminder task list request."
+      error.message ?? "PersAI internal API rejected the scheduled action list request."
     );
   }
 
-  async controlReminderTask(input: InternalReminderTaskControlInput): Promise<unknown> {
+  async controlScheduledAction(input: InternalScheduledActionControlInput): Promise<unknown> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
@@ -195,19 +200,19 @@ export class PersaiInternalApiClientService {
         return response.body;
       }
       throw new BadGatewayException(
-        "PersAI internal API returned an invalid reminder task control response."
+        "PersAI internal API returned an invalid scheduled action control response."
       );
     }
 
     const error = this.extractError(response.body);
     if (response.status >= 500) {
       throw new ServiceUnavailableException(
-        error.message ?? "PersAI internal API reminder task control request failed."
+        error.message ?? "PersAI internal API scheduled action control request failed."
       );
     }
 
     throw new BadRequestException(
-      error.message ?? "PersAI internal API rejected the reminder task control request."
+      error.message ?? "PersAI internal API rejected the scheduled action control request."
     );
   }
 
@@ -259,12 +264,14 @@ export class PersaiInternalApiClientService {
       : null;
   }
 
-  private isInternalReminderTaskItem(value: unknown): value is InternalReminderTaskItem {
+  private isInternalScheduledActionItem(value: unknown): value is InternalScheduledActionItem {
     const row = this.asObject(value);
     return (
       row !== null &&
       typeof row.id === "string" &&
       typeof row.title === "string" &&
+      (row.audience === "user" || row.audience === "assistant") &&
+      (row.actionType === null || typeof row.actionType === "string") &&
       (row.controlStatus === "active" || row.controlStatus === "disabled") &&
       (row.nextRunAt === null || typeof row.nextRunAt === "string") &&
       (row.externalRef === null || typeof row.externalRef === "string")

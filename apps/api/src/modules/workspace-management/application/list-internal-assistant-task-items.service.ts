@@ -10,6 +10,8 @@ import { sortTaskRegistryItemsForDisplay, TASK_LIST_LIMIT } from "./assistant-ta
 export type InternalAssistantTaskItemState = {
   id: string;
   title: string;
+  audience: "user" | "assistant";
+  actionType: string | null;
   controlStatus: "active" | "disabled";
   nextRunAt: string | null;
   externalRef: string | null;
@@ -42,6 +44,8 @@ export class ListInternalAssistantTaskItemsService {
     return currentItems.map((item) => ({
       id: item.id,
       title: item.title,
+      audience: item.audience,
+      actionType: item.actionType,
       controlStatus: item.controlStatus,
       nextRunAt: item.nextRunAt?.toISOString() ?? null,
       externalRef: item.externalRef

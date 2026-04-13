@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
 import { BuildReminderContextSnapshotService } from "../src/modules/workspace-management/application/build-reminder-context-snapshot.service";
-import { ControlInternalAssistantReminderTaskService } from "../src/modules/workspace-management/application/control-internal-assistant-reminder-task.service";
+import { ControlInternalScheduledActionService } from "../src/modules/workspace-management/application/control-internal-scheduled-action.service";
 
 type TaskRow = {
   id: string;
   assistantId: string;
   title: string;
+  audience: "user" | "assistant";
+  actionType: string | null;
   controlStatus: "active" | "disabled" | "cancelled";
   nextRunAt: Date | null;
   externalRef: string | null;
   scheduleJson: unknown;
-  reminderPayloadText?: string | null;
+  actionPayloadJson?: unknown;
+  payloadText?: string | null;
   schedulerClaimEpoch?: number | null;
 };
 
@@ -138,11 +141,14 @@ class FakeWorkspaceManagementPrismaService {
         id: `task-${this.nextId++}`,
         assistantId: String(data.assistantId),
         title: String(data.title),
+        audience: data.audience as TaskRow["audience"],
+        actionType: (data.actionType as string | null) ?? null,
         controlStatus: data.controlStatus as TaskRow["controlStatus"],
         nextRunAt: data.nextRunAt as Date | null,
         externalRef: (data.externalRef as string | null) ?? null,
         scheduleJson: data.scheduleJson,
-        reminderPayloadText: (data.reminderPayloadText as string | null) ?? null
+        actionPayloadJson: data.actionPayloadJson,
+        payloadText: (data.payloadText as string | null) ?? null
       };
       this.rows.push(row);
       return this.pick(row, select);
@@ -202,7 +208,7 @@ async function runNativeCreateTest(): Promise<void> {
     new FakeAssistantChatRepository() as never
   );
 
-  const service = new ControlInternalAssistantReminderTaskService(
+  const service = new ControlInternalScheduledActionService(
     assistantRepository as never,
     bindingRepository as never,
     runtimeFacade as never,
@@ -215,6 +221,7 @@ async function runNativeCreateTest(): Promise<void> {
   const input = service.parseInput({
     assistantId: "assistant-1",
     action: "create",
+    audience: "user",
     title: "Group reminder",
     reminderText: "Group reminder",
     runAt: "2026-04-14T12:00:00.000Z",
@@ -230,9 +237,10 @@ async function runNativeCreateTest(): Promise<void> {
   assert.equal(runtimeFacade.controlCalls.length, 0);
   assert.equal(syncService.calls.length, 0);
   assert.equal(prisma.rows.length, 1);
+  assert.equal(prisma.rows[0]?.audience, "user");
   assert.equal(prisma.rows[0]?.scheduleJson && typeof prisma.rows[0].scheduleJson, "object");
-  assert.match(prisma.rows[0]?.reminderPayloadText ?? "", /Recent context:/);
-  assert.match(prisma.rows[0]?.reminderPayloadText ?? "", /User: Напомни вечером про релиз/);
+  assert.match(prisma.rows[0]?.payloadText ?? "", /Recent context:/);
+  assert.match(prisma.rows[0]?.payloadText ?? "", /User: Напомни вечером про релиз/);
   assert.equal(bindingRepository.patched.length, 1);
   assert.deepEqual(result, {
     ok: true,
@@ -240,6 +248,8 @@ async function runNativeCreateTest(): Promise<void> {
     task: {
       id: "task-1",
       title: "Group reminder",
+      audience: "user",
+      actionType: null,
       controlStatus: "active",
       nextRunAt: "2026-04-14T12:00:00.000Z"
     }
@@ -256,6 +266,73 @@ async function runNativeCreateTest(): Promise<void> {
   assert.equal(createdTarget?.source, "telegram_group");
 }
 
+async function runAssistantActionCreateTest(): Promise<void> {
+  const assistantRepository = new FakeAssistantRepository();
+  const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
+  const runtimeFacade = new FakeAssistantRuntimeFacade();
+  const syncService = new FakeSyncAssistantTaskRegistryService();
+  const tierService = new FakeResolveAssistantRuntimeTierService();
+  const prisma = new FakeWorkspaceManagementPrismaService();
+  const contextSnapshotService = new BuildReminderContextSnapshotService(
+    new FakeAssistantChatRepository() as never
+  );
+
+  const service = new ControlInternalScheduledActionService(
+    assistantRepository as never,
+    bindingRepository as never,
+    runtimeFacade as never,
+    prisma as never,
+    contextSnapshotService as never,
+    syncService as never,
+    tierService as never
+  );
+
+  const input = service.parseInput({
+    assistantId: "assistant-1",
+    action: "create",
+    audience: "assistant",
+    title: "Project follow-up",
+    reminderText: "Quietly decide whether a project follow-up would be helpful.",
+    actionType: "follow_up",
+    actionPayload: {
+      topic: "project",
+      suggestedDelayDays: 1
+    },
+    delayMs: 60_000,
+    contextMessages: 2,
+    conversationContext: {
+      channel: "telegram",
+      externalThreadKey: "group-1"
+    }
+  });
+
+  const result = await service.execute(input);
+
+  assert.equal(runtimeFacade.controlCalls.length, 0);
+  assert.equal(syncService.calls.length, 0);
+  assert.equal(prisma.rows.length, 1);
+  assert.equal(prisma.rows[0]?.audience, "assistant");
+  assert.equal(prisma.rows[0]?.actionType, "follow_up");
+  assert.deepEqual(prisma.rows[0]?.actionPayloadJson, {
+    topic: "project",
+    suggestedDelayDays: 1
+  });
+  assert.match(prisma.rows[0]?.payloadText ?? "", /Quietly decide whether a project follow-up/);
+  assert.equal(bindingRepository.patched.length, 0);
+  assert.deepEqual(result, {
+    ok: true,
+    created: true,
+    task: {
+      id: "task-1",
+      title: "Project follow-up",
+      audience: "assistant",
+      actionType: "follow_up",
+      controlStatus: "active",
+      nextRunAt: prisma.rows[0]?.nextRunAt?.toISOString() ?? null
+    }
+  });
+}
+
 async function runLegacyPauseFallbackTest(): Promise<void> {
   const assistantRepository = new FakeAssistantRepository();
   const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
@@ -267,16 +344,19 @@ async function runLegacyPauseFallbackTest(): Promise<void> {
     id: "task-legacy",
     assistantId: "assistant-1",
     title: "Legacy reminder",
+    audience: "user",
+    actionType: null,
     controlStatus: "active",
     nextRunAt: new Date("2026-04-14T12:00:00.000Z"),
     externalRef: "legacy-job",
-    scheduleJson: null
+    scheduleJson: null,
+    payloadText: null
   });
   const contextSnapshotService = new BuildReminderContextSnapshotService(
     new FakeAssistantChatRepository() as never
   );
 
-  const service = new ControlInternalAssistantReminderTaskService(
+  const service = new ControlInternalScheduledActionService(
     assistantRepository as never,
     bindingRepository as never,
     runtimeFacade as never,
@@ -314,6 +394,7 @@ async function runLegacyPauseFallbackTest(): Promise<void> {
 
 async function run(): Promise<void> {
   await runNativeCreateTest();
+  await runAssistantActionCreateTest();
   await runLegacyPauseFallbackTest();
 }
 

@@ -17,15 +17,19 @@ import {
 import { SyncAssistantTaskRegistryService } from "./sync-assistant-task-registry.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 
-type ReminderTaskControlAction = "create" | "pause" | "resume" | "cancel";
+type ScheduledActionControlAction = "create" | "pause" | "resume" | "cancel";
+type ScheduledActionAudience = "user" | "assistant";
 
-type CreateReminderTaskControlRequest = {
+type CreateScheduledActionControlRequest = {
   assistantId: string;
   action: "create";
+  audience: ScheduledActionAudience;
   title: string;
   reminderText: string;
+  actionType?: string;
+  actionPayload?: Record<string, unknown>;
   contextSessionKey?: string;
-  conversationContext?: ReminderTaskConversationContext;
+  conversationContext?: ScheduledActionConversationContext;
   runAt?: string;
   delayMs?: number;
   everyMs?: number;
@@ -35,20 +39,20 @@ type CreateReminderTaskControlRequest = {
   contextMessages?: number;
 };
 
-type UpdateReminderTaskControlRequest = {
+type UpdateScheduledActionControlRequest = {
   assistantId: string;
   action: "pause" | "resume" | "cancel";
   taskId: string;
 };
 
-type ReminderTaskConversationContext = {
+type ScheduledActionConversationContext = {
   channel: string;
   externalThreadKey: string;
 };
 
-export type InternalReminderTaskControlRequest =
-  | CreateReminderTaskControlRequest
-  | UpdateReminderTaskControlRequest;
+export type InternalScheduledActionControlRequest =
+  | CreateScheduledActionControlRequest
+  | UpdateScheduledActionControlRequest;
 
 function normalizeRequiredString(value: unknown, fieldName: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -65,13 +69,17 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function normalizeOptionalJsonObject(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? { ...value } : undefined;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function normalizeReminderTaskConversationContext(
+function normalizeScheduledActionConversationContext(
   value: unknown
-): ReminderTaskConversationContext | undefined {
+): ScheduledActionConversationContext | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
@@ -157,7 +165,7 @@ function normalizeReminderTaskTargetsMap(
 function resolveTelegramReminderTargetForCreate(params: {
   metadata: Record<string, unknown>;
   contextSessionKey?: string;
-  conversationContext?: ReminderTaskConversationContext;
+  conversationContext?: ScheduledActionConversationContext;
 }): StoredTelegramReminderTarget | null {
   const { metadata, contextSessionKey, conversationContext } = params;
   const contextChatId =
@@ -247,11 +255,22 @@ function resolveTelegramReminderTargetForCreate(params: {
   };
 }
 
-function resolveTaskSourceLabel(schedule: ReminderSchedule): string {
-  if (schedule.kind === "at") {
+function resolveTaskSourceLabel(params: {
+  audience: ScheduledActionAudience;
+  schedule: ReminderSchedule;
+  actionType?: string;
+}): string {
+  if (params.audience === "assistant") {
+    const actionType = params.actionType?.trim();
+    if (actionType) {
+      return `Assistant ${actionType}`;
+    }
+    return params.schedule.kind === "at" ? "Assistant follow-up" : "Recurring assistant action";
+  }
+  if (params.schedule.kind === "at") {
     return "One-time reminder";
   }
-  if (schedule.kind === "every" || schedule.kind === "cron") {
+  if (params.schedule.kind === "every" || params.schedule.kind === "cron") {
     return "Recurring reminder";
   }
   return "Scheduled reminder";
@@ -286,14 +305,17 @@ function buildTaskRegistrySyncPayload(params: { assistantId: string; job: unknow
       (params.job.schedule.kind === "at" ||
         params.job.schedule.kind === "every" ||
         params.job.schedule.kind === "cron")
-        ? resolveTaskSourceLabel(params.job.schedule as ReminderSchedule)
+        ? resolveTaskSourceLabel({
+            audience: "user",
+            schedule: params.job.schedule as ReminderSchedule
+          })
         : "Scheduled reminder",
     controlStatus: enabled ? ("active" as const) : ("disabled" as const),
     nextRunAt: nextRunAtMs === null ? null : new Date(nextRunAtMs).toISOString()
   };
 }
 
-function buildSchedule(input: CreateReminderTaskControlRequest): ReminderSchedule {
+function buildSchedule(input: CreateScheduledActionControlRequest): ReminderSchedule {
   const definedCount =
     Number(Boolean(input.runAt)) +
     Number(input.delayMs !== undefined) +
@@ -339,7 +361,7 @@ function buildSchedule(input: CreateReminderTaskControlRequest): ReminderSchedul
 }
 
 @Injectable()
-export class ControlInternalAssistantReminderTaskService {
+export class ControlInternalScheduledActionService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
@@ -353,19 +375,23 @@ export class ControlInternalAssistantReminderTaskService {
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
   ) {}
 
-  parseInput(body: unknown): InternalReminderTaskControlRequest {
+  parseInput(body: unknown): InternalScheduledActionControlRequest {
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
       throw new BadRequestException("Body must be an object.");
     }
 
     const row = body as Record<string, unknown>;
     const assistantId = normalizeRequiredString(row.assistantId, "assistantId");
-    const action = normalizeRequiredString(row.action, "action") as ReminderTaskControlAction;
+    const action = normalizeRequiredString(row.action, "action") as ScheduledActionControlAction;
     if (action !== "create" && action !== "pause" && action !== "resume" && action !== "cancel") {
       throw new BadRequestException("action must be create, pause, resume, or cancel.");
     }
 
     if (action === "create") {
+      const audienceRaw = row.audience;
+      if (audienceRaw !== "user" && audienceRaw !== "assistant") {
+        throw new BadRequestException('audience must be "user" or "assistant".');
+      }
       const delayMsRaw = row.delayMs;
       if (
         delayMsRaw !== undefined &&
@@ -390,20 +416,40 @@ export class ControlInternalAssistantReminderTaskService {
       ) {
         throw new BadRequestException("contextMessages must be a number between 0 and 10.");
       }
+      const actionType = normalizeOptionalString(row.actionType);
+      const actionPayload = normalizeOptionalJsonObject(row.actionPayload);
+      if (audienceRaw === "assistant" && actionType === undefined) {
+        throw new BadRequestException('actionType is required when audience is "assistant".');
+      }
+      if (audienceRaw === "user" && (actionType !== undefined || actionPayload !== undefined)) {
+        throw new BadRequestException(
+          'actionType/actionPayload are only allowed when audience is "assistant".'
+        );
+      }
+      if (
+        "actionPayload" in row &&
+        actionPayload === undefined &&
+        row.actionPayload !== undefined
+      ) {
+        throw new BadRequestException("actionPayload must be a JSON object when provided.");
+      }
       return {
         assistantId,
         action,
+        audience: audienceRaw,
         title: normalizeRequiredString(row.title, "title"),
         reminderText:
           normalizeOptionalString(row.reminderText) ?? normalizeRequiredString(row.title, "title"),
+        ...(actionType === undefined ? {} : { actionType }),
+        ...(actionPayload === undefined ? {} : { actionPayload }),
         ...(normalizeOptionalString(row.contextSessionKey)
           ? { contextSessionKey: normalizeOptionalString(row.contextSessionKey)! }
           : normalizeOptionalString(row.sessionKey)
             ? { contextSessionKey: normalizeOptionalString(row.sessionKey)! }
             : {}),
-        ...(normalizeReminderTaskConversationContext(row.conversationContext)
+        ...(normalizeScheduledActionConversationContext(row.conversationContext)
           ? {
-              conversationContext: normalizeReminderTaskConversationContext(
+              conversationContext: normalizeScheduledActionConversationContext(
                 row.conversationContext
               )!
             }
@@ -435,14 +481,14 @@ export class ControlInternalAssistantReminderTaskService {
     };
   }
 
-  async execute(input: InternalReminderTaskControlRequest): Promise<unknown> {
+  async execute(input: InternalScheduledActionControlRequest): Promise<unknown> {
     const assistant = await this.assistantRepository.findById(input.assistantId);
     if (assistant === null) {
       throw new NotFoundException("Assistant not found.");
     }
 
     if (input.action === "create") {
-      return this.createReminderTask(assistant, input);
+      return this.createScheduledAction(assistant, input);
     }
 
     const task = await this.prisma.assistantTaskRegistryItem.findFirst({
@@ -450,6 +496,8 @@ export class ControlInternalAssistantReminderTaskService {
       select: {
         id: true,
         title: true,
+        audience: true,
+        actionType: true,
         controlStatus: true,
         nextRunAt: true,
         externalRef: true,
@@ -462,12 +510,14 @@ export class ControlInternalAssistantReminderTaskService {
 
     const nativeSchedule = parseReminderSchedule(task.scheduleJson);
     if (nativeSchedule !== null) {
-      return this.controlNativeReminderTask({
+      return this.controlNativeScheduledAction({
         assistantId: assistant.id,
         action: input.action,
         task: {
           id: task.id,
           title: task.title,
+          audience: task.audience,
+          actionType: task.actionType,
           controlStatus: task.controlStatus,
           nextRunAt: task.nextRunAt,
           externalRef: task.externalRef,
@@ -533,19 +583,19 @@ export class ControlInternalAssistantReminderTaskService {
     };
   }
 
-  private async createReminderTask(
+  private async createScheduledAction(
     assistant: { id: string; userId: string; workspaceId: string },
-    input: CreateReminderTaskControlRequest
+    input: CreateScheduledActionControlRequest
   ): Promise<unknown> {
     const schedule = buildSchedule(input);
     const nextRunAtMs = computeReminderNextRunAtMs(schedule, Date.now());
     if (nextRunAtMs === undefined) {
       throw new BadRequestException(
-        "Reminder time resolved to the past. Please ask again with a future time."
+        "Scheduled time resolved to the past. Please ask again with a future time."
       );
     }
     const externalRef = randomUUID();
-    const reminderPayloadText = await this.buildReminderContextSnapshotService.execute({
+    const payloadText = await this.buildReminderContextSnapshotService.execute({
       assistantId: assistant.id,
       reminderText: input.reminderText,
       ...(input.contextMessages === undefined ? {} : { contextMessages: input.contextMessages }),
@@ -560,13 +610,23 @@ export class ControlInternalAssistantReminderTaskService {
         workspaceId: assistant.workspaceId,
         title: input.title,
         sourceSurface: "web",
-        sourceLabel: resolveTaskSourceLabel(schedule),
+        sourceLabel: resolveTaskSourceLabel({
+          audience: input.audience,
+          schedule,
+          ...(input.actionType === undefined ? {} : { actionType: input.actionType })
+        }),
+        audience: input.audience,
+        actionType: input.actionType ?? null,
+        actionPayloadJson:
+          input.actionPayload === undefined
+            ? Prisma.DbNull
+            : (input.actionPayload as unknown as Prisma.InputJsonValue),
         controlStatus: "active",
         nextRunAt: new Date(nextRunAtMs),
         disabledAt: null,
         cancelledAt: null,
         externalRef,
-        reminderPayloadText,
+        payloadText,
         scheduleJson: schedule as unknown as Prisma.InputJsonValue,
         retryAfterAt: null,
         schedulerClaimToken: null,
@@ -577,16 +637,20 @@ export class ControlInternalAssistantReminderTaskService {
       select: {
         id: true,
         title: true,
+        audience: true,
+        actionType: true,
         controlStatus: true,
         nextRunAt: true
       }
     });
-    await this.persistTelegramReminderTarget(
-      assistant.id,
-      externalRef,
-      input.conversationContext,
-      input.contextSessionKey
-    );
+    if (input.audience === "user") {
+      await this.persistTelegramReminderTarget(
+        assistant.id,
+        externalRef,
+        input.conversationContext,
+        input.contextSessionKey
+      );
+    }
 
     return {
       ok: true,
@@ -594,18 +658,22 @@ export class ControlInternalAssistantReminderTaskService {
       task: {
         id: created.id,
         title: created.title,
+        audience: created.audience,
+        actionType: created.actionType,
         controlStatus: created.controlStatus,
         nextRunAt: created.nextRunAt?.toISOString() ?? null
       }
     };
   }
 
-  private async controlNativeReminderTask(input: {
+  private async controlNativeScheduledAction(input: {
     assistantId: string;
     action: "pause" | "resume" | "cancel";
     task: {
       id: string;
       title: string;
+      audience: ScheduledActionAudience;
+      actionType: string | null;
       controlStatus: "active" | "disabled" | "cancelled";
       nextRunAt: Date | null;
       externalRef: string | null;
@@ -617,7 +685,9 @@ export class ControlInternalAssistantReminderTaskService {
       await this.prisma.assistantTaskRegistryItem.delete({
         where: { id: input.task.id }
       });
-      await this.deleteTelegramReminderTarget(input.assistantId, externalRef);
+      if (input.task.audience === "user") {
+        await this.deleteTelegramReminderTarget(input.assistantId, externalRef);
+      }
       return {
         ok: true,
         cancelled: true,
@@ -665,7 +735,7 @@ export class ControlInternalAssistantReminderTaskService {
     const nextRunAtMs = computeReminderNextRunAtMs(schedule, nowMs);
     if (nextRunAtMs === undefined) {
       throw new BadRequestException(
-        "This reminder no longer resolves to a future time. Please create a new reminder."
+        "This scheduled action no longer resolves to a future time. Please create a new scheduled action."
       );
     }
     return new Date(nextRunAtMs);
@@ -692,7 +762,7 @@ export class ControlInternalAssistantReminderTaskService {
   private async persistTelegramReminderTarget(
     assistantId: string,
     externalRef: string,
-    conversationContext: ReminderTaskConversationContext | undefined,
+    conversationContext: ScheduledActionConversationContext | undefined,
     contextSessionKey: string | undefined
   ): Promise<void> {
     const binding =

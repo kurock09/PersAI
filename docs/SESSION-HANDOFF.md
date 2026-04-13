@@ -1,11 +1,102 @@
 # SESSION-HANDOFF
 
+## 2026-04-13 - ADR-072 T15-5 scheduled_action hard rename and assistant-action split
+
+### What changed
+
+1. The product-facing tool is now canonically `scheduled_action` with no `reminder_task` compatibility alias. Native runtime projection, dispatch, worker-tool materialization, tier-security allowlists, and bundle/policy tests now all use `scheduled_action`.
+2. `apps/api` task rows are now explicitly dual-mode: `audience="user"` keeps the current reminder delivery path, while `audience="assistant"` stores `actionType` and `actionPayload` for hidden background actions. New schema fields landed through `20260413170000_scheduled_action_audience_fields`.
+3. The PersAI-owned scheduler still owns due-time claiming/epoch/reset behavior, but execution now branches by `audience`: user reminders still finalize through the shared reminder delivery core, while assistant actions run through a hidden native runtime turn (`RunScheduledAssistantActionService`) that can decide whether to create a second `scheduled_action` with `audience="user"`.
+4. The model-visible tool description now explicitly teaches humane delayed follow-up usage, for example checking back on a project later if that would genuinely help, while also enforcing the invariant that assistant-side background actions cannot directly push the user.
+5. The settings UI now renders assistant-side scheduled actions in a separate subdued panel so hidden background work remains visible without crowding the main reminder list.
+
+### Why
+
+1. The previous `reminder_task` name was no longer honest once the tool had to cover both user-facing reminders and hidden assistant-side background work.
+2. `audience="assistant"` needs a first-class execution path, not a fake reminder delivery branch, so the runtime can reason privately and only schedule a user-visible follow-up when appropriate.
+3. Showing assistant-side actions in a muted separate panel preserves operator visibility while keeping ordinary reminders as the primary UX.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, `T15-3a`, `T15-3b`, and `T15-4` are complete; `T15-5 — Reminder and scheduled action plan tools` is now code-complete for bounded live validation of the canonical `scheduled_action` surface)
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260413170000_scheduled_action_audience_fields/migration.sql`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-task.types.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-scheduled-action.service.ts`
+- `apps/api/src/modules/workspace-management/application/list-assistant-task-items.service.ts`
+- `apps/api/src/modules/workspace-management/application/list-internal-assistant-task-items.service.ts`
+- `apps/api/src/modules/workspace-management/application/persai-scheduled-action-scheduler.service.ts`
+- `apps/api/src/modules/workspace-management/application/run-scheduled-assistant-action.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tier-security-policy.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-worker-tools.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-task-registry-item.entity.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-task-registry.repository.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-task-registry.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/control-internal-scheduled-action.service.test.ts`
+- `apps/api/test/persai-scheduled-action-scheduler.service.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/api/test/runtime-worker-tools.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-scheduled-action-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `infra/helm/values-dev.yaml`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `packages/runtime-contract/src/index.ts`
+
+### Tests run
+
+- `corepack pnpm contracts:generate`
+- `corepack pnpm --filter @persai/api run prisma:generate`
+- `corepack pnpm exec tsx test/control-internal-scheduled-action.service.test.ts`
+- `corepack pnpm exec tsx test/persai-scheduled-action-scheduler.service.test.ts`
+- `corepack pnpm exec tsx test/runtime-worker-tools.test.ts`
+- `corepack pnpm exec tsx test/runtime-tool-policy.test.ts`
+- `corepack pnpm exec tsx test/runtime-bundle-materialization.test.ts`
+- `corepack pnpm exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm typecheck` in `apps/web`
+- `corepack pnpm typecheck` in `apps/api`
+- `corepack pnpm typecheck` in `apps/runtime`
+- `corepack pnpm exec eslint --max-warnings=0 ...` on changed API/runtime/web files
+
+### Risks
+
+1. Live validation still needs deploy/reapply/rollout sync before running pods expose `scheduled_action` instead of the old tool name.
+2. Hidden internal `cron` remains in repo only as legacy compatibility machinery for older callback rows; the active new create path no longer depends on it, but rollout still needs to avoid mixing stale images.
+
+### Next recommended step
+
+1. Deploy/reapply and run one bounded live smoke that covers both audiences: create one user-facing one-shot reminder, one recurring reminder, and one `audience="assistant"` follow-up action; confirm the assistant-side action stays out of user chat unless it creates a second `audience="user"` follow-up.
+2. If that smoke is clean, treat `T15-5` as fully validated and move the active coding focus to later Step 15 slices instead of reopening scheduler naming/semantics again.
+
 ## 2026-04-13 - ADR-072 T15-5 native reminder scheduler cutover
 
 ### What changed
 
 1. `apps/api` reminder control now persists new reminder schedule/payload state directly on `assistant_task_registry_items` instead of creating hidden legacy cron jobs for new reminders.
-2. `BuildReminderContextSnapshotService` now captures bounded `Recent context:` snapshots from canonical web/Telegram chats at reminder-create time, and `PersaiReminderSchedulerService` now claims due reminder rows from durable task state with a global scheduler epoch, expiring claims, and retry delay.
+2. `BuildReminderContextSnapshotService` now captures bounded `Recent context:` snapshots from canonical web/Telegram chats at reminder-create time, and `PersaiScheduledActionSchedulerService` now claims due reminder rows from durable task state with a global scheduler epoch, expiring claims, and retry delay.
 3. The global reminder scheduler epoch now bumps on startup/rollout and makes old execution claims stale for all reminders immediately, so a fresh pod can re-claim due work without waiting for the previous claim TTL to expire.
 4. Due reminder execution now reuses the shared reminder delivery core through the existing finalization path, so replay-safe delivery, Telegram/web routing, and task-registry cleanup stay aligned between the legacy callback adapter and the new native scheduler.
 5. Legacy runtime cron control remains only as fallback for pre-cutover rows that still lack native schedule state, so the active new reminder UI path no longer depends on OpenClaw `cron` for due-time pickup.
@@ -31,13 +122,13 @@
 - `apps/api/prisma/migrations/20260413113000_t15_5_native_reminder_scheduler_state/migration.sql`
 - `apps/api/src/modules/workspace-management/application/build-reminder-context-snapshot.service.ts`
 - `apps/api/src/modules/workspace-management/application/bump-config-generation.service.ts`
-- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
-- `apps/api/src/modules/workspace-management/application/persai-reminder-scheduler.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-scheduled-action.service.ts`
+- `apps/api/src/modules/workspace-management/application/persai-scheduled-action-scheduler.service.ts`
 - `apps/api/src/modules/workspace-management/application/reminder-schedule.ts`
 - `apps/api/src/modules/workspace-management/interface/http/internal-runtime-task-registry.controller.ts`
 - `apps/api/src/modules/workspace-management/workspace-management.module.ts`
-- `apps/api/test/control-internal-assistant-reminder-task.service.test.ts`
-- `apps/api/test/persai-reminder-scheduler.service.test.ts`
+- `apps/api/test/control-internal-scheduled-action.service.test.ts`
+- `apps/api/test/persai-scheduled-action-scheduler.service.test.ts`
 - `docs/API-BOUNDARY.md`
 - `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
 - `docs/CHANGELOG.md`
@@ -48,8 +139,8 @@
 ### Tests run
 
 - `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
-- `corepack pnpm --filter @persai/api exec tsx test/control-internal-assistant-reminder-task.service.test.ts`
-- `corepack pnpm --filter @persai/api exec tsx test/persai-reminder-scheduler.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/control-internal-scheduled-action.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/persai-scheduled-action-scheduler.service.test.ts`
 - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
 - `corepack pnpm --filter @persai/api run typecheck`
 - `corepack pnpm --filter @persai/api run lint`
@@ -102,7 +193,7 @@
 ### Tests run
 
 - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
-- `corepack pnpm --filter @persai/api exec tsx test/control-internal-assistant-reminder-task.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/control-internal-scheduled-action.service.test.ts`
 - `corepack pnpm --filter @persai/api run typecheck`
 
 ### Risks
@@ -140,11 +231,11 @@
 
 ### Files touched
 
-- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
-- `apps/api/test/control-internal-assistant-reminder-task.service.test.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-scheduled-action.service.ts`
+- `apps/api/test/control-internal-scheduled-action.service.test.ts`
 - `apps/runtime/src/modules/turns/native-tool-projection.ts`
 - `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
-- `apps/runtime/src/modules/turns/runtime-reminder-task-tool.service.ts`
+- `apps/runtime/src/modules/turns/runtime-scheduled-action-tool.service.ts`
 - `apps/runtime/src/modules/turns/turn-execution.service.ts`
 - `apps/runtime/src/modules/turns/turns.module.ts`
 - `apps/runtime/test/turn-execution.service.test.ts`
@@ -158,7 +249,7 @@
 ### Tests run
 
 - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
-- `corepack pnpm --filter @persai/api exec tsx test/control-internal-assistant-reminder-task.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/control-internal-scheduled-action.service.test.ts`
 - `corepack pnpm --filter @persai/runtime run typecheck`
 - `corepack pnpm --filter @persai/api run typecheck`
 
@@ -4301,7 +4392,7 @@
 - `apps/api/src/modules/workspace-management/application/create-assistant.service.ts`
 - `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
 - `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
-- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-scheduled-action.service.ts`
 - `apps/api/src/modules/workspace-management/application/admin-delete-user.service.ts`
 - `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
 - `apps/api/src/modules/workspace-management/application/media/inbound-media.service.ts`
@@ -8363,7 +8454,7 @@ Unchanged — `31ec4f70d76eebfef933754934ee922c9d094c11`
 
 - `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
 - `apps/api/src/modules/workspace-management/application/assistant-runtime-preflight.service.ts`
-- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-scheduled-action.service.ts`
 - `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
 - `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
 - `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
@@ -10183,7 +10274,7 @@ M1 (foundation) ─┬─► M2 (tool media web) ─► M4 (web file upload)
 - `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts`
 - `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
 - `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
-- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-scheduled-action.service.ts`
 - `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
 - `docs/CHANGELOG.md`
 - `docs/SESSION-HANDOFF.md`
@@ -10228,7 +10319,7 @@ M1 (foundation) ─┬─► M2 (tool media web) ─► M4 (web file upload)
 
 - `apps/api/src/modules/workspace-management/application/assistant-runtime-adapter.types.ts`
 - `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
-- `apps/api/src/modules/workspace-management/application/control-internal-assistant-reminder-task.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-scheduled-action.service.ts`
 - `apps/api/src/modules/workspace-management/interface/http/internal-runtime-task-registry.controller.ts`
 - `apps/api/src/modules/workspace-management/workspace-management.module.ts`
 - `docs/CHANGELOG.md`

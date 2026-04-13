@@ -10,7 +10,7 @@ import {
 import { getTasksUserControlFlags } from "../domain/tasks-user-controls";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import { ControlInternalAssistantReminderTaskService } from "./control-internal-assistant-reminder-task.service";
+import { ControlInternalScheduledActionService } from "./control-internal-scheduled-action.service";
 
 @Injectable()
 export class CancelAssistantTaskRegistryItemService {
@@ -21,7 +21,7 @@ export class CancelAssistantTaskRegistryItemService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_TASK_REGISTRY_REPOSITORY)
     private readonly taskRegistryRepository: AssistantTaskRegistryRepository,
-    private readonly controlInternalAssistantReminderTaskService: ControlInternalAssistantReminderTaskService
+    private readonly controlInternalScheduledActionService: ControlInternalScheduledActionService
   ) {}
 
   async execute(userId: string, itemId: string): Promise<{ cancelled: true }> {
@@ -45,7 +45,7 @@ export class CancelAssistantTaskRegistryItemService {
       return { cancelled: true };
     }
 
-    await this.controlInternalAssistantReminderTaskService.execute({
+    await this.controlInternalScheduledActionService.execute({
       assistantId: assistant.id,
       action: "cancel",
       taskId: itemId

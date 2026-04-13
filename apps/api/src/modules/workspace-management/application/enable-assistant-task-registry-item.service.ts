@@ -10,7 +10,7 @@ import {
 import { getTasksUserControlFlags } from "../domain/tasks-user-controls";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import { ControlInternalAssistantReminderTaskService } from "./control-internal-assistant-reminder-task.service";
+import { ControlInternalScheduledActionService } from "./control-internal-scheduled-action.service";
 
 @Injectable()
 export class EnableAssistantTaskRegistryItemService {
@@ -21,7 +21,7 @@ export class EnableAssistantTaskRegistryItemService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_TASK_REGISTRY_REPOSITORY)
     private readonly taskRegistryRepository: AssistantTaskRegistryRepository,
-    private readonly controlInternalAssistantReminderTaskService: ControlInternalAssistantReminderTaskService
+    private readonly controlInternalScheduledActionService: ControlInternalScheduledActionService
   ) {}
 
   async execute(userId: string, itemId: string): Promise<{ enabled: true }> {
@@ -45,7 +45,7 @@ export class EnableAssistantTaskRegistryItemService {
       throw new ConflictException("Only paused tasks can be turned back on.");
     }
 
-    await this.controlInternalAssistantReminderTaskService.execute({
+    await this.controlInternalScheduledActionService.execute({
       assistantId: assistant.id,
       action: "resume",
       taskId: itemId

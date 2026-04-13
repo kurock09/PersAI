@@ -29,7 +29,7 @@ const WORKER_TOOL_BASELINES: Record<string, Omit<RuntimeWorkerToolConfig, "toolC
     supportsProviderRouting: true,
     failureBehavior: "surface_error"
   },
-  reminder_task: {
+  scheduled_action: {
     family: "scheduled_action",
     outcomeKind: "state_mutation",
     timeoutMs: 30_000,

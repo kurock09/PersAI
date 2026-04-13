@@ -35,7 +35,7 @@ import type {
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeBrowserToolService } from "../src/modules/turns/runtime-browser-tool.service";
-import { RuntimeReminderTaskToolService } from "../src/modules/turns/runtime-reminder-task-tool.service";
+import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-scheduled-action-tool.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
   FinalizedRuntimeTurn,
@@ -631,6 +631,8 @@ class FakePersaiInternalApiClientService {
   reminderTaskItems: Array<{
     id: string;
     title: string;
+    audience: "user" | "assistant";
+    actionType: string | null;
     controlStatus: "active" | "disabled";
     nextRunAt: string | null;
     externalRef: string | null;
@@ -641,6 +643,8 @@ class FakePersaiInternalApiClientService {
     task: {
       id: "task-1",
       title: "Sample reminder",
+      audience: "user",
+      actionType: null,
       controlStatus: "active",
       nextRunAt: "2026-04-13T12:05:00.000Z"
     }
@@ -658,7 +662,7 @@ class FakePersaiInternalApiClientService {
     return this.consumeOutcome;
   }
 
-  async listReminderTasks(assistantId: string) {
+  async listScheduledActions(assistantId: string) {
     this.reminderTaskListCalls.push(assistantId);
     if (this.reminderTaskListError !== null) {
       throw this.reminderTaskListError;
@@ -666,7 +670,7 @@ class FakePersaiInternalApiClientService {
     return this.reminderTaskItems;
   }
 
-  async controlReminderTask(input: Record<string, unknown>) {
+  async controlScheduledAction(input: Record<string, unknown>) {
     this.reminderTaskControlCalls.push(input);
     if (this.reminderTaskControlError !== null) {
       throw this.reminderTaskControlError;
@@ -783,15 +787,17 @@ async function flushTaskQueue(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-function enableReminderTaskTool(entry: RuntimeBundleCacheEntry | null): void {
+function enableScheduledActionTool(entry: RuntimeBundleCacheEntry | null): void {
   if (entry === null) {
     return;
   }
   if (
-    !entry.parsedBundle.runtime.workerTools.tools.some((tool) => tool.toolCode === "reminder_task")
+    !entry.parsedBundle.runtime.workerTools.tools.some(
+      (tool) => tool.toolCode === "scheduled_action"
+    )
   ) {
     entry.parsedBundle.runtime.workerTools.tools.push({
-      toolCode: "reminder_task",
+      toolCode: "scheduled_action",
       family: "scheduled_action",
       outcomeKind: "state_mutation",
       timeoutMs: 30000,
@@ -801,12 +807,13 @@ function enableReminderTaskTool(entry: RuntimeBundleCacheEntry | null): void {
     });
   }
   if (
-    !entry.parsedBundle.governance.toolPolicies.some((tool) => tool.toolCode === "reminder_task")
+    !entry.parsedBundle.governance.toolPolicies.some((tool) => tool.toolCode === "scheduled_action")
   ) {
     entry.parsedBundle.governance.toolPolicies.push({
-      toolCode: "reminder_task",
-      displayName: "Reminder Task",
-      description: "Create, list, pause, resume, and cancel reminders or recurring tasks.",
+      toolCode: "scheduled_action",
+      displayName: "Scheduled Action",
+      description:
+        "Schedule actions for both user-visible reminders and hidden assistant follow-ups.",
       kind: "plan",
       executionMode: "worker",
       usageRule: "allowed",
@@ -830,7 +837,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
-  const runtimeReminderTaskToolService = new RuntimeReminderTaskToolService(
+  const runtimeScheduledActionToolService = new RuntimeScheduledActionToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
   const service = new TurnExecutionService(
@@ -842,7 +849,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
-    runtimeReminderTaskToolService
+    runtimeScheduledActionToolService
   );
 
   const request = createRuntimeTurnRequest();
@@ -1927,7 +1934,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(braveProviderToolHistory.provider, "brave");
   assert.equal(braveProviderToolHistory.externalContent?.provider, "brave");
 
-  enableReminderTaskTool(bundleRegistry.entry);
+  enableScheduledActionTool(bundleRegistry.entry);
   providerGatewayClient.resultQueue = [
     {
       provider: "openai",
@@ -1945,9 +1952,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       toolCalls: [
         {
           id: "tool-call-reminder-create-1",
-          name: "reminder_task",
+          name: "scheduled_action",
           arguments: {
             action: "create",
+            audience: "user",
             title: "Pay rent",
             delayMs: 300000,
             contextMessages: 2
@@ -1977,6 +1985,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     task: {
       id: "task-reminder-1",
       title: "Pay rent",
+      audience: "user",
+      actionType: null,
       controlStatus: "active",
       nextRunAt: "2026-04-13T12:05:00.000Z"
     }
@@ -1987,12 +1997,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const reminderCreateCompleted = await service.createTurn(request);
   assert.equal(reminderCreateCompleted.assistantText, "reply after reminder create");
   assert.equal(
-    providerGatewayClient.calls.at(-2)?.tools?.some((tool) => tool.name === "reminder_task"),
+    providerGatewayClient.calls.at(-2)?.tools?.some((tool) => tool.name === "scheduled_action"),
     true
   );
   assert.deepEqual(persaiInternalApiClientService.reminderTaskControlCalls.at(-1), {
     assistantId: "assistant-1",
     action: "create",
+    audience: "user",
     title: "Pay rent",
     reminderText: "Pay rent",
     delayMs: 300000,
@@ -2023,6 +2034,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     {
       id: "task-reminder-1",
       title: "Pay rent",
+      audience: "user",
+      actionType: null,
       controlStatus: "active",
       nextRunAt: "2026-04-13T12:05:00.000Z",
       externalRef: "job-reminder-1"
@@ -2030,6 +2043,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     {
       id: "task-reminder-2",
       title: "Stretch break",
+      audience: "user",
+      actionType: null,
       controlStatus: "disabled",
       nextRunAt: "2026-04-13T13:00:00.000Z",
       externalRef: "job-reminder-2"
@@ -2052,7 +2067,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       toolCalls: [
         {
           id: "tool-call-reminder-list-1",
-          name: "reminder_task",
+          name: "scheduled_action",
           arguments: {
             action: "list"
           }
@@ -2113,7 +2128,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       toolCalls: [
         {
           id: "tool-call-reminder-pause-1",
-          name: "reminder_task",
+          name: "scheduled_action",
           arguments: {
             action: "pause",
             titleMatch: "rent"

@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
-import { PersaiReminderSchedulerService } from "../src/modules/workspace-management/application/persai-reminder-scheduler.service";
+import { PersaiScheduledActionSchedulerService } from "../src/modules/workspace-management/application/persai-scheduled-action-scheduler.service";
 
 type SchedulerRow = {
   id: string;
   assistantId: string;
   externalRef: string;
+  title: string;
+  audience: "user" | "assistant";
+  actionType: string | null;
+  actionPayloadJson: unknown;
   nextRunAt: Date | null;
-  reminderPayloadText: string | null;
+  payloadText: string | null;
   scheduleJson: unknown;
   controlStatus: "active" | "disabled" | "cancelled";
   retryAfterAt: Date | null;
@@ -27,6 +31,18 @@ class FakeHandleInternalCronFireService {
       throw new Error("delivery failed");
     }
     return { ok: true, deliveredTo: "web" };
+  }
+}
+
+class FakeRunScheduledAssistantActionService {
+  calls: unknown[] = [];
+  shouldThrow = false;
+
+  async execute(input: unknown) {
+    this.calls.push(input);
+    if (this.shouldThrow) {
+      throw new Error("assistant action failed");
+    }
   }
 }
 
@@ -68,6 +84,18 @@ class FakeWorkspaceManagementPrismaService {
       }
       Object.assign(row, data);
       return { count: 1 };
+    },
+    deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
+      const before = this.rows.length;
+      this.rows = this.rows.filter(
+        (entry) =>
+          !(
+            entry.id === where.id &&
+            entry.schedulerClaimToken === where.schedulerClaimToken &&
+            entry.schedulerClaimEpoch === where.schedulerClaimEpoch
+          )
+      );
+      return { count: before - this.rows.length };
     }
   };
 
@@ -78,8 +106,12 @@ class FakeWorkspaceManagementPrismaService {
           id: string;
           assistantId: string;
           externalRef: string;
+          title: string;
+          audience: "user" | "assistant";
+          actionType: string | null;
+          actionPayloadJson: unknown;
           nextRunAt: Date;
-          reminderPayloadText: string;
+          payloadText: string;
           scheduleJson: unknown;
         }>
       >;
@@ -101,7 +133,7 @@ class FakeWorkspaceManagementPrismaService {
               row.nextRunAt !== null &&
               row.nextRunAt.getTime() <= now &&
               row.externalRef &&
-              row.reminderPayloadText &&
+              row.payloadText &&
               row.scheduleJson &&
               (row.retryAfterAt === null || row.retryAfterAt.getTime() <= now) &&
               (row.schedulerClaimExpiresAt === null ||
@@ -113,8 +145,12 @@ class FakeWorkspaceManagementPrismaService {
             id: row.id,
             assistantId: row.assistantId,
             externalRef: row.externalRef,
+            title: row.title,
+            audience: row.audience,
+            actionType: row.actionType,
+            actionPayloadJson: row.actionPayloadJson,
             nextRunAt: row.nextRunAt!,
-            reminderPayloadText: row.reminderPayloadText!,
+            payloadText: row.payloadText!,
             scheduleJson: row.scheduleJson
           }));
       },
@@ -147,8 +183,12 @@ async function runSuccessBatchTest(): Promise<void> {
         id: "task-1",
         assistantId: "assistant-1",
         externalRef: "job-1",
+        title: "Release reminder",
+        audience: "user",
+        actionType: null,
+        actionPayloadJson: null,
         nextRunAt: dueAt,
-        reminderPayloadText: "Проверить релиз",
+        payloadText: "Проверить релиз",
         scheduleJson: {
           kind: "every",
           everyMs: 60_000,
@@ -166,16 +206,19 @@ async function runSuccessBatchTest(): Promise<void> {
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const service = new PersaiReminderSchedulerService(
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
-    epochs as never
+    epochs as never,
+    assistantRunner as never
   );
 
   const count = await service.processDueJobsBatch();
 
   assert.equal(count, 1);
   assert.equal(handler.calls.length, 1);
+  assert.equal(assistantRunner.calls.length, 0);
   assert.deepEqual(handler.calls[0], {
     assistantId: "assistant-1",
     jobId: "job-1",
@@ -199,8 +242,12 @@ async function runFailureRetryTest(): Promise<void> {
         id: "task-2",
         assistantId: "assistant-1",
         externalRef: "job-2",
+        title: "Broken reminder",
+        audience: "user",
+        actionType: null,
+        actionPayloadJson: null,
         nextRunAt: dueAt,
-        reminderPayloadText: "Упавший reminder",
+        payloadText: "Упавший reminder",
         scheduleJson: {
           kind: "at",
           at: dueAt.toISOString()
@@ -218,16 +265,19 @@ async function runFailureRetryTest(): Promise<void> {
   );
   const handler = new FakeHandleInternalCronFireService();
   handler.shouldThrow = true;
-  const service = new PersaiReminderSchedulerService(
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
-    epochs as never
+    epochs as never,
+    assistantRunner as never
   );
 
   const count = await service.processDueJobsBatch();
 
   assert.equal(count, 1);
   assert.equal(handler.calls.length, 1);
+  assert.equal(assistantRunner.calls.length, 0);
   assert.equal(prisma.rows[0]?.schedulerClaimToken, null);
   assert.equal(prisma.rows[0]?.schedulerClaimEpoch, null);
   assert.ok(prisma.rows[0]?.retryAfterAt instanceof Date);
@@ -243,8 +293,12 @@ async function runEpochResetReclaimTest(): Promise<void> {
         id: "task-3",
         assistantId: "assistant-1",
         externalRef: "job-3",
+        title: "Epoch reclaim reminder",
+        audience: "user",
+        actionType: null,
+        actionPayloadJson: null,
         nextRunAt: dueAt,
-        reminderPayloadText: "Нужно переизбрать claim",
+        payloadText: "Нужно переизбрать claim",
         scheduleJson: {
           kind: "every",
           everyMs: 60_000,
@@ -262,16 +316,19 @@ async function runEpochResetReclaimTest(): Promise<void> {
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const service = new PersaiReminderSchedulerService(
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
-    epochs as never
+    epochs as never,
+    assistantRunner as never
   );
 
   const count = await service.processDueJobsBatch();
 
   assert.equal(count, 1);
   assert.equal(handler.calls.length, 1);
+  assert.equal(assistantRunner.calls.length, 0);
   assert.equal(prisma.rows[0]?.schedulerClaimToken, null);
   assert.equal(prisma.rows[0]?.schedulerClaimEpoch, null);
 }
@@ -285,8 +342,12 @@ async function runEpochBumpSkipsOldWorkerTest(): Promise<void> {
         id: "task-4",
         assistantId: "assistant-1",
         externalRef: "job-4",
+        title: "Epoch stale reminder",
+        audience: "user",
+        actionType: null,
+        actionPayloadJson: null,
         nextRunAt: dueAt,
-        reminderPayloadText: "Старый worker не должен доставить",
+        payloadText: "Старый worker не должен доставить",
         scheduleJson: {
           kind: "every",
           everyMs: 60_000,
@@ -304,10 +365,12 @@ async function runEpochBumpSkipsOldWorkerTest(): Promise<void> {
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const service = new PersaiReminderSchedulerService(
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
-    epochs as never
+    epochs as never,
+    assistantRunner as never
   );
 
   const claimed = await service.processDueJobsBatch(1);
@@ -328,8 +391,12 @@ async function runEpochBumpSkipsOldWorkerTest(): Promise<void> {
     id: "task-4",
     assistantId: "assistant-1",
     externalRef: "job-4",
+    title: "Epoch stale reminder",
+    audience: "user",
+    actionType: null,
+    actionPayload: null,
     nextRunAt: dueAt,
-    reminderPayloadText: "Старый worker не должен доставить",
+    payloadText: "Старый worker не должен доставить",
     schedule: {
       kind: "every",
       everyMs: 60_000,
@@ -340,6 +407,63 @@ async function runEpochBumpSkipsOldWorkerTest(): Promise<void> {
   });
 
   assert.equal(handler.calls.length, 0);
+  assert.equal(assistantRunner.calls.length, 0);
+}
+
+async function runAssistantActionBatchTest(): Promise<void> {
+  const dueAt = new Date(Date.now() - 60_000);
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [
+      {
+        id: "task-5",
+        assistantId: "assistant-1",
+        externalRef: "job-5",
+        title: "Project follow-up",
+        audience: "assistant",
+        actionType: "follow_up",
+        actionPayloadJson: { topic: "project" },
+        nextRunAt: dueAt,
+        payloadText: "Check whether a project follow-up would be useful.",
+        scheduleJson: {
+          kind: "at",
+          at: dueAt.toISOString()
+        },
+        controlStatus: "active",
+        retryAfterAt: null,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null,
+        createdAt: new Date(dueAt.getTime() - 60_000)
+      }
+    ],
+    () => epochs.currentEpoch
+  );
+  const handler = new FakeHandleInternalCronFireService();
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  const service = new PersaiScheduledActionSchedulerService(
+    prisma as never,
+    handler as never,
+    epochs as never,
+    assistantRunner as never
+  );
+
+  const count = await service.processDueJobsBatch();
+
+  assert.equal(count, 1);
+  assert.equal(handler.calls.length, 0);
+  assert.equal(assistantRunner.calls.length, 1);
+  assert.deepEqual(assistantRunner.calls[0], {
+    assistantId: "assistant-1",
+    externalRef: "job-5",
+    title: "Project follow-up",
+    actionType: "follow_up",
+    actionPayload: { topic: "project" },
+    payloadText: "Check whether a project follow-up would be useful.",
+    runAtMs: dueAt.getTime()
+  });
+  assert.equal(prisma.rows.length, 0);
 }
 
 async function run(): Promise<void> {
@@ -347,6 +471,7 @@ async function run(): Promise<void> {
   await runFailureRetryTest();
   await runEpochResetReclaimTest();
   await runEpochBumpSkipsOldWorkerTest();
+  await runAssistantActionBatchTest();
 }
 
 void run();

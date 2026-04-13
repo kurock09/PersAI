@@ -1,22 +1,23 @@
 import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
-  PERSAI_RUNTIME_REMINDER_TASK_ACTIONS,
+  PERSAI_RUNTIME_SCHEDULED_ACTION_ACTIONS,
+  type PersaiRuntimeScheduledActionAudience,
   type ProviderGatewayToolCall,
   type RuntimeConversationAddress,
-  type RuntimeReminderTaskItem,
-  type RuntimeReminderTaskRequest,
-  type RuntimeReminderTaskToolResult,
+  type RuntimeScheduledActionItem,
+  type RuntimeScheduledActionRequest,
+  type RuntimeScheduledActionToolResult,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import {
   PersaiInternalApiClientService,
-  type InternalReminderTaskItem
+  type InternalScheduledActionItem
 } from "./persai-internal-api.client.service";
 
-const REMINDER_CONTEXT_MESSAGES_MAX = 10;
+const SCHEDULED_ACTION_CONTEXT_MESSAGES_MAX = 10;
 
-class ReminderTaskResolutionError extends Error {
+class ScheduledActionResolutionError extends Error {
   constructor(
     readonly code: "target_required" | "task_not_found" | "multiple_task_matches",
     message: string
@@ -25,21 +26,21 @@ class ReminderTaskResolutionError extends Error {
   }
 }
 
-export interface RuntimeReminderTaskToolExecutionResult {
-  payload: RuntimeReminderTaskToolResult;
+export interface RuntimeScheduledActionToolExecutionResult {
+  payload: RuntimeScheduledActionToolResult;
   isError: boolean;
 }
 
 @Injectable()
-export class RuntimeReminderTaskToolService {
+export class RuntimeScheduledActionToolService {
   constructor(private readonly persaiInternalApiClientService: PersaiInternalApiClientService) {}
 
   async executeToolCall(params: {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
     conversation: RuntimeConversationAddress;
-  }): Promise<RuntimeReminderTaskToolExecutionResult> {
-    const request = this.readReminderTaskArguments(params.toolCall.arguments);
+  }): Promise<RuntimeScheduledActionToolExecutionResult> {
+    const request = this.readScheduledActionArguments(params.toolCall.arguments);
     if (request instanceof Error) {
       return {
         payload: this.createSkippedResult(null, "invalid_arguments", request.message),
@@ -47,7 +48,7 @@ export class RuntimeReminderTaskToolService {
       };
     }
 
-    const policy = this.resolveAllowedWorkerToolPolicy(params.bundle, "reminder_task");
+    const policy = this.resolveAllowedWorkerToolPolicy(params.bundle, "scheduled_action");
     if (policy === null) {
       return {
         payload: this.createSkippedResult(request.action, "tool_unavailable", null),
@@ -59,7 +60,7 @@ export class RuntimeReminderTaskToolService {
       if (policy.dailyCallLimit !== null) {
         const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
           assistantId: params.bundle.metadata.assistantId,
-          toolCode: "reminder_task",
+          toolCode: "scheduled_action",
           dailyCallLimit: policy.dailyCallLimit
         });
         if (!quotaOutcome.allowed) {
@@ -76,12 +77,12 @@ export class RuntimeReminderTaskToolService {
 
       switch (request.action) {
         case "list": {
-          const items = await this.persaiInternalApiClientService.listReminderTasks(
+          const items = await this.persaiInternalApiClientService.listScheduledActions(
             params.bundle.metadata.assistantId
           );
           return {
             payload: {
-              toolCode: "reminder_task",
+              toolCode: "scheduled_action",
               executionMode: "worker",
               requestedAction: "list",
               action: "listed",
@@ -95,11 +96,17 @@ export class RuntimeReminderTaskToolService {
         }
         case "create": {
           const title = request.title ?? "";
-          const response = await this.persaiInternalApiClientService.controlReminderTask({
+          const createAudience = request.audience ?? "user";
+          const response = await this.persaiInternalApiClientService.controlScheduledAction({
             assistantId: params.bundle.metadata.assistantId,
             action: "create",
+            audience: createAudience,
             title,
             reminderText: request.reminderText ?? title,
+            ...(request.actionType === undefined ? {} : { actionType: request.actionType }),
+            ...(request.actionPayload === undefined
+              ? {}
+              : { actionPayload: request.actionPayload }),
             ...(request.runAt === undefined ? {} : { runAt: request.runAt }),
             ...(request.delayMs === undefined ? {} : { delayMs: request.delayMs }),
             ...(request.everyMs === undefined ? {} : { everyMs: request.everyMs }),
@@ -117,12 +124,14 @@ export class RuntimeReminderTaskToolService {
           const task = this.normalizeTaskFromControlResponse(response) ?? {
             id: null,
             title,
+            audience: createAudience,
+            actionType: request.actionType ?? null,
             controlStatus: "active",
             nextRunAt: null
           };
           return {
             payload: {
-              toolCode: "reminder_task",
+              toolCode: "scheduled_action",
               executionMode: "worker",
               requestedAction: "create",
               action: "created",
@@ -142,14 +151,14 @@ export class RuntimeReminderTaskToolService {
             ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
             ...(request.titleMatch === undefined ? {} : { titleMatch: request.titleMatch })
           });
-          await this.persaiInternalApiClientService.controlReminderTask({
+          await this.persaiInternalApiClientService.controlScheduledAction({
             assistantId: params.bundle.metadata.assistantId,
             action: request.action,
             taskId: target.id
           });
           return {
             payload: {
-              toolCode: "reminder_task",
+              toolCode: "scheduled_action",
               executionMode: "worker",
               requestedAction: request.action,
               action:
@@ -163,6 +172,8 @@ export class RuntimeReminderTaskToolService {
               task: {
                 id: target.id,
                 title: target.title,
+                audience: target.audience,
+                actionType: target.actionType,
                 controlStatus:
                   request.action === "pause"
                     ? "disabled"
@@ -178,7 +189,7 @@ export class RuntimeReminderTaskToolService {
         }
       }
     } catch (error) {
-      if (error instanceof ReminderTaskResolutionError) {
+      if (error instanceof ScheduledActionResolutionError) {
         return {
           payload: this.createSkippedResult(errorAction(request), error.code, error.message),
           isError: true
@@ -188,31 +199,34 @@ export class RuntimeReminderTaskToolService {
         payload: this.createSkippedResult(
           request.action,
           request.action === "list" ? "task_list_failed" : "task_control_failed",
-          error instanceof Error ? error.message : "Reminder task request failed."
+          error instanceof Error ? error.message : "Scheduled action request failed."
         ),
         isError: true
       };
     }
   }
 
-  private readReminderTaskArguments(
+  private readScheduledActionArguments(
     args: Record<string, unknown>
-  ): RuntimeReminderTaskRequest | Error {
+  ): RuntimeScheduledActionRequest | Error {
     const action =
       typeof args.action === "string" &&
-      PERSAI_RUNTIME_REMINDER_TASK_ACTIONS.includes(
-        args.action as (typeof PERSAI_RUNTIME_REMINDER_TASK_ACTIONS)[number]
+      PERSAI_RUNTIME_SCHEDULED_ACTION_ACTIONS.includes(
+        args.action as (typeof PERSAI_RUNTIME_SCHEDULED_ACTION_ACTIONS)[number]
       )
-        ? (args.action as RuntimeReminderTaskRequest["action"])
+        ? (args.action as RuntimeScheduledActionRequest["action"])
         : null;
     if (action === null) {
       return new Error(
-        "reminder_task action must be one of create, list, pause, resume, or cancel."
+        "scheduled_action action must be one of create, list, pause, resume, or cancel."
       );
     }
 
+    const audience = this.asAudience(args.audience) ?? undefined;
     const title = this.asNonEmptyString(args.title);
     const reminderText = this.asNonEmptyString(args.reminderText) ?? undefined;
+    const actionType = this.asNonEmptyString(args.actionType) ?? undefined;
+    const actionPayload = this.asJsonObject(args.actionPayload);
     const taskId = this.asNonEmptyString(args.taskId) ?? undefined;
     const titleMatch = this.asNonEmptyString(args.titleMatch) ?? undefined;
     const runAt = this.asNonEmptyString(args.runAt) ?? undefined;
@@ -225,8 +239,14 @@ export class RuntimeReminderTaskToolService {
 
     if (action === "create") {
       if (title === null) {
-        return new Error("reminder_task create requires title.");
+        return new Error("scheduled_action create requires title.");
       }
+      if (audience === undefined) {
+        return new Error(
+          'scheduled_action create requires audience="user" or audience="assistant".'
+        );
+      }
+      const createAudience = audience;
       const scheduleCount =
         Number(runAt !== undefined) +
         Number(delayMs !== undefined) +
@@ -234,27 +254,45 @@ export class RuntimeReminderTaskToolService {
         Number(cronExpr !== undefined);
       if (scheduleCount !== 1) {
         return new Error(
-          "reminder_task create requires exactly one schedule: runAt, delayMs, everyMs, or cronExpr."
+          "scheduled_action create requires exactly one schedule: runAt, delayMs, everyMs, or cronExpr."
         );
       }
       if ("contextMessages" in args && contextMessages === null) {
         return new Error(
-          `reminder_task contextMessages must be an integer between 0 and ${String(REMINDER_CONTEXT_MESSAGES_MAX)}.`
+          `scheduled_action contextMessages must be an integer between 0 and ${String(SCHEDULED_ACTION_CONTEXT_MESSAGES_MAX)}.`
         );
       }
       if ("delayMs" in args && delayMs === null) {
-        return new Error("reminder_task delayMs must be a positive number.");
+        return new Error("scheduled_action delayMs must be a positive number.");
       }
       if ("everyMs" in args && everyMs === null) {
-        return new Error("reminder_task everyMs must be a positive number.");
+        return new Error("scheduled_action everyMs must be a positive number.");
       }
-      const createRequest: RuntimeReminderTaskRequest = {
-        toolCode: "reminder_task",
+      if ("actionPayload" in args && actionPayload === null) {
+        return new Error("scheduled_action actionPayload must be a JSON object when provided.");
+      }
+      if (audience === "assistant" && actionType === undefined) {
+        return new Error('scheduled_action create with audience="assistant" requires actionType.');
+      }
+      if (audience === "user" && (actionType !== undefined || actionPayload !== undefined)) {
+        return new Error(
+          'scheduled_action create with audience="user" does not accept actionType or actionPayload.'
+        );
+      }
+      const createRequest: RuntimeScheduledActionRequest = {
+        toolCode: "scheduled_action",
         action,
+        audience: createAudience,
         title
       };
       if (reminderText !== undefined) {
         createRequest.reminderText = reminderText;
+      }
+      if (actionType !== undefined) {
+        createRequest.actionType = actionType;
+      }
+      if (actionPayload !== undefined && actionPayload !== null) {
+        createRequest.actionPayload = actionPayload;
       }
       if (runAt !== undefined) {
         createRequest.runAt = runAt;
@@ -282,10 +320,10 @@ export class RuntimeReminderTaskToolService {
 
     if (action === "pause" || action === "resume" || action === "cancel") {
       if (taskId === undefined && titleMatch === undefined) {
-        return new Error("reminder_task pause/resume/cancel requires taskId or titleMatch.");
+        return new Error("scheduled_action pause/resume/cancel requires taskId or titleMatch.");
       }
       return {
-        toolCode: "reminder_task",
+        toolCode: "scheduled_action",
         action,
         ...(taskId === undefined ? {} : { taskId }),
         ...(titleMatch === undefined ? {} : { titleMatch })
@@ -293,7 +331,7 @@ export class RuntimeReminderTaskToolService {
     }
 
     return {
-      toolCode: "reminder_task",
+      toolCode: "scheduled_action",
       action
     };
   }
@@ -302,12 +340,14 @@ export class RuntimeReminderTaskToolService {
     assistantId: string;
     taskId?: string;
     titleMatch?: string;
-  }): Promise<InternalReminderTaskItem> {
-    const items = await this.persaiInternalApiClientService.listReminderTasks(params.assistantId);
+  }): Promise<InternalScheduledActionItem> {
+    const items = await this.persaiInternalApiClientService.listScheduledActions(
+      params.assistantId
+    );
     if (params.taskId) {
       const match = items.find((item) => item.id === params.taskId);
       if (match === undefined) {
-        throw new ReminderTaskResolutionError(
+        throw new ScheduledActionResolutionError(
           "task_not_found",
           `Task "${params.taskId}" was not found.`
         );
@@ -317,18 +357,21 @@ export class RuntimeReminderTaskToolService {
 
     const titleMatch = params.titleMatch?.toLowerCase();
     if (!titleMatch) {
-      throw new ReminderTaskResolutionError("target_required", "taskId or titleMatch is required.");
+      throw new ScheduledActionResolutionError(
+        "target_required",
+        "taskId or titleMatch is required."
+      );
     }
 
     const matches = items.filter((item) => item.title.toLowerCase().includes(titleMatch));
     if (matches.length === 0) {
-      throw new ReminderTaskResolutionError(
+      throw new ScheduledActionResolutionError(
         "task_not_found",
         `No current task matched "${params.titleMatch}".`
       );
     }
     if (matches.length > 1) {
-      throw new ReminderTaskResolutionError(
+      throw new ScheduledActionResolutionError(
         "multiple_task_matches",
         `Multiple current tasks matched "${params.titleMatch}". Use taskId.`
       );
@@ -354,7 +397,7 @@ export class RuntimeReminderTaskToolService {
     return policy;
   }
 
-  private normalizeTaskFromControlResponse(value: unknown): RuntimeReminderTaskItem | null {
+  private normalizeTaskFromControlResponse(value: unknown): RuntimeScheduledActionItem | null {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
       return null;
     }
@@ -364,6 +407,8 @@ export class RuntimeReminderTaskToolService {
     }
     const row = task as Record<string, unknown>;
     const title = this.asNonEmptyString(row.title);
+    const audience = this.asAudience(row.audience);
+    const actionType = row.actionType === null ? null : this.asNonEmptyString(row.actionType);
     const controlStatus = this.asTaskControlStatus(row.controlStatus);
     const nextRunAt =
       row.nextRunAt === null
@@ -371,33 +416,37 @@ export class RuntimeReminderTaskToolService {
         : typeof row.nextRunAt === "string" && row.nextRunAt.trim().length > 0
           ? row.nextRunAt
           : null;
-    if (title === null || controlStatus === null) {
+    if (title === null || audience === null || controlStatus === null) {
       return null;
     }
     return {
       id: row.id === null ? null : this.asNonEmptyString(row.id),
       title,
+      audience,
+      actionType,
       controlStatus,
       nextRunAt
     };
   }
 
-  private toRuntimeTaskItem(item: InternalReminderTaskItem): RuntimeReminderTaskItem {
+  private toRuntimeTaskItem(item: InternalScheduledActionItem): RuntimeScheduledActionItem {
     return {
       id: item.id,
       title: item.title,
+      audience: item.audience,
+      actionType: item.actionType,
       controlStatus: item.controlStatus,
       nextRunAt: item.nextRunAt
     };
   }
 
   private createSkippedResult(
-    requestedAction: RuntimeReminderTaskToolResult["requestedAction"],
+    requestedAction: RuntimeScheduledActionToolResult["requestedAction"],
     reason: string,
     warning: string | null
-  ): RuntimeReminderTaskToolResult {
+  ): RuntimeScheduledActionToolResult {
     return {
-      toolCode: "reminder_task",
+      toolCode: "scheduled_action",
       executionMode: "worker",
       requestedAction,
       action: "skipped",
@@ -408,8 +457,22 @@ export class RuntimeReminderTaskToolService {
     };
   }
 
-  private asTaskControlStatus(value: unknown): RuntimeReminderTaskItem["controlStatus"] | null {
+  private asTaskControlStatus(value: unknown): RuntimeScheduledActionItem["controlStatus"] | null {
     return value === "active" || value === "disabled" || value === "cancelled" ? value : null;
+  }
+
+  private asAudience(value: unknown): PersaiRuntimeScheduledActionAudience | null {
+    return value === "user" || value === "assistant" ? value : null;
+  }
+
+  private asJsonObject(value: unknown): Record<string, unknown> | null | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return null;
   }
 
   private asContextMessages(value: unknown): number | null | undefined {
@@ -419,7 +482,7 @@ export class RuntimeReminderTaskToolService {
     if (
       Number.isInteger(value) &&
       Number(value) >= 0 &&
-      Number(value) <= REMINDER_CONTEXT_MESSAGES_MAX
+      Number(value) <= SCHEDULED_ACTION_CONTEXT_MESSAGES_MAX
     ) {
       return Number(value);
     }
@@ -439,7 +502,7 @@ export class RuntimeReminderTaskToolService {
 }
 
 function errorAction(
-  request: RuntimeReminderTaskRequest
-): RuntimeReminderTaskToolResult["requestedAction"] {
+  request: RuntimeScheduledActionRequest
+): RuntimeScheduledActionToolResult["requestedAction"] {
   return request.action;
 }

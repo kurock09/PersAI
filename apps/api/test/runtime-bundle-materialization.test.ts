@@ -171,7 +171,7 @@ function createInput(order: "alpha" | "beta") {
                   failureBehavior: "surface_error"
                 },
                 {
-                  toolCode: "reminder_task",
+                  toolCode: "scheduled_action",
                   family: "scheduled_action",
                   outcomeKind: "state_mutation",
                   timeoutMs: 30000,
@@ -199,7 +199,7 @@ function createInput(order: "alpha" | "beta") {
                   timeoutMs: 30000,
                   outcomeKind: "state_mutation",
                   family: "scheduled_action",
-                  toolCode: "reminder_task"
+                  toolCode: "scheduled_action"
                 }
               ]
             },
@@ -277,7 +277,7 @@ function createInput(order: "alpha" | "beta") {
           visibleInPlanEditor: true
         },
         {
-          toolCode: "reminder_task",
+          toolCode: "scheduled_action",
           displayName: "Reminder Task",
           description: "Create, list, pause, resume, and cancel reminders or recurring tasks.",
           kind: "plan",
@@ -392,7 +392,7 @@ async function run(): Promise<void> {
         failureBehavior: "surface_error"
       },
       {
-        toolCode: "reminder_task",
+        toolCode: "scheduled_action",
         family: "scheduled_action",
         outcomeKind: "state_mutation",
         timeoutMs: 30000,

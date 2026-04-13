@@ -570,7 +570,7 @@ openclaw:
           - browser
           - memory_search
           - memory_get
-          - reminder_task
+          - scheduled_action
           - persai_tool_quota_status
           - persai_workspace_attach
           - pdf

@@ -138,7 +138,7 @@ Assessment:
 
 Safe reduction path:
 
-- continue exposing PersAI-owned tools like `reminder_task` instead of generic `cron` for product UX
+- continue exposing PersAI-owned tools like `scheduled_action` instead of generic `cron` for product UX
 - continue driving policy and limits from PersAI control plane
 - later reduce native registry special cases if upstream/plugin seams improve
 

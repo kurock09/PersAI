@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantTaskRegistrySourceSurface } from "./assistantTaskRegistrySourceSurface";
+import type { AssistantTaskRegistryAudience } from "./assistantTaskRegistryAudience";
 import type { AssistantTaskRegistryControlStatus } from "./assistantTaskRegistryControlStatus";
 
 export interface AssistantTaskRegistryItemState {
@@ -13,6 +14,9 @@ export interface AssistantTaskRegistryItemState {
   sourceSurface: AssistantTaskRegistrySourceSurface;
   /** @nullable */
   sourceLabel: string | null;
+  audience: AssistantTaskRegistryAudience;
+  /** @nullable */
+  actionType: string | null;
   controlStatus: AssistantTaskRegistryControlStatus;
   /** @nullable */
   nextRunAt: string | null;

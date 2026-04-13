@@ -65,13 +65,13 @@ export function projectRuntimeNativeTools(
   ) {
     projectedTools.push(createBrowserToolDefinition(bundle));
   }
-  const reminderTaskPolicy = resolveAllowedModelVisibleToolPolicy(
+  const scheduledActionPolicy = resolveAllowedModelVisibleToolPolicy(
     bundle,
-    "reminder_task",
+    "scheduled_action",
     "worker"
   );
-  if (reminderTaskPolicy !== null) {
-    projectedTools.push(createReminderTaskToolDefinition());
+  if (scheduledActionPolicy !== null) {
+    projectedTools.push(createScheduledActionToolDefinition());
   }
 
   return {
@@ -244,11 +244,19 @@ function createBrowserToolDefinition(
   };
 }
 
-function createReminderTaskToolDefinition(): ProviderGatewayToolDefinition {
+function createScheduledActionToolDefinition(): ProviderGatewayToolDefinition {
   return {
-    name: "reminder_task",
-    description:
-      "Create, list, pause, resume, and cancel reminders or recurring tasks. Use this for user-facing reminder/task requests instead of raw scheduler or cron semantics. For create, title is required and exactly one schedule must be provided: runAt, delayMs, everyMs, or cronExpr. Prefer taskId from an earlier list result when pausing, resuming, or cancelling; if taskId is unavailable, use titleMatch to resolve one current task by title.",
+    name: "scheduled_action",
+    description: [
+      "Schedule actions for both user-visible reminders and hidden assistant follow-ups.",
+      'Use audience="user" for reminders the user should actually see, for example reminders in a few hours, daily or weekly nudges, and deadlines.',
+      'Use audience="assistant" for background checks and reasoning, for example coming back to a project or habit later, inspecting memory, and when available using knowledge_search or knowledge_fetch before deciding whether any gentle user-facing nudge is appropriate.',
+      "Background assistant actions MUST NOT directly message the user.",
+      'They are for checking progress or changes, noticing the user is already doing well and quietly doing nothing, or, when it is helpful and not pushy, scheduling a new scheduled_action with audience="user" and a short human-like message.',
+      'Respect explicit "don\'t remind me" or paused/cancelled signals, avoid spamming multiple unsolicited reminders about the same thing, and phrase user-facing reminders as low-pressure offers rather than commands.',
+      "For create, title, audience, and exactly one schedule are required: runAt, delayMs, everyMs, or cronExpr.",
+      "Prefer taskId from an earlier list result when pausing, resuming, or cancelling; if taskId is unavailable, use titleMatch to resolve one current task by title."
+    ].join(" "),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -257,21 +265,38 @@ function createReminderTaskToolDefinition(): ProviderGatewayToolDefinition {
         action: {
           type: "string",
           enum: ["create", "list", "pause", "resume", "cancel"],
-          description: "Reminder/task action to perform."
+          description: "Scheduled-action operation to perform."
+        },
+        audience: {
+          type: "string",
+          enum: ["user", "assistant"],
+          description:
+            'Required for create. Use "user" for a user-visible reminder and "assistant" for a hidden background assistant action.'
         },
         title: {
           type: "string",
-          description: "Required for create. Human-readable reminder title."
+          description: "Required for create. Human-readable scheduled-action title."
         },
         reminderText: {
           type: "string",
           description:
-            "Optional reminder text delivered when the reminder fires. Defaults to title."
+            'Optional action text. For audience="user" this is the message later delivered to the user. For audience="assistant" this becomes hidden follow-up guidance/context for the assistant.'
+        },
+        actionType: {
+          type: "string",
+          description:
+            'Optional for audience="assistant". Short machine-readable action kind such as "follow_up" or "check_status".'
+        },
+        actionPayload: {
+          type: "object",
+          additionalProperties: true,
+          description:
+            'Optional for audience="assistant". Structured JSON payload with background-action parameters.'
         },
         taskId: {
           type: "string",
           description:
-            "Preferred task identifier for pause, resume, or cancel. Use the id returned by list or create."
+            "Preferred scheduled-action identifier for pause, resume, or cancel. Use the id returned by list or create."
         },
         titleMatch: {
           type: "string",
@@ -281,18 +306,18 @@ function createReminderTaskToolDefinition(): ProviderGatewayToolDefinition {
         runAt: {
           type: "string",
           description:
-            "Absolute future datetime in ISO format for a one-time reminder after the time has already been resolved."
+            "Absolute future datetime in ISO format for a one-time scheduled action after the time has already been resolved."
         },
         delayMs: {
           type: "number",
           minimum: 1,
           description:
-            "Relative delay in milliseconds for a one-time reminder. Prefer this for requests like 'in 5 minutes'."
+            "Relative delay in milliseconds for a one-time scheduled action. Prefer this for requests like 'in 5 minutes'."
         },
         everyMs: {
           type: "number",
           minimum: 1,
-          description: "Recurring interval in milliseconds."
+          description: "Recurring interval in milliseconds for a repeated scheduled action."
         },
         anchorAt: {
           type: "string",
@@ -300,18 +325,18 @@ function createReminderTaskToolDefinition(): ProviderGatewayToolDefinition {
         },
         cronExpr: {
           type: "string",
-          description: "Cron expression for recurring reminders."
+          description: "Cron expression for recurring scheduled actions."
         },
         timezone: {
           type: "string",
-          description: "Optional IANA timezone for cron-based reminders."
+          description: "Optional IANA timezone for cron-based schedules."
         },
         contextMessages: {
           type: "integer",
           minimum: 0,
           maximum: REMINDER_CONTEXT_MESSAGES_MAX,
           description:
-            "Optional number of recent chat messages to include as context when the reminder fires."
+            "Optional number of recent chat messages to snapshot into the scheduled action context."
         }
       }
     }
