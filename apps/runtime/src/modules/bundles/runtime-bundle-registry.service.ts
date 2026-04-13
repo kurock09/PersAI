@@ -5,6 +5,8 @@ import {
 } from "@persai/runtime-bundle";
 import type { RuntimeConfig } from "@persai/config";
 import {
+  PERSAI_RUNTIME_BROWSER_ACTIONS,
+  PERSAI_RUNTIME_BROWSER_PROVIDER_IDS,
   PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES,
   PERSAI_RUNTIME_KNOWLEDGE_RAG_MODES,
   PERSAI_RUNTIME_KNOWLEDGE_SOURCES,
@@ -13,6 +15,10 @@ import {
   PERSAI_RUNTIME_TOOL_EXECUTION_MODES,
   PERSAI_RUNTIME_TOOL_KINDS,
   PERSAI_RUNTIME_TOOL_USAGE_RULES,
+  PERSAI_RUNTIME_WORKER_CONFIRMATION_RULES,
+  PERSAI_RUNTIME_WORKER_FAILURE_BEHAVIORS,
+  PERSAI_RUNTIME_WORKER_OUTCOME_KINDS,
+  PERSAI_RUNTIME_WORKER_TOOL_FAMILIES,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../runtime-config";
@@ -581,6 +587,264 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
     }
   }
 
+  private assertWorkerToolsConfig(
+    bundle: AssistantRuntimeBundle,
+    toolPolicyByCode: Map<string, RuntimeToolPolicy>
+  ): void {
+    const runtime = bundle.runtime;
+    if (!this.isRecord(runtime)) {
+      throw new BadRequestException("bundleDocument.runtime must be an object");
+    }
+
+    const workerTools = runtime.workerTools;
+    if (!this.isRecord(workerTools)) {
+      throw new BadRequestException("bundleDocument.runtime.workerTools must be an object");
+    }
+
+    const rawTools = workerTools.tools;
+    if (!Array.isArray(rawTools)) {
+      throw new BadRequestException("bundleDocument.runtime.workerTools.tools must be an array");
+    }
+
+    const workerPolicies = [...toolPolicyByCode.values()].filter(
+      (policy) => policy.executionMode === "worker"
+    );
+    const coveredWorkerTools = new Set<string>();
+
+    for (const entry of rawTools) {
+      if (!this.isRecord(entry)) {
+        throw new BadRequestException(
+          "bundleDocument.runtime.workerTools.tools[] must be an object"
+        );
+      }
+
+      this.assertNonEmpty(entry.toolCode, "bundleDocument.runtime.workerTools.tools[].toolCode");
+      const toolCode = entry.toolCode as string;
+      if (coveredWorkerTools.has(toolCode)) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.workerTools.tools has duplicate toolCode "${toolCode}"`
+        );
+      }
+      if (
+        typeof entry.family !== "string" ||
+        !PERSAI_RUNTIME_WORKER_TOOL_FAMILIES.includes(
+          entry.family as (typeof PERSAI_RUNTIME_WORKER_TOOL_FAMILIES)[number]
+        )
+      ) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.workerTools.tools["${toolCode}"].family is invalid`
+        );
+      }
+      if (
+        typeof entry.outcomeKind !== "string" ||
+        !PERSAI_RUNTIME_WORKER_OUTCOME_KINDS.includes(
+          entry.outcomeKind as (typeof PERSAI_RUNTIME_WORKER_OUTCOME_KINDS)[number]
+        )
+      ) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.workerTools.tools["${toolCode}"].outcomeKind is invalid`
+        );
+      }
+      if (!Number.isInteger(entry.timeoutMs) || entry.timeoutMs <= 0) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.workerTools.tools["${toolCode}"].timeoutMs must be a positive integer`
+        );
+      }
+      if (
+        typeof entry.confirmationRule !== "string" ||
+        !PERSAI_RUNTIME_WORKER_CONFIRMATION_RULES.includes(
+          entry.confirmationRule as (typeof PERSAI_RUNTIME_WORKER_CONFIRMATION_RULES)[number]
+        )
+      ) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.workerTools.tools["${toolCode}"].confirmationRule is invalid`
+        );
+      }
+      if (typeof entry.supportsProviderRouting !== "boolean") {
+        throw new BadRequestException(
+          `bundleDocument.runtime.workerTools.tools["${toolCode}"].supportsProviderRouting must be boolean`
+        );
+      }
+      if (
+        typeof entry.failureBehavior !== "string" ||
+        !PERSAI_RUNTIME_WORKER_FAILURE_BEHAVIORS.includes(
+          entry.failureBehavior as (typeof PERSAI_RUNTIME_WORKER_FAILURE_BEHAVIORS)[number]
+        )
+      ) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.workerTools.tools["${toolCode}"].failureBehavior is invalid`
+        );
+      }
+
+      const policy = toolPolicyByCode.get(toolCode);
+      if (!policy) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.workerTools.tools["${toolCode}"] references unknown tool "${toolCode}"`
+        );
+      }
+      if (policy.executionMode !== "worker") {
+        throw new BadRequestException(
+          `bundleDocument.runtime.workerTools.tools["${toolCode}"] cannot reference non-worker tool "${toolCode}"`
+        );
+      }
+
+      coveredWorkerTools.add(toolCode);
+    }
+
+    for (const policy of workerPolicies) {
+      if (!coveredWorkerTools.has(policy.toolCode)) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.workerTools.tools must include "${policy.toolCode}"`
+        );
+      }
+    }
+  }
+
+  private assertBrowserConfig(
+    bundle: AssistantRuntimeBundle,
+    toolPolicyByCode: Map<string, RuntimeToolPolicy>
+  ): void {
+    const runtime = bundle.runtime;
+    if (!this.isRecord(runtime)) {
+      throw new BadRequestException("bundleDocument.runtime must be an object");
+    }
+
+    const browser = runtime.browser;
+    if (!this.isRecord(browser)) {
+      throw new BadRequestException("bundleDocument.runtime.browser must be an object");
+    }
+
+    if (browser.toolCode !== "browser") {
+      throw new BadRequestException('bundleDocument.runtime.browser.toolCode must be "browser"');
+    }
+    if (browser.executionMode !== "worker") {
+      throw new BadRequestException(
+        'bundleDocument.runtime.browser.executionMode must be "worker"'
+      );
+    }
+    if (browser.credentialToolCode !== "browser") {
+      throw new BadRequestException(
+        'bundleDocument.runtime.browser.credentialToolCode must be "browser"'
+      );
+    }
+
+    if (!Array.isArray(browser.providerIds) || browser.providerIds.length === 0) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.browser.providerIds must be a non-empty array"
+      );
+    }
+
+    const seenProviderIds = new Set<string>();
+    for (const providerId of browser.providerIds) {
+      if (
+        typeof providerId !== "string" ||
+        !PERSAI_RUNTIME_BROWSER_PROVIDER_IDS.includes(
+          providerId as (typeof PERSAI_RUNTIME_BROWSER_PROVIDER_IDS)[number]
+        )
+      ) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.browser.providerIds contains invalid provider "${String(providerId)}"`
+        );
+      }
+      if (seenProviderIds.has(providerId)) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.browser.providerIds has duplicate provider "${providerId}"`
+        );
+      }
+      seenProviderIds.add(providerId);
+    }
+
+    if (
+      typeof browser.defaultProviderId !== "string" ||
+      !seenProviderIds.has(browser.defaultProviderId)
+    ) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.browser.defaultProviderId must reference runtime.browser.providerIds"
+      );
+    }
+
+    if (!Array.isArray(browser.actions) || browser.actions.length === 0) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.browser.actions must be a non-empty array"
+      );
+    }
+
+    const seenActions = new Set<string>();
+    for (const action of browser.actions) {
+      if (
+        typeof action !== "string" ||
+        !PERSAI_RUNTIME_BROWSER_ACTIONS.includes(
+          action as (typeof PERSAI_RUNTIME_BROWSER_ACTIONS)[number]
+        )
+      ) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.browser.actions contains invalid action "${String(action)}"`
+        );
+      }
+      if (seenActions.has(action)) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.browser.actions has duplicate action "${action}"`
+        );
+      }
+      seenActions.add(action);
+    }
+
+    if (!Array.isArray(browser.confirmationRequiredActions)) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.browser.confirmationRequiredActions must be an array"
+      );
+    }
+    for (const action of browser.confirmationRequiredActions) {
+      if (typeof action !== "string" || !seenActions.has(action)) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.browser.confirmationRequiredActions contains invalid action "${String(action)}"`
+        );
+      }
+    }
+
+    const policy = toolPolicyByCode.get(browser.toolCode);
+    if (!policy) {
+      throw new BadRequestException(
+        'bundleDocument.runtime.browser.toolCode references unknown tool "browser"'
+      );
+    }
+    if (policy.executionMode !== "worker") {
+      throw new BadRequestException(
+        'bundleDocument.runtime.browser.toolCode must reference a worker tool "browser"'
+      );
+    }
+
+    const browserCredentialRef = bundle.governance.toolCredentialRefs[browser.credentialToolCode];
+    if (!browserCredentialRef) {
+      throw new BadRequestException(
+        'bundleDocument.governance.toolCredentialRefs must include "browser"'
+      );
+    }
+    if (browserCredentialRef.refKey !== "persai:persai-runtime:tool/browser/api-key") {
+      throw new BadRequestException(
+        'bundleDocument.governance.toolCredentialRefs["browser"].refKey must be "persai:persai-runtime:tool/browser/api-key"'
+      );
+    }
+    if (
+      browserCredentialRef.secretRef.source !== "persai" ||
+      browserCredentialRef.secretRef.provider !== "persai-runtime" ||
+      browserCredentialRef.secretRef.id !== "tool/browser/api-key"
+    ) {
+      throw new BadRequestException(
+        'bundleDocument.governance.toolCredentialRefs["browser"].secretRef must target "tool/browser/api-key"'
+      );
+    }
+    if (
+      browserCredentialRef.providerId !== null &&
+      browserCredentialRef.providerId !== undefined &&
+      !seenProviderIds.has(browserCredentialRef.providerId)
+    ) {
+      throw new BadRequestException(
+        'bundleDocument.governance.toolCredentialRefs["browser"].providerId must match runtime.browser.providerIds'
+      );
+    }
+  }
+
   private parseBundleDocument(document: string): AssistantRuntimeBundle {
     let parsed: unknown;
     try {
@@ -602,6 +866,8 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
     const toolPolicyByCode = this.assertToolPolicyParity(bundle);
     this.assertSharedCompactionConfig(bundle);
     this.assertKnowledgeAccessConfig(bundle, toolPolicyByCode);
+    this.assertWorkerToolsConfig(bundle, toolPolicyByCode);
+    this.assertBrowserConfig(bundle, toolPolicyByCode);
     return bundle;
   }
 

@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import {
   PERSAI_RUNTIME_CONTRACT_SCHEMA,
+  type RuntimeBrowserConfig,
   type RuntimeKnowledgeAccessConfig,
   type RuntimeSharedCompactionConfig,
-  type RuntimeToolPolicy
+  type RuntimeToolPolicy,
+  type RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
 
 export const PERSAI_RUNTIME_BUNDLE_SCHEMA = "persai.runtime.bundle.v1" as const;
@@ -62,6 +64,8 @@ export interface AssistantRuntimeBundleRuntimeConfig {
   optimizationPolicy: unknown;
   sharedCompaction: RuntimeSharedCompactionConfig;
   knowledgeAccess: RuntimeKnowledgeAccessConfig;
+  workerTools: RuntimeWorkerToolsConfig;
+  browser: RuntimeBrowserConfig;
 }
 
 export interface AssistantRuntimeBundleGovernance {

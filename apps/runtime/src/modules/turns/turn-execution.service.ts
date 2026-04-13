@@ -25,6 +25,7 @@ import {
   type RuntimeCompactionRequest,
   type RuntimeKnowledgeFetchToolResult,
   type RuntimeKnowledgeSearchToolResult,
+  type RuntimeBrowserToolResult,
   type RuntimeSharedCompactionToolResult,
   type RuntimeToolPolicy,
   type RuntimeFailedEvent,
@@ -44,6 +45,7 @@ import {
 } from "./native-tool-projection";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
@@ -83,6 +85,7 @@ type ToolExecutionOutcome = {
     | RuntimeSharedCompactionToolResult
     | RuntimeKnowledgeSearchToolResult
     | RuntimeKnowledgeFetchToolResult
+    | RuntimeBrowserToolResult
     | RuntimeWebSearchToolResult
     | RuntimeWebFetchToolResult
     | Record<string, unknown>;
@@ -102,6 +105,7 @@ class TurnExecutionError extends Error {
 }
 
 const MAX_NATIVE_TOOL_LOOP_ITERATIONS = 4;
+const BROWSER_TOOL_CODE = "browser";
 const WEB_SEARCH_TOOL_CODE = "web_search";
 const DEFAULT_NATIVE_WEB_SEARCH_PROVIDER_ID: PersaiRuntimeWebSearchProviderId = "tavily";
 const WEB_SEARCH_MIN_COUNT = 1;
@@ -122,7 +126,8 @@ export class TurnExecutionService {
     private readonly turnContextHydrationService: TurnContextHydrationService,
     private readonly turnAcceptanceService: TurnAcceptanceService,
     private readonly turnFinalizationService: TurnFinalizationService,
-    private readonly sessionCompactionService: SessionCompactionService
+    private readonly sessionCompactionService: SessionCompactionService,
+    private readonly runtimeBrowserToolService: RuntimeBrowserToolService
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -803,6 +808,13 @@ export class TurnExecutionService {
         return this.executeWebSearchTool(execution, toolCall);
       case WEB_FETCH_TOOL_CODE:
         return this.executeWebFetchTool(execution, toolCall);
+      case BROWSER_TOOL_CODE: {
+        const result = await this.runtimeBrowserToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
       case execution.bundle.runtime.knowledgeAccess.searchToolCode:
         return this.executeKnowledgeSearchTool(execution, toolCall);
       case execution.bundle.runtime.knowledgeAccess.fetchToolCode:
@@ -1159,6 +1171,7 @@ export class TurnExecutionService {
       | RuntimeSharedCompactionToolResult
       | RuntimeKnowledgeSearchToolResult
       | RuntimeKnowledgeFetchToolResult
+      | RuntimeBrowserToolResult
       | RuntimeWebSearchToolResult
       | RuntimeWebFetchToolResult
       | Record<string, unknown>,

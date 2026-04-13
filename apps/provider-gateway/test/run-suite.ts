@@ -1,4 +1,5 @@
 import { runProviderAudioTranscriptionServiceTest } from "./provider-audio-transcription.service.test";
+import { runProviderBrowserServiceTest } from "./provider-browser.service.test";
 import { runAnthropicProviderClientTest } from "./anthropic-provider.client.test";
 import { runOpenAIProviderClientTest } from "./openai-provider.client.test";
 import { runProviderGatewayConfigTest } from "./provider-gateway-config.test";
@@ -12,6 +13,7 @@ async function run(): Promise<void> {
   await runAnthropicProviderClientTest();
   await runOpenAIProviderClientTest();
   await runProviderAudioTranscriptionServiceTest();
+  await runProviderBrowserServiceTest();
   await runProviderWarmupServiceTest();
   await runProviderTextGenerationServiceTest();
   await runProviderWebSearchServiceTest();

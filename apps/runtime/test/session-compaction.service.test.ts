@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextGenerateRequest,
+  RuntimeBrowserConfig,
   RuntimeKnowledgeAccessConfig,
   RuntimeCompactionRequest,
-  RuntimeSessionSummary
+  RuntimeSessionSummary,
+  RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
 import type { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
 import {
@@ -43,6 +45,30 @@ const KNOWLEDGE_ACCESS_CONFIG = {
     }
   ]
 } satisfies RuntimeKnowledgeAccessConfig;
+
+const WORKER_TOOLS_CONFIG = {
+  tools: [
+    {
+      toolCode: "browser",
+      family: "browser_interaction",
+      outcomeKind: "structured_output",
+      timeoutMs: 120000,
+      confirmationRule: "required_for_mutations",
+      supportsProviderRouting: true,
+      failureBehavior: "surface_error"
+    }
+  ]
+} satisfies RuntimeWorkerToolsConfig;
+
+const BROWSER_CONFIG = {
+  toolCode: "browser",
+  executionMode: "worker",
+  credentialToolCode: "browser",
+  providerIds: ["browserless"],
+  defaultProviderId: "browserless",
+  actions: ["snapshot", "act"],
+  confirmationRequiredActions: ["act"]
+} satisfies RuntimeBrowserConfig;
 
 const VALID_COMPACTION_SECTIONS = {
   stableFacts: ["User is working on the PersAI runtime."],
@@ -146,6 +172,8 @@ function createBundleEntry() {
       },
       optimizationPolicy: null,
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
+      workerTools: WORKER_TOOLS_CONFIG,
+      browser: BROWSER_CONFIG,
       sharedCompaction: {
         summarizeToolCode: "summarize_context",
         compactToolCode: "compact_context",
@@ -165,8 +193,32 @@ function createBundleEntry() {
       toolAvailability: null,
       memoryControl: null,
       tasksControl: null,
-      toolCredentialRefs: {},
-      toolPolicies: [],
+      toolCredentialRefs: {
+        browser: {
+          refKey: "persai:persai-runtime:tool/browser/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/browser/api-key"
+          },
+          configured: false,
+          providerId: "browserless"
+        }
+      },
+      toolPolicies: [
+        {
+          toolCode: "browser",
+          displayName: "Browser",
+          description: "Navigate and interact with web pages.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "forbidden",
+          enabled: false,
+          visibleToModel: false,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        }
+      ],
       quota: {
         planCode: "paid",
         workspaceQuotaBytes: 1024,

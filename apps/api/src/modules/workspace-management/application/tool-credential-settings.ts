@@ -4,6 +4,7 @@ export const TOOL_CREDENTIAL_IDS = {
   tool_web_search: "tool/web_search/api-key",
   tool_web_fetch: "tool/web_fetch/api-key",
   tool_image_generate: "tool/image_generate/api-key",
+  tool_browser: "tool/browser/api-key",
   tool_tts: "tool/tts/api-key",
   tool_memory_search: "tool/memory_search/api-key"
 } as const;
@@ -17,6 +18,7 @@ export const TOOL_CODE_BY_CREDENTIAL_KEY: Record<ToolCredentialKey, string> = {
   tool_web_search: "web_search",
   tool_web_fetch: "web_fetch",
   tool_image_generate: "image_generate",
+  tool_browser: "browser",
   tool_tts: "tts",
   tool_memory_search: "memory_search"
 };
@@ -41,6 +43,7 @@ export const TOOL_PROVIDER_OPTIONS: Partial<Record<ToolCredentialKey, ToolProvid
     { id: "perplexity", label: "Perplexity", envVar: "PERPLEXITY_API_KEY" },
     { id: "google", label: "Google (Gemini)", envVar: "GEMINI_API_KEY" }
   ],
+  tool_browser: [{ id: "browserless", label: "Browserless", envVar: "BROWSERLESS_API_KEY" }],
   tool_tts: [
     { id: "openai", label: "OpenAI TTS", envVar: "OPENAI_TTS_API_KEY" },
     { id: "elevenlabs", label: "ElevenLabs", envVar: "ELEVENLABS_API_KEY" },
@@ -50,6 +53,7 @@ export const TOOL_PROVIDER_OPTIONS: Partial<Record<ToolCredentialKey, ToolProvid
 
 export const TOOL_DEFAULT_PROVIDER: Partial<Record<ToolCredentialKey, string>> = {
   tool_web_search: "tavily",
+  tool_browser: "browserless",
   tool_tts: "openai"
 };
 
@@ -178,6 +182,7 @@ export function buildAdminToolCredentialsState(params: {
     tool_web_search: "Web Search API Key",
     tool_web_fetch: "Web Fetch (Firecrawl) API Key",
     tool_image_generate: "Image Generation API Key",
+    tool_browser: "Browser (Browserless) API Key",
     tool_tts: "Text-to-Speech API Key",
     tool_memory_search: "Memory Search (Embeddings) API Key"
   };

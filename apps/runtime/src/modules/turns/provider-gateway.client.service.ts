@@ -7,6 +7,8 @@ import {
 } from "@nestjs/common";
 import type { RuntimeConfig } from "@persai/config";
 import type {
+  ProviderGatewayBrowserActionRequest,
+  ProviderGatewayBrowserActionResult,
   ProviderGatewayAudioTranscriptionResult,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
@@ -181,6 +183,37 @@ export class ProviderGatewayClientService {
     }
     if (!this.isWebFetchResult(response.body)) {
       throw new BadGatewayException("Provider gateway returned an invalid web fetch response.");
+    }
+
+    return response.body;
+  }
+
+  async browserAction(
+    input: ProviderGatewayBrowserActionRequest,
+    options?: { timeoutMs?: number }
+  ): Promise<ProviderGatewayBrowserActionResult> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
+    }
+
+    const response = await this.fetchJson(
+      this.buildUrl("/api/v1/providers/browser-action"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      },
+      options?.timeoutMs ?? this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      throw this.toGatewayException(response);
+    }
+    if (!this.isBrowserActionResult(response.body)) {
+      throw new BadGatewayException(
+        "Provider gateway returned an invalid browser action response."
+      );
     }
 
     return response.body;
@@ -509,6 +542,41 @@ export class ProviderGatewayClientService {
       externalContent?.untrusted === true &&
       externalContent.source === "web_fetch" &&
       externalContent.provider === "firecrawl"
+    );
+  }
+
+  private isBrowserActionResult(value: unknown): value is ProviderGatewayBrowserActionResult {
+    const row = this.asObject(value);
+    const externalContent = this.asObject(row?.externalContent);
+    return (
+      row?.provider === "browserless" &&
+      (row.action === "snapshot" || row.action === "act") &&
+      typeof row.initialUrl === "string" &&
+      typeof row.finalUrl === "string" &&
+      (typeof row.title === "string" || row.title === null) &&
+      typeof row.content === "string" &&
+      typeof row.truncated === "boolean" &&
+      Array.isArray(row.elements) &&
+      row.elements.every((entry) => {
+        const element = this.asObject(entry);
+        return (
+          element !== null &&
+          typeof element.selector === "string" &&
+          typeof element.tagName === "string" &&
+          (typeof element.text === "string" || element.text === null) &&
+          (typeof element.role === "string" || element.role === null) &&
+          (typeof element.type === "string" || element.type === null) &&
+          (typeof element.href === "string" || element.href === null) &&
+          (typeof element.placeholder === "string" || element.placeholder === null) &&
+          typeof element.disabled === "boolean"
+        );
+      }) &&
+      typeof row.observedAt === "string" &&
+      typeof row.tookMs === "number" &&
+      (typeof row.warning === "string" || row.warning === null) &&
+      externalContent?.untrusted === true &&
+      externalContent.source === "browser" &&
+      externalContent.provider === "browserless"
     );
   }
 

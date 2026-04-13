@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { RuntimeConfig } from "@persai/config";
 import type {
+  ProviderGatewayBrowserActionRequest,
   ProviderGatewayWebSearchRequest,
   ProviderGatewayWebFetchRequest,
   ProviderGatewayTextGenerateRequest,
@@ -74,6 +75,21 @@ function createWebSearchRequest(): ProviderGatewayWebSearchRequest {
       toolCode: "web_search",
       secretId: "secret-1",
       providerId: "tavily"
+    }
+  };
+}
+
+function createBrowserActionRequest(): ProviderGatewayBrowserActionRequest {
+  return {
+    action: "snapshot",
+    url: "https://example.com",
+    maxChars: 5000,
+    operations: [],
+    timeoutMs: 120000,
+    credential: {
+      toolCode: "browser",
+      secretId: "secret-1",
+      providerId: "browserless"
     }
   };
 }
@@ -240,6 +256,46 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       );
     }
 
+    if (url.endsWith("/api/v1/providers/browser-action")) {
+      return new Response(
+        JSON.stringify({
+          provider: "browserless",
+          action: "snapshot",
+          initialUrl: "https://example.com",
+          finalUrl: "https://example.com/final",
+          title: "Example",
+          content: "Rendered browser content",
+          truncated: false,
+          elements: [
+            {
+              selector: "#search",
+              tagName: "input",
+              text: null,
+              role: null,
+              type: "search",
+              href: null,
+              placeholder: "Search",
+              disabled: false
+            }
+          ],
+          observedAt: "2026-04-13T12:00:00.000Z",
+          tookMs: 450,
+          warning: "Browser content is untrusted.",
+          externalContent: {
+            untrusted: true,
+            source: "browser",
+            provider: "browserless"
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+
     if (isPayloadTooLargeRequest) {
       return new Response(
         JSON.stringify({
@@ -292,10 +348,14 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     });
     const webFetch = await service.webFetch(createWebFetchRequest());
     const webSearch = await service.webSearch(createWebSearchRequest());
+    const browserAction = await service.browserAction(createBrowserActionRequest(), {
+      timeoutMs: 120000
+    });
     assert.equal(transcription.text, "hello from audio");
     assert.equal(webFetch.provider, "firecrawl");
     assert.equal(webSearch.provider, "tavily");
-    assert.equal(requests.length, 6);
+    assert.equal(browserAction.provider, "browserless");
+    assert.equal(requests.length, 7);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
@@ -315,6 +375,8 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(requests[4]?.init?.method, "POST");
     assert.equal(requests[5]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
     assert.equal(requests[5]?.init?.method, "POST");
+    assert.equal(requests[6]?.url, "http://provider-gateway.local/api/v1/providers/browser-action");
+    assert.equal(requests[6]?.init?.method, "POST");
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();
@@ -332,6 +394,10 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     );
     await assert.rejects(
       () => unconfiguredService.webSearch(createWebSearchRequest()),
+      /base URL is not configured/
+    );
+    await assert.rejects(
+      () => unconfiguredService.browserAction(createBrowserActionRequest()),
       /base URL is not configured/
     );
     await assert.rejects(

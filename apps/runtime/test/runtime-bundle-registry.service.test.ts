@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { RuntimeConfig } from "@persai/config";
-import type { RuntimeKnowledgeAccessConfig, RuntimeToolPolicy } from "@persai/runtime-contract";
+import type {
+  RuntimeBrowserConfig,
+  RuntimeKnowledgeAccessConfig,
+  RuntimeToolPolicy,
+  RuntimeWorkerToolsConfig
+} from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
 import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
 import { RuntimeReadinessService } from "../src/modules/platform-core/application/runtime-readiness.service";
@@ -57,7 +62,54 @@ const KNOWLEDGE_ACCESS_CONFIG = {
   ]
 } satisfies RuntimeKnowledgeAccessConfig;
 
-const KNOWLEDGE_TOOL_POLICIES = [
+const WORKER_TOOLS_CONFIG = {
+  tools: [
+    {
+      toolCode: "browser",
+      family: "browser_interaction",
+      outcomeKind: "structured_output",
+      timeoutMs: 120000,
+      confirmationRule: "required_for_mutations",
+      supportsProviderRouting: true,
+      failureBehavior: "surface_error"
+    }
+  ]
+} satisfies RuntimeWorkerToolsConfig;
+
+const BROWSER_CONFIG = {
+  toolCode: "browser",
+  executionMode: "worker",
+  credentialToolCode: "browser",
+  providerIds: ["browserless"],
+  defaultProviderId: "browserless",
+  actions: ["snapshot", "act"],
+  confirmationRequiredActions: ["act"]
+} satisfies RuntimeBrowserConfig;
+
+const BROWSER_CREDENTIAL_REF = {
+  refKey: "persai:persai-runtime:tool/browser/api-key",
+  secretRef: {
+    source: "persai",
+    provider: "persai-runtime",
+    id: "tool/browser/api-key"
+  },
+  configured: false,
+  providerId: "browserless"
+} as const;
+
+const BASE_TOOL_POLICIES = [
+  {
+    toolCode: "browser",
+    displayName: "Browser",
+    description: "Navigate and interact with web pages.",
+    kind: "plan",
+    executionMode: "worker",
+    usageRule: "forbidden",
+    enabled: false,
+    visibleToModel: false,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
   {
     toolCode: "web_search",
     displayName: "Web Search",
@@ -139,6 +191,8 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
       runtimeProviderRouting: null,
       optimizationPolicy: null,
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
+      workerTools: WORKER_TOOLS_CONFIG,
+      browser: BROWSER_CONFIG,
       sharedCompaction: {
         summarizeToolCode: "summarize_context",
         compactToolCode: "compact_context",
@@ -158,8 +212,10 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
       toolAvailability: null,
       memoryControl: null,
       tasksControl: null,
-      toolCredentialRefs: {},
-      toolPolicies: [...KNOWLEDGE_TOOL_POLICIES],
+      toolCredentialRefs: {
+        browser: BROWSER_CREDENTIAL_REF
+      },
+      toolPolicies: [...BASE_TOOL_POLICIES],
       quota: {
         planCode: "free",
         workspaceQuotaBytes: 1024,
@@ -243,6 +299,8 @@ function createWarmInputMissingToolPolicy() {
       runtimeProviderRouting: null,
       optimizationPolicy: null,
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
+      workerTools: WORKER_TOOLS_CONFIG,
+      browser: BROWSER_CONFIG,
       sharedCompaction: {
         summarizeToolCode: "summarize_context",
         compactToolCode: "compact_context",
@@ -264,7 +322,9 @@ function createWarmInputMissingToolPolicy() {
       },
       memoryControl: null,
       tasksControl: null,
-      toolCredentialRefs: {},
+      toolCredentialRefs: {
+        browser: BROWSER_CREDENTIAL_REF
+      },
       toolPolicies: [],
       quota: {
         planCode: "free",
@@ -350,6 +410,89 @@ function createWarmInputInvalidKnowledgeAccess() {
   };
 }
 
+function createWarmInputInvalidWorkerToolsMissingCoverage() {
+  const input = createWarmInput(
+    "bundle-invalid-worker-tools-coverage",
+    "assistant-invalid-worker-tools-coverage",
+    "version-invalid-worker-tools-coverage"
+  );
+  const bundleDocument = JSON.parse(input.bundleDocument) as {
+    runtime: { workerTools: { tools: Array<Record<string, unknown>> } };
+  };
+  bundleDocument.runtime.workerTools.tools = [];
+  return {
+    ...input,
+    bundleDocument: JSON.stringify(bundleDocument)
+  };
+}
+
+function createWarmInputInvalidWorkerToolsNonWorkerReference() {
+  const input = createWarmInput(
+    "bundle-invalid-worker-tools-reference",
+    "assistant-invalid-worker-tools-reference",
+    "version-invalid-worker-tools-reference"
+  );
+  const bundleDocument = JSON.parse(input.bundleDocument) as {
+    runtime: { workerTools: { tools: Array<Record<string, unknown>> } };
+  };
+  bundleDocument.runtime.workerTools.tools = [
+    {
+      toolCode: "web_search",
+      family: "browser_interaction",
+      outcomeKind: "structured_output",
+      timeoutMs: 120000,
+      confirmationRule: "required_for_mutations",
+      supportsProviderRouting: true,
+      failureBehavior: "surface_error"
+    }
+  ];
+  return {
+    ...input,
+    bundleDocument: JSON.stringify(bundleDocument)
+  };
+}
+
+function createWarmInputInvalidBrowserConfigProvider() {
+  const input = createWarmInput(
+    "bundle-invalid-browser-provider",
+    "assistant-invalid-browser-provider",
+    "version-invalid-browser-provider"
+  );
+  const bundleDocument = JSON.parse(input.bundleDocument) as {
+    runtime: { browser: { providerIds: string[] } };
+  };
+  bundleDocument.runtime.browser.providerIds = ["browserless", "unknown"];
+  return {
+    ...input,
+    bundleDocument: JSON.stringify(bundleDocument)
+  };
+}
+
+function createWarmInputInvalidBrowserCredentialRef() {
+  const input = createWarmInput(
+    "bundle-invalid-browser-credential",
+    "assistant-invalid-browser-credential",
+    "version-invalid-browser-credential"
+  );
+  const bundleDocument = JSON.parse(input.bundleDocument) as {
+    governance: {
+      toolCredentialRefs: {
+        browser: {
+          refKey: string;
+          secretRef: { source: string; provider: string; id: string };
+        };
+      };
+    };
+  };
+  bundleDocument.governance.toolCredentialRefs.browser.refKey =
+    "persai:persai-runtime:tool/web_search/api-key";
+  bundleDocument.governance.toolCredentialRefs.browser.secretRef.id = "tool/web_search/api-key";
+  return {
+    ...input,
+    bundleDocument: JSON.stringify(bundleDocument)
+  };
+}
+
 export async function runRuntimeBundleRegistryServiceTest(): Promise<void> {
   const observabilityService = new RuntimeObservabilityService();
   const registryService = new RuntimeBundleRegistryService(createConfig(), observabilityService);
@@ -412,6 +555,26 @@ export async function runRuntimeBundleRegistryServiceTest(): Promise<void> {
   assert.throws(
     () => registryService.validateWarmBundleInput(createWarmInputInvalidKnowledgeAccess()),
     /knowledgeAccess\.ragMode/
+  );
+  assert.throws(
+    () =>
+      registryService.validateWarmBundleInput(createWarmInputInvalidWorkerToolsMissingCoverage()),
+    /workerTools\.tools must include "browser"/
+  );
+  assert.throws(
+    () =>
+      registryService.validateWarmBundleInput(
+        createWarmInputInvalidWorkerToolsNonWorkerReference()
+      ),
+    /cannot reference non-worker tool "web_search"/
+  );
+  assert.throws(
+    () => registryService.validateWarmBundleInput(createWarmInputInvalidBrowserConfigProvider()),
+    /runtime\.browser\.providerIds contains invalid provider/
+  );
+  assert.throws(
+    () => registryService.validateWarmBundleInput(createWarmInputInvalidBrowserCredentialRef()),
+    /toolCredentialRefs\["browser"\]\.refKey must be "persai:persai-runtime:tool\/browser\/api-key"/
   );
 
   const overriddenWarm = registryService.warmBundle(

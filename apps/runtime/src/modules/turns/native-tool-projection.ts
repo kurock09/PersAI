@@ -3,8 +3,13 @@ import type {
   AssistantRuntimeBundleToolCredentialRef
 } from "@persai/runtime-bundle";
 import {
+  MAX_RUNTIME_BROWSER_MAX_CHARS,
+  MAX_RUNTIME_BROWSER_OPERATIONS,
+  MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
+  PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
   type ProviderGatewayToolDefinition,
+  type PersaiRuntimeBrowserProviderId,
   type RuntimeKnowledgeAccessSourceConfig,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
@@ -49,6 +54,15 @@ export function projectRuntimeNativeTools(
   const webFetchCredential = resolveConfiguredCredentialRef(bundle, "web_fetch");
   if (webFetchPolicy !== null && webFetchCredential !== null) {
     projectedTools.push(createWebFetchToolDefinition());
+  }
+  const browserPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "browser", "worker");
+  const browserCredential = resolveConfiguredCredentialRef(bundle, "browser");
+  if (
+    browserPolicy !== null &&
+    browserCredential !== null &&
+    supportsCurrentNativeBrowserProvider(bundle, browserCredential.providerId ?? null)
+  ) {
+    projectedTools.push(createBrowserToolDefinition(bundle));
   }
 
   return {
@@ -148,9 +162,83 @@ function createWebFetchToolDefinition(): ProviderGatewayToolDefinition {
   };
 }
 
+function createBrowserToolDefinition(
+  bundle: AssistantRuntimeBundle
+): ProviderGatewayToolDefinition {
+  return {
+    name: "browser",
+    description:
+      "Use a real browser for JavaScript-rendered or interactive pages when web_search or web_fetch are insufficient. Use action=snapshot to inspect a page and action=act only after the user explicitly wants page interaction.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action", "url"],
+      properties: {
+        action: {
+          type: "string",
+          enum: [...bundle.runtime.browser.actions],
+          description:
+            'Use "snapshot" to inspect a page or "act" to perform bounded browser operations before returning a fresh snapshot.'
+        },
+        url: {
+          type: "string",
+          description: "HTTP or HTTPS URL to open in the browser."
+        },
+        maxChars: {
+          type: "integer",
+          minimum: 500,
+          maximum: MAX_RUNTIME_BROWSER_MAX_CHARS,
+          description: "Maximum number of page-text characters to return."
+        },
+        operations: {
+          type: "array",
+          maxItems: MAX_RUNTIME_BROWSER_OPERATIONS,
+          description:
+            'Required for action="act". Each step is one bounded browser operation using a CSS selector or keyboard input.',
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind"],
+            properties: {
+              kind: {
+                type: "string",
+                enum: [...PERSAI_RUNTIME_BROWSER_OPERATION_KINDS]
+              },
+              selector: {
+                type: "string",
+                description: "CSS selector for click/type/select/wait_for_selector operations."
+              },
+              text: {
+                type: "string",
+                description: 'Text to type when kind="type".'
+              },
+              key: {
+                type: "string",
+                description: 'Keyboard key to press when kind="press", for example "Enter".'
+              },
+              value: {
+                type: "string",
+                description: 'Option value to select when kind="select_option".'
+              },
+              timeoutMs: {
+                type: "integer",
+                minimum: 0,
+                maximum: MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
+                description:
+                  "Optional timeout for wait_for_selector or required delay for wait_for_timeout."
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+}
+
 function resolveAllowedModelVisibleToolPolicy(
   bundle: AssistantRuntimeBundle,
-  toolCode: string
+  toolCode: string,
+  executionMode: RuntimeToolPolicy["executionMode"] = "inline"
 ): RuntimeToolPolicy | null {
   const policy =
     bundle.governance.toolPolicies.find((entry) => entry.toolCode === toolCode) ?? null;
@@ -159,7 +247,7 @@ function resolveAllowedModelVisibleToolPolicy(
     policy.visibleToModel !== true ||
     policy.enabled !== true ||
     policy.usageRule !== "allowed" ||
-    policy.executionMode !== "inline"
+    policy.executionMode !== executionMode
   ) {
     return null;
   }
@@ -184,5 +272,16 @@ function supportsCurrentNativeWebSearchProvider(providerId: string | null): bool
     providerId === "brave" ||
     providerId === "perplexity" ||
     providerId === "google"
+  );
+}
+
+function supportsCurrentNativeBrowserProvider(
+  bundle: AssistantRuntimeBundle,
+  providerId: string | null
+): boolean {
+  return (
+    providerId === null ||
+    bundle.runtime.browser.providerIds.includes(providerId as PersaiRuntimeBrowserProviderId) ||
+    providerId === bundle.runtime.browser.defaultProviderId
   );
 }

@@ -914,6 +914,18 @@ Required in CI:
   - runtime/provider-gateway resolve `tool/web_search/api-key` through PersAI internal secret resolution and normalize results from each current provider seam into the separate native `web_search` contract
   - runtime tool-loop coverage includes successful `web_search` execution for at least one non-default provider plus structured `tool_daily_limit_reached` and unsupported-provider outcomes without routing through `knowledge_*`
   - after provider-selection parity lands, one bounded post-`reapply` live validation pack should exercise at least one real configured `web_search` success plus quota-denied / unsupported-provider guards from the fresh bundle
+- T15-4 worker-tool contract baseline validates:
+  - `runtime.workerTools` exists on the native runtime bundle and covers every current `toolPolicies[].executionMode === "worker"` tool instead of letting browser/media/internal scheduler families invent ad hoc async metadata later
+  - worker tool metadata keeps explicit family, outcome kind, timeout budget, confirmation policy, provider-routing support, and failure behavior
+  - `runtime.browser` exists on the native runtime bundle with canonical `toolCode`, `credentialToolCode`, provider ids, the bounded `snapshot | act` action surface, and confirmation-required action metadata instead of hiding browser semantics inside generic worker-only fields
+  - browser enable/disable and quota behavior still flow from the existing plan/tariff tool activation surface (`effectiveActivation` + `dailyCallLimit -> toolPolicies`) rather than a browser-specific override path
+  - admin Tool Credentials state includes `tool_browser`, and materialization carries that Browserless seam into `toolCredentialRefs.browser` instead of leaving browser credentials as UI-only metadata
+  - runtime warm validation rejects `runtime.workerTools` entries that reference unknown or non-worker tools, or omit current worker-policy coverage
+  - runtime warm validation rejects invalid `runtime.browser` provider/action metadata or browser credential drift from the expected native secret seam
+  - provider-gateway `POST /api/v1/providers/browser-action` normalizes Browserless-backed browser execution onto the native browser contract with bounded request validation, secret resolution, rendered-page snapshots, and structured upstream failure handling
+  - runtime projects `browser` only when worker policy + configured credential + supported provider all agree, executes the browser call through the worker path, and records structured tool-history results with page snapshot metadata and provider attribution
+  - runtime keeps `browser` dark when the plan/tariff disables the tool even if the Browserless credential remains configured
+  - browser projection stays dark when credentials are missing or the selected provider is unsupported
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift

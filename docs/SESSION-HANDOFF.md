@@ -1,5 +1,274 @@
 # SESSION-HANDOFF
 
+## 2026-04-13 - ADR-072 T15-4 native browser executor closeout
+
+### What changed
+
+1. `browser` is now a real PersAI-native tool path: `apps/runtime` projects `browser` when worker policy + configured Browserless credential + supported provider all agree, and turn execution now routes browser tool calls through a dedicated native browser worker service instead of keeping the tool dark forever.
+2. `apps/provider-gateway` now owns `POST /api/v1/providers/browser-action`, backed by Browserless `/function`, with bounded request validation, secret resolution, timeout propagation, and normalized rendered-page snapshot results.
+3. The native browser contract is now honest and bounded: `runtime.browser` / `@persai/runtime-contract` now model the current `snapshot | act` surface plus structured browser operations, interactive-element snapshots, and provider-gateway browser request/result types instead of a fake tabs/profiles/session API.
+4. Focused runtime/provider-gateway tests now cover browser projection gating, quota/provider routing, timeout propagation, Browserless request normalization, and structured tool-history output, so `T15-4` can move to completed and the next Step 15 slice becomes `T15-5`.
+
+### Why
+
+1. The prior `tool_browser` / `runtime.browser` landing fixed control-plane truth, but `browser` still had no real executor and therefore could not honestly complete `T15-4`.
+2. Browser interaction needed to stay separate from `web_search` / `web_fetch` while also avoiding a fake inline shim or a decorative async contract with no live runtime path behind it.
+3. A bounded stateless Browserless-backed executor closes the current browsing gap cleanly while preserving the shared `runtime.workerTools` foundation for later reminder/media worker families.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, `T15-3a`, `T15-3b`, and `T15-4` are now complete; the next queued tool family is `T15-5 — Reminder and scheduled action plan tools`)
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/runtime-browser.ts`
+- `apps/api/test/runtime-browser.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-browser.controller.ts`
+- `apps/provider-gateway/src/modules/providers/provider-browser.service.ts`
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`
+- `apps/provider-gateway/test/provider-browser.service.test.ts`
+- `apps/provider-gateway/test/provider-gateway-config.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `apps/provider-gateway/test/anthropic-provider.client.test.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-warmup.service.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-browser-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `packages/config/src/provider-gateway-config.ts`
+- `packages/runtime-contract/src/index.ts`
+
+### Tests run
+
+- `pnpm --filter @persai/provider-gateway typecheck`
+- `pnpm --filter @persai/runtime typecheck`
+- `pnpm --filter @persai/api typecheck`
+- `pnpm --filter @persai/provider-gateway test`
+- `pnpm --filter @persai/runtime test`
+- `pnpm --filter @persai/api test`
+
+### Risks
+
+1. The current browser executor is intentionally stateless and bounded around Browserless `/function`, so multi-tab/profile/session persistence is still excluded until product requirements justify a broader browser session model.
+2. No bounded live Browserless smoke was run in this session because the work stayed on repo code/tests; if a test Browserless credential is available later, one post-`reapply` smoke pass would still be useful operational evidence.
+
+### Next recommended step
+
+1. Start `T15-5 — Reminder and scheduled action plan tools` on top of the shared `runtime.workerTools` abstraction instead of inventing a reminder-specific worker contract.
+2. Keep later worker families (`tts`, `image_generate`, future `image_edit` / `video_generate`) aligned to the same worker projection/execution boundary now used by `browser`.
+
+### Ready commit message
+
+- `feat(runtime): land native browser worker executor`
+
+## 2026-04-13 - ADR-072 T15-4 browser credential + native contract baseline
+
+### What changed
+
+1. PersAI control plane now has a real browser credential seam: `tool_browser` (`Browserless`) is wired through admin Tool Credentials, tool-catalog metadata, materialization, and runtime bundle `toolCredentialRefs.browser`.
+2. The native runtime contract/bundle now carries typed `runtime.browser` metadata with canonical tool/credential codes, supported provider ids, browser action surface, and confirmation-required action rules.
+3. `runtime.workerTools` now marks `browser` as provider-routed, and runtime warm validation rejects drift in both the shared worker metadata and the new browser-specific provider/action/credential contract.
+4. Runtime-side test fixtures now explicitly prove that `browser` remains dark on the active model-visible path even when the browser credential/policy exists, so this lands an honest baseline without a fake inline executor.
+
+### Why
+
+1. `T15-4` needed a real PersAI-owned `browser` seam, not only generic worker metadata plus a dead-end UI row.
+2. The user explicitly called out the missing Browserless key pass-through on the Tool Credentials page; this slice closes that gap cleanly from UI/control plane through bundle/runtime truth.
+3. Future browser/media/reminder worker executors now have one reusable baseline: shared worker metadata in `runtime.workerTools` plus a browser-specific contract in `runtime.browser`.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, `T15-3a`, and `T15-3b` are complete; `T15-4 — Browser and web-interaction plan tools` remains in progress with the shared worker baseline plus the first real `tool_browser` / `runtime.browser` seam landed; the next honest follow-through is real browser worker dispatch/executor wiring on top of that contract)
+
+### Files touched
+
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-browser.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-worker-tools.ts`
+- `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`
+- `apps/api/test/runtime-browser.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/api/test/runtime-worker-tools.test.ts`
+- `apps/api/test/tool-credential-settings.test.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `packages/runtime-bundle/src/index.ts`
+- `packages/runtime-contract/src/index.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm --filter @persai/runtime-bundle run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run test`
+- `corepack pnpm --filter @persai/runtime run test`
+- `ReadLints` on touched TS files
+
+### Risks
+
+1. `tool_browser` now reaches the runtime bundle honestly, but no native browser worker executor exists yet, so configured Browserless keys are staged for later dispatch rather than being consumed on the live request path today.
+2. `runtime.browser` fixes provider/action/confirmation truth, but request/response payload shapes for the future browser worker job are still the next implementation slice.
+3. Because the active runtime projection remains inline-only for model-visible tools, later `T15-4` work still has to add real worker dispatch without accidentally exposing `browser` as a fake inline tool.
+
+### Next recommended step
+
+1. Continue `T15-4` with the first real browser worker dispatch seam: define the native browser job/request-result contract and route worker execution off `runtime.browser` + `toolCredentialRefs.browser` instead of inventing a second browser metadata source.
+2. Keep `browser` dark to the active model-visible inline loop until that worker executor is real; do not add a fake `browser` inline shim.
+
+### Ready commit message
+
+- `feat(runtime): add browser credential and contract baseline`
+
+## 2026-04-13 - ADR-072 T15-4 shared worker-tool contract baseline
+
+### What changed
+
+1. `packages/runtime-contract` and `packages/runtime-bundle` now carry a typed native `runtime.workerTools` contract for worker-class tools, covering explicit worker family, outcome kind, timeout budget, confirmation rule, provider-routing support, and failure behavior.
+2. `apps/api` now derives that `runtime.workerTools` block during materialization from the current worker-policy surface instead of leaving `browser`, future media tools, and later scheduler-backed tools to invent separate async metadata.
+3. `apps/runtime` warm validation now enforces parity between `runtime.workerTools` and `toolPolicies.executionMode === "worker"`, rejecting bundles that omit current worker-tool coverage or point worker metadata at non-worker tools.
+4. ADR/source-of-truth status now opens `T15-4` honestly as in progress: the shared worker baseline is landed, while the real `browser` dispatch/executor path remains the next follow-through.
+
+### Why
+
+1. `T15-4` needed a real PersAI-owned browser/worker contract first, not a one-off fake `browser` executor bolted onto the inline tool loop.
+2. The repo already models `browser`, `image_generate`, `tts`, and hidden internal `cron` as `executionMode: "worker"`, but there was no shared bundle/runtime layer explaining what worker tools mean on the native path.
+3. Later `T15-4` / `T15-5` / `T15-6` slices need one reusable worker abstraction so browser, media, and scheduler families do not each reinvent async semantics, timeout policy, confirmation rules, or failure metadata.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, `T15-3a`, and `T15-3b` are complete; `T15-4 — Browser and web-interaction plan tools` is now in progress with the shared `runtime.workerTools` baseline landed; the next honest follow-through is real browser worker dispatch/executor wiring on top of that baseline)
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-worker-tools.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/api/test/runtime-worker-tools.test.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `packages/runtime-bundle/src/index.ts`
+- `packages/runtime-contract/src/index.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-worker-tools.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-bundle-materialization.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-registry.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-coordinator.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `ReadLints` on touched TS files
+
+### Risks
+
+1. `runtime.workerTools` is intentionally contract-only for now; no native job enqueue/poll surface or browser executor exists yet, so worker tools still remain dark on the active request path until later slices land real dispatch.
+2. The timeout/failure metadata is now explicit baseline truth, but the exact queue/backoff/runtime enforcement mechanics still remain implementation work for later `T15-4` / `T15-5` / `T15-6` slices.
+3. `reminder_task` still remains `inline` in the current policy surface; the new worker baseline is designed to be reused when reminders move to native scheduler ownership, but that remap has not happened yet.
+
+### Next recommended step
+
+1. Continue `T15-4` with the first real PersAI-native browser worker contract/executor seam on top of `runtime.workerTools`, keeping `browser` separate from retrieval and without exposing a fake inline tool.
+2. Keep later worker families (`reminder_task`, `image_generate`, `tts`, future `image_edit` / `video_generate`) aligned to the same `runtime.workerTools` abstraction instead of adding tool-specific async metadata elsewhere.
+
+### Ready commit message
+
+- `feat(runtime): add worker-tool contract baseline`
+
+## 2026-04-12 - ADR-072 T15-3b native web tools closeout
+
+### What changed
+
+1. Bounded live validation now confirms the native `T15-3b` web-tool path works on the freshly applied bundle: `web_search` executes successfully on the live native path, and `web_fetch` appears/executes once the separate Firecrawl credential is configured.
+2. The earlier deployment gap is now resolved end-to-end in practice: `runtime` and `provider-gateway` can both reach the PersAI internal API for tool quota consumption and assistant-scoped tool secret resolution during live execution.
+3. ADR/source-of-truth status now closes `T15-3b` and moves the next Step 15 focus to `T15-4 — Browser and web-interaction plan tools`.
+
+### Why
+
+1. `T15-3b` was intentionally blocked on real post-`reapply` validation, not only on local tests or code review.
+2. The final uncertainty was operational rather than architectural: the native executors were already landed, but the live quota/secret seam and configured-credential behavior still needed confirmation.
+3. With both native `web_search` and configured native `web_fetch` working on the live path, keeping `T15-3b` open would no longer reflect repo truth.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` (`T15-0`, `T15-1`, `T15-2`, `T15-3a`, and `T15-3b` are now complete; the next active tool slice is `T15-4 — Browser and web-interaction plan tools`)
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- bounded live validation on the freshly applied native web-tool path
+- real `web_search` success
+- real configured `web_fetch` success
+
+### Risks
+
+1. `web_fetch` remains credential-gated by design; if `tool_web_fetch` / Firecrawl is not configured in the applied bundle, the tool should stay hidden from the model rather than fail after invocation.
+2. The native `web_search` contract still intentionally exposes only shared `query` + `count`; richer provider-specific filters remain later follow-through if product still needs them.
+3. `T15-4` browser work is still untouched; closing `T15-3b` does not advance browsing or scheduler/media/memory slices.
+
+### Next recommended step
+
+1. Start `T15-4 — Browser and web-interaction plan tools` with an explicit PersAI-owned browser contract instead of smuggling page interaction into retrieval/search.
+2. Keep `persai_workspace_attach` / `persai_tool_quota_status` dark until their later `T15-7` exposure/executor follow-through.
+
+### Ready commit message
+
+- `docs(adr): close T15-3b native web tools`
+
 ## 2026-04-12 - ADR-072 native web-tool internal API wiring follow-through
 
 ### What changed

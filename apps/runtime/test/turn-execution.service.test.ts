@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { BadRequestException, ServiceUnavailableException } from "@nestjs/common";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
+  ProviderGatewayBrowserActionRequest,
+  ProviderGatewayBrowserActionResult,
   RuntimeKnowledgeAccessConfig,
+  RuntimeBrowserConfig,
   RuntimeCompactionResult,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
@@ -14,7 +17,8 @@ import type {
   RuntimeCompactionRequest,
   RuntimeTurnRequest,
   RuntimeTurnResult,
-  RuntimeTurnStreamEvent
+  RuntimeTurnStreamEvent,
+  RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
 import type { RuntimeBundleCacheEntry } from "../src/modules/bundles/bundle.types";
 import type { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
@@ -30,6 +34,7 @@ import type {
   ConsumeToolDailyLimitOutcome,
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
+import { RuntimeBrowserToolService } from "../src/modules/turns/runtime-browser-tool.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
   FinalizedRuntimeTurn,
@@ -58,6 +63,30 @@ const KNOWLEDGE_ACCESS_CONFIG = {
     }
   ]
 } satisfies RuntimeKnowledgeAccessConfig;
+
+const WORKER_TOOLS_CONFIG = {
+  tools: [
+    {
+      toolCode: "browser",
+      family: "browser_interaction",
+      outcomeKind: "structured_output",
+      timeoutMs: 120000,
+      confirmationRule: "required_for_mutations",
+      supportsProviderRouting: true,
+      failureBehavior: "surface_error"
+    }
+  ]
+} satisfies RuntimeWorkerToolsConfig;
+
+const BROWSER_CONFIG = {
+  toolCode: "browser",
+  executionMode: "worker",
+  credentialToolCode: "browser",
+  providerIds: ["browserless"],
+  defaultProviderId: "browserless",
+  actions: ["snapshot", "act"],
+  confirmationRequiredActions: ["act"]
+} satisfies RuntimeBrowserConfig;
 
 function createRuntimeTurnRequest(): RuntimeTurnRequest {
   return {
@@ -136,6 +165,8 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       },
       optimizationPolicy: null,
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
+      workerTools: WORKER_TOOLS_CONFIG,
+      browser: BROWSER_CONFIG,
       sharedCompaction: {
         summarizeToolCode: "summarize_context",
         compactToolCode: "compact_context",
@@ -155,8 +186,31 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       toolAvailability: null,
       memoryControl: null,
       tasksControl: null,
-      toolCredentialRefs: {},
+      toolCredentialRefs: {
+        browser: {
+          refKey: "persai:persai-runtime:tool/browser/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/browser/api-key"
+          },
+          configured: false,
+          providerId: "browserless"
+        }
+      },
       toolPolicies: [
+        {
+          toolCode: "browser",
+          displayName: "Browser",
+          description: "Navigate and interact with web pages.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
         {
           toolCode: "web_search",
           displayName: "Web Search",
@@ -336,6 +390,10 @@ class FakeProviderGatewayClientService {
   streamCalls: ProviderGatewayTextGenerateRequest[] = [];
   webSearchCalls: ProviderGatewayWebSearchRequest[] = [];
   webFetchCalls: ProviderGatewayWebFetchRequest[] = [];
+  browserActionCalls: Array<{
+    input: ProviderGatewayBrowserActionRequest;
+    options?: { timeoutMs?: number };
+  }> = [];
   result: ProviderGatewayTextGenerateResult = {
     provider: "openai",
     model: "gpt-5.4",
@@ -394,6 +452,36 @@ class FakeProviderGatewayClientService {
       untrusted: true,
       source: "web_fetch",
       provider: "firecrawl"
+    }
+  };
+  browserActionError: Error | null = null;
+  browserActionResult: ProviderGatewayBrowserActionResult = {
+    provider: "browserless",
+    action: "snapshot",
+    initialUrl: "https://example.com",
+    finalUrl: "https://example.com/app",
+    title: "Example app",
+    content: "Rendered browser content",
+    truncated: false,
+    elements: [
+      {
+        selector: "#search",
+        tagName: "input",
+        text: null,
+        role: null,
+        type: "search",
+        href: null,
+        placeholder: "Search",
+        disabled: false
+      }
+    ],
+    observedAt: "2026-04-13T12:00:00.000Z",
+    tookMs: 450,
+    warning: "Browser content is untrusted.",
+    externalContent: {
+      untrusted: true,
+      source: "browser",
+      provider: "browserless"
     }
   };
   streamEventsQueue: ProviderGatewayTextStreamEvent[][] = [];
@@ -463,6 +551,17 @@ class FakeProviderGatewayClientService {
       throw this.webFetchError;
     }
     return this.webFetchResult;
+  }
+
+  async browserAction(
+    input: ProviderGatewayBrowserActionRequest,
+    options?: { timeoutMs?: number }
+  ): Promise<ProviderGatewayBrowserActionResult> {
+    this.browserActionCalls.push(options === undefined ? { input } : { input, options });
+    if (this.browserActionError !== null) {
+      throw this.browserActionError;
+    }
+    return this.browserActionResult;
   }
 }
 
@@ -654,6 +753,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const turnFinalizationService = new FakeTurnFinalizationService();
   const sessionCompactionService = new FakeSessionCompactionService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
+  const runtimeBrowserToolService = new RuntimeBrowserToolService(
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
   const service = new TurnExecutionService(
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGatewayClient as unknown as ProviderGatewayClientService,
@@ -661,7 +764,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
     turnFinalizationService as unknown as TurnFinalizationService,
-    sessionCompactionService as never
+    sessionCompactionService as never,
+    runtimeBrowserToolService
   );
 
   const request = createRuntimeTurnRequest();
@@ -691,7 +795,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /compact_context/);
   assert.doesNotMatch(
     providerGatewayClient.calls[0]?.systemPrompt ?? "",
-    /knowledge_search|knowledge_fetch|web_search|memory_search|persai_workspace_attach|persai_tool_quota_status/
+    /knowledge_search|knowledge_fetch|web_search|memory_search|browser|persai_workspace_attach|persai_tool_quota_status/
   );
   assert.equal(turnFinalizationService.completed.length, 1);
   assert.equal(turnFinalizationService.failed.length, 0);
@@ -1654,6 +1758,213 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   };
   assert.equal(braveProviderToolHistory.provider, "brave");
   assert.equal(braveProviderToolHistory.externalContent?.provider, "brave");
+
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.browser = {
+      refKey: "persai:persai-runtime:tool/browser/api-key",
+      configured: true,
+      providerId: "browserless",
+      secretRef: {
+        source: "persai",
+        provider: "persai-runtime",
+        id: "tool/browser/api-key"
+      }
+    };
+    const browserPolicy = bundleRegistry.entry.parsedBundle.governance.toolPolicies.find(
+      (tool) => tool.toolCode === "browser"
+    );
+    if (browserPolicy) {
+      browserPolicy.dailyCallLimit = 5;
+    }
+  }
+  providerGatewayClient.browserActionResult = {
+    ...providerGatewayClient.browserActionResult,
+    action: "act",
+    content: "Rendered browser content after click",
+    finalUrl: "https://example.com/app/results"
+  };
+  const providerCallsBeforeBrowser = providerGatewayClient.calls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-12T12:00:14.500Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 18,
+        outputTokens: 0,
+        totalTokens: 18
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-browser-1",
+          name: "browser",
+          arguments: {
+            action: "act",
+            url: "https://example.com/app",
+            maxChars: 5000,
+            operations: [
+              {
+                kind: "click",
+                selector: "#search-button"
+              },
+              {
+                kind: "wait_for_timeout",
+                timeoutMs: 250
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after browser",
+      respondedAt: "2026-04-12T12:00:15.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 30,
+        outputTokens: 12,
+        totalTokens: 42
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  persaiInternalApiClientService.consumeOutcome = {
+    allowed: true,
+    currentCount: 1,
+    limit: 5
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const browserCompleted = await service.createTurn(request);
+  assert.equal(browserCompleted.assistantText, "reply after browser");
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeBrowser + 2);
+  assert.equal(
+    providerGatewayClient.calls[providerCallsBeforeBrowser]?.tools?.some(
+      (tool) => tool.name === "browser"
+    ),
+    true
+  );
+  assert.deepEqual(providerGatewayClient.browserActionCalls.at(-1), {
+    input: {
+      action: "act",
+      url: "https://example.com/app",
+      maxChars: 5000,
+      operations: [
+        {
+          kind: "click",
+          selector: "#search-button"
+        },
+        {
+          kind: "wait_for_timeout",
+          timeoutMs: 250
+        }
+      ],
+      timeoutMs: 120000,
+      credential: {
+        toolCode: "browser",
+        secretId: "tool/browser/api-key",
+        providerId: "browserless"
+      }
+    },
+    options: {
+      timeoutMs: 120000
+    }
+  });
+  assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
+    assistantId: "assistant-1",
+    toolCode: "browser",
+    dailyCallLimit: 5
+  });
+  const browserToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    requestedAction?: string;
+    provider?: string | null;
+    reason?: string | null;
+    warning?: string | null;
+    page?: {
+      finalUrl?: string;
+      content?: string;
+      externalContent?: {
+        untrusted?: boolean;
+        provider?: string;
+      };
+      elements?: Array<{
+        selector?: string;
+      }>;
+    } | null;
+  };
+  assert.equal(browserToolHistory.action, "acted");
+  assert.equal(browserToolHistory.requestedAction, "act");
+  assert.equal(browserToolHistory.provider, "browserless");
+  assert.equal(browserToolHistory.reason, null);
+  assert.equal(browserToolHistory.warning, "Browser content is untrusted.");
+  assert.equal(browserToolHistory.page?.finalUrl, "https://example.com/app/results");
+  assert.equal(browserToolHistory.page?.content, "Rendered browser content after click");
+  assert.equal(browserToolHistory.page?.elements?.[0]?.selector, "#search");
+  assert.equal(browserToolHistory.page?.externalContent?.untrusted, true);
+  assert.equal(browserToolHistory.page?.externalContent?.provider, "browserless");
+
+  if (bundleRegistry.entry !== null) {
+    const browserPolicy = bundleRegistry.entry.parsedBundle.governance.toolPolicies.find(
+      (tool) => tool.toolCode === "browser"
+    );
+    if (browserPolicy) {
+      browserPolicy.enabled = false;
+      browserPolicy.visibleToModel = false;
+      browserPolicy.usageRule = "forbidden";
+      browserPolicy.dailyCallLimit = null;
+    }
+  }
+  const browserCallsBeforeDisabledPolicy = providerGatewayClient.browserActionCalls.length;
+  const providerCallsBeforeDisabledBrowser = providerGatewayClient.calls.length;
+  providerGatewayClient.resultQueue = [];
+  providerGatewayClient.result = {
+    provider: "openai",
+    model: "gpt-5.4",
+    text: "runtime reply without projected browser",
+    respondedAt: "2026-04-12T12:00:15.500Z",
+    usage: null,
+    stopReason: "completed",
+    toolCalls: []
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const disabledBrowserCompleted = await service.createTurn(request);
+  assert.equal(disabledBrowserCompleted.assistantText, "runtime reply without projected browser");
+  assert.equal(
+    providerGatewayClient.calls.at(-1)?.tools?.some((tool) => tool.name === "browser"),
+    false
+  );
+  assert.equal(providerGatewayClient.browserActionCalls.length, browserCallsBeforeDisabledPolicy);
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeDisabledBrowser + 1);
+
+  if (bundleRegistry.entry !== null) {
+    const browserPolicy = bundleRegistry.entry.parsedBundle.governance.toolPolicies.find(
+      (tool) => tool.toolCode === "browser"
+    );
+    if (browserPolicy) {
+      browserPolicy.enabled = true;
+      browserPolicy.visibleToModel = true;
+      browserPolicy.usageRule = "allowed";
+    }
+    const browserCredentialRef =
+      bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.browser;
+    if (browserCredentialRef) {
+      browserCredentialRef.configured = false;
+    }
+  }
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.web_search = {

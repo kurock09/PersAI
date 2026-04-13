@@ -61,6 +61,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Automated web browser for interactive page navigation and content extraction.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
+    requiredCredentialId: "tool_browser",
     policyClass: "plan_managed"
   },
   {

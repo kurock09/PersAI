@@ -244,6 +244,182 @@ export interface RuntimeKnowledgeFetchToolResult extends RuntimeKnowledgeFetchRe
   reason: string | null;
 }
 
+export const PERSAI_RUNTIME_WORKER_TOOL_FAMILIES = [
+  "browser_interaction",
+  "media_generation",
+  "scheduled_action",
+  "internal_scheduler"
+] as const;
+
+export type PersaiRuntimeWorkerToolFamily = (typeof PERSAI_RUNTIME_WORKER_TOOL_FAMILIES)[number];
+
+export const PERSAI_RUNTIME_WORKER_OUTCOME_KINDS = [
+  "structured_output",
+  "artifact_refs",
+  "state_mutation"
+] as const;
+
+export type PersaiRuntimeWorkerOutcomeKind = (typeof PERSAI_RUNTIME_WORKER_OUTCOME_KINDS)[number];
+
+export const PERSAI_RUNTIME_WORKER_CONFIRMATION_RULES = ["none", "required_for_mutations"] as const;
+
+export type PersaiRuntimeWorkerConfirmationRule =
+  (typeof PERSAI_RUNTIME_WORKER_CONFIRMATION_RULES)[number];
+
+export const PERSAI_RUNTIME_WORKER_FAILURE_BEHAVIORS = [
+  "surface_error",
+  "retry_then_surface_error"
+] as const;
+
+export type PersaiRuntimeWorkerFailureBehavior =
+  (typeof PERSAI_RUNTIME_WORKER_FAILURE_BEHAVIORS)[number];
+
+export interface RuntimeWorkerToolConfig {
+  toolCode: string;
+  family: PersaiRuntimeWorkerToolFamily;
+  outcomeKind: PersaiRuntimeWorkerOutcomeKind;
+  timeoutMs: number;
+  confirmationRule: PersaiRuntimeWorkerConfirmationRule;
+  supportsProviderRouting: boolean;
+  failureBehavior: PersaiRuntimeWorkerFailureBehavior;
+}
+
+export interface RuntimeWorkerToolsConfig {
+  tools: RuntimeWorkerToolConfig[];
+}
+
+export const PERSAI_RUNTIME_BROWSER_PROVIDER_IDS = ["browserless"] as const;
+
+export type PersaiRuntimeBrowserProviderId = (typeof PERSAI_RUNTIME_BROWSER_PROVIDER_IDS)[number];
+
+export const PERSAI_RUNTIME_BROWSER_ACTIONS = ["snapshot", "act"] as const;
+
+export type PersaiRuntimeBrowserAction = (typeof PERSAI_RUNTIME_BROWSER_ACTIONS)[number];
+
+export const DEFAULT_RUNTIME_BROWSER_MAX_CHARS = 12_000;
+export const MIN_RUNTIME_BROWSER_MAX_CHARS = 500;
+export const MAX_RUNTIME_BROWSER_MAX_CHARS = 20_000;
+export const DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS = 120_000;
+export const MIN_RUNTIME_BROWSER_TIMEOUT_MS = 1_000;
+export const MAX_RUNTIME_BROWSER_TIMEOUT_MS = 120_000;
+export const MAX_RUNTIME_BROWSER_OPERATIONS = 6;
+export const MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS = 10_000;
+export const MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS = 25;
+
+export const PERSAI_RUNTIME_BROWSER_OPERATION_KINDS = [
+  "click",
+  "type",
+  "press",
+  "select_option",
+  "wait_for_selector",
+  "wait_for_timeout"
+] as const;
+
+export type PersaiRuntimeBrowserOperationKind =
+  (typeof PERSAI_RUNTIME_BROWSER_OPERATION_KINDS)[number];
+
+export interface RuntimeBrowserClickOperation {
+  kind: "click";
+  selector: string;
+}
+
+export interface RuntimeBrowserTypeOperation {
+  kind: "type";
+  selector: string;
+  text: string;
+}
+
+export interface RuntimeBrowserPressOperation {
+  kind: "press";
+  key: string;
+}
+
+export interface RuntimeBrowserSelectOptionOperation {
+  kind: "select_option";
+  selector: string;
+  value: string;
+}
+
+export interface RuntimeBrowserWaitForSelectorOperation {
+  kind: "wait_for_selector";
+  selector: string;
+  timeoutMs: number | null;
+}
+
+export interface RuntimeBrowserWaitForTimeoutOperation {
+  kind: "wait_for_timeout";
+  timeoutMs: number;
+}
+
+export type RuntimeBrowserOperation =
+  | RuntimeBrowserClickOperation
+  | RuntimeBrowserTypeOperation
+  | RuntimeBrowserPressOperation
+  | RuntimeBrowserSelectOptionOperation
+  | RuntimeBrowserWaitForSelectorOperation
+  | RuntimeBrowserWaitForTimeoutOperation;
+
+export interface RuntimeBrowserConfig {
+  toolCode: "browser";
+  executionMode: "worker";
+  credentialToolCode: "browser";
+  providerIds: PersaiRuntimeBrowserProviderId[];
+  defaultProviderId: PersaiRuntimeBrowserProviderId;
+  actions: PersaiRuntimeBrowserAction[];
+  confirmationRequiredActions: PersaiRuntimeBrowserAction[];
+}
+
+export interface RuntimeBrowserRequest {
+  toolCode: "browser";
+  action: PersaiRuntimeBrowserAction;
+  url: string;
+  maxChars: number | null;
+  operations: RuntimeBrowserOperation[];
+}
+
+export interface RuntimeBrowserInteractiveElement {
+  selector: string;
+  tagName: string;
+  text: string | null;
+  role: string | null;
+  type: string | null;
+  href: string | null;
+  placeholder: string | null;
+  disabled: boolean;
+}
+
+export interface RuntimeBrowserPage {
+  initialUrl: string;
+  finalUrl: string;
+  title: string | null;
+  content: string;
+  truncated: boolean;
+  elements: RuntimeBrowserInteractiveElement[];
+  provider: PersaiRuntimeBrowserProviderId;
+  observedAt: IsoTimestamp;
+  tookMs: number;
+  warning: string | null;
+  externalContent: {
+    untrusted: true;
+    source: "browser";
+    provider: PersaiRuntimeBrowserProviderId;
+  };
+}
+
+export interface RuntimeBrowserResult {
+  toolCode: "browser";
+  executionMode: PersaiRuntimeToolExecutionMode;
+  provider: PersaiRuntimeBrowserProviderId | null;
+  requestedAction: PersaiRuntimeBrowserAction;
+  page: RuntimeBrowserPage | null;
+}
+
+export interface RuntimeBrowserToolResult extends RuntimeBrowserResult {
+  action: "snapshot" | "acted" | "skipped";
+  reason: string | null;
+  warning: string | null;
+}
+
 export const PERSAI_RUNTIME_WEB_SEARCH_PROVIDER_IDS = [
   "tavily",
   "brave",
@@ -522,6 +698,38 @@ export interface ProviderGatewayWebFetchResult {
     untrusted: true;
     source: "web_fetch";
     provider: "firecrawl";
+  };
+}
+
+export interface ProviderGatewayBrowserActionRequest {
+  action: PersaiRuntimeBrowserAction;
+  url: string;
+  maxChars: number | null;
+  operations: RuntimeBrowserOperation[];
+  timeoutMs: number | null;
+  credential: {
+    toolCode: "browser";
+    secretId: string;
+    providerId: PersaiRuntimeBrowserProviderId | null;
+  };
+}
+
+export interface ProviderGatewayBrowserActionResult {
+  provider: PersaiRuntimeBrowserProviderId;
+  action: PersaiRuntimeBrowserAction;
+  initialUrl: string;
+  finalUrl: string;
+  title: string | null;
+  content: string;
+  truncated: boolean;
+  elements: RuntimeBrowserInteractiveElement[];
+  observedAt: IsoTimestamp;
+  tookMs: number;
+  warning: string | null;
+  externalContent: {
+    untrusted: true;
+    source: "browser";
+    provider: PersaiRuntimeBrowserProviderId;
   };
 }
 

@@ -156,6 +156,54 @@ function createInput(order: "alpha" | "beta") {
               webSuggestionLatencyMs: 7000,
               compactToolCode: "compact_context",
               summarizeToolCode: "summarize_context"
+            },
+      workerTools:
+        order === "alpha"
+          ? {
+              tools: [
+                {
+                  toolCode: "browser",
+                  family: "browser_interaction",
+                  outcomeKind: "structured_output",
+                  timeoutMs: 120000,
+                  confirmationRule: "required_for_mutations",
+                  supportsProviderRouting: true,
+                  failureBehavior: "surface_error"
+                }
+              ]
+            }
+          : {
+              tools: [
+                {
+                  failureBehavior: "surface_error",
+                  supportsProviderRouting: true,
+                  confirmationRule: "required_for_mutations",
+                  timeoutMs: 120000,
+                  outcomeKind: "structured_output",
+                  family: "browser_interaction",
+                  toolCode: "browser"
+                }
+              ]
+            },
+      browser:
+        order === "alpha"
+          ? {
+              toolCode: "browser",
+              executionMode: "worker",
+              credentialToolCode: "browser",
+              providerIds: ["browserless"],
+              defaultProviderId: "browserless",
+              actions: ["snapshot", "act"],
+              confirmationRequiredActions: ["act"]
+            }
+          : {
+              confirmationRequiredActions: ["act"],
+              actions: ["snapshot", "act"],
+              defaultProviderId: "browserless",
+              providerIds: ["browserless"],
+              credentialToolCode: "browser",
+              executionMode: "worker",
+              toolCode: "browser"
             }
     },
     governance: {
@@ -176,6 +224,16 @@ function createInput(order: "alpha" | "beta") {
           ? { policy: { userMayCancel: true } }
           : { policy: { userMayCancel: true } },
       toolCredentialRefs: {
+        browser: {
+          refKey: "persai:persai-runtime:tool/browser/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/browser/api-key"
+          },
+          configured: false,
+          providerId: "browserless"
+        },
         web_search: {
           refKey: "tool_web_search",
           secretRef: {
@@ -188,6 +246,18 @@ function createInput(order: "alpha" | "beta") {
         }
       },
       toolPolicies: [
+        {
+          toolCode: "browser",
+          displayName: "Browser",
+          description: "Automated browser interactions.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "forbidden",
+          enabled: false,
+          visibleToModel: false,
+          dailyCallLimit: null,
+          visibleInPlanEditor: true
+        },
         {
           toolCode: "web_search",
           displayName: "Web Search",
@@ -279,6 +349,38 @@ async function run(): Promise<void> {
         fetchCredentialToolCode: null
       }
     ]
+  });
+  assert.deepEqual(alpha.bundle.runtime.workerTools, {
+    tools: [
+      {
+        toolCode: "browser",
+        family: "browser_interaction",
+        outcomeKind: "structured_output",
+        timeoutMs: 120000,
+        confirmationRule: "required_for_mutations",
+        supportsProviderRouting: true,
+        failureBehavior: "surface_error"
+      }
+    ]
+  });
+  assert.deepEqual(alpha.bundle.runtime.browser, {
+    toolCode: "browser",
+    executionMode: "worker",
+    credentialToolCode: "browser",
+    providerIds: ["browserless"],
+    defaultProviderId: "browserless",
+    actions: ["snapshot", "act"],
+    confirmationRequiredActions: ["act"]
+  });
+  assert.deepEqual(alpha.bundle.governance.toolCredentialRefs.browser, {
+    refKey: "persai:persai-runtime:tool/browser/api-key",
+    secretRef: {
+      source: "persai",
+      provider: "persai-runtime",
+      id: "tool/browser/api-key"
+    },
+    configured: false,
+    providerId: "browserless"
   });
   assert.equal(alpha.document, beta.document);
   assert.equal(alpha.hash, beta.hash);

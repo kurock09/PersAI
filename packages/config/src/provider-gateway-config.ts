@@ -26,6 +26,14 @@ const optionalString = z.preprocess((value) => {
   return value;
 }, z.string().optional());
 
+const optionalUrl = z.preprocess((value) => {
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    return normalized.length === 0 ? undefined : normalized;
+  }
+  return value;
+}, z.string().url().optional());
+
 const modelList = z.preprocess(
   (value) => {
     if (typeof value === "string") {
@@ -49,6 +57,9 @@ const baseProviderGatewayConfigSchema = z.object({
   PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   PERSAI_API_BASE_URL: optionalString,
   PERSAI_INTERNAL_API_TOKEN: optionalString,
+  PROVIDER_GATEWAY_BROWSERLESS_BASE_URL: optionalUrl.default(
+    "https://production-sfo.browserless.io"
+  ),
   PROVIDER_GATEWAY_OPENAI_API_KEY: optionalString,
   PROVIDER_GATEWAY_ANTHROPIC_API_KEY: optionalString,
   PROVIDER_GATEWAY_OPENAI_MODELS: modelList.default(["gpt-5.4"]),

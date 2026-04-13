@@ -7,6 +7,7 @@ import { IdempotencyService } from "./idempotency.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService } from "./turn-acceptance.service";
@@ -20,6 +21,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
   providers: [
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
+    RuntimeBrowserToolService,
     IdempotencyService,
     PersaiMediaObjectStorageService,
     TurnContextHydrationService,
@@ -32,6 +34,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
   exports: [
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
+    RuntimeBrowserToolService,
     IdempotencyService,
     PersaiMediaObjectStorageService,
     TurnContextHydrationService,

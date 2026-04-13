@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { RuntimeConfig } from "@persai/config";
 import type {
+  RuntimeBrowserConfig,
   RuntimeBundleRef,
   RuntimeKnowledgeAccessConfig,
-  RuntimeToolPolicy
+  RuntimeToolPolicy,
+  RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
 import { RuntimeBundleCoordinatorService } from "../src/modules/bundles/runtime-bundle-coordinator.service";
 import { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
@@ -62,7 +64,43 @@ const KNOWLEDGE_ACCESS_CONFIG = {
   ]
 } satisfies RuntimeKnowledgeAccessConfig;
 
-const KNOWLEDGE_TOOL_POLICIES = [
+const WORKER_TOOLS_CONFIG = {
+  tools: [
+    {
+      toolCode: "browser",
+      family: "browser_interaction",
+      outcomeKind: "structured_output",
+      timeoutMs: 120000,
+      confirmationRule: "required_for_mutations",
+      supportsProviderRouting: true,
+      failureBehavior: "surface_error"
+    }
+  ]
+} satisfies RuntimeWorkerToolsConfig;
+
+const BROWSER_CONFIG = {
+  toolCode: "browser",
+  executionMode: "worker",
+  credentialToolCode: "browser",
+  providerIds: ["browserless"],
+  defaultProviderId: "browserless",
+  actions: ["snapshot", "act"],
+  confirmationRequiredActions: ["act"]
+} satisfies RuntimeBrowserConfig;
+
+const BASE_TOOL_POLICIES = [
+  {
+    toolCode: "browser",
+    displayName: "Browser",
+    description: "Navigate and interact with web pages.",
+    kind: "plan",
+    executionMode: "worker",
+    usageRule: "forbidden",
+    enabled: false,
+    visibleToModel: false,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
   {
     toolCode: "web_search",
     displayName: "Web Search",
@@ -161,6 +199,8 @@ function createWarmInput() {
       runtimeProviderRouting: null,
       optimizationPolicy: null,
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
+      workerTools: WORKER_TOOLS_CONFIG,
+      browser: BROWSER_CONFIG,
       sharedCompaction: {
         summarizeToolCode: "summarize_context",
         compactToolCode: "compact_context",
@@ -180,8 +220,19 @@ function createWarmInput() {
       toolAvailability: null,
       memoryControl: null,
       tasksControl: null,
-      toolCredentialRefs: {},
-      toolPolicies: [...KNOWLEDGE_TOOL_POLICIES],
+      toolCredentialRefs: {
+        browser: {
+          refKey: "persai:persai-runtime:tool/browser/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/browser/api-key"
+          },
+          configured: false,
+          providerId: "browserless"
+        }
+      },
+      toolPolicies: [...BASE_TOOL_POLICIES],
       quota: {
         planCode: "free",
         workspaceQuotaBytes: 1024,
