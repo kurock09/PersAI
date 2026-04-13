@@ -63,7 +63,17 @@ describe("SendNativeTelegramTurnService", () => {
           requestId: "runtime-request-1",
           sessionId: "runtime-session-1",
           assistantText: "telegram hello",
-          artifacts: [],
+          artifacts: [
+            {
+              artifactId: "artifact-1",
+              kind: "audio",
+              objectKey: "assistant-media/assistants/assistant-1/runtime-output/reply.ogg",
+              mimeType: "audio/ogg",
+              filename: "reply.ogg",
+              sizeBytes: 256,
+              voiceNote: true
+            }
+          ],
           respondedAt: "2026-04-12T10:00:00.000Z",
           usage: null
         }),
@@ -113,7 +123,17 @@ describe("SendNativeTelegramTurnService", () => {
         mode: "direct"
       });
       assert.equal(result.assistantMessage, "telegram hello");
-      assert.equal(result.media.length, 0);
+      assert.deepEqual(result.media, [
+        {
+          source: "persai_object_storage",
+          objectKey: "assistant-media/assistants/assistant-1/runtime-output/reply.ogg",
+          type: "audio",
+          mimeType: "audio/ogg",
+          filename: "reply.ogg",
+          sizeBytes: 256,
+          audioAsVoice: true
+        }
+      ]);
     } finally {
       globalThis.fetch = originalFetch;
     }

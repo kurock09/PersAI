@@ -65,6 +65,7 @@ function parseMediaArray(raw: unknown): RuntimeMediaArtifact[] {
     const type = typeof item.type === "string" ? item.type.trim() : "";
     if (!url || !VALID_MEDIA_TYPES.has(type)) continue;
     result.push({
+      source: "runtime_url",
       url,
       type: type as RuntimeMediaArtifact["type"],
       ...(item.audioAsVoice === true ? { audioAsVoice: true } : {})

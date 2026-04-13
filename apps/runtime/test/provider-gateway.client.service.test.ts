@@ -4,6 +4,7 @@ import type {
   ProviderGatewayBrowserActionRequest,
   ProviderGatewayWebSearchRequest,
   ProviderGatewayWebFetchRequest,
+  ProviderGatewayImageGenerateRequest,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent
@@ -75,6 +76,19 @@ function createWebSearchRequest(): ProviderGatewayWebSearchRequest {
       toolCode: "web_search",
       secretId: "secret-1",
       providerId: "tavily"
+    }
+  };
+}
+
+function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
+  return {
+    prompt: "Draw a calm blue horizon",
+    count: 1,
+    size: "1024x1024",
+    credential: {
+      toolCode: "image_generate",
+      secretId: "secret-1",
+      providerId: "openai"
     }
   };
 }
@@ -184,6 +198,33 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
           model: "gpt-4o-mini-transcribe",
           text: "hello from audio",
           respondedAt: "2026-04-12T12:00:01.000Z"
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+
+    if (url.endsWith("/api/v1/providers/generate-image")) {
+      return new Response(
+        JSON.stringify({
+          provider: "openai",
+          model: "gpt-image-1",
+          prompt: "Draw a calm blue horizon",
+          size: "1024x1024",
+          images: [
+            {
+              bytesBase64: "aW1hZ2UtYnl0ZXM=",
+              mimeType: "image/png",
+              revisedPrompt: null
+            }
+          ],
+          respondedAt: "2026-04-12T12:00:01.500Z",
+          usage: null,
+          warning: null
         }),
         {
           status: 200,
@@ -346,16 +387,19 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       mimeType: "audio/mpeg",
       filename: "voice.mp3"
     });
+    const imageGenerate = await service.generateImage(createImageGenerateRequest());
     const webFetch = await service.webFetch(createWebFetchRequest());
     const webSearch = await service.webSearch(createWebSearchRequest());
     const browserAction = await service.browserAction(createBrowserActionRequest(), {
       timeoutMs: 120000
     });
     assert.equal(transcription.text, "hello from audio");
+    assert.equal(imageGenerate.model, "gpt-image-1");
+    assert.equal(imageGenerate.images[0]?.mimeType, "image/png");
     assert.equal(webFetch.provider, "firecrawl");
     assert.equal(webSearch.provider, "tavily");
     assert.equal(browserAction.provider, "browserless");
-    assert.equal(requests.length, 7);
+    assert.equal(requests.length, 8);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
@@ -371,12 +415,14 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     );
     assert.equal(requests[3]?.init?.method, "POST");
     assert.ok(requests[3]?.init?.body instanceof FormData);
-    assert.equal(requests[4]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
+    assert.equal(requests[4]?.url, "http://provider-gateway.local/api/v1/providers/generate-image");
     assert.equal(requests[4]?.init?.method, "POST");
-    assert.equal(requests[5]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
+    assert.equal(requests[5]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
     assert.equal(requests[5]?.init?.method, "POST");
-    assert.equal(requests[6]?.url, "http://provider-gateway.local/api/v1/providers/browser-action");
+    assert.equal(requests[6]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
     assert.equal(requests[6]?.init?.method, "POST");
+    assert.equal(requests[7]?.url, "http://provider-gateway.local/api/v1/providers/browser-action");
+    assert.equal(requests[7]?.init?.method, "POST");
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();
@@ -390,6 +436,10 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     );
     await assert.rejects(
       () => unconfiguredService.webFetch(createWebFetchRequest()),
+      /base URL is not configured/
+    );
+    await assert.rejects(
+      () => unconfiguredService.generateImage(createImageGenerateRequest()),
       /base URL is not configured/
     );
     await assert.rejects(

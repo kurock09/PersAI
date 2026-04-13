@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
+  ProviderGatewayImageGenerateRequest,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
@@ -72,6 +73,19 @@ async function collectStream(
   return events;
 }
 
+function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
+  return {
+    prompt: "Generate a serene lake at dusk",
+    count: 2,
+    size: "1024x1024",
+    credential: {
+      toolCode: "image_generate",
+      secretId: "tool/image_generate/api-key",
+      providerId: "openai"
+    }
+  };
+}
+
 export async function runOpenAIProviderClientTest(): Promise<void> {
   const client = new OpenAIProviderClient(createConfig());
   let capturedGeneratePayload: {
@@ -89,6 +103,29 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     metadata?: unknown;
   } | null = null;
   let capturedTranscriptionInput: unknown = null;
+  let capturedImagePayload: unknown = null;
+  let capturedImageApiKey: string | undefined;
+  const generateImage = async (payload: unknown) => {
+    capturedImagePayload = payload;
+    return {
+      output_format: "png",
+      data: [
+        {
+          b64_json: "aW1hZ2UtMQ==",
+          revised_prompt: null
+        },
+        {
+          b64_json: "aW1hZ2UtMg==",
+          revised_prompt: "A serene lake at dusk with soft reflections."
+        }
+      ],
+      usage: {
+        input_tokens: 30,
+        output_tokens: 60,
+        total_tokens: 90
+      }
+    };
+  };
 
   (client as unknown as { client: unknown }).client = {
     audio: {
@@ -100,6 +137,9 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
           };
         }
       }
+    },
+    images: {
+      generate: generateImage
     },
     responses: {
       create: async (payload: {
@@ -190,6 +230,22 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
         };
       }
     }
+  };
+  (
+    client as unknown as {
+      getImageClient(apiKey?: string): {
+        images: {
+          generate(payload: unknown): Promise<unknown>;
+        };
+      };
+    }
+  ).getImageClient = (apiKey?: string) => {
+    capturedImageApiKey = apiKey;
+    return {
+      images: {
+        generate: generateImage
+      }
+    };
   };
 
   const request = createRequest();
@@ -530,4 +586,30 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     "gpt-4o-mini-transcribe"
   );
   assert.ok((capturedTranscriptionInput as { file?: unknown } | null)?.file);
+
+  const imageResult = await client.generateImage(createImageGenerateRequest(), {
+    apiKey: "tool-openai-key"
+  });
+  assert.equal(imageResult.model, "gpt-image-1");
+  assert.equal(imageResult.images.length, 2);
+  assert.equal(imageResult.images[0]?.mimeType, "image/png");
+  assert.equal(
+    imageResult.images[1]?.revisedPrompt,
+    "A serene lake at dusk with soft reflections."
+  );
+  assert.deepEqual(capturedImagePayload, {
+    model: "gpt-image-1",
+    prompt: "Generate a serene lake at dusk",
+    n: 2,
+    output_format: "png",
+    size: "1024x1024"
+  });
+  assert.equal(capturedImageApiKey, "tool-openai-key");
+  assert.deepEqual(imageResult.usage, {
+    providerKey: "openai",
+    modelKey: "gpt-image-1",
+    inputTokens: 30,
+    outputTokens: 60,
+    totalTokens: 90
+  });
 }

@@ -4,6 +4,8 @@ import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayBrowserActionRequest,
   ProviderGatewayBrowserActionResult,
+  ProviderGatewayImageGenerateRequest,
+  ProviderGatewayImageGenerateResult,
   RuntimeKnowledgeAccessConfig,
   RuntimeBrowserConfig,
   RuntimeCompactionResult,
@@ -35,6 +37,7 @@ import type {
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeBrowserToolService } from "../src/modules/turns/runtime-browser-tool.service";
+import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-scheduled-action-tool.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
@@ -73,6 +76,15 @@ const WORKER_TOOLS_CONFIG = {
       outcomeKind: "structured_output",
       timeoutMs: 120000,
       confirmationRule: "required_for_mutations",
+      supportsProviderRouting: true,
+      failureBehavior: "surface_error"
+    },
+    {
+      toolCode: "image_generate",
+      family: "media_generation",
+      outcomeKind: "artifact_refs",
+      timeoutMs: 180000,
+      confirmationRule: "none",
       supportsProviderRouting: true,
       failureBehavior: "surface_error"
     }
@@ -197,6 +209,16 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           },
           configured: false,
           providerId: "browserless"
+        },
+        image_generate: {
+          refKey: "persai:persai-runtime:tool/image_generate/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/image_generate/api-key"
+          },
+          configured: false,
+          providerId: "openai"
         }
       },
       toolPolicies: [
@@ -204,6 +226,18 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           toolCode: "browser",
           displayName: "Browser",
           description: "Navigate and interact with web pages.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "image_generate",
+          displayName: "Image Generate",
+          description: "Generate images from text prompts.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -389,6 +423,7 @@ class FakeRuntimeBundleRegistryService {
 class FakeProviderGatewayClientService {
   calls: ProviderGatewayTextGenerateRequest[] = [];
   streamCalls: ProviderGatewayTextGenerateRequest[] = [];
+  imageGenerateCalls: ProviderGatewayImageGenerateRequest[] = [];
   webSearchCalls: ProviderGatewayWebSearchRequest[] = [];
   webFetchCalls: ProviderGatewayWebFetchRequest[] = [];
   browserActionCalls: Array<{
@@ -415,6 +450,31 @@ class FakeProviderGatewayClientService {
   streamError: Error | null = null;
   webSearchError: Error | null = null;
   webFetchError: Error | null = null;
+  imageGenerateError: Error | null = null;
+  imageGenerateResult: ProviderGatewayImageGenerateResult = {
+    provider: "openai",
+    model: "gpt-image-1",
+    prompt: "Draw a serene poster",
+    size: "1024x1024",
+    images: [
+      {
+        bytesBase64: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]).toString(
+          "base64"
+        ),
+        mimeType: "image/png",
+        revisedPrompt: null
+      }
+    ],
+    respondedAt: "2026-04-13T12:00:00.000Z",
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-image-1",
+      inputTokens: 12,
+      outputTokens: 34,
+      totalTokens: 46
+    },
+    warning: null
+  };
   webSearchResult: ProviderGatewayWebSearchResult = {
     provider: "tavily",
     query: "persai runtime",
@@ -544,6 +604,16 @@ class FakeProviderGatewayClientService {
       throw this.webSearchError;
     }
     return this.webSearchResult;
+  }
+
+  async generateImage(
+    input: ProviderGatewayImageGenerateRequest
+  ): Promise<ProviderGatewayImageGenerateResult> {
+    this.imageGenerateCalls.push(input);
+    if (this.imageGenerateError !== null) {
+      throw this.imageGenerateError;
+    }
+    return this.imageGenerateResult;
   }
 
   async webFetch(input: ProviderGatewayWebFetchRequest): Promise<ProviderGatewayWebFetchResult> {
@@ -676,6 +746,34 @@ class FakePersaiInternalApiClientService {
       throw this.reminderTaskControlError;
     }
     return this.reminderTaskControlResult;
+  }
+}
+
+class FakePersaiMediaObjectStorageService {
+  saveCalls: Array<{ objectKey: string; mimeType: string; buffer: Buffer }> = [];
+
+  buildRuntimeOutputObjectKey(input: {
+    assistantId: string;
+    sessionId: string;
+    requestId: string;
+    artifactId?: string;
+    extension: string | null;
+  }): string {
+    const extension = input.extension ?? "bin";
+    return `assistant-media/assistants/${input.assistantId}/runtime-output/sessions/${input.sessionId}/requests/${input.requestId}/${input.artifactId ?? "artifact"}.${extension}`;
+  }
+
+  async saveObject(input: {
+    objectKey: string;
+    buffer: Buffer;
+    mimeType: string;
+  }): Promise<{ objectKey: string; sizeBytes: number; mimeType: string }> {
+    this.saveCalls.push(input);
+    return {
+      objectKey: input.objectKey,
+      sizeBytes: input.buffer.length,
+      mimeType: input.mimeType
+    };
   }
 }
 
@@ -833,9 +931,15 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const turnFinalizationService = new FakeTurnFinalizationService();
   const sessionCompactionService = new FakeSessionCompactionService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
+  const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
   const runtimeBrowserToolService = new RuntimeBrowserToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeImageGenerateToolService = new RuntimeImageGenerateToolService(
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    mediaObjectStorage as never
   );
   const runtimeScheduledActionToolService = new RuntimeScheduledActionToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -849,6 +953,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
+    runtimeImageGenerateToolService,
     runtimeScheduledActionToolService
   );
 
@@ -2184,6 +2289,134 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(reminderPauseToolHistory.task?.title, "Pay rent");
   assert.equal(reminderPauseToolHistory.task?.controlStatus, "disabled");
   assert.equal(reminderPauseToolHistory.task?.nextRunAt, "2026-04-13T12:05:00.000Z");
+
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.image_generate = {
+      refKey: "persai:persai-runtime:tool/image_generate/api-key",
+      configured: true,
+      providerId: "openai",
+      secretRef: {
+        source: "persai",
+        provider: "persai-runtime",
+        id: "tool/image_generate/api-key"
+      }
+    };
+    const imageGeneratePolicy = bundleRegistry.entry.parsedBundle.governance.toolPolicies.find(
+      (tool) => tool.toolCode === "image_generate"
+    );
+    if (imageGeneratePolicy) {
+      imageGeneratePolicy.dailyCallLimit = 3;
+    }
+  }
+  providerGatewayClient.imageGenerateResult = {
+    ...providerGatewayClient.imageGenerateResult,
+    prompt: "Draw a serene poster",
+    size: "1024x1024"
+  };
+  const providerCallsBeforeImageGenerate = providerGatewayClient.calls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-13T12:00:00.500Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 22,
+        outputTokens: 0,
+        totalTokens: 22
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-image-1",
+          name: "image_generate",
+          arguments: {
+            prompt: "Draw a serene poster",
+            count: 1,
+            filename: "poster.png",
+            size: "1024x1024"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after image",
+      respondedAt: "2026-04-13T12:00:01.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 40,
+        outputTokens: 14,
+        totalTokens: 54
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  persaiInternalApiClientService.consumeOutcome = {
+    allowed: true,
+    currentCount: 1,
+    limit: 3
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const imageGenerateCompleted = await service.createTurn(request);
+  assert.equal(imageGenerateCompleted.assistantText, "reply after image");
+  assert.equal(imageGenerateCompleted.artifacts.length, 1);
+  assert.equal(imageGenerateCompleted.artifacts[0]?.kind, "image");
+  assert.equal(
+    imageGenerateCompleted.artifacts[0]?.objectKey.includes(
+      "/runtime-output/sessions/session-1/requests/request-1/"
+    ),
+    true
+  );
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageGenerate + 2);
+  assert.equal(
+    providerGatewayClient.calls[providerCallsBeforeImageGenerate]?.tools?.some(
+      (tool) => tool.name === "image_generate"
+    ),
+    true
+  );
+  assert.deepEqual(providerGatewayClient.imageGenerateCalls.at(-1), {
+    prompt: "Draw a serene poster",
+    count: 1,
+    size: "1024x1024",
+    credential: {
+      toolCode: "image_generate",
+      secretId: "tool/image_generate/api-key",
+      providerId: "openai"
+    }
+  });
+  assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
+    assistantId: "assistant-1",
+    toolCode: "image_generate",
+    dailyCallLimit: 3
+  });
+  assert.equal(mediaObjectStorage.saveCalls.length > 0, true);
+  assert.equal(mediaObjectStorage.saveCalls.at(-1)?.mimeType, "image/png");
+  const imageGenerateToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    provider?: string | null;
+    model?: string | null;
+    prompt?: string | null;
+    artifacts?: Array<{
+      kind?: string;
+      filename?: string | null;
+    }>;
+  };
+  assert.equal(imageGenerateToolHistory.action, "generated");
+  assert.equal(imageGenerateToolHistory.provider, "openai");
+  assert.equal(imageGenerateToolHistory.model, "gpt-image-1");
+  assert.equal(imageGenerateToolHistory.prompt, "Draw a serene poster");
+  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.kind, "image");
+  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.filename, "poster.png");
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.browser = {

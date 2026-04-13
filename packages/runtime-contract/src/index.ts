@@ -420,6 +420,47 @@ export interface RuntimeBrowserToolResult extends RuntimeBrowserResult {
   warning: string | null;
 }
 
+export const PERSAI_RUNTIME_IMAGE_GENERATE_PROVIDER_IDS = ["openai"] as const;
+
+export type PersaiRuntimeImageGenerateProviderId =
+  (typeof PERSAI_RUNTIME_IMAGE_GENERATE_PROVIDER_IDS)[number];
+
+export const PERSAI_RUNTIME_IMAGE_GENERATE_SIZES = [
+  "1024x1024",
+  "1024x1536",
+  "1536x1024",
+  "auto"
+] as const;
+
+export type PersaiRuntimeImageGenerateSize = (typeof PERSAI_RUNTIME_IMAGE_GENERATE_SIZES)[number];
+
+export const MIN_RUNTIME_IMAGE_GENERATE_COUNT = 1 as const;
+export const MAX_RUNTIME_IMAGE_GENERATE_COUNT = 4 as const;
+
+export interface RuntimeImageGenerateRequest {
+  toolCode: "image_generate";
+  prompt: string;
+  count: number;
+  filename: string | null;
+  size: PersaiRuntimeImageGenerateSize | null;
+}
+
+export interface RuntimeImageGenerateToolResult {
+  toolCode: "image_generate";
+  executionMode: "worker";
+  provider: PersaiRuntimeImageGenerateProviderId | null;
+  model: string | null;
+  prompt: string | null;
+  revisedPrompt: string | null;
+  requestedCount: number | null;
+  size: PersaiRuntimeImageGenerateSize | null;
+  artifacts: RuntimeOutputArtifact[];
+  usage: RuntimeUsageSnapshot | null;
+  action: "generated" | "skipped";
+  reason: string | null;
+  warning: string | null;
+}
+
 export const PERSAI_RUNTIME_WEB_SEARCH_PROVIDER_IDS = [
   "tavily",
   "brave",
@@ -708,6 +749,34 @@ export interface ProviderGatewayAudioTranscriptionResult {
   model: string;
   text: string;
   respondedAt: IsoTimestamp;
+}
+
+export interface ProviderGatewayImageGenerateRequest {
+  prompt: string;
+  count: number;
+  size: PersaiRuntimeImageGenerateSize | null;
+  credential: {
+    toolCode: "image_generate";
+    secretId: string;
+    providerId: PersaiRuntimeImageGenerateProviderId | null;
+  };
+}
+
+export interface ProviderGatewayGeneratedImage {
+  bytesBase64: string;
+  mimeType: string;
+  revisedPrompt: string | null;
+}
+
+export interface ProviderGatewayImageGenerateResult {
+  provider: PersaiRuntimeImageGenerateProviderId;
+  model: string;
+  prompt: string;
+  size: PersaiRuntimeImageGenerateSize | null;
+  images: ProviderGatewayGeneratedImage[];
+  respondedAt: IsoTimestamp;
+  usage: RuntimeUsageSnapshot | null;
+  warning: string | null;
 }
 
 export interface ProviderGatewayWebSearchRequest {

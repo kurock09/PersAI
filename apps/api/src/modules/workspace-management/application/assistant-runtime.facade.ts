@@ -1,4 +1,5 @@
 import type { RuntimeTier } from "./runtime-assignment";
+import type { RuntimeOutputArtifact } from "@persai/runtime-contract";
 
 export type AssistantRuntimeErrorCode =
   | "runtime_unreachable"
@@ -55,11 +56,30 @@ export interface AssistantRuntimeWebChatTurnInput {
   overviewTraceId?: string;
 }
 
-export interface RuntimeMediaArtifact {
+export type RuntimeMediaArtifactType = "image" | "audio" | "video" | "document";
+
+export interface RuntimeUrlMediaArtifact {
+  source: "runtime_url";
   url: string;
-  type: "image" | "audio" | "video" | "document";
+  type: RuntimeMediaArtifactType;
   audioAsVoice?: boolean;
+  caption?: string;
 }
+
+export interface PersaiObjectStorageRuntimeMediaArtifact {
+  source: "persai_object_storage";
+  objectKey: string;
+  type: RuntimeMediaArtifactType;
+  mimeType: string;
+  filename: string | null;
+  sizeBytes: number | null;
+  audioAsVoice?: boolean;
+  caption?: string;
+}
+
+export type RuntimeMediaArtifact =
+  | RuntimeUrlMediaArtifact
+  | PersaiObjectStorageRuntimeMediaArtifact;
 
 export interface AssistantRuntimeWebChatTurnResult {
   assistantMessage: string;
@@ -144,6 +164,55 @@ export interface AssistantRuntimeAvatarUploadInput {
 
 export interface AssistantRuntimeAvatarUploadResult {
   avatarUrl: string;
+}
+
+export function runtimeOutputArtifactsToMediaArtifacts(
+  artifacts: RuntimeOutputArtifact[]
+): RuntimeMediaArtifact[] {
+  const mediaArtifacts: RuntimeMediaArtifact[] = [];
+  for (const artifact of artifacts) {
+    const type = toRuntimeMediaArtifactType(artifact.kind);
+    if (type === null) {
+      continue;
+    }
+    mediaArtifacts.push({
+      source: "persai_object_storage",
+      objectKey: artifact.objectKey,
+      type,
+      mimeType: artifact.mimeType,
+      filename: artifact.filename,
+      sizeBytes: artifact.sizeBytes,
+      ...(artifact.voiceNote ? { audioAsVoice: true } : {})
+    });
+  }
+  return mediaArtifacts;
+}
+
+export function describeRuntimeMediaArtifact(artifact: RuntimeMediaArtifact): string {
+  return artifact.source === "runtime_url" ? artifact.url : artifact.objectKey;
+}
+
+export function readRuntimeMediaArtifactFilename(artifact: RuntimeMediaArtifact): string | null {
+  if (artifact.source === "persai_object_storage") {
+    return artifact.filename;
+  }
+  const candidate = artifact.url.split("/").pop()?.trim() ?? "";
+  return candidate.length > 0 ? candidate : null;
+}
+
+function toRuntimeMediaArtifactType(
+  kind: RuntimeOutputArtifact["kind"]
+): RuntimeMediaArtifactType | null {
+  switch (kind) {
+    case "image":
+      return "image";
+    case "audio":
+      return "audio";
+    case "video":
+      return "video";
+    case "file":
+      return "document";
+  }
 }
 
 export interface AssistantRuntimeFacade {

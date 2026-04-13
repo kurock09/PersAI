@@ -32,6 +32,7 @@ const baseRuntimeConfigSchema = z.object({
   PERSAI_INTERNAL_API_TOKEN: optionalNonEmptyString,
   RUNTIME_PROVIDER_GATEWAY_BASE_URL: optionalUrl,
   PERSAI_MEDIA_BUCKET_NAME: optionalNonEmptyString,
+  PERSAI_MEDIA_OBJECT_PREFIX: optionalNonEmptyString,
   RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000)
 });

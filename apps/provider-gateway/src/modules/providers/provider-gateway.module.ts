@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ProviderAudioTranscriptionController } from "./interface/http/provider-audio-transcription.controller";
 import { ProviderBrowserController } from "./interface/http/provider-browser.controller";
 import { ProviderCatalogController } from "./interface/http/provider-catalog.controller";
+import { ProviderImageGenerationController } from "./interface/http/provider-image-generation.controller";
 import { ProviderTextGenerationController } from "./interface/http/provider-text-generation.controller";
 import { ProviderWebFetchController } from "./interface/http/provider-web-fetch.controller";
 import { ProviderWebSearchController } from "./interface/http/provider-web-search.controller";
@@ -12,6 +13,7 @@ import { PersaiInternalApiClientService } from "./persai-internal-api.client.ser
 import { ProviderAudioTranscriptionService } from "./provider-audio-transcription.service";
 import { ProviderBrowserService } from "./provider-browser.service";
 import { ProviderCatalogService } from "./provider-catalog.service";
+import { ProviderImageGenerationService } from "./provider-image-generation.service";
 import { ProviderTextGenerationService } from "./provider-text-generation.service";
 import { ProviderWebFetchService } from "./provider-web-fetch.service";
 import { ProviderWebSearchService } from "./provider-web-search.service";
@@ -22,6 +24,7 @@ import { ProviderWarmupService } from "./provider-warmup.service";
     ProviderAudioTranscriptionController,
     ProviderBrowserController,
     ProviderCatalogController,
+    ProviderImageGenerationController,
     ProviderWarmupController,
     ProviderTextGenerationController,
     ProviderWebFetchController,
@@ -35,6 +38,7 @@ import { ProviderWarmupService } from "./provider-warmup.service";
     ProviderWarmupService,
     ProviderAudioTranscriptionService,
     ProviderBrowserService,
+    ProviderImageGenerationService,
     ProviderTextGenerationService,
     ProviderWebFetchService,
     ProviderWebSearchService
@@ -43,6 +47,7 @@ import { ProviderWarmupService } from "./provider-warmup.service";
     ProviderCatalogService,
     ProviderWarmupService,
     ProviderAudioTranscriptionService,
+    ProviderImageGenerationService,
     ProviderTextGenerationService,
     PersaiInternalApiClientService,
     ProviderBrowserService,

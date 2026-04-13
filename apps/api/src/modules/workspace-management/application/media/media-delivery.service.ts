@@ -1,6 +1,11 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
-import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "../assistant-runtime.facade";
+import {
+  ASSISTANT_RUNTIME_FACADE,
+  describeRuntimeMediaArtifact,
+  readRuntimeMediaArtifactFilename,
+  type AssistantRuntimeFacade
+} from "../assistant-runtime.facade";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -65,7 +70,9 @@ export class MediaDeliveryService {
         results.push(persisted.state);
         outcome = "success";
       } catch (err) {
-        this.logger.warn(`Failed to deliver media artifact "${artifact.url}": ${String(err)}`);
+        this.logger.warn(
+          `Failed to deliver media artifact "${describeRuntimeMediaArtifact(artifact)}": ${String(err)}`
+        );
       } finally {
         const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
         this.platformHttpMetricsService.recordMediaStage({
@@ -91,23 +98,29 @@ export class MediaDeliveryService {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       params.assistantId
     );
-    const downloadResult = await this.assistantRuntime.downloadChatMedia(
+    const downloadResult = await this.downloadArtifactSource(
+      artifact,
       params.assistantId,
-      artifact.url,
       runtimeTier
     );
     if (!downloadResult) {
-      throw new Error(`Media file not found on storage: ${artifact.url}`);
+      throw new Error(`Media file not found on storage: ${describeRuntimeMediaArtifact(artifact)}`);
     }
 
     const candidateMimeType =
-      downloadResult.contentType !== "application/octet-stream"
-        ? downloadResult.contentType
-        : inferMimeFromUrlAndType(artifact.url, artifact.type);
+      artifact.source === "persai_object_storage" && artifact.mimeType.trim().length > 0
+        ? artifact.mimeType
+        : downloadResult.contentType !== "application/octet-stream"
+          ? downloadResult.contentType
+          : inferMimeFromUrlAndType(
+              artifact.source === "runtime_url" ? artifact.url : artifact.objectKey,
+              artifact.type
+            );
+    const sourceFilename = readRuntimeMediaArtifactFilename(artifact) ?? "media";
     const validated = await validatePersaiMediaFile({
       buffer: downloadResult.buffer,
       mimeType: candidateMimeType,
-      originalFilename: artifact.url.split("/").pop() ?? "media",
+      originalFilename: sourceFilename,
       surface: "tool_output_persist"
     });
     const objectKey = this.mediaObjectStorage.buildChatMessageObjectKey({
@@ -123,7 +136,7 @@ export class MediaDeliveryService {
     });
 
     const attachmentType = artifact.audioAsVoice ? "voice" : artifact.type;
-    const filename = validated.originalFilename ?? artifact.url.split("/").pop() ?? "media";
+    const filename = validated.originalFilename ?? sourceFilename;
 
     const attachment = await this.attachmentRepository.create({
       messageId: params.messageId,
@@ -142,9 +155,15 @@ export class MediaDeliveryService {
       transcription: null,
       metadata: buildStoredAttachmentMetadata({
         source: "tool_output",
-        originalUrl: artifact.url
+        ...(artifact.source === "runtime_url" ? { originalUrl: artifact.url } : {})
       })
     });
+    if (
+      artifact.source === "persai_object_storage" &&
+      artifact.objectKey !== uploadResult.objectKey
+    ) {
+      await this.mediaObjectStorage.deleteObject(artifact.objectKey);
+    }
 
     return {
       state: {
@@ -159,6 +178,17 @@ export class MediaDeliveryService {
       buffer: downloadResult.buffer,
       filename
     };
+  }
+
+  private async downloadArtifactSource(
+    artifact: MediaArtifact,
+    assistantId: string,
+    runtimeTier: Awaited<ReturnType<ResolveAssistantRuntimeTierService["resolveByAssistantId"]>>
+  ): Promise<{ buffer: Buffer; contentType: string } | null> {
+    if (artifact.source === "persai_object_storage") {
+      return this.mediaObjectStorage.downloadObject(artifact.objectKey);
+    }
+    return this.assistantRuntime.downloadChatMedia(assistantId, artifact.url, runtimeTier);
   }
 
   private async sendViaAdapter(

@@ -26,6 +26,8 @@ import {
   type RuntimeKnowledgeFetchToolResult,
   type RuntimeKnowledgeSearchToolResult,
   type RuntimeBrowserToolResult,
+  type RuntimeImageGenerateToolResult,
+  type RuntimeOutputArtifact,
   type RuntimeScheduledActionToolResult,
   type RuntimeSharedCompactionToolResult,
   type RuntimeToolPolicy,
@@ -48,6 +50,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
+import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
@@ -75,6 +78,7 @@ type TurnExecutionState = {
     invoked: boolean;
     durableStatePersisted: boolean;
   };
+  artifacts: RuntimeOutputArtifact[];
 };
 
 type AutoCompactionRequest = RuntimeCompactionRequest & {
@@ -89,10 +93,12 @@ type ToolExecutionOutcome = {
     | RuntimeKnowledgeSearchToolResult
     | RuntimeKnowledgeFetchToolResult
     | RuntimeBrowserToolResult
+    | RuntimeImageGenerateToolResult
     | RuntimeScheduledActionToolResult
     | RuntimeWebSearchToolResult
     | RuntimeWebFetchToolResult
     | Record<string, unknown>;
+  artifacts?: RuntimeOutputArtifact[];
   sharedCompaction?: {
     toolCode: PersaiRuntimeSharedCompactionToolCode;
     durableStatePersisted: boolean;
@@ -119,6 +125,7 @@ const WEB_FETCH_DEFAULT_EXTRACT_MODE: PersaiRuntimeWebFetchExtractMode = "markdo
 const WEB_FETCH_MIN_MAX_CHARS = 100;
 const WEB_FETCH_MAX_MAX_CHARS = 50_000;
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
+const IMAGE_GENERATE_TOOL_CODE = "image_generate";
 
 @Injectable()
 export class TurnExecutionService {
@@ -133,6 +140,7 @@ export class TurnExecutionService {
     private readonly turnFinalizationService: TurnFinalizationService,
     private readonly sessionCompactionService: SessionCompactionService,
     private readonly runtimeBrowserToolService: RuntimeBrowserToolService,
+    private readonly runtimeImageGenerateToolService: RuntimeImageGenerateToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService
   ) {}
 
@@ -214,7 +222,7 @@ export class TurnExecutionService {
         input,
         turnState
       );
-      return this.buildTurnResult(acceptedTurn, providerResult);
+      return this.buildTurnResult(acceptedTurn, providerResult, turnState);
     } catch (error) {
       await this.failAcceptedTurnQuietly(acceptedTurn, error);
       throw this.toHttpException(error);
@@ -369,6 +377,11 @@ export class TurnExecutionService {
                 toolCall,
                 outcome.exchange.toolResult.isError
               );
+              if (outcome.artifacts !== undefined) {
+                for (const artifact of outcome.artifacts) {
+                  yield this.createArtifactStreamEvent(acceptedTurn, artifact);
+                }
+              }
             }
 
             if (durableCompactionExecuted) {
@@ -391,7 +404,7 @@ export class TurnExecutionService {
                 event.result.text
               )
             );
-            const result = this.buildTurnResult(acceptedTurn, completedProviderResult);
+            const result = this.buildTurnResult(acceptedTurn, completedProviderResult, turnState);
             completionFinalizationAttempted = true;
             await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
             this.scheduleAutoCompaction(input, execution.bundle, turnState);
@@ -503,7 +516,8 @@ export class TurnExecutionService {
 
   private buildTurnResult(
     acceptedTurn: AcceptedRuntimeTurn,
-    providerResult: ProviderGatewayTextGenerateResult
+    providerResult: ProviderGatewayTextGenerateResult,
+    turnState: TurnExecutionState
   ): RuntimeTurnResult {
     if (providerResult.stopReason !== "completed" || providerResult.text === null) {
       throw new InternalServerErrorException(
@@ -515,7 +529,7 @@ export class TurnExecutionService {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
       assistantText: providerResult.text,
-      artifacts: [],
+      artifacts: [...turnState.artifacts],
       respondedAt: providerResult.respondedAt,
       usage: providerResult.usage
     };
@@ -836,6 +850,21 @@ export class TurnExecutionService {
           toolCall
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
+      case IMAGE_GENERATE_TOOL_CODE: {
+        const result = await this.runtimeImageGenerateToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          sessionId: acceptedTurn.session.sessionId,
+          requestId: acceptedTurn.receipt.requestId
+        });
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.payload,
+          result.isError,
+          undefined,
+          result.artifacts
+        );
       }
       case SCHEDULED_ACTION_TOOL_CODE: {
         const result = await this.runtimeScheduledActionToolService.executeToolCall({
@@ -1202,12 +1231,14 @@ export class TurnExecutionService {
       | RuntimeKnowledgeSearchToolResult
       | RuntimeKnowledgeFetchToolResult
       | RuntimeBrowserToolResult
+      | RuntimeImageGenerateToolResult
       | RuntimeScheduledActionToolResult
       | RuntimeWebSearchToolResult
       | RuntimeWebFetchToolResult
       | Record<string, unknown>,
     isError = false,
-    sharedCompaction?: ToolExecutionOutcome["sharedCompaction"]
+    sharedCompaction?: ToolExecutionOutcome["sharedCompaction"],
+    artifacts?: RuntimeOutputArtifact[]
   ): ToolExecutionOutcome {
     return {
       exchange: {
@@ -1220,6 +1251,7 @@ export class TurnExecutionService {
         }
       },
       payload,
+      ...(artifacts === undefined ? {} : { artifacts }),
       ...(sharedCompaction === undefined ? {} : { sharedCompaction })
     };
   }
@@ -1365,12 +1397,25 @@ export class TurnExecutionService {
     };
   }
 
+  private createArtifactStreamEvent(
+    acceptedTurn: AcceptedRuntimeTurn,
+    artifact: RuntimeOutputArtifact
+  ): RuntimeTurnStreamEvent {
+    return {
+      type: "artifact",
+      requestId: acceptedTurn.receipt.requestId,
+      sessionId: acceptedTurn.session.sessionId,
+      artifact
+    };
+  }
+
   private createTurnExecutionState(): TurnExecutionState {
     return {
       sharedCompaction: {
         invoked: false,
         durableStatePersisted: false
-      }
+      },
+      artifacts: []
     };
   }
 
@@ -1378,6 +1423,9 @@ export class TurnExecutionService {
     turnState: TurnExecutionState,
     outcome: ToolExecutionOutcome
   ): void {
+    if (outcome.artifacts !== undefined && outcome.artifacts.length > 0) {
+      turnState.artifacts.push(...outcome.artifacts);
+    }
     if (outcome.sharedCompaction === undefined) {
       return;
     }

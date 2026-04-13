@@ -15,6 +15,7 @@ import {
 } from "../domain/assistant-materialized-spec.repository";
 import {
   AssistantRuntimeError,
+  runtimeOutputArtifactsToMediaArtifacts,
   type AssistantRuntimeWebChatTurnStreamChunk
 } from "./assistant-runtime.facade";
 import {
@@ -152,6 +153,7 @@ export class StreamNativeWebChatTurnService {
       }
 
       let accumulated = "";
+      const emittedArtifactIds = new Set<string>();
       for await (const event of this.readRuntimeStream(response)) {
         switch (event.type) {
           case "started":
@@ -185,20 +187,37 @@ export class StreamNativeWebChatTurnService {
             };
             continue;
           case "artifact":
-            throw new AssistantRuntimeError(
-              "invalid_response",
-              "Native runtime stream artifacts are not supported on the API path yet."
-            );
+            if (!emittedArtifactIds.has(event.artifact.artifactId)) {
+              emittedArtifactIds.add(event.artifact.artifactId);
+              const media = runtimeOutputArtifactsToMediaArtifacts([event.artifact]);
+              if (media.length > 0) {
+                yield {
+                  type: "media",
+                  media
+                };
+              }
+            }
+            continue;
           case "interrupted":
             throw this.toInterruptedRuntimeError(event);
           case "failed":
             throw this.toRuntimeFailedError(event);
           case "completed": {
-            if (event.result.artifacts.length > 0) {
-              throw new AssistantRuntimeError(
-                "invalid_response",
-                "Native runtime stream artifacts are not supported on the API path yet."
-              );
+            const remainingArtifacts = event.result.artifacts.filter((artifact) => {
+              if (emittedArtifactIds.has(artifact.artifactId)) {
+                return false;
+              }
+              emittedArtifactIds.add(artifact.artifactId);
+              return true;
+            });
+            if (remainingArtifacts.length > 0) {
+              const media = runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts);
+              if (media.length > 0) {
+                yield {
+                  type: "media",
+                  media
+                };
+              }
             }
             const assistantText = event.result.assistantText;
             if (

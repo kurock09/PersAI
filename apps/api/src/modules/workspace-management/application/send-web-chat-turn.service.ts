@@ -309,11 +309,7 @@ export class SendWebChatTurnService {
       trace.stage("assistant_message_saved");
 
       const delivered = await this.mediaDeliveryService.deliver({
-        artifacts: runtimeResponse.media.map((m) => ({
-          url: m.url,
-          type: m.type,
-          audioAsVoice: m.audioAsVoice
-        })),
+        artifacts: runtimeResponse.media,
         channel: "web",
         assistantId: prepared.assistantId,
         chatId: prepared.chat.id,

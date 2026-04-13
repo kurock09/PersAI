@@ -42,7 +42,17 @@ describe("SendNativeWebChatTurnService", () => {
           requestId: "runtime-request-1",
           sessionId: "runtime-session-1",
           assistantText: "native hello",
-          artifacts: [],
+          artifacts: [
+            {
+              artifactId: "artifact-1",
+              kind: "image",
+              objectKey: "assistant-media/assistants/assistant-1/runtime-output/one.png",
+              mimeType: "image/png",
+              filename: "one.png",
+              sizeBytes: 128,
+              voiceNote: false
+            }
+          ],
           respondedAt: "2026-04-11T13:00:00.000Z",
           usage: null,
           trace: {
@@ -117,7 +127,16 @@ describe("SendNativeWebChatTurnService", () => {
         "user-1"
       );
       assert.equal(result.assistantMessage, "native hello");
-      assert.equal(result.media.length, 0);
+      assert.deepEqual(result.media, [
+        {
+          source: "persai_object_storage",
+          objectKey: "assistant-media/assistants/assistant-1/runtime-output/one.png",
+          type: "image",
+          mimeType: "image/png",
+          filename: "one.png",
+          sizeBytes: 128
+        }
+      ]);
       assert.equal(result.runtimeTrace?.status, "completed");
     } finally {
       globalThis.fetch = originalFetch;

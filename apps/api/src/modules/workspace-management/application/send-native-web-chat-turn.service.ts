@@ -12,6 +12,7 @@ import {
 } from "../domain/assistant-materialized-spec.repository";
 import {
   AssistantRuntimeError,
+  runtimeOutputArtifactsToMediaArtifacts,
   type AssistantRuntimeWebChatTurnResult
 } from "./assistant-runtime.facade";
 import {
@@ -134,17 +135,10 @@ export class SendNativeWebChatTurnService {
         "Native runtime returned an invalid sync turn response."
       );
     }
-    if (response.body.artifacts.length > 0) {
-      throw new AssistantRuntimeError(
-        "invalid_response",
-        "Native runtime sync artifacts are not supported on the API path yet."
-      );
-    }
-
     return {
       assistantMessage: response.body.assistantText,
       respondedAt: response.body.respondedAt,
-      media: [],
+      media: runtimeOutputArtifactsToMediaArtifacts(response.body.artifacts),
       ...(response.body.trace === undefined ? {} : { runtimeTrace: response.body.trace })
     };
   }

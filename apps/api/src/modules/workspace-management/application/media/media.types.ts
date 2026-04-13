@@ -4,6 +4,7 @@ import type {
 } from "../../domain/assistant-chat-message-attachment.entity";
 import type { RuntimeAttachmentRef } from "@persai/runtime-contract";
 import type { AssistantWebChatMessageAttachmentState } from "../web-chat.types";
+import type { RuntimeMediaArtifact } from "../assistant-runtime.facade";
 
 export type MediaChannel = "web" | "telegram" | "whatsapp" | "vk";
 
@@ -32,12 +33,7 @@ export interface ResolvedInboundMedia {
   systemNotices: string[];
 }
 
-export interface MediaArtifact {
-  url: string;
-  type: "image" | "audio" | "video" | "document";
-  audioAsVoice?: boolean | undefined;
-  caption?: string | undefined;
-}
+export type MediaArtifact = RuntimeMediaArtifact;
 
 export interface DeliveredMedia {
   attachments: AssistantWebChatMessageAttachmentState[];

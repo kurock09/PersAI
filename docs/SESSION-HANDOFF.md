@@ -1,5 +1,88 @@
 # SESSION-HANDOFF
 
+## 2026-04-13 - ADR-072 T15-6 native image_generate baseline
+
+### What changed
+
+1. `packages/runtime-contract`, `apps/provider-gateway`, and `apps/runtime` now land native `image_generate` as the first real `T15-6` worker tool: the repo has a typed request/result contract, a new provider-gateway `generate-image` seam, OpenAI `gpt-image-1` execution through PersAI-resolved tool secrets, and focused provider/runtime tests for that path.
+2. `apps/runtime` now projects and executes `image_generate` through the shared worker-tool loop, enforces tool policy + credential + quota gating, persists generated outputs into PersAI object storage, and returns native `RuntimeOutputArtifact`s on both sync and stream turn paths.
+3. `apps/api` no longer fails closed when the native runtime returns media artifacts: native send/stream/Telegram/media-delivery flows now map `RuntimeOutputArtifact` into `RuntimeMediaArtifact`, support both `runtime_url` and `persai_object_storage` sources, and download/re-persist native artifacts correctly before user delivery. `ADR-072` / changelog / handoff now record `T15-6` as in progress on this `image_generate` baseline instead of leaving the slice purely planned.
+
+### Why
+
+1. `T15-6` needed to start on the smallest honest baseline instead of pretending `tts`, `image_edit`, and `video_generate` were all ready behind one premature generic media abstraction.
+2. Native media generation was not honest until the API delivery path could consume runtime-owned artifacts end to end; otherwise the runtime could generate files that the user-facing delivery layer still rejected.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-0`, `T15-1`, `T15-2`, `T15-3a`, `T15-3b`, `T15-4`, and `T15-5` are complete, and `T15-6 — Media generation and editing plan tools` is now in progress on the first honest `image_generate` baseline. `tts`, `image_edit`, and `video_generate` remain later follow-through inside `T15-6`; `T15-6b` stays separate.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `packages/config/src/runtime-config.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-image-generation.service.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-image-generation.controller.ts`
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-image-generation.service.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/persai-media-object-storage.service.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-image-generate-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/runtime-config.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media.types.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-bot.client.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/openclaw/openclaw-runtime.adapter.ts`
+- `apps/api/test/media-delivery.service.test.ts`
+- `apps/api/test/openclaw-runtime-adapter.test.ts`
+- `apps/api/test/send-native-telegram-turn.service.test.ts`
+- `apps/api/test/send-native-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-native-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway test`
+- `corepack pnpm --filter @persai/runtime test`
+- `corepack pnpm --filter @persai/api test`
+- `corepack pnpm --filter @persai/runtime-contract typecheck`
+- `corepack pnpm --filter @persai/config typecheck`
+- `corepack pnpm --filter @persai/provider-gateway typecheck`
+- `corepack pnpm --filter @persai/runtime typecheck`
+- `corepack pnpm --filter @persai/api typecheck`
+
+### Risks
+
+1. `T15-6` is not complete overall yet: `tts`, `image_edit`, and `video_generate` still need separate honest follow-through.
+2. The current native `image_generate` executor is intentionally an OpenAI-backed baseline; adding more providers later must preserve the same worker/artifact contract instead of reopening a legacy/plugin abstraction.
+3. Live dev/prod validation still needs the usual deploy/reapply/rollout sync before the running environment exposes the new path outside local test execution.
+
+### Next recommended step
+
+1. Continue `T15-6` with the next smallest honest media tool, most likely explicit tool-driven `tts`, while reusing the same worker/artifact boundary instead of inventing a second media-delivery path.
+2. Keep `T15-6b` fully out of scope until the media slice is further along; do not mix human memory or knowledge-source work into the current follow-through.
+
 ## 2026-04-13 - ADR-072 T15-5 closeout and doc-state sync
 
 ### What changed

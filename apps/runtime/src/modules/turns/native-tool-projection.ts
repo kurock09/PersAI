@@ -3,9 +3,11 @@ import type {
   AssistantRuntimeBundleToolCredentialRef
 } from "@persai/runtime-bundle";
 import {
+  MAX_RUNTIME_IMAGE_GENERATE_COUNT,
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
+  PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
   type ProviderGatewayToolDefinition,
@@ -64,6 +66,19 @@ export function projectRuntimeNativeTools(
     supportsCurrentNativeBrowserProvider(bundle, browserCredential.providerId ?? null)
   ) {
     projectedTools.push(createBrowserToolDefinition(bundle));
+  }
+  const imageGeneratePolicy = resolveAllowedModelVisibleToolPolicy(
+    bundle,
+    "image_generate",
+    "worker"
+  );
+  const imageGenerateCredential = resolveConfiguredCredentialRef(bundle, "image_generate");
+  if (
+    imageGeneratePolicy !== null &&
+    imageGenerateCredential !== null &&
+    supportsCurrentNativeImageGenerateProvider(imageGenerateCredential.providerId ?? null)
+  ) {
+    projectedTools.push(createImageGenerateToolDefinition());
   }
   const scheduledActionPolicy = resolveAllowedModelVisibleToolPolicy(
     bundle,
@@ -244,6 +259,41 @@ function createBrowserToolDefinition(
   };
 }
 
+function createImageGenerateToolDefinition(): ProviderGatewayToolDefinition {
+  return {
+    name: "image_generate",
+    description:
+      "Generate brand-new images from a text prompt. Use this for image creation only; do not use it for editing existing images or for video generation.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["prompt"],
+      properties: {
+        prompt: {
+          type: "string",
+          description: "Text prompt describing the image to generate."
+        },
+        count: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_RUNTIME_IMAGE_GENERATE_COUNT,
+          description: "Optional number of images to generate."
+        },
+        filename: {
+          type: "string",
+          description: "Optional filename hint for the generated image attachment."
+        },
+        size: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_IMAGE_GENERATE_SIZES],
+          description:
+            'Optional output size hint. Use "auto" to let the provider choose the best size.'
+        }
+      }
+    }
+  };
+}
+
 function createScheduledActionToolDefinition(): ProviderGatewayToolDefinition {
   return {
     name: "scheduled_action",
@@ -393,4 +443,8 @@ function supportsCurrentNativeBrowserProvider(
     bundle.runtime.browser.providerIds.includes(providerId as PersaiRuntimeBrowserProviderId) ||
     providerId === bundle.runtime.browser.defaultProviderId
   );
+}
+
+function supportsCurrentNativeImageGenerateProvider(providerId: string | null): boolean {
+  return providerId === null || providerId === "openai";
 }

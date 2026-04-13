@@ -264,7 +264,14 @@ async function run(): Promise<void> {
         JSON.stringify({
           assistantMessage: "",
           respondedAt: "2026-04-05T12:00:00.000Z",
-          media: [{ url: "/tmp/reply.ogg", type: "audio", audioAsVoice: true }]
+          media: [
+            {
+              source: "runtime_url",
+              url: "/tmp/reply.ogg",
+              type: "audio",
+              audioAsVoice: true
+            }
+          ]
         }),
         {
           status: 200,
@@ -287,7 +294,14 @@ async function run(): Promise<void> {
   assert.deepEqual(mediaOnlyWebResult, {
     assistantMessage: "",
     respondedAt: "2026-04-05T12:00:00.000Z",
-    media: [{ url: "/tmp/reply.ogg", type: "audio", audioAsVoice: true }]
+    media: [
+      {
+        source: "runtime_url",
+        url: "/tmp/reply.ogg",
+        type: "audio",
+        audioAsVoice: true
+      }
+    ]
   });
 
   globalThis.fetch = (async (input: string | URL | Request) => {

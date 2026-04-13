@@ -1,6 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
+  ProviderGatewayImageGenerateRequest,
+  ProviderGatewayImageGenerateResult,
   ProviderGatewayToolCall,
   ProviderGatewayAudioTranscriptionResult,
   ProviderGatewayTextCompletedEvent,
@@ -18,11 +20,26 @@ import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 import type { ProviderWarmableClient } from "../provider-client.types";
 
 const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
+const OPENAI_IMAGE_GENERATION_MODEL = "gpt-image-1";
 type OpenAIResponseCreateParams = Parameters<OpenAI["responses"]["create"]>[0];
 type OpenAINonStreamingCreateParams = Exclude<OpenAIResponseCreateParams, { stream: true }>;
 type OpenAIResponseInputParam = NonNullable<OpenAINonStreamingCreateParams["input"]>;
 type OpenAIResponseToolsParam = NonNullable<OpenAINonStreamingCreateParams["tools"]>;
 type OpenAIResponseToolChoice = OpenAIResponseCreateParams["tool_choice"];
+type OpenAIImageGenerateParams = Parameters<OpenAI["images"]["generate"]>[0];
+type OpenAIImageGenerateResponse = {
+  data?: Array<{
+    b64_json?: string;
+    revised_prompt?: string;
+  }>;
+  output_format?: "png" | "webp" | "jpeg";
+  usage?: {
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    total_tokens?: number | null;
+  };
+};
+type OpenAIGeneratedImage = NonNullable<OpenAIImageGenerateResponse["data"]>[number];
 type OpenAINonStreamingResponse = Extract<
   Awaited<ReturnType<OpenAI["responses"]["create"]>>,
   { output: unknown }
@@ -226,6 +243,66 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     }
   }
 
+  async generateImage(
+    input: ProviderGatewayImageGenerateRequest,
+    options?: { apiKey?: string }
+  ): Promise<ProviderGatewayImageGenerateResult> {
+    const client = this.getImageClient(options?.apiKey);
+    const { signal, dispose } = this.createTimedSignal(
+      this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
+    );
+    try {
+      const payload: OpenAIImageGenerateParams = {
+        model: OPENAI_IMAGE_GENERATION_MODEL,
+        prompt: input.prompt,
+        n: input.count,
+        output_format: "png",
+        ...(input.size === null ? {} : { size: input.size })
+      };
+      const response = (await client.images.generate(payload, {
+        signal
+      })) as OpenAIImageGenerateResponse;
+      const mimeType = this.resolveGeneratedImageMimeType(
+        this.asObject(response)?.output_format ?? "png"
+      );
+      const images = (response.data ?? [])
+        .map((entry: OpenAIGeneratedImage) => ({
+          bytesBase64:
+            typeof entry?.b64_json === "string" && entry.b64_json.trim().length > 0
+              ? entry.b64_json
+              : null,
+          revisedPrompt:
+            typeof entry?.revised_prompt === "string" && entry.revised_prompt.trim().length > 0
+              ? entry.revised_prompt.trim()
+              : null
+        }))
+        .filter(
+          (entry): entry is { bytesBase64: string; revisedPrompt: string | null } =>
+            entry.bytesBase64 !== null
+        );
+      if (images.length === 0) {
+        throw new Error("OpenAI image generation did not return any image bytes.");
+      }
+
+      return {
+        provider: "openai",
+        model: OPENAI_IMAGE_GENERATION_MODEL,
+        prompt: input.prompt,
+        size: input.size,
+        images: images.map((image) => ({
+          bytesBase64: image.bytesBase64,
+          mimeType,
+          revisedPrompt: image.revisedPrompt
+        })),
+        respondedAt: new Date().toISOString(),
+        usage: this.toImageUsageSnapshot(OPENAI_IMAGE_GENERATION_MODEL, response.usage),
+        warning: null
+      };
+    } finally {
+      dispose();
+    }
+  }
+
   getClient(): OpenAI | null {
     return this.client;
   }
@@ -420,6 +497,27 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   private toUsageSnapshot(
     model: string,
     usage: OpenAI.Responses.ResponseUsage | undefined
+  ): RuntimeUsageSnapshot | null {
+    return usage === undefined
+      ? null
+      : {
+          providerKey: "openai",
+          modelKey: model,
+          inputTokens: usage.input_tokens ?? null,
+          outputTokens: usage.output_tokens ?? null,
+          totalTokens: usage.total_tokens ?? null
+        };
+  }
+
+  private toImageUsageSnapshot(
+    model: string,
+    usage:
+      | {
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          total_tokens?: number | null;
+        }
+      | undefined
   ): RuntimeUsageSnapshot | null {
     return usage === undefined
       ? null
@@ -636,6 +734,28 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private getImageClient(apiKey?: string): OpenAI {
+    if (typeof apiKey === "string" && apiKey.trim().length > 0) {
+      return new OpenAI({ apiKey: apiKey.trim() });
+    }
+    if (this.client === null) {
+      throw new Error("OpenAI provider client is not warmed.");
+    }
+    return this.client;
+  }
+
+  private resolveGeneratedImageMimeType(outputFormat: unknown): string {
+    switch (outputFormat) {
+      case "jpeg":
+        return "image/jpeg";
+      case "webp":
+        return "image/webp";
+      case "png":
+      default:
+        return "image/png";
+    }
   }
 
   private defaultAudioFilename(mimeType: string): string {

@@ -1,6 +1,8 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   ASSISTANT_RUNTIME_FACADE,
+  describeRuntimeMediaArtifact,
+  readRuntimeMediaArtifactFilename,
   type AssistantRuntimeFacade,
   type RuntimeMediaArtifact
 } from "./assistant-runtime.facade";
@@ -14,6 +16,7 @@ import {
   TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH
 } from "./telegram-outbound-chunks";
 import type { InternalTelegramTurnResult } from "./handle-internal-telegram-turn.service";
+import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 
 type TelegramApiEnvelope<T> = {
   ok: boolean;
@@ -77,7 +80,8 @@ export class TelegramBotClientService {
   constructor(
     @Inject(ASSISTANT_RUNTIME_FACADE)
     private readonly assistantRuntime: AssistantRuntimeFacade,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async downloadInboundFile(
@@ -179,16 +183,21 @@ export class TelegramBotClientService {
       );
       for (const item of params.turnResult.media) {
         try {
-          const downloaded = await this.assistantRuntime.downloadChatMedia(
-            params.assistantId,
-            item.url,
-            runtimeTier
-          );
+          const downloaded =
+            item.source === "persai_object_storage"
+              ? await this.mediaObjectStorage.downloadObject(item.objectKey)
+              : await this.assistantRuntime.downloadChatMedia(
+                  params.assistantId,
+                  item.url,
+                  runtimeTier
+                );
           if (!downloaded) {
-            this.logger.warn(`Telegram outbound media not found: ${item.url}`);
+            this.logger.warn(
+              `Telegram outbound media not found: ${describeRuntimeMediaArtifact(item)}`
+            );
             continue;
           }
-          const filename = item.url.split("/").pop() ?? "media";
+          const filename = readRuntimeMediaArtifactFilename(item) ?? "media";
           await this.sendMedia({
             botToken: params.botToken,
             chatId: params.chatId,
@@ -197,7 +206,9 @@ export class TelegramBotClientService {
             filename
           });
         } catch (error) {
-          this.logger.warn(`Failed to send Telegram media "${item.url}": ${String(error)}`);
+          this.logger.warn(
+            `Failed to send Telegram media "${describeRuntimeMediaArtifact(item)}": ${String(error)}`
+          );
         }
       }
     }

@@ -111,7 +111,14 @@ describe("StreamWebChatTurnService", () => {
         streamWebChatTurn: async function* () {
           yield {
             type: "media",
-            media: [{ url: "/tmp/reply.ogg", type: "audio", audioAsVoice: true }]
+            media: [
+              {
+                source: "runtime_url",
+                url: "/tmp/reply.ogg",
+                type: "audio",
+                audioAsVoice: true
+              }
+            ]
           };
           yield { type: "done", respondedAt: "2026-04-05T12:00:01.000Z" };
         },

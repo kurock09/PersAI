@@ -388,11 +388,7 @@ export class StreamWebChatTurnService {
       trace.stage("assistant_message_saved");
 
       const delivered = await this.mediaDeliveryService.deliver({
-        artifacts: collectedMedia.map((m) => ({
-          url: m.url,
-          type: m.type,
-          audioAsVoice: m.audioAsVoice
-        })),
+        artifacts: collectedMedia,
         channel: "web",
         assistantId: prepared.assistantId,
         chatId: prepared.chat.id,

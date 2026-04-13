@@ -72,7 +72,7 @@ async function run(): Promise<void> {
   );
 
   const blocked = await blockedService.deliver({
-    artifacts: [{ url: "reports/payload.js", type: "document" }],
+    artifacts: [{ source: "runtime_url", url: "reports/payload.js", type: "document" }],
     channel: "web",
     assistantId: "assistant-1",
     chatId: "chat-1",
@@ -143,7 +143,7 @@ async function run(): Promise<void> {
   );
 
   const delivered = await safeService.deliver({
-    artifacts: [{ url: "images/render.png", type: "image" }],
+    artifacts: [{ source: "runtime_url", url: "images/render.png", type: "image" }],
     channel: "web",
     assistantId: "assistant-1",
     chatId: "chat-1",
@@ -164,6 +164,89 @@ async function run(): Promise<void> {
         series.key.outcome === "success"
     );
   assert.equal(successSeries?.count, 1);
+
+  let runtimeDownloadCalls = 0;
+  let objectDownloadCalls = 0;
+  let deletedObjectKey: string | null = null;
+  const nativeMetrics = new PlatformHttpMetricsService();
+  const nativeService = new MediaDeliveryService(
+    {
+      async downloadChatMedia() {
+        runtimeDownloadCalls += 1;
+        return null;
+      }
+    } as never,
+    {
+      async create(input: {
+        storagePath: string;
+        originalFilename: string | null;
+        mimeType: string;
+        sizeBytes: bigint;
+      }) {
+        return createAttachment({
+          storagePath: input.storagePath,
+          originalFilename: input.originalFilename,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes
+        });
+      }
+    } as never,
+    [],
+    {
+      async resolveByAssistantId() {
+        return "free_shared_restricted";
+      }
+    } as never,
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated.png";
+      },
+      async downloadObject(objectKey: string) {
+        objectDownloadCalls += 1;
+        assert.equal(objectKey, "assistant-media/runtime-output/generated.png");
+        return {
+          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+          contentType: "image/png"
+        };
+      },
+      async saveObject(input: { mimeType: string; buffer: Buffer }) {
+        return {
+          objectKey:
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated.png",
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
+      },
+      async deleteObject(objectKey: string) {
+        deletedObjectKey = objectKey;
+      }
+    } as never,
+    nativeMetrics
+  );
+
+  const nativeDelivered = await nativeService.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/generated.png",
+        type: "image",
+        mimeType: "image/png",
+        filename: "generated.png",
+        sizeBytes: 9
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(runtimeDownloadCalls, 0);
+  assert.equal(objectDownloadCalls, 1);
+  assert.equal(deletedObjectKey, "assistant-media/runtime-output/generated.png");
+  assert.equal(nativeDelivered.attachments.length, 1);
+  assert.equal(nativeDelivered.attachments[0]?.originalFilename, "generated.png");
 }
 
 void run();

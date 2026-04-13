@@ -99,12 +99,36 @@ describe("StreamNativeWebChatTurnService", () => {
             isError: false
           }),
           JSON.stringify({
+            type: "artifact",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1",
+            artifact: {
+              artifactId: "artifact-1",
+              kind: "image",
+              objectKey: "assistant-media/assistants/assistant-1/runtime-output/stream.png",
+              mimeType: "image/png",
+              filename: "stream.png",
+              sizeBytes: 64,
+              voiceNote: false
+            }
+          }),
+          JSON.stringify({
             type: "completed",
             result: {
               requestId: "runtime-request-1",
               sessionId: "runtime-session-1",
               assistantText: "hello native",
-              artifacts: [],
+              artifacts: [
+                {
+                  artifactId: "artifact-1",
+                  kind: "image",
+                  objectKey: "assistant-media/assistants/assistant-1/runtime-output/stream.png",
+                  mimeType: "image/png",
+                  filename: "stream.png",
+                  sizeBytes: 64,
+                  voiceNote: false
+                }
+              ],
               respondedAt: "2026-04-11T13:00:00.000Z",
               usage: null,
               trace: {
@@ -173,6 +197,19 @@ describe("StreamNativeWebChatTurnService", () => {
           toolName: "summarize_context",
           toolCallId: "tool-1",
           isError: false
+        },
+        {
+          type: "media",
+          media: [
+            {
+              source: "persai_object_storage",
+              objectKey: "assistant-media/assistants/assistant-1/runtime-output/stream.png",
+              type: "image",
+              mimeType: "image/png",
+              filename: "stream.png",
+              sizeBytes: 64
+            }
+          ]
         },
         { type: "delta", delta: " native", accumulated: "hello native" },
         {
