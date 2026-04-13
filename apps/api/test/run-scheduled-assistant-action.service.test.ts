@@ -69,7 +69,10 @@ describe("RunScheduledAssistantActionService", () => {
     assert.equal(sendService.calls[0]?.surfaceThreadKey, SURFACE_THREAD_KEY);
     const userMessage = sendService.calls[0]?.userMessage;
     assert.equal(typeof userMessage, "string");
-    assert.match(userMessage as string, /Background assistant actions MUST NOT directly message the user\./);
+    assert.match(
+      userMessage as string,
+      /Background assistant actions MUST NOT directly message the user\./
+    );
     assert.match(
       userMessage as string,
       /you MUST create a separate scheduled_action with audience="user" and an immediate schedule such as delayMs=1/

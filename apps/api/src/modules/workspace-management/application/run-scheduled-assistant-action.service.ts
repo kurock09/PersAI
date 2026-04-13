@@ -7,9 +7,7 @@ import { SendNativeWebChatTurnService } from "./send-native-web-chat-turn.servic
 
 const SCHEDULED_ACTION_THREAD_PREFIX = "system:scheduled-action:";
 
-type ScheduledActionDeliveryAttempt =
-  | { kind: "send"; userMessageId: string }
-  | { kind: "skip" };
+type ScheduledActionDeliveryAttempt = { kind: "send"; userMessageId: string } | { kind: "skip" };
 
 function isRetriableFailedReceipt(status: RuntimeTurnReceiptStatus): boolean {
   return status === "failed" || status === "interrupted";
