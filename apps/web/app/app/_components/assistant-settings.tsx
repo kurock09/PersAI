@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
@@ -37,8 +37,10 @@ import {
   postAssistantPublish,
   postAssistantRollback,
   postAssistantReset,
+  getAssistantVoiceSettings,
   patchAssistantNotificationPreference,
   getAssistantMemoryItems,
+  type AssistantVoiceSettingsState,
   type AssistantPreferredNotificationChannel,
   getAssistantTaskItems,
   postAssistantMemoryItemForget,
@@ -52,6 +54,15 @@ import {
   type WorkspaceMemoryItem
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
+import {
+  filterVoiceOptions,
+  findVoiceOption,
+  OPENAI_VOICE_OPTIONS,
+  resolveDefaultOpenAiVoiceOption,
+  resolveDefaultYandexVoiceOption,
+  YANDEX_VOICE_OPTIONS,
+  type VoiceOption
+} from "./assistant-voice-options";
 
 interface AssistantSettingsProps {
   data: AppData;
@@ -158,11 +169,11 @@ type AssistantVoiceProfile = {
     voiceId: string | null;
   };
   yandex: {
-    voice: (typeof YANDEX_TTS_VOICES)[number] | null;
+    voice: (typeof YANDEX_VOICE_OPTIONS)[number]["value"] | null;
     role: (typeof YANDEX_TTS_ROLES)[number] | null;
   };
   openai: {
-    voice: (typeof OPENAI_TTS_VOICES)[number] | null;
+    voice: (typeof OPENAI_VOICE_OPTIONS)[number]["value"] | null;
   };
 };
 
@@ -175,43 +186,14 @@ const DEFAULT_VOICE_PROFILE: AssistantVoiceProfile = {
   },
   yandex: {
     voice: "marina",
-    role: "friendly"
+    role: null
   },
   openai: {
     voice: "marin"
   }
 };
 
-const YANDEX_TTS_VOICES = [
-  "marina",
-  "jane",
-  "ermil",
-  "zahar",
-  "lera",
-  "masha",
-  "dasha",
-  "alexander",
-  "kirill",
-  "anton"
-] as const;
-
 const YANDEX_TTS_ROLES = ["neutral", "good", "friendly", "strict", "whisper", "evil"] as const;
-
-const OPENAI_TTS_VOICES = [
-  "alloy",
-  "ash",
-  "ballad",
-  "coral",
-  "echo",
-  "fable",
-  "onyx",
-  "nova",
-  "sage",
-  "shimmer",
-  "verse",
-  "marin",
-  "cedar"
-] as const;
 
 function normalizeVoiceProfile(value: unknown): AssistantVoiceProfile {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -251,8 +233,9 @@ function normalizeVoiceProfile(value: unknown): AssistantVoiceProfile {
     },
     yandex: {
       voice:
-        typeof yandex.voice === "string" && YANDEX_TTS_VOICES.includes(yandex.voice as never)
-          ? (yandex.voice as (typeof YANDEX_TTS_VOICES)[number])
+        typeof yandex.voice === "string" &&
+        YANDEX_VOICE_OPTIONS.some((option) => option.value === yandex.voice)
+          ? (yandex.voice as (typeof YANDEX_VOICE_OPTIONS)[number]["value"])
           : DEFAULT_VOICE_PROFILE.yandex.voice,
       role:
         typeof yandex.role === "string" && YANDEX_TTS_ROLES.includes(yandex.role as never)
@@ -261,8 +244,9 @@ function normalizeVoiceProfile(value: unknown): AssistantVoiceProfile {
     },
     openai: {
       voice:
-        typeof openai.voice === "string" && OPENAI_TTS_VOICES.includes(openai.voice as never)
-          ? (openai.voice as (typeof OPENAI_TTS_VOICES)[number])
+        typeof openai.voice === "string" &&
+        OPENAI_VOICE_OPTIONS.some((option) => option.value === openai.voice)
+          ? (openai.voice as (typeof OPENAI_VOICE_OPTIONS)[number]["value"])
           : DEFAULT_VOICE_PROFILE.openai.voice
     }
   };
@@ -274,13 +258,6 @@ function trimToNull(value: string | null): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function formatOptionLabel(value: string): string {
-  return value
-    .split(/[_-]+/)
-    .map((part) => (part.length > 0 ? part[0]!.toUpperCase() + part.slice(1) : part))
-    .join(" ");
 }
 
 export function AssistantSettings({ data, initialSection }: AssistantSettingsProps) {
@@ -357,6 +334,48 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     useState<AssistantPreferredNotificationChannel>("web");
   const [notificationSaving, setNotificationSaving] = useState(false);
   const [notificationFb, setNotificationFb] = useState<ActionFeedback>(null);
+  const [voiceSettings, setVoiceSettings] = useState<AssistantVoiceSettingsState | null>(null);
+  const [voiceSettingsLoading, setVoiceSettingsLoading] = useState(false);
+  const [voiceSettingsError, setVoiceSettingsError] = useState<string | null>(null);
+
+  const primaryVoiceProviderId = voiceSettings?.primaryProviderId ?? null;
+  const primaryVoiceProviderLabel =
+    primaryVoiceProviderId === "elevenlabs"
+      ? t("voiceProviderElevenlabs")
+      : primaryVoiceProviderId === "yandex"
+        ? t("voiceProviderYandex")
+        : primaryVoiceProviderId === "openai"
+          ? t("voiceProviderOpenai")
+          : t("voiceLoading");
+  const yandexVoiceOptions = useMemo(
+    () => filterVoiceOptions(YANDEX_VOICE_OPTIONS, draftAssistantGender),
+    [draftAssistantGender]
+  );
+  const openAiVoiceOptions = useMemo(
+    () => filterVoiceOptions(OPENAI_VOICE_OPTIONS, draftAssistantGender),
+    [draftAssistantGender]
+  );
+  const elevenLabsVoiceOptions = useMemo<VoiceOption<string>[]>(
+    () =>
+      (voiceSettings?.elevenlabs?.voices ?? []).map((voice) => ({
+        value: voice.voiceId,
+        label: voice.name,
+        gender: voice.gender
+      })),
+    [voiceSettings]
+  );
+  const filteredElevenLabsVoiceOptions = useMemo(
+    () => filterVoiceOptions(elevenLabsVoiceOptions, draftAssistantGender),
+    [draftAssistantGender, elevenLabsVoiceOptions]
+  );
+  const selectedElevenLabsVoiceOption = findVoiceOption(
+    elevenLabsVoiceOptions,
+    draftVoiceProfile.elevenlabs.voiceId
+  );
+  const selectedElevenLabsVoiceAllowed = findVoiceOption(
+    filteredElevenLabsVoiceOptions,
+    draftVoiceProfile.elevenlabs.voiceId
+  );
 
   const getTaskScheduleKind = useCallback(
     (sourceLabel: string | null): "one_time" | "recurring" | "scheduled" => {
@@ -427,6 +446,31 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const activeTaskItems = taskItems.filter((item) => item.controlStatus === "active");
   const userTaskItems = activeTaskItems.filter((item) => item.audience === "user");
   const assistantTaskItems = activeTaskItems.filter((item) => item.audience === "assistant");
+  const elevenLabsSelectOptions = useMemo(
+    () =>
+      selectedElevenLabsVoiceOption !== null && selectedElevenLabsVoiceAllowed === null
+        ? [
+            {
+              value: selectedElevenLabsVoiceOption.value,
+              label: t("voiceSavedSelection", {
+                name: selectedElevenLabsVoiceOption.label
+              }),
+              gender: selectedElevenLabsVoiceOption.gender
+            },
+            ...filteredElevenLabsVoiceOptions
+          ]
+        : filteredElevenLabsVoiceOptions,
+    [
+      filteredElevenLabsVoiceOptions,
+      selectedElevenLabsVoiceAllowed,
+      selectedElevenLabsVoiceOption,
+      t
+    ]
+  );
+  const voiceProviderHint =
+    primaryVoiceProviderId === null
+      ? t("voiceLoading")
+      : t("voicePrimaryProviderHint", { provider: primaryVoiceProviderLabel });
 
   useEffect(() => {
     setDraftName(assistant?.draft.displayName ?? "");
@@ -440,6 +484,110 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     setDraftVoiceProfile(normalizeVoiceProfile(assistant?.draft.voiceProfile));
     setAvatarPreviewBlobUrl(null);
   }, [assistant]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (assistant === null) {
+      setVoiceSettings(null);
+      setVoiceSettingsLoading(false);
+      setVoiceSettingsError(null);
+      return;
+    }
+
+    void (async () => {
+      const token = await getToken();
+      if (!token || cancelled) {
+        return;
+      }
+      setVoiceSettingsLoading(true);
+      try {
+        const nextSettings = await getAssistantVoiceSettings(token);
+        if (!cancelled) {
+          setVoiceSettings(nextSettings);
+          setVoiceSettingsError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setVoiceSettingsError(
+            error instanceof Error ? error.message : "Failed to load assistant voice settings."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setVoiceSettingsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assistant, getToken]);
+
+  useEffect(() => {
+    if (primaryVoiceProviderId === null) {
+      return;
+    }
+
+    setDraftVoiceProfile((prev) => {
+      if (primaryVoiceProviderId === "yandex") {
+        const allowed = new Set(yandexVoiceOptions.map((option) => option.value));
+        const nextVoice =
+          prev.yandex.voice !== null && allowed.has(prev.yandex.voice)
+            ? prev.yandex.voice
+            : resolveDefaultYandexVoiceOption(draftAssistantGender);
+        if (nextVoice === prev.yandex.voice && prev.yandex.role === null) {
+          return prev;
+        }
+        return {
+          ...prev,
+          yandex: {
+            voice: nextVoice,
+            role: null
+          }
+        };
+      }
+
+      if (primaryVoiceProviderId === "openai") {
+        const allowed = new Set(openAiVoiceOptions.map((option) => option.value));
+        const nextVoice =
+          prev.openai.voice !== null && allowed.has(prev.openai.voice)
+            ? prev.openai.voice
+            : resolveDefaultOpenAiVoiceOption(draftAssistantGender);
+        if (nextVoice === prev.openai.voice) {
+          return prev;
+        }
+        return {
+          ...prev,
+          openai: {
+            voice: nextVoice
+          }
+        };
+      }
+
+      const allowed = new Set(filteredElevenLabsVoiceOptions.map((option) => option.value));
+      const nextVoiceId =
+        prev.elevenlabs.voiceId !== null && allowed.has(prev.elevenlabs.voiceId)
+          ? prev.elevenlabs.voiceId
+          : null;
+      if (nextVoiceId === prev.elevenlabs.voiceId) {
+        return prev;
+      }
+      return {
+        ...prev,
+        elevenlabs: {
+          voiceId: nextVoiceId
+        }
+      };
+    });
+  }, [
+    draftAssistantGender,
+    filteredElevenLabsVoiceOptions,
+    openAiVoiceOptions,
+    primaryVoiceProviderId,
+    yandexVoiceOptions
+  ]);
 
   useEffect(() => {
     setNotificationChannel(data.notificationPreference?.selectedChannel ?? "web");
@@ -543,6 +691,10 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
           ...draftVoiceProfile,
           elevenlabs: {
             voiceId: trimToNull(draftVoiceProfile.elevenlabs.voiceId)
+          },
+          yandex: {
+            voice: draftVoiceProfile.yandex.voice,
+            role: null
           }
         }
       });
@@ -818,6 +970,10 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                 </span>
               </div>
               <p className="mt-2 text-[11px] text-text-subtle">{t("voiceToneNote")}</p>
+              <p className="mt-2 text-[11px] text-text-subtle">{voiceProviderHint}</p>
+              {voiceSettingsError && (
+                <p className="mt-2 text-[11px] text-destructive">{voiceSettingsError}</p>
+              )}
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-1 block text-[11px] text-text-muted">
@@ -839,105 +995,116 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-[11px] text-text-muted">
-                    {t("voiceElevenlabsVoiceId")}
+                    {t("voicePrimaryProvider")}
                   </span>
-                  <input
-                    type="text"
-                    value={draftVoiceProfile.elevenlabs.voiceId ?? ""}
-                    onChange={(e) =>
-                      setDraftVoiceProfile((prev) => ({
-                        ...prev,
-                        elevenlabs: {
-                          voiceId: e.target.value
-                        }
-                      }))
-                    }
-                    placeholder={t("voiceElevenlabsVoiceIdPlaceholder")}
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-                  />
+                  <div className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text">
+                    {primaryVoiceProviderLabel}
+                  </div>
                 </label>
-                <label className="block">
-                  <span className="mb-1 block text-[11px] text-text-muted">
-                    {t("voiceYandexVoice")}
-                  </span>
-                  <select
-                    value={draftVoiceProfile.yandex.voice ?? ""}
-                    onChange={(e) =>
-                      setDraftVoiceProfile((prev) => ({
-                        ...prev,
-                        yandex: {
-                          ...prev.yandex,
-                          voice:
-                            e.target.value === ""
-                              ? null
-                              : (e.target.value as (typeof YANDEX_TTS_VOICES)[number])
-                        }
-                      }))
-                    }
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                  >
-                    {YANDEX_TTS_VOICES.map((voice) => (
-                      <option key={voice} value={voice}>
-                        {formatOptionLabel(voice)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-[11px] text-text-muted">
-                    {t("voiceYandexRole")}
-                  </span>
-                  <select
-                    value={draftVoiceProfile.yandex.role ?? ""}
-                    onChange={(e) =>
-                      setDraftVoiceProfile((prev) => ({
-                        ...prev,
-                        yandex: {
-                          ...prev.yandex,
-                          role:
-                            e.target.value === ""
-                              ? null
-                              : (e.target.value as (typeof YANDEX_TTS_ROLES)[number])
-                        }
-                      }))
-                    }
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                  >
-                    {YANDEX_TTS_ROLES.map((role) => (
-                      <option key={role} value={role}>
-                        {formatOptionLabel(role)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block md:col-span-2">
-                  <span className="mb-1 block text-[11px] text-text-muted">
-                    {t("voiceOpenaiVoice")}
-                  </span>
-                  <select
-                    value={draftVoiceProfile.openai.voice ?? ""}
-                    onChange={(e) =>
-                      setDraftVoiceProfile((prev) => ({
-                        ...prev,
-                        openai: {
-                          voice:
-                            e.target.value === ""
-                              ? null
-                              : (e.target.value as (typeof OPENAI_TTS_VOICES)[number])
-                        }
-                      }))
-                    }
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                  >
-                    {OPENAI_TTS_VOICES.map((voice) => (
-                      <option key={voice} value={voice}>
-                        {formatOptionLabel(voice)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {primaryVoiceProviderId === "elevenlabs" && (
+                  <label className="block md:col-span-2">
+                    <span className="mb-1 block text-[11px] text-text-muted">
+                      {t("voiceBaseVoice")}
+                    </span>
+                    <select
+                      value={draftVoiceProfile.elevenlabs.voiceId ?? ""}
+                      onChange={(e) =>
+                        setDraftVoiceProfile((prev) => ({
+                          ...prev,
+                          elevenlabs: {
+                            voiceId: e.target.value === "" ? null : e.target.value
+                          }
+                        }))
+                      }
+                      disabled={
+                        voiceSettingsLoading || voiceSettings?.elevenlabs?.loadState !== "ready"
+                      }
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
+                    >
+                      <option value="">{t("voiceChooseBaseVoice")}</option>
+                      {elevenLabsSelectOptions.map((voice) => (
+                        <option key={voice.value} value={voice.value}>
+                          {voice.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-2 text-[11px] text-text-subtle">
+                      {voiceSettingsLoading
+                        ? t("voiceElevenlabsLoading")
+                        : voiceSettings?.elevenlabs?.loadState === "not_configured"
+                          ? t("voiceElevenlabsNotConfigured")
+                          : voiceSettings?.elevenlabs?.loadState === "unavailable"
+                            ? (voiceSettings.elevenlabs.warning ?? t("voiceElevenlabsUnavailable"))
+                            : filteredElevenLabsVoiceOptions.length === 0
+                              ? t("voiceNoVoicesForGender")
+                              : t("voiceGenderFilterHint")}
+                    </p>
+                  </label>
+                )}
+                {primaryVoiceProviderId === "yandex" && (
+                  <label className="block md:col-span-2">
+                    <span className="mb-1 block text-[11px] text-text-muted">
+                      {t("voiceBaseVoice")}
+                    </span>
+                    <select
+                      value={draftVoiceProfile.yandex.voice ?? ""}
+                      onChange={(e) =>
+                        setDraftVoiceProfile((prev) => ({
+                          ...prev,
+                          yandex: {
+                            ...prev.yandex,
+                            voice:
+                              e.target.value === ""
+                                ? null
+                                : (e.target.value as (typeof YANDEX_VOICE_OPTIONS)[number]["value"])
+                          }
+                        }))
+                      }
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                    >
+                      {yandexVoiceOptions.map((voice) => (
+                        <option key={voice.value} value={voice.value}>
+                          {voice.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-2 text-[11px] text-text-subtle">
+                      {t("voiceGenderFilterHint")}
+                    </p>
+                  </label>
+                )}
+                {primaryVoiceProviderId === "openai" && (
+                  <label className="block md:col-span-2">
+                    <span className="mb-1 block text-[11px] text-text-muted">
+                      {t("voiceBaseVoice")}
+                    </span>
+                    <select
+                      value={draftVoiceProfile.openai.voice ?? ""}
+                      onChange={(e) =>
+                        setDraftVoiceProfile((prev) => ({
+                          ...prev,
+                          openai: {
+                            voice:
+                              e.target.value === ""
+                                ? null
+                                : (e.target.value as (typeof OPENAI_VOICE_OPTIONS)[number]["value"])
+                          }
+                        }))
+                      }
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                    >
+                      {openAiVoiceOptions.map((voice) => (
+                        <option key={voice.value} value={voice.value}>
+                          {voice.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-2 text-[11px] text-text-subtle">
+                      {t("voiceGenderFilterHint")}
+                    </p>
+                  </label>
+                )}
               </div>
-              <p className="mt-2 text-[11px] text-text-subtle">{t("voiceElevenlabsHint")}</p>
             </div>
             <div className="mt-3 space-y-3">
               {TRAIT_SLIDERS.map(({ key, labelLeftKey, labelRightKey }) => (

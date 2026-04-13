@@ -510,6 +510,30 @@ export const PERSAI_RUNTIME_YANDEX_TTS_ROLES = [
 
 export type PersaiRuntimeYandexTtsRole = (typeof PERSAI_RUNTIME_YANDEX_TTS_ROLES)[number];
 
+export const PERSAI_RUNTIME_YANDEX_SUPPORTED_ROLES_BY_VOICE = {
+  marina: ["neutral", "friendly", "whisper"],
+  jane: ["neutral", "good", "evil"],
+  ermil: ["neutral", "good"],
+  zahar: ["neutral", "good"],
+  lera: ["neutral", "friendly"],
+  masha: ["neutral", "good", "friendly", "strict"],
+  dasha: ["neutral", "good", "friendly"],
+  alexander: ["neutral", "good"],
+  kirill: ["neutral", "good", "strict"],
+  anton: ["neutral", "good"]
+} as const satisfies Record<PersaiRuntimeYandexTtsVoice, readonly PersaiRuntimeYandexTtsRole[]>;
+
+export function isPersaiRuntimeYandexRoleAllowedForVoice(params: {
+  voice: PersaiRuntimeYandexTtsVoice;
+  role: PersaiRuntimeYandexTtsRole;
+}): boolean {
+  return (
+    PERSAI_RUNTIME_YANDEX_SUPPORTED_ROLES_BY_VOICE[
+      params.voice
+    ] as readonly PersaiRuntimeYandexTtsRole[]
+  ).includes(params.role);
+}
+
 export const PERSAI_RUNTIME_OPENAI_TTS_VOICES = [
   "alloy",
   "ash",

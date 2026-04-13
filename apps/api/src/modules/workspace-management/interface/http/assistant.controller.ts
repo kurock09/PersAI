@@ -41,6 +41,8 @@ import { ResolvePlanVisibilityService } from "../../application/resolve-plan-vis
 import { ResolveTelegramIntegrationStateService } from "../../application/resolve-telegram-integration-state.service";
 import type { AssistantNotificationPreferenceState } from "../../application/assistant-notification-preference.types";
 import { ResolveAssistantNotificationPreferenceService } from "../../application/resolve-assistant-notification-preference.service";
+import type { AssistantVoiceSettingsState } from "../../application/resolve-assistant-voice-settings.service";
+import { ResolveAssistantVoiceSettingsService } from "../../application/resolve-assistant-voice-settings.service";
 import { ConnectTelegramIntegrationService } from "../../application/connect-telegram-integration.service";
 import { UpdateTelegramIntegrationConfigService } from "../../application/update-telegram-integration-config.service";
 import { UpdateAssistantNotificationPreferenceService } from "../../application/update-assistant-notification-preference.service";
@@ -87,6 +89,7 @@ export class AssistantController {
     private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly resolveAssistantNotificationPreferenceService: ResolveAssistantNotificationPreferenceService,
+    private readonly resolveAssistantVoiceSettingsService: ResolveAssistantVoiceSettingsService,
     private readonly connectTelegramIntegrationService: ConnectTelegramIntegrationService,
     private readonly updateTelegramIntegrationConfigService: UpdateTelegramIntegrationConfigService,
     private readonly updateAssistantNotificationPreferenceService: UpdateAssistantNotificationPreferenceService,
@@ -132,6 +135,19 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       assistant
+    };
+  }
+
+  @Get("assistant/voice/settings")
+  async getAssistantVoiceSettings(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    settings: AssistantVoiceSettingsState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const settings = await this.resolveAssistantVoiceSettingsService.execute(userId);
+    return {
+      requestId: req.requestId ?? null,
+      settings
     };
   }
 

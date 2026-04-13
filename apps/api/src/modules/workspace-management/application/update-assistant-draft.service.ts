@@ -19,8 +19,16 @@ import {
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
-import { parseAssistantVoiceProfileInput } from "./assistant-voice-profile";
-import { VALID_ASSISTANT_GENDERS, type AssistantGender } from "./assistant-gender";
+import {
+  applyAssistantGenderVoiceDefaults,
+  normalizeAssistantVoiceProfile,
+  parseAssistantVoiceProfileInput
+} from "./assistant-voice-profile";
+import {
+  normalizeAssistantGender,
+  VALID_ASSISTANT_GENDERS,
+  type AssistantGender
+} from "./assistant-gender";
 import type { RuntimeAssistantVoiceProfile } from "@persai/runtime-contract";
 
 export interface UpdateAssistantDraftRequest {
@@ -138,6 +146,23 @@ export class UpdateAssistantDraftService {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
+    const nextAssistantGender = normalizeAssistantGender(
+      request.assistantGender === undefined
+        ? existingAssistant.draftAssistantGender
+        : request.assistantGender
+    );
+    const nextVoiceProfile =
+      request.voiceProfile !== undefined || request.assistantGender !== undefined
+        ? applyAssistantGenderVoiceDefaults({
+            assistantGender: nextAssistantGender,
+            voiceProfile: normalizeAssistantVoiceProfile(
+              request.voiceProfile === undefined
+                ? existingAssistant.draftVoiceProfile
+                : request.voiceProfile
+            )
+          })
+        : undefined;
+
     const nextDraft: UpdateAssistantDraftInput = {
       draftDisplayName:
         request.displayName === undefined
@@ -153,7 +178,7 @@ export class UpdateAssistantDraftService {
       ...(request.assistantGender !== undefined
         ? { draftAssistantGender: request.assistantGender }
         : {}),
-      ...(request.voiceProfile !== undefined ? { draftVoiceProfile: request.voiceProfile } : {})
+      ...(nextVoiceProfile !== undefined ? { draftVoiceProfile: nextVoiceProfile } : {})
     };
 
     const updatedAssistant = await this.assistantRepository.updateDraft(userId, nextDraft);

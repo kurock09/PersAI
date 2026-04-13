@@ -1,4 +1,5 @@
 import {
+  isPersaiRuntimeYandexRoleAllowedForVoice,
   PERSAI_RUNTIME_OPENAI_TTS_VOICES,
   PERSAI_RUNTIME_TTS_DEFAULT_LOCALE,
   PERSAI_RUNTIME_TTS_DELIVERY_KINDS,
@@ -6,6 +7,7 @@ import {
   PERSAI_RUNTIME_YANDEX_TTS_VOICES,
   type PersaiRuntimeOpenAITtsVoice,
   type PersaiRuntimeTtsDeliveryKind,
+  type PersaiRuntimeYandexTtsRole,
   type PersaiRuntimeYandexTtsVoice,
   type RuntimeAssistantVoiceProfile
 } from "@persai/runtime-contract";
@@ -14,6 +16,35 @@ const ASSISTANT_VOICE_PROFILE_SCHEMA = "persai.assistantVoiceProfile.v1" as cons
 const DEFAULT_DELIVERY_KIND: PersaiRuntimeTtsDeliveryKind = "voice_note";
 const MAX_VOICE_ID_LENGTH = 128;
 const MAX_LOCALE_LENGTH = 32;
+const FEMALE_YANDEX_VOICES = new Set<PersaiRuntimeYandexTtsVoice>([
+  "marina",
+  "jane",
+  "lera",
+  "masha",
+  "dasha"
+]);
+const MALE_YANDEX_VOICES = new Set<PersaiRuntimeYandexTtsVoice>([
+  "ermil",
+  "zahar",
+  "alexander",
+  "kirill",
+  "anton"
+]);
+const FEMALE_OPENAI_VOICES = new Set<PersaiRuntimeOpenAITtsVoice>([
+  "ballad",
+  "coral",
+  "fable",
+  "nova",
+  "shimmer",
+  "marin"
+]);
+const MALE_OPENAI_VOICES = new Set<PersaiRuntimeOpenAITtsVoice>([
+  "ash",
+  "echo",
+  "onyx",
+  "verse",
+  "cedar"
+]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -72,6 +103,8 @@ export function normalizeAssistantVoiceProfile(value: unknown): RuntimeAssistant
   const elevenlabs = isPlainObject(value.elevenlabs) ? value.elevenlabs : {};
   const yandex = isPlainObject(value.yandex) ? value.yandex : {};
   const openai = isPlainObject(value.openai) ? value.openai : {};
+  const yandexVoice = parseEnumOrNull(yandex.voice, PERSAI_RUNTIME_YANDEX_TTS_VOICES);
+  const yandexRole = parseEnumOrNull(yandex.role, PERSAI_RUNTIME_YANDEX_TTS_ROLES);
 
   return {
     schema: ASSISTANT_VOICE_PROFILE_SCHEMA,
@@ -85,8 +118,8 @@ export function normalizeAssistantVoiceProfile(value: unknown): RuntimeAssistant
       voiceId: normalizeOptionalNonEmptyString(elevenlabs.voiceId, MAX_VOICE_ID_LENGTH)
     },
     yandex: {
-      voice: parseEnumOrNull(yandex.voice, PERSAI_RUNTIME_YANDEX_TTS_VOICES),
-      role: parseEnumOrNull(yandex.role, PERSAI_RUNTIME_YANDEX_TTS_ROLES)
+      voice: yandexVoice,
+      role: resolveCompatibleYandexRoleForVoice(yandexRole, yandexVoice)
     },
     openai: {
       voice: parseEnumOrNull(openai.voice, PERSAI_RUNTIME_OPENAI_TTS_VOICES)
@@ -211,19 +244,64 @@ export function applyAssistantGenderVoiceDefaults(input: {
   voiceProfile: RuntimeAssistantVoiceProfile;
 }): RuntimeAssistantVoiceProfile {
   const gender = input.assistantGender?.trim().toLowerCase() ?? null;
-  const yandexVoice = input.voiceProfile.yandex.voice ?? resolveDefaultYandexVoiceForGender(gender);
-  const openaiVoice = input.voiceProfile.openai.voice ?? resolveDefaultOpenAIVoiceForGender(gender);
+  const yandexVoice = resolveCompatibleYandexVoiceForGender(
+    input.voiceProfile.yandex.voice,
+    gender
+  );
+  const yandexRole = resolveCompatibleYandexRoleForVoice(
+    input.voiceProfile.yandex.role,
+    yandexVoice
+  );
+  const openaiVoice = resolveCompatibleOpenAIVoiceForGender(
+    input.voiceProfile.openai.voice,
+    gender
+  );
 
   return {
     ...input.voiceProfile,
     yandex: {
       voice: yandexVoice,
-      role: input.voiceProfile.yandex.role
+      role: yandexRole
     },
     openai: {
       voice: openaiVoice
     }
   };
+}
+
+export function isYandexVoiceAllowedForAssistantGender(params: {
+  assistantGender: string | null;
+  voice: PersaiRuntimeYandexTtsVoice;
+}): boolean {
+  switch (params.assistantGender) {
+    case "male":
+      return MALE_YANDEX_VOICES.has(params.voice);
+    case "female":
+      return FEMALE_YANDEX_VOICES.has(params.voice);
+    default:
+      return true;
+  }
+}
+
+export function isYandexRoleAllowedForVoice(params: {
+  voice: PersaiRuntimeYandexTtsVoice;
+  role: PersaiRuntimeYandexTtsRole;
+}): boolean {
+  return isPersaiRuntimeYandexRoleAllowedForVoice(params);
+}
+
+export function isOpenAIVoiceAllowedForAssistantGender(params: {
+  assistantGender: string | null;
+  voice: PersaiRuntimeOpenAITtsVoice;
+}): boolean {
+  switch (params.assistantGender) {
+    case "male":
+      return MALE_OPENAI_VOICES.has(params.voice);
+    case "female":
+      return FEMALE_OPENAI_VOICES.has(params.voice);
+    default:
+      return true;
+  }
 }
 
 export function resolveDefaultYandexVoiceForGender(
@@ -250,4 +328,46 @@ export function resolveDefaultOpenAIVoiceForGender(
     default:
       return "sage";
   }
+}
+
+function resolveCompatibleYandexVoiceForGender(
+  voice: PersaiRuntimeYandexTtsVoice | null,
+  assistantGender: string | null
+): PersaiRuntimeYandexTtsVoice {
+  if (
+    voice !== null &&
+    isYandexVoiceAllowedForAssistantGender({
+      assistantGender,
+      voice
+    })
+  ) {
+    return voice;
+  }
+  return resolveDefaultYandexVoiceForGender(assistantGender);
+}
+
+function resolveCompatibleYandexRoleForVoice(
+  role: PersaiRuntimeYandexTtsRole | null,
+  voice: PersaiRuntimeYandexTtsVoice | null
+): PersaiRuntimeYandexTtsRole | null {
+  if (role === null || voice === null) {
+    return null;
+  }
+  return isYandexRoleAllowedForVoice({ voice, role }) ? role : null;
+}
+
+function resolveCompatibleOpenAIVoiceForGender(
+  voice: PersaiRuntimeOpenAITtsVoice | null,
+  assistantGender: string | null
+): PersaiRuntimeOpenAITtsVoice {
+  if (
+    voice !== null &&
+    isOpenAIVoiceAllowedForAssistantGender({
+      assistantGender,
+      voice
+    })
+  ) {
+    return voice;
+  }
+  return resolveDefaultOpenAIVoiceForGender(assistantGender);
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
+  PersaiRuntimeTtsProviderId,
   ProviderGatewaySpeechGenerateRequest,
   ProviderGatewaySpeechGenerateResult,
   ProviderGatewayToolCall,
@@ -49,7 +50,15 @@ const BROWSER_CONFIG = {
   confirmationRequiredActions: ["act"]
 } satisfies RuntimeBrowserConfig;
 
-function createBundle(options?: { primaryConfigured?: boolean; fallbackConfigured?: boolean }) {
+function createBundle(options?: {
+  primaryConfigured?: boolean;
+  fallbackConfigured?: boolean;
+  primaryProviderId?: PersaiRuntimeTtsProviderId;
+  fallbackProviderId?: PersaiRuntimeTtsProviderId;
+}) {
+  const primaryProviderId = options?.primaryProviderId ?? "elevenlabs";
+  const fallbackProviderId: PersaiRuntimeTtsProviderId =
+    options?.fallbackProviderId ?? (primaryProviderId === "openai" ? "yandex" : "openai");
   return compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
@@ -79,7 +88,7 @@ function createBundle(options?: { primaryConfigured?: boolean; fallbackConfigure
         },
         yandex: {
           voice: "jane",
-          role: "friendly"
+          role: null
         },
         openai: {
           voice: "marin"
@@ -137,24 +146,24 @@ function createBundle(options?: { primaryConfigured?: boolean; fallbackConfigure
       tasksControl: null,
       toolCredentialRefs: {
         tts: {
-          refKey: "persai:persai-runtime:tool/tts/elevenlabs",
+          refKey: `persai:persai-runtime:tool/tts/${primaryProviderId}`,
           secretRef: {
             source: "persai",
             provider: "persai-runtime",
-            id: "tool/tts/elevenlabs"
+            id: `tool/tts/${primaryProviderId}`
           },
           configured: options?.primaryConfigured ?? true,
-          providerId: "elevenlabs",
+          providerId: primaryProviderId,
           fallbacks: [
             {
-              refKey: "persai:persai-runtime:tool/tts/openai",
+              refKey: `persai:persai-runtime:tool/tts/${fallbackProviderId}`,
               secretRef: {
                 source: "persai",
                 provider: "persai-runtime",
-                id: "tool/tts/openai"
+                id: `tool/tts/${fallbackProviderId}`
               },
               configured: options?.fallbackConfigured ?? true,
-              providerId: "openai"
+              providerId: fallbackProviderId
             }
           ]
         }
@@ -229,16 +238,30 @@ class FakeProviderGatewayClientService {
     if (input.credential.providerId === "elevenlabs") {
       throw new Error("Saved ElevenLabs voice is unavailable.");
     }
+    if (input.credential.providerId === null) {
+      throw new Error("TTS providerId must be resolved before the runtime test client runs.");
+    }
+    const provider = input.credential.providerId;
     return {
-      provider: "openai",
-      model: "gpt-4o-mini-tts",
+      provider,
+      model:
+        provider === "yandex"
+          ? "yandex-speechkit"
+          : provider === "openai"
+            ? "gpt-4o-mini-tts"
+            : "tts-model",
       deliveryKind: input.deliveryKind,
       bytesBase64: Buffer.from("voice-note-binary").toString("base64"),
       mimeType: "audio/ogg",
       respondedAt: "2026-04-13T12:00:00.000Z",
       usage: {
-        providerKey: "openai",
-        modelKey: "gpt-4o-mini-tts",
+        providerKey: provider,
+        modelKey:
+          provider === "yandex"
+            ? "yandex-speechkit"
+            : provider === "openai"
+              ? "gpt-4o-mini-tts"
+              : "tts-model",
         inputTokens: 20,
         outputTokens: 40,
         totalTokens: 60
@@ -305,7 +328,11 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   );
 
   const fallbackOnlyProjection = projectRuntimeNativeTools(
-    createBundle({ primaryConfigured: false, fallbackConfigured: true })
+    createBundle({
+      primaryConfigured: false,
+      fallbackConfigured: true,
+      fallbackProviderId: "yandex"
+    })
   );
   assert.equal(
     fallbackOnlyProjection.tools.some((tool) => tool.name === "tts"),
@@ -320,8 +347,9 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
     false
   );
 
+  const openAiPrimaryBundle = createBundle({ primaryProviderId: "openai" });
   const result = await service.executeToolCall({
-    bundle,
+    bundle: openAiPrimaryBundle,
     toolCall: createToolCall({
       text: "Привет, записываю тебе короткий голосовой ответ.",
       toneTag: "warm"
@@ -331,14 +359,12 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   });
   assert.equal(result.payload.action, "generated");
   assert.equal(result.payload.provider, "openai");
-  assert.deepEqual(result.payload.attemptedProviders, ["elevenlabs", "openai"]);
+  assert.deepEqual(result.payload.attemptedProviders, ["openai"]);
   assert.equal(result.payload.artifact?.voiceNote, true);
   assert.equal(result.payload.artifact?.mimeType, "audio/ogg");
   assert.equal(result.artifacts.length, 1);
-  assert.equal(providerGatewayClientService.speechCalls.length, 2);
-  assert.equal(providerGatewayClientService.speechCalls[0]?.credential.providerId, "elevenlabs");
-  assert.equal(providerGatewayClientService.speechCalls[1]?.credential.providerId, "openai");
-  assert.match(result.payload.warning ?? "", /fallback provider "openai"/);
+  assert.equal(providerGatewayClientService.speechCalls.length, 1);
+  assert.equal(providerGatewayClientService.speechCalls[0]?.credential.providerId, "openai");
   assert.equal(mediaObjectStorage.savedObjects.length, 1);
   assert.equal(mediaObjectStorage.savedObjects[0]?.mimeType, "audio/ogg");
   assert.deepEqual(persaiInternalApiClientService.quotaCalls, [
@@ -348,6 +374,27 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
       dailyCallLimit: 5
     }
   ]);
+
+  const yandexFallbackBundle = createBundle({
+    primaryProviderId: "elevenlabs",
+    fallbackProviderId: "yandex"
+  });
+  const fallbackResult = await service.executeToolCall({
+    bundle: yandexFallbackBundle,
+    toolCall: createToolCall({
+      text: "Привет, это должен быть стабильный fallback через Yandex.",
+      toneTag: "warm"
+    }),
+    sessionId: "session-1",
+    requestId: "request-1b"
+  });
+  assert.equal(fallbackResult.payload.action, "generated");
+  assert.equal(fallbackResult.payload.provider, "yandex");
+  assert.deepEqual(fallbackResult.payload.attemptedProviders, ["elevenlabs", "yandex"]);
+  assert.match(fallbackResult.payload.warning ?? "", /fallback provider "yandex"/);
+  assert.equal(providerGatewayClientService.speechCalls.length, 3);
+  assert.equal(providerGatewayClientService.speechCalls[1]?.credential.providerId, "elevenlabs");
+  assert.equal(providerGatewayClientService.speechCalls[2]?.credential.providerId, "yandex");
 
   const invalid = await service.executeToolCall({
     bundle,

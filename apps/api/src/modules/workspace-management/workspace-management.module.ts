@@ -28,6 +28,7 @@ import { ResolveOpenClawCapabilityEnvelopeService } from "./application/resolve-
 import { ResolveRuntimeProviderRoutingService } from "./application/resolve-runtime-provider-routing.service";
 import { ResolveTelegramIntegrationStateService } from "./application/resolve-telegram-integration-state.service";
 import { ResolveAssistantNotificationPreferenceService } from "./application/resolve-assistant-notification-preference.service";
+import { ResolveAssistantVoiceSettingsService } from "./application/resolve-assistant-voice-settings.service";
 import { ConnectTelegramIntegrationService } from "./application/connect-telegram-integration.service";
 import { UpdateTelegramIntegrationConfigService } from "./application/update-telegram-integration-config.service";
 import { UpdateAssistantNotificationPreferenceService } from "./application/update-assistant-notification-preference.service";
@@ -245,6 +246,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ResolveOpenClawCapabilityEnvelopeService,
     ResolveTelegramIntegrationStateService,
     ResolveAssistantNotificationPreferenceService,
+    ResolveAssistantVoiceSettingsService,
     ConnectTelegramIntegrationService,
     UpdateTelegramIntegrationConfigService,
     UpdateAssistantNotificationPreferenceService,

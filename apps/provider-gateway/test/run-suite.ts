@@ -9,11 +9,13 @@ import { runProviderTextGenerationServiceTest } from "./provider-text-generation
 import { runProviderWebFetchServiceTest } from "./provider-web-fetch.service.test";
 import { runProviderWebSearchServiceTest } from "./provider-web-search.service.test";
 import { runProviderWarmupServiceTest } from "./provider-warmup.service.test";
+import { runYandexProviderClientTest } from "./yandex-provider.client.test";
 
 async function run(): Promise<void> {
   await runProviderGatewayConfigTest();
   await runAnthropicProviderClientTest();
   await runOpenAIProviderClientTest();
+  await runYandexProviderClientTest();
   await runProviderAudioTranscriptionServiceTest();
   await runProviderBrowserServiceTest();
   await runProviderImageGenerationServiceTest();

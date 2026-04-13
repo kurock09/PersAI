@@ -108,7 +108,7 @@ function createSpeechGenerateRequest(): ProviderGatewaySpeechGenerateRequest {
       },
       yandex: {
         voice: "jane",
-        role: "friendly"
+        role: null
       },
       openai: {
         voice: "marin"

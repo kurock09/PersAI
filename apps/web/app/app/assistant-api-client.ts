@@ -1344,6 +1344,23 @@ export type AssistantNotificationPreferenceState = {
   availableChannels: AssistantPreferredNotificationChannel[];
 };
 
+export type AssistantVoiceSettingsState = {
+  schema: "persai.assistantVoiceSettings.v1";
+  primaryProviderId: "elevenlabs" | "yandex" | "openai";
+  elevenlabs: {
+    configured: boolean;
+    loadState: "ready" | "not_configured" | "unavailable";
+    voices: Array<{
+      voiceId: string;
+      name: string;
+      gender: "male" | "female" | "neutral" | "unknown";
+      category: string | null;
+      previewUrl: string | null;
+    }>;
+    warning: string | null;
+  } | null;
+};
+
 export async function getWorkspaceMemoryItems(token: string): Promise<WorkspaceMemoryItem[]> {
   const base = getApiBaseUrl();
   const res = await fetch(`${base}/assistant/memory/workspace/items`, {
@@ -1577,6 +1594,32 @@ export async function getAssistantNotificationPreference(
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
+}
+
+export async function getAssistantVoiceSettings(
+  token: string
+): Promise<AssistantVoiceSettingsState> {
+  const response = await fetch(`${getApiBaseUrl()}/assistant/voice/settings`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!response.ok) {
+    throw new Error(await readJsonErrorMessage(response, "Failed to load voice settings."));
+  }
+
+  const payload = (await response.json()) as {
+    settings?: AssistantVoiceSettingsState;
+  };
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    payload.settings === undefined ||
+    typeof payload.settings !== "object" ||
+    payload.settings === null
+  ) {
+    throw new Error("Unexpected non-success response for GET /assistant/voice/settings.");
+  }
+
+  return payload.settings;
 }
 
 export async function patchAssistantNotificationPreference(

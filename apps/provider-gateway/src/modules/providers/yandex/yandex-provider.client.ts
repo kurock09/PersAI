@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
+import { isPersaiRuntimeYandexRoleAllowedForVoice } from "@persai/runtime-contract";
 import type {
   ProviderGatewaySpeechGenerateRequest,
   ProviderGatewaySpeechGenerateResult
@@ -72,11 +73,18 @@ export class YandexProviderClient {
   private buildHints(
     input: ProviderGatewaySpeechGenerateRequest
   ): Array<Record<string, string | number>> {
+    const voice = input.voiceProfile.yandex.voice ?? "jane";
     const hints: Array<Record<string, string | number>> = [
-      { voice: input.voiceProfile.yandex.voice ?? "jane" },
+      { voice },
       { speed: this.resolveSpeed(input) }
     ];
-    if (input.voiceProfile.yandex.role) {
+    if (
+      input.voiceProfile.yandex.role &&
+      isPersaiRuntimeYandexRoleAllowedForVoice({
+        voice,
+        role: input.voiceProfile.yandex.role
+      })
+    ) {
       hints.push({ role: input.voiceProfile.yandex.role });
     }
     return hints;
