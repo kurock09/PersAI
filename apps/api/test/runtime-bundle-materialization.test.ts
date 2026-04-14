@@ -89,6 +89,26 @@ function createInput(order: "alpha" | "beta") {
         order === "alpha"
           ? { heartbeat: { every: "0m", target: "none" } }
           : { heartbeat: { target: "none", every: "0m" } },
+      contextHydration:
+        order === "alpha"
+          ? {
+              preset: "balanced",
+              targetContextBudget: 24000,
+              compactionTriggerThreshold: 8000,
+              keepRecentMinimum: 4,
+              knowledgeHydrationBudget: 2400,
+              autoCompactionWeb: false,
+              autoCompactionTelegram: true
+            }
+          : {
+              autoCompactionTelegram: true,
+              autoCompactionWeb: false,
+              knowledgeHydrationBudget: 2400,
+              keepRecentMinimum: 4,
+              compactionTriggerThreshold: 8000,
+              targetContextBudget: 24000,
+              preset: "balanced"
+            },
       knowledgeAccess:
         order === "alpha"
           ? {
@@ -110,6 +130,41 @@ function createInput(order: "alpha" | "beta") {
                   fetchAliasToolCode: "memory_get",
                   searchCredentialToolCode: "memory_search",
                   fetchCredentialToolCode: null
+                },
+                {
+                  source: "chat",
+                  searchAliasToolCode: null,
+                  fetchAliasToolCode: null,
+                  searchCredentialToolCode: null,
+                  fetchCredentialToolCode: null
+                },
+                {
+                  source: "preset",
+                  searchAliasToolCode: null,
+                  fetchAliasToolCode: null,
+                  searchCredentialToolCode: null,
+                  fetchCredentialToolCode: null
+                },
+                {
+                  source: "subscription",
+                  searchAliasToolCode: null,
+                  fetchAliasToolCode: null,
+                  searchCredentialToolCode: null,
+                  fetchCredentialToolCode: null
+                },
+                {
+                  source: "global",
+                  searchAliasToolCode: null,
+                  fetchAliasToolCode: null,
+                  searchCredentialToolCode: null,
+                  fetchCredentialToolCode: null
+                },
+                {
+                  source: "document",
+                  searchAliasToolCode: null,
+                  fetchAliasToolCode: null,
+                  searchCredentialToolCode: null,
+                  fetchCredentialToolCode: null
                 }
               ]
             }
@@ -128,6 +183,41 @@ function createInput(order: "alpha" | "beta") {
                   fetchAliasToolCode: "memory_get",
                   searchAliasToolCode: "memory_search",
                   source: "memory"
+                },
+                {
+                  fetchCredentialToolCode: null,
+                  searchCredentialToolCode: null,
+                  fetchAliasToolCode: null,
+                  searchAliasToolCode: null,
+                  source: "chat"
+                },
+                {
+                  fetchCredentialToolCode: null,
+                  searchCredentialToolCode: null,
+                  fetchAliasToolCode: null,
+                  searchAliasToolCode: null,
+                  source: "preset"
+                },
+                {
+                  fetchCredentialToolCode: null,
+                  searchCredentialToolCode: null,
+                  fetchAliasToolCode: null,
+                  searchAliasToolCode: null,
+                  source: "subscription"
+                },
+                {
+                  fetchCredentialToolCode: null,
+                  searchCredentialToolCode: null,
+                  fetchAliasToolCode: null,
+                  searchAliasToolCode: null,
+                  source: "global"
+                },
+                {
+                  fetchCredentialToolCode: null,
+                  searchCredentialToolCode: null,
+                  fetchAliasToolCode: null,
+                  searchAliasToolCode: null,
+                  source: "document"
                 }
               ],
               ragMode: "pattern_only",
@@ -348,6 +438,15 @@ async function run(): Promise<void> {
 
   assert.equal(alpha.bundle.schema, "persai.runtime.bundle.v1");
   assert.equal(alpha.bundle.contractSchema, "persai.runtime.contract.v1");
+  assert.deepEqual(alpha.bundle.runtime.contextHydration, {
+    preset: "balanced",
+    targetContextBudget: 24000,
+    compactionTriggerThreshold: 8000,
+    keepRecentMinimum: 4,
+    knowledgeHydrationBudget: 2400,
+    autoCompactionWeb: false,
+    autoCompactionTelegram: true
+  });
   assert.deepEqual(alpha.bundle.runtime.sharedCompaction, {
     summarizeToolCode: "summarize_context",
     compactToolCode: "compact_context",
@@ -376,6 +475,41 @@ async function run(): Promise<void> {
         searchAliasToolCode: "memory_search",
         fetchAliasToolCode: "memory_get",
         searchCredentialToolCode: "memory_search",
+        fetchCredentialToolCode: null
+      },
+      {
+        source: "chat",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
+      },
+      {
+        source: "preset",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
+      },
+      {
+        source: "subscription",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
+      },
+      {
+        source: "global",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
+      },
+      {
+        source: "document",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
         fetchCredentialToolCode: null
       }
     ]

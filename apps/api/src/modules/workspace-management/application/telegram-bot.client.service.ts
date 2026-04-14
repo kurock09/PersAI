@@ -236,6 +236,7 @@ export class TelegramBotClientService {
     parseMode: string;
     turnResult: InternalTelegramTurnResult;
     onBeforeMediaSend?: ((media: RuntimeMediaArtifact[]) => Promise<void> | void) | undefined;
+    postReplyNotices?: string[] | undefined;
   }): Promise<void> {
     if (params.turnResult.deduplicated === true) {
       return;
@@ -285,6 +286,15 @@ export class TelegramBotClientService {
           );
         }
       }
+    }
+
+    for (const notice of params.postReplyNotices ?? []) {
+      await this.sendReplyWithConfiguredParseMode(
+        params.botToken,
+        params.chatId,
+        notice,
+        params.parseMode
+      );
     }
   }
 

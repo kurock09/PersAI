@@ -1,4 +1,4 @@
-export type AssistantMemoryRegistrySourceType = "web_chat";
+export type AssistantMemoryRegistrySourceType = "web_chat" | "memory_write";
 
 export type AssistantMemoryRegistryItem = {
   id: string;

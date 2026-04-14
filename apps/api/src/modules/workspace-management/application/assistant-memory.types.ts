@@ -1,4 +1,4 @@
-export type AssistantMemoryRegistrySourceTypeState = "web_chat";
+export type AssistantMemoryRegistrySourceTypeState = "web_chat" | "memory_write";
 
 export interface AssistantMemoryRegistryItemState {
   id: string;

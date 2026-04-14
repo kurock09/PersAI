@@ -24,6 +24,41 @@ async function run(): Promise<void> {
         fetchAliasToolCode: "memory_get",
         searchCredentialToolCode: "memory_search",
         fetchCredentialToolCode: null
+      },
+      {
+        source: "chat",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
+      },
+      {
+        source: "preset",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
+      },
+      {
+        source: "subscription",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
+      },
+      {
+        source: "global",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
+      },
+      {
+        source: "document",
+        searchAliasToolCode: null,
+        fetchAliasToolCode: null,
+        searchCredentialToolCode: null,
+        fetchCredentialToolCode: null
       }
     ]
   });

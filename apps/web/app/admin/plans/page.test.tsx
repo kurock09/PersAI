@@ -38,6 +38,15 @@ function createPlanState(): AdminPlanState {
     primaryModelKey: "gpt-5.4",
     videoGenerateModelKey: "sora-2-pro",
     runtimeTierDefault: "paid_shared_restricted",
+    contextPolicy: {
+      preset: "balanced",
+      targetContextBudget: 24_000,
+      compactionTriggerThreshold: 8_000,
+      keepRecentMinimum: 4,
+      knowledgeHydrationBudget: 2_400,
+      autoCompactionWeb: false,
+      autoCompactionTelegram: true
+    },
     toolActivations: [
       {
         toolCode: "video_generate",

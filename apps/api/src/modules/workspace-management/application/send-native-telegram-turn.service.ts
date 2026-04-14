@@ -210,6 +210,9 @@ export class SendNativeTelegramTurnService {
               assistantMessage: event.result.assistantText,
               respondedAt: event.result.respondedAt,
               media: collectedMedia,
+              ...(event.result.autoCompaction === undefined
+                ? {}
+                : { autoCompaction: event.result.autoCompaction }),
               ...(event.result.trace === undefined ? {} : { runtimeTrace: event.result.trace })
             };
           }

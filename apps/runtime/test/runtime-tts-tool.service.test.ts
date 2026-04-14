@@ -122,6 +122,15 @@ function createBundle(options?: {
         }
       },
       optimizationPolicy: null,
+      contextHydration: {
+        preset: "balanced",
+        targetContextBudget: 24000,
+        compactionTriggerThreshold: 8000,
+        keepRecentMinimum: 4,
+        knowledgeHydrationBudget: 2400,
+        autoCompactionWeb: false,
+        autoCompactionTelegram: true
+      },
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       workerTools: WORKER_TOOLS_CONFIG,
       browser: BROWSER_CONFIG,

@@ -150,6 +150,40 @@ export function ChatArea({
     : "border-destructive/20 bg-destructive/5";
   const issueIconClass = issueIsWarning ? "text-amber-600" : "text-destructive";
   const issueTextClass = issueIsWarning ? "text-amber-900" : "text-destructive";
+  const compactionTokensLabel =
+    typeof chat.compaction?.currentTokens === "number"
+      ? t("compactionTokensValue", { count: chat.compaction.currentTokens })
+      : t("compactionTokensNone");
+  const recentAutoCompaction = chat.recentAutoCompaction;
+  const showCompactionBanner = chat.compaction?.suggested === true || recentAutoCompaction !== null;
+  const compactionBannerMode = recentAutoCompaction !== null ? "auto_compacted" : "pressure";
+  const compactionBannerTitle =
+    compactionBannerMode === "auto_compacted"
+      ? t("compactionAutoSuccessTitle")
+      : chat.compaction?.autoCompactionEnabled
+        ? t("compactionPressureAutoTitle")
+        : t("compactionPressureManualTitle");
+  const compactionBannerBody =
+    compactionBannerMode === "auto_compacted"
+      ? t("compactionAutoSuccessBody")
+      : chat.compaction?.autoCompactionEnabled
+        ? t("compactionHintAuto", { tokens: compactionTokensLabel })
+        : t("compactionHintManual", { tokens: compactionTokensLabel });
+  const hasAutoCompactionTokenDetail =
+    compactionBannerMode === "auto_compacted" &&
+    recentAutoCompaction !== null &&
+    recentAutoCompaction.tokensBefore !== null &&
+    recentAutoCompaction.tokensAfter !== null;
+  const compactionBannerDetail = hasAutoCompactionTokenDetail
+    ? t("compactionDetailTokens", {
+        before: recentAutoCompaction!.tokensBefore!,
+        after: recentAutoCompaction!.tokensAfter!
+      })
+    : compactionBannerMode === "auto_compacted"
+      ? t("compactionAutoSuccessDetail")
+      : chat.compaction?.autoCompactionEnabled
+        ? t("compactionHintAutoDetail")
+        : t("compactionHintManualDetail");
 
   return (
     <div className="flex h-full flex-col">
@@ -316,25 +350,38 @@ export function ChatArea({
       )}
 
       {/* Input */}
-      {chat.compaction?.suggested && (
-        <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-surface px-3 py-2 text-xs text-text-muted">
-          <Scissors className="h-3.5 w-3.5 shrink-0 text-text-subtle" />
-          <p className="min-w-0 flex-1 truncate">
-            {t("compactionHint", {
-              tokens:
-                typeof chat.compaction.currentTokens === "number"
-                  ? t("compactionTokensValue", { count: chat.compaction.currentTokens })
-                  : t("compactionTokensNone")
-            })}
-          </p>
-          <button
-            type="button"
-            onClick={() => void chat.compactNow()}
-            disabled={chat.compactionRunning || chat.isStreaming}
-            className="shrink-0 cursor-pointer text-xs font-medium text-text transition-colors hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {chat.compactionRunning ? t("compactionRunning") : t("compactionAction")}
-          </button>
+      {showCompactionBanner && (
+        <div
+          className={`mx-4 mb-2 rounded-lg border px-3 py-3 ${
+            compactionBannerMode === "auto_compacted"
+              ? "border-emerald-200 bg-emerald-50/70"
+              : "border-border/70 bg-surface"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            {compactionBannerMode === "auto_compacted" ? (
+              <Scissors className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+            ) : (
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
+                {compactionBannerTitle}
+              </p>
+              <p className="mt-0.5 text-sm text-text">{compactionBannerBody}</p>
+              <p className="mt-1 text-xs text-text-muted">{compactionBannerDetail}</p>
+            </div>
+            {compactionBannerMode === "pressure" && (
+              <button
+                type="button"
+                onClick={() => void chat.compactNow()}
+                disabled={chat.compactionRunning || chat.isStreaming}
+                className="shrink-0 cursor-pointer text-xs font-medium text-text transition-colors hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {chat.compactionRunning ? t("compactionRunning") : t("compactionAction")}
+              </button>
+            )}
+          </div>
         </div>
       )}
       <ChatInput

@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayImageContentBlock,
   ProviderGatewayMessageContent,
@@ -12,11 +13,18 @@ import { RuntimeStatePostgresService } from "../runtime-state/infrastructure/per
 import { RuntimeStatePrismaService } from "../runtime-state/infrastructure/persistence/runtime-state-prisma.service";
 import { RuntimeStateKeyspaceService } from "../runtime-state/runtime-state-keyspace.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
+import {
+  estimateProviderGatewayMessageTokens,
+  resolveRuntimeContextHydrationConfig
+} from "./runtime-context-hydration-policy";
 import { parseStoredReusableCompactionState } from "./shared-compaction-state";
 
-const MAX_CANONICAL_CONTEXT_MESSAGES = 20;
 const MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_DIRECT_PROVIDER_ATTACHMENT_TOTAL_BYTES = 12 * 1024 * 1024;
+const MIN_HYDRATED_MEMORY_ITEMS = 3;
+const MAX_HYDRATED_MEMORY_ITEMS = 10;
+const MIN_HYDRATED_MEMORY_TOTAL_CHARS = 400;
+const MAX_HYDRATED_MEMORY_TOTAL_CHARS = 1800;
 type HydratedCanonicalSurface = Extract<
   RuntimeTurnRequest["conversation"]["channel"],
   "web" | "telegram"
@@ -70,6 +78,13 @@ type ReusableCompactionSummary = {
   summarizedMessageCount: number;
 };
 
+type HydratedMemoryRow = {
+  summary: string;
+  sourceType: "web_chat" | "memory_write";
+  sourceLabel: string | null;
+  createdAt: Date;
+};
+
 export interface RuntimeCompactionMessageSource {
   messages: ProviderGatewayTextMessage[];
   summarizedMessageCount: number;
@@ -85,19 +100,45 @@ export class TurnContextHydrationService {
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
-  async buildMessages(input: RuntimeTurnRequest): Promise<ProviderGatewayTextMessage[]> {
+  async buildMessages(
+    input: RuntimeTurnRequest,
+    bundle: AssistantRuntimeBundle
+  ): Promise<ProviderGatewayTextMessage[]> {
+    const contextHydration = resolveRuntimeContextHydrationConfig(bundle);
     const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
     if (canonicalSurface === null) {
       return [await this.createCurrentUserMessage(input)];
     }
 
     const storedMessages = await this.loadCanonicalChatMessages(input.conversation);
+    const durableMemoryMessage = await this.loadDurableMemoryContextMessage(
+      input.conversation.assistantId,
+      contextHydration
+    );
     if (storedMessages === null) {
-      return [await this.createCurrentUserMessage(input)];
+      const currentUserMessage = await this.createCurrentUserMessage(input);
+      return durableMemoryMessage === null
+        ? [currentUserMessage]
+        : this.limitHydratedMessages([durableMemoryMessage, currentUserMessage], contextHydration, {
+            preserveLeadingMessageCount: 1
+          });
     }
 
-    const hydrated = await this.hydrateCanonicalWebMessages(storedMessages, input);
-    return hydrated.length > 0 ? hydrated : [await this.createCurrentUserMessage(input)];
+    const hydrated = await this.hydrateCanonicalWebMessages(
+      storedMessages,
+      input,
+      durableMemoryMessage,
+      contextHydration
+    );
+    if (hydrated.length > 0) {
+      return hydrated;
+    }
+    const currentUserMessage = await this.createCurrentUserMessage(input);
+    return durableMemoryMessage === null
+      ? [currentUserMessage]
+      : this.limitHydratedMessages([durableMemoryMessage, currentUserMessage], contextHydration, {
+          preserveLeadingMessageCount: 1
+        });
   }
 
   async buildCompactionMessages(input: {
@@ -144,14 +185,30 @@ export class TurnContextHydrationService {
 
   private async hydrateCanonicalWebMessages(
     storedMessages: CanonicalChatMessageRow[],
-    input: RuntimeTurnRequest
+    input: RuntimeTurnRequest,
+    durableMemoryMessage: ProviderGatewayTextMessage | null,
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
   ): Promise<ProviderGatewayTextMessage[]> {
     const hydratableMessages = storedMessages.filter((message) =>
       this.isHydratableCanonicalMessage(message)
     );
     const reusableSummary = await this.loadReusableCompactionSummary(input.conversation);
     if (reusableSummary === null) {
-      return this.hydrateCanonicalMessageSequence(hydratableMessages, input);
+      const hydratedMessages = await this.hydrateCanonicalMessageSequence(
+        hydratableMessages,
+        input,
+        contextHydration
+      );
+      if (durableMemoryMessage === null) {
+        return hydratedMessages;
+      }
+      return this.limitHydratedMessages(
+        [durableMemoryMessage, ...hydratedMessages],
+        contextHydration,
+        {
+          preserveLeadingMessageCount: 1
+        }
+      );
     }
 
     const summaryBoundary = Math.min(
@@ -159,29 +216,50 @@ export class TurnContextHydrationService {
       hydratableMessages.length
     );
     if (summaryBoundary <= 0) {
-      return this.hydrateCanonicalMessageSequence(hydratableMessages, input);
+      const hydratedMessages = await this.hydrateCanonicalMessageSequence(
+        hydratableMessages,
+        input,
+        contextHydration
+      );
+      if (durableMemoryMessage === null) {
+        return hydratedMessages;
+      }
+      return this.limitHydratedMessages(
+        [durableMemoryMessage, ...hydratedMessages],
+        contextHydration,
+        {
+          preserveLeadingMessageCount: 1
+        }
+      );
     }
 
     const recentMessages = hydratableMessages.slice(summaryBoundary);
     const hydratedRecentMessages = await this.hydrateCanonicalMessageSequence(
       recentMessages,
-      input
+      input,
+      contextHydration
     );
+    const prefixMessages: ProviderGatewayTextMessage[] = [];
+    if (durableMemoryMessage !== null) {
+      prefixMessages.push(durableMemoryMessage);
+    }
+    prefixMessages.push({
+      role: "assistant",
+      content: this.formatReusableCompactionSummary(reusableSummary.summaryText)
+    });
     return this.limitHydratedMessages(
-      [
-        {
-          role: "assistant",
-          content: this.formatReusableCompactionSummary(reusableSummary.summaryText)
-        },
-        ...hydratedRecentMessages
-      ],
-      { preserveFirstMessage: true }
+      [...prefixMessages, ...hydratedRecentMessages],
+      contextHydration,
+      {
+        preserveLeadingMessageCount: prefixMessages.length
+      }
     );
   }
 
   private async hydrateCanonicalMessageSequence(
     messages: CanonicalChatMessageRow[],
-    input: RuntimeTurnRequest
+    input: RuntimeTurnRequest,
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
   ): Promise<ProviderGatewayTextMessage[]> {
     const hydrated: ProviderGatewayTextMessage[] = [];
     let currentMessageFound = false;
@@ -209,7 +287,7 @@ export class TurnContextHydrationService {
       hydrated.push(await this.createCurrentUserMessage(input));
     }
 
-    return this.limitHydratedMessages(hydrated);
+    return this.limitHydratedMessages(hydrated, contextHydration);
   }
 
   private async loadCanonicalChatMessages(
@@ -315,6 +393,103 @@ export class TurnContextHydrationService {
     };
   }
 
+  private resolveHydratedMemoryItemLimit(knowledgeHydrationBudget: number): number {
+    return Math.max(
+      MIN_HYDRATED_MEMORY_ITEMS,
+      Math.min(MAX_HYDRATED_MEMORY_ITEMS, Math.ceil(knowledgeHydrationBudget / 500))
+    );
+  }
+
+  private resolveHydratedMemoryCharBudget(knowledgeHydrationBudget: number): number {
+    return Math.max(
+      Math.min(knowledgeHydrationBudget, MIN_HYDRATED_MEMORY_TOTAL_CHARS),
+      Math.min(MAX_HYDRATED_MEMORY_TOTAL_CHARS, Math.floor(knowledgeHydrationBudget / 2))
+    );
+  }
+
+  private async loadDurableMemoryContextMessage(
+    assistantId: string,
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
+  ): Promise<ProviderGatewayTextMessage | null> {
+    if (contextHydration.knowledgeHydrationBudget <= 0) {
+      return null;
+    }
+    const maxHydratedMemoryItems = this.resolveHydratedMemoryItemLimit(
+      contextHydration.knowledgeHydrationBudget
+    );
+    const maxHydratedMemoryTotalChars = this.resolveHydratedMemoryCharBudget(
+      contextHydration.knowledgeHydrationBudget
+    );
+    const rows = (await this.prisma.assistantMemoryRegistryItem.findMany({
+      where: {
+        assistantId,
+        forgottenAt: null
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        summary: true,
+        sourceType: true,
+        sourceLabel: true,
+        createdAt: true
+      },
+      take: maxHydratedMemoryItems * 2
+    })) as HydratedMemoryRow[];
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    const dedupedRows = [...rows]
+      .sort((left, right) => {
+        if (left.sourceType !== right.sourceType) {
+          return left.sourceType === "memory_write" ? -1 : 1;
+        }
+        return right.createdAt.getTime() - left.createdAt.getTime();
+      })
+      .filter((row, index, collection) => {
+        const normalized = row.summary.trim().toLowerCase();
+        if (normalized.length === 0) {
+          return false;
+        }
+        return (
+          collection.findIndex(
+            (candidate) => candidate.summary.trim().toLowerCase() === normalized
+          ) === index
+        );
+      });
+
+    let totalChars = 0;
+    const lines: string[] = [];
+    for (const row of dedupedRows) {
+      const label = row.sourceLabel?.trim().length
+        ? row.sourceLabel.trim()
+        : row.sourceType === "memory_write"
+          ? "Durable memory"
+          : "Conversation memory";
+      const line = `- [${label}] ${row.summary.trim()}`;
+      if (line.length === 0) {
+        continue;
+      }
+      if (
+        lines.length >= maxHydratedMemoryItems ||
+        totalChars + line.length > maxHydratedMemoryTotalChars
+      ) {
+        break;
+      }
+      lines.push(line);
+      totalChars += line.length;
+    }
+
+    if (lines.length === 0) {
+      return null;
+    }
+
+    return {
+      role: "assistant",
+      content: `[Durable user context retained across conversations]\n${lines.join("\n")}`
+    };
+  }
+
   private toProviderRole(author: CanonicalChatMessageRow["author"]): "user" | "assistant" {
     return author === "assistant" ? "assistant" : "user";
   }
@@ -325,19 +500,39 @@ export class TurnContextHydrationService {
 
   private limitHydratedMessages(
     messages: ProviderGatewayTextMessage[],
-    options?: { preserveFirstMessage?: boolean }
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>,
+    options?: { preserveLeadingMessageCount?: number }
   ): ProviderGatewayTextMessage[] {
-    if (messages.length <= MAX_CANONICAL_CONTEXT_MESSAGES) {
+    if (messages.length === 0) {
       return messages;
     }
-    if (options?.preserveFirstMessage === true) {
-      const preservedFirstMessage = messages[0];
-      if (preservedFirstMessage === undefined) {
-        return messages.slice(-MAX_CANONICAL_CONTEXT_MESSAGES);
-      }
-      return [preservedFirstMessage, ...messages.slice(-(MAX_CANONICAL_CONTEXT_MESSAGES - 1))];
+
+    const preserveLeadingMessageCount = Math.max(
+      0,
+      Math.min(options?.preserveLeadingMessageCount ?? 0, messages.length)
+    );
+    const targetBudget = Math.max(1, contextHydration.targetContextBudget);
+    const selectedIndexes = new Set<number>();
+    let consumedBudget = 0;
+
+    for (let index = 0; index < preserveLeadingMessageCount; index += 1) {
+      selectedIndexes.add(index);
+      consumedBudget += estimateProviderGatewayMessageTokens(messages[index]!);
     }
-    return messages.slice(-MAX_CANONICAL_CONTEXT_MESSAGES);
+
+    let selectedTrailingCount = 0;
+    for (let index = messages.length - 1; index >= preserveLeadingMessageCount; index -= 1) {
+      const tokens = estimateProviderGatewayMessageTokens(messages[index]!);
+      const mustKeepTrailing = index === messages.length - 1 && selectedTrailingCount === 0;
+      if (consumedBudget + tokens > targetBudget && !mustKeepTrailing) {
+        break;
+      }
+      selectedIndexes.add(index);
+      selectedTrailingCount += 1;
+      consumedBudget += tokens;
+    }
+
+    return messages.filter((_, index) => selectedIndexes.has(index));
   }
 
   private async createCurrentUserMessage(

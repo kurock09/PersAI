@@ -331,6 +331,207 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/knowledge-sources:
+    get:
+      operationId: getAssistantKnowledgeSources
+      summary: List assistant-owned uploaded knowledge sources and current knowledge quota usage
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Knowledge source list with quota usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantKnowledgeSourcesResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAssistantKnowledgeSourceUpload
+      summary: Upload one document-like knowledge source for the current assistant
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                displayName:
+                  type: string
+                  nullable: true
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Uploaded knowledge source state after initial indexing attempt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantKnowledgeSourceResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Knowledge storage quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/knowledge-sources/{sourceId}:
+    get:
+      operationId: getAssistantKnowledgeSource
+      summary: Get one uploaded knowledge source and its current index status
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Knowledge source detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantKnowledgeSourceResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or knowledge source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAssistantKnowledgeSource
+      summary: Delete one uploaded knowledge source and release its reserved knowledge quota
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Knowledge source deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAssistantKnowledgeSourceResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or knowledge source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/knowledge-sources/{sourceId}/reindex:
+    post:
+      operationId: postAssistantKnowledgeSourceReindex
+      summary: Re-run indexing for one uploaded knowledge source
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Knowledge source state after reindex attempt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantKnowledgeSourceResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or knowledge source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/runtime/preflight:
     get:
       operationId: getAssistantRuntimePreflight
@@ -2794,6 +2995,7 @@ components:
       type: string
       enum:
         - web_chat
+        - memory_write
     AssistantTaskRegistrySourceSurface:
       type: string
       enum:
@@ -2979,6 +3181,135 @@ components:
         forgottenRegistryItems:
           type: integer
           minimum: 0
+    AssistantKnowledgeSourceNamespace:
+      type: string
+      enum:
+        - assistant_user_workspace
+    AssistantKnowledgeSourceKind:
+      type: string
+      enum:
+        - uploaded_file
+    AssistantKnowledgeSourceStatus:
+      type: string
+      enum:
+        - processing
+        - ready
+        - failed
+    AssistantKnowledgeQuotaState:
+      type: object
+      required:
+        - usedBytes
+        - limitBytes
+      properties:
+        usedBytes:
+          type: number
+        limitBytes:
+          type: number
+          nullable: true
+    AssistantKnowledgeSourceState:
+      type: object
+      required:
+        - id
+        - namespace
+        - sourceKind
+        - displayName
+        - originalFilename
+        - mimeType
+        - sizeBytes
+        - status
+        - currentVersion
+        - chunkCount
+        - lastIndexedAt
+        - lastReindexRequestedAt
+        - lastErrorCode
+        - lastErrorMessage
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        namespace:
+          $ref: "#/components/schemas/AssistantKnowledgeSourceNamespace"
+        sourceKind:
+          $ref: "#/components/schemas/AssistantKnowledgeSourceKind"
+        displayName:
+          type: string
+          nullable: true
+        originalFilename:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: number
+        status:
+          $ref: "#/components/schemas/AssistantKnowledgeSourceStatus"
+        currentVersion:
+          type: integer
+          minimum: 1
+        chunkCount:
+          type: integer
+          minimum: 0
+        lastIndexedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastReindexRequestedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastErrorCode:
+          type: string
+          nullable: true
+        lastErrorMessage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    GetAssistantKnowledgeSourceResponse:
+      type: object
+      required:
+        - requestId
+        - source
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        source:
+          $ref: "#/components/schemas/AssistantKnowledgeSourceState"
+    DeleteAssistantKnowledgeSourceResponse:
+      type: object
+      required:
+        - requestId
+        - deleted
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        deleted:
+          type: boolean
+          enum:
+            - true
+    GetAssistantKnowledgeSourcesResponse:
+      type: object
+      required:
+        - requestId
+        - quota
+        - sources
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        quota:
+          $ref: "#/components/schemas/AssistantKnowledgeQuotaState"
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantKnowledgeSourceState"
     AssistantRuntimePreflightState:
       type: object
       required:
@@ -3804,6 +4135,7 @@ components:
         - lastCompactedAt
         - reserveTokens
         - keepRecentTokens
+        - autoCompactionEnabled
       properties:
         available:
           type: boolean
@@ -3815,7 +4147,6 @@ components:
           enum:
             - token_threshold
             - history_threshold
-            - latency_threshold
         messageCount:
           type: integer
         assistantMessageCount:
@@ -3836,6 +4167,8 @@ components:
           type: integer
         keepRecentTokens:
           type: integer
+        autoCompactionEnabled:
+          type: boolean
     AssistantWebChatCompactionResult:
       type: object
       required:
@@ -4063,6 +4396,36 @@ components:
         notes:
           type: string
           nullable: true
+    AdminPlanContextPolicy:
+      type: object
+      required:
+        - preset
+        - targetContextBudget
+        - compactionTriggerThreshold
+        - keepRecentMinimum
+        - knowledgeHydrationBudget
+        - autoCompactionWeb
+        - autoCompactionTelegram
+      properties:
+        preset:
+          type: string
+          enum:
+            - lean
+            - balanced
+            - rich
+            - custom
+        targetContextBudget:
+          type: integer
+        compactionTriggerThreshold:
+          type: integer
+        keepRecentMinimum:
+          type: integer
+        knowledgeHydrationBudget:
+          type: integer
+        autoCompactionWeb:
+          type: boolean
+        autoCompactionTelegram:
+          type: boolean
     AdminPlanState:
       type: object
       required:
@@ -4075,6 +4438,7 @@ components:
         - trialDurationDays
         - metadata
         - entitlements
+        - contextPolicy
         - createdAt
         - updatedAt
       properties:
@@ -4103,6 +4467,8 @@ components:
           $ref: "#/components/schemas/AdminPlanEntitlements"
         quotaLimits:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
+        contextPolicy:
+          $ref: "#/components/schemas/AdminPlanContextPolicy"
         primaryModelKey:
           type: string
           nullable: true
@@ -4184,6 +4550,7 @@ components:
         - trialDurationDays
         - metadata
         - entitlements
+        - contextPolicy
       properties:
         displayName:
           type: string
@@ -4208,6 +4575,8 @@ components:
           $ref: "#/components/schemas/AdminPlanEntitlements"
         quotaLimits:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
+        contextPolicy:
+          $ref: "#/components/schemas/AdminPlanContextPolicy"
         primaryModelKey:
           type: string
           nullable: true

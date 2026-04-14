@@ -1,5 +1,530 @@
 # SESSION-HANDOFF
 
+## 2026-04-14 - ADR-072 T15-6b ranking polish follow-through
+
+### What changed
+
+1. `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts` now uses structured lexical ranking instead of one flat substring counter. Document, memory, chat, preset, subscription, and global searches now get deterministic ordering, title/filename/locator boosts, better per-source weighting, length normalization, duplicate collapse, and stronger snippet selection.
+2. The highest-value private namespaces (`document`, `memory`, `chat`) now also apply a lightweight local hybrid rerank on top of lexical candidates, plus bounded per-source diversification and a relative recency blend for memory/chat so fresher relevant hits can win without falling back to blunt newest-first ordering.
+3. Focused API coverage now exercises title-boost ordering, deduped document candidates, and newer relevant memory/chat recall, and `@persai/api` typecheck passed after the ranking refactor.
+
+### Why
+
+1. The first real knowledge plane was already landed, but retrieval quality still depended too heavily on blunt substring counts and could surface noisy or repetitive hits.
+2. Search quality needed to respect source structure and trust signals such as durable-memory writes, filenames, titles, locators, and active-vs-archived chat context.
+3. A lightweight second-stage rerank improves answer quality now without pretending a separate vector backend already exists.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. The planned `T15-6b` follow-through pack is now complete, and the next honest Step 15 work is `T15-7 — Plan/admin exposure, quotas, and model guidance`.
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts`
+- `apps/api/test/read-assistant-knowledge.service.test.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks
+
+1. The new hybrid rerank is a lightweight local fuzzy/semantic layer, not a full embedding/vector backend.
+2. Retrieval ranking is substantially better, but later ingestion-time semantic indexing or vector storage still remains out of scope for this slice.
+3. `T15-7` still needs to expose/admin-guide the now-real memory/knowledge surfaces, quotas, and operator-facing behavior clearly.
+
+### Next recommended step
+
+1. Open `T15-7` and land the remaining plan/admin exposure, quota visibility, and model guidance for the now-real memory/knowledge surfaces.
+
+## 2026-04-14 - ADR-072 T15-6b plan context policy + compaction UX follow-through
+
+### What changed
+
+1. Admin Plans now expose a plan-owned `contextPolicy` surface that maps directly onto native `runtime.contextHydration`, so `preset`, `targetContextBudget`, `compactionTriggerThreshold`, `keepRecentMinimum`, `knowledgeHydrationBudget`, `autoCompactionWeb`, and `autoCompactionTelegram` are server-owned bundle truth instead of scattered fixed heuristics.
+2. Web compaction UX no longer suggests compression from rolling latency. The banner now reflects plan-driven context pressure, distinguishes manual-vs-auto compaction expectations, and can show a post-turn auto-compaction success state with before/after token details when compaction actually ran.
+3. Native turn results now surface `autoCompaction` outcome details end to end, and Telegram sends a short one-time post-reply notice after successful post-turn auto-compaction instead of silently compacting in the background.
+4. OpenAPI/contracts, EN/RU copy, focused API/runtime/web tests, and repo-truth docs were updated together so the new plan-driven context policy and compaction UX stay aligned across bundle materialization, runtime execution, public API state, and the user-facing web/Telegram surfaces.
+
+### Why
+
+1. The richer hydration baseline needed a real per-plan cost/quality control surface instead of leaving context assembly behavior trapped in fixed-count or fixed-threshold code defaults.
+2. The old latency-driven web banner no longer matched the new context policy and could suggest compaction for the wrong reason.
+3. Auto-compaction should be visible only when it actually happened, so the runtime/API/web/Telegram path now carries an explicit post-turn outcome instead of relying on guesswork.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-6b` now also has plan-editable `runtime.contextHydration` policy materialization plus plan-driven web/Telegram compaction UX, and the main remaining follow-through is richer ranking/retrieval polish on top of that real knowledge plane.
+
+### Files touched
+
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `packages/contracts/openapi.yaml`
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/context-hydration-policy.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-channel-adapter.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/_components/use-chat.ts`
+
+### Tests run
+
+- `corepack pnpm contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-native-telegram-turn.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/admin/plans/page.test.tsx`
+
+### Risks
+
+1. `T15-6b` context policy and compaction UX are now real, but retrieval ranking is still the simple current lexical path rather than the planned richer lexical-plus-hybrid polish.
+2. Web now surfaces post-turn auto-compaction honestly, but ordinary context hydration still needs later ranking-quality work so the policy spends its budget on the best memory/knowledge candidates.
+3. Admin plan knobs exist, but there is still no higher-level operator guidance/analytics layer that recommends when to move a plan between presets.
+
+### Next recommended step
+
+1. Continue `T15-6b` with richer ranking/retrieval polish in `read-assistant-knowledge.service.ts`, starting with the lexical path and then adding hybrid semantic rerank for the highest-value namespaces.
+
+## 2026-04-14 - ADR-072 T15-6b bounded richer hydration baseline
+
+### What changed
+
+1. Ordinary native turn hydration now preserves a bounded cross-conversation durable-memory context message ahead of trimmed recent history, so fixed-count history is no longer the only continuity mechanism on later turns.
+2. Shared-compaction reuse and the new durable-memory prefix now compose together: later turns can keep both the validated reusable summary and the bounded memory context while recent canonical chat history stays a fallback/guardrail slice.
+3. The fallback path for new/no-chat conversations now also carries durable memory context when available, so continuity survives even before a fresh thread has enough local history.
+4. Focused runtime hydration tests now cover the preserved memory prefix on ordinary hydration, fallback/no-chat hydration, Telegram hydration, capped history, invalid-compaction fallback, and valid-compaction reuse.
+
+### Why
+
+1. `T15-6b` explicitly required ordinary prod context assembly to stop treating the fixed hydrated-history cap as the primary strategy once richer memory/knowledge hydration existed.
+2. The newly landed explicit `memory_write` flow and assistant memory registry gave a real PersAI-owned source for bounded cross-session continuity without inventing hidden answer-side effects.
+3. Preserving durable memory and compaction summaries as leading context keeps token use bounded while reducing the need to replay older canonical messages just to preserve continuity.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-6b` now has uploaded-document/private/shared/global knowledge reads, explicit durable-memory writes, and a first bounded richer hydration baseline where durable memory + reusable compaction are preserved before recent-history trimming. The main remaining follow-through is richer ranking/retrieval polish on top of that real knowledge plane.
+
+### Files touched
+
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks
+
+1. Hydration now preserves durable memory and reusable compaction summary, but memory selection/ranking is still simple recency/source weighting rather than a richer open-loop or semantic policy.
+2. Global/shared knowledge remains available through `knowledge_*` tools rather than auto-hydrated ordinary-turn context, which is intentional for token control but still leaves room for later policy-aware retrieval triggers.
+3. The fixed recent-history cap still exists as a guardrail fallback; it is no longer the only continuity mechanism, but later follow-through can make the overall strategy smarter.
+
+### Next recommended step
+
+1. Continue `T15-6b` with richer ranking/retrieval polish for memory and knowledge hydration now that all core namespaces and the first bounded hydration baseline are real.
+
+## 2026-04-14 - ADR-072 T15-6b preset/subscription/global knowledge baseline
+
+### What changed
+
+1. `knowledge_search` / `knowledge_fetch` now also work for `source="preset"`, `source="subscription"`, and `source="global"` on top of the earlier `document` / `memory` / `chat` backends.
+2. `apps/api` now serves preset knowledge from the current applied materialized `layersDocument` / `runtimeBundleDocument` plus shared bootstrap preset templates, so the model can inspect real assistant config/preset text through bounded references instead of hidden prompt assumptions.
+3. `apps/api` now serves subscription knowledge from the assistant's effective plan resolution plus plan entitlement/tool-activation rows, so current plan/tool availability is queryable through the unified knowledge layer.
+4. `apps/api` now serves the first PersAI-global knowledge corpus from platform-owned product summary documents plus active plan/tool catalog rows, so product/SaaS answers no longer depend only on ad hoc prompt memory or public web search.
+5. Runtime bundle knowledge config, warm validation, native tool projection, focused API/runtime tests, and repo-truth docs were updated together so the new namespaces are truthfully exposed end to end.
+
+### Why
+
+1. `T15-6b` called for assistant/preset/subscription shared knowledge and PersAI-global knowledge behind the same `knowledge_*` layer, not only private document/memory/chat recall.
+2. The repo already had real PersAI-owned preset, materialized-spec, subscription, plan, and tool rows that could support an honest bounded read backend without pretending a future ingest pipeline already exists.
+3. Shipping these namespaces now reduces the gap between the runtime's actual knowledge plane and the product promise that users can ask about PersAI itself, their plan, and assistant configuration.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-6b` now has uploaded-document `source="document"`, assistant-user-private `source="memory"` and `source="chat"`, shared `source="preset"` and `source="subscription"`, PersAI-global `source="global"`, plus the explicit durable-memory write backend (`memory_write`). The main remaining follow-through is richer ranking/retrieval and replacing fixed-count history as the primary context strategy.
+
+### Files touched
+
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `apps/api/src/modules/workspace-management/application/persai-global-knowledge.ts`
+- `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-knowledge-access.ts`
+- `apps/api/test/read-assistant-knowledge.service.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/api/test/runtime-knowledge-access.test.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-knowledge-tool.service.test.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `packages/runtime-contract/src/index.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-knowledge-access.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-bundle-materialization.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-knowledge-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-registry.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-coordinator.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks
+
+1. `source="global"` currently uses a small platform-owned product summary corpus plus plan/tool catalog rows, not a richer dedicated global ingest/index pipeline yet.
+2. `source="preset"` / `source="subscription"` are real and useful, but still use simple substring/token ranking over bounded documents rather than a richer semantic retrieval layer.
+3. Ordinary prod context assembly still needs the later hydration work so the fixed-history cap stops being the primary strategy.
+
+### Next recommended step
+
+1. Continue `T15-6b` with richer ranking/retrieval and bounded memory/knowledge hydration so ordinary turns stop treating fixed-count history as the primary context source.
+
+## 2026-04-14 - ADR-072 T15-6b prior-chat transcript read baseline
+
+### What changed
+
+1. `knowledge_search` / `knowledge_fetch` now also work for assistant-user-private `source="chat"` over canonical `assistant_chat_messages`, so prior-chat recall lands on the same unified private read plane as uploaded documents and durable memory.
+2. `apps/api` now searches canonical chat messages by bounded message references and `knowledge_fetch` returns a bounded surrounding transcript window around the selected message instead of replaying full chats.
+3. Runtime bundle knowledge config, warm validation, and native tool projection now include the real `chat` namespace, so the source stays dark only until the backend exists and is now truthfully exposed.
+4. Focused API/runtime tests and typechecks now cover the new prior-chat search/fetch backend plus the updated bundle/config surface.
+
+### Why
+
+1. `T15-6b` explicitly called for assistant-user-private prior-chat retrieval through the same `knowledge_*` layer instead of heuristic prompt scanning.
+2. Reusing canonical chat/message rows keeps transcripts PersAI-owned, reference-first, and reset-safe without inventing a fake memory shortcut for old conversations.
+3. Adding `source="chat"` as an explicit namespace keeps the contract honest and avoids hiding prior-chat recall under `memory` or `internal`.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-6b` now has the storage/index baseline, uploaded-document `source="document"` reads, assistant-user-private `source="memory"` reads, assistant-user-private `source="chat"` reads, and the explicit durable-memory write backend (`memory_write`), while shared/preset/subscription and PersAI-global namespaces plus richer hydration remain in progress.
+
+### Files touched
+
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-knowledge-access.ts`
+- `apps/api/test/read-assistant-knowledge.service.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/api/test/runtime-knowledge-access.test.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-knowledge-tool.service.test.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `packages/runtime-contract/src/index.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-knowledge-access.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-bundle-materialization.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-knowledge-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-registry.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-coordinator.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks
+
+1. Prior-chat retrieval now exists, but ranking is still simple substring/token scoring over canonical chat messages rather than a richer transcript index.
+2. Shared/preset/subscription knowledge and PersAI-global product knowledge are still not active on the unified read plane.
+3. Ordinary prod context assembly still needs the later hydration work so the fixed-history cap stops being the primary strategy.
+
+### Next recommended step
+
+1. Continue `T15-6b` with the next real namespaces: shared/preset/subscription knowledge and PersAI-global knowledge, then replace fixed-count history as the primary context strategy with richer bounded hydration.
+
+## 2026-04-14 - ADR-072 T15-6b explicit memory_write + private memory read baseline
+
+### What changed
+
+1. `apps/runtime` now projects a bounded always-on `memory_write` tool alongside the shared compaction helpers, so the model can explicitly persist one durable fact, preference, or open loop instead of relying on hidden answer-side effects.
+2. `apps/api` now exposes `POST /api/v1/internal/runtime/memory/write`, validates the request, enforces memory-control policy, resolves optional originating user-message provenance, writes to the PersAI-owned assistant memory registry with `sourceType="memory_write"`, and appends audit events for both allowed and denied writes.
+3. `knowledge_search` / `knowledge_fetch` now also work for the first assistant-user-private `source="memory"` backend over active memory-registry rows, so the same private registry now has both the first explicit durable write path and the first read-side recall path.
+4. The assistant memory registry contract now distinguishes transcript-derived rows from explicit durable writes through the new `memory_write` source type, and public/generated Memory Center contracts were refreshed accordingly.
+5. Focused API/runtime tests now cover the explicit write service, the new private memory read backend, the runtime tool executors/projection, the updated turn-execution tool loop, and the existing memory-source policy plus package typechecks.
+
+### Why
+
+1. `T15-6b` required a real explicit write path for durable human memory before richer assistant-user memory behavior could be honest.
+2. Keeping writes behind a bounded tool + validator + audit seam matches the ADR requirement that durable memory is explicit, policy-aware, and not a hidden side effect of ordinary assistant text.
+3. Reusing the PersAI-owned assistant memory registry with a distinct source type gives the first live durable-memory write backend and the first private memory read backend now without pretending prior-chat/shared/global namespaces are already done.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-6b` now has the storage/index baseline, the first uploaded-document read backend, the first assistant-user-private `source="memory"` read backend, and the first explicit durable-memory write backend (`memory_write`), while prior-chat reads and broader shared/global namespaces remain in progress.
+
+### Files touched
+
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260414193000_t15_6b_memory_write_source_type/migration.sql`
+- `apps/api/src/modules/workspace-management/application/assistant-memory.types.ts`
+- `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts`
+- `apps/api/src/modules/workspace-management/application/write-assistant-memory.service.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-memory-registry-item.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/memory-source-policy.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-knowledge.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-memory.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/read-assistant-knowledge.service.test.ts`
+- `apps/api/test/write-assistant-memory.service.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-knowledge-tool.service.ts`
+- `apps/runtime/src/modules/turns/runtime-memory-write-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/runtime-knowledge-tool.service.test.ts`
+- `apps/runtime/test/runtime-memory-write-tool.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `packages/runtime-contract/src/index.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/write-assistant-memory.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/memory-source-policy.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-knowledge-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-memory-write-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks
+
+1. Assistant-user-private memory is now queryable through `knowledge_search` / `knowledge_fetch`, but prior-chat transcript retrieval and broader shared/global namespaces are still not active on the unified read layer.
+2. `memory_write` currently persists concise summary rows in the assistant memory registry with source-label classification rather than a richer dedicated structured-memory schema.
+3. Ordinary prod context assembly still needs the later `T15-6b` hydration work so the fixed-history cap stops being the primary strategy.
+
+### Next recommended step
+
+1. Continue `T15-6b` with prior-chat transcript retrieval behind the unified `knowledge_*` layer, then widen into shared/preset/subscription and PersAI-global namespaces plus richer hydration.
+
+## 2026-04-14 - ADR-072 T15-6b document retrieval + delete follow-through
+
+### What changed
+
+1. The first public knowledge-source management surface is now complete for the initial ADR-072 baseline: assistant-scoped uploaded knowledge supports `upload`, `list`, per-source detail/status, `delete`, and `reindex`.
+2. `apps/runtime` no longer keeps `knowledge_search` / `knowledge_fetch` completely dark. The first active native read backend now works for `source="document"` over indexed assistant-owned uploaded knowledge through new PersAI internal API search/fetch seams.
+3. `apps/api` now has a dedicated read service over canonical knowledge chunk rows, so runtime search/fetch returns lightweight references and bounded excerpt windows from indexed documents instead of raw file/blob reads.
+4. Runtime bundle knowledge config, runtime tool projection, internal API client/controller wiring, public contracts, and focused API/runtime tests were updated together so the slice stays honest end to end.
+
+### Why
+
+1. The storage/index baseline was real, but without `delete` the public management surface still lagged behind ADR-072 scope.
+2. `T15-6b` needed at least one real read-side backend before `knowledge_search` / `knowledge_fetch` could stop being only planned contract names.
+3. Uploaded document retrieval is the safest first read namespace because it reuses the new canonical source/chunk rows without reopening sandbox or shared/global knowledge decisions too early.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-6b` is now past pure storage/index baseline: uploaded assistant knowledge can be managed end to end and the first document-backed `knowledge_search` / `knowledge_fetch` path is live, while human memory, prior-chat retrieval, and broader namespaces remain in progress.
+
+### Files touched
+
+- `docs/API-BOUNDARY.md`
+- `docs/ARCHITECTURE.md`
+- `docs/TEST-PLAN.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/api/src/modules/workspace-management/application/manage-assistant-knowledge-sources.service.ts`
+- `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant-knowledge-sources.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-knowledge.controller.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-knowledge-access.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/runtime/src/modules/turns/runtime-knowledge-tool.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/api/test/manage-assistant-knowledge-sources.service.test.ts`
+- `apps/api/test/read-assistant-knowledge.service.test.ts`
+- `apps/api/test/runtime-knowledge-access.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/runtime/test/runtime-knowledge-tool.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-knowledge-sources.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-knowledge-access.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-bundle-materialization.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-knowledge-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-registry.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-bundle-coordinator.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+
+### Risks
+
+1. The only active `knowledge_*` backend so far is `source="document"` over uploaded assistant knowledge; prior chats, shared/preset/subscription knowledge, PersAI-global knowledge, and durable human memory are still pending inside `T15-6b`.
+2. Current document retrieval is bounded lexical chunk search/fetch over canonical rows, not the final richer multi-namespace retrieval/ranking layer.
+3. Ordinary context hydration still uses the old fixed-history fallback as primary behavior until later memory/open-loop/hydration work lands.
+
+### Next recommended step
+
+1. Continue `T15-6b` with the next shared read/write layer pieces: prior-chat/private memory sources and the first explicit durable `memory_write` flow, while keeping retrieval reference-first and token-budgeted.
+
+## 2026-04-14 - ADR-072 T15-6b knowledge-source storage/index baseline
+
+### What changed
+
+1. `T15-6b` has now started on the first honest PersAI-owned storage/index slice instead of staying plan-only: assistant-scoped uploaded workspace knowledge can be uploaded, listed, inspected by source, and reindexed through native `apps/api` surfaces.
+2. Repo-truth docs, Prisma schema/migration, API config, quota accounting, object-storage services, and `workspace-management` wiring now all agree on the new boundary: uploaded knowledge files/chunks live in PersAI-owned source rows + chunk rows + dedicated knowledge object prefixes, not in sandbox/OpenClaw workspace state.
+3. Separate `knowledge_storage_bytes` accounting is now real and enforced independently from chat media and sandbox/workspace storage, including reset/admin-delete cleanup that also deletes knowledge objects and releases quota.
+4. Public OpenAPI contracts and generated client models now expose the first knowledge-source management endpoints, and focused API tests now cover quota accounting, upload/list/get/reindex behavior, upload rollback on cap, and reset/delete cleanup semantics.
+
+### Why
+
+1. `T15-6b` needed a real canonical storage/index substrate before any honest `knowledge_search` / `knowledge_fetch` or durable human-memory behavior could exist.
+2. Keeping uploaded knowledge in PersAI-owned rows/object storage avoids smuggling Step 16 sandbox semantics into ordinary prod context or pretending workspace files are already the source of truth.
+3. Separate quota + lifecycle cleanup had to land now so later human memory/shared knowledge work can build on one consistent commercial and deletion model.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-6` is closed, and `T15-6b — Human memory and namespaced knowledge sources` is now in progress on its first storage/index baseline rather than still being only queued.
+
+### Files touched
+
+- `docs/API-BOUNDARY.md`
+- `docs/ARCHITECTURE.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260414150000_t15_6b_knowledge_sources/migration.sql`
+- `apps/api/src/modules/workspace-management/application/assistant-knowledge-source.types.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-knowledge-chunking.ts`
+- `apps/api/src/modules/workspace-management/application/persai-knowledge-object-storage.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-assistant-knowledge-sources.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant-knowledge-sources.controller.ts`
+- `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-quota-accounting.repository.ts`
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/admin-delete-user.service.ts`
+- `packages/config/src/api-config.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/api/test/quota-accounting.test.ts`
+- `apps/api/test/prisma-workspace-quota-accounting.repository.test.ts`
+- `apps/api/test/admin-delete-user.service.test.ts`
+- `apps/api/test/reset-assistant.service.test.ts`
+- `apps/api/test/manage-assistant-knowledge-sources.service.test.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-quota-accounting.repository.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/reset-assistant.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-knowledge-sources.service.test.ts`
+
+### Risks
+
+1. Only the first `assistant_user_workspace` knowledge-source namespace is real so far; shared/preset/subscription knowledge, PersAI-global knowledge, prior-chat search, and durable human memory are still pending inside `T15-6b`.
+2. The first public management surface is `upload` / `list` / per-source detail-status / `reindex`; user-visible delete is still not landed yet even though full assistant reset and full user delete already purge the new data.
+3. `knowledge_search` / `knowledge_fetch` and the richer context-hydration replacement for the current blunt message cap remain deliberately dark until more of the slice is real.
+
+### Next recommended step
+
+1. Continue `T15-6b` by landing the first read-side backends and durable-memory write flow on top of this storage/index baseline, without reopening Step 16 sandbox semantics.
+
 ## 2026-04-14 - ADR-072 T15-6 closeout
 
 ### What changed

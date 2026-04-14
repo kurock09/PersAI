@@ -8,6 +8,7 @@ import type { AdminPlanInputBaseStatus } from "./adminPlanInputBaseStatus";
 import type { AdminPlanMetadata } from "./adminPlanMetadata";
 import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
 import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
+import type { AdminPlanContextPolicy } from "./adminPlanContextPolicy";
 import type { AdminPlanInputBaseVideoGenerateModelKey } from "./adminPlanInputBaseVideoGenerateModelKey";
 import type { AdminPlanInputBaseRuntimeTierDefault } from "./adminPlanInputBaseRuntimeTierDefault";
 import type { AdminPlanToolActivationInput } from "./adminPlanToolActivationInput";
@@ -24,6 +25,7 @@ export interface AdminPlanInputBase {
   metadata: AdminPlanMetadata;
   entitlements: AdminPlanEntitlements;
   quotaLimits?: AdminPlanQuotaLimits;
+  contextPolicy: AdminPlanContextPolicy;
   /** @nullable */
   primaryModelKey?: string | null;
   /** @nullable */

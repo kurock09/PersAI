@@ -12,6 +12,7 @@ export type WorkspaceQuotaLimitsInput = {
   costOrTokenDrivingToolClassUnitsLimit: number | null;
   activeWebChatsLimit: number | null;
   mediaStorageBytesLimit: bigint | null;
+  knowledgeStorageBytesLimit: bigint | null;
 };
 
 export type IncrementWorkspaceQuotaUsageInput = {
@@ -57,6 +58,22 @@ export type ApplyMediaStorageUsageResult = {
   capped: boolean;
 };
 
+export type ApplyKnowledgeStorageUsageInput = {
+  workspaceId: string;
+  assistantId: string | null;
+  userId: string | null;
+  delta: bigint;
+  source: string;
+  metadata: Record<string, unknown> | null;
+  limits: WorkspaceQuotaLimitsInput;
+};
+
+export type ApplyKnowledgeStorageUsageResult = {
+  state: WorkspaceQuotaAccountingState;
+  appliedDelta: bigint;
+  capped: boolean;
+};
+
 export type ReleaseMediaStorageUsageInput = {
   workspaceId: string;
   assistantId: string | null;
@@ -68,6 +85,21 @@ export type ReleaseMediaStorageUsageInput = {
 };
 
 export type ReleaseMediaStorageUsageResult = {
+  state: WorkspaceQuotaAccountingState;
+  releasedDelta: bigint;
+};
+
+export type ReleaseKnowledgeStorageUsageInput = {
+  workspaceId: string;
+  assistantId: string | null;
+  userId: string | null;
+  delta: bigint;
+  source: string;
+  metadata: Record<string, unknown> | null;
+  limits: WorkspaceQuotaLimitsInput;
+};
+
+export type ReleaseKnowledgeStorageUsageResult = {
   state: WorkspaceQuotaAccountingState;
   releasedDelta: bigint;
 };
@@ -86,9 +118,15 @@ export interface WorkspaceQuotaAccountingRepository {
   incrementUsage(input: IncrementWorkspaceQuotaUsageInput): Promise<WorkspaceQuotaAccountingState>;
   applyTokenBudgetUsage(input: ApplyTokenBudgetUsageInput): Promise<ApplyTokenBudgetUsageResult>;
   applyMediaStorageUsage(input: ApplyMediaStorageUsageInput): Promise<ApplyMediaStorageUsageResult>;
+  applyKnowledgeStorageUsage(
+    input: ApplyKnowledgeStorageUsageInput
+  ): Promise<ApplyKnowledgeStorageUsageResult>;
   releaseMediaStorageUsage(
     input: ReleaseMediaStorageUsageInput
   ): Promise<ReleaseMediaStorageUsageResult>;
+  releaseKnowledgeStorageUsage(
+    input: ReleaseKnowledgeStorageUsageInput
+  ): Promise<ReleaseKnowledgeStorageUsageResult>;
   refreshActiveWebChatsUsage(
     input: RefreshActiveWebChatsQuotaInput
   ): Promise<WorkspaceQuotaAccountingState>;

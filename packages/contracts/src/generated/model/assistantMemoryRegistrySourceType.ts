@@ -10,5 +10,6 @@ export type AssistantMemoryRegistrySourceType =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantMemoryRegistrySourceType = {
-  web_chat: "web_chat"
+  web_chat: "web_chat",
+  memory_write: "memory_write"
 } as const;

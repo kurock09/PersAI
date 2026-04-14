@@ -2,7 +2,8 @@ export type WorkspaceQuotaDimension =
   | "token_budget"
   | "cost_or_token_driving_tool_class"
   | "active_web_chats_cap"
-  | "media_storage_bytes";
+  | "media_storage_bytes"
+  | "knowledge_storage_bytes";
 
 export type WorkspaceQuotaAccountingState = {
   id: string;
@@ -15,6 +16,8 @@ export type WorkspaceQuotaAccountingState = {
   activeWebChatsLimit: number | null;
   mediaStorageBytesUsed: bigint;
   mediaStorageBytesLimit: bigint | null;
+  knowledgeStorageBytesUsed: bigint;
+  knowledgeStorageBytesLimit: bigint | null;
   lastComputedAt: Date;
   createdAt: Date;
   updatedAt: Date;

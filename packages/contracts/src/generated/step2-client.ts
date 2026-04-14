@@ -23,6 +23,7 @@ import type {
   AssistantWebChatDeleteRequest,
   AssistantWebChatRenameRequest,
   AssistantWebChatTurnRequest,
+  DeleteAssistantKnowledgeSourceResponse,
   DeleteAssistantWebChatResponse,
   ErrorEnvelope,
   GetAdminBusinessCockpitResponse,
@@ -32,6 +33,8 @@ import type {
   GetAdminPlansResponse,
   GetAdminPlatformRolloutsResponse,
   GetAdminRuntimeProviderSettingsResponse,
+  GetAssistantKnowledgeSourceResponse,
+  GetAssistantKnowledgeSourcesResponse,
   GetAssistantMemoryItemsResponse,
   GetAssistantPlanVisibilityResponse,
   GetAssistantResponse,
@@ -54,6 +57,7 @@ import type {
   PostAdminPlatformRolloutResponse,
   PostAdminPlatformRolloutRollbackResponse,
   PostAdminStepUpChallengeResponse,
+  PostAssistantKnowledgeSourceUploadBody,
   PostAssistantMemoryDoNotRememberResponse,
   PostAssistantMemoryItemForgetResponse,
   PostAssistantSetupPreviewResponse,
@@ -562,6 +566,303 @@ export const postAssistantReapply = async (
     ...options,
     method: "POST"
   });
+};
+
+/**
+ * @summary List assistant-owned uploaded knowledge sources and current knowledge quota usage
+ */
+export type getAssistantKnowledgeSourcesResponse200 = {
+  data: GetAssistantKnowledgeSourcesResponse;
+  status: 200;
+};
+
+export type getAssistantKnowledgeSourcesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantKnowledgeSourcesResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantKnowledgeSourcesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantKnowledgeSourcesResponseSuccess =
+  getAssistantKnowledgeSourcesResponse200 & {
+    headers: Headers;
+  };
+export type getAssistantKnowledgeSourcesResponseError = (
+  | getAssistantKnowledgeSourcesResponse401
+  | getAssistantKnowledgeSourcesResponse404
+  | getAssistantKnowledgeSourcesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantKnowledgeSourcesResponse =
+  | getAssistantKnowledgeSourcesResponseSuccess
+  | getAssistantKnowledgeSourcesResponseError;
+
+export const getGetAssistantKnowledgeSourcesUrl = () => {
+  return `/assistant/knowledge-sources`;
+};
+
+export const getAssistantKnowledgeSources = async (
+  options?: RequestInit
+): Promise<getAssistantKnowledgeSourcesResponse> => {
+  return customFetch<getAssistantKnowledgeSourcesResponse>(getGetAssistantKnowledgeSourcesUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Upload one document-like knowledge source for the current assistant
+ */
+export type postAssistantKnowledgeSourceUploadResponse200 = {
+  data: GetAssistantKnowledgeSourceResponse;
+  status: 200;
+};
+
+export type postAssistantKnowledgeSourceUploadResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAssistantKnowledgeSourceUploadResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantKnowledgeSourceUploadResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantKnowledgeSourceUploadResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAssistantKnowledgeSourceUploadResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantKnowledgeSourceUploadResponseSuccess =
+  postAssistantKnowledgeSourceUploadResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantKnowledgeSourceUploadResponseError = (
+  | postAssistantKnowledgeSourceUploadResponse400
+  | postAssistantKnowledgeSourceUploadResponse401
+  | postAssistantKnowledgeSourceUploadResponse404
+  | postAssistantKnowledgeSourceUploadResponse409
+  | postAssistantKnowledgeSourceUploadResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantKnowledgeSourceUploadResponse =
+  | postAssistantKnowledgeSourceUploadResponseSuccess
+  | postAssistantKnowledgeSourceUploadResponseError;
+
+export const getPostAssistantKnowledgeSourceUploadUrl = () => {
+  return `/assistant/knowledge-sources`;
+};
+
+export const postAssistantKnowledgeSourceUpload = async (
+  postAssistantKnowledgeSourceUploadBody: PostAssistantKnowledgeSourceUploadBody,
+  options?: RequestInit
+): Promise<postAssistantKnowledgeSourceUploadResponse> => {
+  const formData = new FormData();
+  if (
+    postAssistantKnowledgeSourceUploadBody.displayName !== undefined &&
+    postAssistantKnowledgeSourceUploadBody.displayName !== null
+  ) {
+    formData.append(`displayName`, postAssistantKnowledgeSourceUploadBody.displayName);
+  }
+  formData.append(`file`, postAssistantKnowledgeSourceUploadBody.file);
+
+  return customFetch<postAssistantKnowledgeSourceUploadResponse>(
+    getPostAssistantKnowledgeSourceUploadUrl(),
+    {
+      ...options,
+      method: "POST",
+      body: formData
+    }
+  );
+};
+
+/**
+ * @summary Get one uploaded knowledge source and its current index status
+ */
+export type getAssistantKnowledgeSourceResponse200 = {
+  data: GetAssistantKnowledgeSourceResponse;
+  status: 200;
+};
+
+export type getAssistantKnowledgeSourceResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantKnowledgeSourceResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantKnowledgeSourceResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantKnowledgeSourceResponseSuccess = getAssistantKnowledgeSourceResponse200 & {
+  headers: Headers;
+};
+export type getAssistantKnowledgeSourceResponseError = (
+  | getAssistantKnowledgeSourceResponse401
+  | getAssistantKnowledgeSourceResponse404
+  | getAssistantKnowledgeSourceResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantKnowledgeSourceResponse =
+  | getAssistantKnowledgeSourceResponseSuccess
+  | getAssistantKnowledgeSourceResponseError;
+
+export const getGetAssistantKnowledgeSourceUrl = (sourceId: string) => {
+  return `/assistant/knowledge-sources/${sourceId}`;
+};
+
+export const getAssistantKnowledgeSource = async (
+  sourceId: string,
+  options?: RequestInit
+): Promise<getAssistantKnowledgeSourceResponse> => {
+  return customFetch<getAssistantKnowledgeSourceResponse>(
+    getGetAssistantKnowledgeSourceUrl(sourceId),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Delete one uploaded knowledge source and release its reserved knowledge quota
+ */
+export type deleteAssistantKnowledgeSourceResponse200 = {
+  data: DeleteAssistantKnowledgeSourceResponse;
+  status: 200;
+};
+
+export type deleteAssistantKnowledgeSourceResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type deleteAssistantKnowledgeSourceResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type deleteAssistantKnowledgeSourceResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type deleteAssistantKnowledgeSourceResponseSuccess =
+  deleteAssistantKnowledgeSourceResponse200 & {
+    headers: Headers;
+  };
+export type deleteAssistantKnowledgeSourceResponseError = (
+  | deleteAssistantKnowledgeSourceResponse401
+  | deleteAssistantKnowledgeSourceResponse404
+  | deleteAssistantKnowledgeSourceResponse500
+) & {
+  headers: Headers;
+};
+
+export type deleteAssistantKnowledgeSourceResponse =
+  | deleteAssistantKnowledgeSourceResponseSuccess
+  | deleteAssistantKnowledgeSourceResponseError;
+
+export const getDeleteAssistantKnowledgeSourceUrl = (sourceId: string) => {
+  return `/assistant/knowledge-sources/${sourceId}`;
+};
+
+export const deleteAssistantKnowledgeSource = async (
+  sourceId: string,
+  options?: RequestInit
+): Promise<deleteAssistantKnowledgeSourceResponse> => {
+  return customFetch<deleteAssistantKnowledgeSourceResponse>(
+    getDeleteAssistantKnowledgeSourceUrl(sourceId),
+    {
+      ...options,
+      method: "DELETE"
+    }
+  );
+};
+
+/**
+ * @summary Re-run indexing for one uploaded knowledge source
+ */
+export type postAssistantKnowledgeSourceReindexResponse200 = {
+  data: GetAssistantKnowledgeSourceResponse;
+  status: 200;
+};
+
+export type postAssistantKnowledgeSourceReindexResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantKnowledgeSourceReindexResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantKnowledgeSourceReindexResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantKnowledgeSourceReindexResponseSuccess =
+  postAssistantKnowledgeSourceReindexResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantKnowledgeSourceReindexResponseError = (
+  | postAssistantKnowledgeSourceReindexResponse401
+  | postAssistantKnowledgeSourceReindexResponse404
+  | postAssistantKnowledgeSourceReindexResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantKnowledgeSourceReindexResponse =
+  | postAssistantKnowledgeSourceReindexResponseSuccess
+  | postAssistantKnowledgeSourceReindexResponseError;
+
+export const getPostAssistantKnowledgeSourceReindexUrl = (sourceId: string) => {
+  return `/assistant/knowledge-sources/${sourceId}/reindex`;
+};
+
+export const postAssistantKnowledgeSourceReindex = async (
+  sourceId: string,
+  options?: RequestInit
+): Promise<postAssistantKnowledgeSourceReindexResponse> => {
+  return customFetch<postAssistantKnowledgeSourceReindexResponse>(
+    getPostAssistantKnowledgeSourceReindexUrl(sourceId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
 };
 
 /**

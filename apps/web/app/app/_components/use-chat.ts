@@ -38,6 +38,12 @@ export interface ChatMessage {
   thoughtFinishedAt?: string | null;
 }
 
+export interface RecentAutoCompactionNotice {
+  detectedAt: string;
+  tokensBefore: number | null;
+  tokensAfter: number | null;
+}
+
 export type ChatEntry =
   | { kind: "message"; message: ChatMessage }
   | { kind: "activity"; event: ActivityEvent };
@@ -58,6 +64,7 @@ export interface UseChatReturn {
   olderMessagesLoading: boolean;
   issue: WebChatUxIssue | null;
   compaction: ChatCompactionState | null;
+  recentAutoCompaction: RecentAutoCompactionNotice | null;
   compactionRunning: boolean;
   send: (text: string, files?: File[]) => Promise<void>;
   sendWelcome: (locale: string) => Promise<void>;
@@ -238,6 +245,8 @@ export function useChat(threadKey: string): UseChatReturn {
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [issue, setIssue] = useState<WebChatUxIssue | null>(null);
   const [compaction, setCompaction] = useState<ChatCompactionState | null>(null);
+  const [recentAutoCompaction, setRecentAutoCompaction] =
+    useState<RecentAutoCompactionNotice | null>(null);
   const [compactionRunning, setCompactionRunning] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const historyLoadedRef = useRef<Set<string>>(new Set());
@@ -253,6 +262,7 @@ export function useChat(threadKey: string): UseChatReturn {
     setChatId(null);
     setIssue(null);
     setCompaction(null);
+    setRecentAutoCompaction(null);
     setCompactionRunning(false);
     setHasOlderMessages(false);
     historyLoadedRef.current = new Set();
@@ -271,12 +281,27 @@ export function useChat(threadKey: string): UseChatReturn {
   }, []);
 
   const refreshCompactionState = useCallback(
-    async (targetChatId: string) => {
+    async (
+      targetChatId: string,
+      options?: { baselineCompaction?: ChatCompactionState | null | undefined }
+    ) => {
       const token = await getToken();
       if (!token) return;
       try {
         const next = await getChatCompactionState(token, targetChatId);
         setCompaction(next);
+        const baseline = options?.baselineCompaction ?? null;
+        if (
+          baseline !== null &&
+          next.autoCompactionEnabled &&
+          next.compactionCount > baseline.compactionCount
+        ) {
+          setRecentAutoCompaction({
+            detectedAt: new Date().toISOString(),
+            tokensBefore: baseline.currentTokens ?? null,
+            tokensAfter: next.currentTokens ?? null
+          });
+        }
       } catch {
         /* non-critical */
       }
@@ -290,6 +315,7 @@ export function useChat(threadKey: string): UseChatReturn {
       if (!targetChatId || compactionRunning || isStreaming) {
         return null;
       }
+      setRecentAutoCompaction(null);
       const token = await getToken();
       if (!token) {
         setIssue(toWebChatUxIssue(t("sessionExpired")));
@@ -335,6 +361,7 @@ export function useChat(threadKey: string): UseChatReturn {
     async (text: string, files?: File[]) => {
       const trimmed = text.trim();
       if (trimmed.length === 0 || isStreaming) return;
+      const compactionBeforeTurn = compaction;
 
       const token = await getToken();
       if (token === null) {
@@ -371,6 +398,7 @@ export function useChat(threadKey: string): UseChatReturn {
 
       setIsStreaming(true);
       setIssue(null);
+      setRecentAutoCompaction(null);
 
       const userMsg: ChatMessage = {
         id: userMsgId,
@@ -657,7 +685,9 @@ export function useChat(threadKey: string): UseChatReturn {
                   ? t.userMessage.chatId
                   : activeChatIdRef.current;
               if (resolvedChatId) {
-                void refreshCompactionState(resolvedChatId);
+                void refreshCompactionState(resolvedChatId, {
+                  baselineCompaction: compactionBeforeTurn
+                });
               }
 
               // Files are already staged before the stream — no post-stream upload needed
@@ -890,7 +920,7 @@ export function useChat(threadKey: string): UseChatReturn {
         abortRef.current = null;
       }
     },
-    [getToken, isStreaming]
+    [compaction, getToken, isStreaming, t]
   );
 
   const loadHistory = useCallback(
@@ -1006,6 +1036,7 @@ export function useChat(threadKey: string): UseChatReturn {
     olderMessagesLoading,
     issue,
     compaction,
+    recentAutoCompaction,
     compactionRunning,
     send,
     sendWelcome,

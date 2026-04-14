@@ -135,6 +135,12 @@ function buildTelegramUnauthorizedUserReply(locale: "ru" | "en"): string {
     : "This bot is available only to the assistant owner.";
 }
 
+function buildTelegramAutoCompactionNotice(locale: "ru" | "en"): string {
+  return locale === "ru"
+    ? "После этого ответа старый контекст был автоматически сжат, чтобы уложиться в бюджет контекста тарифа."
+    : "Older context was auto-compacted after this reply to stay within your plan's context budget.";
+}
+
 function evaluateTelegramOwnerGate(params: {
   currentConfig: ResolvedTelegramChannelRuntimeConfig;
   incomingText: string;
@@ -601,6 +607,10 @@ export class TelegramChannelAdapterService {
         assistantId: config.assistantId,
         parseMode: config.parseMode,
         turnResult,
+        postReplyNotices:
+          turnResult.autoCompaction === undefined
+            ? undefined
+            : [buildTelegramAutoCompactionNotice(config.locale)],
         onBeforeMediaSend: (media) => {
           chatActionState.current?.setAction(resolveTelegramOutboundChatAction(media));
         }

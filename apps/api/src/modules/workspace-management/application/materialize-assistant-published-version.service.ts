@@ -36,6 +36,10 @@ import {
   resolveRuntimeToolPolicies
 } from "./runtime-tool-policy";
 import { buildRuntimeBrowserConfig } from "./runtime-browser";
+import {
+  buildRuntimeContextHydrationConfig,
+  resolveStoredPlanContextHydrationPolicy
+} from "./context-hydration-policy";
 import { buildRuntimeKnowledgeAccessConfig } from "./runtime-knowledge-access";
 import { buildRuntimeWorkerToolsConfig } from "./runtime-worker-tools";
 import { buildRuntimeSharedCompactionConfig } from "./runtime-shared-compaction";
@@ -360,12 +364,18 @@ export class MaterializeAssistantPublishedVersionService {
       planToolQuotaPolicy
     });
     const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
+    const planContextHydrationPolicy =
+      await this.resolvePlanContextHydrationPolicy(effectivePlanCode);
+    const contextHydration = buildRuntimeContextHydrationConfig({
+      policy: planContextHydrationPolicy,
+      telegramAutoCompactionEnabled: telegramChannel.autoCompactionEnabled
+    });
     const browser = buildRuntimeBrowserConfig();
     const knowledgeAccess = buildRuntimeKnowledgeAccessConfig();
     const workerTools = buildRuntimeWorkerToolsConfig(toolPolicies);
     const sharedCompaction = buildRuntimeSharedCompactionConfig({
       compactionPolicy: platformRuntimeProviderSettings.optimizationPolicy.compaction,
-      telegramAutoSummarizeEnabled: telegramChannel.autoCompactionEnabled
+      contextHydration
     });
 
     const apiConfig = loadApiConfig(process.env);
@@ -468,6 +478,7 @@ export class MaterializeAssistantPublishedVersionService {
         runtimeProviderProfile,
         runtimeProviderRouting,
         optimizationPolicy: platformRuntimeProviderSettings.optimizationPolicy,
+        contextHydration,
         sharedCompaction,
         knowledgeAccess,
         workerTools,
@@ -718,6 +729,27 @@ export class MaterializeAssistantPublishedVersionService {
       record.runtimeTierDefault === "paid_isolated"
       ? record.runtimeTierDefault
       : null;
+  }
+
+  private async resolvePlanContextHydrationPolicy(
+    planCode: string | null
+  ): Promise<ReturnType<typeof resolveStoredPlanContextHydrationPolicy>> {
+    if (planCode === null) {
+      return resolveStoredPlanContextHydrationPolicy(null);
+    }
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) {
+      return resolveStoredPlanContextHydrationPolicy(null);
+    }
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) {
+      return resolveStoredPlanContextHydrationPolicy(null);
+    }
+    const record = hints as Record<string, unknown>;
+    return resolveStoredPlanContextHydrationPolicy(record.contextPolicy);
   }
 
   private async resolveWorkspaceQuotaBytes(

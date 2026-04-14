@@ -1,4 +1,5 @@
 import type { RuntimeTier } from "./runtime-assignment";
+import type { RuntimeTurnAutoCompactionState } from "@persai/runtime-contract";
 import type { RuntimeOutputArtifact } from "@persai/runtime-contract";
 
 export type AssistantRuntimeErrorCode =
@@ -85,6 +86,7 @@ export interface AssistantRuntimeWebChatTurnResult {
   assistantMessage: string;
   respondedAt: string;
   media: RuntimeMediaArtifact[];
+  autoCompaction?: RuntimeTurnAutoCompactionState;
   runtimeTrace?: {
     scope: string;
     status: string;

@@ -13,6 +13,7 @@ async function run(): Promise<void> {
   const deleted: string[] = [];
   const runtimeResets: string[] = [];
   const releasedBytes: bigint[] = [];
+  const releasedKnowledgeBytes: bigint[] = [];
   const deletedPrefixes: string[] = [];
   const recordDelete = (label: string) => async () => {
     deleted.push(label);
@@ -69,6 +70,9 @@ async function run(): Promise<void> {
     },
     assistantTaskRegistryItem: {
       deleteMany: recordDelete("assistantTaskRegistryItem")
+    },
+    assistantKnowledgeSource: {
+      deleteMany: recordDelete("assistantKnowledgeSource")
     },
     assistantMaterializedSpec: {
       deleteMany: recordDelete("assistantMaterializedSpec")
@@ -150,6 +154,11 @@ async function run(): Promise<void> {
         _sum: { sizeBytes: BigInt(7) }
       })
     },
+    assistantKnowledgeSource: {
+      aggregate: async () => ({
+        _sum: { sizeBytes: BigInt(11) }
+      })
+    },
     $transaction: async <T>(callback: (txArg: typeof tx) => Promise<T>) => callback(tx)
   };
 
@@ -166,11 +175,22 @@ async function run(): Promise<void> {
     {
       releaseMediaStorage: async (input: { sizeBytes: bigint }) => {
         releasedBytes.push(input.sizeBytes);
+      },
+      releaseKnowledgeStorage: async (input: { sizeBytes: bigint }) => {
+        releasedKnowledgeBytes.push(input.sizeBytes);
       }
     } as never,
     {
       buildAssistantPrefix(assistantId: string) {
         return `assistant-media/assistants/${assistantId}/`;
+      },
+      async deletePrefix(prefix: string) {
+        deletedPrefixes.push(prefix);
+      }
+    } as never,
+    {
+      buildAssistantPrefix(assistantId: string) {
+        return `assistant-knowledge/assistants/${assistantId}/`;
       },
       async deletePrefix(prefix: string) {
         deletedPrefixes.push(prefix);
@@ -181,7 +201,10 @@ async function run(): Promise<void> {
   await service.execute("admin-1", "user-1");
 
   assert.deepEqual(runtimeResets, ["assistant-1"]);
-  assert.deepEqual(deletedPrefixes, ["assistant-media/assistants/assistant-1/"]);
+  assert.deepEqual(deletedPrefixes, [
+    "assistant-media/assistants/assistant-1/",
+    "assistant-knowledge/assistants/assistant-1/"
+  ]);
   assert.deepEqual(auditUpdateCalls, []);
   assert.equal(
     normalizeSql(rawSql[0] ?? ""),
@@ -199,9 +222,11 @@ async function run(): Promise<void> {
     normalizeSql(rawSql[3] ?? ""),
     'ALTER TABLE "assistant_audit_events" ENABLE TRIGGER "assistant_audit_events_no_update"'
   );
+  assert.ok(deleted.includes("assistantKnowledgeSource"));
   assert.ok(deleted.includes("assistant"));
   assert.ok(deleted.includes("appUser"));
   assert.deepEqual(releasedBytes, [BigInt(7)]);
+  assert.deepEqual(releasedKnowledgeBytes, [BigInt(11)]);
 }
 
 void run();

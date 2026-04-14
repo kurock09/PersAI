@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { TrackWorkspaceQuotaUsageService } from "../src/modules/workspace-management/application/track-workspace-quota-usage.service";
-import type { ResolveEffectiveCapabilityStateService } from "../src/modules/workspace-management/application/resolve-effective-capability-state.service";
 import type { ResolveEffectiveSubscriptionStateService } from "../src/modules/workspace-management/application/resolve-effective-subscription-state.service";
 import type { AssistantGovernanceRepository } from "../src/modules/workspace-management/domain/assistant-governance.repository";
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
@@ -11,9 +10,10 @@ type GovernanceRepoStub = Pick<AssistantGovernanceRepository, "findByAssistantId
 type PlanRepoStub = Pick<AssistantPlanCatalogRepository, "findByCode">;
 type QuotaRepoStub = Pick<
   WorkspaceQuotaAccountingRepository,
-  | "incrementUsage"
+  | "findByWorkspaceId"
   | "applyTokenBudgetUsage"
-  | "applyMediaStorageUsage"
+  | "applyKnowledgeStorageUsage"
+  | "releaseKnowledgeStorageUsage"
   | "refreshActiveWebChatsUsage"
 >;
 type ToolDailyUsageRepoStub = Pick<
@@ -21,7 +21,6 @@ type ToolDailyUsageRepoStub = Pick<
   "incrementAndGet" | "getUsageForDate" | "consumeWithinLimit"
 >;
 type SubscriptionResolverStub = Pick<ResolveEffectiveSubscriptionStateService, "execute">;
-type CapabilityResolverStub = Pick<ResolveEffectiveCapabilityStateService, "execute">;
 
 async function run(): Promise<void> {
   process.env.APP_ENV = "local";
@@ -31,10 +30,19 @@ async function run(): Promise<void> {
   process.env.PERSAI_INTERNAL_API_TOKEN = "internal-api-token";
   process.env.QUOTA_TOKEN_BUDGET_DEFAULT = "200000";
   process.env.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT = "1000";
+  process.env.QUOTA_MEDIA_STORAGE_BYTES_DEFAULT = "104857600";
+  process.env.QUOTA_KNOWLEDGE_STORAGE_BYTES_DEFAULT = "104857600";
   process.env.WEB_ACTIVE_CHATS_CAP = "20";
 
+  const tokenCalls: Array<{ delta: bigint; source: string }> = [];
   const refreshCalls: Array<{ currentActiveWebChats: number; source: string }> = [];
-  const cappedTokenCalls: Array<{ delta: bigint; source: string }> = [];
+  const knowledgeApplyCalls: Array<{
+    delta: bigint;
+    source: string;
+    metadata: Record<string, unknown> | null;
+    limit: bigint | null;
+  }> = [];
+  const knowledgeReleaseCalls: Array<{ delta: bigint; source: string }> = [];
 
   const governanceRepo: GovernanceRepoStub = {
     async findByAssistantId() {
@@ -67,7 +75,8 @@ async function run(): Promise<void> {
         billingProviderHints: {
           quotaAccounting: {
             tokenBudgetLimit: 120000,
-            costOrTokenDrivingToolClassUnitsLimit: 600
+            costOrTokenDrivingToolClassUnitsLimit: 600,
+            knowledgeStorageBytesLimit: 32
           }
         },
         entitlementModel: {
@@ -86,23 +95,27 @@ async function run(): Promise<void> {
   };
 
   const quotaRepo: QuotaRepoStub = {
-    async incrementUsage(input) {
+    async findByWorkspaceId() {
       return {
         id: "state-1",
-        workspaceId: input.workspaceId,
+        workspaceId: "workspace-1",
         tokenBudgetUsed: BigInt(0),
-        tokenBudgetLimit: input.limits.tokenBudgetLimit,
+        tokenBudgetLimit: BigInt(120000),
         costOrTokenDrivingToolClassUnitsUsed: 0,
-        costOrTokenDrivingToolClassUnitsLimit: input.limits.costOrTokenDrivingToolClassUnitsLimit,
+        costOrTokenDrivingToolClassUnitsLimit: 600,
         activeWebChatsCurrent: 0,
-        activeWebChatsLimit: input.limits.activeWebChatsLimit,
+        activeWebChatsLimit: 20,
+        mediaStorageBytesUsed: BigInt(0),
+        mediaStorageBytesLimit: BigInt(104857600),
+        knowledgeStorageBytesUsed: BigInt(10),
+        knowledgeStorageBytesLimit: BigInt(32),
         lastComputedAt: new Date(),
         createdAt: new Date(),
         updatedAt: new Date()
       };
     },
     async applyTokenBudgetUsage(input) {
-      cappedTokenCalls.push({
+      tokenCalls.push({
         delta: input.delta,
         source: input.source
       });
@@ -120,6 +133,63 @@ async function run(): Promise<void> {
           activeWebChatsLimit: input.limits.activeWebChatsLimit,
           mediaStorageBytesUsed: BigInt(0),
           mediaStorageBytesLimit: input.limits.mediaStorageBytesLimit,
+          knowledgeStorageBytesUsed: BigInt(10),
+          knowledgeStorageBytesLimit: input.limits.knowledgeStorageBytesLimit,
+          lastComputedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      };
+    },
+    async applyKnowledgeStorageUsage(input) {
+      knowledgeApplyCalls.push({
+        delta: input.delta,
+        source: input.source,
+        metadata: input.metadata,
+        limit: input.limits.knowledgeStorageBytesLimit
+      });
+      return {
+        appliedDelta: input.delta,
+        capped: false,
+        state: {
+          id: "state-1",
+          workspaceId: input.workspaceId,
+          tokenBudgetUsed: BigInt(0),
+          tokenBudgetLimit: input.limits.tokenBudgetLimit,
+          costOrTokenDrivingToolClassUnitsUsed: 0,
+          costOrTokenDrivingToolClassUnitsLimit: input.limits.costOrTokenDrivingToolClassUnitsLimit,
+          activeWebChatsCurrent: 0,
+          activeWebChatsLimit: input.limits.activeWebChatsLimit,
+          mediaStorageBytesUsed: BigInt(0),
+          mediaStorageBytesLimit: input.limits.mediaStorageBytesLimit,
+          knowledgeStorageBytesUsed: BigInt(10) + input.delta,
+          knowledgeStorageBytesLimit: input.limits.knowledgeStorageBytesLimit,
+          lastComputedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      };
+    },
+    async releaseKnowledgeStorageUsage(input) {
+      knowledgeReleaseCalls.push({
+        delta: input.delta,
+        source: input.source
+      });
+      return {
+        releasedDelta: input.delta,
+        state: {
+          id: "state-1",
+          workspaceId: input.workspaceId,
+          tokenBudgetUsed: BigInt(0),
+          tokenBudgetLimit: input.limits.tokenBudgetLimit,
+          costOrTokenDrivingToolClassUnitsUsed: 0,
+          costOrTokenDrivingToolClassUnitsLimit: input.limits.costOrTokenDrivingToolClassUnitsLimit,
+          activeWebChatsCurrent: 0,
+          activeWebChatsLimit: input.limits.activeWebChatsLimit,
+          mediaStorageBytesUsed: BigInt(0),
+          mediaStorageBytesLimit: input.limits.mediaStorageBytesLimit,
+          knowledgeStorageBytesUsed: BigInt(10),
+          knowledgeStorageBytesLimit: input.limits.knowledgeStorageBytesLimit,
           lastComputedAt: new Date(),
           createdAt: new Date(),
           updatedAt: new Date()
@@ -140,6 +210,10 @@ async function run(): Promise<void> {
         costOrTokenDrivingToolClassUnitsLimit: input.limits.costOrTokenDrivingToolClassUnitsLimit,
         activeWebChatsCurrent: input.currentActiveWebChats,
         activeWebChatsLimit: input.limits.activeWebChatsLimit,
+        mediaStorageBytesUsed: BigInt(0),
+        mediaStorageBytesLimit: input.limits.mediaStorageBytesLimit,
+        knowledgeStorageBytesUsed: BigInt(10),
+        knowledgeStorageBytesLimit: input.limits.knowledgeStorageBytesLimit,
         lastComputedAt: new Date(),
         createdAt: new Date(),
         updatedAt: new Date()
@@ -156,65 +230,6 @@ async function run(): Promise<void> {
         trialEndsAt: null,
         currentPeriodEndsAt: null,
         cancelAtPeriodEnd: false
-      };
-    }
-  };
-
-  const capabilityResolver: CapabilityResolverStub = {
-    async execute() {
-      return {
-        schema: "persai.effectiveCapabilities.v1",
-        derivedFrom: {
-          planCode: "starter_trial",
-          planStatus: "active",
-          governanceSchema: null
-        },
-        subscription: {
-          source: "assistant_plan_fallback",
-          status: "unconfigured",
-          planCode: "starter_trial",
-          trialEndsAt: null,
-          currentPeriodEndsAt: null,
-          cancelAtPeriodEnd: false
-        },
-        toolClasses: {
-          costDriving: { allowed: true, quotaGoverned: true },
-          utility: { allowed: true, quotaGoverned: true }
-        },
-        channelsAndSurfaces: {
-          webChat: true,
-          telegram: false,
-          whatsapp: false,
-          max: false
-        },
-        mediaClasses: {
-          text: true,
-          image: false,
-          audio: false,
-          video: false,
-          file: false
-        }
-      };
-    },
-    async applyMediaStorageUsage(input) {
-      return {
-        appliedDelta: input.delta,
-        capped: false,
-        state: {
-          id: "state-1",
-          workspaceId: input.workspaceId,
-          tokenBudgetUsed: BigInt(0),
-          tokenBudgetLimit: input.limits.tokenBudgetLimit,
-          costOrTokenDrivingToolClassUnitsUsed: 0,
-          costOrTokenDrivingToolClassUnitsLimit: input.limits.costOrTokenDrivingToolClassUnitsLimit,
-          activeWebChatsCurrent: 0,
-          activeWebChatsLimit: input.limits.activeWebChatsLimit,
-          mediaStorageBytesUsed: input.delta,
-          mediaStorageBytesLimit: input.limits.mediaStorageBytesLimit,
-          lastComputedAt: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
       };
     }
   };
@@ -239,8 +254,7 @@ async function run(): Promise<void> {
     planRepo as AssistantPlanCatalogRepository,
     quotaRepo as WorkspaceQuotaAccountingRepository,
     toolDailyUsageRepo as WorkspaceToolDailyUsageRepository,
-    subscriptionResolver as ResolveEffectiveSubscriptionStateService,
-    capabilityResolver as ResolveEffectiveCapabilityStateService
+    subscriptionResolver as ResolveEffectiveSubscriptionStateService
   );
 
   const assistant = {
@@ -275,16 +289,48 @@ async function run(): Promise<void> {
     source: "web_chat_archive"
   });
 
+  const knowledgeQuota = await service.checkKnowledgeStorageQuota(assistant);
+  const knowledgeUpload = await service.recordKnowledgeStorageUpload({
+    assistant,
+    sizeBytes: BigInt(9),
+    source: "assistant_knowledge_upload",
+    metadata: { filename: "gazprom.pdf" }
+  });
+  const knowledgeRelease = await service.releaseKnowledgeStorage({
+    assistant,
+    sizeBytes: BigInt(4),
+    source: "assistant_reset_knowledge_cleanup"
+  });
   const toolLimit = await service.consumeToolDailyLimit({
     assistant,
     toolCode: "web_search",
     dailyCallLimit: 3
   });
 
-  assert.equal(cappedTokenCalls.length, 1);
-  assert.ok((cappedTokenCalls[0]?.delta ?? BigInt(0)) > BigInt(0));
+  assert.equal(tokenCalls.length, 1);
+  assert.ok((tokenCalls[0]?.delta ?? BigInt(0)) > BigInt(0));
   assert.equal(refreshCalls.length, 1);
   assert.equal(refreshCalls[0]?.currentActiveWebChats, 7);
+  assert.deepEqual(knowledgeQuota, {
+    allowed: true,
+    usedBytes: BigInt(10),
+    limitBytes: BigInt(32)
+  });
+  assert.equal(knowledgeApplyCalls.length, 1);
+  assert.deepEqual(knowledgeApplyCalls[0], {
+    delta: BigInt(9),
+    source: "assistant_knowledge_upload",
+    metadata: { filename: "gazprom.pdf" },
+    limit: BigInt(32)
+  });
+  assert.equal(knowledgeUpload.appliedDelta, BigInt(9));
+  assert.equal(knowledgeRelease.releasedDelta, BigInt(4));
+  assert.deepEqual(knowledgeReleaseCalls, [
+    {
+      delta: BigInt(4),
+      source: "assistant_reset_knowledge_cleanup"
+    }
+  ]);
   assert.deepEqual(toolLimit, {
     allowed: true,
     currentCount: 3,

@@ -39,15 +39,12 @@ export interface DeleteWebChatRequest {
   confirmText: string;
 }
 
-const ROLLING_WEB_CHAT_COMPACTION_LATENCY_SAMPLE_SIZE = 3;
 type EffectiveSharedCompactionConfig = Pick<
   RuntimeSharedCompactionConfig,
-  | "reserveTokens"
-  | "keepRecentTokens"
-  | "recentTurnsPreserve"
-  | "suggestByMessageCount"
-  | "webSuggestionLatencyMs"
->;
+  "reserveTokens" | "keepRecentTokens" | "recentTurnsPreserve" | "suggestByMessageCount"
+> & {
+  autoCompactionEnabled: boolean;
+};
 
 function toChatState(chat: {
   id: string;
@@ -281,7 +278,7 @@ export class ManageWebChatListService {
     userId: string,
     chatId: string
   ): Promise<AssistantWebChatCompactionState> {
-    const { assistant, chat, messageCount, assistantMessageCount, rollingLatencyMs } =
+    const { assistant, chat, messageCount, assistantMessageCount } =
       await this.resolveOwnedWebChatWithStats(userId, chatId);
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
@@ -304,7 +301,6 @@ export class ManageWebChatListService {
       sessionKey: null,
       compactionCount: runtimeSessionState.session?.compactionCount ?? 0,
       updatedAt: runtimeSessionState.session?.updatedAt ?? null,
-      rollingLatencyMs,
       compactionConfig
     });
   }
@@ -314,7 +310,7 @@ export class ManageWebChatListService {
     chatId: string,
     instructions?: string
   ): Promise<{ state: AssistantWebChatCompactionState; result: AssistantWebChatCompactionResult }> {
-    const { assistant, chat, messageCount, assistantMessageCount, rollingLatencyMs } =
+    const { assistant, chat, messageCount, assistantMessageCount } =
       await this.resolveOwnedWebChatWithStats(userId, chatId);
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
@@ -339,7 +335,6 @@ export class ManageWebChatListService {
       sessionKey: null,
       compactionCount: result.session?.compactionCount ?? 0,
       updatedAt: result.session?.updatedAt ?? null,
-      rollingLatencyMs,
       compactionConfig,
       forceSuggestedFalse:
         result.compacted ||
@@ -425,7 +420,6 @@ export class ManageWebChatListService {
     chat: NonNullable<Awaited<ReturnType<AssistantChatRepository["findChatById"]>>>;
     messageCount: number;
     assistantMessageCount: number;
-    rollingLatencyMs: number | null;
   }> {
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
@@ -442,8 +436,7 @@ export class ManageWebChatListService {
       assistant,
       chat,
       messageCount: messages.length,
-      assistantMessageCount: messages.filter((message) => message.author === "assistant").length,
-      rollingLatencyMs: this.calculateRollingLatencyMs(messages)
+      assistantMessageCount: messages.filter((message) => message.author === "assistant").length
     };
   }
 
@@ -455,7 +448,6 @@ export class ManageWebChatListService {
     sessionKey: string | null;
     compactionCount: number;
     updatedAt: string | null;
-    rollingLatencyMs: number | null;
     compactionConfig: EffectiveSharedCompactionConfig;
     forceSuggestedFalse?: boolean;
   }): AssistantWebChatCompactionState {
@@ -472,18 +464,13 @@ export class ManageWebChatListService {
     // brought usage below the threshold.
     const historyCountsAsSuggestion =
       historySuggested && (input.currentTokens === null || input.currentTokens >= tokenThreshold);
-    const latencySuggested =
-      input.rollingLatencyMs !== null &&
-      input.rollingLatencyMs >= input.compactionConfig.webSuggestionLatencyMs;
     const suggestionReason = input.forceSuggestedFalse
       ? null
       : tokenSuggested
         ? "token_threshold"
-        : latencySuggested
-          ? "latency_threshold"
-          : historyCountsAsSuggestion
-            ? "history_threshold"
-            : null;
+        : historyCountsAsSuggestion
+          ? "history_threshold"
+          : null;
     return {
       available: input.available,
       suggested: suggestionReason !== null,
@@ -495,7 +482,8 @@ export class ManageWebChatListService {
       compactionCount: input.compactionCount,
       lastCompactedAt: input.compactionCount > 0 ? input.updatedAt : null,
       reserveTokens: input.compactionConfig.reserveTokens,
-      keepRecentTokens: input.compactionConfig.keepRecentTokens
+      keepRecentTokens: input.compactionConfig.keepRecentTokens,
+      autoCompactionEnabled: input.compactionConfig.autoCompactionEnabled
     };
   }
 
@@ -538,17 +526,18 @@ export class ManageWebChatListService {
     const bundle = this.asObject(runtimeBundle);
     const runtime = this.asObject(bundle?.runtime);
     const sharedCompaction = this.asObject(runtime?.sharedCompaction);
+    const contextHydration = this.asObject(runtime?.contextHydration);
     const reserveTokens = this.asInteger(sharedCompaction?.reserveTokens);
     const keepRecentTokens = this.asInteger(sharedCompaction?.keepRecentTokens);
     const recentTurnsPreserve = this.asInteger(sharedCompaction?.recentTurnsPreserve);
-    const webSuggestionLatencyMs = this.asInteger(sharedCompaction?.webSuggestionLatencyMs);
     const suggestByMessageCount = sharedCompaction?.suggestByMessageCount;
+    const autoCompactionEnabled = contextHydration?.autoCompactionWeb;
     if (
       reserveTokens === null ||
       keepRecentTokens === null ||
       recentTurnsPreserve === null ||
-      webSuggestionLatencyMs === null ||
-      typeof suggestByMessageCount !== "boolean"
+      typeof suggestByMessageCount !== "boolean" ||
+      typeof autoCompactionEnabled !== "boolean"
     ) {
       return null;
     }
@@ -557,7 +546,7 @@ export class ManageWebChatListService {
       keepRecentTokens,
       recentTurnsPreserve,
       suggestByMessageCount,
-      webSuggestionLatencyMs
+      autoCompactionEnabled
     };
   }
 
@@ -573,41 +562,6 @@ export class ManageWebChatListService {
     return new AssistantRuntimeError(
       "compaction_unavailable",
       'Context compaction could not finish. Send a normal message in this thread, wait for a reply, then try "Compress now" again.'
-    );
-  }
-
-  private calculateRollingLatencyMs(
-    messages: Array<{ id: string; author: string; createdAt: Date }>
-  ): number | null {
-    const orderedMessages = [...messages].sort(
-      (left, right) =>
-        left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id)
-    );
-    const replyLatenciesMs: number[] = [];
-    let pendingUserAt: Date | null = null;
-
-    for (const message of orderedMessages) {
-      if (message.author === "user") {
-        pendingUserAt = message.createdAt;
-        continue;
-      }
-      if (message.author !== "assistant" || pendingUserAt === null) {
-        continue;
-      }
-
-      replyLatenciesMs.push(Math.max(0, message.createdAt.getTime() - pendingUserAt.getTime()));
-      pendingUserAt = null;
-    }
-
-    if (replyLatenciesMs.length === 0) {
-      return null;
-    }
-
-    const recentLatencies = replyLatenciesMs.slice(
-      -ROLLING_WEB_CHAT_COMPACTION_LATENCY_SAMPLE_SIZE
-    );
-    return Math.round(
-      recentLatencies.reduce((sum, latencyMs) => sum + latencyMs, 0) / recentLatencies.length
     );
   }
 

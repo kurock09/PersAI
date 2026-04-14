@@ -233,6 +233,63 @@ async function runSuccessBatchTest(): Promise<void> {
   assert.equal(prisma.rows[0]?.retryAfterAt, null);
 }
 
+async function runRecurringBoundaryAdvanceTest(): Promise<void> {
+  const everyMs = 60_000;
+  const dueAt = new Date(Date.now() - 60_000);
+  const anchorAt = new Date(dueAt.getTime() - everyMs);
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [
+      {
+        id: "task-boundary",
+        assistantId: "assistant-1",
+        externalRef: "job-boundary",
+        title: "Boundary reminder",
+        audience: "user",
+        actionType: null,
+        actionPayloadJson: null,
+        nextRunAt: dueAt,
+        payloadText: "Boundary case reminder",
+        scheduleJson: {
+          kind: "every",
+          everyMs,
+          anchorMs: anchorAt.getTime()
+        },
+        controlStatus: "active",
+        retryAfterAt: null,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null,
+        createdAt: new Date(anchorAt.getTime() - everyMs)
+      }
+    ],
+    () => epochs.currentEpoch
+  );
+  const handler = new FakeHandleInternalCronFireService();
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  const service = new PersaiScheduledActionSchedulerService(
+    prisma as never,
+    handler as never,
+    epochs as never,
+    assistantRunner as never
+  );
+
+  const count = await service.processDueJobsBatch();
+
+  assert.equal(count, 1);
+  assert.equal(handler.calls.length, 1);
+  assert.deepEqual(handler.calls[0], {
+    assistantId: "assistant-1",
+    jobId: "job-boundary",
+    action: "finished",
+    status: "ok",
+    summary: "Boundary case reminder",
+    runAtMs: dueAt.getTime(),
+    nextRunAtMs: dueAt.getTime() + everyMs
+  });
+}
+
 async function runFailureRetryTest(): Promise<void> {
   const dueAt = new Date(Date.now() - 60_000);
   const epochs = new FakeBumpConfigGenerationService(3);
@@ -468,6 +525,7 @@ async function runAssistantActionBatchTest(): Promise<void> {
 
 async function run(): Promise<void> {
   await runSuccessBatchTest();
+  await runRecurringBoundaryAdvanceTest();
   await runFailureRetryTest();
   await runEpochResetReclaimTest();
   await runEpochBumpSkipsOldWorkerTest();

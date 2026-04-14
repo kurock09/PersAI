@@ -58,6 +58,41 @@ const KNOWLEDGE_ACCESS_CONFIG = {
       fetchAliasToolCode: "memory_get",
       searchCredentialToolCode: "memory_search",
       fetchCredentialToolCode: null
+    },
+    {
+      source: "chat",
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    },
+    {
+      source: "preset",
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    },
+    {
+      source: "subscription",
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    },
+    {
+      source: "global",
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    },
+    {
+      source: "document",
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
     }
   ]
 } satisfies RuntimeKnowledgeAccessConfig;
@@ -205,6 +240,15 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
       runtimeProviderProfile: null,
       runtimeProviderRouting: null,
       optimizationPolicy: null,
+      contextHydration: {
+        preset: "balanced",
+        targetContextBudget: 24000,
+        compactionTriggerThreshold: 8000,
+        keepRecentMinimum: 4,
+        knowledgeHydrationBudget: 2400,
+        autoCompactionWeb: false,
+        autoCompactionTelegram: true
+      },
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       workerTools: WORKER_TOOLS_CONFIG,
       browser: BROWSER_CONFIG,
@@ -328,6 +372,15 @@ function createWarmInputMissingToolPolicy() {
       runtimeProviderProfile: null,
       runtimeProviderRouting: null,
       optimizationPolicy: null,
+      contextHydration: {
+        preset: "balanced",
+        targetContextBudget: 24000,
+        compactionTriggerThreshold: 8000,
+        keepRecentMinimum: 4,
+        knowledgeHydrationBudget: 2400,
+        autoCompactionWeb: false,
+        autoCompactionTelegram: true
+      },
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       workerTools: WORKER_TOOLS_CONFIG,
       browser: BROWSER_CONFIG,

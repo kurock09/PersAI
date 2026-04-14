@@ -1,7 +1,32 @@
 import assert from "node:assert/strict";
+import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { RuntimeTurnRequest } from "@persai/runtime-contract";
 import type { RuntimeStatePrismaService } from "../src/modules/runtime-state/infrastructure/persistence/runtime-state-prisma.service";
 import { TurnContextHydrationService } from "../src/modules/turns/turn-context-hydration.service";
+
+const HYDRATED_MEMORY_CONTEXT =
+  "[Durable user context retained across conversations]\n" +
+  "- [Memory write: preference] User prefers concise answers and short bullet lists.\n" +
+  "- [Web chat memory] Customer previously asked about annual billing and quota separation.";
+
+function createRuntimeBundle(
+  overrides?: Partial<AssistantRuntimeBundle["runtime"]["contextHydration"]>
+): AssistantRuntimeBundle {
+  return {
+    runtime: {
+      contextHydration: {
+        preset: "balanced",
+        targetContextBudget: 24_000,
+        compactionTriggerThreshold: 8_000,
+        keepRecentMinimum: 4,
+        knowledgeHydrationBudget: 2_400,
+        autoCompactionWeb: false,
+        autoCompactionTelegram: true,
+        ...overrides
+      }
+    }
+  } as AssistantRuntimeBundle;
+}
 
 function createRuntimeTurnRequest(): RuntimeTurnRequest {
   return {
@@ -73,6 +98,25 @@ class FakeRuntimeStatePrismaService {
       metadata: Record<string, unknown> | null;
     }>;
   }> = [];
+  memoryRows: Array<{
+    summary: string;
+    sourceType: "web_chat" | "memory_write";
+    sourceLabel: string | null;
+    createdAt: Date;
+  }> = [
+    {
+      summary: "User prefers concise answers and short bullet lists.",
+      sourceType: "memory_write",
+      sourceLabel: "Memory write: preference",
+      createdAt: new Date("2026-04-14T11:00:00.000Z")
+    },
+    {
+      summary: "Customer previously asked about annual billing and quota separation.",
+      sourceType: "web_chat",
+      sourceLabel: "Web chat memory",
+      createdAt: new Date("2026-04-14T10:30:00.000Z")
+    }
+  ];
 
   assistantChat = {
     findFirst: async (args: unknown) => {
@@ -83,6 +127,10 @@ class FakeRuntimeStatePrismaService {
 
   assistantChatMessage = {
     findMany: async () => this.messages
+  };
+
+  assistantMemoryRegistryItem = {
+    findMany: async () => this.memoryRows
   };
 }
 
@@ -137,6 +185,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     } as never
   );
   const request = createRuntimeTurnRequest();
+  const runtimeBundle = createRuntimeBundle();
 
   prisma.messages = [
     {
@@ -241,8 +290,12 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     }
   ];
 
-  const hydrated = await service.buildMessages(request);
+  const hydrated = await service.buildMessages(request, runtimeBundle);
   assert.deepEqual(hydrated, [
+    {
+      role: "assistant",
+      content: HYDRATED_MEMORY_CONTEXT
+    },
     {
       role: "user",
       content:
@@ -285,8 +338,12 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
 
   prisma.chat = null;
   downloadedObjectKeys.length = 0;
-  const fallback = await service.buildMessages(request);
+  const fallback = await service.buildMessages(request, runtimeBundle);
   assert.deepEqual(fallback, [
+    {
+      role: "assistant",
+      content: HYDRATED_MEMORY_CONTEXT
+    },
     {
       role: "user",
       content: [
@@ -336,8 +393,12 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       ]
     }
   };
-  const multiImage = await service.buildMessages(multiImageRequest);
+  const multiImage = await service.buildMessages(multiImageRequest, runtimeBundle);
   assert.deepEqual(multiImage, [
+    {
+      role: "assistant",
+      content: HYDRATED_MEMORY_CONTEXT
+    },
     {
       role: "user",
       content: [
@@ -402,11 +463,18 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     }
   ];
 
-  const telegramHydrated = await service.buildMessages({
-    ...telegramRequest,
-    idempotencyKey: "telegram-message-2"
-  });
+  const telegramHydrated = await service.buildMessages(
+    {
+      ...telegramRequest,
+      idempotencyKey: "telegram-message-2"
+    },
+    runtimeBundle
+  );
   assert.deepEqual(telegramHydrated, [
+    {
+      role: "assistant",
+      content: HYDRATED_MEMORY_CONTEXT
+    },
     {
       role: "user",
       content: "earlier telegram user"
@@ -439,15 +507,19 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     attachments: []
   }));
 
-  const capped = await service.buildMessages(request);
-  assert.equal(capped.length, 20);
+  const capped = await service.buildMessages(request, runtimeBundle);
+  assert.equal(capped.length, 24);
   assert.deepEqual(capped.at(0), {
     role: "assistant",
-    content: "message-4"
+    content: HYDRATED_MEMORY_CONTEXT
+  });
+  assert.deepEqual(capped.at(1), {
+    role: "user",
+    content: "message-1"
   });
   assert.deepEqual(capped.at(-1), {
     role: "user",
-    content: fallback[0]?.content
+    content: fallback[1]?.content
   });
 
   runtimeStatePostgres.session = { id: "runtime-session-1" };
@@ -458,19 +530,26 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       summarizedMessageCount: 1
     }
   };
-  const ignoredInvalidSummary = await service.buildMessages({
-    ...request,
-    idempotencyKey: "message-21",
-    message: {
-      ...request.message,
-      text: "current turn after invalid compaction",
-      attachments: []
-    }
-  });
-  assert.equal(ignoredInvalidSummary.length, 20);
+  const ignoredInvalidSummary = await service.buildMessages(
+    {
+      ...request,
+      idempotencyKey: "message-21",
+      message: {
+        ...request.message,
+        text: "current turn after invalid compaction",
+        attachments: []
+      }
+    },
+    runtimeBundle
+  );
+  assert.equal(ignoredInvalidSummary.length, 23);
   assert.deepEqual(ignoredInvalidSummary.at(0), {
+    role: "assistant",
+    content: HYDRATED_MEMORY_CONTEXT
+  });
+  assert.deepEqual(ignoredInvalidSummary.at(1), {
     role: "user",
-    content: "message-3"
+    content: "message-1"
   });
   assert.deepEqual(ignoredInvalidSummary.at(-2), {
     role: "user",
@@ -492,24 +571,31 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       summarizedMessageCount: 1
     }
   };
-  const reusedSummary = await service.buildMessages({
-    ...request,
-    idempotencyKey: "message-21",
-    message: {
-      ...request.message,
-      text: "current turn after compaction",
-      attachments: []
-    }
-  });
-  assert.equal(reusedSummary.length, 20);
+  const reusedSummary = await service.buildMessages(
+    {
+      ...request,
+      idempotencyKey: "message-21",
+      message: {
+        ...request.message,
+        text: "current turn after compaction",
+        attachments: []
+      }
+    },
+    runtimeBundle
+  );
+  assert.equal(reusedSummary.length, 23);
   assert.deepEqual(reusedSummary.at(0), {
+    role: "assistant",
+    content: HYDRATED_MEMORY_CONTEXT
+  });
+  assert.deepEqual(reusedSummary.at(1), {
     role: "assistant",
     content:
       "[Earlier conversation summary retained by shared compaction]\nStable facts:\n- Durable summary of older context."
   });
-  assert.deepEqual(reusedSummary.at(1), {
+  assert.deepEqual(reusedSummary.at(2), {
     role: "assistant",
-    content: "message-4"
+    content: "message-2"
   });
   assert.deepEqual(reusedSummary.at(-2), {
     role: "user",

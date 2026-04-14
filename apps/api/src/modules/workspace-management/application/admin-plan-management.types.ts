@@ -1,4 +1,7 @@
-import type { PersaiRuntimeVideoGenerateModelKey } from "@persai/runtime-contract";
+import type {
+  PersaiRuntimeVideoGenerateModelKey,
+  RuntimeContextHydrationConfig
+} from "@persai/runtime-contract";
 
 export type AdminPlanStatus = "active" | "inactive";
 export type AdminPlanRuntimeTier =
@@ -43,6 +46,8 @@ export type AdminPlanToolActivationInput = {
   dailyCallLimit: number | null;
 };
 
+export type AdminPlanContextPolicy = RuntimeContextHydrationConfig;
+
 export type AdminPlanInput = {
   displayName: string;
   description: string | null;
@@ -60,6 +65,7 @@ export type AdminPlanInput = {
     mediaStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;
   };
+  contextPolicy: AdminPlanContextPolicy;
   primaryModelKey: string | null;
   videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
@@ -88,6 +94,7 @@ export type AdminPlanState = {
     mediaStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;
   };
+  contextPolicy: AdminPlanContextPolicy;
   primaryModelKey: string | null;
   videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;

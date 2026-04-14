@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import type { RuntimeTurnAutoCompactionState } from "@persai/runtime-contract";
 import {
   ASSISTANT_RUNTIME_FACADE,
   type AssistantRuntimeFacade,
@@ -33,6 +34,7 @@ export interface InternalTelegramTurnResult {
   assistantMessage: string;
   respondedAt: string;
   media: RuntimeMediaArtifact[];
+  autoCompaction?: RuntimeTurnAutoCompactionState;
   deduplicated?: boolean;
 }
 

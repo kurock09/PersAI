@@ -29,6 +29,12 @@ import {
   AdminAuthorizationService,
   type DangerousAdminActionCode
 } from "./admin-authorization.service";
+import {
+  createDefaultPlanContextHydrationPolicy,
+  parsePlanContextHydrationPolicy,
+  resolveStoredPlanContextHydrationPolicy,
+  toPlanContextHydrationPolicyDocument
+} from "./context-hydration-policy";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { isPlanManagedTool } from "../../../../prisma/tool-catalog-data";
 
@@ -287,6 +293,10 @@ export class ManageAdminPlansService {
       parsed.quotaLimits !== undefined && parsed.quotaLimits !== null
         ? parseObject(parsed.quotaLimits, "quotaLimits")
         : {};
+    const contextPolicy =
+      parsed.contextPolicy === undefined || parsed.contextPolicy === null
+        ? createDefaultPlanContextHydrationPolicy()
+        : parsePlanContextHydrationPolicy(parsed.contextPolicy, "contextPolicy");
 
     const toolActivations = this.parseToolActivations(parsed.toolActivations);
 
@@ -326,6 +336,7 @@ export class ManageAdminPlansService {
         mediaStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.mediaStorageBytesLimit),
         workspaceStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.workspaceStorageBytesLimit)
       },
+      contextPolicy,
       primaryModelKey: toNullableString(parsed.primaryModelKey),
       videoGenerateModelKey: parseVideoGenerateModelKey(parsed.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault)
@@ -399,6 +410,7 @@ export class ManageAdminPlansService {
         commercialTag: input.metadata.commercialTag,
         notes: input.metadata.notes,
         ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
+        contextPolicy: toPlanContextHydrationPolicyDocument(input.contextPolicy),
         ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {}),
         ...(input.videoGenerateModelKey !== null
           ? { videoGenerateModelKey: input.videoGenerateModelKey }
@@ -477,6 +489,7 @@ export class ManageAdminPlansService {
     const toolClasses = entitlement?.toolClasses ?? [];
     const channelsAndSurfaces = entitlement?.channelsAndSurfaces ?? [];
     const mediaClasses = entitlement?.mediaClasses ?? [];
+    const contextPolicy = resolveStoredPlanContextHydrationPolicy(billingHints.contextPolicy);
 
     return {
       code: plan.code,
@@ -517,6 +530,7 @@ export class ManageAdminPlansService {
           quotaAccountingRaw.workspaceStorageBytesLimit
         )
       },
+      contextPolicy,
       primaryModelKey: toNullableString(billingHints.primaryModelKey),
       videoGenerateModelKey: toVideoGenerateModelKey(billingHints.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),

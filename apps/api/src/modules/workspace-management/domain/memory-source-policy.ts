@@ -3,7 +3,7 @@
  * Not documented only by convention — evaluated in application services before registry writes / list reads.
  */
 
-export type MemoryTransportSurface = "web";
+export type MemoryTransportSurface = "web" | "telegram";
 
 /** How the originating audience/thread is classified for global memory registry writes. */
 export type MemorySourceTrustClass = "trusted_1to1" | "group";

@@ -52,6 +52,7 @@ enum AssistantChatMessageAuthor {
 
 enum AssistantMemoryRegistrySourceType {
   web_chat
+  memory_write
 }
 
 enum AssistantTaskRegistrySourceSurface {
@@ -117,6 +118,21 @@ enum WorkspaceQuotaDimension {
   cost_or_token_driving_tool_class
   active_web_chats_cap
   media_storage_bytes
+  knowledge_storage_bytes
+}
+
+enum AssistantKnowledgeSourceNamespace {
+  assistant_user_workspace
+}
+
+enum AssistantKnowledgeSourceKind {
+  uploaded_file
+}
+
+enum AssistantKnowledgeSourceStatus {
+  processing
+  ready
+  failed
 }
 
 enum AttachmentType {
@@ -273,6 +289,8 @@ model Workspace {
   abuseGuardStates            AssistantAbuseGuardState[]
   toolUsageDailyCounters      WorkspaceToolUsageDailyCounter[]
   chatMessageAttachments      AssistantChatMessageAttachment[]
+  knowledgeSources            AssistantKnowledgeSource[]
+  knowledgeSourceChunks       AssistantKnowledgeSourceChunk[]
   runtimeBundleStates         RuntimeBundleState[]
   runtimeSessions             RuntimeSession[]
   runtimeSessionCompactions   RuntimeSessionCompaction[]
@@ -291,6 +309,7 @@ model WorkspaceMember {
   assistantChats               AssistantChat[]
   assistantMemoryRegistryItems AssistantMemoryRegistryItem[]
   assistantTaskRegistryItems   AssistantTaskRegistryItem[]
+  assistantKnowledgeSources    AssistantKnowledgeSource[]
   abuseGuardStates             AssistantAbuseGuardState[]
   workspace                    Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   user                         AppUser                       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -335,6 +354,8 @@ model Assistant {
   chatMessages                 AssistantChatMessage[]
   memoryRegistryItems          AssistantMemoryRegistryItem[]
   taskRegistryItems            AssistantTaskRegistryItem[]
+  knowledgeSources             AssistantKnowledgeSource[]
+  knowledgeSourceChunks        AssistantKnowledgeSourceChunk[]
   channelSurfaceBindings       AssistantChannelSurfaceBinding[]
   auditEvents                  AssistantAuditEvent[]
   platformRolloutItems         AssistantPlatformRolloutItem[]
@@ -749,6 +770,8 @@ model WorkspaceQuotaAccountingState {
   activeWebChatsLimit                   Int?      @map("active_web_chats_limit")
   mediaStorageBytesUsed                 BigInt    @default(0) @map("media_storage_bytes_used")
   mediaStorageBytesLimit                BigInt?   @map("media_storage_bytes_limit")
+  knowledgeStorageBytesUsed             BigInt    @default(0) @map("knowledge_storage_bytes_used")
+  knowledgeStorageBytesLimit            BigInt?   @map("knowledge_storage_bytes_limit")
   lastComputedAt                        DateTime  @default(now()) @map("last_computed_at") @db.Timestamptz(6)
   createdAt                             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1044,6 +1067,58 @@ model AssistantTaskRegistryItem {
   @@index([assistantId, controlStatus, nextRunAt])
   @@index([controlStatus, nextRunAt, retryAfterAt, schedulerClaimExpiresAt])
   @@map("assistant_task_registry_items")
+}
+
+model AssistantKnowledgeSource {
+  id                    String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId           String                           @map("assistant_id") @db.Uuid
+  userId                String                           @map("user_id") @db.Uuid
+  workspaceId           String                           @map("workspace_id") @db.Uuid
+  namespace             AssistantKnowledgeSourceNamespace
+  sourceKind            AssistantKnowledgeSourceKind     @map("source_kind")
+  displayName           String?                          @map("display_name") @db.VarChar(255)
+  originalFilename      String                           @map("original_filename") @db.VarChar(255)
+  mimeType              String                           @map("mime_type") @db.VarChar(255)
+  sizeBytes             BigInt                           @map("size_bytes")
+  storagePath           String                           @map("storage_path")
+  status                AssistantKnowledgeSourceStatus
+  currentVersion        Int                              @default(1) @map("current_version")
+  chunkCount            Int                              @default(0) @map("chunk_count")
+  lastIndexedAt         DateTime?                        @map("last_indexed_at") @db.Timestamptz(6)
+  lastReindexRequestedAt DateTime?                       @map("last_reindex_requested_at") @db.Timestamptz(6)
+  lastErrorCode         String?                          @map("last_error_code") @db.VarChar(64)
+  lastErrorMessage      String?                          @map("last_error_message") @db.Text
+  createdAt             DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant             Assistant                        @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember       WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspace             Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chunks                AssistantKnowledgeSourceChunk[]
+
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@index([assistantId, status, createdAt(sort: Desc)])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@map("assistant_knowledge_sources")
+}
+
+model AssistantKnowledgeSourceChunk {
+  id                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  knowledgeSourceId String                   @map("knowledge_source_id") @db.Uuid
+  assistantId       String                   @map("assistant_id") @db.Uuid
+  workspaceId       String                   @map("workspace_id") @db.Uuid
+  sourceVersion     Int                      @map("source_version")
+  chunkIndex        Int                      @map("chunk_index")
+  locator           String?                  @db.Text
+  content           String                   @db.Text
+  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  knowledgeSource   AssistantKnowledgeSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  assistant         Assistant                @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([knowledgeSourceId, sourceVersion, chunkIndex])
+  @@index([knowledgeSourceId, createdAt(sort: Desc)])
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@map("assistant_knowledge_source_chunks")
 }
 
 model AssistantTelegramGroup {

@@ -895,13 +895,13 @@ Required in CI:
   - a first invalid structured compaction output triggers at most one bounded retry with stricter JSON-only guidance, and a second invalid attempt still fails closed without persisting or mutating session state
   - same-turn follow-up after durable compaction rebuilds provider messages from refreshed compaction state instead of stale pre-compaction history
   - durable compaction resets stale token freshness (`currentTokens=null`, `totalTokensFresh=false`) so later auto-compaction decisions do not trust pre-compaction totals
-  - web compaction/banner state suggests compression when rolling reply latency crosses the shared `7000ms` threshold even when token pressure is still below the compaction token threshold
+  - web compaction/banner state follows native context-pressure thresholds and can surface a recent successful auto-compaction outcome when plan policy enables it, without relying on a rolling reply-latency heuristic
 - Shared tool-runtime observability validates:
   - provider/runtime request metadata distinguishes `main_turn`, `tool_loop_followup`, `manual_compaction`, and `auto_compaction`
   - internal tool and compaction hops no longer need to be inferred from provider-side pseudo-message logs
 - Deferred knowledge scaffolding validates:
-  - `runtime.knowledgeAccess` may remain on the native runtime bundle as reserved future scaffolding, but no current model-visible native tool projection depends on it
-  - `knowledge_search` / `knowledge_fetch` stay disconnected until a real PersAI-native knowledge backend exists
+  - `runtime.knowledgeAccess` may remain on the native runtime bundle as reserved future scaffolding until a real backend exists
+  - `knowledge_search` / `knowledge_fetch` only become model-visible for namespaces with a real PersAI-native backend; the current truthful activation point is `T15-6b` `source="document"`
   - current `web_search` / `web_fetch` executor tests do not route through `knowledge_*` placeholders
 - T15-3b web retrieval sub-step validates:
   - the first truthful landing may expose `web_fetch` before `web_search`, but only when plan policy, credential availability, and real native executor availability all agree
@@ -952,6 +952,23 @@ Required in CI:
   - API/runtime turn execution derives longer sync/stream timeout budgets from active native worker-tool policy so web chat and Telegram do not fail early on the old fixed 90-second cap while a bounded media worker is still in progress
   - web and Telegram user-visible media progress stays truthful on the native path: web keeps one stronger live status per assistant reply instead of appending a badge chain, and Telegram maps media tool execution onto bounded Bot API chat actions until the final upload/send phase
   - focused regressions cover `apps/api/test/runtime-tool-policy.test.ts`, `apps/api/test/runtime-worker-tools.test.ts`, `apps/api/test/manage-admin-plans.service.test.ts`, `apps/api/test/materialize-assistant-published-version.service.test.ts`, `apps/api/test/send-native-telegram-turn.service.test.ts`, `apps/api/test/handle-internal-telegram-turn.service.test.ts`, `apps/api/test/telegram-chat-actions.test.ts`, `apps/provider-gateway/test/provider-image-generation.service.test.ts`, `apps/provider-gateway/test/provider-video-generation.service.test.ts`, `apps/provider-gateway/test/openai-provider.client.test.ts`, `apps/runtime/test/provider-gateway.client.service.test.ts`, `apps/runtime/test/runtime-video-generate-tool.service.test.ts`, `apps/runtime/test/turn-execution.service.test.ts`, `apps/web/app/admin/plans/page.test.tsx`, and `apps/web/app/app/_components/use-chat.test.tsx`
+- T15-6b initial knowledge-source storage/index slice validates:
+  - the first public management surface is real: upload, list, delete, per-source status/detail, and reindex all work against PersAI-owned storage/index truth
+  - uploaded knowledge files are restricted to safe document-like types, stored in PersAI-owned object storage under a knowledge-specific prefix, and never treated as sandbox/runtime workspace files
+  - each successful upload or reindex produces canonical source metadata plus bounded chunk rows/version metadata that later retrieval can reuse
+  - reindex reprocesses the canonical stored file, preserves logical source identity, and refreshes chunk/index state instead of creating ad hoc duplicate source rows
+  - knowledge-source storage accounting is enforced and tracked separately from chat media storage accounting and separately from workspace/sandbox storage accounting
+  - full assistant reset and full user delete purge knowledge-source rows, chunks, and stored files, while publish/rollback/reapply keep them intact
+  - the first active runtime read backends are bounded `knowledge_search` / `knowledge_fetch` on uploaded-document `source="document"` rows, assistant-memory `source="memory"` rows, canonical prior-chat `source="chat"` rows, shared preset/config `source="preset"` rows, effective current-plan `source="subscription"` rows, and PersAI-global product/tool/plan `source="global"` rows rather than sandbox files, raw object blobs, or heuristic prompt scans
+  - native `memory_write` is a real bounded system tool: runtime projection, API validator/policy enforcement, registry persistence with `sourceType="memory_write"`, and audit-visible allowed/denied outcomes all stay consistent
+  - current native `web_search` / `web_fetch` behavior stays separate from the private document knowledge layer
+  - ordinary turn hydration now preserves bounded durable memory plus validated shared-compaction summary ahead of the recent-history fallback slice, so the old fixed message-count cap is no longer the only continuity mechanism
+  - Admin Plans now carry a real `contextPolicy` surface that materializes into native `runtime.contextHydration` with `preset`, target budget, compaction trigger, recent-history floor, knowledge-hydration budget, and per-surface auto-compaction flags
+  - runtime bundle validation keeps `runtime.sharedCompaction` and `runtime.contextHydration` aligned so shared compaction thresholds and ordinary-turn policy do not drift apart
+  - web compaction UX no longer suggests compression from latency alone; it reflects plan-driven context pressure and recent successful post-turn auto-compaction instead
+  - Telegram sends a short post-reply auto-compaction notice only when post-turn auto-compaction actually succeeded on the native runtime path
+  - knowledge ranking now uses deterministic structured lexical ordering with title/filename/locator boosts, per-source weighting, length normalization, duplicate collapse, and better snippet selection instead of one flat substring counter
+  - `document`, `memory`, and `chat` now also apply a lightweight local hybrid rerank on top of lexical candidates, while memory/chat blend recency without falling back to blunt newest-first ordering
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift

@@ -29,6 +29,10 @@ Path versioning: /api/v1/...
 - POST /api/v1/assistant/rollback
 - POST /api/v1/assistant/reset
 - POST /api/v1/assistant/reapply
+- POST /api/v1/assistant/knowledge-sources
+- GET /api/v1/assistant/knowledge-sources
+- GET /api/v1/assistant/knowledge-sources/{sourceId}
+- POST /api/v1/assistant/knowledge-sources/{sourceId}/reindex
 - GET /api/v1/assistant/runtime/preflight
 - POST /api/v1/assistant/chat/web
 - POST /api/v1/assistant/chat/web/stream
@@ -339,7 +343,7 @@ Behavior baseline:
 
 - authenticated caller only
 - requires existing assistant
-- hard-deletes assistant chats, chat messages, memory/task registry items, materialized specs, and published versions
+- hard-deletes assistant chats, chat messages, memory/task registry items, knowledge-source rows/chunks/files, materialized specs, and published versions
 - resets draft to blank values (`displayName=null`, `instructions=null`, persona/avatar fields null)
 - resets runtime apply state to `not_requested`
 - cleans the assistant runtime workspace/session state
@@ -360,6 +364,68 @@ Behavior baseline:
 - does not create a new published version
 - executes runtime apply against latest materialized published spec with `reapply=true`
 - updates `runtimeApply` state with explicit lifecycle outcome
+- does not purge chats, memory registry, or PersAI-owned knowledge sources
+
+### T15-6b initial knowledge-source management surface
+
+#### POST /api/v1/assistant/knowledge-sources
+
+Behavior baseline:
+
+- authenticated caller only
+- requires existing assistant
+- first honest `T15-6b` public surface manages uploaded assistant-user-private workspace knowledge files only; later slices add richer namespaces and retrieval
+- accepts one safe document-like file (`text/*`, `application/pdf`, `application/json`, Word, spreadsheet) plus optional display name
+- persists the canonical uploaded file in PersAI-owned object storage rather than in sandbox/runtime workspace files
+- creates one knowledge-source row plus indexed chunk rows owned by PersAI control-plane state
+- enforces knowledge-storage quota separately from chat media storage quota and separately from workspace/sandbox storage quota
+- returns the created source with current ingest/index status; runtime retrieval remains bounded to the indexed document source only, while richer namespaces stay later follow-through
+
+#### GET /api/v1/assistant/knowledge-sources
+
+Behavior baseline:
+
+- authenticated caller only
+- lists current assistant-scoped uploaded knowledge sources with bounded status metadata
+- returns current knowledge-storage usage/limit from PersAI-owned quota/accounting truth
+- does not expose raw object keys or chunk contents
+
+#### GET /api/v1/assistant/knowledge-sources/{sourceId}
+
+Behavior baseline:
+
+- authenticated caller only
+- returns one assistant-owned knowledge source with ingest/index status, version, chunk count, and last error metadata if any
+- keeps the response reference-first; it is status/detail surface, not full-document recall
+
+#### DELETE /api/v1/assistant/knowledge-sources/{sourceId}
+
+Behavior baseline:
+
+- authenticated caller only
+- deletes one assistant-owned uploaded knowledge source
+- removes the canonical PersAI-owned source row and its chunk rows, deletes the stored object, and releases reserved knowledge-storage quota
+- stays assistant-scoped and does not purge other knowledge namespaces or chat/memory state
+
+#### POST /api/v1/assistant/knowledge-sources/{sourceId}/reindex
+
+Behavior baseline:
+
+- authenticated caller only
+- re-runs extraction/chunk indexing from the canonical PersAI-owned stored file for the selected source
+- preserves the logical source identity while advancing index/version metadata
+- stays inside the knowledge-source boundary only; it does not grant sandbox/file/process reads
+
+#### Native runtime `knowledge_search` / `knowledge_fetch` private read baseline
+
+Behavior baseline:
+
+- active runtime read backends are `source="document"` over assistant-owned uploaded knowledge, `source="memory"` over active assistant memory-registry rows, `source="chat"` over canonical assistant chat-message rows, `source="preset"` over current materialized preset/config documents plus shared bootstrap templates, `source="subscription"` over effective current plan state, and `source="global"` over platform-owned product/tool/plan documents
+- `knowledge_search` returns lightweight references/snippets from canonical indexed chunk rows, memory rows, chat-message rows, preset/config documents, current subscription documents, or platform-owned global product documents
+- `knowledge_fetch` returns one bounded excerpt/window around the selected document chunk reference, one bounded memory item payload, one bounded transcript window around the selected chat message, or one bounded preset/subscription/global document payload instead of full corpora dumps
+- execution goes through PersAI internal API over canonical PersAI rows; it does not read sandbox files or raw object-storage blobs at request time
+- explicit durable human-memory writes now land separately through native `memory_write` over `POST /api/v1/internal/runtime/memory/write`
+- richer ranking/retrieval polish remains later `T15-6b` follow-through; the first bounded richer hydration baseline is now active through preserved durable-memory and reusable-compaction context
 
 ### GET /api/v1/assistant/runtime/preflight (Step 3 A8 baseline)
 
@@ -409,7 +475,7 @@ Behavior baseline:
 
 - authenticated caller only
 - returns active memory registry items for the user’s assistant (`forgottenAt` null), newest first
-- each item: `id`, `summary`, `sourceType` (`web_chat`), `sourceLabel`, `createdAt`, `chatId` (nullable)
+- each item: `id`, `summary`, `sourceType` (`web_chat | memory_write`), `sourceLabel`, `createdAt`, `chatId` (nullable)
 
 ### POST /api/v1/assistant/memory/items/{itemId}/forget
 
@@ -428,7 +494,7 @@ Behavior baseline:
 
 - Effective policy is resolved from `assistant_governance.memory_control` with legacy `policyEnvelope.memoryControl` fallback, then defaults (`resolveEffectiveMemoryControlFromGovernance`).
 - **Read** (`policy.globalMemoryReadAllSurfaces`): when `false`, `GET /api/v1/assistant/memory/items`, `POST .../forget`, and `POST .../do-not-remember` return **409 Conflict** (global memory surfaced/actioned via these endpoints is disabled).
-- **Write** (registry row after successful web chat turn): requires `trusted_1to1` source classification, `group` is denied for global registry writes; transport must be in `policy.allowedGlobalWriteSurfaces` and `policy.trustedOneToOneGlobalWriteSurfaces` (defaults: `web` only). Denied writes **do not fail** the chat turn; the record hook **skips** registry insert (no error response on the chat endpoint).
+- **Write** (registry row after successful web chat turn or explicit native `memory_write`): requires `trusted_1to1` source classification, `group` is denied for global registry writes; transport must be in `policy.allowedGlobalWriteSurfaces` and `policy.trustedOneToOneGlobalWriteSurfaces` (defaults: `web` only). Denied writes do not fail the surrounding turn: the post-chat hook skips registry insert, and `memory_write` returns a bounded skipped result with the policy reason instead of silently persisting.
 - Trust/surface vocabulary is also stored under `governance.memoryControl.sourceClassification` for explicit control-model documentation; evaluation uses the typed policy module in `apps/api` (ADR-021).
 
 ## Step 6 D4 tasks control envelope rule
@@ -593,8 +659,9 @@ Behavior baseline:
   - token budget quota limit
   - cost/token-driving tool-class quota limit when class is quota-governed
 - Materialization now carries explicit `toolAvailability` (`persai.effectiveToolAvailability.v1`) for OpenClaw alongside `effectiveCapabilities`, while the native runtime bundle carries explicit `toolPolicies` derived from that same effective tool surface.
-- `ADR-072` `T15-2` also starts a typed native `runtime.sharedCompaction` contract in the runtime bundle. It carries fixed shared tool names (`summarize_context`, `compact_context`), the web suggestion latency threshold (`7000ms`), the current token-preservation knobs sourced from admin runtime compaction policy, and the assistant-scoped Telegram `autoCompactionEnabled` flag so later shared compaction execution does not recreate a second policy source.
-- `runtime.knowledgeAccess` may remain on the native runtime bundle only as reserved future scaffolding for the later ADR-072 knowledge layer. Current request-time execution must not expose or depend on `knowledge_search` / `knowledge_fetch`, and current `web_search` / `web_fetch` work must stay separate from that future branch.
+- `ADR-072` shared compaction/context policy now spans two native bundle surfaces: `runtime.sharedCompaction` carries the fixed shared tool names plus shared compaction execution knobs, while plan-owned `runtime.contextHydration` carries ordinary-turn target budget, compaction trigger, recent-history floor, knowledge-hydration budget, and per-surface auto-compaction policy so web/Telegram behavior is server-owned bundle truth instead of a separate heuristic layer.
+- `runtime.knowledgeAccess` started as reserved ADR-072 scaffolding, but current request-time execution now truthfully exposes `knowledge_search` / `knowledge_fetch` only for real landed backends (currently private `source="memory"` / `source="chat"`, uploaded-document `source="document"`, shared `source="preset"` / `source="subscription"`, and PersAI-global `source="global"`). `web_search` / `web_fetch` still remain separate first-class tools rather than aliases of that private knowledge layer, and later richer ranking/hydration work must build on those same real backends instead of reopening dark placeholders.
+- ordinary request-time prompt assembly now also preserves a bounded durable-memory prefix (from the assistant memory registry) alongside any validated reusable shared-compaction summary before trimming recent canonical history, so the old fixed recent-message cap is a guardrail fallback rather than the only continuity mechanism
 - `ADR-072` `T15-4/T15-5` now carry `runtime.workerTools` on the native runtime bundle as the shared worker baseline for current worker-class tools (`browser`, `image_generate`, `image_edit`, `video_generate`, `tts`, `scheduled_action`, hidden internal `cron`). The block captures shared worker metadata such as family, outcome kind, timeout budget, confirmation policy, provider-routing support, and failure behavior so later browser/media/scheduler slices reuse one native worker layer instead of inventing tool-specific async semantics; `scheduled_action` is now the canonical product-facing contract, the native runtime executes its `create` / `list` / `pause` / `resume` / `cancel` surface through PersAI internal task registry/control endpoints rather than exposing raw scheduler triggers, and `apps/api` now persists native scheduled-action schedule/payload/claim state directly on PersAI task rows so hidden due-time pickup runs on a PersAI-owned scheduler loop with a global scheduler epoch that resets stale claims across rollout/startup instead of creating legacy cron jobs for new reminders. Native `image_edit` and `video_generate` now both reuse that same worker/media baseline with persisted artifact delivery, and hidden internal `cron` remains a separate internal-only compatibility seam.
 - The native scheduled-action executor now uses existing PersAI internal task boundaries instead of a provider-facing tool backend: `GET /api/v1/internal/runtime/tasks/items` resolves current task state, `POST /api/v1/internal/runtime/tasks/control` handles mutations, `audience="user"` preserves Telegram reminder routing through clean native `conversationContext`, and `audience="assistant"` carries `actionType` / `actionPayload` into a hidden native runtime turn that cannot directly create user-visible chat output.
 - `POST /api/v1/internal/cron-fire` now acts as the legacy callback compatibility adapter, while the same reminder-finalization logic is also reused by the native PersAI scheduler path. Replay safety and task-registry sync still live in that shared finalization family, and reminder summary cleanup, quota/render fallback, Telegram-vs-web routing, and web fallback delivery now flow through one shared PersAI-owned reminder delivery service instead of staying trapped in callback-only code.
@@ -1327,7 +1394,7 @@ Behavior baseline:
   - current scope is native runtime-owned session-summary reads for `ADR-072` `T15-2` compaction/banner state, not a user-facing channel API
   - execution resolves the active session from Redis conversation pointers plus durable `runtime_sessions` fallback without reviving the old OpenClaw web session-state seam
   - `GET /api/v1/assistant/chats/web/:chatId/compaction` now calls this seam and preserves the existing public assistant API contract while returning native session truth
-  - ordinary native turn hydration now reuses the latest durable `runtime_session_compactions.summary_payload` summary on later turns, and the public web compaction banner also considers rolling reply latency from canonical user/assistant message timing alongside context-pressure thresholds
+  - ordinary native turn hydration now reuses the latest durable `runtime_session_compactions.summary_payload` summary on later turns, and the public web compaction banner follows plan-driven context-pressure state plus post-turn auto-compaction outcomes rather than a rolling reply-latency heuristic
 - authenticated `POST /api/v1/assistant/chat/web` now has the Step 10 sync route mode boundary:
   - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=legacy` keeps sync web turns on the OpenClaw runtime bridge
   - `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=shadow` keeps OpenClaw as the user-visible primary path while queueing one native comparison run through `SendNativeWebChatTurnService`

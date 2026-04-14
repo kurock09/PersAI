@@ -49,7 +49,7 @@ export interface AssistantWebChatTurnState {
 export interface AssistantWebChatCompactionState {
   available: boolean;
   suggested: boolean;
-  suggestionReason: "token_threshold" | "history_threshold" | "latency_threshold" | null;
+  suggestionReason: "token_threshold" | "history_threshold" | null;
   messageCount: number;
   assistantMessageCount: number;
   currentTokens: number | null;
@@ -58,6 +58,7 @@ export interface AssistantWebChatCompactionState {
   lastCompactedAt: string | null;
   reserveTokens: number;
   keepRecentTokens: number;
+  autoCompactionEnabled: boolean;
 }
 
 export interface AssistantWebChatCompactionResult {

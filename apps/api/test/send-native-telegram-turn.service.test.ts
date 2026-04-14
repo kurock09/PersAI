@@ -121,7 +121,11 @@ describe("SendNativeTelegramTurnService", () => {
                 }
               ],
               respondedAt: "2026-04-12T10:00:00.000Z",
-              usage: null
+              usage: null,
+              autoCompaction: {
+                tokensBefore: 18_250,
+                tokensAfter: null
+              }
             }
           })
         ].join("\n"),
@@ -204,6 +208,10 @@ describe("SendNativeTelegramTurnService", () => {
           audioAsVoice: true
         }
       ]);
+      assert.deepEqual(result.autoCompaction, {
+        tokensBefore: 18_250,
+        tokensAfter: null
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }

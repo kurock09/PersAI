@@ -41,6 +41,39 @@ describe("useChat", () => {
   const rafCallbacks = new Map<number, FrameRequestCallback>();
   let nextRafId = 1;
 
+  function createCompactionState(
+    overrides?: Partial<{
+      available: boolean;
+      suggested: boolean;
+      suggestionReason: "token_threshold" | "history_threshold" | null;
+      messageCount: number;
+      assistantMessageCount: number;
+      currentTokens: number | null;
+      sessionKey: string | null;
+      compactionCount: number;
+      lastCompactedAt: string | null;
+      reserveTokens: number;
+      keepRecentTokens: number;
+      autoCompactionEnabled: boolean;
+    }>
+  ) {
+    return {
+      available: true,
+      suggested: false,
+      suggestionReason: null,
+      messageCount: 12,
+      assistantMessageCount: 6,
+      currentTokens: 7_800,
+      sessionKey: null,
+      compactionCount: 0,
+      lastCompactedAt: null,
+      reserveTokens: 24_000,
+      keepRecentTokens: 16_000,
+      autoCompactionEnabled: false,
+      ...overrides
+    };
+  }
+
   beforeEach(() => {
     clerkMocks.getToken.mockResolvedValue("token-1");
     assistantApiMocks.compactChat.mockReset();
@@ -217,5 +250,79 @@ describe("useChat", () => {
     expect(activityEntries).toHaveLength(1);
     expect(activityEntries[0]?.event.label).toBe("Image ready");
     expect(activityEntries[0]?.event.emphasis).toBe("strong");
+  });
+
+  it("surfaces a recent auto-compaction notice after a turn refresh", async () => {
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      messages: [],
+      nextCursor: null
+    });
+    assistantApiMocks.getChatCompactionState
+      .mockResolvedValueOnce(
+        createCompactionState({
+          currentTokens: 7_800,
+          autoCompactionEnabled: true
+        })
+      )
+      .mockResolvedValueOnce(
+        createCompactionState({
+          currentTokens: null,
+          compactionCount: 1,
+          lastCompactedAt: "2026-04-14T10:00:30.000Z",
+          autoCompactionEnabled: true
+        })
+      );
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1" }
+        });
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: {
+              id: "assistant-msg-1",
+              attachments: []
+            },
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              attachments: []
+            },
+            runtime: null
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+
+    await waitFor(() => {
+      expect(result.current.compaction?.compactionCount).toBe(0);
+    });
+
+    await act(async () => {
+      await result.current.send("Hello");
+    });
+
+    await waitFor(() => {
+      expect(result.current.recentAutoCompaction).toEqual(
+        expect.objectContaining({
+          tokensBefore: 7_800,
+          tokensAfter: null
+        })
+      );
+    });
   });
 });

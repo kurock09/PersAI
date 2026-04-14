@@ -25,6 +25,7 @@ import {
   type RuntimeCompactionRequest,
   type RuntimeKnowledgeFetchToolResult,
   type RuntimeKnowledgeSearchToolResult,
+  type RuntimeMemoryWriteToolResult,
   type RuntimeBrowserToolResult,
   type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
@@ -36,6 +37,7 @@ import {
   type RuntimeToolPolicy,
   type RuntimeFailedEvent,
   type RuntimeInterruptedEvent,
+  type RuntimeTurnAutoCompactionState,
   type RuntimeTextDeltaSource,
   type RuntimeTurnRequest,
   type RuntimeTurnResult,
@@ -55,9 +57,12 @@ import { ProviderGatewayClientService } from "./provider-gateway.client.service"
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
+import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
+import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
+import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
@@ -99,6 +104,7 @@ type ToolExecutionOutcome = {
     | RuntimeSharedCompactionToolResult
     | RuntimeKnowledgeSearchToolResult
     | RuntimeKnowledgeFetchToolResult
+    | RuntimeMemoryWriteToolResult
     | RuntimeBrowserToolResult
     | RuntimeImageEditToolResult
     | RuntimeImageGenerateToolResult
@@ -134,6 +140,7 @@ const WEB_FETCH_TOOL_CODE = "web_fetch";
 const WEB_FETCH_DEFAULT_EXTRACT_MODE: PersaiRuntimeWebFetchExtractMode = "markdown";
 const WEB_FETCH_MIN_MAX_CHARS = 100;
 const WEB_FETCH_MAX_MAX_CHARS = 50_000;
+const MEMORY_WRITE_TOOL_CODE = "memory_write";
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
 const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
@@ -155,6 +162,8 @@ export class TurnExecutionService {
     private readonly runtimeBrowserToolService: RuntimeBrowserToolService,
     private readonly runtimeImageEditToolService: RuntimeImageEditToolService,
     private readonly runtimeImageGenerateToolService: RuntimeImageGenerateToolService,
+    private readonly runtimeKnowledgeToolService: RuntimeKnowledgeToolService,
+    private readonly runtimeMemoryWriteToolService: RuntimeMemoryWriteToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
     private readonly runtimeTtsToolService: RuntimeTtsToolService,
     private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService
@@ -183,9 +192,13 @@ export class TurnExecutionService {
         });
         const turnState = this.createTurnExecutionState();
         const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
-        await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
-        this.scheduleAutoCompaction(input, execution.bundle, turnState);
-        return result;
+        return this.finalizeAcceptedTurnWithPostTurnEffects({
+          acceptedTurn,
+          result,
+          input,
+          bundle: execution.bundle,
+          turnState
+        });
       }
     }
   }
@@ -274,7 +287,10 @@ export class TurnExecutionService {
     }
 
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, input);
-    const hydratedMessages = await this.turnContextHydrationService.buildMessages(input);
+    const hydratedMessages = await this.turnContextHydrationService.buildMessages(
+      input,
+      bundleEntry.parsedBundle
+    );
     const projectedTools = projectRuntimeNativeTools(bundleEntry.parsedBundle, {
       allowModelToolExposure: options?.allowModelToolExposure ?? true
     });
@@ -379,7 +395,12 @@ export class TurnExecutionService {
               yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
               let outcome: ToolExecutionOutcome;
               try {
-                outcome = await this.executeProjectedToolCall(execution, acceptedTurn, toolCall);
+                outcome = await this.executeProjectedToolCall(
+                  execution,
+                  acceptedTurn,
+                  toolCall,
+                  input.idempotencyKey
+                );
               } catch (error) {
                 yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
                 throw error;
@@ -404,7 +425,8 @@ export class TurnExecutionService {
             if (durableCompactionExecuted) {
               execution.providerRequest = await this.refreshProviderRequestMessages(
                 execution.providerRequest,
-                input
+                input,
+                execution.bundle
               );
             }
 
@@ -423,11 +445,16 @@ export class TurnExecutionService {
             );
             const result = this.buildTurnResult(acceptedTurn, completedProviderResult, turnState);
             completionFinalizationAttempted = true;
-            await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, result);
-            this.scheduleAutoCompaction(input, execution.bundle, turnState);
+            const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
+              acceptedTurn,
+              result,
+              input,
+              bundle: execution.bundle,
+              turnState
+            });
             yield {
               type: "completed",
-              result
+              result: finalizedResult
             };
             return;
           }
@@ -550,6 +577,24 @@ export class TurnExecutionService {
       respondedAt: providerResult.respondedAt,
       usage: providerResult.usage
     };
+  }
+
+  private async finalizeAcceptedTurnWithPostTurnEffects(input: {
+    acceptedTurn: AcceptedRuntimeTurn;
+    result: RuntimeTurnResult;
+    input: RuntimeTurnRequest;
+    bundle: AssistantRuntimeBundle;
+    turnState: TurnExecutionState;
+  }): Promise<RuntimeTurnResult> {
+    const autoCompaction = await this.executePostTurnAutoCompaction(
+      input.input,
+      input.bundle,
+      input.turnState
+    );
+    const finalizedResult =
+      autoCompaction === null ? input.result : { ...input.result, autoCompaction };
+    await this.turnFinalizationService.completeAcceptedTurn(input.acceptedTurn, finalizedResult);
+    return finalizedResult;
   }
 
   private resolveReplayResult(receipt: RuntimeTurnReceiptSummary): RuntimeTurnResult {
@@ -755,7 +800,12 @@ export class TurnExecutionService {
       const exchanges: ProviderGatewayToolExchange[] = [];
       let durableCompactionExecuted = false;
       for (const toolCall of providerResult.toolCalls) {
-        const outcome = await this.executeProjectedToolCall(execution, acceptedTurn, toolCall);
+        const outcome = await this.executeProjectedToolCall(
+          execution,
+          acceptedTurn,
+          toolCall,
+          input.idempotencyKey
+        );
         exchanges.push(outcome.exchange);
         this.applyToolExecutionOutcome(turnState, outcome);
         durableCompactionExecuted =
@@ -765,7 +815,8 @@ export class TurnExecutionService {
       if (durableCompactionExecuted) {
         execution.providerRequest = await this.refreshProviderRequestMessages(
           execution.providerRequest,
-          input
+          input,
+          execution.bundle
         );
       }
     }
@@ -781,7 +832,8 @@ export class TurnExecutionService {
   private async executeProjectedToolCall(
     execution: PreparedTurnExecution,
     acceptedTurn: AcceptedRuntimeTurn,
-    toolCall: ProviderGatewayToolCall
+    toolCall: ProviderGatewayToolCall,
+    currentUserMessageId: string | null
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -856,6 +908,16 @@ export class TurnExecutionService {
             durableStatePersisted: result.compacted && result.toolResult.reusableInLaterTurns
           }
         );
+      }
+      case MEMORY_WRITE_TOOL_CODE: {
+        const result = await this.runtimeMemoryWriteToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          conversation: acceptedTurn.session.conversation,
+          currentUserMessageId,
+          requestId: acceptedTurn.receipt.requestId
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
       case WEB_SEARCH_TOOL_CODE:
         return this.executeWebSearchTool(execution, toolCall);
@@ -954,85 +1016,27 @@ export class TurnExecutionService {
   private executeKnowledgeSearchTool(
     execution: PreparedTurnExecution,
     toolCall: ProviderGatewayToolCall
-  ): ToolExecutionOutcome {
-    const unknownKeys = Object.keys(toolCall.arguments).filter(
-      (key) => key !== "source" && key !== "query" && key !== "maxResults"
-    );
-    const source = this.asNonEmptyString(toolCall.arguments.source);
-    const query = this.asNonEmptyString(toolCall.arguments.query);
-    const maxResults =
-      toolCall.arguments.maxResults === undefined || toolCall.arguments.maxResults === null
-        ? null
-        : Number.isInteger(toolCall.arguments.maxResults) &&
-            Number(toolCall.arguments.maxResults) > 0
-          ? Number(toolCall.arguments.maxResults)
-          : null;
-    if (
-      unknownKeys.length > 0 ||
-      source === null ||
-      query === null ||
-      ("maxResults" in toolCall.arguments && maxResults === null)
-    ) {
-      return this.createToolExecutionOutcome(
+  ): Promise<ToolExecutionOutcome> {
+    return this.runtimeKnowledgeToolService
+      .executeSearchToolCall({
+        bundle: execution.bundle,
         toolCall,
-        {
-          toolCode: execution.bundle.runtime.knowledgeAccess.searchToolCode,
-          source: (source ?? "internal") as RuntimeKnowledgeSearchToolResult["source"],
-          executionMode: "inline",
-          hits: [],
-          action: "skipped",
-          reason: "invalid_arguments"
-        },
-        true
-      );
-    }
-    const sourceAllowed = execution.projectedTools.knowledgeSearchSources.some(
-      (sourceConfig) => sourceConfig.source === source
-    );
-    return this.createToolExecutionOutcome(toolCall, {
-      toolCode: execution.bundle.runtime.knowledgeAccess.searchToolCode,
-      source: source as RuntimeKnowledgeSearchToolResult["source"],
-      executionMode: "inline",
-      hits: [],
-      action: "skipped",
-      reason: sourceAllowed ? "native_knowledge_search_not_implemented" : "source_unavailable"
-    });
+        allowedSources: execution.projectedTools.knowledgeSearchSources
+      })
+      .then((result) => this.createToolExecutionOutcome(toolCall, result.payload, result.isError));
   }
 
   private executeKnowledgeFetchTool(
     execution: PreparedTurnExecution,
     toolCall: ProviderGatewayToolCall
-  ): ToolExecutionOutcome {
-    const unknownKeys = Object.keys(toolCall.arguments).filter(
-      (key) => key !== "source" && key !== "referenceId"
-    );
-    const source = this.asNonEmptyString(toolCall.arguments.source);
-    const referenceId = this.asNonEmptyString(toolCall.arguments.referenceId);
-    if (unknownKeys.length > 0 || source === null || referenceId === null) {
-      return this.createToolExecutionOutcome(
+  ): Promise<ToolExecutionOutcome> {
+    return this.runtimeKnowledgeToolService
+      .executeFetchToolCall({
+        bundle: execution.bundle,
         toolCall,
-        {
-          toolCode: execution.bundle.runtime.knowledgeAccess.fetchToolCode,
-          source: (source ?? "internal") as RuntimeKnowledgeFetchToolResult["source"],
-          executionMode: "inline",
-          document: null,
-          action: "skipped",
-          reason: "invalid_arguments"
-        },
-        true
-      );
-    }
-    const sourceAllowed = execution.projectedTools.knowledgeFetchSources.some(
-      (sourceConfig) => sourceConfig.source === source
-    );
-    return this.createToolExecutionOutcome(toolCall, {
-      toolCode: execution.bundle.runtime.knowledgeAccess.fetchToolCode,
-      source: source as RuntimeKnowledgeFetchToolResult["source"],
-      executionMode: "inline",
-      document: null,
-      action: "skipped",
-      reason: sourceAllowed ? "native_knowledge_fetch_not_implemented" : "source_unavailable"
-    });
+        allowedSources: execution.projectedTools.knowledgeFetchSources
+      })
+      .then((result) => this.createToolExecutionOutcome(toolCall, result.payload, result.isError));
   }
 
   private async executeWebSearchTool(
@@ -1294,6 +1298,7 @@ export class TurnExecutionService {
       | RuntimeSharedCompactionToolResult
       | RuntimeKnowledgeSearchToolResult
       | RuntimeKnowledgeFetchToolResult
+      | RuntimeMemoryWriteToolResult
       | RuntimeBrowserToolResult
       | RuntimeImageEditToolResult
       | RuntimeImageGenerateToolResult
@@ -1504,11 +1509,12 @@ export class TurnExecutionService {
 
   private async refreshProviderRequestMessages(
     baseRequest: ProviderGatewayTextGenerateRequest,
-    input: RuntimeTurnRequest
+    input: RuntimeTurnRequest,
+    bundle: AssistantRuntimeBundle
   ): Promise<ProviderGatewayTextGenerateRequest> {
     return {
       ...baseRequest,
-      messages: await this.turnContextHydrationService.buildMessages(input)
+      messages: await this.turnContextHydrationService.buildMessages(input, bundle)
     };
   }
 
@@ -1658,50 +1664,31 @@ export class TurnExecutionService {
     return value === null || value.trim().length === 0 ? null : value.trim();
   }
 
-  private scheduleAutoCompaction(
+  private async executePostTurnAutoCompaction(
     input: RuntimeTurnRequest,
     bundle: AssistantRuntimeBundle,
     turnState: TurnExecutionState
-  ): void {
+  ): Promise<RuntimeTurnAutoCompactionState | null> {
     if (turnState.sharedCompaction.durableStatePersisted) {
-      return;
+      return null;
     }
 
     const request = this.buildAutoCompactionRequest(input, bundle);
     if (request === null) {
-      return;
-    }
-
-    queueMicrotask(() => {
-      void this.runAutoCompaction(request);
-    });
-  }
-
-  private buildAutoCompactionRequest(
-    input: RuntimeTurnRequest,
-    bundle: AssistantRuntimeBundle
-  ): AutoCompactionRequest | null {
-    if (
-      input.conversation.channel !== "telegram" ||
-      bundle.runtime.sharedCompaction.telegramAutoSummarizeEnabled !== true
-    ) {
       return null;
     }
 
-    return {
-      runtimeTier: input.runtimeTier,
-      conversation: input.conversation,
-      instructions: null,
-      trigger: "auto_compaction",
-      runtimeRequestId: input.requestId
-    };
-  }
-
-  private async runAutoCompaction(request: AutoCompactionRequest): Promise<void> {
     try {
       const result = await this.sessionCompactionService.compactSession(request);
+      if (result.compacted) {
+        turnState.sharedCompaction.invoked = true;
+        turnState.sharedCompaction.durableStatePersisted = true;
+        return {
+          tokensBefore: result.tokensBefore,
+          tokensAfter: result.tokensAfter
+        };
+      }
       if (
-        !result.compacted &&
         result.reason !== "threshold_not_reached" &&
         result.reason !== "nothing_to_compact" &&
         result.reason !== "session_busy"
@@ -1719,6 +1706,32 @@ export class TurnExecutionService {
         }`
       );
     }
+    return null;
+  }
+
+  private buildAutoCompactionRequest(
+    input: RuntimeTurnRequest,
+    bundle: AssistantRuntimeBundle
+  ): AutoCompactionRequest | null {
+    const contextHydration = resolveRuntimeContextHydrationConfig(bundle);
+    const channel = input.conversation.channel;
+    const enabled =
+      channel === "telegram"
+        ? contextHydration.autoCompactionTelegram
+        : channel === "web"
+          ? contextHydration.autoCompactionWeb
+          : false;
+    if (!enabled) {
+      return null;
+    }
+
+    return {
+      runtimeTier: input.runtimeTier,
+      conversation: input.conversation,
+      instructions: null,
+      trigger: "auto_compaction",
+      runtimeRequestId: input.requestId
+    };
   }
 
   private asObject(value: unknown): Record<string, unknown> | null {

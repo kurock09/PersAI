@@ -241,6 +241,9 @@ function createService(overrides?: {
     suggestByMessageCount: boolean;
     webSuggestionLatencyMs: number;
   }>;
+  contextHydration?: Partial<{
+    autoCompactionWeb: boolean;
+  }>;
 }) {
   const callOrder: string[] = [];
   const releasedBytes: bigint[] = [];
@@ -279,7 +282,10 @@ function createService(overrides?: {
         return {
           runtimeBundle: {
             runtime: {
-              sharedCompaction
+              sharedCompaction,
+              contextHydration: {
+                autoCompactionWeb: overrides?.contextHydration?.autoCompactionWeb ?? false
+              }
             }
           }
         };
@@ -406,7 +412,8 @@ describe("ManageWebChatListService", () => {
         compactionCount: 1,
         lastCompactedAt: "2026-04-12T20:00:00.000Z",
         reserveTokens: 24_000,
-        keepRecentTokens: 16_000
+        keepRecentTokens: 16_000,
+        autoCompactionEnabled: false
       },
       result: {
         compacted: true,
@@ -451,7 +458,8 @@ describe("ManageWebChatListService", () => {
       compactionCount: 0,
       lastCompactedAt: null,
       reserveTokens: 24_000,
-      keepRecentTokens: 16_000
+      keepRecentTokens: 16_000,
+      autoCompactionEnabled: false
     });
   });
 
@@ -463,6 +471,9 @@ describe("ManageWebChatListService", () => {
         recentTurnsPreserve: 2,
         suggestByMessageCount: true,
         webSuggestionLatencyMs: 5_000
+      },
+      contextHydration: {
+        autoCompactionWeb: true
       },
       sessionResolveResult: {
         found: true,
@@ -487,7 +498,8 @@ describe("ManageWebChatListService", () => {
       compactionCount: 0,
       lastCompactedAt: null,
       reserveTokens: 10_000,
-      keepRecentTokens: 4_000
+      keepRecentTokens: 4_000,
+      autoCompactionEnabled: true
     });
   });
 
@@ -517,7 +529,7 @@ describe("ManageWebChatListService", () => {
     assert.equal(result.result.reason, null);
   });
 
-  test("suggests compaction when rolling web latency stays above the shared threshold", async () => {
+  test("does not suggest compaction from latency alone anymore", async () => {
     const { service } = createService({
       messages: createSlowTurnMessages(),
       sessionResolveResult: {
@@ -532,8 +544,8 @@ describe("ManageWebChatListService", () => {
 
     const state = await service.getChatCompactionState("user-1", "chat-1");
 
-    assert.equal(state.suggested, true);
-    assert.equal(state.suggestionReason, "latency_threshold");
+    assert.equal(state.suggested, false);
+    assert.equal(state.suggestionReason, null);
     assert.equal(state.currentTokens, 7_900);
   });
 

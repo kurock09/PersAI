@@ -7,6 +7,7 @@ import {
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
+  PERSAI_RUNTIME_MEMORY_WRITE_KINDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
   PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
@@ -30,6 +31,8 @@ export interface RuntimeNativeToolProjection {
 
 const WEB_FETCH_MAX_CHARS_CAP = 50_000;
 const WEB_SEARCH_MAX_COUNT = 20;
+const KNOWLEDGE_SEARCH_MAX_RESULTS = 8;
+const MEMORY_WRITE_MAX_CHARS = 500;
 const REMINDER_CONTEXT_MESSAGES_MAX = 10;
 
 export function projectRuntimeNativeTools(
@@ -44,12 +47,36 @@ export function projectRuntimeNativeTools(
     };
   }
 
-  // T15-3a keeps ordinary model-visible knowledge/system-helper families gated off
-  // until real PersAI-native executors exist for them.
+  const projectedKnowledgeSearchSources = bundle.runtime.knowledgeAccess.sources.filter(
+    (sourceConfig) =>
+      sourceConfig.source === "document" ||
+      sourceConfig.source === "memory" ||
+      sourceConfig.source === "chat" ||
+      sourceConfig.source === "preset" ||
+      sourceConfig.source === "subscription" ||
+      sourceConfig.source === "global"
+  );
+  const projectedKnowledgeFetchSources = bundle.runtime.knowledgeAccess.sources.filter(
+    (sourceConfig) =>
+      sourceConfig.source === "document" ||
+      sourceConfig.source === "memory" ||
+      sourceConfig.source === "chat" ||
+      sourceConfig.source === "preset" ||
+      sourceConfig.source === "subscription" ||
+      sourceConfig.source === "global"
+  );
+
   const projectedTools: ProviderGatewayToolDefinition[] = [
     createSummarizeContextToolDefinition(bundle),
-    createCompactContextToolDefinition(bundle)
+    createCompactContextToolDefinition(bundle),
+    createMemoryWriteToolDefinition()
   ];
+  if (projectedKnowledgeSearchSources.length > 0) {
+    projectedTools.push(createKnowledgeSearchToolDefinition(projectedKnowledgeSearchSources));
+  }
+  if (projectedKnowledgeFetchSources.length > 0) {
+    projectedTools.push(createKnowledgeFetchToolDefinition(projectedKnowledgeFetchSources));
+  }
   const webSearchPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "web_search");
   const webSearchCredential = resolveConfiguredCredentialRef(bundle, "web_search");
   if (
@@ -128,8 +155,8 @@ export function projectRuntimeNativeTools(
 
   return {
     tools: projectedTools,
-    knowledgeSearchSources: [],
-    knowledgeFetchSources: []
+    knowledgeSearchSources: projectedKnowledgeSearchSources,
+    knowledgeFetchSources: projectedKnowledgeFetchSources
   };
 }
 
@@ -168,6 +195,31 @@ function createCompactionInputSchema(): Record<string, unknown> {
   };
 }
 
+function createMemoryWriteToolDefinition(): ProviderGatewayToolDefinition {
+  return {
+    name: "memory_write",
+    description:
+      "Write one concise durable memory for the current assistant-user pair. Use only for stable user facts, preferences, or open loops that will matter in later conversations. Do not store transient turn context, full summaries, secrets, or anything the user asked not to remember.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "memory"],
+      properties: {
+        kind: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_MEMORY_WRITE_KINDS],
+          description: "Durable memory class: fact, preference, or open_loop."
+        },
+        memory: {
+          type: "string",
+          maxLength: MEMORY_WRITE_MAX_CHARS,
+          description: "One concise durable memory statement to store."
+        }
+      }
+    }
+  };
+}
+
 function createWebSearchToolDefinition(): ProviderGatewayToolDefinition {
   return {
     name: "web_search",
@@ -187,6 +239,64 @@ function createWebSearchToolDefinition(): ProviderGatewayToolDefinition {
           minimum: 1,
           maximum: WEB_SEARCH_MAX_COUNT,
           description: "Maximum number of search results to return."
+        }
+      }
+    }
+  };
+}
+
+function createKnowledgeSearchToolDefinition(
+  sourceConfigs: RuntimeKnowledgeAccessSourceConfig[]
+): ProviderGatewayToolDefinition {
+  return {
+    name: "knowledge_search",
+    description:
+      "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets. Use this before fetching any excerpt when you need facts from uploaded documents, prior chats, preset/config docs, subscription state, or global product knowledge.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["source", "query"],
+      properties: {
+        source: {
+          type: "string",
+          enum: sourceConfigs.map((sourceConfig) => sourceConfig.source),
+          description: "Knowledge source namespace to search."
+        },
+        query: {
+          type: "string",
+          description: "Search query describing the fact or passage you need."
+        },
+        maxResults: {
+          type: "integer",
+          minimum: 1,
+          maximum: KNOWLEDGE_SEARCH_MAX_RESULTS,
+          description: "Maximum number of references to return."
+        }
+      }
+    }
+  };
+}
+
+function createKnowledgeFetchToolDefinition(
+  sourceConfigs: RuntimeKnowledgeAccessSourceConfig[]
+): ProviderGatewayToolDefinition {
+  return {
+    name: "knowledge_fetch",
+    description:
+      "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search. Use this to inspect the exact source passage instead of asking for whole documents, full chat histories, or full config dumps.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["source", "referenceId"],
+      properties: {
+        source: {
+          type: "string",
+          enum: sourceConfigs.map((sourceConfig) => sourceConfig.source),
+          description: "Knowledge source namespace for the reference."
+        },
+        referenceId: {
+          type: "string",
+          description: "Reference id returned by knowledge_search."
         }
       }
     }

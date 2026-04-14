@@ -43,6 +43,8 @@ import type {
 import { RuntimeBrowserToolService } from "../src/modules/turns/runtime-browser-tool.service";
 import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
+import { RuntimeKnowledgeToolService } from "../src/modules/turns/runtime-knowledge-tool.service";
+import { RuntimeMemoryWriteToolService } from "../src/modules/turns/runtime-memory-write-tool.service";
 import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
@@ -70,6 +72,34 @@ const KNOWLEDGE_ACCESS_CONFIG = {
       searchAliasToolCode: "memory_search",
       fetchAliasToolCode: "memory_get",
       searchCredentialToolCode: "memory_search",
+      fetchCredentialToolCode: null
+    },
+    {
+      source: "chat",
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    },
+    {
+      source: "preset",
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    },
+    {
+      source: "subscription",
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    },
+    {
+      source: "global",
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
       fetchCredentialToolCode: null
     }
   ]
@@ -217,6 +247,15 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
         }
       },
       optimizationPolicy: null,
+      contextHydration: {
+        preset: "balanced",
+        targetContextBudget: 24000,
+        compactionTriggerThreshold: 8000,
+        keepRecentMinimum: 4,
+        knowledgeHydrationBudget: 2400,
+        autoCompactionWeb: false,
+        autoCompactionTelegram: true
+      },
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       workerTools: WORKER_TOOLS_CONFIG,
       browser: BROWSER_CONFIG,
@@ -819,7 +858,10 @@ class FakeTurnContextHydrationService {
     }
   ];
 
-  async buildMessages(): Promise<ProviderGatewayTextGenerateRequest["messages"]> {
+  async buildMessages(
+    ..._args: unknown[]
+  ): Promise<ProviderGatewayTextGenerateRequest["messages"]> {
+    void _args.length;
     return this.messages;
   }
 }
@@ -857,6 +899,7 @@ class FakePersaiInternalApiClientService {
   consumeCalls: Array<{ assistantId: string; toolCode: string; dailyCallLimit: number }> = [];
   reminderTaskListCalls: string[] = [];
   reminderTaskControlCalls: Array<Record<string, unknown>> = [];
+  memoryWriteCalls: Array<Record<string, unknown>> = [];
   consumeOutcome: ConsumeToolDailyLimitOutcome = {
     allowed: true,
     currentCount: 1,
@@ -865,6 +908,7 @@ class FakePersaiInternalApiClientService {
   error: Error | null = null;
   reminderTaskListError: Error | null = null;
   reminderTaskControlError: Error | null = null;
+  memoryWriteError: Error | null = null;
   reminderTaskItems: Array<{
     id: string;
     title: string;
@@ -884,6 +928,19 @@ class FakePersaiInternalApiClientService {
       actionType: null,
       controlStatus: "active",
       nextRunAt: "2026-04-13T12:05:00.000Z"
+    }
+  };
+  memoryWriteOutcome = {
+    written: true,
+    code: null,
+    message: null,
+    item: {
+      id: "memory-1",
+      summary: "User prefers concise answers.",
+      kind: "preference" as const,
+      sourceLabel: "Memory write: preference",
+      createdAt: "2026-04-14T18:45:00.000Z",
+      chatId: null
     }
   };
 
@@ -913,6 +970,14 @@ class FakePersaiInternalApiClientService {
       throw this.reminderTaskControlError;
     }
     return this.reminderTaskControlResult;
+  }
+
+  async writeMemory(input: Record<string, unknown>) {
+    this.memoryWriteCalls.push(input);
+    if (this.memoryWriteError !== null) {
+      throw this.memoryWriteError;
+    }
+    return this.memoryWriteOutcome;
   }
 }
 
@@ -1118,6 +1183,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
     mediaObjectStorage as never
   );
+  const runtimeKnowledgeToolService = new RuntimeKnowledgeToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeMemoryWriteToolService = new RuntimeMemoryWriteToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
   const runtimeVideoGenerateToolService = new RuntimeVideoGenerateToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
@@ -1142,6 +1213,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeBrowserToolService,
     runtimeImageEditToolService,
     runtimeImageGenerateToolService,
+    runtimeKnowledgeToolService,
+    runtimeMemoryWriteToolService,
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService
@@ -1167,7 +1240,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   });
   assert.deepEqual(
     providerGatewayClient.calls[0]?.tools?.map((tool) => tool.name),
-    ["summarize_context", "compact_context"]
+    ["summarize_context", "compact_context", "memory_write", "knowledge_search", "knowledge_fetch"]
   );
   assert.equal(providerGatewayClient.calls[0]?.toolChoice, "auto");
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /summarize_context/);
@@ -1178,6 +1251,62 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.equal(turnFinalizationService.completed.length, 1);
   assert.equal(turnFinalizationService.failed.length, 0);
+  await flushTaskQueue();
+  assert.equal(sessionCompactionService.calls.length, 0);
+
+  const memoryWriteRequest = createRuntimeTurnRequest();
+  memoryWriteRequest.bundle.bundleHash = request.bundle.bundleHash;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt: "2026-04-11T12:00:02.500Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-memory-write-1",
+          name: "memory_write",
+          arguments: {
+            kind: "preference",
+            memory: "User prefers concise answers."
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after memory write",
+      respondedAt: "2026-04-11T12:00:02.900Z",
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const memoryWriteCompleted = await service.createTurn(memoryWriteRequest);
+  assert.equal(memoryWriteCompleted.assistantText, "reply after memory write");
+  assert.deepEqual(persaiInternalApiClientService.memoryWriteCalls.at(-1), {
+    assistantId: "assistant-1",
+    kind: "preference",
+    summary: "User prefers concise answers.",
+    transportSurface: "web",
+    sourceTrust: "trusted_1to1",
+    relatedUserMessageId: null,
+    requestId: "request-1"
+  });
+  const memoryWriteToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    requestedKind?: string;
+  };
+  assert.equal(memoryWriteToolHistory.action, "remembered");
+  assert.equal(memoryWriteToolHistory.requestedKind, "preference");
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
@@ -1210,6 +1339,25 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.runtime.contextHydration.autoCompactionWeb = true;
+  }
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const webAutoCompactionCompleted = await service.createTurn(request);
+  assert.equal(webAutoCompactionCompleted.assistantText, "override reply");
+  assert.deepEqual(sessionCompactionService.calls.at(-1), {
+    runtimeTier: "paid_shared_restricted",
+    conversation: request.conversation,
+    instructions: null,
+    trigger: "auto_compaction",
+    runtimeRequestId: "request-1"
+  });
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.runtime.contextHydration.autoCompactionWeb = false;
+  }
+
   const telegramRequest = createRuntimeTurnRequest();
   telegramRequest.bundle.bundleHash = request.bundle.bundleHash;
   telegramRequest.conversation = {
@@ -1237,7 +1385,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   });
 
   if (bundleRegistry.entry !== null) {
-    bundleRegistry.entry.parsedBundle.runtime.sharedCompaction.telegramAutoSummarizeEnabled = false;
+    bundleRegistry.entry.parsedBundle.runtime.contextHydration.autoCompactionTelegram = false;
   }
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
@@ -1247,9 +1395,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   };
   await service.createTurn(telegramRequest);
   await flushTaskQueue();
-  assert.equal(sessionCompactionService.calls.length, 1);
+  assert.equal(sessionCompactionService.calls.length, 2);
   if (bundleRegistry.entry !== null) {
-    bundleRegistry.entry.parsedBundle.runtime.sharedCompaction.telegramAutoSummarizeEnabled = true;
+    bundleRegistry.entry.parsedBundle.runtime.contextHydration.autoCompactionTelegram = true;
   }
 
   const providerCallsBeforeManualDurableCompaction = providerGatewayClient.calls.length;
@@ -1504,7 +1652,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   });
   assert.deepEqual(
     providerGatewayClient.streamCalls[0]?.tools?.map((tool) => tool.name),
-    ["summarize_context", "compact_context"]
+    ["summarize_context", "compact_context", "memory_write", "knowledge_search", "knowledge_fetch"]
   );
   assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /summarize_context/);
   assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /compact_context/);
@@ -1589,7 +1737,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(providerGatewayClient.streamCalls.length, streamCallCountBeforeToolLoop + 2);
   assert.deepEqual(
     providerGatewayClient.streamCalls.at(-2)?.tools?.map((tool) => tool.name),
-    ["summarize_context", "compact_context"]
+    ["summarize_context", "compact_context", "memory_write", "knowledge_search", "knowledge_fetch"]
   );
   assert.equal(providerGatewayClient.streamCalls.at(-1)?.toolHistory?.length, 1);
   assert.deepEqual(providerGatewayClient.streamCalls.at(-1)?.requestMetadata, {
@@ -1858,7 +2006,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(webFetchCompleted.assistantText, "reply after fetch");
   assert.deepEqual(
     providerGatewayClient.calls.at(-2)?.tools?.map((tool) => tool.name),
-    ["summarize_context", "compact_context", "web_fetch"]
+    [
+      "summarize_context",
+      "compact_context",
+      "memory_write",
+      "knowledge_search",
+      "knowledge_fetch",
+      "web_fetch"
+    ]
   );
   assert.deepEqual(providerGatewayClient.webFetchCalls.at(-1), {
     url: "https://example.com/article",

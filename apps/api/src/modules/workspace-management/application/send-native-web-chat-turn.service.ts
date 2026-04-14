@@ -144,6 +144,9 @@ export class SendNativeWebChatTurnService {
       assistantMessage: response.body.assistantText,
       respondedAt: response.body.respondedAt,
       media: runtimeOutputArtifactsToMediaArtifacts(response.body.artifacts),
+      ...(response.body.autoCompaction === undefined
+        ? {}
+        : { autoCompaction: response.body.autoCompaction }),
       ...(response.body.trace === undefined ? {} : { runtimeTrace: response.body.trace })
     };
   }

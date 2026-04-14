@@ -6,6 +6,7 @@ export const MAX_MEDIA_FILE_BYTES = 25 * 1024 * 1024;
 
 type MediaValidationSurface =
   | "chat_upload"
+  | "knowledge_upload"
   | "voice_transcription"
   | "channel_inbound"
   | "tool_output_persist";

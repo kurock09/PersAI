@@ -10,6 +10,8 @@ import { ProviderGatewayClientService } from "./provider-gateway.client.service"
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
+import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
+import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
@@ -29,6 +31,8 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
     RuntimeBrowserToolService,
     RuntimeImageEditToolService,
     RuntimeImageGenerateToolService,
+    RuntimeKnowledgeToolService,
+    RuntimeMemoryWriteToolService,
     RuntimeVideoGenerateToolService,
     RuntimeScheduledActionToolService,
     RuntimeTtsToolService,
@@ -47,6 +51,8 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
     RuntimeBrowserToolService,
     RuntimeImageEditToolService,
     RuntimeImageGenerateToolService,
+    RuntimeKnowledgeToolService,
+    RuntimeMemoryWriteToolService,
     RuntimeVideoGenerateToolService,
     RuntimeScheduledActionToolService,
     RuntimeTtsToolService,

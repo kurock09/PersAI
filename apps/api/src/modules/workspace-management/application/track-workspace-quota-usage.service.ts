@@ -11,7 +11,9 @@ import {
 } from "../domain/assistant-plan-catalog.repository";
 import type { Assistant } from "../domain/assistant.entity";
 import {
+  type ApplyKnowledgeStorageUsageResult,
   type ApplyMediaStorageUsageResult,
+  type ReleaseKnowledgeStorageUsageResult,
   type ReleaseMediaStorageUsageResult,
   WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
   type ApplyTokenBudgetUsageResult,
@@ -28,6 +30,7 @@ type PlanQuotaHints = {
   tokenBudgetLimit: bigint | null;
   costOrTokenDrivingToolClassUnitsLimit: number | null;
   mediaStorageBytesLimit: bigint | null;
+  knowledgeStorageBytesLimit: bigint | null;
   workspaceStorageBytesLimit: bigint | null;
 };
 
@@ -86,6 +89,10 @@ function parsePlanQuotaHints(
     asPositiveInteger(quotaHints?.mediaStorageBytesLimit) ??
     readQuotaHintFromLimitsPermissions(limitsPermissions, "media_storage_bytes_limit");
 
+  const knowledgeStorageLimit =
+    asPositiveInteger(quotaHints?.knowledgeStorageBytesLimit) ??
+    readQuotaHintFromLimitsPermissions(limitsPermissions, "knowledge_storage_bytes_limit");
+
   const workspaceStorageLimit =
     asPositiveInteger(quotaHints?.workspaceStorageBytesLimit) ??
     readQuotaHintFromLimitsPermissions(limitsPermissions, "workspace_storage_bytes_limit");
@@ -94,6 +101,8 @@ function parsePlanQuotaHints(
     tokenBudgetLimit: tokenBudgetLimit === null ? null : BigInt(tokenBudgetLimit),
     costOrTokenDrivingToolClassUnitsLimit: toolClassLimit,
     mediaStorageBytesLimit: mediaStorageLimit === null ? null : BigInt(mediaStorageLimit),
+    knowledgeStorageBytesLimit:
+      knowledgeStorageLimit === null ? null : BigInt(knowledgeStorageLimit),
     workspaceStorageBytesLimit:
       workspaceStorageLimit === null ? null : BigInt(workspaceStorageLimit)
   };
@@ -232,6 +241,24 @@ export class TrackWorkspaceQuotaUsageService {
     return { allowed: true, usedBytes, limitBytes };
   }
 
+  async checkKnowledgeStorageQuota(assistant: Assistant): Promise<{
+    allowed: boolean;
+    usedBytes: bigint;
+    limitBytes: bigint | null;
+  }> {
+    const governance = await this.resolveGovernance(assistant.id);
+    const limits = await this.resolveLimits(assistant, governance);
+    const state = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(
+      assistant.workspaceId
+    );
+    const usedBytes = state?.knowledgeStorageBytesUsed ?? BigInt(0);
+    const limitBytes = limits.knowledgeStorageBytesLimit;
+    if (limitBytes !== null && usedBytes >= limitBytes) {
+      return { allowed: false, usedBytes, limitBytes };
+    }
+    return { allowed: true, usedBytes, limitBytes };
+  }
+
   async recordMediaUpload(params: {
     assistant: Assistant;
     sizeBytes: bigint;
@@ -252,6 +279,8 @@ export class TrackWorkspaceQuotaUsageService {
           activeWebChatsLimit: null,
           mediaStorageBytesUsed: BigInt(0),
           mediaStorageBytesLimit: null,
+          knowledgeStorageBytesUsed: BigInt(0),
+          knowledgeStorageBytesLimit: null,
           lastComputedAt: new Date(),
           createdAt: new Date(),
           updatedAt: new Date()
@@ -270,6 +299,55 @@ export class TrackWorkspaceQuotaUsageService {
       limits
     });
     this.logMediaStorageCapIfNeeded(params.assistant.id, params.source, params.sizeBytes, applied);
+    return applied;
+  }
+
+  async recordKnowledgeStorageUpload(params: {
+    assistant: Assistant;
+    sizeBytes: bigint;
+    source: string;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<ApplyKnowledgeStorageUsageResult> {
+    if (params.sizeBytes <= BigInt(0)) {
+      return {
+        appliedDelta: BigInt(0),
+        capped: false,
+        state: {
+          id: "noop",
+          workspaceId: params.assistant.workspaceId,
+          tokenBudgetUsed: BigInt(0),
+          tokenBudgetLimit: null,
+          costOrTokenDrivingToolClassUnitsUsed: 0,
+          costOrTokenDrivingToolClassUnitsLimit: null,
+          activeWebChatsCurrent: 0,
+          activeWebChatsLimit: null,
+          mediaStorageBytesUsed: BigInt(0),
+          mediaStorageBytesLimit: null,
+          knowledgeStorageBytesUsed: BigInt(0),
+          knowledgeStorageBytesLimit: null,
+          lastComputedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      };
+    }
+    const governance = await this.resolveGovernance(params.assistant.id);
+    const limits = await this.resolveLimits(params.assistant, governance);
+    const applied = await this.workspaceQuotaAccountingRepository.applyKnowledgeStorageUsage({
+      workspaceId: params.assistant.workspaceId,
+      assistantId: params.assistant.id,
+      userId: params.assistant.userId,
+      delta: params.sizeBytes,
+      source: params.source,
+      metadata: params.metadata ?? null,
+      limits
+    });
+    this.logKnowledgeStorageCapIfNeeded(
+      params.assistant.id,
+      params.source,
+      params.sizeBytes,
+      applied
+    );
     return applied;
   }
 
@@ -293,6 +371,8 @@ export class TrackWorkspaceQuotaUsageService {
           activeWebChatsLimit: null,
           mediaStorageBytesUsed: BigInt(0),
           mediaStorageBytesLimit: null,
+          knowledgeStorageBytesUsed: BigInt(0),
+          knowledgeStorageBytesLimit: null,
           lastComputedAt: new Date(),
           createdAt: new Date(),
           updatedAt: new Date()
@@ -303,6 +383,48 @@ export class TrackWorkspaceQuotaUsageService {
     const governance = await this.resolveGovernance(params.assistant.id);
     const limits = await this.resolveLimits(params.assistant, governance);
     return this.workspaceQuotaAccountingRepository.releaseMediaStorageUsage({
+      workspaceId: params.assistant.workspaceId,
+      assistantId: params.assistant.id,
+      userId: params.assistant.userId,
+      delta: params.sizeBytes,
+      source: params.source,
+      metadata: params.metadata ?? null,
+      limits
+    });
+  }
+
+  async releaseKnowledgeStorage(params: {
+    assistant: Assistant;
+    sizeBytes: bigint;
+    source: string;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<ReleaseKnowledgeStorageUsageResult> {
+    if (params.sizeBytes <= BigInt(0)) {
+      return {
+        releasedDelta: BigInt(0),
+        state: {
+          id: "noop",
+          workspaceId: params.assistant.workspaceId,
+          tokenBudgetUsed: BigInt(0),
+          tokenBudgetLimit: null,
+          costOrTokenDrivingToolClassUnitsUsed: 0,
+          costOrTokenDrivingToolClassUnitsLimit: null,
+          activeWebChatsCurrent: 0,
+          activeWebChatsLimit: null,
+          mediaStorageBytesUsed: BigInt(0),
+          mediaStorageBytesLimit: null,
+          knowledgeStorageBytesUsed: BigInt(0),
+          knowledgeStorageBytesLimit: null,
+          lastComputedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      };
+    }
+
+    const governance = await this.resolveGovernance(params.assistant.id);
+    const limits = await this.resolveLimits(params.assistant, governance);
+    return this.workspaceQuotaAccountingRepository.releaseKnowledgeStorageUsage({
       workspaceId: params.assistant.workspaceId,
       assistantId: params.assistant.id,
       userId: params.assistant.userId,
@@ -411,7 +533,10 @@ export class TrackWorkspaceQuotaUsageService {
         config.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT,
       activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP,
       mediaStorageBytesLimit:
-        planQuotaHints.mediaStorageBytesLimit ?? BigInt(config.QUOTA_MEDIA_STORAGE_BYTES_DEFAULT)
+        planQuotaHints.mediaStorageBytesLimit ?? BigInt(config.QUOTA_MEDIA_STORAGE_BYTES_DEFAULT),
+      knowledgeStorageBytesLimit:
+        planQuotaHints.knowledgeStorageBytesLimit ??
+        BigInt(config.QUOTA_KNOWLEDGE_STORAGE_BYTES_DEFAULT)
     };
   }
 
@@ -442,6 +567,21 @@ export class TrackWorkspaceQuotaUsageService {
 
     console.warn(
       `[quota] media storage capped for assistant ${assistantId} on ${source}: requested=${requestedDelta.toString()} applied=${applied.appliedDelta.toString()}`
+    );
+  }
+
+  private logKnowledgeStorageCapIfNeeded(
+    assistantId: string,
+    source: string,
+    requestedDelta: bigint,
+    applied: ApplyKnowledgeStorageUsageResult
+  ): void {
+    if (!applied.capped) {
+      return;
+    }
+
+    console.warn(
+      `[quota] knowledge storage capped for assistant ${assistantId} on ${source}: requested=${requestedDelta.toString()} applied=${applied.appliedDelta.toString()}`
     );
   }
 }

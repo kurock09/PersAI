@@ -2,20 +2,108 @@ import assert from "node:assert/strict";
 import { Prisma } from "@prisma/client";
 import { PrismaWorkspaceQuotaAccountingRepository } from "../src/modules/workspace-management/infrastructure/persistence/prisma-workspace-quota-accounting.repository";
 
-async function runRetriesSerializableTokenBudgetCap(): Promise<void> {
+type MockState = {
+  id: string;
+  workspaceId: string;
+  tokenBudgetUsed: bigint;
+  tokenBudgetLimit: bigint | null;
+  costOrTokenDrivingToolClassUnitsUsed: number;
+  costOrTokenDrivingToolClassUnitsLimit: number | null;
+  activeWebChatsCurrent: number;
+  activeWebChatsLimit: number | null;
+  mediaStorageBytesUsed: bigint;
+  mediaStorageBytesLimit: bigint | null;
+  knowledgeStorageBytesUsed: bigint;
+  knowledgeStorageBytesLimit: bigint | null;
+  lastComputedAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type EventWrite = {
+  workspaceId?: string;
+  assistantId?: string | null;
+  userId?: string | null;
+  dimension: string;
+  delta: bigint;
+  source: string;
+  metadata?: unknown;
+  limitValue?: bigint | null;
+};
+
+function buildState(overrides: Partial<MockState> = {}): MockState {
+  return {
+    id: "state-1",
+    workspaceId: "ws-1",
+    tokenBudgetUsed: BigInt(0),
+    tokenBudgetLimit: BigInt(100),
+    costOrTokenDrivingToolClassUnitsUsed: 0,
+    costOrTokenDrivingToolClassUnitsLimit: 10,
+    activeWebChatsCurrent: 0,
+    activeWebChatsLimit: 20,
+    mediaStorageBytesUsed: BigInt(0),
+    mediaStorageBytesLimit: BigInt(100),
+    knowledgeStorageBytesUsed: BigInt(0),
+    knowledgeStorageBytesLimit: BigInt(100),
+    lastComputedAt: new Date("2026-04-06T00:00:00.000Z"),
+    createdAt: new Date("2026-04-06T00:00:00.000Z"),
+    updatedAt: new Date("2026-04-06T00:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function applyUpdate(state: MockState, data: Record<string, unknown>): MockState {
+  const nextState = { ...state };
+  if ("tokenBudgetUsed" in data) {
+    const tokenBudgetUsed = data.tokenBudgetUsed as { increment: bigint };
+    nextState.tokenBudgetUsed += tokenBudgetUsed.increment;
+  }
+  if ("mediaStorageBytesUsed" in data) {
+    const mediaStorageBytesUsed = data.mediaStorageBytesUsed as
+      | { increment: bigint }
+      | { decrement: bigint };
+    if ("increment" in mediaStorageBytesUsed) {
+      nextState.mediaStorageBytesUsed += mediaStorageBytesUsed.increment;
+    } else {
+      nextState.mediaStorageBytesUsed -= mediaStorageBytesUsed.decrement;
+    }
+  }
+  if ("knowledgeStorageBytesUsed" in data) {
+    const knowledgeStorageBytesUsed = data.knowledgeStorageBytesUsed as
+      | { increment: bigint }
+      | { decrement: bigint };
+    if ("increment" in knowledgeStorageBytesUsed) {
+      nextState.knowledgeStorageBytesUsed += knowledgeStorageBytesUsed.increment;
+    } else {
+      nextState.knowledgeStorageBytesUsed -= knowledgeStorageBytesUsed.decrement;
+    }
+  }
+  nextState.updatedAt = new Date("2026-04-06T00:00:01.000Z");
+  nextState.lastComputedAt = new Date("2026-04-06T00:00:01.000Z");
+  return nextState;
+}
+
+function createRetryingRepository(initialState: MockState): {
+  repository: PrismaWorkspaceQuotaAccountingRepository;
+  getTransactionCalls: () => number;
+  eventWrites: EventWrite[];
+} {
+  let state = initialState;
   let transactionCalls = 0;
-  eventWrites.length = 0;
+  const eventWrites: EventWrite[] = [];
 
   const repository = new PrismaWorkspaceQuotaAccountingRepository({
     $transaction: async (
       callback: (tx: {
         workspaceQuotaAccountingState: {
-          findUnique: typeof workspaceQuotaAccountingState.findUnique;
-          update: typeof workspaceQuotaAccountingState.update;
-          create: typeof workspaceQuotaAccountingState.create;
+          findUnique: () => Promise<MockState>;
+          update: (args: { data: Record<string, unknown> }) => Promise<MockState>;
+          create: () => Promise<never>;
         };
         workspaceQuotaUsageEvent: {
-          create: typeof workspaceQuotaUsageEvent.create;
+          create: (args: {
+            data: { dimension: string; delta: bigint; source: string };
+          }) => Promise<Record<string, never>>;
         };
       }) => Promise<unknown>
     ) => {
@@ -26,12 +114,53 @@ async function runRetriesSerializableTokenBudgetCap(): Promise<void> {
           clientVersion: "test"
         });
       }
+
       return callback({
-        workspaceQuotaAccountingState,
-        workspaceQuotaUsageEvent
+        workspaceQuotaAccountingState: {
+          findUnique: async () => state,
+          update: async ({ data }: { data: Record<string, unknown> }) => {
+            state = applyUpdate(state, data);
+            return state;
+          },
+          create: async () => {
+            throw new Error("create should not be called when state already exists");
+          }
+        },
+        workspaceQuotaUsageEvent: {
+          create: async ({
+            data
+          }: {
+            data: { dimension: string; delta: bigint; source: string };
+          }) => {
+            eventWrites.push(data);
+            return {};
+          }
+        }
       });
     }
   } as never);
+
+  return {
+    repository,
+    getTransactionCalls: () => transactionCalls,
+    eventWrites
+  };
+}
+
+function buildLimits() {
+  return {
+    tokenBudgetLimit: BigInt(100),
+    costOrTokenDrivingToolClassUnitsLimit: 10,
+    activeWebChatsLimit: 20,
+    mediaStorageBytesLimit: BigInt(100),
+    knowledgeStorageBytesLimit: BigInt(100)
+  };
+}
+
+async function runRetriesSerializableTokenBudgetCap(): Promise<void> {
+  const { repository, getTransactionCalls, eventWrites } = createRetryingRepository(
+    buildState({ tokenBudgetUsed: BigInt(95), mediaStorageBytesLimit: BigInt(1000) })
+  );
 
   const result = await repository.applyTokenBudgetUsage({
     workspaceId: "ws-1",
@@ -40,57 +169,24 @@ async function runRetriesSerializableTokenBudgetCap(): Promise<void> {
     delta: BigInt(12),
     source: "web_chat_turn_sync",
     metadata: { estimator: "chars_div_4_ceil_v1" },
-    limits: {
-      tokenBudgetLimit: BigInt(100),
-      costOrTokenDrivingToolClassUnitsLimit: 10,
-      activeWebChatsLimit: 20,
-      mediaStorageBytesLimit: BigInt(1000)
-    }
+    limits: buildLimits()
   });
 
-  assert.equal(transactionCalls, 2);
+  assert.equal(getTransactionCalls(), 2);
   assert.equal(result.appliedDelta, BigInt(5));
   assert.equal(result.capped, true);
   assert.equal(result.state.tokenBudgetUsed, BigInt(100));
-  assert.deepEqual(eventWrites, [
-    {
-      delta: BigInt(5),
-      source: "web_chat_turn_sync"
-    }
-  ]);
-  eventWrites.length = 0;
+  assert.equal(eventWrites.length, 1);
+  assert.equal(eventWrites[0]?.dimension, "token_budget");
+  assert.equal(eventWrites[0]?.delta, BigInt(5));
+  assert.equal(eventWrites[0]?.source, "web_chat_turn_sync");
+  assert.equal(eventWrites[0]?.workspaceId, "ws-1");
 }
 
 async function runRetriesSerializableMediaStorageCap(): Promise<void> {
-  let transactionCalls = 0;
-  eventWrites.length = 0;
-
-  const repository = new PrismaWorkspaceQuotaAccountingRepository({
-    $transaction: async (
-      callback: (tx: {
-        workspaceQuotaAccountingState: {
-          findUnique: typeof workspaceQuotaAccountingStateMedia.findUnique;
-          update: typeof workspaceQuotaAccountingStateMedia.update;
-          create: typeof workspaceQuotaAccountingStateMedia.create;
-        };
-        workspaceQuotaUsageEvent: {
-          create: typeof workspaceQuotaUsageEvent.create;
-        };
-      }) => Promise<unknown>
-    ) => {
-      transactionCalls += 1;
-      if (transactionCalls === 1) {
-        throw new Prisma.PrismaClientKnownRequestError("serialization conflict", {
-          code: "P2034",
-          clientVersion: "test"
-        });
-      }
-      return callback({
-        workspaceQuotaAccountingState: workspaceQuotaAccountingStateMedia,
-        workspaceQuotaUsageEvent
-      });
-    }
-  } as never);
+  const { repository, getTransactionCalls, eventWrites } = createRetryingRepository(
+    buildState({ mediaStorageBytesUsed: BigInt(95) })
+  );
 
   const result = await repository.applyMediaStorageUsage({
     workspaceId: "ws-1",
@@ -99,113 +195,76 @@ async function runRetriesSerializableMediaStorageCap(): Promise<void> {
     delta: BigInt(12),
     source: "web_staged_upload",
     metadata: null,
-    limits: {
-      tokenBudgetLimit: BigInt(100),
-      costOrTokenDrivingToolClassUnitsLimit: 10,
-      activeWebChatsLimit: 20,
-      mediaStorageBytesLimit: BigInt(100)
-    }
+    limits: buildLimits()
   });
 
-  assert.equal(transactionCalls, 2);
+  assert.equal(getTransactionCalls(), 2);
   assert.equal(result.appliedDelta, BigInt(5));
   assert.equal(result.capped, true);
   assert.equal(result.state.mediaStorageBytesUsed, BigInt(100));
-  assert.deepEqual(eventWrites, [
-    {
-      delta: BigInt(5),
-      source: "web_staged_upload"
-    }
-  ]);
+  assert.equal(eventWrites.length, 1);
+  assert.equal(eventWrites[0]?.dimension, "media_storage_bytes");
+  assert.equal(eventWrites[0]?.delta, BigInt(5));
+  assert.equal(eventWrites[0]?.source, "web_staged_upload");
+  assert.equal(eventWrites[0]?.workspaceId, "ws-1");
 }
 
-const workspaceQuotaAccountingState = {
-  findUnique: async () => ({
-    id: "state-1",
-    workspaceId: "ws-1",
-    tokenBudgetUsed: BigInt(95),
-    tokenBudgetLimit: BigInt(100),
-    costOrTokenDrivingToolClassUnitsUsed: 0,
-    costOrTokenDrivingToolClassUnitsLimit: 10,
-    activeWebChatsCurrent: 0,
-    activeWebChatsLimit: 20,
-    mediaStorageBytesUsed: BigInt(0),
-    mediaStorageBytesLimit: BigInt(1000),
-    lastComputedAt: new Date("2026-04-06T00:00:00.000Z"),
-    createdAt: new Date("2026-04-06T00:00:00.000Z"),
-    updatedAt: new Date("2026-04-06T00:00:00.000Z")
-  }),
-  update: async ({ data }: { data: { tokenBudgetUsed: { increment: bigint } } }) => ({
-    id: "state-1",
-    workspaceId: "ws-1",
-    tokenBudgetUsed: BigInt(95) + data.tokenBudgetUsed.increment,
-    tokenBudgetLimit: BigInt(100),
-    costOrTokenDrivingToolClassUnitsUsed: 0,
-    costOrTokenDrivingToolClassUnitsLimit: 10,
-    activeWebChatsCurrent: 0,
-    activeWebChatsLimit: 20,
-    mediaStorageBytesUsed: BigInt(0),
-    mediaStorageBytesLimit: BigInt(1000),
-    lastComputedAt: new Date("2026-04-06T00:00:01.000Z"),
-    createdAt: new Date("2026-04-06T00:00:00.000Z"),
-    updatedAt: new Date("2026-04-06T00:00:01.000Z")
-  }),
-  create: async () => {
-    throw new Error("create should not be called when state already exists");
-  }
-};
+async function runRetriesSerializableKnowledgeStorageCap(): Promise<void> {
+  const { repository, getTransactionCalls, eventWrites } = createRetryingRepository(
+    buildState({ knowledgeStorageBytesUsed: BigInt(95) })
+  );
 
-const workspaceQuotaAccountingStateMedia = {
-  findUnique: async () => ({
-    id: "state-1",
+  const result = await repository.applyKnowledgeStorageUsage({
     workspaceId: "ws-1",
-    tokenBudgetUsed: BigInt(0),
-    tokenBudgetLimit: BigInt(100),
-    costOrTokenDrivingToolClassUnitsUsed: 0,
-    costOrTokenDrivingToolClassUnitsLimit: 10,
-    activeWebChatsCurrent: 0,
-    activeWebChatsLimit: 20,
-    mediaStorageBytesUsed: BigInt(95),
-    mediaStorageBytesLimit: BigInt(100),
-    lastComputedAt: new Date("2026-04-06T00:00:00.000Z"),
-    createdAt: new Date("2026-04-06T00:00:00.000Z"),
-    updatedAt: new Date("2026-04-06T00:00:00.000Z")
-  }),
-  update: async ({ data }: { data: { mediaStorageBytesUsed: { increment: bigint } } }) => ({
-    id: "state-1",
+    assistantId: "assistant-1",
+    userId: "user-1",
+    delta: BigInt(12),
+    source: "assistant_knowledge_upload",
+    metadata: { filename: "gazprom.pdf" },
+    limits: buildLimits()
+  });
+
+  assert.equal(getTransactionCalls(), 2);
+  assert.equal(result.appliedDelta, BigInt(5));
+  assert.equal(result.capped, true);
+  assert.equal(result.state.knowledgeStorageBytesUsed, BigInt(100));
+  assert.equal(eventWrites.length, 1);
+  assert.equal(eventWrites[0]?.dimension, "knowledge_storage_bytes");
+  assert.equal(eventWrites[0]?.delta, BigInt(5));
+  assert.equal(eventWrites[0]?.source, "assistant_knowledge_upload");
+  assert.equal(eventWrites[0]?.workspaceId, "ws-1");
+}
+
+async function runRetriesSerializableKnowledgeStorageRelease(): Promise<void> {
+  const { repository, getTransactionCalls, eventWrites } = createRetryingRepository(
+    buildState({ knowledgeStorageBytesUsed: BigInt(7) })
+  );
+
+  const result = await repository.releaseKnowledgeStorageUsage({
     workspaceId: "ws-1",
-    tokenBudgetUsed: BigInt(0),
-    tokenBudgetLimit: BigInt(100),
-    costOrTokenDrivingToolClassUnitsUsed: 0,
-    costOrTokenDrivingToolClassUnitsLimit: 10,
-    activeWebChatsCurrent: 0,
-    activeWebChatsLimit: 20,
-    mediaStorageBytesUsed: BigInt(95) + data.mediaStorageBytesUsed.increment,
-    mediaStorageBytesLimit: BigInt(100),
-    lastComputedAt: new Date("2026-04-06T00:00:01.000Z"),
-    createdAt: new Date("2026-04-06T00:00:00.000Z"),
-    updatedAt: new Date("2026-04-06T00:00:01.000Z")
-  }),
-  create: async () => {
-    throw new Error("create should not be called when state already exists");
-  }
-};
+    assistantId: "assistant-1",
+    userId: "user-1",
+    delta: BigInt(12),
+    source: "assistant_reset_knowledge_cleanup",
+    metadata: null,
+    limits: buildLimits()
+  });
 
-const eventWrites: Array<{ delta: bigint; source: string }> = [];
-
-const workspaceQuotaUsageEvent = {
-  create: async ({ data }: { data: { delta: bigint; source: string } }) => {
-    eventWrites.push({
-      delta: data.delta,
-      source: data.source
-    });
-    return {};
-  }
-};
+  assert.equal(getTransactionCalls(), 2);
+  assert.equal(result.releasedDelta, BigInt(7));
+  assert.equal(result.state.knowledgeStorageBytesUsed, BigInt(0));
+  assert.equal(eventWrites.length, 1);
+  assert.equal(eventWrites[0]?.dimension, "knowledge_storage_bytes");
+  assert.equal(eventWrites[0]?.delta, BigInt(-7));
+  assert.equal(eventWrites[0]?.source, "assistant_reset_knowledge_cleanup");
+  assert.equal(eventWrites[0]?.workspaceId, "ws-1");
+}
 
 async function main(): Promise<void> {
   await runRetriesSerializableTokenBudgetCap();
   await runRetriesSerializableMediaStorageCap();
+  await runRetriesSerializableKnowledgeStorageCap();
+  await runRetriesSerializableKnowledgeStorageRelease();
 }
 
 void main();

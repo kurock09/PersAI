@@ -253,6 +253,39 @@ Postgres with Prisma.
   - one-time successful tasks may be removed from current-state listing
   - recurring tasks stay as one live row with updated `next_run_at`
 
+### assistant_knowledge_sources (ADR-072 T15-6b initial storage/index baseline)
+
+- id (UUID)
+- assistant_id, user_id, workspace_id (assistant-scoped ownership like chats/memory registry)
+- namespace (`assistant_user_workspace|assistant_preset_shared|persai_global`) — first public upload surface writes only `assistant_user_workspace`
+- source_kind (`uploaded_file`)
+- display_name (nullable)
+- original_filename
+- mime_type
+- size_bytes
+- storage_path — canonical PersAI-owned object-storage key
+- status (`processing|ready|failed`)
+- current_version (int, starts at 1 and increments on successful reindex)
+- chunk_count (int)
+- last_indexed_at (nullable)
+- last_reindex_requested_at (nullable)
+- last_error_code (nullable)
+- last_error_message (nullable text)
+- created_at
+- updated_at
+
+### assistant_knowledge_source_chunks (ADR-072 T15-6b initial storage/index baseline)
+
+- id (UUID)
+- knowledge_source_id
+- assistant_id
+- workspace_id
+- source_version (int)
+- chunk_index (int)
+- locator (nullable text; page/window/source-local reference)
+- content (text)
+- created_at
+
 ### plan_catalog_plans (Step 7 P1 baseline)
 
 - id (UUID)
@@ -484,6 +517,10 @@ Postgres with Prisma.
 - cost_or_token_driving_tool_class_units_limit (nullable int)
 - active_web_chats_current (int)
 - active_web_chats_limit (nullable int)
+- media_storage_bytes_used (bigint)
+- media_storage_bytes_limit (nullable bigint)
+- knowledge_storage_bytes_used (bigint)
+- knowledge_storage_bytes_limit (nullable bigint)
 - last_computed_at (timestamptz)
 - created_at
 - updated_at
@@ -494,7 +531,7 @@ Postgres with Prisma.
 - workspace_id (UUID FK -> `workspaces.id`)
 - assistant_id (nullable UUID)
 - user_id (nullable UUID)
-- dimension (`token_budget|cost_or_token_driving_tool_class|active_web_chats_cap`)
+- dimension (`token_budget|cost_or_token_driving_tool_class|active_web_chats_cap|media_storage_bytes|knowledge_storage_bytes`)
 - delta (bigint)
 - current_value (nullable bigint)
 - limit_value (nullable bigint)
@@ -826,7 +863,10 @@ Prisma baseline:
 
 - media_storage_bytes_used (bigint, default 0)
 - media_storage_bytes_limit (nullable bigint)
+- knowledge_storage_bytes_used (bigint, default 0)
+- knowledge_storage_bytes_limit (nullable bigint)
 
 ### WorkspaceQuotaDimension enum (M1 extension)
 
 - adds: `media_storage_bytes`
+- adds: `knowledge_storage_bytes`

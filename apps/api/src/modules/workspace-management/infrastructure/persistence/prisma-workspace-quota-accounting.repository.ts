@@ -4,8 +4,12 @@ import {
   type WorkspaceQuotaAccountingState as PrismaWorkspaceQuotaAccountingState
 } from "@prisma/client";
 import type {
+  ApplyKnowledgeStorageUsageInput,
+  ApplyKnowledgeStorageUsageResult,
   ApplyMediaStorageUsageInput,
   ApplyMediaStorageUsageResult,
+  ReleaseKnowledgeStorageUsageInput,
+  ReleaseKnowledgeStorageUsageResult,
   ReleaseMediaStorageUsageInput,
   ReleaseMediaStorageUsageResult,
   ApplyTokenBudgetUsageInput,
@@ -38,7 +42,9 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
           ? { costOrTokenDrivingToolClassUnitsUsed: { increment: Number(input.delta) } }
           : input.dimension === "media_storage_bytes"
             ? { mediaStorageBytesUsed: { increment: input.delta } }
-            : {};
+            : input.dimension === "knowledge_storage_bytes"
+              ? { knowledgeStorageBytesUsed: { increment: input.delta } }
+              : {};
 
     const [state] = await this.prisma.$transaction([
       this.prisma.workspaceQuotaAccountingState.upsert({
@@ -124,6 +130,32 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     throw new Error("Failed to apply media storage usage after serialization retries.");
   }
 
+  async applyKnowledgeStorageUsage(
+    input: ApplyKnowledgeStorageUsageInput
+  ): Promise<ApplyKnowledgeStorageUsageResult> {
+    const maxRetries = 3;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => this.applyKnowledgeStorageUsageTx(tx, input),
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+          }
+        );
+      } catch (error) {
+        const prismaCode =
+          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
+        if (prismaCode === "P2034" && attempt < maxRetries) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error("Failed to apply knowledge storage usage after serialization retries.");
+  }
+
   async releaseMediaStorageUsage(
     input: ReleaseMediaStorageUsageInput
   ): Promise<ReleaseMediaStorageUsageResult> {
@@ -148,6 +180,32 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     }
 
     throw new Error("Failed to release media storage usage after serialization retries.");
+  }
+
+  async releaseKnowledgeStorageUsage(
+    input: ReleaseKnowledgeStorageUsageInput
+  ): Promise<ReleaseKnowledgeStorageUsageResult> {
+    const maxRetries = 3;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => this.releaseKnowledgeStorageUsageTx(tx, input),
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+          }
+        );
+      } catch (error) {
+        const prismaCode =
+          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
+        if (prismaCode === "P2034" && attempt < maxRetries) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error("Failed to release knowledge storage usage after serialization retries.");
   }
 
   async refreshActiveWebChatsUsage(
@@ -305,6 +363,64 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     };
   }
 
+  private async applyKnowledgeStorageUsageTx(
+    tx: Prisma.TransactionClient,
+    input: ApplyKnowledgeStorageUsageInput
+  ): Promise<ApplyKnowledgeStorageUsageResult> {
+    const existing = await tx.workspaceQuotaAccountingState.findUnique({
+      where: { workspaceId: input.workspaceId }
+    });
+
+    const used = existing?.knowledgeStorageBytesUsed ?? BigInt(0);
+    const limit = input.limits.knowledgeStorageBytesLimit;
+    const remaining = limit === null ? null : limit - used;
+    const normalizedRemaining =
+      remaining === null ? null : remaining > BigInt(0) ? remaining : BigInt(0);
+    const appliedDelta =
+      normalizedRemaining === null
+        ? input.delta
+        : input.delta < normalizedRemaining
+          ? input.delta
+          : normalizedRemaining;
+
+    const nextState = existing
+      ? await tx.workspaceQuotaAccountingState.update({
+          where: { workspaceId: input.workspaceId },
+          data: {
+            knowledgeStorageBytesUsed: { increment: appliedDelta },
+            ...this.toLimitUpdateInput(input.limits),
+            lastComputedAt: new Date()
+          }
+        })
+      : await tx.workspaceQuotaAccountingState.create({
+          data: {
+            workspaceId: input.workspaceId,
+            ...this.toLimitCreateInput(input.limits),
+            ...this.toUsageCreateInput("knowledge_storage_bytes", appliedDelta),
+            lastComputedAt: new Date()
+          }
+        });
+
+    await tx.workspaceQuotaUsageEvent.create({
+      data: {
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        userId: input.userId,
+        dimension: "knowledge_storage_bytes",
+        delta: appliedDelta,
+        source: input.source,
+        metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : Prisma.DbNull,
+        limitValue: this.resolveLimitValueForDimension("knowledge_storage_bytes", input.limits)
+      }
+    });
+
+    return {
+      state: this.mapToDomain(nextState),
+      appliedDelta,
+      capped: appliedDelta < input.delta
+    };
+  }
+
   private async releaseMediaStorageUsageTx(
     tx: Prisma.TransactionClient,
     input: ReleaseMediaStorageUsageInput
@@ -354,6 +470,55 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     };
   }
 
+  private async releaseKnowledgeStorageUsageTx(
+    tx: Prisma.TransactionClient,
+    input: ReleaseKnowledgeStorageUsageInput
+  ): Promise<ReleaseKnowledgeStorageUsageResult> {
+    const existing = await tx.workspaceQuotaAccountingState.findUnique({
+      where: { workspaceId: input.workspaceId }
+    });
+
+    const used = existing?.knowledgeStorageBytesUsed ?? BigInt(0);
+    const releasedDelta =
+      input.delta <= BigInt(0) ? BigInt(0) : input.delta < used ? input.delta : used;
+
+    const nextState = existing
+      ? await tx.workspaceQuotaAccountingState.update({
+          where: { workspaceId: input.workspaceId },
+          data: {
+            knowledgeStorageBytesUsed: { decrement: releasedDelta },
+            ...this.toLimitUpdateInput(input.limits),
+            lastComputedAt: new Date()
+          }
+        })
+      : await tx.workspaceQuotaAccountingState.create({
+          data: {
+            workspaceId: input.workspaceId,
+            ...this.toLimitCreateInput(input.limits),
+            ...this.toUsageCreateInput("knowledge_storage_bytes", BigInt(0)),
+            lastComputedAt: new Date()
+          }
+        });
+
+    await tx.workspaceQuotaUsageEvent.create({
+      data: {
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        userId: input.userId,
+        dimension: "knowledge_storage_bytes",
+        delta: -releasedDelta,
+        source: input.source,
+        metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : Prisma.DbNull,
+        limitValue: this.resolveLimitValueForDimension("knowledge_storage_bytes", input.limits)
+      }
+    });
+
+    return {
+      state: this.mapToDomain(nextState),
+      releasedDelta
+    };
+  }
+
   private resolveLimitValueForDimension(
     dimension: IncrementWorkspaceQuotaUsageInput["dimension"],
     limits: IncrementWorkspaceQuotaUsageInput["limits"]
@@ -372,6 +537,10 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
       return limits.mediaStorageBytesLimit;
     }
 
+    if (dimension === "knowledge_storage_bytes") {
+      return limits.knowledgeStorageBytesLimit;
+    }
+
     return limits.activeWebChatsLimit === null ? null : BigInt(limits.activeWebChatsLimit);
   }
 
@@ -380,13 +549,17 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     delta: bigint
   ): Pick<
     Prisma.WorkspaceQuotaAccountingStateCreateInput,
-    "tokenBudgetUsed" | "costOrTokenDrivingToolClassUnitsUsed" | "mediaStorageBytesUsed"
+    | "tokenBudgetUsed"
+    | "costOrTokenDrivingToolClassUnitsUsed"
+    | "mediaStorageBytesUsed"
+    | "knowledgeStorageBytesUsed"
   > {
     return {
       tokenBudgetUsed: dimension === "token_budget" ? delta : BigInt(0),
       costOrTokenDrivingToolClassUnitsUsed:
         dimension === "cost_or_token_driving_tool_class" ? Number(delta) : 0,
-      mediaStorageBytesUsed: dimension === "media_storage_bytes" ? delta : BigInt(0)
+      mediaStorageBytesUsed: dimension === "media_storage_bytes" ? delta : BigInt(0),
+      knowledgeStorageBytesUsed: dimension === "knowledge_storage_bytes" ? delta : BigInt(0)
     };
   }
 
@@ -398,6 +571,7 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     | "costOrTokenDrivingToolClassUnitsLimit"
     | "activeWebChatsLimit"
     | "mediaStorageBytesLimit"
+    | "knowledgeStorageBytesLimit"
   > {
     return {
       tokenBudgetLimit: limits.tokenBudgetLimit,
@@ -406,7 +580,8 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
           ? null
           : limits.costOrTokenDrivingToolClassUnitsLimit,
       activeWebChatsLimit: limits.activeWebChatsLimit,
-      mediaStorageBytesLimit: limits.mediaStorageBytesLimit
+      mediaStorageBytesLimit: limits.mediaStorageBytesLimit,
+      knowledgeStorageBytesLimit: limits.knowledgeStorageBytesLimit
     };
   }
 
@@ -418,6 +593,7 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     | "costOrTokenDrivingToolClassUnitsLimit"
     | "activeWebChatsLimit"
     | "mediaStorageBytesLimit"
+    | "knowledgeStorageBytesLimit"
   > {
     return {
       tokenBudgetLimit: limits.tokenBudgetLimit,
@@ -426,7 +602,8 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
           ? null
           : limits.costOrTokenDrivingToolClassUnitsLimit,
       activeWebChatsLimit: limits.activeWebChatsLimit,
-      mediaStorageBytesLimit: limits.mediaStorageBytesLimit
+      mediaStorageBytesLimit: limits.mediaStorageBytesLimit,
+      knowledgeStorageBytesLimit: limits.knowledgeStorageBytesLimit
     };
   }
 
@@ -442,6 +619,8 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
       activeWebChatsLimit: state.activeWebChatsLimit,
       mediaStorageBytesUsed: state.mediaStorageBytesUsed,
       mediaStorageBytesLimit: state.mediaStorageBytesLimit,
+      knowledgeStorageBytesUsed: state.knowledgeStorageBytesUsed,
+      knowledgeStorageBytesLimit: state.knowledgeStorageBytesLimit,
       lastComputedAt: state.lastComputedAt,
       createdAt: state.createdAt,
       updatedAt: state.updatedAt

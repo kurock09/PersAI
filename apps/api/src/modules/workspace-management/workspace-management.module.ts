@@ -15,9 +15,12 @@ import { AdminPlatformRolloutsController } from "./interface/http/admin-platform
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
 import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
 import { AdminBootstrapPresetsController } from "./interface/http/admin-bootstrap-presets.controller";
+import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
 import { InternalCronFireController } from "./interface/http/internal-cron-fire.controller";
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
 import { InternalRuntimeConfigGenerationController } from "./interface/http/internal-runtime-config-generation.controller";
+import { InternalRuntimeKnowledgeController } from "./interface/http/internal-runtime-knowledge.controller";
+import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
 import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
@@ -71,6 +74,9 @@ import { DisableAssistantTaskRegistryItemService } from "./application/disable-a
 import { EnableAssistantTaskRegistryItemService } from "./application/enable-assistant-task-registry-item.service";
 import { CancelAssistantTaskRegistryItemService } from "./application/cancel-assistant-task-registry-item.service";
 import { GetAssistantByUserIdService } from "./application/get-assistant-by-user-id.service";
+import { ManageAssistantKnowledgeSourcesService } from "./application/manage-assistant-knowledge-sources.service";
+import { ReadAssistantKnowledgeService } from "./application/read-assistant-knowledge.service";
+import { WriteAssistantMemoryService } from "./application/write-assistant-memory.service";
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
 import { ManageAdminPlansService } from "./application/manage-admin-plans.service";
 import { ManageWebChatListService } from "./application/manage-web-chat-list.service";
@@ -157,6 +163,7 @@ import { NativeMediaTranscriptionService } from "./application/media/native-medi
 import { InboundMediaService } from "./application/media/inbound-media.service";
 import { MediaDeliveryService } from "./application/media/media-delivery.service";
 import { PersaiMediaObjectStorageService } from "./application/media/persai-media-object-storage.service";
+import { PersaiKnowledgeObjectStorageService } from "./application/persai-knowledge-object-storage.service";
 import { CHANNEL_MEDIA_ADAPTERS } from "./application/media/channel-adapters/channel-media-adapter.interface";
 import { WebMediaAdapter } from "./application/media/channel-adapters/web-media.adapter";
 import { TelegramMediaAdapter } from "./application/media/channel-adapters/telegram-media.adapter";
@@ -173,6 +180,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
   imports: [IdentityAccessModule, PlatformCoreModule],
   controllers: [
     AssistantController,
+    AssistantKnowledgeSourcesController,
     AdminPlansController,
     AdminSecurityController,
     AdminAbuseControlsController,
@@ -188,6 +196,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     InternalCronFireController,
     InternalRuntimeProviderSecretsController,
     InternalRuntimeConfigGenerationController,
+    InternalRuntimeKnowledgeController,
+    InternalRuntimeMemoryController,
     InternalRuntimeTaskRegistryController,
     InternalRuntimeToolQuotaController,
     AdminForceReapplyController,
@@ -234,6 +244,9 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ResolveAssistantRuntimeTierService,
     RenderAssistantInboundSurfaceMessageService,
     GetAssistantByUserIdService,
+    ManageAssistantKnowledgeSourcesService,
+    ReadAssistantKnowledgeService,
+    WriteAssistantMemoryService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,
     MaterializeAssistantPublishedVersionService,
@@ -372,6 +385,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     MediaPreprocessorService,
     NativeMediaTranscriptionService,
     PersaiMediaObjectStorageService,
+    PersaiKnowledgeObjectStorageService,
     InboundMediaService,
     MediaDeliveryService,
     WebMediaAdapter,

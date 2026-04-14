@@ -10,6 +10,7 @@ import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assista
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
+import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
 
 @Injectable()
 export class ResetAssistantService {
@@ -25,7 +26,8 @@ export class ResetAssistantService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
+    private readonly knowledgeObjectStorage: PersaiKnowledgeObjectStorageService
   ) {}
 
   async execute(userId: string): Promise<void> {
@@ -36,6 +38,13 @@ export class ResetAssistantService {
 
     const aid = assistant.id;
     const releasedBytes = await this.attachmentRepository.sumSizeBytesByAssistantId(aid);
+    const releasedKnowledgeBytes =
+      (
+        await this.prisma.assistantKnowledgeSource.aggregate({
+          where: { assistantId: aid },
+          _sum: { sizeBytes: true }
+        })
+      )._sum.sizeBytes ?? BigInt(0);
 
     this.logger.log(`Starting reset transaction for assistant ${aid}`);
 
@@ -80,10 +89,13 @@ export class ResetAssistantService {
           this.logger.log("Step 5: deleting task items");
           await tx.assistantTaskRegistryItem.deleteMany({ where: { assistantId: aid } });
 
-          this.logger.log("Step 6: deleting materialized specs");
+          this.logger.log("Step 6: deleting knowledge sources");
+          await tx.assistantKnowledgeSource.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 7: deleting materialized specs");
           await tx.assistantMaterializedSpec.deleteMany({ where: { assistantId: aid } });
 
-          this.logger.log("Step 7: disabling immutability trigger and deleting published versions");
+          this.logger.log("Step 8: disabling immutability trigger and deleting published versions");
           await tx.$executeRawUnsafe(
             `ALTER TABLE "assistant_published_versions" DISABLE TRIGGER "assistant_published_versions_no_delete"`
           );
@@ -102,12 +114,21 @@ export class ResetAssistantService {
     }
 
     await this.mediaObjectStorage.deletePrefix(this.mediaObjectStorage.buildAssistantPrefix(aid));
+    await this.knowledgeObjectStorage.deletePrefix(
+      this.knowledgeObjectStorage.buildAssistantPrefix(aid)
+    );
     this.logger.log("Resetting runtime workspace to clean memory baseline");
     await this.assistantRuntime.resetWorkspace(aid);
     await this.trackWorkspaceQuotaUsageService.releaseMediaStorage({
       assistant,
       sizeBytes: releasedBytes,
       source: "assistant_reset_media_cleanup",
+      metadata: { assistantId: aid }
+    });
+    await this.trackWorkspaceQuotaUsageService.releaseKnowledgeStorage({
+      assistant,
+      sizeBytes: releasedKnowledgeBytes,
+      source: "assistant_reset_knowledge_cleanup",
       metadata: { assistantId: aid }
     });
 
@@ -119,7 +140,7 @@ export class ResetAssistantService {
         eventCategory: "assistant_lifecycle",
         eventCode: "assistant.full_reset",
         summary:
-          "Full assistant reset: all chats, memory, tasks, published versions, materialized specs and workspace files deleted.",
+          "Full assistant reset: all chats, memory, tasks, knowledge sources, published versions, materialized specs and workspace files deleted.",
         details: {}
       });
     } catch (err) {

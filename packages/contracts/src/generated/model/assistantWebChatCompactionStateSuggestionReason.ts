@@ -15,6 +15,5 @@ export type AssistantWebChatCompactionStateSuggestionReason =
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatCompactionStateSuggestionReason = {
   token_threshold: "token_threshold",
-  history_threshold: "history_threshold",
-  latency_threshold: "latency_threshold"
+  history_threshold: "history_threshold"
 } as const;

@@ -310,6 +310,16 @@ It is not part of backend domain logic.
 - items are created on successful web chat completion (sync + stream paths); list/forget/do-not-remember APIs are assistant-scoped
 - “Do not remember” updates registry rows and appends to `memory_control.forgetRequestMarkers` for governance continuity
 
+## T15-6b knowledge storage boundary
+
+- PersAI control plane owns uploaded knowledge-source files, metadata, ingest state, and chunk/index rows; they do not live in sandbox or OpenClaw workspace memory.
+- the first honest public `T15-6b` surface is assistant-scoped uploaded workspace knowledge (`assistant_user_workspace`); later shared/global namespaces must reuse the same storage/index boundary instead of inventing separate stacks.
+- canonical uploaded files live in PersAI-owned object storage under a knowledge-specific prefix, separate from chat media object paths even when the same physical bucket is reused.
+- upload and reindex may preprocess/extract text in PersAI application services, and the first active request-time read backend now searches/fetches only against persisted chunk rows for uploaded document knowledge; ordinary turns still must not gain direct filesystem/process access from this path.
+- lifecycle semantics are explicit:
+  - publish/rollback/reapply do not purge knowledge sources
+  - full assistant reset and full user delete purge knowledge-source rows, chunks, and stored files
+
 ## Tasks control boundary (Step 6 D4)
 
 - backend owns **`tasks_control`** on `assistant_governance` (`persai.tasksControl.v1`): ownership model, source/surface tagging hooks, control-plane lifecycle labels, user enable/disable/cancel flags, audit delegation; tasks are not a billable quota dimension (enforced by convention, no longer via a dedicated `tasksExcludedFromPlanQuotas` flag)
@@ -375,6 +385,7 @@ It is not part of backend domain logic.
   - cost/token-driving tool class usage units
   - active web chats cap current usage
   - media storage bytes (enforced on upload, ADR-067)
+  - knowledge storage bytes (enforced on knowledge-source upload/reindex, ADR-072 `T15-6b`)
   - workspace storage bytes (enforced in OpenClaw sandbox write/exec tools, ADR-069)
 - tracked counters and append-only events are stored separately:
   - latest state (`workspace_quota_accounting_state`)

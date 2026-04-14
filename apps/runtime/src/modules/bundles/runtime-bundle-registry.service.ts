@@ -7,6 +7,7 @@ import type { RuntimeConfig } from "@persai/config";
 import {
   PERSAI_RUNTIME_BROWSER_ACTIONS,
   PERSAI_RUNTIME_BROWSER_PROVIDER_IDS,
+  PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESETS,
   PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES,
   PERSAI_RUNTIME_KNOWLEDGE_RAG_MODES,
   PERSAI_RUNTIME_KNOWLEDGE_SOURCES,
@@ -19,6 +20,7 @@ import {
   PERSAI_RUNTIME_WORKER_FAILURE_BEHAVIORS,
   PERSAI_RUNTIME_WORKER_OUTCOME_KINDS,
   PERSAI_RUNTIME_WORKER_TOOL_FAMILIES,
+  type RuntimeContextHydrationConfig,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../runtime-config";
@@ -328,7 +330,86 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
     }
   }
 
-  private assertSharedCompactionConfig(bundle: AssistantRuntimeBundle): void {
+  private assertContextHydrationConfig(
+    bundle: AssistantRuntimeBundle
+  ): RuntimeContextHydrationConfig {
+    const runtime = bundle.runtime;
+    if (!this.isRecord(runtime)) {
+      throw new BadRequestException("bundleDocument.runtime must be an object");
+    }
+
+    const contextHydration = runtime.contextHydration;
+    if (!this.isRecord(contextHydration)) {
+      throw new BadRequestException("bundleDocument.runtime.contextHydration must be an object");
+    }
+    if (
+      typeof contextHydration.preset !== "string" ||
+      !PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESETS.includes(
+        contextHydration.preset as (typeof PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESETS)[number]
+      )
+    ) {
+      throw new BadRequestException("bundleDocument.runtime.contextHydration.preset is invalid");
+    }
+    if (
+      !Number.isInteger(contextHydration.targetContextBudget) ||
+      contextHydration.targetContextBudget <= 0
+    ) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.contextHydration.targetContextBudget must be a positive integer"
+      );
+    }
+    if (
+      !Number.isInteger(contextHydration.compactionTriggerThreshold) ||
+      contextHydration.compactionTriggerThreshold <= 0
+    ) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.contextHydration.compactionTriggerThreshold must be a positive integer"
+      );
+    }
+    if (
+      !Number.isInteger(contextHydration.keepRecentMinimum) ||
+      contextHydration.keepRecentMinimum <= 0
+    ) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.contextHydration.keepRecentMinimum must be a positive integer"
+      );
+    }
+    if (
+      !Number.isInteger(contextHydration.knowledgeHydrationBudget) ||
+      contextHydration.knowledgeHydrationBudget < 0
+    ) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.contextHydration.knowledgeHydrationBudget must be a non-negative integer"
+      );
+    }
+    if (typeof contextHydration.autoCompactionWeb !== "boolean") {
+      throw new BadRequestException(
+        "bundleDocument.runtime.contextHydration.autoCompactionWeb must be boolean"
+      );
+    }
+    if (typeof contextHydration.autoCompactionTelegram !== "boolean") {
+      throw new BadRequestException(
+        "bundleDocument.runtime.contextHydration.autoCompactionTelegram must be boolean"
+      );
+    }
+    if (contextHydration.compactionTriggerThreshold > contextHydration.targetContextBudget) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.contextHydration.compactionTriggerThreshold must be less than or equal to targetContextBudget"
+      );
+    }
+    if (contextHydration.knowledgeHydrationBudget > contextHydration.targetContextBudget) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.contextHydration.knowledgeHydrationBudget must be less than or equal to targetContextBudget"
+      );
+    }
+
+    return contextHydration as RuntimeContextHydrationConfig;
+  }
+
+  private assertSharedCompactionConfig(
+    bundle: AssistantRuntimeBundle,
+    contextHydration: RuntimeContextHydrationConfig
+  ): void {
     const runtime = bundle.runtime;
     if (!this.isRecord(runtime)) {
       throw new BadRequestException("bundleDocument.runtime must be an object");
@@ -389,6 +470,30 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
     if (typeof sharedCompaction.telegramAutoSummarizeEnabled !== "boolean") {
       throw new BadRequestException(
         "bundleDocument.runtime.sharedCompaction.telegramAutoSummarizeEnabled must be boolean"
+      );
+    }
+    if (sharedCompaction.reserveTokens !== contextHydration.targetContextBudget) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.sharedCompaction.reserveTokens must match runtime.contextHydration.targetContextBudget"
+      );
+    }
+    const expectedKeepRecentTokens = Math.max(
+      0,
+      contextHydration.targetContextBudget - contextHydration.compactionTriggerThreshold
+    );
+    if (sharedCompaction.keepRecentTokens !== expectedKeepRecentTokens) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.sharedCompaction.keepRecentTokens must match the derived runtime.contextHydration threshold"
+      );
+    }
+    if (sharedCompaction.recentTurnsPreserve !== contextHydration.keepRecentMinimum) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.sharedCompaction.recentTurnsPreserve must match runtime.contextHydration.keepRecentMinimum"
+      );
+    }
+    if (sharedCompaction.telegramAutoSummarizeEnabled !== contextHydration.autoCompactionTelegram) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.sharedCompaction.telegramAutoSummarizeEnabled must match runtime.contextHydration.autoCompactionTelegram"
       );
     }
   }
@@ -536,12 +641,42 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
       searchCredentialToolCode: "memory_search",
       fetchCredentialToolCode: null
     });
+    this.assertKnowledgeSourceMapping(sourceConfigBySource, toolPolicyByCode, "chat", {
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    });
+    this.assertKnowledgeSourceMapping(sourceConfigBySource, toolPolicyByCode, "preset", {
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    });
+    this.assertKnowledgeSourceMapping(sourceConfigBySource, toolPolicyByCode, "subscription", {
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    });
+    this.assertKnowledgeSourceMapping(sourceConfigBySource, toolPolicyByCode, "global", {
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    });
+    this.assertKnowledgeSourceMapping(sourceConfigBySource, toolPolicyByCode, "document", {
+      searchAliasToolCode: null,
+      fetchAliasToolCode: null,
+      searchCredentialToolCode: null,
+      fetchCredentialToolCode: null
+    });
   }
 
   private assertKnowledgeSourceMapping(
     sourceConfigBySource: Map<string, Record<string, unknown>>,
     toolPolicyByCode: Map<string, RuntimeToolPolicy>,
-    source: "web" | "memory",
+    source: "web" | "memory" | "chat" | "preset" | "subscription" | "global" | "document",
     expected: {
       searchAliasToolCode: string | null;
       fetchAliasToolCode: string | null;
@@ -864,7 +999,8 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
 
     const bundle = parsed as AssistantRuntimeBundle;
     const toolPolicyByCode = this.assertToolPolicyParity(bundle);
-    this.assertSharedCompactionConfig(bundle);
+    const contextHydration = this.assertContextHydrationConfig(bundle);
+    this.assertSharedCompactionConfig(bundle, contextHydration);
     this.assertKnowledgeAccessConfig(bundle, toolPolicyByCode);
     this.assertWorkerToolsConfig(bundle, toolPolicyByCode);
     this.assertBrowserConfig(bundle, toolPolicyByCode);

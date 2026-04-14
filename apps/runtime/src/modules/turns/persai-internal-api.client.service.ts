@@ -6,6 +6,13 @@ import {
   ServiceUnavailableException
 } from "@nestjs/common";
 import type { RuntimeConfig } from "@persai/config";
+import type {
+  PersaiRuntimeMemoryWriteKind,
+  PersaiRuntimeKnowledgeSource,
+  RuntimeKnowledgeDocument,
+  RuntimeKnowledgeSearchHit,
+  RuntimeMemoryWriteItem
+} from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../runtime-config";
 
 const INTERNAL_API_TIMEOUT_MS = 10_000;
@@ -66,6 +73,36 @@ export type InternalScheduledActionControlInput =
       action: "pause" | "resume" | "cancel";
       taskId: string;
     };
+
+export type InternalKnowledgeSearchInput = {
+  assistantId: string;
+  source: PersaiRuntimeKnowledgeSource;
+  query: string;
+  maxResults: number | null;
+};
+
+export type InternalKnowledgeFetchInput = {
+  assistantId: string;
+  source: PersaiRuntimeKnowledgeSource;
+  referenceId: string;
+};
+
+export type InternalMemoryWriteInput = {
+  assistantId: string;
+  kind: PersaiRuntimeMemoryWriteKind;
+  summary: string;
+  transportSurface: "web" | "telegram";
+  sourceTrust: "trusted_1to1" | "group";
+  relatedUserMessageId: string | null;
+  requestId: string | null;
+};
+
+export type InternalMemoryWriteOutcome = {
+  written: boolean;
+  code: string | null;
+  message: string | null;
+  item: RuntimeMemoryWriteItem | null;
+};
 
 @Injectable()
 export class PersaiInternalApiClientService {
@@ -216,6 +253,134 @@ export class PersaiInternalApiClientService {
     );
   }
 
+  async searchKnowledge(input: InternalKnowledgeSearchInput): Promise<RuntimeKnowledgeSearchHit[]> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/knowledge/search", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const hits = payload?.hits;
+      if (
+        payload?.ok === true &&
+        Array.isArray(hits) &&
+        hits.every((hit) => this.isKnowledgeHit(hit))
+      ) {
+        return hits;
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid knowledge search response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API knowledge search request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the knowledge search request."
+    );
+  }
+
+  async fetchKnowledge(
+    input: InternalKnowledgeFetchInput
+  ): Promise<RuntimeKnowledgeDocument | null> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/knowledge/fetch", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const document = payload?.document;
+      if (payload?.ok === true && (document === null || this.isKnowledgeDocument(document))) {
+        return document as RuntimeKnowledgeDocument | null;
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid knowledge fetch response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API knowledge fetch request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the knowledge fetch request."
+    );
+  }
+
+  async writeMemory(input: InternalMemoryWriteInput): Promise<InternalMemoryWriteOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/memory/write", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const item = payload?.item;
+      if (
+        payload?.ok === true &&
+        typeof payload.written === "boolean" &&
+        (payload.code === null || typeof payload.code === "string") &&
+        (payload.message === null || typeof payload.message === "string") &&
+        (item === null || this.isMemoryWriteItem(item))
+      ) {
+        return {
+          written: payload.written,
+          code: payload.code as string | null,
+          message: payload.message as string | null,
+          item: (item as RuntimeMemoryWriteItem | null) ?? null
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid memory write response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API memory write request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the memory write request."
+    );
+  }
+
   private buildUrl(pathname: string): string {
     const baseUrl = this.config.PERSAI_API_BASE_URL?.trim();
     if (!baseUrl) {
@@ -275,6 +440,47 @@ export class PersaiInternalApiClientService {
       (row.controlStatus === "active" || row.controlStatus === "disabled") &&
       (row.nextRunAt === null || typeof row.nextRunAt === "string") &&
       (row.externalRef === null || typeof row.externalRef === "string")
+    );
+  }
+
+  private isKnowledgeHit(value: unknown): value is RuntimeKnowledgeSearchHit {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.referenceId === "string" &&
+      typeof row.source === "string" &&
+      (row.title === null || typeof row.title === "string") &&
+      (row.locator === null || typeof row.locator === "string") &&
+      (row.snippet === null || typeof row.snippet === "string") &&
+      (row.score === null || typeof row.score === "number") &&
+      (row.metadata === null || this.asObject(row.metadata) !== null)
+    );
+  }
+
+  private isKnowledgeDocument(value: unknown): value is RuntimeKnowledgeDocument {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.referenceId === "string" &&
+      typeof row.source === "string" &&
+      (row.title === null || typeof row.title === "string") &&
+      (row.locator === null || typeof row.locator === "string") &&
+      typeof row.content === "string" &&
+      (row.snippet === null || typeof row.snippet === "string") &&
+      (row.metadata === null || this.asObject(row.metadata) !== null)
+    );
+  }
+
+  private isMemoryWriteItem(value: unknown): value is RuntimeMemoryWriteItem {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.id === "string" &&
+      typeof row.summary === "string" &&
+      (row.kind === "fact" || row.kind === "preference" || row.kind === "open_loop") &&
+      (row.sourceLabel === null || typeof row.sourceLabel === "string") &&
+      typeof row.createdAt === "string" &&
+      (row.chatId === null || typeof row.chatId === "string")
     );
   }
 

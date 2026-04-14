@@ -4,6 +4,7 @@ import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assista
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
+import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
 
 const ASSISTANT_PUBLISHED_VERSIONS_NO_DELETE_TRIGGER = "assistant_published_versions_no_delete";
 const ASSISTANT_AUDIT_EVENTS_NO_UPDATE_TRIGGER = "assistant_audit_events_no_update";
@@ -18,7 +19,8 @@ export class AdminDeleteUserService {
     private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
+    private readonly knowledgeObjectStorage: PersaiKnowledgeObjectStorageService
   ) {}
 
   async execute(callerUserId: string, targetUserId: string): Promise<void> {
@@ -46,6 +48,15 @@ export class AdminDeleteUserService {
         ? BigInt(0)
         : ((
             await this.prisma.assistantChatMessageAttachment.aggregate({
+              where: { assistantId: assistant.id },
+              _sum: { sizeBytes: true }
+            })
+          )._sum.sizeBytes ?? BigInt(0));
+    const releasedKnowledgeBytes =
+      assistant === null
+        ? BigInt(0)
+        : ((
+            await this.prisma.assistantKnowledgeSource.aggregate({
               where: { assistantId: assistant.id },
               _sum: { sizeBytes: true }
             })
@@ -79,6 +90,7 @@ export class AdminDeleteUserService {
 
             await tx.assistantMemoryRegistryItem.deleteMany({ where: { assistantId: aid } });
             await tx.assistantTaskRegistryItem.deleteMany({ where: { assistantId: aid } });
+            await tx.assistantKnowledgeSource.deleteMany({ where: { assistantId: aid } });
 
             await tx.assistantMaterializedSpec.deleteMany({ where: { assistantId: aid } });
 
@@ -155,6 +167,9 @@ export class AdminDeleteUserService {
       await this.mediaObjectStorage.deletePrefix(
         this.mediaObjectStorage.buildAssistantPrefix(assistant.id)
       );
+      await this.knowledgeObjectStorage.deletePrefix(
+        this.knowledgeObjectStorage.buildAssistantPrefix(assistant.id)
+      );
     }
 
     if (assistant !== null && workspaceId !== null) {
@@ -172,6 +187,18 @@ export class AdminDeleteUserService {
           >[0]["assistant"],
           sizeBytes: releasedBytes,
           source: "admin_delete_user_media_cleanup",
+          metadata: { targetUserId }
+        });
+        await this.trackWorkspaceQuotaUsageService.releaseKnowledgeStorage({
+          assistant: {
+            id: assistant.id,
+            userId: assistant.userId,
+            workspaceId: assistant.workspaceId
+          } as Parameters<
+            typeof this.trackWorkspaceQuotaUsageService.releaseKnowledgeStorage
+          >[0]["assistant"],
+          sizeBytes: releasedKnowledgeBytes,
+          source: "admin_delete_user_knowledge_cleanup",
           metadata: { targetUserId }
         });
       }

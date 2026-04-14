@@ -42,6 +42,8 @@ type ToolActivationDraft = {
 };
 
 type VideoGenerateModelDraft = "" | "sora-2" | "sora-2-pro";
+type ContextPolicyPresetDraft = AdminPlanState["contextPolicy"]["preset"];
+type ContextPolicyPresetWithDefaults = Exclude<ContextPolicyPresetDraft, "custom">;
 
 export type PlanDraft = {
   displayName: string;
@@ -63,6 +65,13 @@ export type PlanDraft = {
   tokenBudgetLimit: string;
   mediaStorageMb: string;
   workspaceStorageMb: string;
+  contextPolicyPreset: ContextPolicyPresetDraft;
+  targetContextBudget: string;
+  compactionTriggerThreshold: string;
+  keepRecentMinimum: string;
+  knowledgeHydrationBudget: string;
+  autoCompactionWeb: boolean;
+  autoCompactionTelegram: boolean;
   primaryModelKey: string;
   videoGenerateModelKey: VideoGenerateModelDraft;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
@@ -87,6 +96,57 @@ export const VIDEO_GENERATE_MODEL_OPTIONS: Array<{
   { value: "sora-2-pro", label: "sora-2-pro" }
 ];
 
+const CONTEXT_POLICY_PRESET_OPTIONS: Array<{
+  value: ContextPolicyPresetDraft;
+  label: string;
+}> = [
+  { value: "lean", label: "Lean" },
+  { value: "balanced", label: "Balanced" },
+  { value: "rich", label: "Rich" },
+  { value: "custom", label: "Custom" }
+];
+
+const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
+  ContextPolicyPresetWithDefaults,
+  Omit<
+    Pick<
+      PlanDraft,
+      | "targetContextBudget"
+      | "compactionTriggerThreshold"
+      | "keepRecentMinimum"
+      | "knowledgeHydrationBudget"
+      | "autoCompactionWeb"
+      | "autoCompactionTelegram"
+    >,
+    never
+  >
+> = {
+  lean: {
+    targetContextBudget: "16000",
+    compactionTriggerThreshold: "6000",
+    keepRecentMinimum: "2",
+    knowledgeHydrationBudget: "1200",
+    autoCompactionWeb: true,
+    autoCompactionTelegram: true
+  },
+  balanced: {
+    targetContextBudget: "24000",
+    compactionTriggerThreshold: "8000",
+    keepRecentMinimum: "4",
+    knowledgeHydrationBudget: "2400",
+    autoCompactionWeb: false,
+    autoCompactionTelegram: true
+  },
+  rich: {
+    targetContextBudget: "32000",
+    compactionTriggerThreshold: "12000",
+    keepRecentMinimum: "6",
+    knowledgeHydrationBudget: "3600",
+    autoCompactionWeb: false,
+    autoCompactionTelegram: true
+  }
+};
+
 /* ─── Helpers ─── */
 
 function toNullable(value: string): string | null {
@@ -98,6 +158,40 @@ function toVideoGenerateModelDraft(
   value: AdminPlanState["videoGenerateModelKey"] | null | undefined
 ): VideoGenerateModelDraft {
   return value === "sora-2" || value === "sora-2-pro" ? value : "";
+}
+
+function applyContextPolicyPreset(
+  preset: ContextPolicyPresetWithDefaults
+): Pick<
+  PlanDraft,
+  | "contextPolicyPreset"
+  | "targetContextBudget"
+  | "compactionTriggerThreshold"
+  | "keepRecentMinimum"
+  | "knowledgeHydrationBudget"
+  | "autoCompactionWeb"
+  | "autoCompactionTelegram"
+> {
+  return {
+    contextPolicyPreset: preset,
+    ...CONTEXT_POLICY_PRESET_DEFAULTS[preset]
+  };
+}
+
+function fallbackContextPolicyPreset(
+  preset: ContextPolicyPresetDraft
+): ContextPolicyPresetWithDefaults {
+  return preset === "lean" || preset === "rich" ? preset : "balanced";
+}
+
+function parsePositiveIntDraft(value: string, fallback: number): number {
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseNonNegativeIntDraft(value: string, fallback: number): number {
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function emptyDraft(): PlanDraft {
@@ -121,6 +215,7 @@ function emptyDraft(): PlanDraft {
     tokenBudgetLimit: "",
     mediaStorageMb: "",
     workspaceStorageMb: "",
+    ...applyContextPolicyPreset("balanced"),
     primaryModelKey: "",
     videoGenerateModelKey: "",
     runtimeTierDefault: "free_shared_restricted",
@@ -155,6 +250,13 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
       plan.quotaLimits?.workspaceStorageBytesLimit != null
         ? String(Math.round(plan.quotaLimits.workspaceStorageBytesLimit / 1048576))
         : "",
+    contextPolicyPreset: plan.contextPolicy.preset,
+    targetContextBudget: plan.contextPolicy.targetContextBudget.toString(),
+    compactionTriggerThreshold: plan.contextPolicy.compactionTriggerThreshold.toString(),
+    keepRecentMinimum: plan.contextPolicy.keepRecentMinimum.toString(),
+    knowledgeHydrationBudget: plan.contextPolicy.knowledgeHydrationBudget.toString(),
+    autoCompactionWeb: plan.contextPolicy.autoCompactionWeb,
+    autoCompactionTelegram: plan.contextPolicy.autoCompactionTelegram,
     primaryModelKey: plan.primaryModelKey ?? "",
     videoGenerateModelKey: toVideoGenerateModelDraft(plan.videoGenerateModelKey),
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
@@ -173,6 +275,8 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
 
 export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
   const tokenBudget = draft.tokenBudgetLimit.trim();
+  const contextPolicyDefaults =
+    CONTEXT_POLICY_PRESET_DEFAULTS[fallbackContextPolicyPreset(draft.contextPolicyPreset)];
   return {
     displayName: draft.displayName.trim(),
     description: toNullable(draft.description),
@@ -212,6 +316,27 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
         const parsed = parseInt(mb, 10);
         return parsed > 0 ? parsed * 1048576 : null;
       })()
+    },
+    contextPolicy: {
+      preset: draft.contextPolicyPreset,
+      targetContextBudget: parsePositiveIntDraft(
+        draft.targetContextBudget,
+        Number.parseInt(contextPolicyDefaults.targetContextBudget, 10)
+      ),
+      compactionTriggerThreshold: parsePositiveIntDraft(
+        draft.compactionTriggerThreshold,
+        Number.parseInt(contextPolicyDefaults.compactionTriggerThreshold, 10)
+      ),
+      keepRecentMinimum: parsePositiveIntDraft(
+        draft.keepRecentMinimum,
+        Number.parseInt(contextPolicyDefaults.keepRecentMinimum, 10)
+      ),
+      knowledgeHydrationBudget: parseNonNegativeIntDraft(
+        draft.knowledgeHydrationBudget,
+        Number.parseInt(contextPolicyDefaults.knowledgeHydrationBudget, 10)
+      ),
+      autoCompactionWeb: draft.autoCompactionWeb,
+      autoCompactionTelegram: draft.autoCompactionTelegram
     },
     primaryModelKey: toNullable(draft.primaryModelKey),
     videoGenerateModelKey: draft.videoGenerateModelKey === "" ? null : draft.videoGenerateModelKey,
@@ -781,7 +906,131 @@ function PlanForm({
         </div>
       </div>
 
-      {/* row 5: tool activations */}
+      {/* row 5: context policy */}
+      <Sec label="Context policy">
+        <div className="rounded border border-border bg-surface px-3 py-2">
+          <div className="grid gap-2 md:grid-cols-[180px_1fr]">
+            <div>
+              <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+                Preset
+              </label>
+              <select
+                value={draft.contextPolicyPreset}
+                onChange={(e) => {
+                  const preset = e.target.value as ContextPolicyPresetDraft;
+                  if (preset === "lean" || preset === "balanced" || preset === "rich") {
+                    onPatch(applyContextPolicyPreset(preset));
+                    return;
+                  }
+                  onPatch({ contextPolicyPreset: "custom" });
+                }}
+                className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+              >
+                {CONTEXT_POLICY_PRESET_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] leading-snug text-text-subtle/80">
+                Presets tune prompt budget, compaction pressure, and auto-behavior per plan. Any
+                manual override switches the draft to custom.
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <label className="space-y-1 text-[11px] font-medium text-text">
+                <span className="block">Target context budget</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={draft.targetContextBudget}
+                  onValue={(value) =>
+                    onPatch({
+                      contextPolicyPreset: "custom",
+                      targetContextBudget: value
+                    })
+                  }
+                  placeholder="24000"
+                />
+              </label>
+              <label className="space-y-1 text-[11px] font-medium text-text">
+                <span className="block">Compaction trigger</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={draft.compactionTriggerThreshold}
+                  onValue={(value) =>
+                    onPatch({
+                      contextPolicyPreset: "custom",
+                      compactionTriggerThreshold: value
+                    })
+                  }
+                  placeholder="8000"
+                />
+              </label>
+              <label className="space-y-1 text-[11px] font-medium text-text">
+                <span className="block">Keep recent turns</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={draft.keepRecentMinimum}
+                  onValue={(value) =>
+                    onPatch({
+                      contextPolicyPreset: "custom",
+                      keepRecentMinimum: value
+                    })
+                  }
+                  placeholder="4"
+                />
+              </label>
+              <label className="space-y-1 text-[11px] font-medium text-text">
+                <span className="block">Knowledge budget</span>
+                <Input
+                  type="number"
+                  min={0}
+                  value={draft.knowledgeHydrationBudget}
+                  onValue={(value) =>
+                    onPatch({
+                      contextPolicyPreset: "custom",
+                      knowledgeHydrationBudget: value
+                    })
+                  }
+                  placeholder="2400"
+                />
+              </label>
+            </div>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+            <Check
+              label="Auto-compact on web"
+              checked={draft.autoCompactionWeb}
+              onChange={(value) =>
+                onPatch({
+                  contextPolicyPreset: "custom",
+                  autoCompactionWeb: value
+                })
+              }
+            />
+            <Check
+              label="Auto-compact on Telegram"
+              checked={draft.autoCompactionTelegram}
+              onChange={(value) =>
+                onPatch({
+                  contextPolicyPreset: "custom",
+                  autoCompactionTelegram: value
+                })
+              }
+            />
+          </div>
+          <p className="mt-2 text-[10px] leading-snug text-text-subtle/80">
+            `Target context budget` is the plan&apos;s target message budget. `Compaction trigger`
+            defines when runtime should start compressing older context. `Knowledge budget` reserves
+            space for durable memory and future retrieval inserts.
+          </p>
+        </div>
+      </Sec>
+
+      {/* row 6: tool activations */}
       <Sec label="Tool activations">
         <ToolActivationsEdit
           activations={editableActivations}
@@ -869,6 +1118,7 @@ function PlanCardReadOnly({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-border/50 px-3 py-1.5 text-[10px]">
           <KV label="Channels">{channels.join(", ")}</KV>
           <KV label="Tools">{toolClasses.join(", ")}</KV>
+          <KV label="Context">{plan.contextPolicy.preset}</KV>
           <span className="text-text-subtle">|</span>
           <ToolActivationsInline activations={[...planManaged, ...platformManaged]} />
         </div>
@@ -946,6 +1196,19 @@ function PlanCardReadOnly({
                 <span className="text-[10px] text-text-subtle">
                   {plan.videoGenerateModelKey ?? "sora-2 (default)"}
                 </span>
+              </Sec>
+              <Sec label="Context policy">
+                <div className="space-y-0.5 text-[10px] text-text-subtle">
+                  <div>Preset: {plan.contextPolicy.preset}</div>
+                  <div>Budget: {plan.contextPolicy.targetContextBudget}</div>
+                  <div>Trigger: {plan.contextPolicy.compactionTriggerThreshold}</div>
+                  <div>Keep recent: {plan.contextPolicy.keepRecentMinimum}</div>
+                  <div>Knowledge: {plan.contextPolicy.knowledgeHydrationBudget}</div>
+                  <div>
+                    Auto web / TG: {plan.contextPolicy.autoCompactionWeb ? "on" : "off"} /{" "}
+                    {plan.contextPolicy.autoCompactionTelegram ? "on" : "off"}
+                  </div>
+                </div>
               </Sec>
             </div>
           </div>

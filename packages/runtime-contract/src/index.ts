@@ -147,6 +147,67 @@ export interface RuntimeSharedCompactionConfig {
   telegramAutoSummarizeEnabled: boolean;
 }
 
+export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESETS = [
+  "lean",
+  "balanced",
+  "rich",
+  "custom"
+] as const;
+
+export type PersaiRuntimeContextHydrationPreset =
+  (typeof PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESETS)[number];
+
+export interface RuntimeContextHydrationConfig {
+  preset: PersaiRuntimeContextHydrationPreset;
+  targetContextBudget: number;
+  compactionTriggerThreshold: number;
+  keepRecentMinimum: number;
+  knowledgeHydrationBudget: number;
+  autoCompactionWeb: boolean;
+  autoCompactionTelegram: boolean;
+}
+
+type RuntimeContextHydrationPresetDefaults = Omit<RuntimeContextHydrationConfig, "preset">;
+
+export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS: Record<
+  Exclude<PersaiRuntimeContextHydrationPreset, "custom">,
+  RuntimeContextHydrationPresetDefaults
+> = {
+  lean: {
+    targetContextBudget: 16_000,
+    compactionTriggerThreshold: 6_000,
+    keepRecentMinimum: 2,
+    knowledgeHydrationBudget: 1_200,
+    autoCompactionWeb: true,
+    autoCompactionTelegram: true
+  },
+  balanced: {
+    targetContextBudget: 24_000,
+    compactionTriggerThreshold: 8_000,
+    keepRecentMinimum: 4,
+    knowledgeHydrationBudget: 2_400,
+    autoCompactionWeb: false,
+    autoCompactionTelegram: true
+  },
+  rich: {
+    targetContextBudget: 32_000,
+    compactionTriggerThreshold: 12_000,
+    keepRecentMinimum: 6,
+    knowledgeHydrationBudget: 3_600,
+    autoCompactionWeb: false,
+    autoCompactionTelegram: true
+  }
+};
+
+export const DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET = "balanced" as const;
+
+export const DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_CONFIG: RuntimeContextHydrationConfig = {
+  preset: DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET,
+  ...PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS[
+    DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET
+  ]
+};
+
 export const PERSAI_RUNTIME_KNOWLEDGE_TOOL_CODES = ["knowledge_search", "knowledge_fetch"] as const;
 
 export type PersaiRuntimeKnowledgeToolCode = (typeof PERSAI_RUNTIME_KNOWLEDGE_TOOL_CODES)[number];
@@ -154,6 +215,10 @@ export type PersaiRuntimeKnowledgeToolCode = (typeof PERSAI_RUNTIME_KNOWLEDGE_TO
 export const PERSAI_RUNTIME_KNOWLEDGE_SOURCES = [
   "web",
   "memory",
+  "chat",
+  "preset",
+  "subscription",
+  "global",
   "document",
   "database",
   "vector",
@@ -242,6 +307,29 @@ export interface RuntimeKnowledgeSearchToolResult extends RuntimeKnowledgeSearch
 export interface RuntimeKnowledgeFetchToolResult extends RuntimeKnowledgeFetchResult {
   action: "fetched" | "skipped";
   reason: string | null;
+}
+
+export const PERSAI_RUNTIME_MEMORY_WRITE_KINDS = ["fact", "preference", "open_loop"] as const;
+
+export type PersaiRuntimeMemoryWriteKind = (typeof PERSAI_RUNTIME_MEMORY_WRITE_KINDS)[number];
+
+export interface RuntimeMemoryWriteItem {
+  id: string;
+  summary: string;
+  kind: PersaiRuntimeMemoryWriteKind;
+  sourceLabel: string | null;
+  createdAt: IsoTimestamp;
+  chatId: string | null;
+}
+
+export interface RuntimeMemoryWriteToolResult {
+  toolCode: "memory_write";
+  executionMode: "inline";
+  requestedKind: PersaiRuntimeMemoryWriteKind;
+  item: RuntimeMemoryWriteItem | null;
+  action: "remembered" | "skipped";
+  reason: string | null;
+  warning: string | null;
 }
 
 export const PERSAI_RUNTIME_WORKER_TOOL_FAMILIES = [
@@ -851,6 +939,12 @@ export interface RuntimeTurnResult {
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
   trace?: RuntimeTrace;
+  autoCompaction?: RuntimeTurnAutoCompactionState;
+}
+
+export interface RuntimeTurnAutoCompactionState {
+  tokensBefore: number | null;
+  tokensAfter: number | null;
 }
 
 export interface ProviderGatewayTextMessage {

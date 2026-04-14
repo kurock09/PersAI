@@ -559,7 +559,7 @@ export class AssistantController {
     items: Array<{
       id: string;
       summary: string;
-      sourceType: "web_chat";
+      sourceType: "web_chat" | "memory_write";
       sourceLabel: string | null;
       createdAt: string;
       chatId: string | null;

@@ -26,6 +26,7 @@ import {
   normalizeReusableCompactionStateFromModelOutput
 } from "./shared-compaction-state";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
+import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
 
 type NativeManagedProvider = "openai" | "anthropic";
 
@@ -205,11 +206,8 @@ export class SessionCompactionService {
         });
       }
 
-      const sharedCompaction = bundleEntry.parsedBundle.runtime.sharedCompaction;
-      const tokenThreshold = Math.max(
-        1,
-        sharedCompaction.reserveTokens - sharedCompaction.keepRecentTokens
-      );
+      const contextHydration = resolveRuntimeContextHydrationConfig(bundleEntry.parsedBundle);
+      const tokenThreshold = Math.max(1, contextHydration.compactionTriggerThreshold);
       const freshCurrentTokens =
         resolvedSession.session.totalTokensFresh === true
           ? resolvedSession.session.currentTokens
@@ -235,14 +233,14 @@ export class SessionCompactionService {
           compactionRecordId: null,
           summaryText: null,
           summaryPayload: null,
-          preservedRecentTurns: sharedCompaction.recentTurnsPreserve,
+          preservedRecentTurns: contextHydration.keepRecentMinimum,
           reusableInLaterTurns: false
         });
       }
 
       const compactionSource = await this.turnContextHydrationService.buildCompactionMessages({
         conversation: input.input.conversation,
-        keepRecentMessageCount: Math.max(1, sharedCompaction.recentTurnsPreserve * 2)
+        keepRecentMessageCount: Math.max(1, contextHydration.keepRecentMinimum * 2)
       });
       if (compactionSource.summarizedMessageCount < MIN_SUMMARIZED_MESSAGE_COUNT) {
         return this.buildCompactionResult({
@@ -265,7 +263,7 @@ export class SessionCompactionService {
           compactionRecordId: null,
           summaryText: null,
           summaryPayload: null,
-          preservedRecentTurns: sharedCompaction.recentTurnsPreserve,
+          preservedRecentTurns: contextHydration.keepRecentMinimum,
           reusableInLaterTurns: false
         });
       }
@@ -305,7 +303,7 @@ export class SessionCompactionService {
           compactionRecordId: null,
           summaryText: null,
           summaryPayload: null,
-          preservedRecentTurns: sharedCompaction.recentTurnsPreserve,
+          preservedRecentTurns: contextHydration.keepRecentMinimum,
           reusableInLaterTurns: false
         });
       }
@@ -356,7 +354,7 @@ export class SessionCompactionService {
         compactionRecordId,
         summaryText: normalizedSummary.summaryText,
         summaryPayload: normalizedSummary.payload,
-        preservedRecentTurns: sharedCompaction.recentTurnsPreserve,
+        preservedRecentTurns: contextHydration.keepRecentMinimum,
         reusableInLaterTurns: input.persistSummary
       });
     } finally {

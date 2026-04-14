@@ -22,4 +22,5 @@ export interface AssistantWebChatCompactionState {
   lastCompactedAt: string | null;
   reserveTokens: number;
   keepRecentTokens: number;
+  autoCompactionEnabled: boolean;
 }

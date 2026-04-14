@@ -4,6 +4,7 @@ import {
   type PersaiRuntimeVideoGenerateModelKey,
   type RuntimeAssistantVoiceProfile,
   type RuntimeBrowserConfig,
+  type RuntimeContextHydrationConfig,
   type RuntimeKnowledgeAccessConfig,
   type RuntimeSharedCompactionConfig,
   type RuntimeToolPolicy,
@@ -67,6 +68,7 @@ export interface AssistantRuntimeBundleRuntimeConfig {
   runtimeProviderProfile: unknown;
   runtimeProviderRouting: unknown;
   optimizationPolicy: unknown;
+  contextHydration: RuntimeContextHydrationConfig;
   sharedCompaction: RuntimeSharedCompactionConfig;
   knowledgeAccess: RuntimeKnowledgeAccessConfig;
   workerTools: RuntimeWorkerToolsConfig;

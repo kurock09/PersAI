@@ -15,6 +15,15 @@ function createService(): ManageAdminPlansService {
 
 async function run(): Promise<void> {
   const service = createService();
+  const contextPolicy = {
+    preset: "balanced" as const,
+    targetContextBudget: 24000,
+    compactionTriggerThreshold: 8000,
+    keepRecentMinimum: 4,
+    knowledgeHydrationBudget: 2400,
+    autoCompactionWeb: false,
+    autoCompactionTelegram: true
+  };
 
   const parsed = service.parseUpdateInput({
     displayName: "Starter",
@@ -50,6 +59,7 @@ async function run(): Promise<void> {
     quotaLimits: {
       tokenBudgetLimit: 1000
     },
+    contextPolicy,
     primaryModelKey: null,
     videoGenerateModelKey: "sora-2-pro",
     runtimeTierDefault: "free_shared_restricted",
@@ -64,6 +74,7 @@ async function run(): Promise<void> {
 
   assert.equal(parsed.toolActivations?.[0]?.toolCode, "memory_get");
   assert.equal(parsed.videoGenerateModelKey, "sora-2-pro");
+  assert.equal(parsed.contextPolicy.preset, "balanced");
 
   const writeInput = (
     service as unknown as {
@@ -74,10 +85,17 @@ async function run(): Promise<void> {
     (writeInput.billingProviderHints as Record<string, unknown>).videoGenerateModelKey,
     "sora-2-pro"
   );
+  assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).contextPolicy, {
+    schema: "persai.planContextHydration.v1",
+    ...contextPolicy
+  });
 
   const state = (
     service as unknown as {
-      toAdminPlanState(plan: AssistantPlanCatalog): { videoGenerateModelKey: string | null };
+      toAdminPlanState(plan: AssistantPlanCatalog): {
+        videoGenerateModelKey: string | null;
+        contextPolicy: { preset: string };
+      };
     }
   ).toAdminPlanState({
     id: "plan-1",
@@ -95,6 +113,7 @@ async function run(): Promise<void> {
     updatedAt: new Date("2026-04-14T12:00:00.000Z")
   });
   assert.equal(state.videoGenerateModelKey, "sora-2-pro");
+  assert.equal(state.contextPolicy.preset, "balanced");
 
   assert.throws(
     () =>
@@ -132,6 +151,7 @@ async function run(): Promise<void> {
         quotaLimits: {
           tokenBudgetLimit: 1000
         },
+        contextPolicy,
         primaryModelKey: null,
         videoGenerateModelKey: "sora-3",
         runtimeTierDefault: "free_shared_restricted"
@@ -176,6 +196,7 @@ async function run(): Promise<void> {
         quotaLimits: {
           tokenBudgetLimit: 1000
         },
+        contextPolicy,
         primaryModelKey: null,
         runtimeTierDefault: "free_shared_restricted",
         toolActivations: [
@@ -226,6 +247,7 @@ async function run(): Promise<void> {
         quotaLimits: {
           tokenBudgetLimit: 1000
         },
+        contextPolicy,
         primaryModelKey: null,
         runtimeTierDefault: "free_shared_restricted",
         toolActivations: [
