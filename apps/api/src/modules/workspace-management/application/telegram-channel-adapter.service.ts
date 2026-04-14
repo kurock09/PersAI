@@ -7,8 +7,13 @@ import {
 } from "./resolve-telegram-channel-runtime-config.service";
 import {
   TelegramBotClientService,
-  TelegramBotUnauthorizedError
+  TelegramBotUnauthorizedError,
+  type TelegramChatActionHeartbeat
 } from "./telegram-bot.client.service";
+import {
+  resolveTelegramOutboundChatAction,
+  resolveTelegramToolChatAction
+} from "./telegram-chat-actions";
 import { SyncTelegramChatTargetService } from "./sync-telegram-chat-target.service";
 import { SyncTelegramGroupMembershipService } from "./sync-telegram-group-membership.service";
 import {
@@ -527,6 +532,9 @@ export class TelegramChannelAdapterService {
     });
 
     let turnResult;
+    const chatActionState: { current: TelegramChatActionHeartbeat | null } = {
+      current: null
+    };
     try {
       const conversationIdentity = toTelegramConversationIdentity(event);
       turnResult = await this.handleInternalTelegramTurnService.execute({
@@ -537,9 +545,29 @@ export class TelegramChannelAdapterService {
         message: event.userMessage,
         updateId: event.updateId,
         hasAttachments: event.attachment !== null,
-        loadRawAttachments: async () => this.buildRawAttachments(config, event)
+        loadRawAttachments: async () => this.buildRawAttachments(config, event),
+        onProcessingStarted: () => {
+          if (chatActionState.current !== null) {
+            return;
+          }
+          chatActionState.current = this.telegramBotClientService.startChatActionHeartbeat({
+            botToken: config.botToken,
+            chatId: event.chatId,
+            initialAction: "typing"
+          });
+        },
+        onRuntimeTool: ({ phase, toolName, isError }) => {
+          chatActionState.current?.setAction(
+            resolveTelegramToolChatAction({
+              phase,
+              toolName,
+              isError
+            })
+          );
+        }
       });
     } catch (error) {
+      chatActionState.current?.stop();
       if (await this.handleUnauthorizedTelegramError(config.assistantId, error)) {
         await this.completeTelegramUpdateBestEffort(config.assistantId, event.updateId);
         return { statusCode: 200, body: { ok: false, error: "invalid_bot_token" } };
@@ -572,9 +600,13 @@ export class TelegramChannelAdapterService {
         chatId: event.chatId,
         assistantId: config.assistantId,
         parseMode: config.parseMode,
-        turnResult
+        turnResult,
+        onBeforeMediaSend: (media) => {
+          chatActionState.current?.setAction(resolveTelegramOutboundChatAction(media));
+        }
       });
     } catch (error) {
+      chatActionState.current?.stop();
       if (await this.handleUnauthorizedTelegramError(config.assistantId, error)) {
         return { statusCode: 200, body: { ok: false, error: "invalid_bot_token" } };
       }
@@ -583,6 +615,7 @@ export class TelegramChannelAdapterService {
       );
       return { statusCode: 200, body: { ok: false, error: "telegram_delivery_failed" } };
     }
+    chatActionState.current?.stop();
 
     return { statusCode: 200, body: { ok: true } };
   }

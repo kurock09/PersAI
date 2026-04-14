@@ -32,6 +32,7 @@ import {
   type RuntimeScheduledActionToolResult,
   type RuntimeSharedCompactionToolResult,
   type RuntimeTtsToolResult,
+  type RuntimeVideoGenerateToolResult,
   type RuntimeToolPolicy,
   type RuntimeFailedEvent,
   type RuntimeInterruptedEvent,
@@ -56,6 +57,7 @@ import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
+import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
@@ -102,6 +104,7 @@ type ToolExecutionOutcome = {
     | RuntimeImageGenerateToolResult
     | RuntimeScheduledActionToolResult
     | RuntimeTtsToolResult
+    | RuntimeVideoGenerateToolResult
     | RuntimeWebSearchToolResult
     | RuntimeWebFetchToolResult
     | Record<string, unknown>;
@@ -134,6 +137,7 @@ const WEB_FETCH_MAX_MAX_CHARS = 50_000;
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
 const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
+const VIDEO_GENERATE_TOOL_CODE = "video_generate";
 const TTS_TOOL_CODE = "tts";
 
 @Injectable()
@@ -152,7 +156,8 @@ export class TurnExecutionService {
     private readonly runtimeImageEditToolService: RuntimeImageEditToolService,
     private readonly runtimeImageGenerateToolService: RuntimeImageGenerateToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
-    private readonly runtimeTtsToolService: RuntimeTtsToolService
+    private readonly runtimeTtsToolService: RuntimeTtsToolService,
+    private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -894,6 +899,22 @@ export class TurnExecutionService {
           result.artifacts
         );
       }
+      case VIDEO_GENERATE_TOOL_CODE: {
+        const result = await this.runtimeVideoGenerateToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          currentAttachments: execution.currentMessageAttachments,
+          sessionId: acceptedTurn.session.sessionId,
+          requestId: acceptedTurn.receipt.requestId
+        });
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.payload,
+          result.isError,
+          undefined,
+          result.artifacts
+        );
+      }
       case TTS_TOOL_CODE: {
         const result = await this.runtimeTtsToolService.executeToolCall({
           bundle: execution.bundle,
@@ -1278,6 +1299,7 @@ export class TurnExecutionService {
       | RuntimeImageGenerateToolResult
       | RuntimeScheduledActionToolResult
       | RuntimeTtsToolResult
+      | RuntimeVideoGenerateToolResult
       | RuntimeWebSearchToolResult
       | RuntimeWebFetchToolResult
       | Record<string, unknown>,

@@ -8,6 +8,8 @@ import type {
   ProviderGatewayImageEditResult,
   ProviderGatewayImageGenerateRequest,
   ProviderGatewayImageGenerateResult,
+  ProviderGatewayVideoGenerateRequest,
+  ProviderGatewayVideoGenerateResult,
   RuntimeKnowledgeAccessConfig,
   RuntimeBrowserConfig,
   RuntimeCompactionResult,
@@ -43,6 +45,7 @@ import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
+import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
   FinalizedRuntimeTurn,
@@ -97,6 +100,15 @@ const WORKER_TOOLS_CONFIG = {
       family: "media_generation",
       outcomeKind: "artifact_refs",
       timeoutMs: 180000,
+      confirmationRule: "none",
+      supportsProviderRouting: true,
+      failureBehavior: "surface_error"
+    },
+    {
+      toolCode: "video_generate",
+      family: "media_generation",
+      outcomeKind: "artifact_refs",
+      timeoutMs: 300000,
       confirmationRule: "none",
       supportsProviderRouting: true,
       failureBehavior: "surface_error"
@@ -257,6 +269,16 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           },
           configured: false,
           providerId: "openai"
+        },
+        video_generate: {
+          refKey: "persai:persai-runtime:tool/image_generate/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/image_generate/api-key"
+          },
+          configured: false,
+          providerId: "openai"
         }
       },
       toolPolicies: [
@@ -289,6 +311,19 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           displayName: "Image Edit",
           description:
             "Edit the current-turn source image from a text prompt with an optional reference image.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "video_generate",
+          displayName: "Video Generate",
+          description:
+            "Generate a short video clip from text with an optional current-turn reference image.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -476,6 +511,10 @@ class FakeProviderGatewayClientService {
   streamCalls: ProviderGatewayTextGenerateRequest[] = [];
   imageEditCalls: ProviderGatewayImageEditRequest[] = [];
   imageGenerateCalls: ProviderGatewayImageGenerateRequest[] = [];
+  videoGenerateCalls: Array<{
+    input: ProviderGatewayVideoGenerateRequest;
+    options?: { timeoutMs?: number };
+  }> = [];
   webSearchCalls: ProviderGatewayWebSearchRequest[] = [];
   webFetchCalls: ProviderGatewayWebFetchRequest[] = [];
   browserActionCalls: Array<{
@@ -504,6 +543,7 @@ class FakeProviderGatewayClientService {
   webFetchError: Error | null = null;
   imageEditError: Error | null = null;
   imageGenerateError: Error | null = null;
+  videoGenerateError: Error | null = null;
   imageEditResult: ProviderGatewayImageEditResult = {
     provider: "openai",
     model: "gpt-image-1",
@@ -549,6 +589,26 @@ class FakeProviderGatewayClientService {
       inputTokens: 12,
       outputTokens: 34,
       totalTokens: 46
+    },
+    warning: null
+  };
+  videoGenerateResult: ProviderGatewayVideoGenerateResult = {
+    provider: "openai",
+    model: "sora-2",
+    prompt: "Animate a calm paper-cut forest at sunrise",
+    size: "1280x720",
+    seconds: 4,
+    video: {
+      bytesBase64: Buffer.from("video-binary").toString("base64"),
+      mimeType: "video/mp4"
+    },
+    respondedAt: "2026-04-14T12:00:00.000Z",
+    usage: {
+      providerKey: "openai",
+      modelKey: "sora-2",
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null
     },
     warning: null
   };
@@ -699,6 +759,17 @@ class FakeProviderGatewayClientService {
       throw this.imageEditError;
     }
     return this.imageEditResult;
+  }
+
+  async generateVideo(
+    input: ProviderGatewayVideoGenerateRequest,
+    options?: { timeoutMs?: number }
+  ): Promise<ProviderGatewayVideoGenerateResult> {
+    this.videoGenerateCalls.push(options === undefined ? { input } : { input, options });
+    if (this.videoGenerateError !== null) {
+      throw this.videoGenerateError;
+    }
+    return this.videoGenerateResult;
   }
 
   async webFetch(input: ProviderGatewayWebFetchRequest): Promise<ProviderGatewayWebFetchResult> {
@@ -1036,6 +1107,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
     mediaObjectStorage as never
   );
+  const runtimeVideoGenerateToolService = new RuntimeVideoGenerateToolService(
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    mediaObjectStorage as never
+  );
   const runtimeScheduledActionToolService = new RuntimeScheduledActionToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
@@ -1056,7 +1132,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeImageEditToolService,
     runtimeImageGenerateToolService,
     runtimeScheduledActionToolService,
-    runtimeTtsToolService
+    runtimeTtsToolService,
+    runtimeVideoGenerateToolService
   );
 
   const request = createRuntimeTurnRequest();
@@ -2519,6 +2596,153 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(imageGenerateToolHistory.prompt, "Draw a serene poster");
   assert.equal(imageGenerateToolHistory.artifacts?.[0]?.kind, "image");
   assert.equal(imageGenerateToolHistory.artifacts?.[0]?.filename, "poster.png");
+
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.video_generate = {
+      refKey: "persai:persai-runtime:tool/image_generate/api-key",
+      configured: true,
+      providerId: "openai",
+      secretRef: {
+        source: "persai",
+        provider: "persai-runtime",
+        id: "tool/image_generate/api-key"
+      }
+    };
+    const videoGeneratePolicy = bundleRegistry.entry.parsedBundle.governance.toolPolicies.find(
+      (tool) => tool.toolCode === "video_generate"
+    );
+    if (videoGeneratePolicy) {
+      videoGeneratePolicy.dailyCallLimit = 2;
+    }
+  }
+  const videoReferenceBuffer = Buffer.from("video-reference-image");
+  request.message.attachments = [
+    {
+      attachmentId: "attachment-video-reference-1",
+      kind: "image",
+      objectKey: "assistant-media/uploads/video-reference.png",
+      mimeType: "image/png",
+      filename: "video-reference.png",
+      sizeBytes: videoReferenceBuffer.length
+    }
+  ];
+  mediaObjectStorage.sourceObjects.set(
+    "assistant-media/uploads/video-reference.png",
+    videoReferenceBuffer
+  );
+  const providerCallsBeforeVideoGenerate = providerGatewayClient.calls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-14T12:00:00.500Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 18,
+        outputTokens: 0,
+        totalTokens: 18
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-video-1",
+          name: "video_generate",
+          arguments: {
+            prompt: "Animate the attached image into a calm sunrise clip",
+            referenceImageIndex: 1,
+            filename: "sunrise-clip.mp4",
+            size: "1280x720",
+            seconds: 4
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after video",
+      respondedAt: "2026-04-14T12:00:01.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 36,
+        outputTokens: 12,
+        totalTokens: 48
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  persaiInternalApiClientService.consumeOutcome = {
+    allowed: true,
+    currentCount: 1,
+    limit: 2
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const videoGenerateCompleted = await service.createTurn(request);
+  assert.equal(videoGenerateCompleted.assistantText, "reply after video");
+  assert.equal(videoGenerateCompleted.artifacts.length, 1);
+  assert.equal(videoGenerateCompleted.artifacts[0]?.kind, "video");
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeVideoGenerate + 2);
+  assert.equal(
+    providerGatewayClient.calls[providerCallsBeforeVideoGenerate]?.tools?.some(
+      (tool) => tool.name === "video_generate"
+    ),
+    true
+  );
+  assert.deepEqual(providerGatewayClient.videoGenerateCalls.at(-1), {
+    input: {
+      prompt: "Animate the attached image into a calm sunrise clip",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: {
+        bytesBase64: Buffer.from("video-reference-image").toString("base64"),
+        mimeType: "image/png",
+        filename: "video-reference.png"
+      },
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/image_generate/api-key",
+        providerId: "openai"
+      }
+    },
+    options: {
+      timeoutMs: 300000
+    }
+  });
+  assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
+    assistantId: "assistant-1",
+    toolCode: "video_generate",
+    dailyCallLimit: 2
+  });
+  assert.equal(mediaObjectStorage.saveCalls.at(-1)?.mimeType, "video/mp4");
+  const videoGenerateToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    provider?: string | null;
+    model?: string | null;
+    prompt?: string | null;
+    referenceImageIndex?: number | null;
+    artifact?: {
+      kind?: string;
+      filename?: string | null;
+    } | null;
+  };
+  assert.equal(videoGenerateToolHistory.action, "generated");
+  assert.equal(videoGenerateToolHistory.provider, "openai");
+  assert.equal(videoGenerateToolHistory.model, "sora-2");
+  assert.equal(
+    videoGenerateToolHistory.prompt,
+    "Animate the attached image into a calm sunrise clip"
+  );
+  assert.equal(videoGenerateToolHistory.referenceImageIndex, 1);
+  assert.equal(videoGenerateToolHistory.artifact?.kind, "video");
+  assert.equal(videoGenerateToolHistory.artifact?.filename, "sunrise-clip.mp4");
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.image_edit = {

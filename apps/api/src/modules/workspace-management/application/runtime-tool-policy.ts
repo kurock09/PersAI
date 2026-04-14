@@ -13,6 +13,7 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   browser: "worker",
   image_generate: "worker",
   image_edit: "worker",
+  video_generate: "worker",
   tts: "worker",
   memory_search: "inline",
   memory_get: "inline",

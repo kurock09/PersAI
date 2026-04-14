@@ -1,5 +1,153 @@
 # SESSION-HANDOFF
 
+## 2026-04-14 - ADR-072 media status UX follow-through
+
+### What changed
+
+1. `apps/web` no longer appends a growing chain of per-tool/per-runtime status badges for a single assistant reply; the chat now keeps one stronger live status badge under the active assistant message and replaces it as the turn progresses.
+2. The final web status stays honest: pure-text turns settle on `Response generated`, while tool-driven turns keep the last relevant tool/media status instead of falling back to a generic runtime badge.
+3. `apps/api` now routes native Telegram turns through the runtime stream seam instead of only the sync `createTurn` path, so Telegram outbound status can follow real `tool_started` / `tool_finished` events rather than heuristics.
+4. Telegram now drives bounded `sendChatAction` heartbeats with explicit media-aware mappings: `tts -> record_voice`, `video_generate -> record_video`, `image_generate` / `image_edit -> upload_photo`, and a final upload action switch before the outbound media file is actually sent.
+5. Focused web/runtime/provider/API tests plus the mandatory lint/format/typecheck gate were refreshed around the new status behavior.
+
+### Why
+
+1. The current web chat status UX was too noisy because every tool/runtime event was appended as a new badge instead of updating one live status for the current reply.
+2. Telegram status updates needed to be driven by real runtime tool lifecycle events to stay trustworthy during longer `tts` / image / video worker calls.
+3. A bounded heartbeat over native Telegram chat actions is the smallest honest way to make long media jobs feel alive without inventing a fake custom progress protocol.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-6 — Media generation and editing plan tools` is still the current slice. Native `image_generate`, `image_edit`, `tts`, and `video_generate` are now all landed, and the current follow-through hardens how those media tools surface progress in web chat and Telegram.
+
+### Files touched
+
+- `apps/web/app/app/_components/activity-badge.tsx`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/use-chat.test.tsx`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-bot.client.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-channel-adapter.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-chat-actions.ts`
+- `apps/api/test/send-native-telegram-turn.service.test.ts`
+- `apps/api/test/handle-internal-telegram-turn.service.test.ts`
+- `apps/api/test/telegram-chat-actions.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm test` still fails on the pre-existing time-sensitive `apps/api/test/control-internal-scheduled-action.service.test.ts` path (`Reminder time resolved to the past`) and was not caused by this change set.
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web run test`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/api exec tsx test/send-native-telegram-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-chat-actions.test.ts`
+
+### Risks
+
+1. Telegram still uses only native Bot API chat actions, so custom user-visible phrases such as "дорендериваю видео..." remain later follow-through if the product wants richer copy than the standard Telegram indicators.
+2. `sendChatAction` heartbeats are best-effort and intentionally do not block the actual reply if Telegram transiently rejects an action update.
+3. The full workspace `api` suite still has the unrelated time-sensitive scheduled-action failure, so the broadest `pnpm test` signal is not fully green yet even though the affected media-status paths are covered.
+
+### Next recommended step
+
+1. Reapply/push and do bounded live validation in both channels: plain text, `tts`, `image_generate` / `image_edit`, and `video_generate` to confirm the final visible status transitions feel right in real web and Telegram conversations.
+
+## 2026-04-14 - ADR-072 T15-6 native video_generate baseline
+
+### What changed
+
+1. `packages/runtime-contract`, `apps/api`, `apps/provider-gateway`, and `apps/runtime` now land native `video_generate` as the fourth honest `T15-6` media worker on the existing PersAI-native worker/provider-gateway/object-storage/media-delivery boundary instead of introducing a separate media execution stack.
+2. `apps/api` now carries `video_generate` as a first-class plan-managed worker tool in catalog/materialized policy truth, reuses the existing `tool_image_generate` credential seam for `image_generate` + `image_edit` + `video_generate`, and extends the shared worker baseline with a longer `video_generate` timeout budget.
+3. `apps/provider-gateway` now exposes `POST /api/v1/providers/generate-video`, validates the native video request contract, resolves the shared media credential through PersAI internal secrets, and executes OpenAI `sora-2` video generation through a bounded create/poll/download loop behind the existing gateway seam.
+4. `apps/runtime` now projects model-visible native `video_generate`, supports the two bounded scenarios the slice called for (`prompt-only` and `prompt + current-turn reference image`), consumes quota before provider execution, persists the returned video as a `RuntimeOutputArtifact`, and returns structured tool history instead of a fake placeholder.
+5. Focused API/provider/runtime tests plus repo-truth docs were refreshed around the landed video path and the shared media credential/boundary story.
+
+### Why
+
+1. ADR-072 already preserved `video_generate` inside `T15-6`, so leaving it as a catalog/control-plane promise after `image_generate`, `image_edit`, and `tts` were real would keep the slice knowingly incomplete.
+2. The honest additive implementation is one more native media worker on the existing boundary, not a second execution path with separate storage, delivery, or provider plumbing.
+3. Keeping the prompt-only path and the single-reference-image path bounded matches the requested product scope while leaving heavier async video UX/polish as later follow-through.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-6 — Media generation and editing plan tools` is still the current slice, but native `image_generate`, `image_edit`, `tts`, and `video_generate` are now all landed on the shared PersAI-owned worker/provider-gateway/object-storage/media-delivery path. `T15-6` itself remains in progress because later media/provider follow-through can still happen and `T15-6b` / `T15-7` are still separate future slices.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-worker-tools.ts`
+- `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`
+- `apps/api/test/materialize-assistant-published-version.service.test.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/api/test/runtime-worker-tools.test.ts`
+- `apps/api/test/tool-catalog-sync.test.ts`
+- `apps/api/test/tool-credential-settings.test.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-video-generation.controller.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`
+- `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-video-generation.service.test.ts`
+- `apps/provider-gateway/test/run-suite.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/runtime-video-generate-tool.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-worker-tools.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/tool-credential-settings.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-sync.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/materialize-assistant-published-version.service.test.ts`
+- `corepack pnpm --filter @persai/api run test` currently still fails on the pre-existing time-sensitive `apps/api/test/control-internal-scheduled-action.service.test.ts` path (`Reminder time resolved to the past`) and was not caused by this `video_generate` change set.
+
+### Risks
+
+1. The first provider path is intentionally OpenAI-only (`sora-2`) and the bounded contract currently exposes only one generated clip per tool call.
+2. The runtime supports a prompt-only flow and a single current-turn reference-image flow; richer multi-reference or later-turn attachment reuse remains future work if the product wants it.
+3. OpenAI video generation is inherently async and can still be slow or provider-failure-prone; the current baseline handles that through a bounded poll/download path, not through a richer job-status UX.
+
+### Next recommended step
+
+1. Run the normal commit/push/reapply path and then do one bounded live validation for both landed `video_generate` scenarios: prompt-only and prompt + current-turn reference image.
+
 ## 2026-04-14 - ADR-072 image_edit reference-guided follow-through
 
 ### What changed

@@ -11,6 +11,7 @@ import {
   buildTelegramHtmlMessageBodies,
   lossyPlainFromTelegramHtml
 } from "./telegram-assistant-markdown-html";
+import type { TelegramChatAction } from "./telegram-chat-actions";
 import {
   splitTelegramOutboundText,
   TELEGRAM_BOT_API_MAX_MESSAGE_LENGTH
@@ -27,6 +28,11 @@ type TelegramApiEnvelope<T> = {
     retry_after?: number;
   };
 };
+
+export interface TelegramChatActionHeartbeat {
+  setAction: (action: TelegramChatAction) => void;
+  stop: () => void;
+}
 
 export class TelegramBotApiError extends Error {
   constructor(
@@ -115,6 +121,72 @@ export class TelegramBotClientService {
     await this.sendReplyWithConfiguredParseMode(botToken, chatId, text, "plain_text");
   }
 
+  async sendChatAction(
+    botToken: string,
+    chatId: string,
+    action: TelegramChatAction
+  ): Promise<void> {
+    await this.requestJson(botToken, "sendChatAction", {
+      chat_id: chatId,
+      action
+    });
+  }
+
+  startChatActionHeartbeat(params: {
+    botToken: string;
+    chatId: string;
+    initialAction?: TelegramChatAction;
+    intervalMs?: number;
+  }): TelegramChatActionHeartbeat {
+    let currentAction = params.initialAction ?? "typing";
+    let stopped = false;
+    let inFlight = false;
+    const intervalMs = params.intervalMs ?? 4_000;
+
+    const sendCurrentAction = async (): Promise<void> => {
+      if (stopped || inFlight) {
+        return;
+      }
+      inFlight = true;
+      try {
+        await this.sendChatAction(params.botToken, params.chatId, currentAction);
+      } catch (error) {
+        if (error instanceof TelegramBotUnauthorizedError) {
+          stopped = true;
+          return;
+        }
+        this.logger.debug(
+          `Telegram chat action "${currentAction}" failed for ${params.chatId}: ${String(error)}`
+        );
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void sendCurrentAction();
+    const timer = setInterval(() => {
+      void sendCurrentAction();
+    }, intervalMs);
+    timer.unref?.();
+
+    return {
+      setAction: (action) => {
+        if (stopped || currentAction === action) {
+          return;
+        }
+        currentAction = action;
+        void sendCurrentAction();
+      },
+      stop: () => {
+        if (stopped) {
+          return;
+        }
+        stopped = true;
+        clearInterval(timer);
+      }
+    };
+  }
+
   async sendReplyWithConfiguredParseMode(
     botToken: string,
     chatId: string,
@@ -163,6 +235,7 @@ export class TelegramBotClientService {
     assistantId: string;
     parseMode: string;
     turnResult: InternalTelegramTurnResult;
+    onBeforeMediaSend?: ((media: RuntimeMediaArtifact[]) => Promise<void> | void) | undefined;
   }): Promise<void> {
     if (params.turnResult.deduplicated === true) {
       return;
@@ -178,6 +251,7 @@ export class TelegramBotClientService {
     }
 
     if (params.turnResult.media.length > 0) {
+      await params.onBeforeMediaSend?.(params.turnResult.media);
       const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
         params.assistantId
       );

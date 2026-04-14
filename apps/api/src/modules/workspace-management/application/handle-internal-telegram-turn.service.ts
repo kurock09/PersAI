@@ -36,6 +36,13 @@ export interface InternalTelegramTurnResult {
   deduplicated?: boolean;
 }
 
+export interface TelegramRuntimeToolEvent {
+  phase: "start" | "end";
+  toolName: string;
+  toolCallId: string;
+  isError: boolean;
+}
+
 export interface TelegramAdapterTurnRequest {
   assistantId: string;
   threadId: string;
@@ -45,6 +52,8 @@ export interface TelegramAdapterTurnRequest {
   hasAttachments?: boolean;
   loadRawAttachments?: (assistantId: string) => Promise<RawInboundAttachment[]>;
   updateId?: number | null;
+  onProcessingStarted?: (() => void) | undefined;
+  onRuntimeTool?: ((event: TelegramRuntimeToolEvent) => Promise<void> | void) | undefined;
 }
 
 @Injectable()
@@ -82,7 +91,9 @@ export class HandleInternalTelegramTurnService {
       updateId: input.updateId ?? null,
       hasAttachments: input.hasAttachments === true,
       loadRawAttachments: async (assistantId) =>
-        input.loadRawAttachments ? input.loadRawAttachments(assistantId) : []
+        input.loadRawAttachments ? input.loadRawAttachments(assistantId) : [],
+      onProcessingStarted: input.onProcessingStarted,
+      onRuntimeTool: input.onRuntimeTool
     });
   }
 
@@ -95,6 +106,8 @@ export class HandleInternalTelegramTurnService {
     updateId: number | null;
     hasAttachments: boolean;
     loadRawAttachments: (assistantId: string) => Promise<RawInboundAttachment[]>;
+    onProcessingStarted?: (() => void) | undefined;
+    onRuntimeTool?: ((event: TelegramRuntimeToolEvent) => Promise<void> | void) | undefined;
   }): Promise<InternalTelegramTurnResult> {
     const trace = this.overviewLatencyTraceService.start({
       traceId: randomUUID(),
@@ -119,6 +132,7 @@ export class HandleInternalTelegramTurnService {
       return updateClaim;
     }
     const claimedUpdateId = updateClaim;
+    input.onProcessingStarted?.();
 
     try {
       const quotaDecision = await this.enforceAssistantCapabilityAndQuotaService.enforceInboundTurn(
@@ -195,26 +209,31 @@ export class HandleInternalTelegramTurnService {
       }
 
       const currentTimeIso = new Date().toISOString();
-      const runtimeResponse = await this.sendNativeTelegramTurnService.execute({
-        assistantId: resolved.assistantId,
-        publishedVersionId: resolved.publishedVersionId,
-        runtimeTier: resolved.runtimeTier,
-        workspaceId: resolved.workspaceId,
-        ...(quotaDecision.mode === "degrade_allowed" && resolved.quotaDegradeModelOverride
-          ? {
-              providerOverride: resolved.quotaDegradeModelOverride.provider,
-              modelOverride: resolved.quotaDegradeModelOverride.model
-            }
-          : {}),
-        threadId: input.threadId,
-        externalUserKey: input.externalUserKey,
-        mode: input.conversationMode,
-        userMessageId: userMessage.id,
-        userMessage: input.message,
-        attachments: runtimeAttachments,
-        userTimezone: workspace.timezone,
-        currentTimeIso
-      });
+      const runtimeResponse = await this.sendNativeTelegramTurnService.execute(
+        {
+          assistantId: resolved.assistantId,
+          publishedVersionId: resolved.publishedVersionId,
+          runtimeTier: resolved.runtimeTier,
+          workspaceId: resolved.workspaceId,
+          ...(quotaDecision.mode === "degrade_allowed" && resolved.quotaDegradeModelOverride
+            ? {
+                providerOverride: resolved.quotaDegradeModelOverride.provider,
+                modelOverride: resolved.quotaDegradeModelOverride.model
+              }
+            : {}),
+          threadId: input.threadId,
+          externalUserKey: input.externalUserKey,
+          mode: input.conversationMode,
+          userMessageId: userMessage.id,
+          userMessage: input.message,
+          attachments: runtimeAttachments,
+          userTimezone: workspace.timezone,
+          currentTimeIso
+        },
+        {
+          onTool: input.onRuntimeTool
+        }
+      );
       if (runtimeResponse.runtimeTrace) {
         trace.attachExternalTrace(runtimeResponse.runtimeTrace);
       }

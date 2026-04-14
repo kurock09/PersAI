@@ -56,6 +56,17 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     policyClass: "plan_managed"
   },
   {
+    id: "16161616-1616-1616-1616-161616161616",
+    code: "video_generate",
+    displayName: "Video Generate",
+    description:
+      "Generate a short video clip from a text prompt, optionally guided by one current-turn reference image.",
+    capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
+    toolClass: "cost_driving" as ToolCatalogToolClass,
+    requiredCredentialId: "tool_image_generate",
+    policyClass: "plan_managed"
+  },
+  {
     id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
     code: "tts",
     displayName: "Text to Speech",
@@ -143,6 +154,7 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   web_fetch: { active: true, dailyCallLimit: 20 },
   image_generate: { active: false, dailyCallLimit: null },
   image_edit: { active: false, dailyCallLimit: null },
+  video_generate: { active: false, dailyCallLimit: null },
   tts: { active: false, dailyCallLimit: null },
   browser: { active: false, dailyCallLimit: null },
   memory_search: { active: true, dailyCallLimit: null },

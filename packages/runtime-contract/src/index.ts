@@ -494,6 +494,51 @@ export interface RuntimeImageEditToolResult {
   warning: string | null;
 }
 
+export const PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS = ["openai"] as const;
+
+export type PersaiRuntimeVideoGenerateProviderId =
+  (typeof PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS)[number];
+
+export const PERSAI_RUNTIME_VIDEO_GENERATE_SIZES = [
+  "720x1280",
+  "1280x720",
+  "1024x1792",
+  "1792x1024"
+] as const;
+
+export type PersaiRuntimeVideoGenerateSize = (typeof PERSAI_RUNTIME_VIDEO_GENERATE_SIZES)[number];
+
+export const PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS = [4, 8, 12] as const;
+
+export type PersaiRuntimeVideoGenerateSeconds =
+  (typeof PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS)[number];
+
+export interface RuntimeVideoGenerateRequest {
+  toolCode: "video_generate";
+  prompt: string;
+  filename: string | null;
+  size: PersaiRuntimeVideoGenerateSize | null;
+  seconds: PersaiRuntimeVideoGenerateSeconds;
+  referenceImageIndex: number | null;
+}
+
+export interface RuntimeVideoGenerateToolResult {
+  toolCode: "video_generate";
+  executionMode: "worker";
+  provider: PersaiRuntimeVideoGenerateProviderId | null;
+  model: string | null;
+  prompt: string | null;
+  requestedSeconds: PersaiRuntimeVideoGenerateSeconds | null;
+  size: PersaiRuntimeVideoGenerateSize | null;
+  referenceImageIndex: number | null;
+  referenceFilename: string | null;
+  artifact: RuntimeOutputArtifact | null;
+  usage: RuntimeUsageSnapshot | null;
+  action: "generated" | "skipped";
+  reason: string | null;
+  warning: string | null;
+}
+
 export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"] as const;
 
 export type PersaiRuntimeTtsProviderId = (typeof PERSAI_RUNTIME_TTS_PROVIDER_IDS)[number];
@@ -994,6 +1039,39 @@ export interface ProviderGatewayImageEditResult {
   prompt: string;
   size: PersaiRuntimeImageGenerateSize | null;
   images: ProviderGatewayGeneratedImage[];
+  respondedAt: IsoTimestamp;
+  usage: RuntimeUsageSnapshot | null;
+  warning: string | null;
+}
+
+export interface ProviderGatewayVideoGenerateRequest {
+  prompt: string;
+  size: PersaiRuntimeVideoGenerateSize | null;
+  seconds: PersaiRuntimeVideoGenerateSeconds;
+  referenceImage: {
+    bytesBase64: string;
+    mimeType: string;
+    filename: string | null;
+  } | null;
+  credential: {
+    toolCode: "video_generate";
+    secretId: string;
+    providerId: PersaiRuntimeVideoGenerateProviderId | null;
+  };
+}
+
+export interface ProviderGatewayGeneratedVideo {
+  bytesBase64: string;
+  mimeType: string;
+}
+
+export interface ProviderGatewayVideoGenerateResult {
+  provider: PersaiRuntimeVideoGenerateProviderId;
+  model: string;
+  prompt: string;
+  size: PersaiRuntimeVideoGenerateSize | null;
+  seconds: PersaiRuntimeVideoGenerateSeconds;
+  video: ProviderGatewayGeneratedVideo;
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
   warning: string | null;

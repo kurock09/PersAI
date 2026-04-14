@@ -7,6 +7,7 @@ import type {
   ProviderGatewayWebFetchRequest,
   ProviderGatewayImageEditRequest,
   ProviderGatewayImageGenerateRequest,
+  ProviderGatewayVideoGenerateRequest,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
   ProviderGatewayTextStreamEvent
@@ -107,6 +108,24 @@ function createImageEditRequest(): ProviderGatewayImageEditRequest {
     referenceImage: null,
     credential: {
       toolCode: "image_edit",
+      secretId: "secret-1",
+      providerId: "openai"
+    }
+  };
+}
+
+function createVideoGenerateRequest(): ProviderGatewayVideoGenerateRequest {
+  return {
+    prompt: "Animate a calm paper-cut forest at sunrise",
+    size: "1280x720",
+    seconds: 4,
+    referenceImage: {
+      bytesBase64: "cmVmLXZpZGVvLWltYWdl",
+      mimeType: "image/png",
+      filename: "forest.png"
+    },
+    credential: {
+      toolCode: "video_generate",
       secretId: "secret-1",
       providerId: "openai"
     }
@@ -315,6 +334,31 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       );
     }
 
+    if (url.endsWith("/api/v1/providers/generate-video")) {
+      return new Response(
+        JSON.stringify({
+          provider: "openai",
+          model: "sora-2",
+          prompt: "Animate a calm paper-cut forest at sunrise",
+          size: "1280x720",
+          seconds: 4,
+          video: {
+            bytesBase64: "dmlkZW8tYnl0ZXM=",
+            mimeType: "video/mp4"
+          },
+          respondedAt: "2026-04-12T12:00:01.700Z",
+          usage: null,
+          warning: null
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+
     if (url.endsWith("/api/v1/providers/generate-speech")) {
       return new Response(
         JSON.stringify({
@@ -490,6 +534,9 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     });
     const imageGenerate = await service.generateImage(createImageGenerateRequest());
     const imageEdit = await service.editImage(createImageEditRequest());
+    const videoGenerate = await service.generateVideo(createVideoGenerateRequest(), {
+      timeoutMs: 180000
+    });
     const speechGenerate = await service.generateSpeech(createSpeechGenerateRequest());
     const webFetch = await service.webFetch(createWebFetchRequest());
     const webSearch = await service.webSearch(createWebSearchRequest());
@@ -504,12 +551,14 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       imageEdit.images[0]?.revisedPrompt,
       "Replace the couch with a red chair while keeping the room layout."
     );
+    assert.equal(videoGenerate.model, "sora-2");
+    assert.equal(videoGenerate.video.mimeType, "video/mp4");
     assert.equal(speechGenerate.model, "gpt-4o-mini-tts");
     assert.equal(speechGenerate.mimeType, "audio/ogg");
     assert.equal(webFetch.provider, "firecrawl");
     assert.equal(webSearch.provider, "tavily");
     assert.equal(browserAction.provider, "browserless");
-    assert.equal(requests.length, 10);
+    assert.equal(requests.length, 11);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
@@ -529,17 +578,22 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(requests[4]?.init?.method, "POST");
     assert.equal(requests[5]?.url, "http://provider-gateway.local/api/v1/providers/edit-image");
     assert.equal(requests[5]?.init?.method, "POST");
+    assert.equal(requests[6]?.url, "http://provider-gateway.local/api/v1/providers/generate-video");
+    assert.equal(requests[6]?.init?.method, "POST");
     assert.equal(
-      requests[6]?.url,
+      requests[7]?.url,
       "http://provider-gateway.local/api/v1/providers/generate-speech"
     );
-    assert.equal(requests[6]?.init?.method, "POST");
-    assert.equal(requests[7]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
     assert.equal(requests[7]?.init?.method, "POST");
-    assert.equal(requests[8]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
+    assert.equal(requests[8]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
     assert.equal(requests[8]?.init?.method, "POST");
-    assert.equal(requests[9]?.url, "http://provider-gateway.local/api/v1/providers/browser-action");
+    assert.equal(requests[9]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
     assert.equal(requests[9]?.init?.method, "POST");
+    assert.equal(
+      requests[10]?.url,
+      "http://provider-gateway.local/api/v1/providers/browser-action"
+    );
+    assert.equal(requests[10]?.init?.method, "POST");
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();
@@ -561,6 +615,10 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     );
     await assert.rejects(
       () => unconfiguredService.editImage(createImageEditRequest()),
+      /base URL is not configured/
+    );
+    await assert.rejects(
+      () => unconfiguredService.generateVideo(createVideoGenerateRequest()),
       /base URL is not configured/
     );
     await assert.rejects(

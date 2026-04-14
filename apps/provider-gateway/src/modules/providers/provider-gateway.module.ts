@@ -5,6 +5,7 @@ import { ProviderCatalogController } from "./interface/http/provider-catalog.con
 import { ProviderImageGenerationController } from "./interface/http/provider-image-generation.controller";
 import { ProviderSpeechGenerationController } from "./interface/http/provider-speech-generation.controller";
 import { ProviderTextGenerationController } from "./interface/http/provider-text-generation.controller";
+import { ProviderVideoGenerationController } from "./interface/http/provider-video-generation.controller";
 import { ProviderWebFetchController } from "./interface/http/provider-web-fetch.controller";
 import { ProviderWebSearchController } from "./interface/http/provider-web-search.controller";
 import { ProviderWarmupController } from "./interface/http/provider-warmup.controller";
@@ -18,6 +19,7 @@ import { ProviderCatalogService } from "./provider-catalog.service";
 import { ProviderImageGenerationService } from "./provider-image-generation.service";
 import { ProviderSpeechGenerationService } from "./provider-speech-generation.service";
 import { ProviderTextGenerationService } from "./provider-text-generation.service";
+import { ProviderVideoGenerationService } from "./provider-video-generation.service";
 import { ProviderWebFetchService } from "./provider-web-fetch.service";
 import { ProviderWebSearchService } from "./provider-web-search.service";
 import { ProviderWarmupService } from "./provider-warmup.service";
@@ -30,6 +32,7 @@ import { YandexProviderClient } from "./yandex/yandex-provider.client";
     ProviderCatalogController,
     ProviderImageGenerationController,
     ProviderSpeechGenerationController,
+    ProviderVideoGenerationController,
     ProviderWarmupController,
     ProviderTextGenerationController,
     ProviderWebFetchController,
@@ -47,6 +50,7 @@ import { YandexProviderClient } from "./yandex/yandex-provider.client";
     ProviderBrowserService,
     ProviderImageGenerationService,
     ProviderSpeechGenerationService,
+    ProviderVideoGenerationService,
     ProviderTextGenerationService,
     ProviderWebFetchService,
     ProviderWebSearchService
@@ -56,6 +60,7 @@ import { YandexProviderClient } from "./yandex/yandex-provider.client";
     ProviderWarmupService,
     ProviderAudioTranscriptionService,
     ProviderImageGenerationService,
+    ProviderVideoGenerationService,
     ProviderSpeechGenerationService,
     ProviderTextGenerationService,
     PersaiInternalApiClientService,

@@ -9,6 +9,8 @@ import {
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
+  PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
+  PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
   PERSAI_RUNTIME_TTS_DELIVERY_KINDS,
   PERSAI_RUNTIME_TTS_TONE_TAGS,
@@ -92,6 +94,19 @@ export function projectRuntimeNativeTools(
     supportsCurrentNativeImageEditProvider(imageEditCredential.providerId ?? null)
   ) {
     projectedTools.push(createImageEditToolDefinition());
+  }
+  const videoGeneratePolicy = resolveAllowedModelVisibleToolPolicy(
+    bundle,
+    "video_generate",
+    "worker"
+  );
+  const videoGenerateCredential = resolveConfiguredCredentialRef(bundle, "video_generate");
+  if (
+    videoGeneratePolicy !== null &&
+    videoGenerateCredential !== null &&
+    supportsCurrentNativeVideoGenerateProvider(videoGenerateCredential.providerId ?? null)
+  ) {
+    projectedTools.push(createVideoGenerateToolDefinition());
   }
   const ttsPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "tts", "worker");
   const ttsCredential = bundle.governance.toolCredentialRefs.tts ?? null;
@@ -357,6 +372,46 @@ function createImageEditToolDefinition(): ProviderGatewayToolDefinition {
   };
 }
 
+function createVideoGenerateToolDefinition(): ProviderGatewayToolDefinition {
+  return {
+    name: "video_generate",
+    description:
+      "Generate a short brand-new video clip from a text prompt. Use this only when the user explicitly wants a generated video, animation, or clip. You may optionally guide the video with one current-turn image attachment as a first-frame style or appearance reference by setting referenceImageIndex. Do not use this tool for editing an existing video or for answering questions about an image.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["prompt"],
+      properties: {
+        prompt: {
+          type: "string",
+          description: "Text prompt describing the video clip to generate."
+        },
+        referenceImageIndex: {
+          type: "integer",
+          minimum: 1,
+          description:
+            "Optional 1-based index of the current-turn image attachment to use as a visual reference or first frame. Set this whenever an attached image should guide the video."
+        },
+        filename: {
+          type: "string",
+          description: "Optional filename hint for the generated video attachment."
+        },
+        size: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_VIDEO_GENERATE_SIZES],
+          description:
+            "Optional output size hint. Leave it unset when the attached reference image should drive the framing."
+        },
+        seconds: {
+          type: "integer",
+          enum: [...PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS],
+          description: "Optional output duration in seconds."
+        }
+      }
+    }
+  };
+}
+
 function createTtsToolDefinition(): ProviderGatewayToolDefinition {
   return {
     name: "tts",
@@ -548,6 +603,11 @@ function supportsCurrentNativeImageEditProvider(providerId: string | null): bool
   return PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS.includes(
     resolved as PersaiRuntimeImageEditProviderId
   );
+}
+
+function supportsCurrentNativeVideoGenerateProvider(providerId: string | null): boolean {
+  const resolved = providerId ?? "openai";
+  return resolved === "openai";
 }
 
 function supportsCurrentNativeTtsProvider(

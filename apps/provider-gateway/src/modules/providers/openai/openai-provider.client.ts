@@ -5,6 +5,8 @@ import type {
   ProviderGatewayImageEditResult,
   ProviderGatewayImageGenerateRequest,
   ProviderGatewayImageGenerateResult,
+  ProviderGatewayVideoGenerateRequest,
+  ProviderGatewayVideoGenerateResult,
   ProviderGatewaySpeechGenerateRequest,
   ProviderGatewaySpeechGenerateResult,
   ProviderGatewayToolCall,
@@ -26,6 +28,9 @@ import type { ProviderWarmableClient } from "../provider-client.types";
 const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const OPENAI_IMAGE_GENERATION_MODEL = "gpt-image-1";
 const OPENAI_SPEECH_GENERATION_MODEL = "gpt-4o-mini-tts";
+const OPENAI_VIDEO_GENERATION_MODEL = "sora-2";
+const OPENAI_VIDEO_GENERATION_TIMEOUT_MS = 300_000;
+const OPENAI_VIDEO_POLL_INTERVAL_MS = 2_000;
 type OpenAIResponseCreateParams = Parameters<OpenAI["responses"]["create"]>[0];
 type OpenAINonStreamingCreateParams = Exclude<OpenAIResponseCreateParams, { stream: true }>;
 type OpenAIResponseInputParam = NonNullable<OpenAINonStreamingCreateParams["input"]>;
@@ -384,6 +389,49 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         usage: this.toImageUsageSnapshot(OPENAI_IMAGE_GENERATION_MODEL, response.usage),
         warning: null
       };
+    } finally {
+      dispose();
+    }
+  }
+
+  async generateVideo(
+    input: ProviderGatewayVideoGenerateRequest,
+    options?: { apiKey?: string }
+  ): Promise<ProviderGatewayVideoGenerateResult> {
+    const apiKey = this.resolveApiKey(options?.apiKey);
+    const { signal, dispose } = this.createTimedSignal(
+      Math.max(this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS, OPENAI_VIDEO_GENERATION_TIMEOUT_MS)
+    );
+    try {
+      const createdJob = await this.createOpenAIVideoJob(input, apiKey, signal);
+      const completedJob =
+        createdJob.status === "completed"
+          ? createdJob
+          : createdJob.status === "queued" || createdJob.status === "in_progress"
+            ? await this.pollOpenAIVideoJob(createdJob.id, apiKey, signal)
+            : (() => {
+                throw new Error(
+                  `OpenAI video generation ended with status "${createdJob.status}".`
+                );
+              })();
+      const video = await this.downloadOpenAIVideoContent(completedJob.id, apiKey, signal);
+
+      return {
+        provider: "openai",
+        model: completedJob.model ?? OPENAI_VIDEO_GENERATION_MODEL,
+        prompt: input.prompt,
+        size: input.size,
+        seconds: input.seconds,
+        video,
+        respondedAt: new Date().toISOString(),
+        usage: null,
+        warning: null
+      };
+    } catch (error) {
+      if (this.isAbortError(error)) {
+        throw new Error("OpenAI video generation timed out before the video was ready.");
+      }
+      throw error;
     } finally {
       dispose();
     }
@@ -860,6 +908,17 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       : null;
   }
 
+  private resolveApiKey(apiKey?: string): string {
+    if (typeof apiKey === "string" && apiKey.trim().length > 0) {
+      return apiKey.trim();
+    }
+    const configuredApiKey = this.config.PROVIDER_GATEWAY_OPENAI_API_KEY?.trim();
+    if (configuredApiKey && configuredApiKey.length > 0) {
+      return configuredApiKey;
+    }
+    throw new Error("OpenAI provider client is not warmed.");
+  }
+
   private getApiClient(apiKey?: string): OpenAI {
     if (typeof apiKey === "string" && apiKey.trim().length > 0) {
       return new OpenAI({ apiKey: apiKey.trim() });
@@ -996,6 +1055,175 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       default:
         return "image.png";
     }
+  }
+
+  private async createOpenAIVideoJob(
+    input: ProviderGatewayVideoGenerateRequest,
+    apiKey: string,
+    signal: AbortSignal
+  ): Promise<{ id: string; status: string; model: string | null }> {
+    const formData = new FormData();
+    formData.append("model", OPENAI_VIDEO_GENERATION_MODEL);
+    formData.append("prompt", input.prompt);
+    formData.append("seconds", String(input.seconds));
+    if (input.size !== null) {
+      formData.append("size", input.size);
+    }
+    if (input.referenceImage !== null) {
+      const filename =
+        input.referenceImage.filename ?? this.defaultImageFilename(input.referenceImage.mimeType);
+      formData.append(
+        "input_reference",
+        new Blob([Buffer.from(input.referenceImage.bytesBase64, "base64")], {
+          type: input.referenceImage.mimeType
+        }),
+        filename
+      );
+    }
+
+    const response = await fetch("https://api.openai.com/v1/videos", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: formData,
+      signal
+    });
+    const body = await this.readJsonBody(response);
+    if (!response.ok) {
+      throw new Error(this.readOpenAIVideoErrorMessage(body, response.status));
+    }
+    return this.parseOpenAIVideoJob(body);
+  }
+
+  private async pollOpenAIVideoJob(
+    videoId: string,
+    apiKey: string,
+    signal: AbortSignal
+  ): Promise<{ id: string; status: string; model: string | null }> {
+    let completedJob: { id: string; status: string; model: string | null } | null = null;
+    while (completedJob === null) {
+      await this.delay(OPENAI_VIDEO_POLL_INTERVAL_MS, signal);
+      const response = await fetch(`https://api.openai.com/v1/videos/${videoId}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`
+        },
+        signal
+      });
+      const body = await this.readJsonBody(response);
+      if (!response.ok) {
+        throw new Error(this.readOpenAIVideoErrorMessage(body, response.status));
+      }
+      const job = this.parseOpenAIVideoJob(body);
+      if (job.status === "queued" || job.status === "in_progress") {
+        continue;
+      }
+      if (job.status !== "completed") {
+        throw new Error(this.readOpenAIVideoTerminalStatusMessage(body, job.status));
+      }
+      completedJob = job;
+    }
+    return completedJob;
+  }
+
+  private async downloadOpenAIVideoContent(
+    videoId: string,
+    apiKey: string,
+    signal: AbortSignal
+  ): Promise<ProviderGatewayVideoGenerateResult["video"]> {
+    const response = await fetch(`https://api.openai.com/v1/videos/${videoId}/content`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`
+      },
+      signal
+    });
+    if (!response.ok) {
+      const body = await this.readJsonBody(response);
+      throw new Error(this.readOpenAIVideoErrorMessage(body, response.status));
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length === 0) {
+      throw new Error("OpenAI video generation returned an empty video payload.");
+    }
+    const mimeTypeHeader = response.headers.get("content-type");
+    const mimeType =
+      typeof mimeTypeHeader === "string" && mimeTypeHeader.trim().length > 0
+        ? mimeTypeHeader.split(";")[0]!.trim()
+        : "video/mp4";
+    return {
+      bytesBase64: buffer.toString("base64"),
+      mimeType
+    };
+  }
+
+  private parseOpenAIVideoJob(body: unknown): { id: string; status: string; model: string | null } {
+    const row = this.asObject(body);
+    const id = typeof row?.id === "string" ? row.id.trim() : "";
+    const status = typeof row?.status === "string" ? row.status.trim() : "";
+    const model =
+      typeof row?.model === "string" && row.model.trim().length > 0 ? row.model.trim() : null;
+    if (id.length === 0 || status.length === 0) {
+      throw new Error("OpenAI video generation returned an invalid job response.");
+    }
+    return { id, status, model };
+  }
+
+  private readOpenAIVideoErrorMessage(body: unknown, status: number): string {
+    const row = this.asObject(body);
+    const error = this.asObject(row?.error);
+    const message =
+      typeof error?.message === "string" && error.message.trim().length > 0
+        ? error.message.trim()
+        : typeof row?.message === "string" && row.message.trim().length > 0
+          ? row.message.trim()
+          : null;
+    return message ?? `OpenAI video generation request failed with status ${String(status)}.`;
+  }
+
+  private readOpenAIVideoTerminalStatusMessage(body: unknown, status: string): string {
+    const row = this.asObject(body);
+    const error = this.asObject(row?.error);
+    const errorMessage =
+      typeof error?.message === "string" && error.message.trim().length > 0
+        ? error.message.trim()
+        : typeof row?.failure_reason === "string" && row.failure_reason.trim().length > 0
+          ? row.failure_reason.trim()
+          : null;
+    return errorMessage ?? `OpenAI video generation ended with status "${status}".`;
+  }
+
+  private async readJsonBody(response: Response): Promise<unknown> {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      return null;
+    }
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  private async delay(ms: number, signal: AbortSignal): Promise<void> {
+    if (ms <= 0) {
+      return;
+    }
+    if (signal.aborted) {
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timeoutId = setTimeout(resolve, ms);
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timeoutId);
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        },
+        { once: true }
+      );
+    });
   }
 
   private defaultAudioFilename(mimeType: string): string {

@@ -15,6 +15,7 @@ import { runTurnFinalizationServiceTest } from "./turn-finalization.service.test
 import { runTurnLeaseHeartbeatServiceTest } from "./turn-lease-heartbeat.service.test";
 import { runRuntimeMediaTranscriptionServiceTest } from "./runtime-media-transcription.service.test";
 import { runRuntimeTtsToolServiceTest } from "./runtime-tts-tool.service.test";
+import { runRuntimeVideoGenerateToolServiceTest } from "./runtime-video-generate-tool.service.test";
 
 async function run(): Promise<void> {
   await runRuntimeConfigTest();
@@ -26,6 +27,7 @@ async function run(): Promise<void> {
   await runProviderGatewayClientServiceTest();
   await runRuntimeMediaTranscriptionServiceTest();
   await runRuntimeTtsToolServiceTest();
+  await runRuntimeVideoGenerateToolServiceTest();
   await runSessionStoreServiceTest();
   await runSessionLeaseServiceTest();
   await runIdempotencyServiceTest();

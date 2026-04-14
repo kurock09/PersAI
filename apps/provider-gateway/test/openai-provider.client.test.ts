@@ -5,6 +5,7 @@ import type {
   ProviderGatewayImageGenerateRequest,
   ProviderGatewaySpeechGenerateRequest,
   ProviderGatewayTextGenerateRequest,
+  ProviderGatewayVideoGenerateRequest,
   ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
 import { OpenAIProviderClient } from "../src/modules/providers/openai/openai-provider.client";
@@ -114,6 +115,28 @@ function createImageEditRequest(options?: {
   };
 }
 
+function createVideoGenerateRequest(options?: {
+  includeReference?: boolean;
+}): ProviderGatewayVideoGenerateRequest {
+  return {
+    prompt: "Animate a calm paper-cut forest at sunrise",
+    size: "1280x720",
+    seconds: 4,
+    referenceImage: options?.includeReference
+      ? {
+          bytesBase64: "cmVmLXZpZGVvLWltYWdl",
+          mimeType: "image/png",
+          filename: "forest.png"
+        }
+      : null,
+    credential: {
+      toolCode: "video_generate",
+      secretId: "tool/image_generate/api-key",
+      providerId: "openai"
+    }
+  };
+}
+
 function createSpeechGenerateRequest(): ProviderGatewaySpeechGenerateRequest {
   return {
     text: "Привет, это тестовый голосовой ответ.",
@@ -169,6 +192,13 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   let capturedImagePayload: unknown = null;
   let capturedImageEditPayload: unknown = null;
   let capturedSpeechPayload: unknown = null;
+  let capturedVideoPayload: {
+    model: FormDataEntryValue | null;
+    prompt: FormDataEntryValue | null;
+    size: FormDataEntryValue | null;
+    seconds: FormDataEntryValue | null;
+    inputReference: FormDataEntryValue | null;
+  } | null = null;
   let capturedToolApiKey: string | undefined;
   const generateImage = async (payload: unknown) => {
     capturedImagePayload = payload;
@@ -771,4 +801,83 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     instructions:
       "Speak naturally in ru-RU. Keep the delivery warm, close, and human. Use a feminine vocal character. Sound caring, kind, and emotionally present. Avoid sounding playful or joking."
   });
+
+  const originalFetch = globalThis.fetch;
+  const videoRequests: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (init === undefined) {
+      videoRequests.push({ url });
+    } else {
+      videoRequests.push({ url, init });
+    }
+    if (url === "https://api.openai.com/v1/videos") {
+      assert.ok(init?.body instanceof FormData);
+      const formData = init.body as FormData;
+      capturedVideoPayload = {
+        model: formData.get("model"),
+        prompt: formData.get("prompt"),
+        size: formData.get("size"),
+        seconds: formData.get("seconds"),
+        inputReference: formData.get("input_reference")
+      };
+      return new Response(
+        JSON.stringify({
+          id: "video_123",
+          status: "completed",
+          model: "sora-2"
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+    if (url === "https://api.openai.com/v1/videos/video_123/content") {
+      return new Response(Buffer.from("video-bytes"), {
+        status: 200,
+        headers: {
+          "Content-Type": "video/mp4"
+        }
+      });
+    }
+    throw new Error(`Unexpected fetch URL in OpenAI provider client test: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const videoResult = await client.generateVideo(
+      createVideoGenerateRequest({ includeReference: true }),
+      {
+        apiKey: "tool-openai-key"
+      }
+    );
+    const recordedVideoPayload = capturedVideoPayload as {
+      model: FormDataEntryValue | null;
+      prompt: FormDataEntryValue | null;
+      size: FormDataEntryValue | null;
+      seconds: FormDataEntryValue | null;
+      inputReference: FormDataEntryValue | null;
+    } | null;
+    assert.equal(videoResult.model, "sora-2");
+    assert.equal(videoResult.video.mimeType, "video/mp4");
+    assert.equal(videoResult.video.bytesBase64, Buffer.from("video-bytes").toString("base64"));
+    assert.ok(recordedVideoPayload !== null);
+    assert.equal(recordedVideoPayload.model, "sora-2");
+    assert.equal(recordedVideoPayload.prompt, "Animate a calm paper-cut forest at sunrise");
+    assert.equal(recordedVideoPayload.size, "1280x720");
+    assert.equal(recordedVideoPayload.seconds, "4");
+    assert.ok(recordedVideoPayload.inputReference instanceof Blob);
+    assert.equal(videoRequests.length, 2);
+    assert.equal(videoRequests[0]?.url, "https://api.openai.com/v1/videos");
+    assert.equal(videoRequests[1]?.url, "https://api.openai.com/v1/videos/video_123/content");
+    assert.equal(
+      (videoRequests[0]?.init?.headers as Record<string, string> | undefined)?.Authorization,
+      "Bearer tool-openai-key"
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 }

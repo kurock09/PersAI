@@ -2,6 +2,7 @@ import { runProviderAudioTranscriptionServiceTest } from "./provider-audio-trans
 import { runProviderBrowserServiceTest } from "./provider-browser.service.test";
 import { runProviderImageGenerationServiceTest } from "./provider-image-generation.service.test";
 import { runProviderSpeechGenerationServiceTest } from "./provider-speech-generation.service.test";
+import { runProviderVideoGenerationServiceTest } from "./provider-video-generation.service.test";
 import { runAnthropicProviderClientTest } from "./anthropic-provider.client.test";
 import { runOpenAIProviderClientTest } from "./openai-provider.client.test";
 import { runProviderGatewayConfigTest } from "./provider-gateway-config.test";
@@ -19,6 +20,7 @@ async function run(): Promise<void> {
   await runProviderAudioTranscriptionServiceTest();
   await runProviderBrowserServiceTest();
   await runProviderImageGenerationServiceTest();
+  await runProviderVideoGenerationServiceTest();
   await runProviderSpeechGenerationServiceTest();
   await runProviderWarmupServiceTest();
   await runProviderTextGenerationServiceTest();

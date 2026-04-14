@@ -76,6 +76,128 @@ type RuntimeTransportMeta = {
   quotaFallbackModel?: string | null;
 };
 
+type LiveActivitySource = "tool" | "compaction" | "runtime";
+
+type LiveActivityEvent = ActivityEvent & {
+  source: LiveActivitySource;
+};
+
+const TOOL_ACTIVITY_COPY: Record<
+  string,
+  {
+    start: string;
+    end: string;
+    failure: string;
+  }
+> = {
+  web_search: {
+    start: "Searching the web",
+    end: "Web results ready",
+    failure: "Web search failed"
+  },
+  web_fetch: {
+    start: "Reading the page",
+    end: "Page ready",
+    failure: "Page read failed"
+  },
+  browser: {
+    start: "Working in browser",
+    end: "Browser step done",
+    failure: "Browser step failed"
+  },
+  image_generate: {
+    start: "Generating image",
+    end: "Image ready",
+    failure: "Image generation failed"
+  },
+  image_edit: {
+    start: "Editing image",
+    end: "Edited image ready",
+    failure: "Image edit failed"
+  },
+  video_generate: {
+    start: "Generating video",
+    end: "Video ready",
+    failure: "Video generation failed"
+  },
+  tts: {
+    start: "Recording voice",
+    end: "Voice ready",
+    failure: "Voice generation failed"
+  },
+  scheduled_action: {
+    start: "Scheduling task",
+    end: "Task scheduled",
+    failure: "Task scheduling failed"
+  }
+};
+
+function buildToolLiveActivity(params: {
+  assistantMessageId: string;
+  toolName: string;
+  phase: "start" | "end";
+  isError: boolean;
+}): LiveActivityEvent {
+  const copy = TOOL_ACTIVITY_COPY[params.toolName];
+  const label =
+    copy === undefined
+      ? params.phase === "start"
+        ? `Using ${params.toolName}`
+        : params.isError
+          ? `${params.toolName} failed`
+          : `${params.toolName} finished`
+      : params.phase === "start"
+        ? copy.start
+        : params.isError
+          ? copy.failure
+          : copy.end;
+
+  return {
+    id: `activity-live-tool-${Date.now()}-${params.phase}-${params.toolName}`,
+    type: "tool_use",
+    label,
+    afterMessageId: params.assistantMessageId,
+    emphasis: "strong",
+    source: "tool"
+  };
+}
+
+function buildCompactionLiveActivity(params: {
+  assistantMessageId: string;
+  phase: "start" | "end";
+  detail?: string | undefined;
+  label: string;
+}): LiveActivityEvent {
+  return {
+    id: `activity-live-compaction-${Date.now()}-${params.phase}`,
+    type: "system",
+    label: params.label,
+    ...(params.detail ? { detail: params.detail } : {}),
+    afterMessageId: params.assistantMessageId,
+    emphasis: "strong",
+    source: "compaction"
+  };
+}
+
+function buildRuntimeLiveActivity(params: {
+  assistantMessageId: string;
+  respondedAt: string;
+}): LiveActivityEvent {
+  return {
+    id: `activity-live-runtime-${Date.now()}`,
+    type: "runtime_done",
+    label: "Response generated",
+    detail: new Date(params.respondedAt).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit"
+    }),
+    timestamp: params.respondedAt,
+    afterMessageId: params.assistantMessageId,
+    emphasis: "strong",
+    source: "runtime"
+  };
+}
+
 function appendQuotaFallbackActivity(params: {
   setActivities: React.Dispatch<React.SetStateAction<ActivityEvent[]>>;
   runtime: RuntimeTransportMeta | null | undefined;
@@ -106,6 +228,9 @@ export function useChat(threadKey: string): UseChatReturn {
   const t = useTranslations("chat");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
+  const [liveActivitiesByMessageId, setLiveActivitiesByMessageId] = useState<
+    Record<string, LiveActivityEvent>
+  >({});
   const [chatId, setChatId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -124,6 +249,7 @@ export function useChat(threadKey: string): UseChatReturn {
     prevThreadKeyRef.current = threadKey;
     setMessages([]);
     setActivities([]);
+    setLiveActivitiesByMessageId({});
     setChatId(null);
     setIssue(null);
     setCompaction(null);
@@ -386,40 +512,34 @@ export function useChat(threadKey: string): UseChatReturn {
             },
             onTool: ({ phase, toolName, isError }) => {
               flushBufferedAssistantState(true);
-              setActivities((prev) => [
+              setLiveActivitiesByMessageId((prev) => ({
                 ...prev,
-                {
-                  id: `activity-tool-${Date.now()}-${phase}-${toolName}`,
-                  type: "tool_use",
-                  label:
-                    phase === "start"
-                      ? `Using ${toolName}`
-                      : isError
-                        ? `${toolName} failed`
-                        : `${toolName} finished`,
-                  afterMessageId: assistantMsgId
-                }
-              ]);
+                [assistantMsgId]: buildToolLiveActivity({
+                  assistantMessageId: assistantMsgId,
+                  toolName,
+                  phase,
+                  isError
+                })
+              }));
             },
             onCompaction: ({ phase, completed, willRetry }) => {
               flushBufferedAssistantState(true);
               setCompactionRunning(phase === "start" || willRetry);
               const activityDetail = willRetry ? t("compactionWillRetry") : null;
-              setActivities((prev) => [
+              setLiveActivitiesByMessageId((prev) => ({
                 ...prev,
-                {
-                  id: `activity-compaction-stream-${Date.now()}-${phase}`,
-                  type: "system",
+                [assistantMsgId]: buildCompactionLiveActivity({
+                  assistantMessageId: assistantMsgId,
+                  phase,
+                  detail: activityDetail ?? undefined,
                   label:
                     phase === "start"
                       ? t("compactionPhaseStart")
                       : completed
                         ? t("compactionPhaseDone")
-                        : t("compactionPhaseEnded"),
-                  ...(activityDetail ? { detail: activityDetail } : {}),
-                  afterMessageId: assistantMsgId
-                }
-              ]);
+                        : t("compactionPhaseEnded")
+                })
+              }));
             },
             onRuntimeDone: ({ respondedAt }) => {
               flushBufferedAssistantState(true);
@@ -430,20 +550,19 @@ export function useChat(threadKey: string): UseChatReturn {
                     : m
                 )
               );
-              setActivities((prev) => [
-                ...prev,
-                {
-                  id: `activity-runtime-${Date.now()}`,
-                  type: "runtime_done",
-                  label: "Response generated",
-                  detail: new Date(respondedAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit"
-                  }),
-                  timestamp: respondedAt,
-                  afterMessageId: assistantMsgId
+              setLiveActivitiesByMessageId((prev) => {
+                const current = prev[assistantMsgId];
+                if (current?.source === "tool") {
+                  return prev;
                 }
-              ]);
+                return {
+                  ...prev,
+                  [assistantMsgId]: buildRuntimeLiveActivity({
+                    assistantMessageId: assistantMsgId,
+                    respondedAt
+                  })
+                };
+              });
             },
             onCompleted: ({ transport }) => {
               flushBufferedAssistantState(true);
@@ -514,6 +633,19 @@ export function useChat(threadKey: string): UseChatReturn {
                       : a
                   )
                 );
+                setLiveActivitiesByMessageId((prev) => {
+                  const current = prev[assistantMsgId];
+                  if (!current || newAssistantId === assistantMsgId) {
+                    return prev;
+                  }
+                  const next = { ...prev };
+                  delete next[assistantMsgId];
+                  next[newAssistantId] = {
+                    ...current,
+                    afterMessageId: newAssistantId
+                  };
+                  return next;
+                });
               }
               appendQuotaFallbackActivity({
                 setActivities,
@@ -851,6 +983,10 @@ export function useChat(threadKey: string): UseChatReturn {
   }
   for (const m of messages) {
     entries.push({ kind: "message", message: m });
+    const live = liveActivitiesByMessageId[m.id];
+    if (live) {
+      entries.push({ kind: "activity", event: live });
+    }
     const linked = activityByMsg.get(m.id);
     if (linked) {
       for (const ev of linked) entries.push({ kind: "activity", event: ev });

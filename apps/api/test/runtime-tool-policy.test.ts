@@ -43,6 +43,18 @@ const tools = [
     visibleInPlanEditor: true
   },
   {
+    code: "video_generate",
+    displayName: "Video Generate",
+    description: "Generate a short video clip.",
+    capabilityGroup: "communication",
+    toolClass: "cost_driving",
+    policyClass: "plan_managed",
+    catalogStatus: "active",
+    planActivationStatus: "inactive",
+    effectiveActivation: "inactive",
+    visibleInPlanEditor: true
+  },
+  {
     code: "scheduled_action",
     displayName: "Scheduled Action",
     description: "Create and manage user reminders or hidden assistant actions.",
@@ -136,6 +148,15 @@ async function run(): Promise<void> {
         dailyCallLimit: null
       },
       {
+        toolCode: "video_generate",
+        kind: "plan",
+        executionMode: "worker",
+        usageRule: "forbidden",
+        enabled: false,
+        visibleToModel: false,
+        dailyCallLimit: null
+      },
+      {
         toolCode: "scheduled_action",
         kind: "plan",
         executionMode: "worker",
@@ -174,6 +195,7 @@ async function run(): Promise<void> {
   assert.match(markdown, /## Disabled Tools/);
   assert.match(markdown, /~~image_generate~~ — worker, forbidden on current plan/);
   assert.match(markdown, /~~image_edit~~ — worker, forbidden on current plan/);
+  assert.match(markdown, /~~video_generate~~ — worker, forbidden on current plan/);
   assert.doesNotMatch(markdown, /cron/);
 }
 

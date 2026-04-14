@@ -49,22 +49,51 @@ afterEach(() => {
 });
 
 describe("SendNativeTelegramTurnService", () => {
-  test("builds a native Telegram runtime request with direct conversation identity", async () => {
+  test("builds a native Telegram runtime stream request with direct conversation identity", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
+    let capturedUrl = "";
     let capturedBody: Record<string, unknown> | null = null;
+    const toolEvents: Array<{
+      phase: "start" | "end";
+      toolName: string;
+      toolCallId: string;
+      isError: boolean;
+    }> = [];
 
-    globalThis.fetch = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      capturedUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       capturedBody = init?.body
         ? (JSON.parse(init.body as string) as Record<string, unknown>)
         : null;
       return new Response(
-        JSON.stringify({
-          requestId: "runtime-request-1",
-          sessionId: "runtime-session-1",
-          assistantText: "telegram hello",
-          artifacts: [
-            {
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1"
+          }),
+          JSON.stringify({
+            type: "tool_started",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1",
+            toolCallId: "tool-1",
+            toolName: "tts"
+          }),
+          JSON.stringify({
+            type: "tool_finished",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1",
+            toolCallId: "tool-1",
+            toolName: "tts",
+            isError: false
+          }),
+          JSON.stringify({
+            type: "artifact",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1",
+            artifact: {
               artifactId: "artifact-1",
               kind: "audio",
               objectKey: "assistant-media/assistants/assistant-1/runtime-output/reply.ogg",
@@ -73,14 +102,33 @@ describe("SendNativeTelegramTurnService", () => {
               sizeBytes: 256,
               voiceNote: true
             }
-          ],
-          respondedAt: "2026-04-12T10:00:00.000Z",
-          usage: null
-        }),
+          }),
+          JSON.stringify({
+            type: "completed",
+            result: {
+              requestId: "runtime-request-1",
+              sessionId: "runtime-session-1",
+              assistantText: "telegram hello",
+              artifacts: [
+                {
+                  artifactId: "artifact-1",
+                  kind: "audio",
+                  objectKey: "assistant-media/assistants/assistant-1/runtime-output/reply.ogg",
+                  mimeType: "audio/ogg",
+                  filename: "reply.ogg",
+                  sizeBytes: 256,
+                  voiceNote: true
+                }
+              ],
+              respondedAt: "2026-04-12T10:00:00.000Z",
+              usage: null
+            }
+          })
+        ].join("\n"),
         {
           status: 200,
           headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/x-ndjson"
           }
         }
       );
@@ -91,21 +139,29 @@ describe("SendNativeTelegramTurnService", () => {
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
-      const result = await service.execute({
-        assistantId: "assistant-1",
-        publishedVersionId: "version-1",
-        runtimeTier: "paid_shared_restricted",
-        workspaceId: "workspace-1",
-        threadId: "telegram-chat-1",
-        externalUserKey: "telegram-user-1",
-        mode: "direct",
-        userMessageId: "message-1",
-        userMessage: "hello native telegram",
-        attachments: [],
-        userTimezone: "UTC",
-        currentTimeIso: "2026-04-12T10:00:00.000Z"
-      });
+      const result = await service.execute(
+        {
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          workspaceId: "workspace-1",
+          threadId: "telegram-chat-1",
+          externalUserKey: "telegram-user-1",
+          mode: "direct",
+          userMessageId: "message-1",
+          userMessage: "hello native telegram",
+          attachments: [],
+          userTimezone: "UTC",
+          currentTimeIso: "2026-04-12T10:00:00.000Z"
+        },
+        {
+          onTool: (event) => {
+            toolEvents.push(event);
+          }
+        }
+      );
 
+      assert.equal(capturedUrl, "http://runtime.local/api/v1/turns/stream");
       assert.equal(capturedBody?.idempotencyKey, "message-1");
       assert.deepEqual(capturedBody?.message, {
         text: "hello native telegram",
@@ -122,6 +178,20 @@ describe("SendNativeTelegramTurnService", () => {
         externalUserKey: "telegram-user-1",
         mode: "direct"
       });
+      assert.deepEqual(toolEvents, [
+        {
+          phase: "start",
+          toolName: "tts",
+          toolCallId: "tool-1",
+          isError: false
+        },
+        {
+          phase: "end",
+          toolName: "tts",
+          toolCallId: "tool-1",
+          isError: false
+        }
+      ]);
       assert.equal(result.assistantMessage, "telegram hello");
       assert.deepEqual(result.media, [
         {
@@ -149,18 +219,28 @@ describe("SendNativeTelegramTurnService", () => {
         ? (JSON.parse(init.body as string) as Record<string, unknown>)
         : null;
       return new Response(
-        JSON.stringify({
-          requestId: "runtime-request-2",
-          sessionId: "runtime-session-2",
-          assistantText: "group hello",
-          artifacts: [],
-          respondedAt: "2026-04-12T10:00:01.000Z",
-          usage: null
-        }),
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-2",
+            sessionId: "runtime-session-2"
+          }),
+          JSON.stringify({
+            type: "completed",
+            result: {
+              requestId: "runtime-request-2",
+              sessionId: "runtime-session-2",
+              assistantText: "group hello",
+              artifacts: [],
+              respondedAt: "2026-04-12T10:00:01.000Z",
+              usage: null
+            }
+          })
+        ].join("\n"),
         {
           status: 200,
           headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/x-ndjson"
           }
         }
       );

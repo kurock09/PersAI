@@ -14,6 +14,8 @@ import type {
   ProviderGatewayImageEditResult,
   ProviderGatewayImageGenerateRequest,
   ProviderGatewayImageGenerateResult,
+  ProviderGatewayVideoGenerateRequest,
+  ProviderGatewayVideoGenerateResult,
   ProviderGatewaySpeechGenerateRequest,
   ProviderGatewaySpeechGenerateResult,
   ProviderGatewayTextGenerateRequest,
@@ -193,6 +195,37 @@ export class ProviderGatewayClientService {
     }
     if (!this.isImageEditResult(response.body)) {
       throw new BadGatewayException("Provider gateway returned an invalid image edit response.");
+    }
+
+    return response.body;
+  }
+
+  async generateVideo(
+    input: ProviderGatewayVideoGenerateRequest,
+    options?: { timeoutMs?: number }
+  ): Promise<ProviderGatewayVideoGenerateResult> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
+    }
+
+    const response = await this.fetchJson(
+      this.buildUrl("/api/v1/providers/generate-video"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      },
+      options?.timeoutMs ?? this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      throw this.toGatewayException(response);
+    }
+    if (!this.isVideoGenerateResult(response.body)) {
+      throw new BadGatewayException(
+        "Provider gateway returned an invalid video generation response."
+      );
     }
 
     return response.body;
@@ -633,6 +666,28 @@ export class ProviderGatewayClientService {
           (typeof image.revisedPrompt === "string" || image.revisedPrompt === null)
         );
       }) &&
+      typeof row.respondedAt === "string" &&
+      (row.usage === null ||
+        (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&
+      (typeof row.warning === "string" || row.warning === null)
+    );
+  }
+
+  private isVideoGenerateResult(value: unknown): value is ProviderGatewayVideoGenerateResult {
+    const row = this.asObject(value);
+    const video = this.asObject(row?.video);
+    return (
+      row?.provider === "openai" &&
+      typeof row.model === "string" &&
+      typeof row.prompt === "string" &&
+      (row.size === "720x1280" ||
+        row.size === "1280x720" ||
+        row.size === "1024x1792" ||
+        row.size === "1792x1024" ||
+        row.size === null) &&
+      (row.seconds === 4 || row.seconds === 8 || row.seconds === 12) &&
+      typeof video?.bytesBase64 === "string" &&
+      typeof video.mimeType === "string" &&
       typeof row.respondedAt === "string" &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&

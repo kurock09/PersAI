@@ -546,6 +546,7 @@ export class MaterializeAssistantPublishedVersionService {
     const imageCredentialRef = refs.image_generate;
     if (imageCredentialRef) {
       refs.image_edit = this.cloneToolCredentialRef(imageCredentialRef);
+      refs.video_generate = this.cloneToolCredentialRef(imageCredentialRef);
     }
     refs.tts = this.buildTtsToolCredentialRef(
       keyMetadata,

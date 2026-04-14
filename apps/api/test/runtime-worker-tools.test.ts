@@ -52,6 +52,18 @@ const TOOL_POLICIES = [
     dailyCallLimit: null
   },
   {
+    toolCode: "video_generate",
+    displayName: "Video Generate",
+    description: "Generate short videos.",
+    kind: "plan",
+    executionMode: "worker",
+    usageRule: "forbidden",
+    enabled: false,
+    visibleToModel: false,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
+  {
     toolCode: "tts",
     displayName: "Text to Speech",
     description: "Generate speech audio.",
@@ -122,6 +134,15 @@ async function run(): Promise<void> {
         failureBehavior: "surface_error"
       },
       {
+        toolCode: "video_generate",
+        family: "media_generation",
+        outcomeKind: "artifact_refs",
+        timeoutMs: 300000,
+        confirmationRule: "none",
+        supportsProviderRouting: true,
+        failureBehavior: "surface_error"
+      },
+      {
         toolCode: "tts",
         family: "media_generation",
         outcomeKind: "artifact_refs",
@@ -156,9 +177,9 @@ async function run(): Promise<void> {
       buildRuntimeWorkerToolsConfig([
         ...TOOL_POLICIES,
         {
-          toolCode: "video_generate",
-          displayName: "Video Generate",
-          description: "Generate a video.",
+          toolCode: "future_worker_tool",
+          displayName: "Future Worker Tool",
+          description: "Generate a future artifact.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "forbidden",
