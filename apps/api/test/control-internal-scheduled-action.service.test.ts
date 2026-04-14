@@ -218,13 +218,14 @@ async function runNativeCreateTest(): Promise<void> {
     tierService as never
   );
 
+  const runAtIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const input = service.parseInput({
     assistantId: "assistant-1",
     action: "create",
     audience: "user",
     title: "Group reminder",
     reminderText: "Group reminder",
-    runAt: "2026-04-14T12:00:00.000Z",
+    runAt: runAtIso,
     contextMessages: 2,
     conversationContext: {
       channel: "telegram",
@@ -251,7 +252,7 @@ async function runNativeCreateTest(): Promise<void> {
       audience: "user",
       actionType: null,
       controlStatus: "active",
-      nextRunAt: "2026-04-14T12:00:00.000Z"
+      nextRunAt: runAtIso
     }
   });
 
