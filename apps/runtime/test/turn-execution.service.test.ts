@@ -1245,9 +1245,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(providerGatewayClient.calls[0]?.toolChoice, "auto");
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /summarize_context/);
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /compact_context/);
+  assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /knowledge_search/);
+  assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /knowledge_fetch/);
   assert.doesNotMatch(
     providerGatewayClient.calls[0]?.systemPrompt ?? "",
-    /knowledge_search|knowledge_fetch|web_search|memory_search|browser|persai_workspace_attach|persai_tool_quota_status/
+    /web_search|memory_search|browser|persai_workspace_attach|persai_tool_quota_status/
   );
   assert.equal(turnFinalizationService.completed.length, 1);
   assert.equal(turnFinalizationService.failed.length, 0);
@@ -1332,10 +1334,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     stopReason: "completed",
     toolCalls: []
   };
+  const providerCallsBeforeOverride = providerGatewayClient.calls.length;
   const overrideCompleted = await service.createTurn(overrideRequest);
   assert.equal(overrideCompleted.assistantText, "override reply");
-  assert.equal(providerGatewayClient.calls[1]?.provider, "anthropic");
-  assert.equal(providerGatewayClient.calls[1]?.model, "claude-sonnet-4-5");
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeOverride + 1);
+  assert.equal(providerGatewayClient.calls.at(-1)?.provider, "anthropic");
+  assert.equal(providerGatewayClient.calls.at(-1)?.model, "claude-sonnet-4-5");
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
