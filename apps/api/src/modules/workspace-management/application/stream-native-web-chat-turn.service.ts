@@ -22,6 +22,7 @@ import {
   createAssistantInboundConflict,
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
+import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
 import type { RuntimeTier } from "./runtime-assignment";
 import { getWebChatStreamRuntimeMode, type WebChatRuntimeMode } from "./web-runtime-mode";
 
@@ -126,11 +127,12 @@ export class StreamNativeWebChatTurnService {
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
-
-    const { signal, dispose } = this.createTimedSignal(
-      config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS,
-      options?.signal
+    const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
+      materializedSpec.runtimeBundle,
+      config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS
     );
+
+    const { signal, dispose } = this.createTimedSignal(timeoutMs, options?.signal);
     try {
       const response = await this.fetchStreamResponse(
         new URL("/api/v1/turns/stream", baseUrl).toString(),

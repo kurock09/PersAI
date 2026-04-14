@@ -499,6 +499,17 @@ export const PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS = ["openai"] as const;
 export type PersaiRuntimeVideoGenerateProviderId =
   (typeof PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS)[number];
 
+export const PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS = ["sora-2", "sora-2-pro"] as const;
+
+export type PersaiRuntimeVideoGenerateModelKey =
+  (typeof PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS)[number];
+
+export function isPersaiRuntimeVideoGenerateModelKey(
+  value: string
+): value is PersaiRuntimeVideoGenerateModelKey {
+  return (PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS as readonly string[]).includes(value);
+}
+
 export const PERSAI_RUNTIME_VIDEO_GENERATE_SIZES = [
   "720x1280",
   "1280x720",
@@ -1046,6 +1057,7 @@ export interface ProviderGatewayImageEditResult {
 
 export interface ProviderGatewayVideoGenerateRequest {
   prompt: string;
+  model: PersaiRuntimeVideoGenerateModelKey | null;
   size: PersaiRuntimeVideoGenerateSize | null;
   seconds: PersaiRuntimeVideoGenerateSeconds;
   referenceImage: {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { BadRequestException } from "@nestjs/common";
 import { ManageAdminPlansService } from "../src/modules/workspace-management/application/manage-admin-plans.service";
+import type { AssistantPlanCatalog } from "../src/modules/workspace-management/domain/assistant-plan-catalog.entity";
 
 function createService(): ManageAdminPlansService {
   return new ManageAdminPlansService(
@@ -50,6 +51,7 @@ async function run(): Promise<void> {
       tokenBudgetLimit: 1000
     },
     primaryModelKey: null,
+    videoGenerateModelKey: "sora-2-pro",
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: [
       {
@@ -61,6 +63,82 @@ async function run(): Promise<void> {
   });
 
   assert.equal(parsed.toolActivations?.[0]?.toolCode, "memory_get");
+  assert.equal(parsed.videoGenerateModelKey, "sora-2-pro");
+
+  const writeInput = (
+    service as unknown as {
+      toWriteInput(input: typeof parsed): { billingProviderHints: unknown };
+    }
+  ).toWriteInput(parsed);
+  assert.equal(
+    (writeInput.billingProviderHints as Record<string, unknown>).videoGenerateModelKey,
+    "sora-2-pro"
+  );
+
+  const state = (
+    service as unknown as {
+      toAdminPlanState(plan: AssistantPlanCatalog): { videoGenerateModelKey: string | null };
+    }
+  ).toAdminPlanState({
+    id: "plan-1",
+    code: "starter",
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    billingProviderHints: writeInput.billingProviderHints,
+    entitlementModel: null,
+    toolActivations: [],
+    isDefaultFirstRegistrationPlan: true,
+    isTrialPlan: true,
+    trialDurationDays: 7,
+    createdAt: new Date("2026-04-14T12:00:00.000Z"),
+    updatedAt: new Date("2026-04-14T12:00:00.000Z")
+  });
+  assert.equal(state.videoGenerateModelKey, "sora-2-pro");
+
+  assert.throws(
+    () =>
+      service.parseUpdateInput({
+        displayName: "Starter",
+        description: "Trial plan",
+        status: "active",
+        defaultOnRegistration: true,
+        trialEnabled: true,
+        trialDurationDays: 7,
+        metadata: {
+          commercialTag: "trial",
+          notes: null
+        },
+        entitlements: {
+          toolClasses: {
+            costDrivingTools: false,
+            utilityTools: true,
+            costDrivingQuotaGoverned: true,
+            utilityQuotaGoverned: true
+          },
+          channelsAndSurfaces: {
+            webChat: true,
+            telegram: true,
+            whatsapp: false,
+            max: false
+          },
+          mediaClasses: {
+            image: false,
+            audio: false,
+            video: false,
+            file: false
+          }
+        },
+        quotaLimits: {
+          tokenBudgetLimit: 1000
+        },
+        primaryModelKey: null,
+        videoGenerateModelKey: "sora-3",
+        runtimeTierDefault: "free_shared_restricted"
+      }),
+    (error) =>
+      error instanceof BadRequestException && error.message.includes("videoGenerateModelKey")
+  );
 
   assert.throws(
     () =>

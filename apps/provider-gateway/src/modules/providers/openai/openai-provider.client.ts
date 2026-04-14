@@ -418,7 +418,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
       return {
         provider: "openai",
-        model: completedJob.model ?? OPENAI_VIDEO_GENERATION_MODEL,
+        model: completedJob.model ?? input.model ?? OPENAI_VIDEO_GENERATION_MODEL,
         prompt: input.prompt,
         size: input.size,
         seconds: input.seconds,
@@ -1063,19 +1063,24 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     signal: AbortSignal
   ): Promise<{ id: string; status: string; model: string | null }> {
     const formData = new FormData();
-    formData.append("model", OPENAI_VIDEO_GENERATION_MODEL);
+    formData.append("model", input.model ?? OPENAI_VIDEO_GENERATION_MODEL);
     formData.append("prompt", input.prompt);
     formData.append("seconds", String(input.seconds));
     if (input.size !== null) {
       formData.append("size", input.size);
     }
     if (input.referenceImage !== null) {
+      const normalizedReferenceImage = await this.normalizeOpenAIVideoReferenceImage(
+        input.referenceImage,
+        input.size
+      );
       const filename =
-        input.referenceImage.filename ?? this.defaultImageFilename(input.referenceImage.mimeType);
+        normalizedReferenceImage.filename ??
+        this.defaultImageFilename(normalizedReferenceImage.mimeType);
       formData.append(
         "input_reference",
-        new Blob([Buffer.from(input.referenceImage.bytesBase64, "base64")], {
-          type: input.referenceImage.mimeType
+        new Blob([Uint8Array.from(normalizedReferenceImage.buffer)], {
+          type: normalizedReferenceImage.mimeType
         }),
         filename
       );
@@ -1094,6 +1099,86 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       throw new Error(this.readOpenAIVideoErrorMessage(body, response.status));
     }
     return this.parseOpenAIVideoJob(body);
+  }
+
+  private async normalizeOpenAIVideoReferenceImage(
+    referenceImage: NonNullable<ProviderGatewayVideoGenerateRequest["referenceImage"]>,
+    size: ProviderGatewayVideoGenerateRequest["size"]
+  ): Promise<{
+    buffer: Buffer;
+    mimeType: string;
+    filename: string | null;
+  }> {
+    const buffer = Buffer.from(referenceImage.bytesBase64, "base64");
+    if (buffer.length === 0 || size === null) {
+      return {
+        buffer,
+        mimeType: referenceImage.mimeType,
+        filename: referenceImage.filename
+      };
+    }
+
+    const dimensions = this.parseOpenAIVideoSize(size);
+    if (dimensions === null) {
+      return {
+        buffer,
+        mimeType: referenceImage.mimeType,
+        filename: referenceImage.filename
+      };
+    }
+
+    const sharp = (await import("sharp")).default;
+    const source = sharp(buffer, { failOn: "none" }).rotate();
+    const background = await source
+      .clone()
+      .resize(dimensions.width, dimensions.height, {
+        fit: "cover"
+      })
+      .blur(16)
+      .png()
+      .toBuffer();
+    const foreground = await source
+      .clone()
+      .resize(dimensions.width, dimensions.height, {
+        fit: "contain",
+        background: { r: 0, g: 0, b: 0, alpha: 0 }
+      })
+      .png()
+      .toBuffer();
+    const normalizedBuffer = await sharp(background)
+      .composite([{ input: foreground }])
+      .png()
+      .toBuffer();
+
+    return {
+      buffer: normalizedBuffer,
+      mimeType: "image/png",
+      filename: this.replaceImageFilenameExtension(referenceImage.filename, "png")
+    };
+  }
+
+  private parseOpenAIVideoSize(size: string): { width: number; height: number } | null {
+    const match = /^(\d+)x(\d+)$/.exec(size.trim());
+    if (match === null) {
+      return null;
+    }
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0) {
+      return null;
+    }
+    return { width, height };
+  }
+
+  private replaceImageFilenameExtension(filename: string | null, extension: string): string | null {
+    if (filename === null) {
+      return null;
+    }
+    const trimmed = filename.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+    return `${trimmed.replace(/\.[A-Za-z0-9]+$/u, "")}.${extension}`;
   }
 
   private async pollOpenAIVideoJob(

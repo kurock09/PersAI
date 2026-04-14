@@ -769,7 +769,18 @@ class FakeProviderGatewayClientService {
     if (this.videoGenerateError !== null) {
       throw this.videoGenerateError;
     }
-    return this.videoGenerateResult;
+    const model = input.model ?? this.videoGenerateResult.model;
+    return {
+      ...this.videoGenerateResult,
+      model,
+      usage:
+        this.videoGenerateResult.usage === null
+          ? null
+          : {
+              ...this.videoGenerateResult.usage,
+              modelKey: model
+            }
+    };
   }
 
   async webFetch(input: ProviderGatewayWebFetchRequest): Promise<ProviderGatewayWebFetchResult> {
@@ -2602,6 +2613,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       refKey: "persai:persai-runtime:tool/image_generate/api-key",
       configured: true,
       providerId: "openai",
+      modelKey: "sora-2-pro",
       secretRef: {
         source: "persai",
         provider: "persai-runtime",
@@ -2697,6 +2709,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.deepEqual(providerGatewayClient.videoGenerateCalls.at(-1), {
     input: {
       prompt: "Animate the attached image into a calm sunrise clip",
+      model: "sora-2-pro",
       size: "1280x720",
       seconds: 4,
       referenceImage: {
@@ -2735,7 +2748,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   };
   assert.equal(videoGenerateToolHistory.action, "generated");
   assert.equal(videoGenerateToolHistory.provider, "openai");
-  assert.equal(videoGenerateToolHistory.model, "sora-2");
+  assert.equal(videoGenerateToolHistory.model, "sora-2-pro");
   assert.equal(
     videoGenerateToolHistory.prompt,
     "Animate the attached image into a calm sunrise clip"

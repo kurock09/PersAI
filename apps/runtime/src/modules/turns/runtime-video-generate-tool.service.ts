@@ -5,6 +5,7 @@ import type {
   AssistantRuntimeBundleToolCredentialRef
 } from "@persai/runtime-bundle";
 import {
+  isPersaiRuntimeVideoGenerateModelKey,
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
@@ -12,6 +13,7 @@ import {
   type PersaiRuntimeVideoGenerateSeconds,
   type PersaiRuntimeVideoGenerateSize,
   type ProviderGatewayToolCall,
+  type ProviderGatewayVideoGenerateRequest,
   type RuntimeAttachmentRef,
   type RuntimeOutputArtifact,
   type RuntimeToolPolicy,
@@ -188,6 +190,7 @@ export class RuntimeVideoGenerateToolService {
         isError: false
       };
     }
+    const model = this.resolveVideoGenerateModelKey(credential);
 
     const selection = await this.resolveReferenceImageSelection(
       params.currentAttachments,
@@ -251,6 +254,7 @@ export class RuntimeVideoGenerateToolService {
       const providerResult = await this.providerGatewayClientService.generateVideo(
         {
           prompt: request.prompt,
+          model,
           size: request.size,
           seconds: request.seconds,
           referenceImage: selection.referenceImage,
@@ -622,6 +626,16 @@ export class RuntimeVideoGenerateToolService {
       resolved as PersaiRuntimeVideoGenerateProviderId
     )
       ? (resolved as PersaiRuntimeVideoGenerateProviderId)
+      : null;
+  }
+
+  private resolveVideoGenerateModelKey(
+    credential: AssistantRuntimeBundleToolCredentialRef
+  ): ProviderGatewayVideoGenerateRequest["model"] {
+    return credential.modelKey !== undefined &&
+      credential.modelKey !== null &&
+      isPersaiRuntimeVideoGenerateModelKey(credential.modelKey)
+      ? credential.modelKey
       : null;
   }
 

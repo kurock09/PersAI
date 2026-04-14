@@ -1,4 +1,20 @@
 import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import { resolveAllowedPlanVideoGenerateModelKey } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
+
+describe("resolveAllowedPlanVideoGenerateModelKey", () => {
+  test("keeps supported plan video models", () => {
+    assert.equal(resolveAllowedPlanVideoGenerateModelKey("sora-2"), "sora-2");
+    assert.equal(resolveAllowedPlanVideoGenerateModelKey("  sora-2-pro  "), "sora-2-pro");
+  });
+
+  test("drops unsupported or empty plan video models", () => {
+    assert.equal(resolveAllowedPlanVideoGenerateModelKey(null), null);
+    assert.equal(resolveAllowedPlanVideoGenerateModelKey(""), null);
+    assert.equal(resolveAllowedPlanVideoGenerateModelKey("sora-3"), null);
+  });
+});
+import assert from "node:assert/strict";
 import { resolveAllowedPlanPrimaryModelKey } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
 
 async function run(): Promise<void> {

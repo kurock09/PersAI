@@ -117,9 +117,11 @@ function createImageEditRequest(options?: {
 
 function createVideoGenerateRequest(options?: {
   includeReference?: boolean;
+  model?: "sora-2" | "sora-2-pro" | null;
 }): ProviderGatewayVideoGenerateRequest {
   return {
     prompt: "Animate a calm paper-cut forest at sunrise",
+    model: options?.model ?? null,
     size: "1280x720",
     seconds: 4,
     referenceImage: options?.includeReference
@@ -174,6 +176,7 @@ function createSpeechGenerateRequest(): ProviderGatewaySpeechGenerateRequest {
 
 export async function runOpenAIProviderClientTest(): Promise<void> {
   const client = new OpenAIProviderClient(createConfig());
+  const sharp = (await import("sharp")).default;
   let capturedGeneratePayload: {
     input?: unknown;
     tools?: unknown;
@@ -804,6 +807,16 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
 
   const originalFetch = globalThis.fetch;
   const videoRequests: Array<{ url: string; init?: RequestInit }> = [];
+  const squareReferenceBuffer = await sharp({
+    create: {
+      width: 512,
+      height: 512,
+      channels: 3,
+      background: { r: 200, g: 120, b: 80 }
+    }
+  })
+    .jpeg()
+    .toBuffer();
   globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -826,7 +839,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
         JSON.stringify({
           id: "video_123",
           status: "completed",
-          model: "sora-2"
+          model:
+            typeof capturedVideoPayload?.model === "string" ? capturedVideoPayload.model : "sora-2"
         }),
         {
           status: 200,
@@ -849,7 +863,14 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
 
   try {
     const videoResult = await client.generateVideo(
-      createVideoGenerateRequest({ includeReference: true }),
+      {
+        ...createVideoGenerateRequest({ includeReference: true, model: "sora-2-pro" }),
+        referenceImage: {
+          bytesBase64: squareReferenceBuffer.toString("base64"),
+          mimeType: "image/jpeg",
+          filename: "forest-square.jpg"
+        }
+      },
       {
         apiKey: "tool-openai-key"
       }
@@ -861,15 +882,21 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       seconds: FormDataEntryValue | null;
       inputReference: FormDataEntryValue | null;
     } | null;
-    assert.equal(videoResult.model, "sora-2");
+    assert.equal(videoResult.model, "sora-2-pro");
     assert.equal(videoResult.video.mimeType, "video/mp4");
     assert.equal(videoResult.video.bytesBase64, Buffer.from("video-bytes").toString("base64"));
     assert.ok(recordedVideoPayload !== null);
-    assert.equal(recordedVideoPayload.model, "sora-2");
+    assert.equal(recordedVideoPayload.model, "sora-2-pro");
     assert.equal(recordedVideoPayload.prompt, "Animate a calm paper-cut forest at sunrise");
     assert.equal(recordedVideoPayload.size, "1280x720");
     assert.equal(recordedVideoPayload.seconds, "4");
     assert.ok(recordedVideoPayload.inputReference instanceof Blob);
+    const normalizedReferenceBlob = recordedVideoPayload.inputReference as Blob;
+    assert.equal(normalizedReferenceBlob.type, "image/png");
+    const normalizedReferenceBuffer = Buffer.from(await normalizedReferenceBlob.arrayBuffer());
+    const normalizedReferenceMetadata = await sharp(normalizedReferenceBuffer).metadata();
+    assert.equal(normalizedReferenceMetadata.width, 1280);
+    assert.equal(normalizedReferenceMetadata.height, 720);
     assert.equal(videoRequests.length, 2);
     assert.equal(videoRequests[0]?.url, "https://api.openai.com/v1/videos");
     assert.equal(videoRequests[1]?.url, "https://api.openai.com/v1/videos/video_123/content");

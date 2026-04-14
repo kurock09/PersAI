@@ -9,9 +9,11 @@ import type { PersaiInternalApiClientService } from "../src/modules/providers/pe
 
 function createRequest(options?: {
   includeReference?: boolean;
+  model?: "sora-2" | "sora-2-pro" | null;
 }): ProviderGatewayVideoGenerateRequest {
   return {
     prompt: "Animate a calm paper-cut forest at sunrise",
+    model: options?.model ?? null,
     size: "1280x720",
     seconds: 4,
     referenceImage: options?.includeReference
@@ -71,11 +73,13 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
 
-  const result = await service.generateVideo(createRequest({ includeReference: true }));
+  const result = await service.generateVideo(
+    createRequest({ includeReference: true, model: "sora-2-pro" })
+  );
   assert.equal(result.provider, "openai");
   assert.equal(result.video.mimeType, "video/mp4");
   assert.deepEqual(openaiProviderClient.calls[0], {
-    input: createRequest({ includeReference: true }),
+    input: createRequest({ includeReference: true, model: "sora-2-pro" }),
     apiKey: "resolved-tool-secret"
   });
   assert.deepEqual(persaiInternalApiClientService.secretIds, ["tool/image_generate/api-key"]);
@@ -87,6 +91,15 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
         seconds: 6 as never
       }),
     /seconds must be one of/
+  );
+
+  await assert.rejects(
+    () =>
+      service.generateVideo({
+        ...createRequest(),
+        model: "sora-3" as never
+      }),
+    /model must be one of/
   );
 
   await assert.rejects(

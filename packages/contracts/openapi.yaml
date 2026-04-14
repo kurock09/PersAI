@@ -4106,6 +4106,12 @@ components:
         primaryModelKey:
           type: string
           nullable: true
+        videoGenerateModelKey:
+          type: string
+          enum:
+            - sora-2
+            - sora-2-pro
+          nullable: true
         runtimeTierDefault:
           allOf:
             - $ref: "#/components/schemas/RuntimeTier"
@@ -4204,6 +4210,12 @@ components:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
         primaryModelKey:
           type: string
+          nullable: true
+        videoGenerateModelKey:
+          type: string
+          enum:
+            - sora-2
+            - sora-2-pro
           nullable: true
         runtimeTierDefault:
           allOf:

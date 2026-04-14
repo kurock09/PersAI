@@ -22,6 +22,7 @@ import {
   createAssistantInboundConflict,
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
+import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
 import type { RuntimeTier } from "./runtime-assignment";
 
 export interface SendNativeTelegramTurnInput {
@@ -133,8 +134,12 @@ export class SendNativeTelegramTurnService {
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
+    const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
+      materializedSpec.runtimeBundle,
+      config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS
+    );
 
-    const { signal, dispose } = this.createTimedSignal(config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS);
+    const { signal, dispose } = this.createTimedSignal(timeoutMs);
     try {
       const response = await this.fetchStreamResponse(
         new URL("/api/v1/turns/stream", baseUrl).toString(),

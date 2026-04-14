@@ -62,7 +62,12 @@ import { resolveStableTtsProviderChain } from "./tts-provider-selection";
 import { resolveRuntimeAssignmentState } from "./runtime-assignment";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { resolveTelegramBindingMetadataState } from "./telegram-integration.metadata";
-import type { PersaiRuntimeTtsProviderId, RuntimeToolPolicy } from "@persai/runtime-contract";
+import {
+  isPersaiRuntimeVideoGenerateModelKey,
+  type PersaiRuntimeTtsProviderId,
+  type PersaiRuntimeVideoGenerateModelKey,
+  type RuntimeToolPolicy
+} from "@persai/runtime-contract";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -135,6 +140,16 @@ export function resolveAllowedPlanPrimaryModelKey(params: {
       params.runtimeProviderProfile.primary.provider
     ] ?? [];
   return providerCatalog.includes(planPrimaryModelKey) ? planPrimaryModelKey : null;
+}
+
+export function resolveAllowedPlanVideoGenerateModelKey(
+  planVideoGenerateModelKey: string | null
+): PersaiRuntimeVideoGenerateModelKey | null {
+  const normalized = planVideoGenerateModelKey?.trim() || null;
+  if (normalized === null) {
+    return null;
+  }
+  return isPersaiRuntimeVideoGenerateModelKey(normalized) ? normalized : null;
 }
 
 @Injectable()
@@ -241,9 +256,20 @@ export class MaterializeAssistantPublishedVersionService {
       runtimeProviderProfile,
       planPrimaryModelKey: rawPlanPrimaryModelKey
     });
+    const rawPlanVideoGenerateModelKey = await this.resolvePlanVideoGenerateModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
+    const planVideoGenerateModelKey = resolveAllowedPlanVideoGenerateModelKey(
+      rawPlanVideoGenerateModelKey
+    );
     if (rawPlanPrimaryModelKey !== null && planPrimaryModelKey === null) {
       this.logger.warn(
         `Skipping stale plan primary model "${rawPlanPrimaryModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
+      );
+    }
+    if (rawPlanVideoGenerateModelKey !== null && planVideoGenerateModelKey === null) {
+      this.logger.warn(
+        `Skipping stale plan video model "${rawPlanVideoGenerateModelKey}" for assistant ${assistant.id}; it is not supported by the active runtime video catalog.`
       );
     }
     if (
@@ -320,7 +346,10 @@ export class MaterializeAssistantPublishedVersionService {
       assistantGender,
       voiceProfile: normalizeAssistantVoiceProfile(publishedVersion.snapshotVoiceProfile)
     });
-    const toolCredentialRefs = await this.resolveToolCredentialRefs(voiceProfile);
+    const toolCredentialRefs = await this.resolveToolCredentialRefs({
+      voiceProfile,
+      videoGenerateModelKey: planVideoGenerateModelKey
+    });
     const planToolQuotaPolicy = await this.resolveToolQuotaPolicy(effectivePlanCode);
     const openclawToolQuotaPolicy = this.resolveOpenClawToolQuotaPolicy(
       toolAvailability.tools,
@@ -514,9 +543,10 @@ export class MaterializeAssistantPublishedVersionService {
     };
   }
 
-  private async resolveToolCredentialRefs(
-    voiceProfile: AssistantRuntimeBundle["persona"]["voiceProfile"]
-  ): Promise<AssistantRuntimeBundle["governance"]["toolCredentialRefs"]> {
+  private async resolveToolCredentialRefs(input: {
+    voiceProfile: AssistantRuntimeBundle["persona"]["voiceProfile"];
+    videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
+  }): Promise<AssistantRuntimeBundle["governance"]["toolCredentialRefs"]> {
     const keyMetadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(
       ALL_TOOL_CREDENTIAL_KEYS as unknown as string[]
     );
@@ -546,12 +576,15 @@ export class MaterializeAssistantPublishedVersionService {
     const imageCredentialRef = refs.image_generate;
     if (imageCredentialRef) {
       refs.image_edit = this.cloneToolCredentialRef(imageCredentialRef);
-      refs.video_generate = this.cloneToolCredentialRef(imageCredentialRef);
+      refs.video_generate = {
+        ...this.cloneToolCredentialRef(imageCredentialRef),
+        ...(input.videoGenerateModelKey !== null ? { modelKey: input.videoGenerateModelKey } : {})
+      };
     }
     refs.tts = this.buildTtsToolCredentialRef(
       keyMetadata,
       await this.resolveTtsPrimaryProviderId(),
-      voiceProfile
+      input.voiceProfile
     );
     return refs;
   }
@@ -637,6 +670,28 @@ export class MaterializeAssistantPublishedVersionService {
     const record = hints as Record<string, unknown>;
     return typeof record.primaryModelKey === "string" && record.primaryModelKey.trim().length > 0
       ? record.primaryModelKey.trim()
+      : null;
+  }
+
+  private async resolvePlanVideoGenerateModelKey(planCode: string | null): Promise<string | null> {
+    if (planCode === null) {
+      return null;
+    }
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) {
+      return null;
+    }
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) {
+      return null;
+    }
+    const record = hints as Record<string, unknown>;
+    return typeof record.videoGenerateModelKey === "string" &&
+      record.videoGenerateModelKey.trim().length > 0
+      ? record.videoGenerateModelKey.trim()
       : null;
   }
 

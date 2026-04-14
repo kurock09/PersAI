@@ -50,7 +50,7 @@ const BROWSER_CONFIG = {
   confirmationRequiredActions: ["act"]
 } satisfies RuntimeBrowserConfig;
 
-function createBundle(options?: { configured?: boolean }) {
+function createBundle(options?: { configured?: boolean; modelKey?: "sora-2" | "sora-2-pro" }) {
   return compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
@@ -141,7 +141,8 @@ function createBundle(options?: { configured?: boolean }) {
             id: "tool/image_generate/api-key"
           },
           configured: options?.configured ?? true,
-          providerId: "openai"
+          providerId: "openai",
+          ...(options?.modelKey ? { modelKey: options.modelKey } : {})
         }
       },
       toolPolicies: [
@@ -226,9 +227,10 @@ class FakeProviderGatewayClientService {
     options?: { timeoutMs?: number }
   ): Promise<ProviderGatewayVideoGenerateResult> {
     this.videoCalls.push(options === undefined ? { input } : { input, options });
+    const resolvedModel = input.model ?? "sora-2";
     return {
       provider: "openai",
-      model: "sora-2",
+      model: resolvedModel,
       prompt: input.prompt,
       size: input.size,
       seconds: input.seconds,
@@ -239,7 +241,7 @@ class FakeProviderGatewayClientService {
       respondedAt: "2026-04-14T12:00:00.000Z",
       usage: {
         providerKey: "openai",
-        modelKey: "sora-2",
+        modelKey: resolvedModel,
         inputTokens: null,
         outputTokens: null,
         totalTokens: null
@@ -304,6 +306,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   );
 
   const bundle = createBundle();
+  const bundleWithProModel = createBundle({ modelKey: "sora-2-pro" });
   const projection = projectRuntimeNativeTools(bundle);
   assert.equal(
     projection.tools.some((tool) => tool.name === "video_generate"),
@@ -315,6 +318,21 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     hiddenProjection.tools.some((tool) => tool.name === "video_generate"),
     false
   );
+
+  const proModelResult = await service.executeToolCall({
+    bundle: bundleWithProModel,
+    toolCall: createToolCall({
+      prompt: "Animate a premium cinematic forest sunrise",
+      seconds: 4,
+      size: "1280x720"
+    }),
+    currentAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-0"
+  });
+  assert.equal(proModelResult.payload.action, "generated");
+  assert.equal(proModelResult.payload.model, "sora-2-pro");
+  assert.equal(providerGatewayClientService.videoCalls[0]?.input.model, "sora-2-pro");
 
   const promptOnlyResult = await service.executeToolCall({
     bundle,
@@ -334,7 +352,25 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(promptOnlyResult.artifacts.length, 1);
   assert.deepEqual(providerGatewayClientService.videoCalls[0], {
     input: {
+      prompt: "Animate a premium cinematic forest sunrise",
+      model: "sora-2-pro",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: null,
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/image_generate/api-key",
+        providerId: "openai"
+      }
+    },
+    options: {
+      timeoutMs: 300000
+    }
+  });
+  assert.deepEqual(providerGatewayClientService.videoCalls[1], {
+    input: {
       prompt: "Animate a calm paper-cut forest at sunrise",
+      model: null,
       size: "1280x720",
       seconds: 4,
       referenceImage: null,
@@ -368,15 +404,21 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(referenceResult.payload.referenceImageIndex, 1);
   assert.equal(referenceResult.payload.referenceFilename, "forest.png");
   assert.equal(referenceResult.payload.artifact?.filename, "forest-video.mp4");
+  assert.equal(referenceResult.payload.model, "sora-2");
   assert.equal(
-    providerGatewayClientService.videoCalls[1]?.input.referenceImage?.mimeType,
+    providerGatewayClientService.videoCalls[2]?.input.referenceImage?.mimeType,
     "image/png"
   );
   assert.equal(
-    providerGatewayClientService.videoCalls[1]?.input.referenceImage?.bytesBase64,
+    providerGatewayClientService.videoCalls[2]?.input.referenceImage?.bytesBase64,
     Buffer.from("reference-image-binary").toString("base64")
   );
   assert.deepEqual(persaiInternalApiClientService.quotaCalls, [
+    {
+      assistantId: "assistant-1",
+      toolCode: "video_generate",
+      dailyCallLimit: 5
+    },
     {
       assistantId: "assistant-1",
       toolCode: "video_generate",

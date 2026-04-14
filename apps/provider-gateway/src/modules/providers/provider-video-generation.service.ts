@@ -1,8 +1,11 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
+  PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS,
+  isPersaiRuntimeVideoGenerateModelKey,
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
+  type PersaiRuntimeVideoGenerateModelKey,
   type PersaiRuntimeVideoGenerateProviderId,
   type ProviderGatewayVideoGenerateRequest,
   type ProviderGatewayVideoGenerateResult
@@ -34,6 +37,7 @@ export class ProviderVideoGenerationService {
   private normalizeInput(
     input: ProviderGatewayVideoGenerateRequest
   ): ProviderGatewayVideoGenerateRequest & {
+    model: PersaiRuntimeVideoGenerateModelKey | null;
     referenceImage: {
       bytesBase64: string;
       mimeType: string;
@@ -76,9 +80,11 @@ export class ProviderVideoGenerationService {
       input.referenceImage === null || input.referenceImage === undefined
         ? null
         : this.normalizeReferenceImage(input.referenceImage);
+    const model = this.normalizeModel(input.model);
 
     return {
       prompt: input.prompt.trim(),
+      model,
       size: input.size,
       seconds: input.seconds,
       referenceImage,
@@ -120,5 +126,20 @@ export class ProviderVideoGenerationService {
       mimeType: input.mimeType.trim(),
       filename
     };
+  }
+
+  private normalizeModel(
+    input: ProviderGatewayVideoGenerateRequest["model"]
+  ): PersaiRuntimeVideoGenerateModelKey | null {
+    if (input === null || input === undefined) {
+      return null;
+    }
+    const normalized = typeof input === "string" ? input.trim() : "";
+    if (isPersaiRuntimeVideoGenerateModelKey(normalized)) {
+      return normalized;
+    }
+    throw new BadRequestException(
+      `model must be one of ${PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS.join(", ")}, or null`
+    );
   }
 }

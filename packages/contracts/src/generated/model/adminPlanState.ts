@@ -8,6 +8,7 @@ import type { AdminPlanStateStatus } from "./adminPlanStateStatus";
 import type { AdminPlanMetadata } from "./adminPlanMetadata";
 import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
 import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
+import type { AdminPlanStateVideoGenerateModelKey } from "./adminPlanStateVideoGenerateModelKey";
 import type { AdminPlanStateRuntimeTierDefault } from "./adminPlanStateRuntimeTierDefault";
 import type { AdminPlanToolActivation } from "./adminPlanToolActivation";
 
@@ -26,6 +27,8 @@ export interface AdminPlanState {
   quotaLimits?: AdminPlanQuotaLimits;
   /** @nullable */
   primaryModelKey?: string | null;
+  /** @nullable */
+  videoGenerateModelKey?: AdminPlanStateVideoGenerateModelKey;
   /** @nullable */
   runtimeTierDefault?: AdminPlanStateRuntimeTierDefault;
   createdAt: string;

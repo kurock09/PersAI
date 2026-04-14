@@ -482,6 +482,7 @@ Behavior baseline:
   - entitlement controls (tool classes, channels/surfaces)
   - quota limits (`tokenBudgetLimit`)
   - per-plan AI model key (`primaryModelKey`, nullable)
+  - per-plan `video_generate` model key (`videoGenerateModelKey`, nullable; bounded to `sora-2 | sora-2-pro`)
   - per-plan runtime tier default (`runtimeTierDefault`, nullable in contract for older rows; new writes set it explicitly)
   - per-tool activations (`toolActivations[]` with `active`, `dailyCallLimit`)
 
@@ -498,6 +499,7 @@ Behavior baseline:
   - entitlement controls (tool classes, channels/surfaces)
   - quota limits (`tokenBudgetLimit`)
   - per-plan AI model key (`primaryModelKey`)
+  - per-plan `video_generate` model key (`videoGenerateModelKey`)
   - per-plan runtime tier default (`runtimeTierDefault`)
   - per-tool activation overrides (`toolActivations[]`)
 
@@ -1034,6 +1036,7 @@ Behavior baseline:
   - never returns stored raw keys in the response body
   - writes an admin audit event for the update
   - tool credential refs are emitted into the materialized native runtime bundle during the next materialization/apply, with `tool_image_generate` reused for `image_generate`, `image_edit`, and `video_generate`
+  - plan-controlled `videoGenerateModelKey` is materialized separately onto the server-owned native bundle seam `toolCredentialRefs.video_generate.modelKey`; the tool still reuses the shared `tool_image_generate` secret ref instead of creating a second video-specific credential slot
   - OpenClaw resolves tool credentials through the same `POST /api/v1/internal/runtime/provider-secrets/resolve` endpoint
 
 ## Step 12 H1b global runtime provider settings
@@ -1147,6 +1150,7 @@ Behavior baseline:
   - platform-global runtime provider settings (provider, model, credentials)
   - fallback to legacy assistant governance H1 runtime-provider profile + provider credential refs
   - fallback to legacy OpenClaw runtime default
+- Separately from primary text-model routing, per-plan `videoGenerateModelKey` in `billingProviderHints` materializes only onto the native runtime bundle seam `toolCredentialRefs.video_generate.modelKey`; native `video_generate` requests forward that bounded selection to `apps/provider-gateway`, which accepts only `sora-2` / `sora-2-pro` and otherwise falls back to `sora-2`.
 - The materialized runtime-provider profile may now include:
   - platform-generated `SecretRef` values with source `persai`
   - `availableModelsByProvider` metadata for later entitlement filtering

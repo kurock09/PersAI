@@ -1,5 +1,136 @@
 # SESSION-HANDOFF
 
+## 2026-04-14 - ADR-072 T15-6 closeout
+
+### What changed
+
+1. Repo-truth docs now close `T15-6 — Media generation and editing plan tools` honestly instead of leaving the slice marked active after all four native media workers were already landed.
+2. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`, `docs/TEST-PLAN.md`, `docs/ARCHITECTURE.md`, and `docs/API-BOUNDARY.md` now all say the same thing about the finished `T15-6` scope: native `image_generate`, `image_edit`, `tts`, and `video_generate` share one PersAI-owned worker/provider-gateway/object-storage/media-delivery boundary; web/Telegram media progress UX is truthful; prompt-plus-reference-image video generation is supported through provider-side normalization; long-running media turns use worker-derived timeout budgets; and admin plans can bound `video_generate` to `sora-2` / `sora-2-pro`.
+3. `docs/CHANGELOG.md` and this handoff now move the active program narrative forward: `T15-6` is closed, and the next queued Step 15 family is `T15-6b — Human memory and namespaced knowledge sources`.
+4. The full local CI-like gate requested by `AGENTS.md` plus the broader package test pass all ran green before commit/push.
+
+### Why
+
+1. The code already satisfied the intended `T15-6` scope, so leaving repo-truth docs in a "still active" state would create avoidable doc/code drift.
+2. The next session needs a clean handoff onto `T15-6b` rather than reopening media work that is already honestly landed.
+3. Running the full lint/format/typecheck/test gate before commit keeps this closeout aligned with the repo's explicit pre-push policy.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active, but `T15-6 — Media generation and editing plan tools` is now closed. The next queued Step 15 family is `T15-6b — Human memory and namespaced knowledge sources`.
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/TEST-PLAN.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run test`
+- `corepack pnpm --filter @persai/web run test`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+
+### Risks
+
+1. `T15-6b` and `T15-7` are still future work, so Step 15 overall remains open even though the media branch is now complete.
+2. The current plan-level video model seam is intentionally bounded to OpenAI's `sora-2` / `sora-2-pro`; broader provider/model breadth remains later follow-through if product wants it.
+3. This closeout updates repo-truth and validation, not live-prod proof for every plan combination; one bounded post-push smoke per chosen plan/video tier is still the practical final confidence step.
+
+### Next recommended step
+
+1. Start `T15-6b` on the smallest honest slice: freeze the PersAI-owned knowledge storage/index boundary plus the first upload/list/status/reindex surface before reopening richer retrieval or memory UX.
+
+## 2026-04-14 - ADR-072 per-plan video_generate model selection
+
+### What changed
+
+1. `apps/web/app/admin/plans/page.tsx` now exposes the `video_generate` model control exactly where product asked for it: a dropdown in the `Video Generate` tool row with the bounded choices `default (sora-2)`, `sora-2`, and `sora-2-pro`.
+2. `apps/api` admin plan parsing/state now carries `videoGenerateModelKey`, persists it inside `billingProviderHints`, and materializes the selected value onto the server-owned runtime bundle seam `governance.toolCredentialRefs.video_generate.modelKey`.
+3. `packages/runtime-contract` now defines the shared OpenAI video-model allowlist and `ProviderGatewayVideoGenerateRequest.model`, while `packages/contracts/openapi.yaml` plus generated client contracts now expose the new admin-plan field to the web app.
+4. `apps/runtime` now forwards the materialized video model to `provider-gateway`, and `apps/provider-gateway` allowlists the incoming request model before `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts` uses it for OpenAI video job creation with safe fallback to `sora-2`.
+5. Focused API, web, runtime, and provider tests now cover plan parsing/roundtrip, row-level dropdown behavior, runtime propagation, provider normalization, and OpenAI request payload selection for the new per-plan video-model seam.
+
+### Why
+
+1. Different plans need different `video_generate` quality/cost levels without exposing a user-facing picker or letting the LLM choose arbitrary provider models.
+2. The selected video model must remain a server-owned control-plane decision, so it is materialized into the runtime bundle instead of being exposed as a free-form tool argument.
+3. Strict allowlisting on both plan input and provider request boundaries keeps the new seam narrow, predictable, and safe to extend later if more supported OpenAI video tiers are added.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-6 — Media generation and editing plan tools` is still the current slice. `video_generate` now has plan-level model selection on top of the already-landed native executor path.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `packages/runtime-bundle/src/index.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/test/manage-admin-plans.service.test.ts`
+- `apps/api/test/materialize-assistant-published-version.service.test.ts`
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/admin/plans/page.test.tsx`
+- `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`
+- `apps/runtime/test/runtime-video-generate-tool.service.test.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/test/provider-video-generation.service.test.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm contracts:generate`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/materialize-assistant-published-version.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-video-generation.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/openai-provider.client.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/provider-gateway.client.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run --config vitest.config.ts app/admin/plans/page.test.tsx`
+
+### Risks
+
+1. The selector is intentionally admin-only and only applies to `video_generate`; other tool families still use their current fixed/default provider models.
+2. Stale unsupported DB values now fail closed to `sora-2` during materialization/provider normalization, so a bad historic hint will not break video generation but will silently lose the unsupported override.
+3. I did not run the full broad `@persai/api` suite here; the touched admin/materialization slices are covered by targeted tests plus package typecheck.
+
+### Next recommended step
+
+1. In admin, set two different plans to different video models, reapply one assistant per plan, and do one bounded live `video_generate` check to confirm the selected plan-level model is the one reaching the live provider path.
+
 ## 2026-04-14 - ADR-072 media status UX follow-through
 
 ### What changed

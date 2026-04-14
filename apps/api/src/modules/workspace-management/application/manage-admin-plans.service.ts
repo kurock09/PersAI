@@ -6,6 +6,11 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import {
+  PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS,
+  isPersaiRuntimeVideoGenerateModelKey,
+  type PersaiRuntimeVideoGenerateModelKey
+} from "@persai/runtime-contract";
+import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository,
   type AssistantPlanCatalogWriteInput
@@ -66,6 +71,27 @@ function parseRuntimeTier(value: unknown): AdminPlanRuntimeTier | null {
   }
   throw new BadRequestException(
     "runtimeTierDefault must be one of free_shared_restricted, paid_shared_restricted, paid_isolated, or null."
+  );
+}
+
+function toVideoGenerateModelKey(value: unknown): PersaiRuntimeVideoGenerateModelKey | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return isPersaiRuntimeVideoGenerateModelKey(trimmed) ? trimmed : null;
+}
+
+function parseVideoGenerateModelKey(value: unknown): PersaiRuntimeVideoGenerateModelKey | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const modelKey = toVideoGenerateModelKey(value);
+  if (modelKey !== null) {
+    return modelKey;
+  }
+  throw new BadRequestException(
+    `videoGenerateModelKey must be one of ${PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS.join(", ")}, or null.`
   );
 }
 
@@ -301,6 +327,7 @@ export class ManageAdminPlansService {
         workspaceStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.workspaceStorageBytesLimit)
       },
       primaryModelKey: toNullableString(parsed.primaryModelKey),
+      videoGenerateModelKey: parseVideoGenerateModelKey(parsed.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault)
     };
     if (toolActivations) {
@@ -373,6 +400,9 @@ export class ManageAdminPlansService {
         notes: input.metadata.notes,
         ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
         ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {}),
+        ...(input.videoGenerateModelKey !== null
+          ? { videoGenerateModelKey: input.videoGenerateModelKey }
+          : {}),
         ...(input.runtimeTierDefault !== null
           ? { runtimeTierDefault: input.runtimeTierDefault }
           : {})
@@ -488,6 +518,7 @@ export class ManageAdminPlansService {
         )
       },
       primaryModelKey: toNullableString(billingHints.primaryModelKey),
+      videoGenerateModelKey: toVideoGenerateModelKey(billingHints.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({
         toolCode: ta.toolCode,

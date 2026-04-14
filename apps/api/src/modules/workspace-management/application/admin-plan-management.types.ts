@@ -1,3 +1,5 @@
+import type { PersaiRuntimeVideoGenerateModelKey } from "@persai/runtime-contract";
+
 export type AdminPlanStatus = "active" | "inactive";
 export type AdminPlanRuntimeTier =
   | "free_shared_restricted"
@@ -59,6 +61,7 @@ export type AdminPlanInput = {
     workspaceStorageBytesLimit: number | null;
   };
   primaryModelKey: string | null;
+  videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations?: AdminPlanToolActivationInput[];
 };
@@ -86,6 +89,7 @@ export type AdminPlanState = {
     workspaceStorageBytesLimit: number | null;
   };
   primaryModelKey: string | null;
+  videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations: AdminPlanToolActivation[];
   createdAt: string;

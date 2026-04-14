@@ -117,6 +117,7 @@ function createImageEditRequest(): ProviderGatewayImageEditRequest {
 function createVideoGenerateRequest(): ProviderGatewayVideoGenerateRequest {
   return {
     prompt: "Animate a calm paper-cut forest at sunrise",
+    model: null,
     size: "1280x720",
     seconds: 4,
     referenceImage: {

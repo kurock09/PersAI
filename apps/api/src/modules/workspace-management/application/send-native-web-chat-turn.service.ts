@@ -19,6 +19,7 @@ import {
   createAssistantInboundConflict,
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
+import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
 import type { RuntimeTier } from "./runtime-assignment";
 import { getWebChatSyncRuntimeMode, type WebChatRuntimeMode } from "./web-runtime-mode";
 
@@ -120,11 +121,15 @@ export class SendNativeWebChatTurnService {
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
+    const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
+      materializedSpec.runtimeBundle,
+      config.PERSAI_RUNTIME_TURN_TIMEOUT_MS
+    );
 
     const response = await this.postJson(
       new URL("/api/v1/turns/create", baseUrl).toString(),
       request,
-      config.PERSAI_RUNTIME_TURN_TIMEOUT_MS
+      timeoutMs
     );
     if (!response.ok) {
       this.throwForFailedResponse(response);

@@ -41,7 +41,9 @@ type ToolActivationDraft = {
   dailyCallLimit: number | null;
 };
 
-type PlanDraft = {
+type VideoGenerateModelDraft = "" | "sora-2" | "sora-2-pro";
+
+export type PlanDraft = {
   displayName: string;
   description: string;
   status: "active" | "inactive";
@@ -62,6 +64,7 @@ type PlanDraft = {
   mediaStorageMb: string;
   workspaceStorageMb: string;
   primaryModelKey: string;
+  videoGenerateModelKey: VideoGenerateModelDraft;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
 };
@@ -75,11 +78,26 @@ const RUNTIME_TIER_OPTIONS: Array<{
   { value: "paid_isolated", label: "Paid isolated" }
 ];
 
+export const VIDEO_GENERATE_MODEL_OPTIONS: Array<{
+  value: VideoGenerateModelDraft;
+  label: string;
+}> = [
+  { value: "", label: "default (sora-2)" },
+  { value: "sora-2", label: "sora-2" },
+  { value: "sora-2-pro", label: "sora-2-pro" }
+];
+
 /* ─── Helpers ─── */
 
 function toNullable(value: string): string | null {
   const t = value.trim();
   return t.length > 0 ? t : null;
+}
+
+function toVideoGenerateModelDraft(
+  value: AdminPlanState["videoGenerateModelKey"] | null | undefined
+): VideoGenerateModelDraft {
+  return value === "sora-2" || value === "sora-2-pro" ? value : "";
 }
 
 function emptyDraft(): PlanDraft {
@@ -104,12 +122,13 @@ function emptyDraft(): PlanDraft {
     mediaStorageMb: "",
     workspaceStorageMb: "",
     primaryModelKey: "",
+    videoGenerateModelKey: "",
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: []
   };
 }
 
-function planToDraft(plan: AdminPlanState): PlanDraft {
+export function planToDraft(plan: AdminPlanState): PlanDraft {
   return {
     displayName: plan.displayName,
     description: plan.description ?? "",
@@ -137,6 +156,7 @@ function planToDraft(plan: AdminPlanState): PlanDraft {
         ? String(Math.round(plan.quotaLimits.workspaceStorageBytesLimit / 1048576))
         : "",
     primaryModelKey: plan.primaryModelKey ?? "",
+    videoGenerateModelKey: toVideoGenerateModelDraft(plan.videoGenerateModelKey),
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
     toolActivations: (plan.toolActivations ?? [])
       .filter((ta) => ta.visibleInPlanEditor)
@@ -151,7 +171,7 @@ function planToDraft(plan: AdminPlanState): PlanDraft {
   };
 }
 
-function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
+export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
   const tokenBudget = draft.tokenBudgetLimit.trim();
   return {
     displayName: draft.displayName.trim(),
@@ -194,6 +214,7 @@ function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       })()
     },
     primaryModelKey: toNullable(draft.primaryModelKey),
+    videoGenerateModelKey: draft.videoGenerateModelKey === "" ? null : draft.videoGenerateModelKey,
     runtimeTierDefault: draft.runtimeTierDefault,
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
@@ -357,12 +378,16 @@ function ToolActivationsInline({ activations }: { activations: AdminPlanToolActi
 
 /* ─── Tool activations (edit table) ─── */
 
-function ToolActivationsEdit({
+export function ToolActivationsEdit({
   activations,
-  onUpdate
+  onUpdate,
+  videoGenerateModelKey,
+  onVideoGenerateModelKeyChange
 }: {
   activations: ToolActivationDraft[];
   onUpdate: (updated: ToolActivationDraft[]) => void;
+  videoGenerateModelKey: VideoGenerateModelDraft;
+  onVideoGenerateModelKeyChange: (value: VideoGenerateModelDraft) => void;
 }) {
   if (activations.length === 0) {
     return (
@@ -396,11 +421,31 @@ function ToolActivationsEdit({
       </div>
       {activations.map((ta, idx) => (
         <div key={ta.toolCode} className="grid grid-cols-[1fr_70px_40px_88px] gap-px bg-border">
-          <span className="bg-surface-raised px-2 py-1 text-[11px] text-text truncate">
-            {ta.displayName}
-            <span className="ml-1 text-[10px] text-text-subtle">
-              ({getPolicyClassLabel(ta.policyClass)})
+          <span className="bg-surface-raised px-2 py-1 text-[11px] text-text">
+            <span className="block truncate">
+              {ta.displayName}
+              <span className="ml-1 text-[10px] text-text-subtle">
+                ({getPolicyClassLabel(ta.policyClass)})
+              </span>
             </span>
+            {ta.toolCode === "video_generate" ? (
+              <label className="mt-1 flex items-center gap-2 text-[10px] text-text-subtle">
+                <span className="shrink-0 uppercase tracking-wider">Model</span>
+                <select
+                  value={videoGenerateModelKey}
+                  onChange={(e) =>
+                    onVideoGenerateModelKeyChange(e.target.value as VideoGenerateModelDraft)
+                  }
+                  className="min-w-0 flex-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
+                >
+                  {VIDEO_GENERATE_MODEL_OPTIONS.map((option) => (
+                    <option key={option.label} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </span>
           <span className="bg-surface-raised px-2 py-1">
             <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
@@ -741,6 +786,10 @@ function PlanForm({
         <ToolActivationsEdit
           activations={editableActivations}
           onUpdate={(updated) => onPatch({ toolActivations: updated })}
+          videoGenerateModelKey={draft.videoGenerateModelKey}
+          onVideoGenerateModelKeyChange={(videoGenerateModelKey) =>
+            onPatch({ videoGenerateModelKey })
+          }
         />
         <p className="mt-1 text-[10px] text-text-subtle">
           System tools are managed by the platform and are shown in plan summaries as read-only.
@@ -891,6 +940,11 @@ function PlanCardReadOnly({
               <Sec label="AI model">
                 <span className="text-[10px] text-text-subtle">
                   {plan.primaryModelKey ?? "platform default"}
+                </span>
+              </Sec>
+              <Sec label="Video model">
+                <span className="text-[10px] text-text-subtle">
+                  {plan.videoGenerateModelKey ?? "sora-2 (default)"}
                 </span>
               </Sec>
             </div>
