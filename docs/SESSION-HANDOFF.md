@@ -1,5 +1,54 @@
 # SESSION-HANDOFF
 
+## 2026-04-14 - ADR-072 image_edit reference-guided follow-through
+
+### What changed
+
+1. `apps/runtime` now guides `image_edit` more explicitly for the real two-image UX: the tool definition says to edit only the source image, treat the second image as a visual reference, and prefer the common `image #1` source + `image #2` reference interpretation for prompts like "like the second photo" / `как на втором фото` when the request is otherwise clear.
+2. `RuntimeImageEditToolService` now has a conservative two-image inference fallback for that common reference-guided phrasing, keeps ambiguous requests on the honest clarification path, and emits small `image-edit` logs so live debugging can see the resolved source/reference indices per request.
+3. `apps/provider-gateway` now strengthens the OpenAI edit prompt whenever a reference image is present so the upstream model is told to edit only the source image, preserve the source identity/framing by default, and use the second image only as visual guidance for style/appearance/environment unless the user explicitly asks to borrow a concrete object.
+4. Focused runtime/provider tests plus repo-truth docs were refreshed around the reference-guided second scenario rather than leaving the earlier source/reference landing as the final word.
+
+### Why
+
+1. Live testing already proved the one-image edit flow worked, but the common two-image "make it like the second photo" UX still needed extra help at both the tool-selection layer and the provider-prompt layer.
+2. OpenAI `images.edit` does not give us a dedicated provider-side "reference image" field with hard compositing semantics, so the honest improvement is clearer source-vs-reference guidance plus conservative runtime inference for the most common user phrasing.
+3. Adding small selection logs now makes future live debugging materially easier without reopening the architecture or inventing a separate editor UI.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-6 — Media generation and editing plan tools` is still the current slice. Native `image_generate`, native `image_edit`, and native `tts` are all landed on the shared PersAI-native media path, and `image_edit` now has an explicitly guided reference-guided second flow on top of the earlier source/reference baseline. `video_generate` remains the next honest follow-through inside `T15-6`.
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- Pending in this session: full mandatory repo gates plus focused provider/runtime suites before commit
+
+### Risks
+
+1. This is still a prompt-guided/reference-guided edit flow, not a guaranteed provider-native compositing pipeline for arbitrary object transplant semantics.
+2. The conservative fallback only fires for the common two-image phrasing that clearly points at the second image as a reference; truly ambiguous multi-image requests still need a clarification turn.
+3. Live deploy/reapply plus bounded web/Telegram smoke still need to confirm the strengthened guidance materially improves the real provider behavior outside local tests.
+
+### Next recommended step
+
+1. Run the mandatory repo gates, commit the follow-through, push, and reapply so a bounded live retest can verify the second `image_edit` scenario on the real stack.
+
 ## 2026-04-14 - ADR-072 T15-6 native image_edit source/ref refinement
 
 ### What changed

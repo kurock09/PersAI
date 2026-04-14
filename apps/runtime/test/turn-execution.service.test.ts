@@ -2769,6 +2769,100 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(referencedImageEditToolHistory.sourceFilename, "yard.png");
   assert.equal(referencedImageEditToolHistory.referenceFilename, "car.png");
 
+  providerGatewayClient.imageEditResult = {
+    ...providerGatewayClient.imageEditResult,
+    prompt: "Restyle image #1 like the second photo",
+    warning: null
+  };
+  const providerCallsBeforeInferredReferenceImageEdit = providerGatewayClient.calls.length;
+  const providerImageEditsBeforeInferredReference = providerGatewayClient.imageEditCalls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-13T12:00:01.750Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 26,
+        outputTokens: 0,
+        totalTokens: 26
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-image-edit-2b",
+          name: "image_edit",
+          arguments: {
+            prompt: "Restyle image #1 like the second photo",
+            filename: "yard-restyled.png"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after inferred reference image edit",
+      respondedAt: "2026-04-13T12:00:01.780Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 36,
+        outputTokens: 14,
+        totalTokens: 50
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const inferredReferenceImageEditCompleted = await service.createTurn(request);
+  assert.equal(
+    inferredReferenceImageEditCompleted.assistantText,
+    "reply after inferred reference image edit"
+  );
+  assert.equal(
+    providerGatewayClient.calls.length,
+    providerCallsBeforeInferredReferenceImageEdit + 2
+  );
+  assert.equal(
+    providerGatewayClient.imageEditCalls.length,
+    providerImageEditsBeforeInferredReference + 1
+  );
+  assert.deepEqual(providerGatewayClient.imageEditCalls.at(-1), {
+    prompt: "Restyle image #1 like the second photo",
+    size: null,
+    sourceImage: {
+      bytesBase64: yardImageBuffer.toString("base64"),
+      mimeType: "image/png",
+      filename: "yard.png"
+    },
+    referenceImage: {
+      bytesBase64: carImageBuffer.toString("base64"),
+      mimeType: "image/png",
+      filename: "car.png"
+    },
+    credential: {
+      toolCode: "image_edit",
+      secretId: "tool/image_generate/api-key",
+      providerId: "openai"
+    }
+  });
+  const inferredReferenceImageEditToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    sourceImageIndex?: number | null;
+    referenceImageIndex?: number | null;
+  };
+  assert.equal(inferredReferenceImageEditToolHistory.action, "generated");
+  assert.equal(inferredReferenceImageEditToolHistory.sourceImageIndex, 1);
+  assert.equal(inferredReferenceImageEditToolHistory.referenceImageIndex, 2);
+
   const providerCallsBeforeAmbiguousImageEdit = providerGatewayClient.calls.length;
   const providerImageEditsBeforeAmbiguous = providerGatewayClient.imageEditCalls.length;
   providerGatewayClient.resultQueue = [

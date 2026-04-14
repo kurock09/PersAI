@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type {
   AssistantRuntimeBundle,
   AssistantRuntimeBundleToolCredentialRef
@@ -21,6 +21,29 @@ import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.s
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 
 const SUPPORTED_IMAGE_EDIT_INPUT_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const SECOND_IMAGE_REFERENCE_PROMPT_MARKERS = [
+  "second image",
+  "second photo",
+  "2nd image",
+  "2nd photo",
+  "image #2",
+  "photo #2",
+  "как на втором фото",
+  "как на второй картинке",
+  "как на втором",
+  "второе фото",
+  "вторая картинка",
+  "второй картинке",
+  "со второго фото",
+  "из второго фото",
+  "reference image",
+  "reference photo",
+  "референс",
+  "по рефу",
+  "как реф",
+  "как на рефе",
+  "по референсу"
+] as const;
 
 type ResolvedImageEditSelection =
   | {
@@ -54,6 +77,8 @@ export interface RuntimeImageEditToolExecutionResult {
 
 @Injectable()
 export class RuntimeImageEditToolService {
+  private readonly logger = new Logger(RuntimeImageEditToolService.name);
+
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
@@ -267,6 +292,11 @@ export class RuntimeImageEditToolService {
           providerId
         }
       });
+      this.logger.log(
+        `[image-edit] requestId=${params.requestId} provider=${providerId} sourceIndex=${String(
+          selection.sourceImageIndex
+        )} referenceIndex=${selection.referenceImageIndex === null ? "none" : String(selection.referenceImageIndex)}`
+      );
       const artifacts = await Promise.all(
         providerResult.images.map((image, index) =>
           this.persistEditedArtifact({
@@ -307,6 +337,13 @@ export class RuntimeImageEditToolService {
 
       const revisedPrompt =
         providerResult.images.find((image) => image.revisedPrompt !== null)?.revisedPrompt ?? null;
+      this.logger.log(
+        `[image-edit] completed requestId=${params.requestId} provider=${providerId} artifacts=${String(
+          artifacts.length
+        )} sourceIndex=${String(selection.sourceImageIndex)} referenceIndex=${
+          selection.referenceImageIndex === null ? "none" : String(selection.referenceImageIndex)
+        }`
+      );
       return {
         payload: {
           toolCode: "image_edit",
@@ -330,6 +367,13 @@ export class RuntimeImageEditToolService {
         isError: false
       };
     } catch (error) {
+      this.logger.warn(
+        `[image-edit] failed requestId=${params.requestId} sourceIndex=${String(
+          selection.sourceImageIndex
+        )} referenceIndex=${selection.referenceImageIndex === null ? "none" : String(selection.referenceImageIndex)}: ${
+          error instanceof Error ? error.message : "Image edit failed."
+        }`
+      );
       return {
         payload: {
           toolCode: "image_edit",
@@ -429,7 +473,22 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    if (imageAttachments.length > 1 && request.sourceImageIndex === null) {
+    const inferredSelection =
+      request.sourceImageIndex === null || request.referenceImageIndex === null
+        ? this.inferReferenceGuidedSelection(imageAttachments.length, request)
+        : null;
+    if (inferredSelection !== null) {
+      this.logger.log(
+        `[image-edit] inferred source/reference from prompt sourceIndex=${String(
+          inferredSelection.sourceImageIndex
+        )} referenceIndex=${String(inferredSelection.referenceImageIndex)}`
+      );
+    }
+    const sourceImageIndex = inferredSelection?.sourceImageIndex ?? request.sourceImageIndex;
+    const referenceImageIndex =
+      inferredSelection?.referenceImageIndex ?? request.referenceImageIndex;
+
+    if (imageAttachments.length > 1 && sourceImageIndex === null) {
       return {
         ok: false,
         reason: "source_image_selection_required",
@@ -438,8 +497,8 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    const sourceImageIndex = request.sourceImageIndex ?? 1;
-    const sourceAttachment = imageAttachments[sourceImageIndex - 1] ?? null;
+    const resolvedSourceImageIndex = sourceImageIndex ?? 1;
+    const sourceAttachment = imageAttachments[resolvedSourceImageIndex - 1] ?? null;
     if (sourceAttachment === null) {
       return {
         ok: false,
@@ -449,8 +508,8 @@ export class RuntimeImageEditToolService {
     }
 
     if (
-      request.referenceImageIndex !== null &&
-      (request.referenceImageIndex < 1 || request.referenceImageIndex > imageAttachments.length)
+      referenceImageIndex !== null &&
+      (referenceImageIndex < 1 || referenceImageIndex > imageAttachments.length)
     ) {
       return {
         ok: false,
@@ -459,7 +518,7 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    if (request.referenceImageIndex !== null && request.referenceImageIndex === sourceImageIndex) {
+    if (referenceImageIndex !== null && referenceImageIndex === resolvedSourceImageIndex) {
       return {
         ok: false,
         reason: "reference_image_same_as_source",
@@ -473,9 +532,7 @@ export class RuntimeImageEditToolService {
     }
 
     const referenceAttachment =
-      request.referenceImageIndex === null
-        ? null
-        : imageAttachments[request.referenceImageIndex - 1]!;
+      referenceImageIndex === null ? null : imageAttachments[referenceImageIndex - 1]!;
     const loadedReference =
       referenceAttachment === null
         ? null
@@ -488,11 +545,46 @@ export class RuntimeImageEditToolService {
       ok: true,
       sourceImage: loadedSource.image,
       referenceImage: loadedReference?.image ?? null,
-      sourceImageIndex,
-      referenceImageIndex: request.referenceImageIndex,
+      sourceImageIndex: resolvedSourceImageIndex,
+      referenceImageIndex,
       sourceFilename: sourceAttachment.filename,
       referenceFilename: referenceAttachment?.filename ?? null
     };
+  }
+
+  private inferReferenceGuidedSelection(
+    imageAttachmentCount: number,
+    request: RuntimeImageEditRequest
+  ): { sourceImageIndex: number; referenceImageIndex: number } | null {
+    if (imageAttachmentCount !== 2) {
+      return null;
+    }
+    const normalizedPrompt = request.prompt.trim().toLowerCase();
+    const mentionsSecondImageAsReference = SECOND_IMAGE_REFERENCE_PROMPT_MARKERS.some((marker) =>
+      normalizedPrompt.includes(marker)
+    );
+    if (!mentionsSecondImageAsReference) {
+      return null;
+    }
+    if (request.sourceImageIndex === null && request.referenceImageIndex === null) {
+      return {
+        sourceImageIndex: 1,
+        referenceImageIndex: 2
+      };
+    }
+    if (request.sourceImageIndex === 1 && request.referenceImageIndex === null) {
+      return {
+        sourceImageIndex: 1,
+        referenceImageIndex: 2
+      };
+    }
+    if (request.sourceImageIndex === null && request.referenceImageIndex === 2) {
+      return {
+        sourceImageIndex: 1,
+        referenceImageIndex: 2
+      };
+    }
+    return null;
   }
 
   private async loadSelectedImage(

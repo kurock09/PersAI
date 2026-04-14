@@ -725,17 +725,29 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   );
   assert.equal(imageEditResult.model, "gpt-image-1");
   assert.equal(imageEditResult.images.length, 1);
+  assert.equal(imageEditResult.prompt, "Replace the couch with a red chair");
   assert.equal(
     imageEditResult.images[0]?.revisedPrompt,
     "Replace the couch with a red chair while keeping the same room."
   );
-  assert.deepEqual(capturedImageEditPayload, {
-    model: "gpt-image-1",
-    prompt: "Replace the couch with a red chair",
-    image: (capturedImageEditPayload as { image?: unknown } | null)?.image,
-    output_format: "png",
-    size: "1024x1024"
-  });
+  assert.equal((capturedImageEditPayload as { model?: string } | null)?.model, "gpt-image-1");
+  assert.equal(
+    (capturedImageEditPayload as { output_format?: string } | null)?.output_format,
+    "png"
+  );
+  assert.equal((capturedImageEditPayload as { size?: string } | null)?.size, "1024x1024");
+  assert.match(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /Edit only the first\/source image/
+  );
+  assert.match(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /Use the second\/reference image only as visual guidance/
+  );
+  assert.match(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /User request: Replace the couch with a red chair/
+  );
   assert.ok(Array.isArray((capturedImageEditPayload as { image?: unknown } | null)?.image));
   assert.equal(((capturedImageEditPayload as { image?: unknown[] } | null)?.image ?? []).length, 2);
   assert.deepEqual(imageEditResult.usage, {

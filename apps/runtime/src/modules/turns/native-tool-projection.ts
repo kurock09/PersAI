@@ -320,7 +320,7 @@ function createImageEditToolDefinition(): ProviderGatewayToolDefinition {
   return {
     name: "image_edit",
     description:
-      'Edit images only when the user explicitly asks to modify an image, for example replace, remove, add, recolor, restyle, insert, or draw something. Never use this tool for describing an image, OCR, solving a task from an image, or answering "what do you see". Use the current user message attachments only: with one image, edit that image; with multiple images, use sourceImageIndex and optional referenceImageIndex based on the numbered current-turn image list, and ask a clarifying question instead of guessing when the roles are unclear.',
+      'Edit images only when the user explicitly asks to modify an image, for example replace, remove, add, recolor, restyle, insert, or draw something. Never use this tool for describing an image, OCR, solving a task from an image, or answering "what do you see". Use the current user message attachments only: with one image, edit that image; with multiple images, edit only the source image and return one edited version of that source image. Use optional referenceImageIndex only as a visual guide for style, appearance, makeup, color, lighting, or background cues from another current-turn image. If the user says things like "make it like the second photo", "как на втором фото", or similar, treat image #1 as the source and image #2 as the reference unless the user clearly says otherwise. Ask a clarifying question instead of guessing when the roles are still unclear.',
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -340,7 +340,7 @@ function createImageEditToolDefinition(): ProviderGatewayToolDefinition {
           type: "integer",
           minimum: 1,
           description:
-            "Optional 1-based index of a second current-turn image attachment to use as an object/style/color reference. Do not guess this when the user has not made the reference role clear."
+            "Optional 1-based index of a second current-turn image attachment to use only as a visual style/appearance/background reference. The tool must still return one edited version of the source image, not a separate edit of the reference image."
         },
         filename: {
           type: "string",

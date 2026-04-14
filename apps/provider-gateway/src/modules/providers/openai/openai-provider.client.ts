@@ -319,6 +319,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
     );
     try {
+      const providerPrompt = this.buildImageEditPrompt(input);
       const sourceImage = await toFile(
         Buffer.from(input.sourceImage.bytesBase64, "base64"),
         input.sourceImage.filename ?? this.defaultImageFilename(input.sourceImage.mimeType),
@@ -339,7 +340,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
             );
       const payload: OpenAIImageEditParams = {
         model: OPENAI_IMAGE_GENERATION_MODEL,
-        prompt: input.prompt,
+        prompt: providerPrompt,
         image: referenceImage === null ? sourceImage : [sourceImage, referenceImage],
         output_format: "png",
         ...(input.size === null ? {} : { size: input.size })
@@ -964,6 +965,24 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       default:
         return "image/png";
     }
+  }
+
+  private buildImageEditPrompt(input: ProviderGatewayImageEditRequest): string {
+    const prompt = input.prompt.trim();
+    if (input.referenceImage === null) {
+      return prompt;
+    }
+    const sourceFilename = input.sourceImage.filename ?? "image #1";
+    const referenceFilename = input.referenceImage.filename ?? "image #2";
+    return [
+      "Edit only the first/source image and return one edited version of that source image.",
+      "Use the second/reference image only as visual guidance for style, appearance, makeup, color palette, lighting, environment, or similar attributes unless the user explicitly asks to borrow a concrete object from it.",
+      "Do not separately edit, restyle, or reproduce the reference image as its own output.",
+      "Preserve the identity, pose, framing, and main content of the source image unless the user explicitly asks to change them.",
+      `Source image: ${sourceFilename}.`,
+      `Reference image: ${referenceFilename}.`,
+      `User request: ${prompt}`
+    ].join(" ");
   }
 
   private defaultImageFilename(mimeType: string): string {
