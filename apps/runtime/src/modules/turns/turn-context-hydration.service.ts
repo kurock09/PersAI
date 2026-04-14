@@ -369,7 +369,8 @@ export class TurnContextHydrationService {
       ...input,
       directCanonicalAttachmentIds: directInputSelection.directCanonicalAttachmentIds,
       directImageCount: directInputSelection.directImageCount,
-      directPdfCount: directInputSelection.directPdfCount
+      directPdfCount: directInputSelection.directPdfCount,
+      showCurrentTurnImageOrdinals: input.allowDirectAttachmentInput && input.author === "user"
     });
 
     if (directInputSelection.blocks.length === 0) {
@@ -393,6 +394,7 @@ export class TurnContextHydrationService {
     directCanonicalAttachmentIds: Set<string>;
     directImageCount: number;
     directPdfCount: number;
+    showCurrentTurnImageOrdinals: boolean;
   }): string {
     const totalImageCount =
       input.attachments.length > 0
@@ -407,14 +409,14 @@ export class TurnContextHydrationService {
           ).length;
     const attachmentLines =
       input.attachments.length > 0
-        ? input.attachments.map((attachment) =>
-            this.formatCanonicalAttachmentLine(
-              attachment,
-              input.directCanonicalAttachmentIds.has(attachment.id)
-            )
+        ? this.formatCanonicalAttachmentLines(
+            input.attachments,
+            input.directCanonicalAttachmentIds,
+            input.showCurrentTurnImageOrdinals
           )
-        : input.fallbackAttachments.map((attachment) =>
-            this.formatRuntimeAttachmentLine(attachment)
+        : this.formatRuntimeAttachmentLines(
+            input.fallbackAttachments,
+            input.showCurrentTurnImageOrdinals
           );
 
     if (attachmentLines.length === 0) {
@@ -431,7 +433,8 @@ export class TurnContextHydrationService {
       totalImageCount,
       directImageCount: input.directImageCount,
       totalPdfCount,
-      directPdfCount: input.directPdfCount
+      directPdfCount: input.directPdfCount,
+      showCurrentTurnImageOrdinals: input.showCurrentTurnImageOrdinals
     });
     const baseContent =
       input.baseContent.trim().length > 0 ? input.baseContent : "User sent attachments only.";
@@ -453,6 +456,39 @@ export class TurnContextHydrationService {
     }
 
     return attachmentSummary;
+  }
+
+  private formatCanonicalAttachmentLines(
+    attachments: CanonicalChatAttachmentRow[],
+    directCanonicalAttachmentIds: Set<string>,
+    showCurrentTurnImageOrdinals: boolean
+  ): string[] {
+    let imageOrdinal = 0;
+    return attachments.map((attachment) => {
+      const imageIndex =
+        showCurrentTurnImageOrdinals && attachment.mimeType.startsWith("image/")
+          ? (imageOrdinal += 1)
+          : null;
+      return this.formatCanonicalAttachmentLine(
+        attachment,
+        directCanonicalAttachmentIds.has(attachment.id),
+        imageIndex
+      );
+    });
+  }
+
+  private formatRuntimeAttachmentLines(
+    attachments: RuntimeAttachmentRef[],
+    showCurrentTurnImageOrdinals: boolean
+  ): string[] {
+    let imageOrdinal = 0;
+    return attachments.map((attachment) => {
+      const imageIndex =
+        showCurrentTurnImageOrdinals && attachment.mimeType.startsWith("image/")
+          ? (imageOrdinal += 1)
+          : null;
+      return this.formatRuntimeAttachmentLine(attachment, imageIndex);
+    });
   }
 
   private async buildDirectInputSelection(
@@ -593,7 +629,8 @@ export class TurnContextHydrationService {
 
   private formatCanonicalAttachmentLine(
     attachment: CanonicalChatAttachmentRow,
-    suppressContentPreview = false
+    suppressContentPreview = false,
+    imageIndex: number | null = null
   ): string {
     const name = attachment.originalFilename ? ` "${attachment.originalFilename}"` : "";
     const extras: string[] = [];
@@ -607,12 +644,23 @@ export class TurnContextHydrationService {
       }
     }
     const extrasStr = extras.length > 0 ? `, ${extras.join(", ")}` : "";
-    return `- attachment (${attachment.attachmentType}${name}${extrasStr})`;
+    const kind =
+      attachment.attachmentType === "image" && imageIndex !== null
+        ? `image #${String(imageIndex)}`
+        : attachment.attachmentType;
+    return `- attachment (${kind}${name}${extrasStr})`;
   }
 
-  private formatRuntimeAttachmentLine(attachment: RuntimeAttachmentRef): string {
+  private formatRuntimeAttachmentLine(
+    attachment: RuntimeAttachmentRef,
+    imageIndex: number | null = null
+  ): string {
     const name = attachment.filename ? ` "${attachment.filename}"` : "";
-    return `- attachment (${attachment.kind}${name})`;
+    const kind =
+      attachment.kind === "image" && imageIndex !== null
+        ? `image #${String(imageIndex)}`
+        : attachment.kind;
+    return `- attachment (${kind}${name})`;
   }
 
   private toAttachmentSummaryDescriptor(line: string): string {
@@ -629,8 +677,14 @@ export class TurnContextHydrationService {
     directImageCount: number;
     totalPdfCount: number;
     directPdfCount: number;
+    showCurrentTurnImageOrdinals: boolean;
   }): string {
     const block = [`[${input.title}:`, ...input.lines];
+    if (input.showCurrentTurnImageOrdinals && input.totalImageCount > 1) {
+      block.push(
+        "Current-turn image attachments are numbered image #1, image #2, and so on in this list. Use those numbers when a tool needs an explicit source or reference image."
+      );
+    }
     if (input.totalImageCount > 0) {
       if (input.directImageCount === input.totalImageCount) {
         block.push(

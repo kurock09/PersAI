@@ -31,6 +31,18 @@ const tools = [
     visibleInPlanEditor: true
   },
   {
+    code: "image_edit",
+    displayName: "Image Edit",
+    description: "Edit an image.",
+    capabilityGroup: "communication",
+    toolClass: "cost_driving",
+    policyClass: "plan_managed",
+    catalogStatus: "active",
+    planActivationStatus: "inactive",
+    effectiveActivation: "inactive",
+    visibleInPlanEditor: true
+  },
+  {
     code: "scheduled_action",
     displayName: "Scheduled Action",
     description: "Create and manage user reminders or hidden assistant actions.",
@@ -115,6 +127,15 @@ async function run(): Promise<void> {
         dailyCallLimit: 5
       },
       {
+        toolCode: "image_edit",
+        kind: "plan",
+        executionMode: "worker",
+        usageRule: "forbidden",
+        enabled: false,
+        visibleToModel: false,
+        dailyCallLimit: null
+      },
+      {
         toolCode: "scheduled_action",
         kind: "plan",
         executionMode: "worker",
@@ -152,6 +173,7 @@ async function run(): Promise<void> {
   assert.match(markdown, /\*\*persai_tool_quota_status\*\* — inline, allowed/);
   assert.match(markdown, /## Disabled Tools/);
   assert.match(markdown, /~~image_generate~~ — worker, forbidden on current plan/);
+  assert.match(markdown, /~~image_edit~~ — worker, forbidden on current plan/);
   assert.doesNotMatch(markdown, /cron/);
 }
 

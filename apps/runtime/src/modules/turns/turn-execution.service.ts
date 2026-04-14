@@ -26,6 +26,7 @@ import {
   type RuntimeKnowledgeFetchToolResult,
   type RuntimeKnowledgeSearchToolResult,
   type RuntimeBrowserToolResult,
+  type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
   type RuntimeOutputArtifact,
   type RuntimeScheduledActionToolResult,
@@ -51,6 +52,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
+import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
@@ -71,6 +73,7 @@ type PreparedTurnExecution = {
   projectedTools: RuntimeNativeToolProjection;
   runtimeTier: RuntimeTurnRequest["runtimeTier"];
   providerRequest: ProviderGatewayTextGenerateRequest;
+  currentMessageAttachments: RuntimeTurnRequest["message"]["attachments"];
 };
 
 type TurnProviderRequestClassification = "main_turn" | "tool_loop_followup";
@@ -95,6 +98,7 @@ type ToolExecutionOutcome = {
     | RuntimeKnowledgeSearchToolResult
     | RuntimeKnowledgeFetchToolResult
     | RuntimeBrowserToolResult
+    | RuntimeImageEditToolResult
     | RuntimeImageGenerateToolResult
     | RuntimeScheduledActionToolResult
     | RuntimeTtsToolResult
@@ -128,6 +132,7 @@ const WEB_FETCH_DEFAULT_EXTRACT_MODE: PersaiRuntimeWebFetchExtractMode = "markdo
 const WEB_FETCH_MIN_MAX_CHARS = 100;
 const WEB_FETCH_MAX_MAX_CHARS = 50_000;
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
+const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
 const TTS_TOOL_CODE = "tts";
 
@@ -144,6 +149,7 @@ export class TurnExecutionService {
     private readonly turnFinalizationService: TurnFinalizationService,
     private readonly sessionCompactionService: SessionCompactionService,
     private readonly runtimeBrowserToolService: RuntimeBrowserToolService,
+    private readonly runtimeImageEditToolService: RuntimeImageEditToolService,
     private readonly runtimeImageGenerateToolService: RuntimeImageGenerateToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
     private readonly runtimeTtsToolService: RuntimeTtsToolService
@@ -271,6 +277,7 @@ export class TurnExecutionService {
       bundle: bundleEntry.parsedBundle,
       projectedTools,
       runtimeTier: input.runtimeTier,
+      currentMessageAttachments: input.message.attachments,
       providerRequest: this.buildProviderRequest(
         bundleEntry.parsedBundle,
         providerSelection,
@@ -856,6 +863,22 @@ export class TurnExecutionService {
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
+      case IMAGE_EDIT_TOOL_CODE: {
+        const result = await this.runtimeImageEditToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          currentAttachments: execution.currentMessageAttachments,
+          sessionId: acceptedTurn.session.sessionId,
+          requestId: acceptedTurn.receipt.requestId
+        });
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.payload,
+          result.isError,
+          undefined,
+          result.artifacts
+        );
+      }
       case IMAGE_GENERATE_TOOL_CODE: {
         const result = await this.runtimeImageGenerateToolService.executeToolCall({
           bundle: execution.bundle,
@@ -933,7 +956,7 @@ export class TurnExecutionService {
         toolCall,
         {
           toolCode: execution.bundle.runtime.knowledgeAccess.searchToolCode,
-          source: source ?? "internal",
+          source: (source ?? "internal") as RuntimeKnowledgeSearchToolResult["source"],
           executionMode: "inline",
           hits: [],
           action: "skipped",
@@ -969,7 +992,7 @@ export class TurnExecutionService {
         toolCall,
         {
           toolCode: execution.bundle.runtime.knowledgeAccess.fetchToolCode,
-          source: source ?? "internal",
+          source: (source ?? "internal") as RuntimeKnowledgeFetchToolResult["source"],
           executionMode: "inline",
           document: null,
           action: "skipped",
@@ -1251,6 +1274,7 @@ export class TurnExecutionService {
       | RuntimeKnowledgeSearchToolResult
       | RuntimeKnowledgeFetchToolResult
       | RuntimeBrowserToolResult
+      | RuntimeImageEditToolResult
       | RuntimeImageGenerateToolResult
       | RuntimeScheduledActionToolResult
       | RuntimeTtsToolResult

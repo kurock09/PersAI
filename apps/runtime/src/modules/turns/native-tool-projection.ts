@@ -7,6 +7,7 @@ import {
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
+  PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
   PERSAI_RUNTIME_TTS_DELIVERY_KINDS,
@@ -14,6 +15,7 @@ import {
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
   type ProviderGatewayToolDefinition,
   type PersaiRuntimeBrowserProviderId,
+  type PersaiRuntimeImageEditProviderId,
   type RuntimeKnowledgeAccessSourceConfig,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
@@ -81,6 +83,15 @@ export function projectRuntimeNativeTools(
     supportsCurrentNativeImageGenerateProvider(imageGenerateCredential.providerId ?? null)
   ) {
     projectedTools.push(createImageGenerateToolDefinition());
+  }
+  const imageEditPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "image_edit", "worker");
+  const imageEditCredential = resolveConfiguredCredentialRef(bundle, "image_edit");
+  if (
+    imageEditPolicy !== null &&
+    imageEditCredential !== null &&
+    supportsCurrentNativeImageEditProvider(imageEditCredential.providerId ?? null)
+  ) {
+    projectedTools.push(createImageEditToolDefinition());
   }
   const ttsPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "tts", "worker");
   const ttsCredential = bundle.governance.toolCredentialRefs.tts ?? null;
@@ -305,6 +316,47 @@ function createImageGenerateToolDefinition(): ProviderGatewayToolDefinition {
   };
 }
 
+function createImageEditToolDefinition(): ProviderGatewayToolDefinition {
+  return {
+    name: "image_edit",
+    description:
+      'Edit images only when the user explicitly asks to modify an image, for example replace, remove, add, recolor, restyle, insert, or draw something. Never use this tool for describing an image, OCR, solving a task from an image, or answering "what do you see". Use the current user message attachments only: with one image, edit that image; with multiple images, use sourceImageIndex and optional referenceImageIndex based on the numbered current-turn image list, and ask a clarifying question instead of guessing when the roles are unclear.',
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["prompt"],
+      properties: {
+        prompt: {
+          type: "string",
+          description: "Text instruction describing how the attached image should be edited."
+        },
+        sourceImageIndex: {
+          type: "integer",
+          minimum: 1,
+          description:
+            "Optional 1-based index of the current-turn image attachment to edit. Required when multiple images are attached and the source image is clear."
+        },
+        referenceImageIndex: {
+          type: "integer",
+          minimum: 1,
+          description:
+            "Optional 1-based index of a second current-turn image attachment to use as an object/style/color reference. Do not guess this when the user has not made the reference role clear."
+        },
+        filename: {
+          type: "string",
+          description: "Optional filename hint for the edited image attachment."
+        },
+        size: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_IMAGE_GENERATE_SIZES],
+          description:
+            'Optional output size hint. Use "auto" to let the provider choose the best size.'
+        }
+      }
+    }
+  };
+}
+
 function createTtsToolDefinition(): ProviderGatewayToolDefinition {
   return {
     name: "tts",
@@ -489,6 +541,13 @@ function supportsCurrentNativeBrowserProvider(
 
 function supportsCurrentNativeImageGenerateProvider(providerId: string | null): boolean {
   return providerId === null || providerId === "openai";
+}
+
+function supportsCurrentNativeImageEditProvider(providerId: string | null): boolean {
+  const resolved = providerId ?? "openai";
+  return PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS.includes(
+    resolved as PersaiRuntimeImageEditProviderId
+  );
 }
 
 function supportsCurrentNativeTtsProvider(

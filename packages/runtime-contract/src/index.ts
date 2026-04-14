@@ -461,6 +461,39 @@ export interface RuntimeImageGenerateToolResult {
   warning: string | null;
 }
 
+export const PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS = ["openai"] as const;
+
+export type PersaiRuntimeImageEditProviderId =
+  (typeof PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS)[number];
+
+export interface RuntimeImageEditRequest {
+  toolCode: "image_edit";
+  prompt: string;
+  filename: string | null;
+  size: PersaiRuntimeImageGenerateSize | null;
+  sourceImageIndex: number | null;
+  referenceImageIndex: number | null;
+}
+
+export interface RuntimeImageEditToolResult {
+  toolCode: "image_edit";
+  executionMode: "worker";
+  provider: PersaiRuntimeImageEditProviderId | null;
+  model: string | null;
+  prompt: string | null;
+  revisedPrompt: string | null;
+  sourceImageIndex: number | null;
+  referenceImageIndex: number | null;
+  sourceFilename: string | null;
+  referenceFilename: string | null;
+  size: PersaiRuntimeImageGenerateSize | null;
+  artifacts: RuntimeOutputArtifact[];
+  usage: RuntimeUsageSnapshot | null;
+  action: "generated" | "skipped";
+  reason: string | null;
+  warning: string | null;
+}
+
 export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"] as const;
 
 export type PersaiRuntimeTtsProviderId = (typeof PERSAI_RUNTIME_TTS_PROVIDER_IDS)[number];
@@ -926,6 +959,37 @@ export interface ProviderGatewayGeneratedImage {
 
 export interface ProviderGatewayImageGenerateResult {
   provider: PersaiRuntimeImageGenerateProviderId;
+  model: string;
+  prompt: string;
+  size: PersaiRuntimeImageGenerateSize | null;
+  images: ProviderGatewayGeneratedImage[];
+  respondedAt: IsoTimestamp;
+  usage: RuntimeUsageSnapshot | null;
+  warning: string | null;
+}
+
+export interface ProviderGatewayImageEditRequest {
+  prompt: string;
+  size: PersaiRuntimeImageGenerateSize | null;
+  sourceImage: {
+    bytesBase64: string;
+    mimeType: string;
+    filename: string | null;
+  };
+  referenceImage: {
+    bytesBase64: string;
+    mimeType: string;
+    filename: string | null;
+  } | null;
+  credential: {
+    toolCode: "image_edit";
+    secretId: string;
+    providerId: PersaiRuntimeImageEditProviderId | null;
+  };
+}
+
+export interface ProviderGatewayImageEditResult {
+  provider: PersaiRuntimeImageEditProviderId;
   model: string;
   prompt: string;
   size: PersaiRuntimeImageGenerateSize | null;

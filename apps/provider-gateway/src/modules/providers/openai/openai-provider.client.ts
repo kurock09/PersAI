@@ -1,6 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
+  ProviderGatewayImageEditRequest,
+  ProviderGatewayImageEditResult,
   ProviderGatewayImageGenerateRequest,
   ProviderGatewayImageGenerateResult,
   ProviderGatewaySpeechGenerateRequest,
@@ -29,6 +31,7 @@ type OpenAINonStreamingCreateParams = Exclude<OpenAIResponseCreateParams, { stre
 type OpenAIResponseInputParam = NonNullable<OpenAINonStreamingCreateParams["input"]>;
 type OpenAIResponseToolsParam = NonNullable<OpenAINonStreamingCreateParams["tools"]>;
 type OpenAIResponseToolChoice = OpenAIResponseCreateParams["tool_choice"];
+type OpenAIImageEditParams = Parameters<OpenAI["images"]["edit"]>[0];
 type OpenAIImageGenerateParams = Parameters<OpenAI["images"]["generate"]>[0];
 type OpenAISpeechCreateParams = Parameters<OpenAI["audio"]["speech"]["create"]>[0];
 type OpenAIImageGenerateResponse = {
@@ -286,6 +289,84 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         );
       if (images.length === 0) {
         throw new Error("OpenAI image generation did not return any image bytes.");
+      }
+
+      return {
+        provider: "openai",
+        model: OPENAI_IMAGE_GENERATION_MODEL,
+        prompt: input.prompt,
+        size: input.size,
+        images: images.map((image) => ({
+          bytesBase64: image.bytesBase64,
+          mimeType,
+          revisedPrompt: image.revisedPrompt
+        })),
+        respondedAt: new Date().toISOString(),
+        usage: this.toImageUsageSnapshot(OPENAI_IMAGE_GENERATION_MODEL, response.usage),
+        warning: null
+      };
+    } finally {
+      dispose();
+    }
+  }
+
+  async editImage(
+    input: ProviderGatewayImageEditRequest,
+    options?: { apiKey?: string }
+  ): Promise<ProviderGatewayImageEditResult> {
+    const client = this.getApiClient(options?.apiKey);
+    const { signal, dispose } = this.createTimedSignal(
+      this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
+    );
+    try {
+      const sourceImage = await toFile(
+        Buffer.from(input.sourceImage.bytesBase64, "base64"),
+        input.sourceImage.filename ?? this.defaultImageFilename(input.sourceImage.mimeType),
+        input.sourceImage.mimeType.trim().length > 0
+          ? { type: input.sourceImage.mimeType }
+          : undefined
+      );
+      const referenceImage =
+        input.referenceImage === null
+          ? null
+          : await toFile(
+              Buffer.from(input.referenceImage.bytesBase64, "base64"),
+              input.referenceImage.filename ??
+                this.defaultImageFilename(input.referenceImage.mimeType),
+              input.referenceImage.mimeType.trim().length > 0
+                ? { type: input.referenceImage.mimeType }
+                : undefined
+            );
+      const payload: OpenAIImageEditParams = {
+        model: OPENAI_IMAGE_GENERATION_MODEL,
+        prompt: input.prompt,
+        image: referenceImage === null ? sourceImage : [sourceImage, referenceImage],
+        output_format: "png",
+        ...(input.size === null ? {} : { size: input.size })
+      };
+      const response = (await client.images.edit(payload, {
+        signal
+      })) as OpenAIImageGenerateResponse;
+      const mimeType = this.resolveGeneratedImageMimeType(
+        this.asObject(response)?.output_format ?? "png"
+      );
+      const images = (response.data ?? [])
+        .map((entry: OpenAIGeneratedImage) => ({
+          bytesBase64:
+            typeof entry?.b64_json === "string" && entry.b64_json.trim().length > 0
+              ? entry.b64_json
+              : null,
+          revisedPrompt:
+            typeof entry?.revised_prompt === "string" && entry.revised_prompt.trim().length > 0
+              ? entry.revised_prompt.trim()
+              : null
+        }))
+        .filter(
+          (entry): entry is { bytesBase64: string; revisedPrompt: string | null } =>
+            entry.bytesBase64 !== null
+        );
+      if (images.length === 0) {
+        throw new Error("OpenAI image edit did not return any image bytes.");
       }
 
       return {
@@ -882,6 +963,19 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       case "png":
       default:
         return "image/png";
+    }
+  }
+
+  private defaultImageFilename(mimeType: string): string {
+    switch (mimeType) {
+      case "image/jpeg":
+      case "image/jpg":
+        return "image.jpg";
+      case "image/webp":
+        return "image.webp";
+      case "image/png":
+      default:
+        return "image.png";
     }
   }
 

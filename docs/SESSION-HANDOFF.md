@@ -1,5 +1,80 @@
 # SESSION-HANDOFF
 
+## 2026-04-14 - ADR-072 T15-6 native image_edit source/ref refinement
+
+### What changed
+
+1. `apps/api` now carries `image_edit` as a first-class plan-managed media tool in the catalog/materialized policy surface, reuses the existing `tool_image_generate` credential seam for both image generation and editing, and includes `image_edit` in the shared native worker baseline.
+2. `apps/provider-gateway` now exposes `POST /api/v1/providers/edit-image`, validates the native image-edit request contract, resolves the shared image credential through PersAI internal secrets, and executes OpenAI `images.edit`.
+3. `apps/runtime` now projects model-visible native `image_edit` with honest edit-intent guidance, executes it as a real worker tool against a numbered current-turn source image plus an optional second current-turn reference image, skips instead of guessing when multi-image roles are unclear, persists edited `RuntimeOutputArtifact`s to PersAI object storage, and reuses the same outbound media path already used by web chat and Telegram.
+4. `TurnContextHydrationService` now labels current-turn images as `image #1`, `image #2`, and so on in the hydrated attachment block so the model can choose `sourceImageIndex` / `referenceImageIndex` without relying on hidden attachment IDs or ambiguous ordering.
+5. Repo-truth docs now say the honest thing: `T15-6` no longer means only `image_generate` plus `tts`. Native `image_edit` is landed, now supports the bounded `source + optional reference` flow, and `video_generate` is the next additive follow-through inside the slice.
+
+### Why
+
+1. ADR-072 already reserved `image_edit` as part of the preserved Step 15 media tool surface, so leaving it as a catalog/plan promise without a native executor would keep `T15-6` incomplete in exactly the product path the user called out.
+2. The honest bounded UX is explicit edit intent plus clear current-turn image roles, not a fake provider-specific surface or silent guessing when the user sends multiple images.
+3. Reusing the existing image credential seam keeps the control plane user-friendly and avoids inventing a second admin key slot for the same underlying provider path.
+4. Numbered current-turn image hints let the runtime stay PersAI-native across web chat and Telegram without introducing channel-specific attachment-role UI first.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active; `T15-6 — Media generation and editing plan tools` is still the current slice. Native `image_generate`, native `image_edit`, and native `tts` are now all real landed media workers on the shared PersAI-owned worker/provider-gateway/object-storage/media-delivery path. `image_edit` now supports a bounded current-turn `source + optional reference` flow with explicit edit-intent guidance, and `video_generate` remains the next honest follow-through inside `T15-6`.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-worker-tools.ts`
+- `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/api/test/runtime-worker-tools.test.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-image-generation.controller.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/provider-image-generation.service.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-image-generation.service.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-worker-tools.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-image-generation.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/openai-provider.client.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/provider-gateway.client.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+
+### Risks
+
+1. `image_edit` is still intentionally current-turn only. Editing a past image without reattaching it remains future UX work if the product wants that follow-up shortcut.
+2. Multi-image editing now supports explicit `source + optional reference`, but the model must still ask when the user has not made the roles clear enough for a safe call.
+3. The first provider path is still OpenAI-only; broader media-edit provider routing remains later `T15-6` or post-`T15-6` follow-through.
+4. `video_generate` is still not landed, so `T15-6` remains in progress even though the main image-generation/editing pair now exists natively.
+
+### Next recommended step
+
+1. Continue `T15-6` with `video_generate`, reusing the same native worker/provider-gateway/artifact-delivery boundary instead of adding a separate media execution stack.
+2. After deploy/reapply, run one bounded live web/Telegram validation that proves both `image_edit` flows work end-to-end: one-image edit and two-image `source + reference`, with a clarifying question instead of a wrong tool call when image roles are ambiguous.
+
 ## 2026-04-13 - ADR-072 T15-6 native tts stabilization
 
 ### What changed

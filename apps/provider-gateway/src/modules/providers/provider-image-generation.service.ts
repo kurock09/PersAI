@@ -1,9 +1,13 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
+  PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   MAX_RUNTIME_IMAGE_GENERATE_COUNT,
   MIN_RUNTIME_IMAGE_GENERATE_COUNT,
+  type PersaiRuntimeImageEditProviderId,
   PERSAI_RUNTIME_IMAGE_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
+  type ProviderGatewayImageEditRequest,
+  type ProviderGatewayImageEditResult,
   type PersaiRuntimeImageGenerateProviderId,
   type ProviderGatewayImageGenerateRequest,
   type ProviderGatewayImageGenerateResult
@@ -21,7 +25,7 @@ export class ProviderImageGenerationService {
   async generateImage(
     input: ProviderGatewayImageGenerateRequest
   ): Promise<ProviderGatewayImageGenerateResult> {
-    const normalized = this.normalizeInput(input);
+    const normalized = this.normalizeGenerateInput(input);
     const apiKey = await this.persaiInternalApiClientService.resolveSecretValue(
       normalized.credential.secretId
     );
@@ -32,7 +36,19 @@ export class ProviderImageGenerationService {
     }
   }
 
-  private normalizeInput(
+  async editImage(input: ProviderGatewayImageEditRequest): Promise<ProviderGatewayImageEditResult> {
+    const normalized = this.normalizeEditInput(input);
+    const apiKey = await this.persaiInternalApiClientService.resolveSecretValue(
+      normalized.credential.secretId
+    );
+
+    switch (normalized.credential.providerId ?? "openai") {
+      case "openai":
+        return this.openaiProviderClient.editImage(normalized, { apiKey });
+    }
+  }
+
+  private normalizeGenerateInput(
     input: ProviderGatewayImageGenerateRequest
   ): ProviderGatewayImageGenerateRequest & {
     credential: ProviderGatewayImageGenerateRequest["credential"] & {
@@ -81,6 +97,100 @@ export class ProviderImageGenerationService {
         secretId: input.credential.secretId.trim(),
         providerId: input.credential.providerId ?? null
       }
+    };
+  }
+
+  private normalizeEditInput(
+    input: ProviderGatewayImageEditRequest
+  ): ProviderGatewayImageEditRequest & {
+    sourceImage: {
+      bytesBase64: string;
+      mimeType: string;
+      filename: string | null;
+    };
+    referenceImage: {
+      bytesBase64: string;
+      mimeType: string;
+      filename: string | null;
+    } | null;
+    credential: ProviderGatewayImageEditRequest["credential"] & {
+      providerId: PersaiRuntimeImageEditProviderId | null;
+    };
+  } {
+    if (typeof input.prompt !== "string" || input.prompt.trim().length === 0) {
+      throw new BadRequestException("prompt must be a non-empty string");
+    }
+    if (input.size !== null && !PERSAI_RUNTIME_IMAGE_GENERATE_SIZES.includes(input.size)) {
+      throw new BadRequestException("size must be a supported image-generation size or null");
+    }
+    if (input.credential.toolCode !== "image_edit") {
+      throw new BadRequestException('credential.toolCode must be "image_edit"');
+    }
+    if (
+      typeof input.credential.secretId !== "string" ||
+      input.credential.secretId.trim().length === 0
+    ) {
+      throw new BadRequestException("credential.secretId must be a non-empty string");
+    }
+    if (
+      input.credential.providerId !== null &&
+      !PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS.includes(input.credential.providerId)
+    ) {
+      throw new BadRequestException(
+        "credential.providerId must be a supported image-edit provider or null"
+      );
+    }
+    const sourceImage = this.normalizeEditImageInput(input.sourceImage, "sourceImage");
+    const referenceImage =
+      input.referenceImage === null || input.referenceImage === undefined
+        ? null
+        : this.normalizeEditImageInput(input.referenceImage, "referenceImage");
+
+    return {
+      prompt: input.prompt.trim(),
+      size: input.size,
+      sourceImage,
+      referenceImage,
+      credential: {
+        toolCode: "image_edit",
+        secretId: input.credential.secretId.trim(),
+        providerId: input.credential.providerId ?? null
+      }
+    };
+  }
+
+  private normalizeEditImageInput(
+    input: ProviderGatewayImageEditRequest["sourceImage"],
+    field: "sourceImage" | "referenceImage"
+  ): {
+    bytesBase64: string;
+    mimeType: string;
+    filename: string | null;
+  } {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+      throw new BadRequestException(`${field} must be an object`);
+    }
+    if (typeof input.bytesBase64 !== "string" || input.bytesBase64.trim().length === 0) {
+      throw new BadRequestException(`${field}.bytesBase64 must be a non-empty string`);
+    }
+    if (typeof input.mimeType !== "string" || input.mimeType.trim().length === 0) {
+      throw new BadRequestException(`${field}.mimeType must be a non-empty string`);
+    }
+
+    const filename =
+      input.filename === null || input.filename === undefined
+        ? null
+        : typeof input.filename === "string" && input.filename.trim().length > 0
+          ? input.filename.trim()
+          : null;
+    if (input.filename !== undefined && input.filename !== null && filename === null) {
+      throw new BadRequestException(`${field}.filename must be a non-empty string or null`);
+    }
+
+    return {
+      bytesBase64: input.bytesBase64.trim(),
+      mimeType: input.mimeType.trim(),
+      filename
     };
   }
 }

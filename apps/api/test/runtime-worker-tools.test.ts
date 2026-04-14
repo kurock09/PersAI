@@ -40,6 +40,18 @@ const TOOL_POLICIES = [
     dailyCallLimit: 5
   },
   {
+    toolCode: "image_edit",
+    displayName: "Image Edit",
+    description: "Edit images.",
+    kind: "plan",
+    executionMode: "worker",
+    usageRule: "forbidden",
+    enabled: false,
+    visibleToModel: false,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  },
+  {
     toolCode: "tts",
     displayName: "Text to Speech",
     description: "Generate speech audio.",
@@ -93,6 +105,15 @@ async function run(): Promise<void> {
       },
       {
         toolCode: "image_generate",
+        family: "media_generation",
+        outcomeKind: "artifact_refs",
+        timeoutMs: 180000,
+        confirmationRule: "none",
+        supportsProviderRouting: true,
+        failureBehavior: "surface_error"
+      },
+      {
+        toolCode: "image_edit",
         family: "media_generation",
         outcomeKind: "artifact_refs",
         timeoutMs: 180000,

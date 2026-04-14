@@ -543,12 +543,33 @@ export class MaterializeAssistantPublishedVersionService {
         ...(providerId ? { providerId } : {})
       };
     }
+    const imageCredentialRef = refs.image_generate;
+    if (imageCredentialRef) {
+      refs.image_edit = this.cloneToolCredentialRef(imageCredentialRef);
+    }
     refs.tts = this.buildTtsToolCredentialRef(
       keyMetadata,
       await this.resolveTtsPrimaryProviderId(),
       voiceProfile
     );
     return refs;
+  }
+
+  private cloneToolCredentialRef(
+    ref: AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string]
+  ): AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string] {
+    return {
+      ...ref,
+      secretRef: { ...ref.secretRef },
+      ...(ref.fallbacks
+        ? {
+            fallbacks: ref.fallbacks.map((fallback) => ({
+              ...fallback,
+              secretRef: { ...fallback.secretRef }
+            }))
+          }
+        : {})
+    };
   }
 
   private buildTtsToolCredentialRef(

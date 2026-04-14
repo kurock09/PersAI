@@ -4,6 +4,8 @@ import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayBrowserActionRequest,
   ProviderGatewayBrowserActionResult,
+  ProviderGatewayImageEditRequest,
+  ProviderGatewayImageEditResult,
   ProviderGatewayImageGenerateRequest,
   ProviderGatewayImageGenerateResult,
   RuntimeKnowledgeAccessConfig,
@@ -37,6 +39,7 @@ import type {
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeBrowserToolService } from "../src/modules/turns/runtime-browser-tool.service";
+import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
@@ -77,6 +80,15 @@ const WORKER_TOOLS_CONFIG = {
       outcomeKind: "structured_output",
       timeoutMs: 120000,
       confirmationRule: "required_for_mutations",
+      supportsProviderRouting: true,
+      failureBehavior: "surface_error"
+    },
+    {
+      toolCode: "image_edit",
+      family: "media_generation",
+      outcomeKind: "artifact_refs",
+      timeoutMs: 180000,
+      confirmationRule: "none",
       supportsProviderRouting: true,
       failureBehavior: "surface_error"
     },
@@ -235,6 +247,16 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           },
           configured: false,
           providerId: "openai"
+        },
+        image_edit: {
+          refKey: "persai:persai-runtime:tool/image_generate/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/image_generate/api-key"
+          },
+          configured: false,
+          providerId: "openai"
         }
       },
       toolPolicies: [
@@ -254,6 +276,19 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           toolCode: "image_generate",
           displayName: "Image Generate",
           description: "Generate images from text prompts.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "image_edit",
+          displayName: "Image Edit",
+          description:
+            "Edit the current-turn source image from a text prompt with an optional reference image.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -439,6 +474,7 @@ class FakeRuntimeBundleRegistryService {
 class FakeProviderGatewayClientService {
   calls: ProviderGatewayTextGenerateRequest[] = [];
   streamCalls: ProviderGatewayTextGenerateRequest[] = [];
+  imageEditCalls: ProviderGatewayImageEditRequest[] = [];
   imageGenerateCalls: ProviderGatewayImageGenerateRequest[] = [];
   webSearchCalls: ProviderGatewayWebSearchRequest[] = [];
   webFetchCalls: ProviderGatewayWebFetchRequest[] = [];
@@ -466,7 +502,32 @@ class FakeProviderGatewayClientService {
   streamError: Error | null = null;
   webSearchError: Error | null = null;
   webFetchError: Error | null = null;
+  imageEditError: Error | null = null;
   imageGenerateError: Error | null = null;
+  imageEditResult: ProviderGatewayImageEditResult = {
+    provider: "openai",
+    model: "gpt-image-1",
+    prompt: "Replace the couch with a red chair",
+    size: "1024x1024",
+    images: [
+      {
+        bytesBase64: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]).toString(
+          "base64"
+        ),
+        mimeType: "image/png",
+        revisedPrompt: "Replace the couch with a red chair while keeping the same room."
+      }
+    ],
+    respondedAt: "2026-04-13T12:00:00.000Z",
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-image-1",
+      inputTokens: 16,
+      outputTokens: 28,
+      totalTokens: 44
+    },
+    warning: null
+  };
   imageGenerateResult: ProviderGatewayImageGenerateResult = {
     provider: "openai",
     model: "gpt-image-1",
@@ -632,6 +693,14 @@ class FakeProviderGatewayClientService {
     return this.imageGenerateResult;
   }
 
+  async editImage(input: ProviderGatewayImageEditRequest): Promise<ProviderGatewayImageEditResult> {
+    this.imageEditCalls.push(input);
+    if (this.imageEditError !== null) {
+      throw this.imageEditError;
+    }
+    return this.imageEditResult;
+  }
+
   async webFetch(input: ProviderGatewayWebFetchRequest): Promise<ProviderGatewayWebFetchResult> {
     this.webFetchCalls.push(input);
     if (this.webFetchError !== null) {
@@ -767,6 +836,7 @@ class FakePersaiInternalApiClientService {
 
 class FakePersaiMediaObjectStorageService {
   saveCalls: Array<{ objectKey: string; mimeType: string; buffer: Buffer }> = [];
+  sourceObjects = new Map<string, Buffer>();
 
   buildRuntimeOutputObjectKey(input: {
     assistantId: string;
@@ -790,6 +860,10 @@ class FakePersaiMediaObjectStorageService {
       sizeBytes: input.buffer.length,
       mimeType: input.mimeType
     };
+  }
+
+  async downloadObject(objectKey: string): Promise<Buffer | null> {
+    return this.sourceObjects.get(objectKey) ?? null;
   }
 }
 
@@ -952,6 +1026,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
+  const runtimeImageEditToolService = new RuntimeImageEditToolService(
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    mediaObjectStorage as never
+  );
   const runtimeImageGenerateToolService = new RuntimeImageGenerateToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
@@ -974,6 +1053,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
+    runtimeImageEditToolService,
     runtimeImageGenerateToolService,
     runtimeScheduledActionToolService,
     runtimeTtsToolService
@@ -2439,6 +2519,321 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(imageGenerateToolHistory.prompt, "Draw a serene poster");
   assert.equal(imageGenerateToolHistory.artifacts?.[0]?.kind, "image");
   assert.equal(imageGenerateToolHistory.artifacts?.[0]?.filename, "poster.png");
+
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.image_edit = {
+      refKey: "persai:persai-runtime:tool/image_generate/api-key",
+      configured: true,
+      providerId: "openai",
+      secretRef: {
+        source: "persai",
+        provider: "persai-runtime",
+        id: "tool/image_generate/api-key"
+      }
+    };
+    const imageEditPolicy = bundleRegistry.entry.parsedBundle.governance.toolPolicies.find(
+      (tool) => tool.toolCode === "image_edit"
+    );
+    if (imageEditPolicy) {
+      imageEditPolicy.dailyCallLimit = 2;
+    }
+  }
+  const referenceImageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x02]);
+  request.message.attachments = [
+    {
+      attachmentId: "attachment-image-1",
+      kind: "image",
+      objectKey: "assistant-media/uploads/reference-image.png",
+      mimeType: "image/png",
+      filename: "living-room.png",
+      sizeBytes: referenceImageBuffer.length
+    }
+  ];
+  mediaObjectStorage.sourceObjects.set(
+    "assistant-media/uploads/reference-image.png",
+    referenceImageBuffer
+  );
+  const providerCallsBeforeImageEdit = providerGatewayClient.calls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-13T12:00:00.600Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 20,
+        outputTokens: 0,
+        totalTokens: 20
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-image-edit-1",
+          name: "image_edit",
+          arguments: {
+            prompt: "Replace the couch with a red chair",
+            filename: "living-room-edit.png",
+            size: "1024x1024"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after image edit",
+      respondedAt: "2026-04-13T12:00:01.100Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 36,
+        outputTokens: 15,
+        totalTokens: 51
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const imageEditCompleted = await service.createTurn(request);
+  assert.equal(imageEditCompleted.assistantText, "reply after image edit");
+  assert.equal(imageEditCompleted.artifacts.length, 1);
+  assert.equal(imageEditCompleted.artifacts[0]?.kind, "image");
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageEdit + 2);
+  assert.equal(
+    providerGatewayClient.calls[providerCallsBeforeImageEdit]?.tools?.some(
+      (tool) => tool.name === "image_edit"
+    ),
+    true
+  );
+  assert.deepEqual(providerGatewayClient.imageEditCalls.at(-1), {
+    prompt: "Replace the couch with a red chair",
+    size: "1024x1024",
+    sourceImage: {
+      bytesBase64: referenceImageBuffer.toString("base64"),
+      mimeType: "image/png",
+      filename: "living-room.png"
+    },
+    referenceImage: null,
+    credential: {
+      toolCode: "image_edit",
+      secretId: "tool/image_generate/api-key",
+      providerId: "openai"
+    }
+  });
+  assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
+    assistantId: "assistant-1",
+    toolCode: "image_edit",
+    dailyCallLimit: 2
+  });
+  const imageEditToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    provider?: string | null;
+    model?: string | null;
+    prompt?: string | null;
+    sourceImageIndex?: number | null;
+    referenceImageIndex?: number | null;
+    sourceFilename?: string | null;
+    referenceFilename?: string | null;
+    artifacts?: Array<{
+      kind?: string;
+      filename?: string | null;
+    }>;
+  };
+  assert.equal(imageEditToolHistory.action, "generated");
+  assert.equal(imageEditToolHistory.provider, "openai");
+  assert.equal(imageEditToolHistory.model, "gpt-image-1");
+  assert.equal(imageEditToolHistory.prompt, "Replace the couch with a red chair");
+  assert.equal(imageEditToolHistory.sourceImageIndex, 1);
+  assert.equal(imageEditToolHistory.referenceImageIndex, null);
+  assert.equal(imageEditToolHistory.sourceFilename, "living-room.png");
+  assert.equal(imageEditToolHistory.referenceFilename, null);
+  assert.equal(imageEditToolHistory.artifacts?.[0]?.kind, "image");
+  assert.equal(imageEditToolHistory.artifacts?.[0]?.filename, "living-room-edit.png");
+
+  const yardImageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x03]);
+  const carImageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x04]);
+  request.message.attachments = [
+    {
+      attachmentId: "attachment-image-yard",
+      kind: "image",
+      objectKey: "assistant-media/uploads/yard-image.png",
+      mimeType: "image/png",
+      filename: "yard.png",
+      sizeBytes: yardImageBuffer.length
+    },
+    {
+      attachmentId: "attachment-image-car",
+      kind: "image",
+      objectKey: "assistant-media/uploads/car-image.png",
+      mimeType: "image/png",
+      filename: "car.png",
+      sizeBytes: carImageBuffer.length
+    }
+  ];
+  mediaObjectStorage.sourceObjects.set("assistant-media/uploads/yard-image.png", yardImageBuffer);
+  mediaObjectStorage.sourceObjects.set("assistant-media/uploads/car-image.png", carImageBuffer);
+  providerGatewayClient.imageEditResult = {
+    ...providerGatewayClient.imageEditResult,
+    prompt: "Place the car from image #2 into the yard in image #1",
+    warning: null
+  };
+  const providerCallsBeforeReferencedImageEdit = providerGatewayClient.calls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-13T12:00:01.200Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 24,
+        outputTokens: 0,
+        totalTokens: 24
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-image-edit-2",
+          name: "image_edit",
+          arguments: {
+            prompt: "Place the car from image #2 into the yard in image #1",
+            sourceImageIndex: 1,
+            referenceImageIndex: 2,
+            filename: "yard-with-car.png"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after referenced image edit",
+      respondedAt: "2026-04-13T12:00:01.700Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 40,
+        outputTokens: 16,
+        totalTokens: 56
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const referencedImageEditCompleted = await service.createTurn(request);
+  assert.equal(referencedImageEditCompleted.assistantText, "reply after referenced image edit");
+  assert.equal(referencedImageEditCompleted.artifacts.length, 1);
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeReferencedImageEdit + 2);
+  assert.deepEqual(providerGatewayClient.imageEditCalls.at(-1), {
+    prompt: "Place the car from image #2 into the yard in image #1",
+    size: null,
+    sourceImage: {
+      bytesBase64: yardImageBuffer.toString("base64"),
+      mimeType: "image/png",
+      filename: "yard.png"
+    },
+    referenceImage: {
+      bytesBase64: carImageBuffer.toString("base64"),
+      mimeType: "image/png",
+      filename: "car.png"
+    },
+    credential: {
+      toolCode: "image_edit",
+      secretId: "tool/image_generate/api-key",
+      providerId: "openai"
+    }
+  });
+  const referencedImageEditToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    sourceImageIndex?: number | null;
+    referenceImageIndex?: number | null;
+    sourceFilename?: string | null;
+    referenceFilename?: string | null;
+  };
+  assert.equal(referencedImageEditToolHistory.action, "generated");
+  assert.equal(referencedImageEditToolHistory.sourceImageIndex, 1);
+  assert.equal(referencedImageEditToolHistory.referenceImageIndex, 2);
+  assert.equal(referencedImageEditToolHistory.sourceFilename, "yard.png");
+  assert.equal(referencedImageEditToolHistory.referenceFilename, "car.png");
+
+  const providerCallsBeforeAmbiguousImageEdit = providerGatewayClient.calls.length;
+  const providerImageEditsBeforeAmbiguous = providerGatewayClient.imageEditCalls.length;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: null,
+      respondedAt: "2026-04-13T12:00:01.800Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 22,
+        outputTokens: 0,
+        totalTokens: 22
+      },
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-image-edit-3",
+          name: "image_edit",
+          arguments: {
+            prompt: "Place the car into the yard"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "Which image should I edit, image #1 or image #2?",
+      respondedAt: "2026-04-13T12:00:02.100Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        inputTokens: 34,
+        outputTokens: 13,
+        totalTokens: 47
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const ambiguousImageEditCompleted = await service.createTurn(request);
+  assert.equal(
+    ambiguousImageEditCompleted.assistantText,
+    "Which image should I edit, image #1 or image #2?"
+  );
+  assert.equal(providerGatewayClient.calls.length, providerCallsBeforeAmbiguousImageEdit + 2);
+  assert.equal(providerGatewayClient.imageEditCalls.length, providerImageEditsBeforeAmbiguous);
+  const ambiguousImageEditToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    reason?: string | null;
+    sourceImageIndex?: number | null;
+    referenceImageIndex?: number | null;
+  };
+  assert.equal(ambiguousImageEditToolHistory.action, "skipped");
+  assert.equal(ambiguousImageEditToolHistory.reason, "source_image_selection_required");
+  assert.equal(ambiguousImageEditToolHistory.sourceImageIndex, null);
+  assert.equal(ambiguousImageEditToolHistory.referenceImageIndex, null);
+  request.message.attachments = [];
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.browser = {

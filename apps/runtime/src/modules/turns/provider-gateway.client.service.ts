@@ -10,6 +10,8 @@ import type {
   ProviderGatewayBrowserActionRequest,
   ProviderGatewayBrowserActionResult,
   ProviderGatewayAudioTranscriptionResult,
+  ProviderGatewayImageEditRequest,
+  ProviderGatewayImageEditResult,
   ProviderGatewayImageGenerateRequest,
   ProviderGatewayImageGenerateResult,
   ProviderGatewaySpeechGenerateRequest,
@@ -165,6 +167,32 @@ export class ProviderGatewayClientService {
       throw new BadGatewayException(
         "Provider gateway returned an invalid image generation response."
       );
+    }
+
+    return response.body;
+  }
+
+  async editImage(input: ProviderGatewayImageEditRequest): Promise<ProviderGatewayImageEditResult> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
+    }
+
+    const response = await this.fetchJson(
+      this.buildUrl("/api/v1/providers/edit-image"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      },
+      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      throw this.toGatewayException(response);
+    }
+    if (!this.isImageEditResult(response.body)) {
+      throw new BadGatewayException("Provider gateway returned an invalid image edit response.");
     }
 
     return response.body;
@@ -557,6 +585,34 @@ export class ProviderGatewayClientService {
   }
 
   private isImageGenerateResult(value: unknown): value is ProviderGatewayImageGenerateResult {
+    const row = this.asObject(value);
+    return (
+      row?.provider === "openai" &&
+      typeof row.model === "string" &&
+      typeof row.prompt === "string" &&
+      (row.size === "1024x1024" ||
+        row.size === "1024x1536" ||
+        row.size === "1536x1024" ||
+        row.size === "auto" ||
+        row.size === null) &&
+      Array.isArray(row.images) &&
+      row.images.every((entry) => {
+        const image = this.asObject(entry);
+        return (
+          image !== null &&
+          typeof image.bytesBase64 === "string" &&
+          typeof image.mimeType === "string" &&
+          (typeof image.revisedPrompt === "string" || image.revisedPrompt === null)
+        );
+      }) &&
+      typeof row.respondedAt === "string" &&
+      (row.usage === null ||
+        (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&
+      (typeof row.warning === "string" || row.warning === null)
+    );
+  }
+
+  private isImageEditResult(value: unknown): value is ProviderGatewayImageEditResult {
     const row = this.asObject(value);
     return (
       row?.provider === "openai" &&

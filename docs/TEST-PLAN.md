@@ -937,6 +937,13 @@ Required in CI:
   - hidden PersAI scheduler pickup claims due scheduled-action rows from durable state, computes the next recurring slot, and defers retries on failures without relying on pod-local ownership
   - a global scheduler epoch reset invalidates stale execution claims across rollout/startup, so new pods do not wait for the old claim TTL before re-claiming due work
   - current `cron-fire` callback handling now delegates user-reminder fanout to one shared PersAI-owned delivery core, and the same finalization/replay-safe behavior remains reusable from the native scheduler path
+- T15-6 media-generation/editing follow-through validates:
+  - `image_edit` is now a first-class `plan_managed` worker tool in catalog/policy/runtime truth instead of a later placeholder, and it reuses the existing `tool_image_generate` credential seam rather than inventing a second image-key slot
+  - runtime projects `image_edit` only when worker policy plus the shared image credential are both active, and the model-visible contract stays bounded to explicit edit intent plus a numbered current-turn `sourceImageIndex` with optional `referenceImageIndex`
+  - runtime skips honestly with structured reasons when the current message has zero images, the source image is ambiguous across multiple current-turn images, an image index is invalid, an input MIME type is unsupported, or a selected source/reference object cannot be loaded instead of guessing hidden image roles
+  - runtime consumes the `image_edit` daily limit before provider execution, downloads the selected source/reference attachments from PersAI object storage, forwards them through `POST /api/v1/providers/edit-image`, and persists edited `RuntimeOutputArtifact`s back onto the shared media-delivery path used by web chat and Telegram
+  - provider-gateway validates the shared image-edit request contract, resolves the same PersAI image secret as `image_generate`, and maps OpenAI `images.edit` onto the native provider result contract with normalized artifact bytes/prompt/usage metadata
+  - focused regressions cover `apps/api/test/runtime-tool-policy.test.ts`, `apps/api/test/runtime-worker-tools.test.ts`, `apps/provider-gateway/test/provider-image-generation.service.test.ts`, `apps/provider-gateway/test/openai-provider.client.test.ts`, `apps/runtime/test/provider-gateway.client.service.test.ts`, and `apps/runtime/test/turn-execution.service.test.ts`
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift

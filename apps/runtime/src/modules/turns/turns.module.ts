@@ -8,6 +8,7 @@ import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.s
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
+import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
@@ -25,6 +26,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
     RuntimeBrowserToolService,
+    RuntimeImageEditToolService,
     RuntimeImageGenerateToolService,
     RuntimeScheduledActionToolService,
     RuntimeTtsToolService,
@@ -41,6 +43,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
     RuntimeBrowserToolService,
+    RuntimeImageEditToolService,
     RuntimeImageGenerateToolService,
     RuntimeScheduledActionToolService,
     RuntimeTtsToolService,

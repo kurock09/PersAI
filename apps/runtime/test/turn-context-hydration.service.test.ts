@@ -120,6 +120,12 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
         if (objectKey.includes("diagram.png")) {
           return Buffer.from("png-bytes");
         }
+        if (objectKey.includes("yard.png")) {
+          return Buffer.from("yard-png-bytes");
+        }
+        if (objectKey.includes("car.png")) {
+          return Buffer.from("car-png-bytes");
+        }
         if (objectKey.includes("manual.pdf") || objectKey.includes("file-small.pdf")) {
           return Buffer.from("pdf-bytes");
         }
@@ -255,7 +261,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       content: [
         {
           type: "text",
-          text: '[Files attached by user:\n- attachment (audio "voice.mp3", transcription: "hello from attachment")\n- attachment (image "diagram.png")\n- attachment (document "manual.pdf")\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nPDF attachments are included as direct model document input. Use the document contents plus any attachment metadata and message text.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
+          text: '[Files attached by user:\n- attachment (audio "voice.mp3", transcription: "hello from attachment")\n- attachment (image #1 "diagram.png")\n- attachment (document "manual.pdf")\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nPDF attachments are included as direct model document input. Use the document contents plus any attachment metadata and message text.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
         },
         {
           type: "image",
@@ -299,6 +305,64 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   ]);
   assert.deepEqual(downloadedObjectKeys, [
     "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-small.pdf"
+  ]);
+
+  prisma.chat = null;
+  downloadedObjectKeys.length = 0;
+  const multiImageRequest: RuntimeTurnRequest = {
+    ...request,
+    message: {
+      ...request.message,
+      text: "edit both images",
+      attachments: [
+        {
+          attachmentId: "runtime-image-1",
+          kind: "image",
+          objectKey:
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/yard.png",
+          mimeType: "image/png",
+          filename: "yard.png",
+          sizeBytes: 32
+        },
+        {
+          attachmentId: "runtime-image-2",
+          kind: "image",
+          objectKey:
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/car.png",
+          mimeType: "image/png",
+          filename: "car.png",
+          sizeBytes: 32
+        }
+      ]
+    }
+  };
+  const multiImage = await service.buildMessages(multiImageRequest);
+  assert.deepEqual(multiImage, [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: '[Files attached by user:\n- attachment (image #1 "yard.png")\n- attachment (image #2 "car.png")\nCurrent-turn image attachments are numbered image #1, image #2, and so on in this list. Use those numbers when a tool needs an explicit source or reference image.\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nUse the attachment metadata, transcription, and content preview when available.]\nedit both images'
+        },
+        {
+          type: "image",
+          mimeType: "image/png",
+          dataBase64: Buffer.from("yard-png-bytes").toString("base64"),
+          filename: "yard.png"
+        },
+        {
+          type: "image",
+          mimeType: "image/png",
+          dataBase64: Buffer.from("car-png-bytes").toString("base64"),
+          filename: "car.png"
+        }
+      ]
+    }
+  ]);
+  assert.deepEqual(downloadedObjectKeys, [
+    "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/yard.png",
+    "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/car.png"
   ]);
 
   const telegramRequest: RuntimeTurnRequest = {

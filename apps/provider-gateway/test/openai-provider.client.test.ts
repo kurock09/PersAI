@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
+  ProviderGatewayImageEditRequest,
   ProviderGatewayImageGenerateRequest,
   ProviderGatewaySpeechGenerateRequest,
   ProviderGatewayTextGenerateRequest,
@@ -87,6 +88,32 @@ function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
   };
 }
 
+function createImageEditRequest(options?: {
+  includeReference?: boolean;
+}): ProviderGatewayImageEditRequest {
+  return {
+    prompt: "Replace the couch with a red chair",
+    size: "1024x1024",
+    sourceImage: {
+      bytesBase64: "cmVmLWltYWdl",
+      mimeType: "image/png",
+      filename: "living-room.png"
+    },
+    referenceImage: options?.includeReference
+      ? {
+          bytesBase64: "cmVmLWNhci1pbWFnZQ==",
+          mimeType: "image/png",
+          filename: "red-car.png"
+        }
+      : null,
+    credential: {
+      toolCode: "image_edit",
+      secretId: "tool/image_generate/api-key",
+      providerId: "openai"
+    }
+  };
+}
+
 function createSpeechGenerateRequest(): ProviderGatewaySpeechGenerateRequest {
   return {
     text: "Привет, это тестовый голосовой ответ.",
@@ -140,6 +167,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   } | null = null;
   let capturedTranscriptionInput: unknown = null;
   let capturedImagePayload: unknown = null;
+  let capturedImageEditPayload: unknown = null;
   let capturedSpeechPayload: unknown = null;
   let capturedToolApiKey: string | undefined;
   const generateImage = async (payload: unknown) => {
@@ -160,6 +188,23 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
         input_tokens: 30,
         output_tokens: 60,
         total_tokens: 90
+      }
+    };
+  };
+  const editImage = async (payload: unknown) => {
+    capturedImageEditPayload = payload;
+    return {
+      output_format: "png",
+      data: [
+        {
+          b64_json: "ZWRpdGVkLWltYWdlLTE=",
+          revised_prompt: "Replace the couch with a red chair while keeping the same room."
+        }
+      ],
+      usage: {
+        input_tokens: 24,
+        output_tokens: 48,
+        total_tokens: 72
       }
     };
   };
@@ -185,7 +230,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       }
     },
     images: {
-      generate: generateImage
+      generate: generateImage,
+      edit: editImage
     },
     responses: {
       create: async (payload: {
@@ -282,6 +328,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       getApiClient(apiKey?: string): {
         images: {
           generate(payload: unknown): Promise<unknown>;
+          edit(payload: unknown): Promise<unknown>;
         };
         audio: {
           speech: {
@@ -294,7 +341,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     capturedToolApiKey = apiKey;
     return {
       images: {
-        generate: generateImage
+        generate: generateImage,
+        edit: editImage
       },
       audio: {
         speech: {
@@ -667,6 +715,35 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     inputTokens: 30,
     outputTokens: 60,
     totalTokens: 90
+  });
+
+  const imageEditResult = await client.editImage(
+    createImageEditRequest({ includeReference: true }),
+    {
+      apiKey: "tool-openai-key"
+    }
+  );
+  assert.equal(imageEditResult.model, "gpt-image-1");
+  assert.equal(imageEditResult.images.length, 1);
+  assert.equal(
+    imageEditResult.images[0]?.revisedPrompt,
+    "Replace the couch with a red chair while keeping the same room."
+  );
+  assert.deepEqual(capturedImageEditPayload, {
+    model: "gpt-image-1",
+    prompt: "Replace the couch with a red chair",
+    image: (capturedImageEditPayload as { image?: unknown } | null)?.image,
+    output_format: "png",
+    size: "1024x1024"
+  });
+  assert.ok(Array.isArray((capturedImageEditPayload as { image?: unknown } | null)?.image));
+  assert.equal(((capturedImageEditPayload as { image?: unknown[] } | null)?.image ?? []).length, 2);
+  assert.deepEqual(imageEditResult.usage, {
+    providerKey: "openai",
+    modelKey: "gpt-image-1",
+    inputTokens: 24,
+    outputTokens: 48,
+    totalTokens: 72
   });
 
   const speechResult = await client.generateSpeech(createSpeechGenerateRequest(), {

@@ -21,6 +21,14 @@ const WORKER_TOOL_BASELINES: Record<string, Omit<RuntimeWorkerToolConfig, "toolC
     supportsProviderRouting: true,
     failureBehavior: "surface_error"
   },
+  image_edit: {
+    family: "media_generation",
+    outcomeKind: "artifact_refs",
+    timeoutMs: 180_000,
+    confirmationRule: "none",
+    supportsProviderRouting: true,
+    failureBehavior: "surface_error"
+  },
   tts: {
     family: "media_generation",
     outcomeKind: "artifact_refs",

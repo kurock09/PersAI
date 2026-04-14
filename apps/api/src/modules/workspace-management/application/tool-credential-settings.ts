@@ -220,7 +220,7 @@ export function buildAdminToolCredentialsState(params: {
   const DISPLAY_NAMES: Record<ToolCredentialKey, string> = {
     tool_web_search: "Web Search API Key",
     tool_web_fetch: "Web Fetch (Firecrawl) API Key",
-    tool_image_generate: "Image Generation API Key",
+    tool_image_generate: "Image Generation/Edit API Key",
     tool_browser: "Browser (Browserless) API Key",
     tool_tts_elevenlabs: "Text-to-Speech API Key (ElevenLabs)",
     tool_tts_yandex: "Text-to-Speech API Key (Yandex SpeechKit)",
@@ -245,6 +245,7 @@ export function buildAdminToolCredentialsState(params: {
     ttsPrimaryProviderOptions: TTS_PRIMARY_PROVIDER_OPTIONS,
     notes: [
       "Tool credentials are managed globally for all assistants.",
+      "Image generation and image edit share the same global image-provider credential slot.",
       "TTS stores provider-specific keys plus one global primary-provider selection.",
       "Raw keys are write-only and stored encrypted in PersAI."
     ]
