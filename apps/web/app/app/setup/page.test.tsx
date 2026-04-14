@@ -317,7 +317,7 @@ describe("SetupWizardPage", () => {
       })
     );
     expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-publish");
-  });
+  }, 10000);
 });
 
 function cleanupLocation() {

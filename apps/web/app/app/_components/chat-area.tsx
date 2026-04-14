@@ -44,6 +44,7 @@ export function ChatArea({
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [forgottenIds, setForgottenIds] = useState<Set<string>>(new Set());
+  const [compactionBannerDismissed, setCompactionBannerDismissed] = useState(false);
 
   const sendPrompt = useCallback(
     (text: string, files?: File[]) => {
@@ -155,7 +156,6 @@ export function ChatArea({
       ? t("compactionTokensValue", { count: chat.compaction.currentTokens })
       : t("compactionTokensNone");
   const recentAutoCompaction = chat.recentAutoCompaction;
-  const showCompactionBanner = chat.compaction?.suggested === true || recentAutoCompaction !== null;
   const compactionBannerMode = recentAutoCompaction !== null ? "auto_compacted" : "pressure";
   const compactionBannerTitle =
     compactionBannerMode === "auto_compacted"
@@ -184,6 +184,20 @@ export function ChatArea({
       : chat.compaction?.autoCompactionEnabled
         ? t("compactionHintAutoDetail")
         : t("compactionHintManualDetail");
+  const showCompactionBanner =
+    !compactionBannerDismissed &&
+    (chat.compaction?.suggested === true || recentAutoCompaction !== null);
+
+  useEffect(() => {
+    setCompactionBannerDismissed(false);
+  }, [
+    chat.chatId,
+    chat.compaction?.compactionCount,
+    chat.compaction?.currentTokens,
+    chat.compaction?.suggested,
+    compactionBannerMode,
+    recentAutoCompaction?.detectedAt
+  ]);
 
   return (
     <div className="flex h-full flex-col">
@@ -351,41 +365,52 @@ export function ChatArea({
 
       {/* Input */}
       {showCompactionBanner && (
-        <div
-          className={`mx-4 mb-2 rounded-lg border px-3 py-3 ${
-            compactionBannerMode === "auto_compacted"
-              ? "border-emerald-200 bg-emerald-50/70"
-              : "border-border/70 bg-surface"
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            {compactionBannerMode === "auto_compacted" ? (
-              <Scissors className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-            ) : (
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
-                {compactionBannerTitle}
-              </p>
-              <p className="mt-0.5 text-sm text-text">{compactionBannerBody}</p>
-              <p className="mt-1 text-xs text-text-muted">{compactionBannerDetail}</p>
-            </div>
-            {compactionBannerMode === "pressure" && (
-              <button
-                type="button"
-                onClick={() => void chat.compactNow()}
-                disabled={chat.compactionRunning || chat.isStreaming}
-                className="shrink-0 cursor-pointer text-xs font-medium text-text transition-colors hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+        <div className="px-3 md:px-4">
+          <div className="mx-auto mb-2 max-w-3xl rounded-xl border border-border/70 bg-surface px-3.5 py-2.5">
+            <div className="flex items-start gap-3">
+              <div
+                className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
+                  compactionBannerMode === "auto_compacted"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-600"
+                }`}
               >
-                {chat.compactionRunning ? t("compactionRunning") : t("compactionAction")}
-              </button>
-            )}
+                {compactionBannerMode === "auto_compacted" ? (
+                  <Scissors className="h-4 w-4" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-text">{compactionBannerTitle}</p>
+                <p className="mt-0.5 text-xs text-text-muted">{compactionBannerBody}</p>
+                <p className="mt-1 text-xs text-text-muted">{compactionBannerDetail}</p>
+              </div>
+              {compactionBannerMode === "pressure" && (
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCompactionBannerDismissed(true)}
+                    className="cursor-pointer rounded-lg px-2 py-1 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                  >
+                    {t("compactionPostpone")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void chat.compactNow()}
+                    disabled={chat.compactionRunning || chat.isStreaming}
+                    className="cursor-pointer rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {chat.compactionRunning ? t("compactionRunning") : t("compactionAction")}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
       <ChatInput
-        onSend={(text, files) => void chat.send(text, files)}
+        onSend={(text, files, options) => void chat.send(text, files, options)}
         onTranscribeVoice={async (blob, filename) => {
           const token = await getToken();
           if (!token) throw new Error("Not authenticated.");

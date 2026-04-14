@@ -11,6 +11,7 @@ const assistantApiMocks = vi.hoisted(() => ({
   getChatCompactionState: vi.fn(),
   getChatMessages: vi.fn(),
   stageWebChatAttachment: vi.fn(),
+  uploadAssistantKnowledgeSource: vi.fn(),
   streamAssistantWebChatTurn: vi.fn()
 }));
 
@@ -33,6 +34,7 @@ vi.mock("../assistant-api-client", async () => {
     getChatCompactionState: assistantApiMocks.getChatCompactionState,
     getChatMessages: assistantApiMocks.getChatMessages,
     stageWebChatAttachment: assistantApiMocks.stageWebChatAttachment,
+    uploadAssistantKnowledgeSource: assistantApiMocks.uploadAssistantKnowledgeSource,
     streamAssistantWebChatTurn: assistantApiMocks.streamAssistantWebChatTurn
   };
 });
@@ -80,6 +82,7 @@ describe("useChat", () => {
     assistantApiMocks.getChatCompactionState.mockReset();
     assistantApiMocks.getChatMessages.mockReset();
     assistantApiMocks.stageWebChatAttachment.mockReset();
+    assistantApiMocks.uploadAssistantKnowledgeSource.mockReset();
     assistantApiMocks.streamAssistantWebChatTurn.mockReset();
     nextRafId = 1;
     rafCallbacks.clear();
@@ -321,6 +324,108 @@ describe("useChat", () => {
         expect.objectContaining({
           tokensBefore: 7_800,
           tokensAfter: null
+        })
+      );
+    });
+  });
+
+  it("uploads eligible documents into the knowledge base when requested", async () => {
+    const file = new File(["hello"], "notes.pdf", { type: "application/pdf" });
+    assistantApiMocks.stageWebChatAttachment.mockResolvedValue({
+      chatId: "chat-1",
+      messageId: "staged-msg-1",
+      attachment: {
+        id: "att-1",
+        messageId: "staged-msg-1",
+        chatId: "chat-1",
+        attachmentType: "document",
+        originalFilename: "notes.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 5,
+        processingStatus: "ready",
+        createdAt: "2026-04-14T10:00:00.000Z"
+      }
+    });
+    assistantApiMocks.uploadAssistantKnowledgeSource.mockResolvedValue({
+      id: "source-1",
+      displayName: null,
+      originalFilename: "notes.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 5,
+      status: "ready",
+      currentVersion: 1,
+      chunkCount: 1,
+      lastIndexedAt: "2026-04-14T10:00:00.000Z",
+      lastReindexRequestedAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      createdAt: "2026-04-14T10:00:00.000Z",
+      updatedAt: "2026-04-14T10:00:00.000Z"
+    });
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1" }
+        });
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: {
+              id: "assistant-msg-1",
+              attachments: []
+            },
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              attachments: [
+                {
+                  id: "att-1",
+                  attachmentType: "document",
+                  originalFilename: "notes.pdf",
+                  mimeType: "application/pdf",
+                  sizeBytes: 5,
+                  processingStatus: "ready",
+                  createdAt: "2026-04-14T10:00:00.000Z"
+                }
+              ]
+            },
+            runtime: null
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("Use this doc", [file], { addToKnowledgeBase: true });
+    });
+
+    expect(assistantApiMocks.stageWebChatAttachment).toHaveBeenCalledWith(
+      "token-1",
+      "thread-1",
+      file
+    );
+    await waitFor(() => {
+      expect(assistantApiMocks.uploadAssistantKnowledgeSource).toHaveBeenCalledWith(
+        "token-1",
+        file
+      );
+    });
+    await waitFor(() => {
+      expect(result.current.entries).toContainEqual(
+        expect.objectContaining({
+          kind: "activity",
+          event: expect.objectContaining({
+            label: "knowledgeUploadReady"
+          })
         })
       );
     });

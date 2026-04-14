@@ -70,6 +70,7 @@ export type PlanDraft = {
   compactionTriggerThreshold: string;
   keepRecentMinimum: string;
   knowledgeHydrationBudget: string;
+  sharedCompactionSummaryBudgetTokens: string;
   autoCompactionWeb: boolean;
   autoCompactionTelegram: boolean;
   primaryModelKey: string;
@@ -105,6 +106,11 @@ const CONTEXT_POLICY_PRESET_OPTIONS: Array<{
   { value: "rich", label: "Rich" },
   { value: "custom", label: "Custom" }
 ];
+
+const DEFAULT_SHARED_COMPACTION_SUMMARY_BUDGET_RATIO = 0.04;
+const MIN_SHARED_COMPACTION_SUMMARY_BUDGET_TOKENS = 250;
+const MAX_SHARED_COMPACTION_SUMMARY_BUDGET_TOKENS = 1000;
+const APPROX_SUMMARY_CHARS_PER_TOKEN = 4;
 
 const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
   ContextPolicyPresetWithDefaults,
@@ -169,11 +175,13 @@ function applyContextPolicyPreset(
   | "compactionTriggerThreshold"
   | "keepRecentMinimum"
   | "knowledgeHydrationBudget"
+  | "sharedCompactionSummaryBudgetTokens"
   | "autoCompactionWeb"
   | "autoCompactionTelegram"
 > {
   return {
     contextPolicyPreset: preset,
+    sharedCompactionSummaryBudgetTokens: "",
     ...CONTEXT_POLICY_PRESET_DEFAULTS[preset]
   };
 }
@@ -192,6 +200,41 @@ function parsePositiveIntDraft(value: string, fallback: number): number {
 function parseNonNegativeIntDraft(value: string, fallback: number): number {
   const parsed = Number.parseInt(value.trim(), 10);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function parseOptionalPositiveIntDraft(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function deriveSharedCompactionSummaryBudgetTokens(targetContextBudget: number): number {
+  const derived = Math.floor(targetContextBudget * DEFAULT_SHARED_COMPACTION_SUMMARY_BUDGET_RATIO);
+  return Math.max(
+    MIN_SHARED_COMPACTION_SUMMARY_BUDGET_TOKENS,
+    Math.min(MAX_SHARED_COMPACTION_SUMMARY_BUDGET_TOKENS, derived)
+  );
+}
+
+function resolveDraftTargetContextBudget(
+  draft: Pick<PlanDraft, "contextPolicyPreset" | "targetContextBudget">
+): number {
+  const defaults =
+    CONTEXT_POLICY_PRESET_DEFAULTS[fallbackContextPolicyPreset(draft.contextPolicyPreset)];
+  return parsePositiveIntDraft(
+    draft.targetContextBudget,
+    Number.parseInt(defaults.targetContextBudget, 10)
+  );
+}
+
+function describeContextPolicySummaryBudget(policy: AdminPlanState["contextPolicy"]): string {
+  const derived = deriveSharedCompactionSummaryBudgetTokens(policy.targetContextBudget);
+  return policy.sharedCompactionSummaryBudgetTokens === undefined
+    ? `auto (${String(derived)})`
+    : String(policy.sharedCompactionSummaryBudgetTokens);
 }
 
 function emptyDraft(): PlanDraft {
@@ -255,6 +298,8 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     compactionTriggerThreshold: plan.contextPolicy.compactionTriggerThreshold.toString(),
     keepRecentMinimum: plan.contextPolicy.keepRecentMinimum.toString(),
     knowledgeHydrationBudget: plan.contextPolicy.knowledgeHydrationBudget.toString(),
+    sharedCompactionSummaryBudgetTokens:
+      plan.contextPolicy.sharedCompactionSummaryBudgetTokens?.toString() ?? "",
     autoCompactionWeb: plan.contextPolicy.autoCompactionWeb,
     autoCompactionTelegram: plan.contextPolicy.autoCompactionTelegram,
     primaryModelKey: plan.primaryModelKey ?? "",
@@ -277,6 +322,9 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
   const tokenBudget = draft.tokenBudgetLimit.trim();
   const contextPolicyDefaults =
     CONTEXT_POLICY_PRESET_DEFAULTS[fallbackContextPolicyPreset(draft.contextPolicyPreset)];
+  const sharedCompactionSummaryBudgetTokens = parseOptionalPositiveIntDraft(
+    draft.sharedCompactionSummaryBudgetTokens
+  );
   return {
     displayName: draft.displayName.trim(),
     description: toNullable(draft.description),
@@ -335,6 +383,11 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
         draft.knowledgeHydrationBudget,
         Number.parseInt(contextPolicyDefaults.knowledgeHydrationBudget, 10)
       ),
+      ...(sharedCompactionSummaryBudgetTokens === undefined
+        ? {}
+        : {
+            sharedCompactionSummaryBudgetTokens
+          }),
       autoCompactionWeb: draft.autoCompactionWeb,
       autoCompactionTelegram: draft.autoCompactionTelegram
     },
@@ -937,7 +990,7 @@ function PlanForm({
                 manual override switches the draft to custom.
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
               <label className="space-y-1 text-[11px] font-medium text-text">
                 <span className="block">Target context budget</span>
                 <Input
@@ -998,6 +1051,40 @@ function PlanForm({
                   placeholder="2400"
                 />
               </label>
+              <label className="space-y-1 text-[11px] font-medium text-text">
+                <span className="block">Shared summary budget</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={draft.sharedCompactionSummaryBudgetTokens}
+                  onValue={(value) =>
+                    onPatch({
+                      contextPolicyPreset: "custom",
+                      sharedCompactionSummaryBudgetTokens: value
+                    })
+                  }
+                  placeholder={String(
+                    deriveSharedCompactionSummaryBudgetTokens(
+                      resolveDraftTargetContextBudget(draft)
+                    )
+                  )}
+                />
+                <span className="block text-[10px] font-normal leading-snug text-text-subtle/80">
+                  Leave blank for auto (
+                  {String(
+                    deriveSharedCompactionSummaryBudgetTokens(
+                      resolveDraftTargetContextBudget(draft)
+                    )
+                  )}{" "}
+                  tokens, ~
+                  {String(
+                    deriveSharedCompactionSummaryBudgetTokens(
+                      resolveDraftTargetContextBudget(draft)
+                    ) * APPROX_SUMMARY_CHARS_PER_TOKEN
+                  )}{" "}
+                  chars).
+                </span>
+              </label>
             </div>
           </div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
@@ -1025,7 +1112,9 @@ function PlanForm({
           <p className="mt-2 text-[10px] leading-snug text-text-subtle/80">
             `Target context budget` is the plan&apos;s target message budget. `Compaction trigger`
             defines when runtime should start compressing older context. `Knowledge budget` reserves
-            space for durable memory and future retrieval inserts.
+            space for durable memory and future retrieval inserts. `Shared summary budget` caps the
+            retained reusable summary from shared compaction; leave it blank to auto-derive from the
+            target budget.
           </p>
         </div>
       </Sec>
@@ -1204,6 +1293,9 @@ function PlanCardReadOnly({
                   <div>Trigger: {plan.contextPolicy.compactionTriggerThreshold}</div>
                   <div>Keep recent: {plan.contextPolicy.keepRecentMinimum}</div>
                   <div>Knowledge: {plan.contextPolicy.knowledgeHydrationBudget}</div>
+                  <div>
+                    Shared summary: {describeContextPolicySummaryBudget(plan.contextPolicy)}
+                  </div>
                   <div>
                     Auto web / TG: {plan.contextPolicy.autoCompactionWeb ? "on" : "off"} /{" "}
                     {plan.contextPolicy.autoCompactionTelegram ? "on" : "off"}

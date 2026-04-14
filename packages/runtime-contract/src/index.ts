@@ -135,6 +135,9 @@ export type PersaiRuntimeSharedCompactionToolCode =
   (typeof PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES)[number];
 
 export const DEFAULT_RUNTIME_SHARED_COMPACTION_WEB_LATENCY_THRESHOLD_MS = 7_000 as const;
+export const DEFAULT_RUNTIME_SHARED_COMPACTION_SUMMARY_BUDGET_RATIO = 0.04 as const;
+export const MIN_RUNTIME_SHARED_COMPACTION_SUMMARY_BUDGET_TOKENS = 250 as const;
+export const MAX_RUNTIME_SHARED_COMPACTION_SUMMARY_BUDGET_TOKENS = 1_000 as const;
 
 export interface RuntimeSharedCompactionConfig {
   summarizeToolCode: "summarize_context";
@@ -163,6 +166,7 @@ export interface RuntimeContextHydrationConfig {
   compactionTriggerThreshold: number;
   keepRecentMinimum: number;
   knowledgeHydrationBudget: number;
+  sharedCompactionSummaryBudgetTokens?: number;
   autoCompactionWeb: boolean;
   autoCompactionTelegram: boolean;
 }
@@ -207,6 +211,31 @@ export const DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_CONFIG: RuntimeContextHydr
     DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET
   ]
 };
+
+export function deriveRuntimeSharedCompactionSummaryBudgetTokens(
+  targetContextBudget: number
+): number {
+  const derived = Math.floor(
+    targetContextBudget * DEFAULT_RUNTIME_SHARED_COMPACTION_SUMMARY_BUDGET_RATIO
+  );
+  return Math.max(
+    MIN_RUNTIME_SHARED_COMPACTION_SUMMARY_BUDGET_TOKENS,
+    Math.min(MAX_RUNTIME_SHARED_COMPACTION_SUMMARY_BUDGET_TOKENS, derived)
+  );
+}
+
+export function resolveRuntimeSharedCompactionSummaryBudgetTokens(
+  config: Pick<
+    RuntimeContextHydrationConfig,
+    "targetContextBudget" | "sharedCompactionSummaryBudgetTokens"
+  >
+): number {
+  const override = config.sharedCompactionSummaryBudgetTokens;
+  if (Number.isInteger(override) && Number(override) > 0) {
+    return Number(override);
+  }
+  return deriveRuntimeSharedCompactionSummaryBudgetTokens(config.targetContextBudget);
+}
 
 export const PERSAI_RUNTIME_KNOWLEDGE_TOOL_CODES = ["knowledge_search", "knowledge_fetch"] as const;
 

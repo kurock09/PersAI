@@ -1,6 +1,7 @@
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_CONFIG,
+  resolveRuntimeSharedCompactionSummaryBudgetTokens,
   type ProviderGatewayMessageContent,
   type ProviderGatewayTextMessage,
   type RuntimeContextHydrationConfig
@@ -30,6 +31,10 @@ function isValidConfig(value: unknown): value is RuntimeContextHydrationConfig {
     typeof row.knowledgeHydrationBudget === "number" &&
     Number.isInteger(row.knowledgeHydrationBudget) &&
     row.knowledgeHydrationBudget >= 0 &&
+    (row.sharedCompactionSummaryBudgetTokens === undefined ||
+      (typeof row.sharedCompactionSummaryBudgetTokens === "number" &&
+        Number.isInteger(row.sharedCompactionSummaryBudgetTokens) &&
+        row.sharedCompactionSummaryBudgetTokens > 0)) &&
     typeof row.autoCompactionWeb === "boolean" &&
     typeof row.autoCompactionTelegram === "boolean"
   );
@@ -47,6 +52,18 @@ export function resolveRuntimeContextHydrationConfig(
     return DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_CONFIG;
   }
   return raw;
+}
+
+export function resolveSharedCompactionSummaryCharBudget(
+  contextHydration: Pick<
+    RuntimeContextHydrationConfig,
+    "targetContextBudget" | "sharedCompactionSummaryBudgetTokens"
+  >
+): number {
+  return Math.max(
+    1,
+    resolveRuntimeSharedCompactionSummaryBudgetTokens(contextHydration) * APPROX_CHARS_PER_TOKEN
+  );
 }
 
 export function estimateProviderGatewayContentTokens(

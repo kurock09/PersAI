@@ -11,6 +11,7 @@ import {
   stageWebChatAttachment,
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
+  uploadAssistantKnowledgeSource,
   WELCOME_THREAD_KEY,
   WELCOME_TURN_SENTINEL,
   type ChatHistoryAttachment,
@@ -18,6 +19,7 @@ import {
   type ChatCompactionState,
   type WebChatUxIssue
 } from "../assistant-api-client";
+import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
 
 export type ChatMessageRole = "user" | "assistant";
@@ -66,7 +68,7 @@ export interface UseChatReturn {
   compaction: ChatCompactionState | null;
   recentAutoCompaction: RecentAutoCompactionNotice | null;
   compactionRunning: boolean;
-  send: (text: string, files?: File[]) => Promise<void>;
+  send: (text: string, files?: File[], options?: ChatSendOptions) => Promise<void>;
   sendWelcome: (locale: string) => Promise<void>;
   compactNow: (instructions?: string) => Promise<ChatCompactionResult | null>;
   stop: () => void;
@@ -82,6 +84,10 @@ type RuntimeTransportMeta = {
   quotaFallbackReason?: "token_budget_limit_reached" | null;
   quotaFallbackModel?: string | null;
 };
+
+export interface ChatSendOptions {
+  addToKnowledgeBase?: boolean | undefined;
+}
 
 type LiveActivitySource = "tool" | "compaction" | "runtime";
 
@@ -230,6 +236,38 @@ function appendQuotaFallbackActivity(params: {
   ]);
 }
 
+function buildKnowledgeUploadActivity(params: {
+  afterMessageId?: string | undefined;
+  readyCount: number;
+  failedCount: number;
+  t: (key: string, values?: Record<string, string | number | Date>) => string;
+}): ActivityEvent {
+  const label =
+    params.failedCount === 0
+      ? params.t("knowledgeUploadReady")
+      : params.readyCount === 0
+        ? params.t("knowledgeUploadFailed")
+        : params.t("knowledgeUploadPartial");
+  const detail =
+    params.failedCount === 0
+      ? params.t("knowledgeUploadReadyDetail", {
+          count: params.readyCount
+        })
+      : params.readyCount === 0
+        ? params.t("knowledgeUploadFailedDetail")
+        : params.t("knowledgeUploadPartialDetail", {
+            readyCount: params.readyCount,
+            failedCount: params.failedCount
+          });
+  return {
+    id: `activity-knowledge-upload-${Date.now()}`,
+    type: params.failedCount === 0 ? "info" : "system",
+    label,
+    detail,
+    ...(params.afterMessageId ? { afterMessageId: params.afterMessageId } : {})
+  };
+}
+
 export function useChat(threadKey: string): UseChatReturn {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
@@ -358,7 +396,7 @@ export function useChat(threadKey: string): UseChatReturn {
   );
 
   const send = useCallback(
-    async (text: string, files?: File[]) => {
+    async (text: string, files?: File[], options?: ChatSendOptions) => {
       const trimmed = text.trim();
       if (trimmed.length === 0 || isStreaming) return;
       const compactionBeforeTurn = compaction;
@@ -395,6 +433,11 @@ export function useChat(threadKey: string): UseChatReturn {
       const clientTurnId = createClientTurnId();
       const controller = new AbortController();
       abortRef.current = controller;
+      const knowledgeEligibleFiles =
+        options?.addToKnowledgeBase === true
+          ? pendingFiles.filter((file) => isKnowledgeEligibleFile(file))
+          : [];
+      let knowledgeActivityAnchorId = userMsgId;
 
       setIsStreaming(true);
       setIssue(null);
@@ -452,6 +495,46 @@ export function useChat(threadKey: string): UseChatReturn {
           abortRef.current = null;
           return;
         }
+      }
+
+      if (knowledgeEligibleFiles.length > 0) {
+        void (async () => {
+          const results = await Promise.allSettled(
+            knowledgeEligibleFiles.map((file) => uploadAssistantKnowledgeSource(token, file))
+          );
+          const readyCount = results.filter((result) => result.status === "fulfilled").length;
+          const failedResults = results.filter(
+            (result): result is PromiseRejectedResult => result.status === "rejected"
+          );
+          if (readyCount === 0 && failedResults.length === 0) {
+            return;
+          }
+          setActivities((prev) => [
+            ...prev,
+            buildKnowledgeUploadActivity({
+              afterMessageId: knowledgeActivityAnchorId,
+              readyCount,
+              failedCount: failedResults.length,
+              t
+            })
+          ]);
+          if (failedResults.length > 0 && readyCount === 0) {
+            const firstFailure = failedResults[0];
+            if (!firstFailure) {
+              return;
+            }
+            const firstIssue = toWebChatUxIssue(firstFailure.reason);
+            setIssue(
+              firstIssue.classId === "unknown"
+                ? {
+                    classId: "unknown",
+                    message: t("knowledgeUploadFailed"),
+                    guidance: t("knowledgeUploadFailedDetail")
+                  }
+                : firstIssue
+            );
+          }
+        })();
       }
 
       const pendingDelta = { text: "", raf: 0 };
@@ -653,6 +736,14 @@ export function useChat(threadKey: string): UseChatReturn {
                   return m;
                 })
               );
+              if (realUserMsgId && realUserMsgId !== userMsgId) {
+                knowledgeActivityAnchorId = realUserMsgId;
+                setActivities((prev) =>
+                  prev.map((a) =>
+                    a.afterMessageId === userMsgId ? { ...a, afterMessageId: realUserMsgId } : a
+                  )
+                );
+              }
               if (newAssistantId) {
                 setActivities((prev) =>
                   prev.map((a) =>
@@ -755,7 +846,7 @@ export function useChat(threadKey: string): UseChatReturn {
         abortRef.current = null;
       }
     },
-    [getToken, isStreaming, t, threadKey]
+    [compaction, getToken, isStreaming, refreshCompactionState, t, threadKey]
   );
 
   const sendWelcome = useCallback(

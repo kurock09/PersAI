@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
-import type {
-  ProviderGatewayTextGenerateRequest,
-  RuntimeBrowserConfig,
-  RuntimeKnowledgeAccessConfig,
-  RuntimeCompactionRequest,
-  RuntimeSessionSummary,
-  RuntimeWorkerToolsConfig
+import {
+  resolveRuntimeSharedCompactionSummaryBudgetTokens,
+  type ProviderGatewayTextGenerateRequest,
+  type RuntimeBrowserConfig,
+  type RuntimeKnowledgeAccessConfig,
+  type RuntimeCompactionRequest,
+  type RuntimeSessionSummary,
+  type RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
 import type { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
 import {
@@ -108,6 +109,61 @@ const VALID_COMPACTION_SECTIONS = {
 
 const VALID_COMPACTION_OUTPUT = JSON.stringify(VALID_COMPACTION_SECTIONS);
 
+const PARTIAL_COMPACTION_SECTIONS = {
+  stableFacts: ["User is working on the PersAI runtime."],
+  userPreferences: [],
+  assistantCommitments: [],
+  openThreads: ["Need to stabilize native shared compaction semantics."],
+  importantReferences: ["Session thread key is thread-1."]
+};
+
+const PARTIAL_COMPACTION_OUTPUT = JSON.stringify({
+  sections: {
+    stableFacts: PARTIAL_COMPACTION_SECTIONS.stableFacts,
+    openThreads: PARTIAL_COMPACTION_SECTIONS.openThreads,
+    importantReferences: PARTIAL_COMPACTION_SECTIONS.importantReferences
+  }
+});
+
+const LONG_COMPACTION_SECTIONS = {
+  stableFacts: [
+    "User Alexey interacts with assistant Jarvis in Russian, often testing latency and behavior of a new PersAI-native runtime replacing OpenClaw.",
+    "A large ADR-072 describes a multi-step migration from OpenClaw to a PersAI-native runtime, with steps 1-11 partially implemented, especially native attachments in Step 11.",
+    "PersAI-native runtime is now handling the assistant responses for the user; previously the OpenClaw path caused higher latency and extra token usage.",
+    "Native attachment storage has been cut over to PersAI-owned object storage for active web chat; STT and some legacy tool artifacts still temporarily use OpenClaw paths.",
+    "Jarvis has internal tools summarize_context and compact_context used for summarizing and compacting dialogue context; no external tools like web search are currently exposed in this session.",
+    "User is technically savvy, deeply involved in the PersAI and OpenClaw migration, and comfortable discussing ADRs, steps, and architecture details."
+  ],
+  userPreferences: [
+    "User prefers concise, direct explanations with optional deeper detail on architecture and runtime behavior.",
+    "User often switches between Russian and English but generally communicates in Russian.",
+    "User is sensitive to latency and cares a lot about fast, snappy responses.",
+    "User likes short, human-readable translations of technical changelogs and ADR fragments.",
+    "User tests tools and background behavior, including reminders and context tools, out of curiosity."
+  ],
+  assistantCommitments: [
+    "Assistant will help interpret ADR-072 and subsequent steps into clear, human language and suggest small executable sub-steps.",
+    "Assistant will help summarize or compact context when requested using internal summarize_context and compact_context tools.",
+    "Assistant will assist in reasoning about performance, latency, and token-usage improvements after cutover from OpenClaw to PersAI runtime.",
+    "Assistant will help draft or refine ADR text, commit messages, and execution ledger entries when the user asks."
+  ],
+  openThreads: [
+    "Step 11 native attachment staging is in progress; the next sub-step is richer native attachment context hydration for current and historical turns and removal of remaining legacy seams.",
+    "Step 12 native STT is planned: move transcription fully off OpenClaw once Step 11 storage is solid.",
+    "Later steps will cut over Telegram, tools, and sandbox and then fully remove OpenClaw in Steps 13-18, but detailed planning per step is not yet finalized in this chat.",
+    "Background task jarvis_background_habits timing and semantics were discussed; user may later decide to pause or adjust it.",
+    "Potential future work includes streaming TTS with Yandex for web and non-streamed voice messages for Telegram bots."
+  ],
+  importantReferences: [
+    "docs/ADR/072-persai-native-multichannel-runtime-replacement.md defines the PersAI-native runtime target architecture and steps 1-18.",
+    "The ADR-072 step ledger says Step 11 is now in progress and implements PersAI-native attachment staging and storage.",
+    "PersaiMediaObjectStorageService and related media services in apps/api handle the new PersAI object storage attachment path.",
+    "assistant_chat_message_attachments.storage_path now stores PersAI object keys instead of OpenClaw workspace paths."
+  ]
+};
+
+const LONG_COMPACTION_OUTPUT = JSON.stringify(LONG_COMPACTION_SECTIONS);
+
 const RENDERED_COMPACTION_SUMMARY = [
   "Stable facts:",
   "- User is working on the PersAI runtime.",
@@ -115,6 +171,15 @@ const RENDERED_COMPACTION_SUMMARY = [
   "- Prefers direct production-safe fixes.",
   "Assistant commitments:",
   "- Assistant owes a verified shared compaction fix.",
+  "Open threads:",
+  "- Need to stabilize native shared compaction semantics.",
+  "Important references:",
+  "- Session thread key is thread-1."
+].join("\n");
+
+const RENDERED_PARTIAL_COMPACTION_SUMMARY = [
+  "Stable facts:",
+  "- User is working on the PersAI runtime.",
   "Open threads:",
   "- Need to stabilize native shared compaction semantics.",
   "Important references:",
@@ -160,7 +225,7 @@ function createResolvedSession(currentTokens: number | null): RuntimeSessionSumm
   };
 }
 
-function createBundleEntry() {
+function createBundleEntry(input?: { sharedCompactionSummaryBudgetTokens?: number }) {
   const artifact = compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
@@ -220,6 +285,11 @@ function createBundleEntry() {
         compactionTriggerThreshold: 8000,
         keepRecentMinimum: 4,
         knowledgeHydrationBudget: 2400,
+        ...(input?.sharedCompactionSummaryBudgetTokens === undefined
+          ? {}
+          : {
+              sharedCompactionSummaryBudgetTokens: input.sharedCompactionSummaryBudgetTokens
+            }),
         autoCompactionWeb: false,
         autoCompactionTelegram: true
       },
@@ -629,6 +699,80 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   providerGateway.textOutput = VALID_COMPACTION_OUTPUT;
   providerGateway.queuedTextOutputs = [];
 
+  const partialRequestCountBefore = providerGateway.requests.length;
+  const partialAppendCountBefore = postgres.appendCalls.length;
+  const partialUpdateCountBefore = sessionStore.updateCalls.length;
+  providerGateway.queuedTextOutputs = [PARTIAL_COMPACTION_OUTPUT];
+  sessionStore.resolvedSession = createResolvedSession(30000);
+  const partialSummary = await service.compactSession(
+    createCompactionRequest({ instructions: "Keep durable facts only." })
+  );
+  assert.equal(partialSummary.compacted, true);
+  assert.equal(partialSummary.reason, "compacted");
+  assert.equal(partialSummary.toolResult.summaryText, RENDERED_PARTIAL_COMPACTION_SUMMARY);
+  assert.deepEqual(partialSummary.toolResult.summaryPayload, {
+    schema: "persai.runtimeSessionCompaction.v2",
+    toolCode: "compact_context",
+    sections: PARTIAL_COMPACTION_SECTIONS,
+    summarizedMessageCount: 4,
+    preservedRecentMessageCount: 8
+  });
+  assert.equal(providerGateway.requests.length, partialRequestCountBefore + 1);
+  assert.equal(postgres.appendCalls.length, partialAppendCountBefore + 1);
+  assert.equal(sessionStore.updateCalls.length, partialUpdateCountBefore + 1);
+
+  const longRequestCountBefore = providerGateway.requests.length;
+  const longAppendCountBefore = postgres.appendCalls.length;
+  const longUpdateCountBefore = sessionStore.updateCalls.length;
+  providerGateway.queuedTextOutputs = [LONG_COMPACTION_OUTPUT];
+  sessionStore.resolvedSession = createResolvedSession(30000);
+  const longSummary = await service.compactSession(
+    createCompactionRequest({ instructions: "Keep durable facts only." })
+  );
+  assert.equal(longSummary.compacted, true);
+  assert.equal(longSummary.reason, "compacted");
+  assert.deepEqual(longSummary.toolResult.summaryPayload, {
+    schema: "persai.runtimeSessionCompaction.v2",
+    toolCode: "compact_context",
+    sections: LONG_COMPACTION_SECTIONS,
+    summarizedMessageCount: 4,
+    preservedRecentMessageCount: 8
+  });
+  const longSummaryText = longSummary.toolResult.summaryText ?? "";
+  const defaultSummaryCharBudget =
+    resolveRuntimeSharedCompactionSummaryBudgetTokens({
+      targetContextBudget: 24_000
+    }) * 4;
+  assert.ok(longSummaryText.length > 0);
+  assert.ok(longSummaryText.length > 2_500);
+  assert.ok(longSummaryText.length <= defaultSummaryCharBudget);
+  assert.match(longSummaryText, /^Stable facts:/);
+  assert.match(longSummaryText, /User Alexey interacts with assistant Jarvis in Russian/);
+  assert.equal(providerGateway.requests.length, longRequestCountBefore + 1);
+  assert.equal(postgres.appendCalls.length, longAppendCountBefore + 1);
+  assert.equal(sessionStore.updateCalls.length, longUpdateCountBefore + 1);
+
+  bundleRegistry.entry = createBundleEntry({
+    sharedCompactionSummaryBudgetTokens: 300
+  });
+  const customBudgetRequestCountBefore = providerGateway.requests.length;
+  const customBudgetAppendCountBefore = postgres.appendCalls.length;
+  const customBudgetUpdateCountBefore = sessionStore.updateCalls.length;
+  providerGateway.queuedTextOutputs = [LONG_COMPACTION_OUTPUT];
+  sessionStore.resolvedSession = createResolvedSession(30000);
+  const customBudgetSummary = await service.compactSession(
+    createCompactionRequest({ instructions: "Keep durable facts only." })
+  );
+  assert.equal(customBudgetSummary.compacted, true);
+  assert.equal(customBudgetSummary.reason, "compacted");
+  const customBudgetSummaryText = customBudgetSummary.toolResult.summaryText ?? "";
+  assert.ok(customBudgetSummaryText.length > 0);
+  assert.ok(customBudgetSummaryText.length <= 1200);
+  assert.match(customBudgetSummaryText, /\.\.\.$/);
+  assert.equal(providerGateway.requests.length, customBudgetRequestCountBefore + 1);
+  assert.equal(postgres.appendCalls.length, customBudgetAppendCountBefore + 1);
+  assert.equal(sessionStore.updateCalls.length, customBudgetUpdateCountBefore + 1);
+
   const summarized = await service.summarizeContext(
     createCompactionRequest({ instructions: "Keep durable facts only." })
   );
@@ -649,8 +793,8 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     providerGateway.requests.at(-1)?.outputSchema,
     REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
   );
-  assert.equal(postgres.appendCalls.length, 3);
-  assert.equal(sessionStore.updateCalls.length, 3);
+  assert.equal(postgres.appendCalls.length, 6);
+  assert.equal(sessionStore.updateCalls.length, 6);
 
   const acquireCallsBeforeHeldLease = leaseService.acquireCalls.length;
   const releasedBeforeHeldLease = leaseService.released.length;
@@ -665,5 +809,3 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(leaseService.acquireCalls.length, acquireCallsBeforeHeldLease);
   assert.equal(leaseService.released.length, releasedBeforeHeldLease);
 }
-
-void runSessionCompactionServiceTest();

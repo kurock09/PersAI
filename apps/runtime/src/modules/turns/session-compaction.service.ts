@@ -26,7 +26,10 @@ import {
   normalizeReusableCompactionStateFromModelOutput
 } from "./shared-compaction-state";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
-import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
+import {
+  resolveRuntimeContextHydrationConfig,
+  resolveSharedCompactionSummaryCharBudget
+} from "./runtime-context-hydration-policy";
 
 type NativeManagedProvider = "openai" | "anthropic";
 
@@ -207,6 +210,7 @@ export class SessionCompactionService {
       }
 
       const contextHydration = resolveRuntimeContextHydrationConfig(bundleEntry.parsedBundle);
+      const summaryCharBudget = resolveSharedCompactionSummaryCharBudget(contextHydration);
       const tokenThreshold = Math.max(1, contextHydration.compactionTriggerThreshold);
       const freshCurrentTokens =
         resolvedSession.session.totalTokensFresh === true
@@ -280,7 +284,8 @@ export class SessionCompactionService {
         instructions,
         summarizedMessageCount: compactionSource.summarizedMessageCount,
         preservedRecentMessageCount: compactionSource.preservedRecentMessageCount,
-        messages: compactionSource.messages
+        messages: compactionSource.messages,
+        summaryCharBudget
       });
       if (validatedOutput === null) {
         return this.buildCompactionResult({
@@ -386,7 +391,7 @@ export class SessionCompactionService {
       input.retryReason === undefined || input.retryReason === null
         ? null
         : `Previous attempt was rejected because the output was ${this.describeRejectionReason(input.retryReason)}. Return only the JSON object that matches the required shape, with no leading or trailing text.`,
-      "Use empty arrays when a section has nothing durable to keep.",
+      "All five keys must stay at the top level. Use empty arrays when a section has nothing durable to keep, never omit a section, and do not wrap the keys inside another object.",
       "Each array item must be a short neutral factual note, not a direct reply to the user.",
       "Do not include greetings, reassurance, sign-offs, first-person assistant language, or transient chatter.",
       `Limit each section to at most ${String(MAX_REUSABLE_COMPACTION_SECTION_ITEMS)} items and keep each item concise.`,
@@ -435,6 +440,7 @@ export class SessionCompactionService {
     summarizedMessageCount: number;
     preservedRecentMessageCount: number;
     messages: ProviderGatewayTextGenerateRequest["messages"];
+    summaryCharBudget: number;
   }): Promise<{
     normalizedSummary: NonNullable<
       ReturnType<typeof normalizeReusableCompactionStateFromModelOutput>["parsed"]
@@ -458,7 +464,8 @@ export class SessionCompactionService {
         rawOutputText: providerResult.text,
         toolCode: input.toolCode,
         summarizedMessageCount: input.summarizedMessageCount,
-        preservedRecentMessageCount: input.preservedRecentMessageCount
+        preservedRecentMessageCount: input.preservedRecentMessageCount,
+        summaryCharBudget: input.summaryCharBudget
       });
       if (normalizedSummary.parsed !== null) {
         if (attempt > 1) {
@@ -566,7 +573,7 @@ export class SessionCompactionService {
       case "invalid_json":
         return "not valid JSON";
       case "invalid_sections":
-        return "missing required sections";
+        return "missing or malformed required sections";
     }
   }
 

@@ -115,6 +115,111 @@ async function run(): Promise<void> {
   assert.equal(state.videoGenerateModelKey, "sora-2-pro");
   assert.equal(state.contextPolicy.preset, "balanced");
 
+  const parsedWithSummaryBudget = service.parseUpdateInput({
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    defaultOnRegistration: true,
+    trialEnabled: true,
+    trialDurationDays: 7,
+    metadata: {
+      commercialTag: "trial",
+      notes: null
+    },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: false,
+        utilityTools: true,
+        costDrivingQuotaGoverned: true,
+        utilityQuotaGoverned: true
+      },
+      channelsAndSurfaces: {
+        webChat: true,
+        telegram: true,
+        whatsapp: false,
+        max: false
+      },
+      mediaClasses: {
+        image: false,
+        audio: false,
+        video: false,
+        file: false
+      }
+    },
+    quotaLimits: {
+      tokenBudgetLimit: 1000
+    },
+    contextPolicy: {
+      ...contextPolicy,
+      sharedCompactionSummaryBudgetTokens: 1200
+    },
+    primaryModelKey: null,
+    videoGenerateModelKey: null,
+    runtimeTierDefault: "free_shared_restricted"
+  });
+  assert.equal(parsedWithSummaryBudget.contextPolicy.sharedCompactionSummaryBudgetTokens, 1200);
+  const writeInputWithSummaryBudget = (
+    service as unknown as {
+      toWriteInput(input: typeof parsedWithSummaryBudget): { billingProviderHints: unknown };
+    }
+  ).toWriteInput(parsedWithSummaryBudget);
+  assert.deepEqual(
+    (writeInputWithSummaryBudget.billingProviderHints as Record<string, unknown>).contextPolicy,
+    {
+      schema: "persai.planContextHydration.v1",
+      ...contextPolicy,
+      sharedCompactionSummaryBudgetTokens: 1200
+    }
+  );
+
+  assert.throws(
+    () =>
+      service.parseUpdateInput({
+        displayName: "Starter",
+        description: "Trial plan",
+        status: "active",
+        defaultOnRegistration: true,
+        trialEnabled: true,
+        trialDurationDays: 7,
+        metadata: {
+          commercialTag: "trial",
+          notes: null
+        },
+        entitlements: {
+          toolClasses: {
+            costDrivingTools: false,
+            utilityTools: true,
+            costDrivingQuotaGoverned: true,
+            utilityQuotaGoverned: true
+          },
+          channelsAndSurfaces: {
+            webChat: true,
+            telegram: true,
+            whatsapp: false,
+            max: false
+          },
+          mediaClasses: {
+            image: false,
+            audio: false,
+            video: false,
+            file: false
+          }
+        },
+        quotaLimits: {
+          tokenBudgetLimit: 1000
+        },
+        contextPolicy: {
+          ...contextPolicy,
+          sharedCompactionSummaryBudgetTokens: 25000
+        },
+        primaryModelKey: null,
+        runtimeTierDefault: "free_shared_restricted"
+      }),
+    (error) =>
+      error instanceof BadRequestException &&
+      error.message.includes("sharedCompactionSummaryBudgetTokens")
+  );
+
   assert.throws(
     () =>
       service.parseUpdateInput({

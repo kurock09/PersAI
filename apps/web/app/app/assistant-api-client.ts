@@ -232,6 +232,7 @@ export type WebChatUxIssueClass =
   | "active_chat_cap"
   | "quota_limit_reached"
   | "media_storage_full"
+  | "knowledge_storage_full"
   | "workspace_storage_full"
   | "feature_unavailable"
   | "runtime_unreachable"
@@ -409,6 +410,27 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
           ? `Workspace disk full: ${usedMb ?? "?"} MB used out of ${limitMb} MB.`
           : "Workspace disk is full.",
       guidance: "Delete old chats or files to free up space, then try uploading again.",
+      data: { usedMb, limitMb }
+    };
+  }
+
+  if (code === "knowledge_storage_quota_exceeded") {
+    const usedMb =
+      error instanceof ApiStructuredError && typeof error.details?.usedMb === "number"
+        ? error.details.usedMb
+        : null;
+    const limitMb =
+      error instanceof ApiStructuredError && typeof error.details?.limitMb === "number"
+        ? error.details.limitMb
+        : null;
+    return {
+      classId: "knowledge_storage_full",
+      message:
+        limitMb !== null
+          ? `Knowledge base storage full: ${usedMb ?? "?"} MB used out of ${limitMb} MB.`
+          : "Knowledge base storage limit reached.",
+      guidance:
+        "Delete older knowledge-base documents or free assistant storage, then try uploading again.",
       data: { usedMb, limitMb }
     };
   }
@@ -2284,6 +2306,23 @@ export type StagedAttachmentResult = {
   attachment: UploadedAttachment;
 };
 
+export type UploadedKnowledgeSource = {
+  id: string;
+  displayName: string | null;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: "processing" | "ready" | "failed";
+  currentVersion: number;
+  chunkCount: number;
+  lastIndexedAt: string | null;
+  lastReindexRequestedAt: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export async function stageWebChatAttachment(
   token: string,
   surfaceThreadKey: string,
@@ -2335,6 +2374,45 @@ export async function uploadChatAttachment(
   }
   const data = (await res.json()) as { attachment: UploadedAttachment };
   return data.attachment;
+}
+
+export async function uploadAssistantKnowledgeSource(
+  token: string,
+  file: File,
+  options?: {
+    displayName?: string | null | undefined;
+  }
+): Promise<UploadedKnowledgeSource> {
+  const base = getApiBaseUrl();
+  const formData = new FormData();
+  const displayName = options?.displayName?.trim();
+  if (displayName) {
+    formData.append("displayName", displayName);
+  }
+  formData.append("file", file);
+  const res = await fetch(`${base}/assistant/knowledge-sources`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  });
+  if (!res.ok) {
+    const envelope = await readApiErrorEnvelope(res);
+    if (envelope) {
+      throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    }
+    throw new Error("Failed to upload knowledge source.");
+  }
+  const data = (await res.json()) as { source?: UploadedKnowledgeSource };
+  if (!data.source) {
+    throw new Error("Knowledge source upload returned an unexpected response.");
+  }
+  if (data.source.status !== "ready") {
+    throw new ApiStructuredError(
+      data.source.lastErrorMessage ?? "Knowledge source indexing did not complete.",
+      data.source.lastErrorCode ?? "knowledge_source_not_ready"
+    );
+  }
+  return data.source;
 }
 
 export async function postAdminForceReapplyAll(token: string): Promise<ForceReapplyAllSummary> {

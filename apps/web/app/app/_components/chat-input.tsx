@@ -14,11 +14,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
+import {
+  CHAT_ATTACHMENT_ACCEPT,
+  isAcceptedChatFile,
+  isKnowledgeEligibleFile
+} from "../chat-file-policy";
 
-const ACCEPT =
-  "image/png,image/jpeg,image/gif,image/webp,audio/mpeg,audio/ogg,audio/wav,audio/webm,video/mp4,video/webm,application/pdf";
 const MAX_FILES = 5;
-const ACCEPTED_MIME_TYPES = new Set(ACCEPT.split(","));
 
 function fileIcon(mime: string) {
   if (mime.startsWith("image/")) return null;
@@ -34,7 +36,7 @@ function formatDuration(seconds: number): string {
 }
 
 function isAcceptedFile(file: File): boolean {
-  return ACCEPTED_MIME_TYPES.has(file.type);
+  return isAcceptedChatFile(file);
 }
 
 function collectAcceptedFiles(files: Iterable<File>, existingCount: number): File[] {
@@ -50,7 +52,13 @@ function collectAcceptedFiles(files: Iterable<File>, existingCount: number): Fil
 type RecordingState = "idle" | "recording" | "transcribing";
 
 interface ChatInputProps {
-  onSend: (text: string, files?: File[]) => void;
+  onSend: (
+    text: string,
+    files?: File[],
+    options?: {
+      addToKnowledgeBase?: boolean | undefined;
+    }
+  ) => void;
   onTranscribeVoice: (audioBlob: Blob, filename: string) => Promise<string>;
   onVoiceTranscriptionError?: (error: unknown) => void;
   onStop: () => void;
@@ -71,6 +79,7 @@ export function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [addToKnowledgeBase, setAddToKnowledgeBase] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
@@ -100,15 +109,19 @@ export function ChatInput({
     if (!el) return;
     const text = el.value.trim();
     if (text.length === 0 && pendingFiles.length === 0) return;
+    const shouldAddToKnowledgeBase =
+      addToKnowledgeBase && pendingFiles.some((file) => isKnowledgeEligibleFile(file));
     onSend(
       text.length > 0 ? text : "(attached files)",
-      pendingFiles.length > 0 ? pendingFiles : undefined
+      pendingFiles.length > 0 ? pendingFiles : undefined,
+      shouldAddToKnowledgeBase ? { addToKnowledgeBase: true } : undefined
     );
     el.value = "";
     el.style.height = "auto";
     setPendingFiles([]);
+    setAddToKnowledgeBase(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }, [onSend, pendingFiles]);
+  }, [addToKnowledgeBase, onSend, pendingFiles]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -142,6 +155,13 @@ export function ChatInput({
   const isRecording = recordingState === "recording";
   const isTranscribing = recordingState === "transcribing";
   const inputDisabled = disabled || isRecording || isTranscribing;
+  const hasKnowledgeEligibleFiles = pendingFiles.some((file) => isKnowledgeEligibleFile(file));
+
+  useEffect(() => {
+    if (!hasKnowledgeEligibleFiles) {
+      setAddToKnowledgeBase(false);
+    }
+  }, [hasKnowledgeEligibleFiles]);
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -342,6 +362,23 @@ export function ChatInput({
           </div>
         )}
 
+        {hasKnowledgeEligibleFiles && (
+          <label className="mb-2 flex cursor-pointer items-start gap-2 rounded-lg border border-border/70 bg-surface px-3 py-2">
+            <input
+              type="checkbox"
+              aria-label={t("knowledgeAddToBase")}
+              checked={addToKnowledgeBase}
+              disabled={inputDisabled}
+              onChange={(e) => setAddToKnowledgeBase(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:cursor-not-allowed"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm text-text">{t("knowledgeAddToBase")}</span>
+              <span className="block text-xs text-text-muted">{t("knowledgeAddToBaseHint")}</span>
+            </span>
+          </label>
+        )}
+
         {isRecording && (
           <div className="mb-2 flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" />
@@ -392,7 +429,7 @@ export function ChatInput({
           <input
             ref={fileInputRef}
             type="file"
-            accept={ACCEPT}
+            accept={CHAT_ATTACHMENT_ACCEPT}
             multiple
             className="hidden"
             onChange={handleFileChange}

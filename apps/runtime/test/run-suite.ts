@@ -6,6 +6,7 @@ import { runRuntimeStatePostgresServiceTest } from "./runtime-state-postgres.ser
 import { runRuntimeStateRedisServiceTest } from "./runtime-state-redis.service.test";
 import { runProviderGatewayClientServiceTest } from "./provider-gateway.client.service.test";
 import { runSessionLeaseServiceTest } from "./session-lease.service.test";
+import { runSessionCompactionServiceTest } from "./session-compaction.service.test";
 import { runSessionStoreServiceTest } from "./session-store.service.test";
 import { runIdempotencyServiceTest } from "./idempotency.service.test";
 import { runTurnAcceptanceServiceTest } from "./turn-acceptance.service.test";
@@ -30,6 +31,7 @@ async function run(): Promise<void> {
   await runRuntimeVideoGenerateToolServiceTest();
   await runSessionStoreServiceTest();
   await runSessionLeaseServiceTest();
+  await runSessionCompactionServiceTest();
   await runIdempotencyServiceTest();
   await runTurnAcceptanceServiceTest();
   await runTurnContextHydrationServiceTest();

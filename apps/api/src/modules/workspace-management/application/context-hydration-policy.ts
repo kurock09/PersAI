@@ -47,6 +47,13 @@ function toLooseNonNegativeInteger(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
 }
 
+function toLooseOptionalPositiveInteger(
+  value: unknown,
+  fallback: number | undefined
+): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 function toLooseBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
@@ -61,6 +68,16 @@ function parsePositiveInteger(value: unknown, fieldName: string): number {
 function parseNonNegativeInteger(value: unknown, fieldName: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     throw new BadRequestException(`${fieldName} must be a non-negative integer.`);
+  }
+  return value;
+}
+
+function parseOptionalPositiveInteger(value: unknown, fieldName: string): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new BadRequestException(`${fieldName} must be a positive integer when provided.`);
   }
   return value;
 }
@@ -83,16 +100,30 @@ function assertPolicyBounds(policy: RuntimeContextHydrationConfig, fieldPrefix: 
       `${fieldPrefix}.knowledgeHydrationBudget must be less than or equal to ${fieldPrefix}.targetContextBudget.`
     );
   }
+  if (
+    policy.sharedCompactionSummaryBudgetTokens !== undefined &&
+    policy.sharedCompactionSummaryBudgetTokens > policy.targetContextBudget
+  ) {
+    throw new BadRequestException(
+      `${fieldPrefix}.sharedCompactionSummaryBudgetTokens must be less than or equal to ${fieldPrefix}.targetContextBudget.`
+    );
+  }
 }
 
 function normalizePolicy(policy: RuntimeContextHydrationConfig): RuntimeContextHydrationConfig {
+  const { sharedCompactionSummaryBudgetTokens, ...rest } = policy;
   return {
-    ...policy,
-    compactionTriggerThreshold: Math.min(
-      policy.compactionTriggerThreshold,
-      policy.targetContextBudget
-    ),
-    knowledgeHydrationBudget: Math.min(policy.knowledgeHydrationBudget, policy.targetContextBudget)
+    ...rest,
+    compactionTriggerThreshold: Math.min(rest.compactionTriggerThreshold, rest.targetContextBudget),
+    knowledgeHydrationBudget: Math.min(rest.knowledgeHydrationBudget, rest.targetContextBudget),
+    ...(sharedCompactionSummaryBudgetTokens === undefined
+      ? {}
+      : {
+          sharedCompactionSummaryBudgetTokens: Math.min(
+            sharedCompactionSummaryBudgetTokens,
+            rest.targetContextBudget
+          )
+        })
   };
 }
 
@@ -116,6 +147,10 @@ export function resolveStoredPlanContextHydrationPolicy(
     preset === "custom"
       ? createCustomConfigBase()
       : createPresetConfig(preset as PresetWithDefaults);
+  const sharedCompactionSummaryBudgetTokens = toLooseOptionalPositiveInteger(
+    row.sharedCompactionSummaryBudgetTokens,
+    base.sharedCompactionSummaryBudgetTokens
+  );
   return normalizePolicy({
     preset,
     targetContextBudget: toLoosePositiveInteger(row.targetContextBudget, base.targetContextBudget),
@@ -128,6 +163,11 @@ export function resolveStoredPlanContextHydrationPolicy(
       row.knowledgeHydrationBudget,
       base.knowledgeHydrationBudget
     ),
+    ...(sharedCompactionSummaryBudgetTokens === undefined
+      ? {}
+      : {
+          sharedCompactionSummaryBudgetTokens
+        }),
     autoCompactionWeb: toLooseBoolean(row.autoCompactionWeb, base.autoCompactionWeb),
     autoCompactionTelegram: toLooseBoolean(row.autoCompactionTelegram, base.autoCompactionTelegram)
   });
@@ -146,6 +186,10 @@ export function parsePlanContextHydrationPolicy(
       `${fieldName}.preset must be one of ${PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESETS.join(", ")}.`
     );
   }
+  const sharedCompactionSummaryBudgetTokens = parseOptionalPositiveInteger(
+    row.sharedCompactionSummaryBudgetTokens,
+    `${fieldName}.sharedCompactionSummaryBudgetTokens`
+  );
   const policy: RuntimeContextHydrationConfig = {
     preset: row.preset,
     targetContextBudget: parsePositiveInteger(
@@ -164,6 +208,11 @@ export function parsePlanContextHydrationPolicy(
       row.knowledgeHydrationBudget,
       `${fieldName}.knowledgeHydrationBudget`
     ),
+    ...(sharedCompactionSummaryBudgetTokens === undefined
+      ? {}
+      : {
+          sharedCompactionSummaryBudgetTokens
+        }),
     autoCompactionWeb: parseBoolean(row.autoCompactionWeb, `${fieldName}.autoCompactionWeb`),
     autoCompactionTelegram: parseBoolean(
       row.autoCompactionTelegram,
@@ -171,7 +220,7 @@ export function parsePlanContextHydrationPolicy(
     )
   };
   assertPolicyBounds(policy, fieldName);
-  return policy;
+  return normalizePolicy(policy);
 }
 
 export function toPlanContextHydrationPolicyDocument(
@@ -184,6 +233,11 @@ export function toPlanContextHydrationPolicyDocument(
     compactionTriggerThreshold: policy.compactionTriggerThreshold,
     keepRecentMinimum: policy.keepRecentMinimum,
     knowledgeHydrationBudget: policy.knowledgeHydrationBudget,
+    ...(policy.sharedCompactionSummaryBudgetTokens === undefined
+      ? {}
+      : {
+          sharedCompactionSummaryBudgetTokens: policy.sharedCompactionSummaryBudgetTokens
+        }),
     autoCompactionWeb: policy.autoCompactionWeb,
     autoCompactionTelegram: policy.autoCompactionTelegram
   };
@@ -193,8 +247,14 @@ export function buildRuntimeContextHydrationConfig(params: {
   policy: RuntimeContextHydrationConfig;
   telegramAutoCompactionEnabled: boolean;
 }): RuntimeContextHydrationConfig {
+  const { sharedCompactionSummaryBudgetTokens, ...rest } = params.policy;
   return {
-    ...params.policy,
+    ...rest,
+    ...(sharedCompactionSummaryBudgetTokens === undefined
+      ? {}
+      : {
+          sharedCompactionSummaryBudgetTokens
+        }),
     autoCompactionTelegram:
       params.policy.autoCompactionTelegram && params.telegramAutoCompactionEnabled
   };

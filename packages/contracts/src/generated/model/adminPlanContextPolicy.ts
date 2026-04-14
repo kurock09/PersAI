@@ -12,6 +12,7 @@ export interface AdminPlanContextPolicy {
   compactionTriggerThreshold: number;
   keepRecentMinimum: number;
   knowledgeHydrationBudget: number;
+  sharedCompactionSummaryBudgetTokens?: number;
   autoCompactionWeb: boolean;
   autoCompactionTelegram: boolean;
 }

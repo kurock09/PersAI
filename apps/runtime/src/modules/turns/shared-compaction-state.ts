@@ -7,7 +7,6 @@ const MAX_PROVIDER_OUTPUT_CHARS = 12_000;
 const MAX_SECTION_ITEMS = 6;
 const MAX_TOTAL_ITEMS = 24;
 const MAX_ITEM_CHARS = 240;
-const MAX_RENDERED_SUMMARY_CHARS = 2_500;
 
 const SHARED_COMPACTION_SECTION_ORDER = [
   "stableFacts",
@@ -111,6 +110,7 @@ export function normalizeReusableCompactionStateFromModelOutput(input: {
   toolCode: PersaiRuntimeSharedCompactionToolCode;
   summarizedMessageCount: number;
   preservedRecentMessageCount: number;
+  summaryCharBudget: number;
 }): NormalizedReusableCompactionStateResult {
   const normalizedOutput = normalizeOptionalText(input.rawOutputText);
   if (normalizedOutput === null) {
@@ -134,7 +134,7 @@ export function normalizeReusableCompactionStateFromModelOutput(input: {
     };
   }
 
-  const sections = normalizeReusableCompactionSections(parsed);
+  const sections = normalizeReusableCompactionSections(parsed, input.summaryCharBudget);
   if (sections === null) {
     return {
       parsed: null,
@@ -149,7 +149,7 @@ export function normalizeReusableCompactionStateFromModelOutput(input: {
     preservedRecentMessageCount: input.preservedRecentMessageCount,
     sections
   };
-  const summaryText = renderReusableCompactionSummaryText(sections);
+  const summaryText = renderReusableCompactionSummaryText(sections, input.summaryCharBudget);
   return {
     parsed: {
       payload,
@@ -161,7 +161,8 @@ export function normalizeReusableCompactionStateFromModelOutput(input: {
 }
 
 export function parseStoredReusableCompactionState(
-  payload: unknown
+  payload: unknown,
+  summaryCharBudget: number
 ): ParsedReusableCompactionState | null {
   const row = asObject(payload);
   if (row?.schema !== REUSABLE_SHARED_COMPACTION_SCHEMA) {
@@ -182,7 +183,7 @@ export function parseStoredReusableCompactionState(
     Number(row.preservedRecentMessageCount) >= 0
       ? Number(row.preservedRecentMessageCount)
       : null;
-  const sections = normalizeReusableCompactionSections(row.sections);
+  const sections = normalizeReusableCompactionSections(row.sections, summaryCharBudget);
   if (
     summarizedMessageCount === null ||
     preservedRecentMessageCount === null ||
@@ -200,12 +201,15 @@ export function parseStoredReusableCompactionState(
   };
   return {
     payload: normalizedPayload,
-    summaryText: renderReusableCompactionSummaryText(sections),
+    summaryText: renderReusableCompactionSummaryText(sections, summaryCharBudget),
     summarizedMessageCount
   };
 }
 
-export function renderReusableCompactionSummaryText(sections: SharedCompactionSections): string {
+export function renderReusableCompactionSummaryText(
+  sections: SharedCompactionSections,
+  maxChars: number
+): string {
   const lines: string[] = [];
   for (const definition of SHARED_COMPACTION_SECTION_DEFINITIONS) {
     const items = sections[definition.key];
@@ -218,16 +222,48 @@ export function renderReusableCompactionSummaryText(sections: SharedCompactionSe
     }
   }
 
-  const summaryText =
-    lines.length === 0
-      ? "No durable facts or open threads were retained from earlier summarized context."
-      : lines.join("\n");
-  return summaryText.length <= MAX_RENDERED_SUMMARY_CHARS ? summaryText : "";
+  if (lines.length === 0) {
+    return "No durable facts or open threads were retained from earlier summarized context.";
+  }
+  return joinSummaryLinesWithinBudget(lines, Math.max(1, maxChars));
 }
 
-function normalizeReusableCompactionSections(payload: unknown): SharedCompactionSections | null {
-  const row = asObject(payload);
-  if (row === null) {
+function joinSummaryLinesWithinBudget(lines: string[], maxChars: number): string {
+  let summaryText = "";
+  for (const line of lines) {
+    const remainingChars = summaryText.length === 0 ? maxChars : maxChars - summaryText.length - 1;
+    if (remainingChars <= 0) {
+      break;
+    }
+
+    const nextLine = truncateSummaryLine(line, remainingChars);
+    if (nextLine.length === 0) {
+      break;
+    }
+    summaryText = summaryText.length === 0 ? nextLine : `${summaryText}\n${nextLine}`;
+    if (nextLine.length < line.length) {
+      break;
+    }
+  }
+  return summaryText;
+}
+
+function truncateSummaryLine(line: string, maxChars: number): string {
+  if (line.length <= maxChars) {
+    return line;
+  }
+  if (maxChars <= 3) {
+    return line.slice(0, maxChars);
+  }
+  return `${line.slice(0, maxChars - 3).trimEnd()}...`;
+}
+
+function normalizeReusableCompactionSections(
+  payload: unknown,
+  summaryCharBudget: number
+): SharedCompactionSections | null {
+  const row = resolveCompactionSectionsRow(payload);
+  if (row === null || countRecognizedSectionKeys(row) === 0) {
     return null;
   }
 
@@ -235,6 +271,9 @@ function normalizeReusableCompactionSections(payload: unknown): SharedCompaction
   let totalItems = 0;
   for (const key of SHARED_COMPACTION_SECTION_ORDER) {
     const rawItems = row[key];
+    if (rawItems === undefined || rawItems === null) {
+      continue;
+    }
     if (!Array.isArray(rawItems)) {
       return null;
     }
@@ -268,8 +307,34 @@ function normalizeReusableCompactionSections(payload: unknown): SharedCompaction
     }
   }
 
-  const renderedSummaryText = renderReusableCompactionSummaryText(sections);
+  const renderedSummaryText = renderReusableCompactionSummaryText(sections, summaryCharBudget);
   return renderedSummaryText.length === 0 ? null : sections;
+}
+
+function resolveCompactionSectionsRow(payload: unknown): Record<string, unknown> | null {
+  const row = asObject(payload);
+  if (row === null) {
+    return null;
+  }
+
+  const nestedSections = asObject(row.sections);
+  if (
+    nestedSections !== null &&
+    countRecognizedSectionKeys(nestedSections) > countRecognizedSectionKeys(row)
+  ) {
+    return nestedSections;
+  }
+  return row;
+}
+
+function countRecognizedSectionKeys(payload: Record<string, unknown>): number {
+  let count = 0;
+  for (const key of SHARED_COMPACTION_SECTION_ORDER) {
+    if (Object.prototype.hasOwnProperty.call(payload, key)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function normalizeCompactionItem(value: string): string | null {

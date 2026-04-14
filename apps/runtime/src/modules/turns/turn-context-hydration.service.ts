@@ -15,7 +15,8 @@ import { RuntimeStateKeyspaceService } from "../runtime-state/runtime-state-keys
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import {
   estimateProviderGatewayMessageTokens,
-  resolveRuntimeContextHydrationConfig
+  resolveRuntimeContextHydrationConfig,
+  resolveSharedCompactionSummaryCharBudget
 } from "./runtime-context-hydration-policy";
 import { parseStoredReusableCompactionState } from "./shared-compaction-state";
 
@@ -192,7 +193,10 @@ export class TurnContextHydrationService {
     const hydratableMessages = storedMessages.filter((message) =>
       this.isHydratableCanonicalMessage(message)
     );
-    const reusableSummary = await this.loadReusableCompactionSummary(input.conversation);
+    const reusableSummary = await this.loadReusableCompactionSummary(
+      input.conversation,
+      contextHydration
+    );
     if (reusableSummary === null) {
       const hydratedMessages = await this.hydrateCanonicalMessageSequence(
         hydratableMessages,
@@ -366,7 +370,8 @@ export class TurnContextHydrationService {
   }
 
   private async loadReusableCompactionSummary(
-    conversation: RuntimeConversationAddress
+    conversation: RuntimeConversationAddress,
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
   ): Promise<ReusableCompactionSummary | null> {
     const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(conversation);
     const session =
@@ -378,11 +383,17 @@ export class TurnContextHydrationService {
     const latestCompaction = await this.runtimeStatePostgresService.findLatestSessionCompaction(
       session.id
     );
-    return this.parseReusableCompactionSummary(latestCompaction?.summaryPayload);
+    return this.parseReusableCompactionSummary(
+      latestCompaction?.summaryPayload,
+      resolveSharedCompactionSummaryCharBudget(contextHydration)
+    );
   }
 
-  private parseReusableCompactionSummary(payload: unknown): ReusableCompactionSummary | null {
-    const parsed = parseStoredReusableCompactionState(payload);
+  private parseReusableCompactionSummary(
+    payload: unknown,
+    summaryCharBudget: number
+  ): ReusableCompactionSummary | null {
+    const parsed = parseStoredReusableCompactionState(payload, summaryCharBudget);
     if (parsed === null) {
       return null;
     }

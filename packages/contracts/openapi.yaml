@@ -4422,6 +4422,8 @@ components:
           type: integer
         knowledgeHydrationBudget:
           type: integer
+        sharedCompactionSummaryBudgetTokens:
+          type: integer
         autoCompactionWeb:
           type: boolean
         autoCompactionTelegram:

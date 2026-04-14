@@ -392,6 +392,15 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
         "bundleDocument.runtime.contextHydration.autoCompactionTelegram must be boolean"
       );
     }
+    if (
+      contextHydration.sharedCompactionSummaryBudgetTokens !== undefined &&
+      (!Number.isInteger(contextHydration.sharedCompactionSummaryBudgetTokens) ||
+        contextHydration.sharedCompactionSummaryBudgetTokens <= 0)
+    ) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.contextHydration.sharedCompactionSummaryBudgetTokens must be a positive integer when provided"
+      );
+    }
     if (contextHydration.compactionTriggerThreshold > contextHydration.targetContextBudget) {
       throw new BadRequestException(
         "bundleDocument.runtime.contextHydration.compactionTriggerThreshold must be less than or equal to targetContextBudget"
@@ -400,6 +409,14 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
     if (contextHydration.knowledgeHydrationBudget > contextHydration.targetContextBudget) {
       throw new BadRequestException(
         "bundleDocument.runtime.contextHydration.knowledgeHydrationBudget must be less than or equal to targetContextBudget"
+      );
+    }
+    if (
+      contextHydration.sharedCompactionSummaryBudgetTokens !== undefined &&
+      contextHydration.sharedCompactionSummaryBudgetTokens > contextHydration.targetContextBudget
+    ) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.contextHydration.sharedCompactionSummaryBudgetTokens must be less than or equal to targetContextBudget"
       );
     }
 

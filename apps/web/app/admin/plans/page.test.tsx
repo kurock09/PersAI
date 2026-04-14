@@ -67,8 +67,17 @@ describe("admin plans page helpers", () => {
   it("maps videoGenerateModelKey between plan state and payload", () => {
     const draft = planToDraft(createPlanState());
     expect(draft.videoGenerateModelKey).toBe("sora-2-pro");
+    expect(draft.sharedCompactionSummaryBudgetTokens).toBe("");
 
     expect(draftToPayload(draft).videoGenerateModelKey).toBe("sora-2-pro");
+    expect(draftToPayload(draft).contextPolicy.sharedCompactionSummaryBudgetTokens).toBeUndefined();
+    expect(
+      draftToPayload({
+        ...draft,
+        contextPolicyPreset: "custom",
+        sharedCompactionSummaryBudgetTokens: "1200"
+      }).contextPolicy.sharedCompactionSummaryBudgetTokens
+    ).toBe(1200);
     expect(
       draftToPayload({
         ...draft,
