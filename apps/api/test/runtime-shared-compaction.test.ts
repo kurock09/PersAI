@@ -14,7 +14,15 @@ async function run(): Promise<void> {
       truncateAfterCompaction: true,
       suggestCompactionByMessageCount: false
     },
-    telegramAutoSummarizeEnabled: false
+    contextHydration: {
+      preset: "custom",
+      targetContextBudget: 24000,
+      compactionTriggerThreshold: 8000,
+      keepRecentMinimum: 4,
+      knowledgeHydrationBudget: 6000,
+      autoCompactionWeb: false,
+      autoCompactionTelegram: false
+    }
   });
 
   assert.deepEqual(sharedCompaction, {
