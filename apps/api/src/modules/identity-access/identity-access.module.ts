@@ -46,6 +46,14 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/assistant/chat/web", method: RequestMethod.POST },
       { path: "api/v1/assistant/chat/web/stream", method: RequestMethod.POST },
       { path: "api/v1/assistant/chat/web/stage-attachment", method: RequestMethod.POST },
+      { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.POST },
+      { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.GET },
+      { path: "api/v1/assistant/knowledge-sources/:sourceId", method: RequestMethod.GET },
+      { path: "api/v1/assistant/knowledge-sources/:sourceId", method: RequestMethod.DELETE },
+      {
+        path: "api/v1/assistant/knowledge-sources/:sourceId/reindex",
+        method: RequestMethod.POST
+      },
       { path: "api/v1/assistant/chats/web", method: RequestMethod.GET },
       { path: "api/v1/assistant/chats/web/:chatId/messages", method: RequestMethod.GET },
       { path: "api/v1/assistant/chats/web/:chatId/compaction", method: RequestMethod.GET },

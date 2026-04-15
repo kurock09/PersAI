@@ -21,6 +21,7 @@ import { RuntimeStatePostgresService } from "../runtime-state/infrastructure/per
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import {
   MAX_REUSABLE_COMPACTION_SECTION_ITEMS,
+  MAX_REUSABLE_COMPACTION_TOTAL_ITEMS,
   REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA,
   type ReusableSharedCompactionOutputRejectionReason,
   normalizeReusableCompactionStateFromModelOutput
@@ -395,6 +396,7 @@ export class SessionCompactionService {
       "Each array item must be a short neutral factual note, not a direct reply to the user.",
       "Do not include greetings, reassurance, sign-offs, first-person assistant language, or transient chatter.",
       `Limit each section to at most ${String(MAX_REUSABLE_COMPACTION_SECTION_ITEMS)} items and keep each item concise.`,
+      `Across all sections, the JSON shape supports up to ${String(MAX_REUSABLE_COMPACTION_TOTAL_ITEMS)} retained notes total; prefer fewer and keep only the most durable facts and open threads.`,
       input.persistSummary
         ? "This result will become the durable shared compaction state for later turns."
         : "This result is for the current tool call only and must not claim durable later-turn reuse.",

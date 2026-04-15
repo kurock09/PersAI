@@ -5,7 +5,6 @@ import type {
 
 const MAX_PROVIDER_OUTPUT_CHARS = 12_000;
 const MAX_SECTION_ITEMS = 6;
-const MAX_TOTAL_ITEMS = 24;
 const MAX_ITEM_CHARS = 240;
 
 const SHARED_COMPACTION_SECTION_ORDER = [
@@ -50,6 +49,8 @@ const SHARED_COMPACTION_SECTION_DEFINITIONS: SharedCompactionSectionDefinition[]
 
 export const REUSABLE_SHARED_COMPACTION_SCHEMA = "persai.runtimeSessionCompaction.v2" as const;
 export const MAX_REUSABLE_COMPACTION_SECTION_ITEMS = MAX_SECTION_ITEMS;
+export const MAX_REUSABLE_COMPACTION_TOTAL_ITEMS =
+  SHARED_COMPACTION_SECTION_ORDER.length * MAX_SECTION_ITEMS;
 export const REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA: ProviderGatewayStructuredOutputSchema = {
   name: "persai_runtime_session_compaction",
   description:
@@ -268,7 +269,6 @@ function normalizeReusableCompactionSections(
   }
 
   const sections = createEmptySharedCompactionSections();
-  let totalItems = 0;
   for (const key of SHARED_COMPACTION_SECTION_ORDER) {
     const rawItems = row[key];
     if (rawItems === undefined || rawItems === null) {
@@ -299,9 +299,7 @@ function normalizeReusableCompactionSections(
 
       sections[key].push(normalizedItem);
       seenItems.add(dedupeKey);
-      totalItems += 1;
-
-      if (sections[key].length > MAX_SECTION_ITEMS || totalItems > MAX_TOTAL_ITEMS) {
+      if (sections[key].length > MAX_SECTION_ITEMS) {
         return null;
       }
     }

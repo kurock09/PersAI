@@ -164,6 +164,31 @@ const LONG_COMPACTION_SECTIONS = {
 
 const LONG_COMPACTION_OUTPUT = JSON.stringify(LONG_COMPACTION_SECTIONS);
 
+const FULL_CAPACITY_COMPACTION_SECTIONS = {
+  stableFacts: Array.from(
+    { length: 6 },
+    (_, index) => `Stable fact ${String(index + 1)} retained for later turns.`
+  ),
+  userPreferences: Array.from(
+    { length: 6 },
+    (_, index) => `User preference ${String(index + 1)} retained for later turns.`
+  ),
+  assistantCommitments: Array.from(
+    { length: 6 },
+    (_, index) => `Assistant commitment ${String(index + 1)} retained for later turns.`
+  ),
+  openThreads: Array.from(
+    { length: 6 },
+    (_, index) => `Open thread ${String(index + 1)} retained for later turns.`
+  ),
+  importantReferences: Array.from(
+    { length: 6 },
+    (_, index) => `Important reference ${String(index + 1)} retained for later turns.`
+  )
+};
+
+const FULL_CAPACITY_COMPACTION_OUTPUT = JSON.stringify(FULL_CAPACITY_COMPACTION_SECTIONS);
+
 const RENDERED_COMPACTION_SUMMARY = [
   "Stable facts:",
   "- User is working on the PersAI runtime.",
@@ -622,6 +647,10 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     providerGateway.requests[1]?.systemPrompt ?? "",
     /Additional operator instructions: Keep commitments and open questions\./
   );
+  assert.match(
+    providerGateway.requests[1]?.systemPrompt ?? "",
+    /30 retained notes total; prefer fewer and keep only the most durable facts and open threads\./
+  );
   assert.deepEqual(sessionStore.updateCalls.at(-1), {
     sessionId: "session-1",
     compactionCount: 3,
@@ -752,6 +781,28 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(postgres.appendCalls.length, longAppendCountBefore + 1);
   assert.equal(sessionStore.updateCalls.length, longUpdateCountBefore + 1);
 
+  const fullCapacityRequestCountBefore = providerGateway.requests.length;
+  const fullCapacityAppendCountBefore = postgres.appendCalls.length;
+  const fullCapacityUpdateCountBefore = sessionStore.updateCalls.length;
+  providerGateway.queuedTextOutputs = [FULL_CAPACITY_COMPACTION_OUTPUT];
+  sessionStore.resolvedSession = createResolvedSession(30000);
+  const fullCapacitySummary = await service.compactSession(
+    createCompactionRequest({ instructions: "Keep durable facts only." })
+  );
+  assert.equal(fullCapacitySummary.compacted, true);
+  assert.equal(fullCapacitySummary.reason, "compacted");
+  assert.deepEqual(fullCapacitySummary.toolResult.summaryPayload, {
+    schema: "persai.runtimeSessionCompaction.v2",
+    toolCode: "compact_context",
+    sections: FULL_CAPACITY_COMPACTION_SECTIONS,
+    summarizedMessageCount: 4,
+    preservedRecentMessageCount: 8
+  });
+  assert.equal(fullCapacitySummary.toolResult.summaryText?.includes("Important reference 6"), true);
+  assert.equal(providerGateway.requests.length, fullCapacityRequestCountBefore + 1);
+  assert.equal(postgres.appendCalls.length, fullCapacityAppendCountBefore + 1);
+  assert.equal(sessionStore.updateCalls.length, fullCapacityUpdateCountBefore + 1);
+
   bundleRegistry.entry = createBundleEntry({
     sharedCompactionSummaryBudgetTokens: 300
   });
@@ -773,6 +824,8 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(postgres.appendCalls.length, customBudgetAppendCountBefore + 1);
   assert.equal(sessionStore.updateCalls.length, customBudgetUpdateCountBefore + 1);
 
+  const summarizedAppendCountBefore = postgres.appendCalls.length;
+  const summarizedUpdateCountBefore = sessionStore.updateCalls.length;
   const summarized = await service.summarizeContext(
     createCompactionRequest({ instructions: "Keep durable facts only." })
   );
@@ -793,8 +846,8 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     providerGateway.requests.at(-1)?.outputSchema,
     REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
   );
-  assert.equal(postgres.appendCalls.length, 6);
-  assert.equal(sessionStore.updateCalls.length, 6);
+  assert.equal(postgres.appendCalls.length, summarizedAppendCountBefore);
+  assert.equal(sessionStore.updateCalls.length, summarizedUpdateCountBefore);
 
   const acquireCallsBeforeHeldLease = leaseService.acquireCalls.length;
   const releasedBeforeHeldLease = leaseService.released.length;
