@@ -14,6 +14,14 @@ async function run(): Promise<void> {
   });
   assert.equal(allowed.effectiveMimeType, "image/png");
 
+  const repairedFilename = await validatePersaiMediaFile({
+    buffer: pngBuffer,
+    mimeType: "application/octet-stream",
+    originalFilename: Buffer.from("Самокат.png", "utf8").toString("latin1"),
+    surface: "chat_upload"
+  });
+  assert.equal(repairedFilename.originalFilename, "Самокат.png");
+
   await assert.rejects(
     () =>
       validatePersaiMediaFile({

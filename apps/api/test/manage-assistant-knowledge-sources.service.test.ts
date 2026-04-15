@@ -35,6 +35,11 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
   const deletedObjects: string[] = [];
   const createdChunks: Array<{ knowledgeSourceId: string; content: string }> = [];
   const releasedBytes: bigint[] = [];
+  const processCalls: Array<{
+    mimeType: string;
+    originalFilename: string;
+    options: { enableDocumentVisualFallback?: boolean } | undefined;
+  }> = [];
   let quotaUsed = BigInt(0);
   let nextSourceId = 1;
 
@@ -177,9 +182,17 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
     } as never,
     prisma as never,
     {
-      process: async () => ({
-        textExtract: "PersAI knowledge sources keep durable workspace facts searchable."
-      })
+      process: async (
+        _buffer: Buffer,
+        mimeType: string,
+        originalFilename: string,
+        options?: { enableDocumentVisualFallback?: boolean }
+      ) => {
+        processCalls.push({ mimeType, originalFilename, options });
+        return {
+          textExtract: "PersAI knowledge sources keep durable workspace facts searchable."
+        };
+      }
     } as never,
     {
       buildKnowledgeSourceObjectKey: ({
@@ -269,7 +282,8 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
     storedObjects,
     deletedObjects,
     createdChunks,
-    releasedBytes
+    releasedBytes,
+    processCalls
   };
 }
 
@@ -291,6 +305,7 @@ async function runUploadListGetAndReindexHappyPath(): Promise<void> {
   assert.equal(uploaded.currentVersion, 1);
   assert.ok(uploaded.chunkCount >= 1);
   assert.equal(harness.createdChunks.length, uploaded.chunkCount);
+  assert.equal(harness.processCalls[0]?.options?.enableDocumentVisualFallback, true);
 
   const listed = await harness.service.list("user-1");
   assert.equal(listed.sources.length, 1);
@@ -304,6 +319,7 @@ async function runUploadListGetAndReindexHappyPath(): Promise<void> {
   const reindexed = await harness.service.reindex("user-1", uploaded.id);
   assert.equal(reindexed.status, "ready");
   assert.equal(reindexed.currentVersion, 2);
+  assert.equal(harness.processCalls[1]?.options?.enableDocumentVisualFallback, true);
 
   await harness.service.delete("user-1", uploaded.id);
   assert.equal(harness.sources.size, 0);

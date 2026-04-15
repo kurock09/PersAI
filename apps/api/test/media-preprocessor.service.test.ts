@@ -6,6 +6,11 @@ async function run(): Promise<void> {
   const transcriptionCalls: Array<{ buffer: Buffer; mimeType: string; filename: string | null }> =
     [];
   const metrics = new PlatformHttpMetricsService();
+  const noopPdfTextExtractor = {
+    async extractText() {
+      return null;
+    }
+  } as never;
 
   const service = new MediaPreprocessorService(
     {
@@ -19,7 +24,8 @@ async function run(): Promise<void> {
         };
       }
     } as never,
-    metrics
+    metrics,
+    noopPdfTextExtractor
   );
 
   const first = await service.process(Buffer.from("audio-one"), "audio/mpeg", "voice-1.mp3");
@@ -55,7 +61,8 @@ async function run(): Promise<void> {
         };
       }
     } as never,
-    new PlatformHttpMetricsService()
+    new PlatformHttpMetricsService(),
+    noopPdfTextExtractor
   );
   (
     convertedService as unknown as {
@@ -81,7 +88,8 @@ async function run(): Promise<void> {
         throw new Error("stt unavailable");
       }
     } as never,
-    failingMetrics
+    failingMetrics,
+    noopPdfTextExtractor
   );
 
   const failed = await failingService.process(
@@ -129,6 +137,76 @@ async function run(): Promise<void> {
   );
   assert.equal(spreadsheet.textExtract, 'Sheet "Budget"\nmonth,amount\nApr,42');
   assert.equal(spreadsheet.normalizedExtension, "xlsx");
+
+  const pdfFallbackCalls: Array<{ buffer: Buffer; filename: string | null }> = [];
+  const pdfFallbackService = new MediaPreprocessorService(
+    {
+      async transcribe() {
+        return {
+          provider: "openai",
+          model: "gpt-4o-mini-transcribe",
+          text: "unused",
+          respondedAt: "2026-04-12T12:00:01.000Z"
+        };
+      }
+    } as never,
+    new PlatformHttpMetricsService(),
+    {
+      async extractText(input: { buffer: Buffer; filename: string | null }) {
+        pdfFallbackCalls.push(input);
+        return "  OCR heading\nVisible label  ";
+      }
+    } as never
+  );
+  (
+    pdfFallbackService as unknown as {
+      extractPdfText(buffer: Buffer): Promise<string | null>;
+    }
+  ).extractPdfText = async () => null;
+
+  const pdfFallback = await pdfFallbackService.process(
+    Buffer.from("fake-pdf"),
+    "application/pdf",
+    "Самокат.pdf",
+    { enableDocumentVisualFallback: true }
+  );
+  assert.equal(pdfFallback.textExtract, "OCR heading\nVisible label");
+  assert.equal(pdfFallbackCalls.length, 1);
+  assert.equal(pdfFallbackCalls[0]?.filename, "Самокат.pdf");
+
+  const noFallbackCalls: Array<{ buffer: Buffer; filename: string | null }> = [];
+  const noFallbackService = new MediaPreprocessorService(
+    {
+      async transcribe() {
+        return {
+          provider: "openai",
+          model: "gpt-4o-mini-transcribe",
+          text: "unused",
+          respondedAt: "2026-04-12T12:00:01.000Z"
+        };
+      }
+    } as never,
+    new PlatformHttpMetricsService(),
+    {
+      async extractText(input: { buffer: Buffer; filename: string | null }) {
+        noFallbackCalls.push(input);
+        return "ignored";
+      }
+    } as never
+  );
+  (
+    noFallbackService as unknown as {
+      extractPdfText(buffer: Buffer): Promise<string | null>;
+    }
+  ).extractPdfText = async () => null;
+
+  const noFallback = await noFallbackService.process(
+    Buffer.from("fake-pdf"),
+    "application/pdf",
+    "diagram.pdf"
+  );
+  assert.equal(noFallback.textExtract, null);
+  assert.equal(noFallbackCalls.length, 0);
 }
 
 void run();

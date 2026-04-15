@@ -145,6 +145,45 @@ function normalizeExtension(filename: string | null | undefined): string | null 
   return ext.length > 0 ? ext : null;
 }
 
+function containsUnicodeControlCharacters(value: string): boolean {
+  for (const char of value) {
+    const code = char.codePointAt(0);
+    if (code === undefined) {
+      continue;
+    }
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizeOriginalFilename(filename: string | null | undefined): string | null {
+  if (typeof filename !== "string") {
+    return null;
+  }
+  const trimmed = filename.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const looksLikeUtf8Mojibake = containsUnicodeControlCharacters(trimmed) || /[ÃÐÑ]/.test(trimmed);
+  if (!looksLikeUtf8Mojibake) {
+    return trimmed;
+  }
+
+  const repaired = Buffer.from(trimmed, "latin1").toString("utf8").trim();
+  if (
+    repaired.length === 0 ||
+    repaired.includes("\uFFFD") ||
+    containsUnicodeControlCharacters(repaired)
+  ) {
+    return trimmed;
+  }
+
+  return repaired;
+}
+
 function isAllowedMime(mime: string | null): mime is string {
   return mime !== null && ALLOWED_MEDIA_MIMES.has(mime);
 }
@@ -172,7 +211,8 @@ export async function validatePersaiMediaFile(params: {
     );
   }
 
-  const normalizedExtension = normalizeExtension(params.originalFilename);
+  const normalizedOriginalFilename = normalizeOriginalFilename(params.originalFilename);
+  const normalizedExtension = normalizeExtension(normalizedOriginalFilename);
   if (normalizedExtension && DANGEROUS_FILE_EXTENSIONS.has(normalizedExtension)) {
     throw new BadRequestException(
       `Files with ${normalizedExtension} extension are blocked by security policy.`
@@ -241,10 +281,7 @@ export async function validatePersaiMediaFile(params: {
   return {
     effectiveMimeType: safeMimeType,
     normalizedExtension,
-    originalFilename:
-      typeof params.originalFilename === "string" && params.originalFilename.trim().length > 0
-        ? params.originalFilename
-        : null,
+    originalFilename: normalizedOriginalFilename,
     sniffedMimeType: sniffedMime
   };
 }

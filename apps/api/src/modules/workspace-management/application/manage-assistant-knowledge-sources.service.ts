@@ -285,7 +285,8 @@ export class ManageAssistantKnowledgeSourcesService {
     const preprocessed = await this.mediaPreprocessorService.process(
       buffer,
       mimeType,
-      originalFilename
+      originalFilename,
+      { enableDocumentVisualFallback: true }
     );
     const extractedText = preprocessed.textExtract?.trim() ?? null;
     if (extractedText === null || extractedText.length === 0) {

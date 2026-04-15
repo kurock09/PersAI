@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
 import type { PreprocessedMedia } from "./media.types";
 import { NativeMediaTranscriptionService } from "./native-media-transcription.service";
+import { ProviderGatewayPdfTextExtractionService } from "./provider-gateway-pdf-text-extraction.service";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -47,19 +48,25 @@ const DOCUMENT_MIMES_WITH_EXTRACTION = new Set([
 const MAX_IMAGE_DIMENSION = 2048;
 const MAX_TEXT_EXTRACT_CHARS = 50_000;
 
+type MediaPreprocessOptions = {
+  enableDocumentVisualFallback?: boolean;
+};
+
 @Injectable()
 export class MediaPreprocessorService {
   private readonly logger = new Logger(MediaPreprocessorService.name);
 
   constructor(
     private readonly nativeMediaTranscriptionService: NativeMediaTranscriptionService,
-    private readonly platformHttpMetricsService: PlatformHttpMetricsService
+    private readonly platformHttpMetricsService: PlatformHttpMetricsService,
+    private readonly providerGatewayPdfTextExtractionService: ProviderGatewayPdfTextExtractionService
   ) {}
 
   async process(
     buffer: Buffer,
     mime: string,
-    originalFilename: string
+    originalFilename: string,
+    options?: MediaPreprocessOptions
   ): Promise<PreprocessedMedia> {
     const normalizedMime = this.normalizeMime(mime);
 
@@ -73,7 +80,7 @@ export class MediaPreprocessorService {
       return this.processVideo(buffer, normalizedMime);
     }
     if (DOCUMENT_MIMES_WITH_EXTRACTION.has(normalizedMime) || normalizedMime.startsWith("text/")) {
-      return this.processDocument(buffer, normalizedMime, originalFilename);
+      return this.processDocument(buffer, normalizedMime, originalFilename, options);
     }
     return this.passthrough(buffer, normalizedMime);
   }
@@ -207,7 +214,8 @@ export class MediaPreprocessorService {
   private async processDocument(
     buffer: Buffer,
     mime: string,
-    originalFilename: string
+    originalFilename: string,
+    options?: MediaPreprocessOptions
   ): Promise<PreprocessedMedia> {
     let textExtract: string | null = null;
 
@@ -216,6 +224,12 @@ export class MediaPreprocessorService {
         textExtract = await this.extractPdfText(buffer);
       } catch (err) {
         this.logger.warn(`PDF text extraction failed for "${originalFilename}": ${String(err)}`);
+      }
+      if (
+        (textExtract === null || textExtract.length === 0) &&
+        options?.enableDocumentVisualFallback
+      ) {
+        textExtract = await this.extractPdfTextWithProviderFallback(buffer, originalFilename);
       }
     } else if (mime.startsWith("text/") || mime === "application/json") {
       textExtract = this.toUtf8TextExtract(buffer);
@@ -245,6 +259,25 @@ export class MediaPreprocessorService {
       width: null,
       height: null
     };
+  }
+
+  private async extractPdfTextWithProviderFallback(
+    buffer: Buffer,
+    originalFilename: string
+  ): Promise<string | null> {
+    try {
+      return this.normalizeExtractedText(
+        await this.providerGatewayPdfTextExtractionService.extractText({
+          buffer,
+          filename: originalFilename
+        })
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Provider PDF text extraction failed for "${originalFilename}": ${String(err)}`
+      );
+      return null;
+    }
   }
 
   private passthrough(buffer: Buffer, mime: string): PreprocessedMedia {
