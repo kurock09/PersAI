@@ -1,5 +1,45 @@
 # SESSION-HANDOFF
 
+## 2026-04-16 - ADR-072 Step 19 deploy/reapply scale-hardening requirement
+
+### What changed
+
+1. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now makes the post-deploy `reapply all` tail an explicit `Step 19` concern instead of leaving it as an implicit ops annoyance.
+2. `Slice 8` and the `Step 19` ledger completion note now explicitly require deploy/restart recovery without fleet-wide `reapply all` before chats become live again.
+3. The detailed `Step 19` migration notes now state that `latest published`, `latest applied/materialized`, and per-pod warm state must be separated, and that cold bundle recovery must happen through PersAI-owned self-healing rather than manual operator mass reapply.
+
+### Why
+
+1. If a normal deploy can make all assistants look not-live until an operator runs `reapply all`, the system is not production-ready for `10000+` active users.
+2. This is a scale-hardening and runtime-recovery requirement, not just a one-off hotfix.
+
+### Current active slice
+
+- `Slice 7 — OpenClaw removal and cleanup`
+
+### Current active step
+
+- `Step 16 — Remove OpenClaw runtime integration from PersAI active paths`
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- not run; docs-only clarification
+
+### Risks
+
+1. This records the requirement clearly, but it does not by itself solve the current operational tail.
+2. The exact final recovery design is still open and should be implemented during `Step 19`, not improvised ad hoc during unrelated cleanup slices.
+
+### Next recommended step
+
+1. Keep `Step 16` as the active implementation step, but carry this requirement forward as a hard acceptance criterion for `Step 19`.
+
 ## 2026-04-16 - ADR-072 late-stage order realignment
 
 ### What changed

@@ -1,4 +1,21 @@
-function syntheticToolMetadataId(
+const SYNTHETIC_TOOL_METADATA_ID_SEGMENT: Record<
+  | "summarize_context"
+  | "compact_context"
+  | "memory_write"
+  | "quota_status"
+  | "knowledge_search"
+  | "knowledge_fetch",
+  string
+> = {
+  summarize_context: "sumctx",
+  compact_context: "cmpctx",
+  memory_write: "memw",
+  quota_status: "quota",
+  knowledge_search: "ksearch",
+  knowledge_fetch: "kfetch"
+};
+
+export function buildSyntheticToolMetadataPromptTemplateId(
   toolCode:
     | "summarize_context"
     | "compact_context"
@@ -8,7 +25,9 @@ function syntheticToolMetadataId(
     | "knowledge_fetch",
   field: "description" | "usage_guidance"
 ): string {
-  return `__prompt_tool_metadata__:${toolCode}:${field}`;
+  return `ptm:${SYNTHETIC_TOOL_METADATA_ID_SEGMENT[toolCode]}:${
+    field === "description" ? "d" : "u"
+  }`;
 }
 
 export const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
@@ -103,29 +122,29 @@ After your first conversation:
 };
 
 export const HIDDEN_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
-  [syntheticToolMetadataId("summarize_context", "description")]:
+  [buildSyntheticToolMetadataPromptTemplateId("summarize_context", "description")]:
     "Create a concise shared-context summary for the current session without changing later-turn compaction state.",
-  [syntheticToolMetadataId("summarize_context", "usage_guidance")]:
+  [buildSyntheticToolMetadataPromptTemplateId("summarize_context", "usage_guidance")]:
     "Use when the user explicitly asks to summarize earlier context or when you need a temporary summary to continue reasoning.",
-  [syntheticToolMetadataId("compact_context", "description")]:
+  [buildSyntheticToolMetadataPromptTemplateId("compact_context", "description")]:
     "Compress earlier session context into the durable shared compaction state for this conversation.",
-  [syntheticToolMetadataId("compact_context", "usage_guidance")]:
+  [buildSyntheticToolMetadataPromptTemplateId("compact_context", "usage_guidance")]:
     "Use when the user explicitly asks to compact/compress context or when context pressure blocks progress.",
-  [syntheticToolMetadataId("memory_write", "description")]:
+  [buildSyntheticToolMetadataPromptTemplateId("memory_write", "description")]:
     "Write one concise durable memory for the current assistant-user pair.",
-  [syntheticToolMetadataId("memory_write", "usage_guidance")]:
+  [buildSyntheticToolMetadataPromptTemplateId("memory_write", "usage_guidance")]:
     "Use only for stable user facts, preferences, or open loops that will matter in later conversations. Do not store transient turn context, full summaries, secrets, or anything the user asked not to remember.",
-  [syntheticToolMetadataId("quota_status", "description")]:
+  [buildSyntheticToolMetadataPromptTemplateId("quota_status", "description")]:
     "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge quota buckets.",
-  [syntheticToolMetadataId("quota_status", "usage_guidance")]:
+  [buildSyntheticToolMetadataPromptTemplateId("quota_status", "usage_guidance")]:
     "Use this when the user asks about remaining usage or whether a quota-governed capability is currently available. Do not use this for factual subscription details; use knowledge_search or knowledge_fetch with source=subscription for plan facts.",
-  [syntheticToolMetadataId("knowledge_search", "description")]:
+  [buildSyntheticToolMetadataPromptTemplateId("knowledge_search", "description")]:
     "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets.",
-  [syntheticToolMetadataId("knowledge_search", "usage_guidance")]:
+  [buildSyntheticToolMetadataPromptTemplateId("knowledge_search", "usage_guidance")]:
     "Use this before fetching any excerpt when you need facts from uploaded documents, prior chats, preset/config docs, subscription state, or global product knowledge.",
-  [syntheticToolMetadataId("knowledge_fetch", "description")]:
+  [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "description")]:
     "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search.",
-  [syntheticToolMetadataId("knowledge_fetch", "usage_guidance")]:
+  [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "usage_guidance")]:
     "Use this to inspect the exact source passage instead of asking for whole documents, full chat histories, or full config dumps."
 };
 

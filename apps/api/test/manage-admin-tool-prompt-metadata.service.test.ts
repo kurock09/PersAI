@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
+import {
+  buildSyntheticToolMetadataPromptTemplateId,
+  HIDDEN_PROMPT_TEMPLATE_DEFAULTS
+} from "../prisma/bootstrap-preset-data";
 import { ManageAdminToolPromptMetadataService } from "../src/modules/workspace-management/application/manage-admin-tool-prompt-metadata.service";
 
 async function run(): Promise<void> {
+  {
+    assert.equal(
+      Object.keys(HIDDEN_PROMPT_TEMPLATE_DEFAULTS).every((id) => id.length <= 32),
+      true
+    );
+  }
+
   {
     let bumped = 0;
     const service = new ManageAdminToolPromptMetadataService(
@@ -87,18 +98,26 @@ async function run(): Promise<void> {
     let bumped = 0;
     let storedDescription = "";
     let storedGuidance = "";
+    const summarizeDescriptionId = buildSyntheticToolMetadataPromptTemplateId(
+      "summarize_context",
+      "description"
+    );
+    const summarizeGuidanceId = buildSyntheticToolMetadataPromptTemplateId(
+      "summarize_context",
+      "usage_guidance"
+    );
     const service = new ManageAdminToolPromptMetadataService(
       {
         async findAll() {
           return [
             {
-              id: "__prompt_tool_metadata__:summarize_context:description",
+              id: summarizeDescriptionId,
               template: storedDescription,
               createdAt: new Date(),
               updatedAt: new Date()
             },
             {
-              id: "__prompt_tool_metadata__:summarize_context:usage_guidance",
+              id: summarizeGuidanceId,
               template: storedGuidance,
               createdAt: new Date(),
               updatedAt: new Date()
@@ -112,9 +131,9 @@ async function run(): Promise<void> {
           throw new Error("not used");
         },
         async upsert(id: string, template: string) {
-          if (id.endsWith(":description")) {
+          if (id === summarizeDescriptionId) {
             storedDescription = template;
-          } else {
+          } else if (id === summarizeGuidanceId) {
             storedGuidance = template;
           }
           return {

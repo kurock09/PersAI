@@ -1,6 +1,9 @@
 import type { PromptTemplate } from "../domain/bootstrap-document-preset.repository";
 import type { ToolCatalogPromptMetadataView } from "../domain/tool-catalog.entity";
-import { HIDDEN_PROMPT_TEMPLATE_DEFAULTS } from "../../../../prisma/bootstrap-preset-data";
+import {
+  buildSyntheticToolMetadataPromptTemplateId,
+  HIDDEN_PROMPT_TEMPLATE_DEFAULTS
+} from "../../../../prisma/bootstrap-preset-data";
 
 export const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
   "summarize_context",
@@ -103,13 +106,6 @@ export const SYNTHETIC_PROMPT_CONSTRUCTOR_TOOL_DEFAULTS: Record<
   }
 };
 
-function buildPromptTemplateId(
-  toolCode: SyntheticNativeToolCode,
-  field: "description" | "usage_guidance"
-): string {
-  return `__prompt_tool_metadata__:${toolCode}:${field}`;
-}
-
 function readStoredPromptValue(rows: PromptTemplate[], id: string): string | null {
   const raw = rows.find((row) => row.id === id)?.template ?? null;
   if (raw === null) {
@@ -137,28 +133,46 @@ function withOverrides(
     description:
       readStoredPromptValue(
         rows,
-        buildPromptTemplateId(base.toolCode as SyntheticNativeToolCode, "description")
+        buildSyntheticToolMetadataPromptTemplateId(
+          base.toolCode as SyntheticNativeToolCode,
+          "description"
+        )
       ) ??
       readDefaultPromptValue(
-        buildPromptTemplateId(base.toolCode as SyntheticNativeToolCode, "description")
+        buildSyntheticToolMetadataPromptTemplateId(
+          base.toolCode as SyntheticNativeToolCode,
+          "description"
+        )
       ) ??
       base.description,
     modelDescription:
       readStoredPromptValue(
         rows,
-        buildPromptTemplateId(base.toolCode as SyntheticNativeToolCode, "description")
+        buildSyntheticToolMetadataPromptTemplateId(
+          base.toolCode as SyntheticNativeToolCode,
+          "description"
+        )
       ) ??
       readDefaultPromptValue(
-        buildPromptTemplateId(base.toolCode as SyntheticNativeToolCode, "description")
+        buildSyntheticToolMetadataPromptTemplateId(
+          base.toolCode as SyntheticNativeToolCode,
+          "description"
+        )
       ) ??
       base.modelDescription,
     modelUsageGuidance:
       readStoredPromptValue(
         rows,
-        buildPromptTemplateId(base.toolCode as SyntheticNativeToolCode, "usage_guidance")
+        buildSyntheticToolMetadataPromptTemplateId(
+          base.toolCode as SyntheticNativeToolCode,
+          "usage_guidance"
+        )
       ) ??
       readDefaultPromptValue(
-        buildPromptTemplateId(base.toolCode as SyntheticNativeToolCode, "usage_guidance")
+        buildSyntheticToolMetadataPromptTemplateId(
+          base.toolCode as SyntheticNativeToolCode,
+          "usage_guidance"
+        )
       ) ??
       base.modelUsageGuidance
   };
@@ -175,8 +189,8 @@ export function getSyntheticPromptConstructorToolStorageIds(toolCode: SyntheticN
   usageGuidanceId: string;
 } {
   return {
-    descriptionId: buildPromptTemplateId(toolCode, "description"),
-    usageGuidanceId: buildPromptTemplateId(toolCode, "usage_guidance")
+    descriptionId: buildSyntheticToolMetadataPromptTemplateId(toolCode, "description"),
+    usageGuidanceId: buildSyntheticToolMetadataPromptTemplateId(toolCode, "usage_guidance")
   };
 }
 
