@@ -236,7 +236,7 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         runAtMs: dueAtMs,
         ...(nextRunAtMs === undefined ? {} : { nextRunAtMs })
       });
-      await this.clearClaim(task.id, task.claimToken, task.claimEpoch);
+      await this.completeAssistantActionRun(task.id, task.claimToken, task.claimEpoch, nextRunAtMs);
     } catch (error) {
       if (task.audience === "assistant") {
         const failedReceipts = await this.countFailedAssistantActionReceipts(task.externalRef);
@@ -300,6 +300,7 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
       where: { id, schedulerClaimToken: claimToken, schedulerClaimEpoch: claimEpoch },
       data: {
         controlStatus: "disabled",
+        nextRunAt: null,
         disabledAt: new Date(),
         cancelledAt: null,
         retryAfterAt: null,

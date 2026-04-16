@@ -245,6 +245,7 @@ async function runSuccessBatchTest(): Promise<void> {
   assert.equal(prisma.rows[0]?.schedulerClaimToken, null);
   assert.equal(prisma.rows[0]?.schedulerClaimEpoch, null);
   assert.equal(prisma.rows[0]?.retryAfterAt, null);
+  assert.equal(prisma.rows[0]?.nextRunAt?.getTime(), dueAt.getTime() + 60_000);
 }
 
 async function runRecurringBoundaryAdvanceTest(): Promise<void> {
@@ -302,6 +303,54 @@ async function runRecurringBoundaryAdvanceTest(): Promise<void> {
     runAtMs: dueAt.getTime(),
     nextRunAtMs: dueAt.getTime() + everyMs
   });
+  assert.equal(prisma.rows[0]?.nextRunAt?.getTime(), dueAt.getTime() + everyMs);
+}
+
+async function runOneTimeUserReminderDeletedAfterDeliveryTest(): Promise<void> {
+  const dueAt = new Date(Date.now() - 60_000);
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [
+      {
+        id: "task-one-time-user",
+        assistantId: "assistant-1",
+        externalRef: "job-one-time-user",
+        title: "One-time reminder",
+        audience: "user",
+        actionType: null,
+        actionPayloadJson: null,
+        nextRunAt: dueAt,
+        payloadText: "One-time user reminder",
+        scheduleJson: {
+          kind: "at",
+          at: dueAt.toISOString()
+        },
+        controlStatus: "active",
+        retryAfterAt: null,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null,
+        createdAt: new Date(dueAt.getTime() - 60_000)
+      }
+    ],
+    () => epochs.currentEpoch
+  );
+  const handler = new FakeHandleInternalCronFireService();
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  const service = new PersaiScheduledActionSchedulerService(
+    prisma as never,
+    handler as never,
+    epochs as never,
+    assistantRunner as never
+  );
+
+  const count = await service.processDueJobsBatch();
+
+  assert.equal(count, 1);
+  assert.equal(handler.calls.length, 1);
+  assert.equal(assistantRunner.calls.length, 0);
+  assert.equal(prisma.rows.length, 0);
 }
 
 async function runFailureRetryTest(): Promise<void> {
@@ -456,6 +505,7 @@ async function runAssistantFailureExhaustionTest(): Promise<void> {
   assert.equal(handler.calls.length, 0);
   assert.equal(assistantRunner.calls.length, 1);
   assert.equal(prisma.rows[0]?.controlStatus, "disabled");
+  assert.equal(prisma.rows[0]?.nextRunAt, null);
   assert.equal(prisma.rows[0]?.retryAfterAt, null);
   assert.ok(prisma.rows[0]?.disabledAt instanceof Date);
 }
@@ -645,6 +695,7 @@ async function runAssistantActionBatchTest(): Promise<void> {
 async function run(): Promise<void> {
   await runSuccessBatchTest();
   await runRecurringBoundaryAdvanceTest();
+  await runOneTimeUserReminderDeletedAfterDeliveryTest();
   await runFailureRetryTest();
   await runAssistantFailureRetryTest();
   await runAssistantFailureExhaustionTest();
