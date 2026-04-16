@@ -135,8 +135,8 @@ function makeAssistantState(): AssistantLifecycleState {
       contentHash: null,
       generatedAt: null,
       runtimeAssignment: null,
-      openclawBootstrapDocument: null,
-      openclawWorkspaceDocument: null
+      assistantConfigDocument: null,
+      assistantWorkspaceDocument: null
     },
     createdAt: "2026-04-01T10:00:00.000Z",
     updatedAt: "2026-04-01T10:00:00.000Z"

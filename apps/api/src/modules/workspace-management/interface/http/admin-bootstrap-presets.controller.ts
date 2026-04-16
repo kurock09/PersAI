@@ -9,7 +9,7 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
-import { ManageBootstrapPresetsService } from "../../application/manage-bootstrap-presets.service";
+import { ManagePromptTemplatesService } from "../../application/manage-bootstrap-presets.service";
 
 interface PresetState {
   id: string;
@@ -17,9 +17,9 @@ interface PresetState {
   updatedAt: string;
 }
 
-@Controller("api/v1/admin/bootstrap-presets")
-export class AdminBootstrapPresetsController {
-  constructor(private readonly manageBootstrapPresetsService: ManageBootstrapPresetsService) {}
+@Controller("api/v1/admin/prompt-templates")
+export class AdminPromptTemplatesController {
+  constructor(private readonly managePromptTemplatesService: ManagePromptTemplatesService) {}
 
   @Get()
   async listPresets(@Req() req: RequestWithPlatformContext): Promise<{
@@ -27,7 +27,7 @@ export class AdminBootstrapPresetsController {
     presets: PresetState[];
   }> {
     const userId = this.resolveRequestUserId(req);
-    const presets = await this.manageBootstrapPresetsService.getAll(userId);
+    const presets = await this.managePromptTemplatesService.getAll(userId);
     return {
       requestId: req.requestId ?? null,
       presets: presets.map((p) => ({
@@ -50,7 +50,9 @@ export class AdminBootstrapPresetsController {
     const userId = this.resolveRequestUserId(req);
 
     if (typeof body !== "object" || body === null || !("template" in body)) {
-      throw new BadRequestException('Request body must contain "template" string field.');
+      throw new BadRequestException(
+        'Request body must contain a non-empty "template" string field.'
+      );
     }
 
     const { template } = body as { template: unknown };
@@ -58,7 +60,7 @@ export class AdminBootstrapPresetsController {
       throw new BadRequestException("Template must be a non-empty string.");
     }
 
-    const preset = await this.manageBootstrapPresetsService.update(userId, id, template);
+    const preset = await this.managePromptTemplatesService.update(userId, id, template);
     return {
       requestId: req.requestId ?? null,
       preset: {

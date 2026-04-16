@@ -14,7 +14,8 @@ import { AdminNotificationsController } from "./interface/http/admin-notificatio
 import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
 import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
-import { AdminBootstrapPresetsController } from "./interface/http/admin-bootstrap-presets.controller";
+import { AdminPromptTemplatesController } from "./interface/http/admin-bootstrap-presets.controller";
+import { AdminToolMetadataController } from "./interface/http/admin-tool-metadata.controller";
 import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
 import { InternalCronFireController } from "./interface/http/internal-cron-fire.controller";
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
@@ -53,6 +54,7 @@ import { DeliverAdminSystemNotificationService } from "./application/deliver-adm
 import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
 import { ManageAdminRuntimeProviderSettingsService } from "./application/manage-admin-runtime-provider-settings.service";
 import { ManageAdminToolCredentialsService } from "./application/manage-admin-tool-credentials.service";
+import { ManageAdminToolPromptMetadataService } from "./application/manage-admin-tool-prompt-metadata.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./application/platform-runtime-provider-secret-store.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./application/resolve-platform-runtime-provider-settings.service";
 import { EnforceAbuseRateLimitService } from "./application/enforce-abuse-rate-limit.service";
@@ -146,14 +148,15 @@ import { PrismaAssistantChatRepository } from "./infrastructure/persistence/pris
 import { PrismaAssistantAbuseGuardRepository } from "./infrastructure/persistence/prisma-assistant-abuse-guard.repository";
 import { PrismaAssistantMemoryRegistryRepository } from "./infrastructure/persistence/prisma-assistant-memory-registry.repository";
 import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persistence/prisma-assistant-task-registry.repository";
-import { BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY } from "./domain/bootstrap-document-preset.repository";
-import { PrismaBootstrapDocumentPresetRepository } from "./infrastructure/persistence/prisma-bootstrap-document-preset.repository";
-import { ManageBootstrapPresetsService } from "./application/manage-bootstrap-presets.service";
+import { PROMPT_TEMPLATE_REPOSITORY } from "./domain/bootstrap-document-preset.repository";
+import { PrismaPromptTemplateRepository } from "./infrastructure/persistence/prisma-bootstrap-document-preset.repository";
+import { ManagePromptTemplatesService } from "./application/manage-bootstrap-presets.service";
 import { SeedToolCatalogService } from "./application/seed-tool-catalog.service";
 import { BumpConfigGenerationService } from "./application/bump-config-generation.service";
 import { ForceReapplyAllService } from "./application/force-reapply-all.service";
 import { SyncNativeRuntimeBundleService } from "./application/sync-native-runtime-bundle.service";
 import { SyncProviderGatewayWarmupService } from "./application/sync-provider-gateway-warmup.service";
+import { CompilePromptConstructorService } from "./application/compile-prompt-constructor.service";
 import { AdminForceReapplyController } from "./interface/http/admin-force-reapply.controller";
 import { MediaAttachmentController } from "./interface/http/media-attachment.controller";
 import { TelegramWebhookController } from "./interface/http/telegram-webhook-proxy.controller";
@@ -193,7 +196,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AdminPlatformRolloutsController,
     AdminRuntimeProviderSettingsController,
     AdminToolCredentialsController,
-    AdminBootstrapPresetsController,
+    AdminToolMetadataController,
+    AdminPromptTemplatesController,
     InternalCronFireController,
     InternalRuntimeProviderSecretsController,
     InternalRuntimeConfigGenerationController,
@@ -225,6 +229,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManagePlatformRolloutsService,
     ManageAdminRuntimeProviderSettingsService,
     ManageAdminToolCredentialsService,
+    ManageAdminToolPromptMetadataService,
     PlatformRuntimeProviderSecretStoreService,
     ResolvePlatformRuntimeProviderSettingsService,
     EnforceAbuseRateLimitService,
@@ -379,8 +384,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
       useClass: PrismaAssistantMaterializedSpecRepository
     },
     {
-      provide: BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY,
-      useClass: PrismaBootstrapDocumentPresetRepository
+      provide: PROMPT_TEMPLATE_REPOSITORY,
+      useClass: PrismaPromptTemplateRepository
     },
     ManageChatMediaService,
     MediaPreprocessorService,
@@ -397,12 +402,13 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
       useFactory: (web: WebMediaAdapter, telegram: TelegramMediaAdapter) => [web, telegram],
       inject: [WebMediaAdapter, TelegramMediaAdapter]
     },
-    ManageBootstrapPresetsService,
+    ManagePromptTemplatesService,
     SeedToolCatalogService,
     BumpConfigGenerationService,
     ForceReapplyAllService,
     SyncNativeRuntimeBundleService,
-    SyncProviderGatewayWarmupService
+    SyncProviderGatewayWarmupService,
+    CompilePromptConstructorService
   ],
   exports: [
     GetAssistantByUserIdService,

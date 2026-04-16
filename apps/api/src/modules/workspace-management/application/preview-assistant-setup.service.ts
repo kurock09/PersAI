@@ -68,18 +68,10 @@ export class PreviewAssistantSetupService {
       previewVersion
     );
 
-    const user = await this.prisma.appUser.findUnique({
-      where: { id: userId },
-      select: { displayName: true }
-    });
     const workspace = await this.prisma.workspace.findUnique({
       where: { id: assistant.workspaceId },
       select: { timezone: true }
     });
-    const userDisplayName = user?.displayName?.trim() || "your human";
-    const previewPrompt =
-      `Introduce yourself to ${userDisplayName} in 2-4 natural sentences as if this were your first conversation. ` +
-      "Sound like your configured persona. Do not mention previews, setup, drafts, or internal configuration.";
 
     const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(artifacts.layers);
     const result = await this.assistantRuntime
@@ -88,11 +80,11 @@ export class PreviewAssistantSetupService {
         ...(runtimeAssignment?.effectiveTier
           ? { runtimeTier: runtimeAssignment.effectiveTier }
           : {}),
-        userMessage: previewPrompt,
+        userMessage: artifacts.runtimeBundle.promptConstructor.onboarding.firstTurnPrompt,
         runtimeBundle: artifacts.runtimeBundle,
-        legacyBridge: {
-          bootstrap: artifacts.openclawBootstrap,
-          workspace: artifacts.openclawWorkspace
+        adapterPayload: {
+          assistantConfig: artifacts.openclawBootstrap,
+          assistantWorkspace: artifacts.openclawWorkspace
         },
         userTimezone: workspace?.timezone ?? "UTC",
         currentTimeIso: new Date().toISOString()

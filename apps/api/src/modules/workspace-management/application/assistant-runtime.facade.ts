@@ -26,9 +26,9 @@ export interface AssistantRuntimePreflightResult {
   checkedAt: string;
 }
 
-export interface AssistantRuntimeLegacyBridgePayload {
-  bootstrap: unknown;
-  workspace: unknown;
+export interface AssistantRuntimeAdapterPayload {
+  assistantConfig: unknown;
+  assistantWorkspace: unknown;
 }
 
 export interface AssistantRuntimeApplyInput {
@@ -36,7 +36,7 @@ export interface AssistantRuntimeApplyInput {
   publishedVersionId: string;
   runtimeTier?: RuntimeTier;
   runtimeBundle: unknown | null;
-  legacyBridge: AssistantRuntimeLegacyBridgePayload & {
+  adapterPayload: AssistantRuntimeAdapterPayload & {
     contentHash: string;
   };
   reapply: boolean;
@@ -100,7 +100,7 @@ export interface AssistantRuntimeSetupPreviewTurnInput {
   runtimeTier?: RuntimeTier;
   userMessage: string;
   runtimeBundle: unknown | null;
-  legacyBridge: AssistantRuntimeLegacyBridgePayload;
+  adapterPayload: AssistantRuntimeAdapterPayload;
   userTimezone?: string;
   currentTimeIso?: string;
 }

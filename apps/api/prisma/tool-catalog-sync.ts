@@ -1,5 +1,6 @@
 import type { Prisma, ToolCatalogStatus } from "@prisma/client";
 import type { ToolCatalogEntry } from "./tool-catalog-data.js";
+import { buildToolPromptMetadataState } from "../src/modules/workspace-management/application/tool-prompt-metadata";
 
 type ToolCatalogSyncStore = {
   toolCatalogTool: {
@@ -29,21 +30,26 @@ type ToolCatalogSyncStore = {
 };
 
 export function buildToolCatalogProviderHints(tool: ToolCatalogEntry): Prisma.InputJsonValue {
-  return tool.requiredCredentialId
-    ? {
-        schema: "persai.toolCatalogProviderHints.v2",
-        providerAgnostic: false,
-        requiredCredentialId: tool.requiredCredentialId
-      }
-    : { schema: "persai.toolCatalogProviderHints.v1", providerAgnostic: true };
+  return buildToolPromptMetadataState({
+    existingProviderHints: null,
+    requiredCredentialId: tool.requiredCredentialId,
+    defaultModelDescription: tool.modelDescription ?? tool.description,
+    defaultModelUsageGuidance: tool.modelUsageGuidance
+  }) as Prisma.InputJsonValue;
 }
 
 export async function upsertToolCatalogEntry(
   store: ToolCatalogSyncStore,
   tool: ToolCatalogEntry,
+  existingProviderHints: unknown,
   status: ToolCatalogStatus | "active" = "active"
 ): Promise<void> {
-  const providerHints = buildToolCatalogProviderHints(tool);
+  const providerHints = buildToolPromptMetadataState({
+    existingProviderHints,
+    requiredCredentialId: tool.requiredCredentialId,
+    defaultModelDescription: tool.modelDescription ?? tool.description,
+    defaultModelUsageGuidance: tool.modelUsageGuidance
+  }) as Prisma.InputJsonValue;
   await store.toolCatalogTool.upsert({
     where: { id: tool.id },
     update: {

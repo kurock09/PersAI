@@ -69,12 +69,31 @@ function resolveRuntimeToolDescription(
   runtimeToolCode: string
 ): string | null {
   if (runtimeToolCode === "quota_status") {
-    return "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge buckets.";
+    return (
+      tool.modelDescription ??
+      "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge buckets."
+    );
   }
   if (MIGRATION_ONLY_MODEL_HIDDEN_TOOLS.has(tool.code)) {
     return "Migration-only inventory entry. Step 15 does not expose raw path-based workspace attachment to the model.";
   }
-  return tool.description;
+  return tool.modelDescription ?? tool.description;
+}
+
+function resolveRuntimeToolUsageGuidance(
+  tool: EffectiveToolAvailabilityState["tools"][number],
+  runtimeToolCode: string
+): string | null {
+  if (runtimeToolCode === "quota_status") {
+    return (
+      tool.modelUsageGuidance ??
+      "Use this when the user asks about remaining usage, current quota pressure, or whether a quota-governed capability is available right now."
+    );
+  }
+  if (MIGRATION_ONLY_MODEL_HIDDEN_TOOLS.has(tool.code)) {
+    return "Keep this helper off the normal model-visible path.";
+  }
+  return tool.modelUsageGuidance;
 }
 
 export function resolveRuntimeToolPolicies(params: {
@@ -94,6 +113,7 @@ export function resolveRuntimeToolPolicies(params: {
       toolCode: runtimeToolCode,
       displayName: resolveRuntimeToolDisplayName(tool, runtimeToolCode),
       description: resolveRuntimeToolDescription(tool, runtimeToolCode),
+      usageGuidance: resolveRuntimeToolUsageGuidance(tool, runtimeToolCode),
       kind,
       executionMode: resolveToolExecutionMode(runtimeToolCode),
       usageRule: enabled && kind !== "internal" ? "allowed" : "forbidden",
@@ -108,7 +128,9 @@ export function resolveRuntimeToolPolicies(params: {
 function buildToolLine(tool: RuntimeToolPolicy, details: string): string {
   const limit =
     tool.dailyCallLimit !== null ? ` (daily limit: ${String(tool.dailyCallLimit)})` : "";
-  return `- **${tool.toolCode}** — ${details}${limit}`;
+  const description = tool.description ? ` — ${tool.description}` : "";
+  const guidance = tool.usageGuidance ? ` Guidance: ${tool.usageGuidance}` : "";
+  return `- **${tool.toolCode}** — ${details}${limit}${description}${guidance}`;
 }
 
 export function buildRuntimeToolPoliciesMarkdown(toolPolicies: RuntimeToolPolicy[]): string {

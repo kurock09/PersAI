@@ -8,7 +8,7 @@ import {
   WorkspaceSubscriptionStatus
 } from "@prisma/client";
 import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "./tool-catalog-data.js";
-import { BOOTSTRAP_PRESET_DEFAULTS } from "./bootstrap-preset-data.js";
+import { PROMPT_TEMPLATE_DEFAULTS } from "./bootstrap-preset-data.js";
 import { upsertToolCatalogEntry } from "./tool-catalog-sync.js";
 
 const prisma = new PrismaClient();
@@ -23,13 +23,13 @@ const SEED_WORKSPACE_SUBSCRIPTION_ID = "66666666-6666-6666-6666-666666666666";
 
 async function upsertToolCatalog(): Promise<void> {
   for (const t of TOOL_CATALOG) {
-    await upsertToolCatalogEntry(prisma, t);
+    await upsertToolCatalogEntry(prisma, t, null);
   }
 }
 
-async function upsertBootstrapPresets(): Promise<void> {
-  for (const [id, template] of Object.entries(BOOTSTRAP_PRESET_DEFAULTS)) {
-    await prisma.bootstrapDocumentPreset.upsert({
+async function upsertPromptTemplates(): Promise<void> {
+  for (const [id, template] of Object.entries(PROMPT_TEMPLATE_DEFAULTS)) {
+    await prisma.promptTemplate.upsert({
       where: { id },
       update: { template },
       create: { id, template }
@@ -39,7 +39,7 @@ async function upsertBootstrapPresets(): Promise<void> {
 
 async function main(): Promise<void> {
   await upsertToolCatalog();
-  await upsertBootstrapPresets();
+  await upsertPromptTemplates();
 
   await prisma.appUser.upsert({
     where: { id: SEED_USER_ID },

@@ -60,6 +60,8 @@ export class ResolveEffectiveToolAvailabilityService {
           code: tool.toolCode,
           displayName: tool.displayName,
           description: tool.description,
+          modelDescription: tool.modelDescription,
+          modelUsageGuidance: tool.modelUsageGuidance,
           capabilityGroup: tool.capabilityGroup,
           toolClass: tool.toolClass,
           policyClass,
@@ -72,7 +74,7 @@ export class ResolveEffectiveToolAvailabilityService {
       notes: [
         "E1 adds governed tool catalog and plan activation projection.",
         "Plan-managed, platform-managed, and hidden-internal tools are resolved explicitly in control-plane policy.",
-        "OpenClaw remains runtime behavior owner; backend provides explicit availability truth only."
+        "PersAI runtime consumes this availability truth together with admin-owned tool prompt metadata."
       ]
     };
   }

@@ -15,8 +15,8 @@ import {
   type AssistantMaterializedSpecRepository
 } from "../domain/assistant-materialized-spec.repository";
 import {
-  BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY,
-  type BootstrapDocumentPresetRepository
+  PROMPT_TEMPLATE_REPOSITORY,
+  type PromptTemplateRepository
 } from "../domain/bootstrap-document-preset.repository";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import type { Assistant } from "../domain/assistant.entity";
@@ -31,10 +31,7 @@ import {
   resolveRuntimeProviderProfileState,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
-import {
-  buildRuntimeToolPoliciesMarkdown,
-  resolveRuntimeToolPolicies
-} from "./runtime-tool-policy";
+import { resolveRuntimeToolPolicies } from "./runtime-tool-policy";
 import { buildRuntimeBrowserConfig } from "./runtime-browser";
 import {
   buildRuntimeContextHydrationConfig,
@@ -67,10 +64,13 @@ import { resolveRuntimeAssignmentState } from "./runtime-assignment";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { resolveTelegramBindingMetadataState } from "./telegram-integration.metadata";
 import {
+  CompilePromptConstructorService,
+  type PromptTemplateMap
+} from "./compile-prompt-constructor.service";
+import {
   isPersaiRuntimeVideoGenerateModelKey,
   type PersaiRuntimeTtsProviderId,
-  type PersaiRuntimeVideoGenerateModelKey,
-  type RuntimeToolPolicy
+  type PersaiRuntimeVideoGenerateModelKey
 } from "@persai/runtime-contract";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
@@ -90,16 +90,6 @@ export interface AssistantRuntimeArtifacts {
   openclawBootstrapDocument: string;
   openclawWorkspaceDocument: string;
   contentHash: string;
-}
-
-interface GeneratedBootstrapDocuments {
-  soulDocument: string;
-  userDocument: string;
-  identityDocument: string;
-  toolsDocument: string;
-  agentsDocument: string;
-  heartbeatDocument: string;
-  bootstrapDocument: string;
 }
 
 function sortKeysDeep(value: unknown): unknown {
@@ -165,8 +155,8 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
-    @Inject(BOOTSTRAP_DOCUMENT_PRESET_REPOSITORY)
-    private readonly bootstrapPresetRepository: BootstrapDocumentPresetRepository,
+    @Inject(PROMPT_TEMPLATE_REPOSITORY)
+    private readonly promptTemplateRepository: PromptTemplateRepository,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly resolveEffectiveToolAvailabilityService: ResolveEffectiveToolAvailabilityService,
     private readonly resolveOpenClawChannelSurfaceBindingsService: ResolveOpenClawChannelSurfaceBindingsService,
@@ -176,7 +166,8 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly compilePromptConstructorService: CompilePromptConstructorService
   ) {}
 
   async execute(
@@ -416,17 +407,24 @@ export class MaterializeAssistantPublishedVersionService {
     };
 
     const userContext = await this.resolveUserContext(assistant.userId, assistant.workspaceId);
-    const bootstrapDocuments = await this.generateBootstrapDocuments({
+    const promptTemplates = await this.loadPresetTemplates();
+    const compiledPromptConstructor = this.compilePromptConstructorService.compile({
       publishedVersion,
-      governance,
-      toolAvailability,
+      userContext,
       toolPolicies,
-      effectivePlanCode,
       memoryControl,
       tasksControl,
-      effectiveCapabilities,
-      userContext
+      promptTemplates
     });
+    const bootstrapDocuments = {
+      soulDocument: compiledPromptConstructor.promptDocuments.soul,
+      userDocument: compiledPromptConstructor.promptDocuments.user,
+      identityDocument: compiledPromptConstructor.promptDocuments.identity,
+      toolsDocument: compiledPromptConstructor.promptDocuments.tools,
+      agentsDocument: compiledPromptConstructor.promptDocuments.agents,
+      heartbeatDocument: compiledPromptConstructor.promptDocuments.heartbeat,
+      bootstrapDocument: compiledPromptConstructor.promptDocuments.bootstrap
+    };
 
     const openclawWorkspace = {
       schema: OPENCLAW_WORKSPACE_SCHEMA,
@@ -528,7 +526,8 @@ export class MaterializeAssistantPublishedVersionService {
         agents: bootstrapDocuments.agentsDocument,
         heartbeat: bootstrapDocuments.heartbeatDocument,
         bootstrap: bootstrapDocuments.bootstrapDocument
-      }
+      },
+      promptConstructor: compiledPromptConstructor.promptConstructor
     });
 
     const layersDocument = toDeterministicDocument(layers);
@@ -864,287 +863,36 @@ export class MaterializeAssistantPublishedVersionService {
     };
   }
 
-  private async generateBootstrapDocuments(ctx: {
-    publishedVersion: AssistantPublishedVersion;
-    governance: AssistantGovernance;
-    toolAvailability: Record<string, unknown>;
-    toolPolicies: RuntimeToolPolicy[];
-    effectivePlanCode: string | null;
-    memoryControl: unknown;
-    tasksControl: unknown;
-    effectiveCapabilities: Record<string, unknown>;
-    userContext: {
-      displayName: string | null;
-      birthday: string | null;
-      gender: string | null;
-      locale: string;
-      timezone: string;
-    };
-  }): Promise<GeneratedBootstrapDocuments> {
-    const templates = await this.loadPresetTemplates();
-
-    return {
-      soulDocument: this.generateSoulMd(ctx.publishedVersion, templates.soul ?? null),
-      userDocument: this.generateUserMd(ctx.userContext, templates.user ?? null),
-      identityDocument: this.generateIdentityMd(ctx.publishedVersion, templates.identity ?? null),
-      toolsDocument: this.generateToolsMd(ctx.toolPolicies, templates.tools ?? null),
-      agentsDocument: this.generateAgentsMd(ctx, templates.agents ?? null),
-      heartbeatDocument: this.generateHeartbeatMd(ctx.tasksControl),
-      bootstrapDocument: this.generateBootstrapMd(ctx.publishedVersion, ctx.userContext)
-    };
-  }
-
-  private async loadPresetTemplates(): Promise<Record<string, string | null>> {
+  private async loadPresetTemplates(): Promise<PromptTemplateMap> {
     try {
-      const presets = await this.bootstrapPresetRepository.findAll();
-      const map: Record<string, string | null> = {
+      const presets = await this.promptTemplateRepository.findAll();
+      const map: PromptTemplateMap = {
         soul: null,
         user: null,
         identity: null,
         agents: null,
-        tools: null
+        tools: null,
+        heartbeat: null,
+        bootstrap: null
       };
       for (const p of presets) {
-        map[p.id] = p.template;
+        if (p.id in map) {
+          map[p.id as keyof PromptTemplateMap] = p.template;
+        }
       }
       return map;
     } catch (err) {
-      this.logger.warn("Failed to load bootstrap presets from DB, using hardcoded fallbacks", err);
-      return { soul: null, user: null, identity: null, agents: null, tools: null };
+      this.logger.warn("Failed to load prompt templates from DB, using hardcoded fallbacks", err);
+      return {
+        soul: null,
+        user: null,
+        identity: null,
+        agents: null,
+        tools: null,
+        heartbeat: null,
+        bootstrap: null
+      };
     }
-  }
-
-  private interpolateTemplate(
-    template: string,
-    variables: Record<string, string | null | undefined>
-  ): string {
-    let result = template;
-    for (const [key, value] of Object.entries(variables)) {
-      const placeholder = `{{${key}}}`;
-      if (value === null || value === undefined || value.trim().length === 0) {
-        result = result
-          .split("\n")
-          .filter((line) => !line.includes(placeholder))
-          .join("\n");
-      } else {
-        result = result.replaceAll(placeholder, value);
-      }
-    }
-    return result;
-  }
-
-  private generateSoulMd(pv: AssistantPublishedVersion, template: string | null): string {
-    const assistantGender = normalizeAssistantGender(pv.snapshotAssistantGender);
-    const traitsBlock = this.renderTraitsBlock(pv.snapshotTraits);
-    const instructionsBlock = pv.snapshotInstructions
-      ? `## Instructions\n\n${pv.snapshotInstructions}\n`
-      : "";
-
-    if (template) {
-      return this.interpolateTemplate(template, {
-        assistant_name: pv.snapshotDisplayName ?? "an assistant",
-        assistant_gender_line: assistantGender ? `- **Gender**: ${assistantGender}` : null,
-        traits_block: traitsBlock,
-        instructions_block: instructionsBlock
-      });
-    }
-
-    const lines: string[] = ["# SOUL.md", ""];
-    lines.push(`You are **${pv.snapshotDisplayName ?? "an assistant"}**.`);
-    if (assistantGender) {
-      lines.push(`- **Gender**: ${assistantGender}`);
-    }
-    lines.push("");
-    if (traitsBlock) {
-      lines.push(traitsBlock);
-      lines.push("");
-    }
-    if (instructionsBlock) {
-      lines.push(instructionsBlock);
-      lines.push("");
-    }
-    return lines.join("\n");
-  }
-
-  private renderTraitsBlock(traits: Record<string, number> | null): string {
-    if (!traits || Object.keys(traits).length === 0) return "";
-    const lines = ["## Personality Traits", ""];
-    for (const [trait, value] of Object.entries(traits)) {
-      const label = this.traitLabel(trait, value);
-      lines.push(`- **${trait}**: ${String(value)}/100 — ${label}`);
-    }
-    return lines.join("\n");
-  }
-
-  private traitLabel(trait: string, value: number): string {
-    const low = value < 35;
-    const high = value > 65;
-    const labels: Record<string, [string, string, string]> = {
-      formality: ["very casual", "balanced", "very formal"],
-      verbosity: ["concise and brief", "balanced detail", "detailed and thorough"],
-      playfulness: ["serious and focused", "balanced tone", "playful and fun"],
-      initiative: ["waits for instructions", "balanced initiative", "highly proactive"],
-      warmth: ["neutral and professional", "friendly", "warm and caring"]
-    };
-    const entry = labels[trait];
-    if (!entry) return `${String(value)}/100`;
-    return low ? entry[0] : high ? entry[2] : entry[1];
-  }
-
-  private generateUserMd(
-    userCtx: {
-      displayName: string | null;
-      birthday: string | null;
-      gender: string | null;
-      locale: string;
-      timezone: string;
-    },
-    template: string | null
-  ): string {
-    if (template) {
-      return this.interpolateTemplate(template, {
-        user_name_line: userCtx.displayName ? `- **Name**: ${userCtx.displayName}` : null,
-        user_birthday_line: userCtx.birthday ? `- **Birthday**: ${userCtx.birthday}` : null,
-        user_gender_line: userCtx.gender ? `- **Gender**: ${userCtx.gender}` : null,
-        user_locale: userCtx.locale,
-        user_timezone: userCtx.timezone
-      });
-    }
-
-    const lines: string[] = ["# USER.md — About Your Human", ""];
-    if (userCtx.displayName) lines.push(`- **Name**: ${userCtx.displayName}`);
-    if (userCtx.birthday) lines.push(`- **Birthday**: ${userCtx.birthday}`);
-    if (userCtx.gender) lines.push(`- **Gender**: ${userCtx.gender}`);
-    lines.push(`- **Locale**: ${userCtx.locale}`);
-    lines.push(`- **Timezone**: ${userCtx.timezone}`);
-    lines.push("");
-    lines.push("Use this information to personalize your communication.");
-    lines.push("Greet on birthdays. Respect timezone for scheduling.");
-    lines.push("");
-    return lines.join("\n");
-  }
-
-  private generateIdentityMd(pv: AssistantPublishedVersion, template: string | null): string {
-    const assistantGender = normalizeAssistantGender(pv.snapshotAssistantGender);
-    if (template) {
-      return this.interpolateTemplate(template, {
-        assistant_name: pv.snapshotDisplayName ?? "Assistant",
-        assistant_gender_line: assistantGender ? `- **Gender**: ${assistantGender}` : null,
-        assistant_avatar_emoji_line: pv.snapshotAvatarEmoji
-          ? `- **Avatar**: ${pv.snapshotAvatarEmoji}`
-          : null,
-        assistant_avatar_url_line: pv.snapshotAvatarUrl
-          ? `- **Avatar URL**: ${pv.snapshotAvatarUrl}`
-          : null
-      });
-    }
-
-    const lines: string[] = ["# IDENTITY.md", ""];
-    lines.push(`- **Name**: ${pv.snapshotDisplayName ?? "Assistant"}`);
-    if (assistantGender) lines.push(`- **Gender**: ${assistantGender}`);
-    if (pv.snapshotAvatarEmoji) lines.push(`- **Avatar**: ${pv.snapshotAvatarEmoji}`);
-    if (pv.snapshotAvatarUrl) lines.push(`- **Avatar URL**: ${pv.snapshotAvatarUrl}`);
-    lines.push("");
-    return lines.join("\n");
-  }
-
-  private buildToolsCatalogBlockMd(toolPolicies: RuntimeToolPolicy[]): string {
-    return buildRuntimeToolPoliciesMarkdown(toolPolicies);
-  }
-
-  private generateToolsMd(toolPolicies: RuntimeToolPolicy[], template: string | null): string {
-    const catalog = this.buildToolsCatalogBlockMd(toolPolicies);
-
-    if (template && template.trim().length > 0) {
-      return this.interpolateTemplate(template, {
-        tools_catalog_block: catalog.length > 0 ? catalog : "No tools configured yet.\n"
-      });
-    }
-
-    const lines: string[] = ["# TOOLS.md — Your Available Tools", ""];
-    lines.push(catalog);
-    lines.push("");
-    return lines.join("\n");
-  }
-
-  private generateAgentsMd(
-    ctx: {
-      governance: AssistantGovernance;
-      effectiveCapabilities: Record<string, unknown>;
-      memoryControl: unknown;
-      tasksControl: unknown;
-    },
-    template: string | null
-  ): string {
-    const mc = ctx.memoryControl as Record<string, unknown> | null;
-    const tc = ctx.tasksControl as Record<string, unknown> | null;
-
-    const memoryPolicyBlock = mc
-      ? "## Memory Policy\n\n- Remember important facts about your human from conversations\n- Update MEMORY.md with key information you learn\n- Daily conversation notes go in memory/ directory\n"
-      : "";
-
-    const tasksPolicyBlock = tc
-      ? "## Tasks Policy\n\n- You may manage reminders and recurring tasks for your human\n- Track tasks in HEARTBEAT.md\n"
-      : "";
-
-    if (template) {
-      return this.interpolateTemplate(template, {
-        memory_policy_block: memoryPolicyBlock,
-        tasks_policy_block: tasksPolicyBlock
-      });
-    }
-
-    const lines: string[] = ["# AGENTS.md — Governance & Capabilities", ""];
-    if (memoryPolicyBlock) {
-      lines.push(memoryPolicyBlock);
-      lines.push("");
-    }
-    if (tasksPolicyBlock) {
-      lines.push(tasksPolicyBlock);
-      lines.push("");
-    }
-    return lines.join("\n");
-  }
-
-  private generateHeartbeatMd(tasksControl: unknown): string {
-    const tc = tasksControl as Record<string, unknown> | null;
-    if (!tc) {
-      return "# HEARTBEAT.md\n";
-    }
-    return "# HEARTBEAT.md\n";
-  }
-
-  private generateBootstrapMd(
-    pv: AssistantPublishedVersion,
-    userCtx: { displayName: string | null }
-  ): string {
-    const assistantName = pv.snapshotDisplayName ?? "Assistant";
-    const humanName = userCtx.displayName ?? "your human";
-    const traits = pv.snapshotTraits;
-
-    const lines: string[] = ["# BOOTSTRAP.md — Hello, World"];
-    lines.push("");
-    lines.push("You just came online for the first time!");
-    lines.push("");
-    lines.push(`Your name is **${assistantName}**. Your human's name is **${humanName}**.`);
-
-    if (traits && Object.keys(traits).length > 0) {
-      const traitDesc = Object.entries(traits)
-        .map(([t, v]) => `${t}: ${String(v)}/100`)
-        .join(", ");
-      lines.push(`They set your personality to: ${traitDesc}.`);
-    }
-
-    lines.push("");
-    lines.push("Introduce yourself naturally. Don't interrogate — just talk.");
-    lines.push("");
-    lines.push("After your first conversation:");
-    lines.push("- Update SOUL.md with what you learned about yourself");
-    lines.push("- Update USER.md with what you learned about your human");
-    lines.push("- Then delete this file — you won't need it again.");
-    lines.push("");
-
-    return lines.join("\n");
   }
 
   private async resolveTelegramChannelConfig(assistantId: string): Promise<{

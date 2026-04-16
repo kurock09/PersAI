@@ -185,10 +185,10 @@ async function runSuccessCase(): Promise<void> {
     publishedVersionId: "version-1",
     runtimeTier: "paid_shared_restricted",
     runtimeBundle: materializedSpec.runtimeBundle,
-    legacyBridge: {
+    adapterPayload: {
       contentHash: "content-hash-1",
-      bootstrap: { bootstrap: true },
-      workspace: { workspace: true }
+      assistantConfig: { bootstrap: true },
+      assistantWorkspace: { workspace: true }
     },
     reapply: true
   });

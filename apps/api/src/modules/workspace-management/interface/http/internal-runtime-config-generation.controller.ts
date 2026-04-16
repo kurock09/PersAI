@@ -38,8 +38,8 @@ type EnsureFreshSpecResponse = {
   publishedVersionId: string;
   contentHash: string;
   spec: {
-    bootstrap: unknown;
-    workspace: unknown;
+    assistantConfig: unknown;
+    assistantWorkspace: unknown;
   };
 };
 
@@ -165,8 +165,8 @@ export class InternalRuntimeConfigGenerationController {
       publishedVersionId: refreshedSpec.publishedVersionId,
       contentHash: refreshedSpec.contentHash,
       spec: {
-        bootstrap: refreshedSpec.openclawBootstrap,
-        workspace: refreshedSpec.openclawWorkspace
+        assistantConfig: refreshedSpec.openclawBootstrap,
+        assistantWorkspace: refreshedSpec.openclawWorkspace
       }
     };
   }

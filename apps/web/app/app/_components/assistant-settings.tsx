@@ -1239,6 +1239,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
         </div>
         <FeedbackLine fb={rollbackFb} />
         <FeedbackLine fb={resetFb} />
+        {resetConfirm && <p className="mt-2 text-xs text-destructive">{t("resetScopeWarning")}</p>}
       </Section>
 
       {/* 3. Memory */}

@@ -7,6 +7,8 @@ export type ToolCatalogEntry = {
   code: string;
   displayName: string;
   description: string;
+  modelDescription?: string;
+  modelUsageGuidance?: string;
   capabilityGroup: ToolCatalogCapabilityGroup;
   toolClass: ToolCatalogToolClass;
   requiredCredentialId?: string;
@@ -19,6 +21,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "web_search",
     displayName: "Web Search",
     description: "Provider-backed external web lookup tool.",
+    modelDescription: "Search the public web through the configured external search provider.",
+    modelUsageGuidance:
+      "Use this for fresh external information, links, or recent facts you cannot know from local context alone.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_web_search",
@@ -29,6 +34,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "web_fetch",
     displayName: "Web Fetch",
     description: "Structured webpage content extraction via Firecrawl or fallback fetch.",
+    modelDescription: "Fetch and extract structured content from one exact public URL.",
+    modelUsageGuidance:
+      "Use this when you already have the exact page URL and need page contents rather than a search result list.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_web_fetch",
@@ -39,6 +47,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "image_generate",
     displayName: "Image Generate",
     description: "AI image generation via DALL-E or other supported providers.",
+    modelDescription: "Generate one or more new images from a text prompt.",
+    modelUsageGuidance:
+      "Use this only when the user clearly wants a new image asset or visual output, not for ordinary text answers.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -50,6 +61,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Image Edit",
     description:
       "Edit a single referenced image with prompt-guided changes through supported providers.",
+    modelDescription:
+      "Edit an existing referenced image according to the user's requested changes.",
+    modelUsageGuidance:
+      "Use this only when the user supplied or referenced an image to modify; do not use it to create a brand new image from scratch.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -61,6 +76,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Video Generate",
     description:
       "Generate a short video clip from a text prompt, optionally guided by one current-turn reference image.",
+    modelDescription:
+      "Generate a short video clip from a text prompt, optionally guided by one current-turn reference image.",
+    modelUsageGuidance:
+      "Use this for explicit short video generation requests, not as a substitute for text explanation or static image output.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -72,6 +91,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Text to Speech",
     description:
       "Text-to-speech synthesis via provider-specific TTS credentials with native provider fallback.",
+    modelDescription: "Convert assistant text into generated speech audio.",
+    modelUsageGuidance:
+      "Use this only when the user explicitly wants spoken audio or voice delivery, not for ordinary text replies.",
     capabilityGroup: "communication" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -81,6 +103,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "browser",
     displayName: "Browser",
     description: "Automated web browser for interactive page navigation and content extraction.",
+    modelDescription: "Open and interact with web pages when static search or fetch is not enough.",
+    modelUsageGuidance:
+      "Use this only for page interaction or dynamic content flows that cannot be completed with web_search and web_fetch alone.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_browser",
@@ -91,6 +116,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "memory_search",
     displayName: "Memory Search",
     description: "Semantic search across assistant memory using remote embeddings.",
+    modelDescription:
+      "Search the assistant's durable memory and related knowledge records for relevant prior facts.",
+    modelUsageGuidance:
+      "Use this when the answer likely depends on prior remembered user facts, prior chats, or assistant knowledge rather than the public web.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     requiredCredentialId: "tool_memory_search",
@@ -101,6 +130,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "memory_get",
     displayName: "Memory Get",
     description: "Safe snippet read from memory files with optional offset/lines.",
+    modelDescription: "Fetch a specific remembered knowledge or memory item by reference.",
+    modelUsageGuidance:
+      "Use this after memory or knowledge search returned a concrete reference that needs a focused read.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -110,6 +142,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "cron",
     displayName: "Cron",
     description: "Manage gateway cron jobs and send wake events.",
+    modelDescription: "Internal scheduler bridge.",
+    modelUsageGuidance: "Internal only.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "hidden_internal"
@@ -120,6 +154,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Scheduled Action",
     description:
       "Schedule actions for both user-visible reminders and hidden assistant follow-ups.",
+    modelDescription:
+      "Create, list, pause, resume, or cancel reminders and scheduled follow-up actions.",
+    modelUsageGuidance:
+      "Use this when the user wants reminders, delayed follow-ups, or scheduled future actions.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -130,6 +168,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Workspace Attach",
     description:
       "Attach an existing assistant-workspace file to the chat via the platform media pipeline.",
+    modelDescription: "Migration-only attachment helper.",
+    modelUsageGuidance: "Do not expose this helper on the normal model-visible path.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"
@@ -140,6 +180,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Tool Quota Status",
     description:
       "Read live tool quota usage/caps from PersAI control plane for the current assistant.",
+    modelDescription:
+      "Read live quota status for the current assistant, including daily tool counters and main quota buckets.",
+    modelUsageGuidance:
+      "Use this when the user asks about remaining usage, current quota pressure, or whether a quota-governed tool is available.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"

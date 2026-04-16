@@ -2088,6 +2088,178 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/prompt-templates:
+    get:
+      operationId: getAdminPromptTemplates
+      summary: List admin-owned prompt constructor templates
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Prompt constructor templates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminPromptTemplatesResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/prompt-templates/{id}:
+    patch:
+      operationId: patchAdminPromptTemplate
+      summary: Update one prompt constructor template
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchAdminPromptTemplateRequest"
+      responses:
+        "200":
+          description: Updated prompt constructor template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatchAdminPromptTemplateResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/super-admin or legacy owner fallback required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tools/metadata:
+    get:
+      operationId: getAdminToolPromptMetadata
+      summary: List model-facing tool descriptions and usage guidance
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Admin tool prompt metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminToolPromptMetadataResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tools/metadata/{toolCode}:
+    patch:
+      operationId: patchAdminToolPromptMetadata
+      summary: Update model-facing tool description and usage guidance
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: toolCode
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchAdminToolPromptMetadataRequest"
+      responses:
+        "200":
+          description: Updated tool prompt metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatchAdminToolPromptMetadataResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/super-admin or legacy owner fallback required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Tool not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/platform-rollouts:
     get:
       operationId: getAdminPlatformRollouts
@@ -2916,8 +3088,8 @@ components:
         - contentHash
         - generatedAt
         - runtimeAssignment
-        - openclawBootstrapDocument
-        - openclawWorkspaceDocument
+        - assistantConfigDocument
+        - assistantWorkspaceDocument
       properties:
         latestSpecId:
           type: string
@@ -2948,10 +3120,10 @@ components:
           allOf:
             - $ref: "#/components/schemas/AssistantRuntimeAssignmentState"
           nullable: true
-        openclawBootstrapDocument:
+        assistantConfigDocument:
           type: string
           nullable: true
-        openclawWorkspaceDocument:
+        assistantWorkspaceDocument:
           type: string
           nullable: true
     RuntimeTier:
@@ -5485,6 +5657,131 @@ components:
         configGeneration:
           type: integer
           description: Current platform config generation after save
+    PromptTemplateState:
+      type: object
+      required:
+        - id
+        - template
+        - updatedAt
+      properties:
+        id:
+          type: string
+        template:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+    GetAdminPromptTemplatesResponse:
+      type: object
+      required:
+        - presets
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        presets:
+          type: array
+          items:
+            $ref: "#/components/schemas/PromptTemplateState"
+    PatchAdminPromptTemplateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - template
+      properties:
+        template:
+          type: string
+    PatchAdminPromptTemplateResponse:
+      type: object
+      required:
+        - preset
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        preset:
+          $ref: "#/components/schemas/PromptTemplateState"
+    AdminToolPromptMetadataState:
+      type: object
+      required:
+        - toolCode
+        - displayName
+        - description
+        - modelDescription
+        - modelUsageGuidance
+        - toolClass
+        - capabilityGroup
+        - policyClass
+        - catalogStatus
+      properties:
+        toolCode:
+          type: string
+        displayName:
+          type: string
+        description:
+          type: string
+          nullable: true
+        modelDescription:
+          type: string
+          nullable: true
+        modelUsageGuidance:
+          type: string
+          nullable: true
+        toolClass:
+          type: string
+          enum:
+            - cost_driving
+            - utility
+        capabilityGroup:
+          type: string
+          enum:
+            - knowledge
+            - automation
+            - communication
+            - workspace_ops
+        policyClass:
+          type: string
+          enum:
+            - plan_managed
+            - platform_managed
+            - hidden_internal
+        catalogStatus:
+          type: string
+          enum:
+            - active
+            - inactive
+    GetAdminToolPromptMetadataResponse:
+      type: object
+      required:
+        - tools
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminToolPromptMetadataState"
+    PatchAdminToolPromptMetadataRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        modelDescription:
+          type: string
+          nullable: true
+        modelUsageGuidance:
+          type: string
+          nullable: true
+    PatchAdminToolPromptMetadataResponse:
+      type: object
+      required:
+        - tool
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        tool:
+          $ref: "#/components/schemas/AdminToolPromptMetadataState"
     PlatformRolloutStatus:
       type: string
       enum:

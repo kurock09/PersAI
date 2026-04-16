@@ -116,6 +116,30 @@ export interface AssistantRuntimePromptDocuments {
   bootstrap: string;
 }
 
+export interface AssistantRuntimeCompiledOrdinaryPromptSections {
+  assistantIdentity: string | null;
+  userIdentity: string | null;
+  locale: string;
+  timezone: string;
+  personaInstructions: string | null;
+  soul: string;
+  user: string;
+  identity: string;
+  tools: string;
+  agents: string;
+  heartbeat: string;
+}
+
+export interface AssistantRuntimePromptConstructor {
+  ordinary: {
+    sections: AssistantRuntimeCompiledOrdinaryPromptSections;
+    systemPrompt: string | null;
+  };
+  onboarding: {
+    firstTurnPrompt: string;
+  };
+}
+
 export interface AssistantRuntimeBundleChannels {
   bindings: unknown;
   telegram: AssistantRuntimeBundleTelegramChannel;
@@ -131,6 +155,7 @@ export interface AssistantRuntimeBundle {
   governance: AssistantRuntimeBundleGovernance;
   channels: AssistantRuntimeBundleChannels;
   promptDocuments: AssistantRuntimePromptDocuments;
+  promptConstructor: AssistantRuntimePromptConstructor;
 }
 
 export interface CreateAssistantRuntimeBundleInput {
@@ -141,6 +166,7 @@ export interface CreateAssistantRuntimeBundleInput {
   governance: AssistantRuntimeBundleGovernance;
   channels: AssistantRuntimeBundleChannels;
   promptDocuments: AssistantRuntimePromptDocuments;
+  promptConstructor?: AssistantRuntimePromptConstructor;
 }
 
 export interface AssistantRuntimeBundleArtifact {
@@ -170,6 +196,53 @@ function sortKeysDeep(value: unknown): unknown {
 export function createAssistantRuntimeBundle(
   input: CreateAssistantRuntimeBundleInput
 ): AssistantRuntimeBundle {
+  const promptConstructor: AssistantRuntimePromptConstructor = input.promptConstructor ?? {
+    ordinary: {
+      sections: {
+        assistantIdentity:
+          input.persona.displayName === null
+            ? null
+            : `Assistant display name: ${input.persona.displayName}`,
+        userIdentity:
+          input.userContext.displayName === null
+            ? null
+            : `User display name: ${input.userContext.displayName}`,
+        locale: `User locale: ${input.userContext.locale}`,
+        timezone: `User timezone: ${input.userContext.timezone}`,
+        personaInstructions: input.persona.instructions,
+        soul: input.promptDocuments.soul,
+        user: input.promptDocuments.user,
+        identity: input.promptDocuments.identity,
+        tools: input.promptDocuments.tools,
+        agents: input.promptDocuments.agents,
+        heartbeat: input.promptDocuments.heartbeat
+      },
+      systemPrompt: [
+        input.persona.displayName === null
+          ? null
+          : `Assistant display name: ${input.persona.displayName}`,
+        input.userContext.displayName === null
+          ? null
+          : `User display name: ${input.userContext.displayName}`,
+        `User locale: ${input.userContext.locale}`,
+        `User timezone: ${input.userContext.timezone}`,
+        input.persona.instructions,
+        input.promptDocuments.soul,
+        input.promptDocuments.user,
+        input.promptDocuments.identity,
+        input.promptDocuments.tools,
+        input.promptDocuments.agents,
+        input.promptDocuments.heartbeat
+      ]
+        .filter(
+          (section): section is string => typeof section === "string" && section.trim().length > 0
+        )
+        .join("\n\n")
+    },
+    onboarding: {
+      firstTurnPrompt: input.promptDocuments.bootstrap
+    }
+  };
   return {
     schema: PERSAI_RUNTIME_BUNDLE_SCHEMA,
     contractSchema: PERSAI_RUNTIME_CONTRACT_SCHEMA,
@@ -179,7 +252,8 @@ export function createAssistantRuntimeBundle(
     runtime: input.runtime,
     governance: input.governance,
     channels: input.channels,
-    promptDocuments: input.promptDocuments
+    promptDocuments: input.promptDocuments,
+    promptConstructor
   };
 }
 

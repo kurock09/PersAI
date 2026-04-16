@@ -1137,7 +1137,7 @@ model AssistantTelegramGroup {
   @@map("assistant_telegram_groups")
 }
 
-model BootstrapDocumentPreset {
+model PromptTemplate {
   id        String   @id @db.VarChar(32)
   template  String   @db.Text
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)

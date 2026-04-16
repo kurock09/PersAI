@@ -95,7 +95,7 @@ type MaterializedPresetRow = {
   createdAt: Date;
 };
 
-type BootstrapPresetRow = {
+type PromptTemplateRow = {
   id: string;
   template: string;
   updatedAt: Date;
@@ -1591,19 +1591,19 @@ export class ReadAssistantKnowledgeService {
   private async loadPresetKnowledgeDocuments(
     assistantId: string
   ): Promise<TextKnowledgeDocumentRow[]> {
-    const [assistant, bootstrapPresets] = await Promise.all([
+    const [assistant, promptTemplates] = await Promise.all([
       this.resolveAssistantKnowledgeContext(assistantId),
-      this.prisma.bootstrapDocumentPreset.findMany({
+      this.prisma.promptTemplate.findMany({
         orderBy: [{ id: "asc" }]
       })
     ]);
     const documents: TextKnowledgeDocumentRow[] = (
-      (bootstrapPresets ?? []) as BootstrapPresetRow[]
+      (promptTemplates ?? []) as PromptTemplateRow[]
     ).map((preset) => ({
       referenceId: `preset:template:${preset.id}`,
       source: "preset",
-      title: `Preset Template: ${preset.id}`,
-      locator: `preset-template:${preset.id}`,
+      title: `Prompt Template: ${preset.id}`,
+      locator: `prompt-template:${preset.id}`,
       content: preset.template,
       metadata: {
         templateId: preset.id,

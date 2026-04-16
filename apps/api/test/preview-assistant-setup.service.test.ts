@@ -128,7 +128,12 @@ async function run(): Promise<void> {
         currentConfigGeneration: 1,
         layers: {},
         runtimeBundle: {
-          schema: "persai.runtime.bundle.v1"
+          schema: "persai.runtime.bundle.v1",
+          promptConstructor: {
+            onboarding: {
+              firstTurnPrompt: "Hello Alex, I am Mira."
+            }
+          }
         },
         openclawBootstrap: { bootstrap: true },
         openclawWorkspace: { workspace: true },
@@ -167,13 +172,18 @@ async function run(): Promise<void> {
   });
   assert.ok(previewInput);
   assert.equal(previewInput.assistantId, assistant.id);
-  assert.deepEqual(previewInput.legacyBridge.bootstrap, { bootstrap: true });
-  assert.deepEqual(previewInput.legacyBridge.workspace, { workspace: true });
+  assert.deepEqual(previewInput.adapterPayload.assistantConfig, { bootstrap: true });
+  assert.deepEqual(previewInput.adapterPayload.assistantWorkspace, { workspace: true });
   assert.deepEqual(previewInput.runtimeBundle, {
-    schema: "persai.runtime.bundle.v1"
+    schema: "persai.runtime.bundle.v1",
+    promptConstructor: {
+      onboarding: {
+        firstTurnPrompt: "Hello Alex, I am Mira."
+      }
+    }
   });
   assert.equal(previewInput.userTimezone, "Europe/Moscow");
-  assert.match(previewInput.userMessage, /Introduce yourself to Alex/);
+  assert.equal(previewInput.userMessage, "Hello Alex, I am Mira.");
 }
 
 run().catch((error) => {

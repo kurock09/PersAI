@@ -879,7 +879,7 @@ async function run(): Promise<void> {
           );
         }) ?? null
     },
-    bootstrapDocumentPreset: {
+    promptTemplate: {
       findMany: async () => bootstrapPresetRows
     },
     workspaceSubscription: {

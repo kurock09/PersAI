@@ -37,9 +37,9 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
     return this.openClawRuntimeBridge.applyMaterializedSpec({
       assistantId: input.assistantId,
       publishedVersionId: input.publishedVersionId,
-      contentHash: input.legacyBridge.contentHash,
-      openclawBootstrap: input.legacyBridge.bootstrap,
-      openclawWorkspace: input.legacyBridge.workspace,
+      contentHash: input.adapterPayload.contentHash,
+      openclawBootstrap: input.adapterPayload.assistantConfig,
+      openclawWorkspace: input.adapterPayload.assistantWorkspace,
       ...(input.runtimeTier === undefined ? {} : { runtimeTier: input.runtimeTier }),
       reapply: input.reapply
     });
@@ -77,8 +77,8 @@ export class OpenClawAssistantRuntimeFacade implements AssistantRuntimeFacade {
     return this.openClawRuntimeBridge.previewSetupTurn({
       assistantId: input.assistantId,
       userMessage: input.userMessage,
-      openclawBootstrap: input.legacyBridge.bootstrap,
-      openclawWorkspace: input.legacyBridge.workspace,
+      openclawBootstrap: input.adapterPayload.assistantConfig,
+      openclawWorkspace: input.adapterPayload.assistantWorkspace,
       ...(input.runtimeTier === undefined ? {} : { runtimeTier: input.runtimeTier }),
       ...(input.userTimezone === undefined ? {} : { userTimezone: input.userTimezone }),
       ...(input.currentTimeIso === undefined ? {} : { currentTimeIso: input.currentTimeIso })

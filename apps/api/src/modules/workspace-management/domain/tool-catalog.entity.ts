@@ -13,9 +13,23 @@ export type ToolCatalogActivationView = {
   toolCode: string;
   displayName: string;
   description: string | null;
+  modelDescription: string | null;
+  modelUsageGuidance: string | null;
   toolClass: ToolCatalogToolClass;
   capabilityGroup: ToolCatalogCapabilityGroup;
   policyClass: ToolPolicyClass;
   catalogStatus: "active" | "inactive";
   planActivationStatus: ToolActivationStatus;
+};
+
+export type ToolCatalogPromptMetadataView = {
+  toolCode: string;
+  displayName: string;
+  description: string | null;
+  modelDescription: string | null;
+  modelUsageGuidance: string | null;
+  toolClass: ToolCatalogToolClass;
+  capabilityGroup: ToolCatalogCapabilityGroup;
+  policyClass: ToolPolicyClass;
+  catalogStatus: "active" | "inactive";
 };

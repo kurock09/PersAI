@@ -16,7 +16,7 @@ async function run(): Promise<void> {
     }
   };
 
-  await upsertToolCatalogEntry(prisma as never, scheduledAction);
+  await upsertToolCatalogEntry(prisma as never, scheduledAction, null);
 
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0]?.where, { id: scheduledAction.id });

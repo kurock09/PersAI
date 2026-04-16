@@ -73,7 +73,7 @@ export function projectRuntimeNativeTools(
   ];
   const quotaStatusPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "quota_status");
   if (quotaStatusPolicy !== null) {
-    projectedTools.push(createQuotaStatusToolDefinition());
+    projectedTools.push(createQuotaStatusToolDefinition(quotaStatusPolicy));
   }
   if (projectedKnowledgeSearchSources.length > 0) {
     projectedTools.push(createKnowledgeSearchToolDefinition(projectedKnowledgeSearchSources));
@@ -88,12 +88,12 @@ export function projectRuntimeNativeTools(
     webSearchCredential !== null &&
     supportsCurrentNativeWebSearchProvider(webSearchCredential.providerId ?? null)
   ) {
-    projectedTools.push(createWebSearchToolDefinition());
+    projectedTools.push(createWebSearchToolDefinition(webSearchPolicy));
   }
   const webFetchPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "web_fetch");
   const webFetchCredential = resolveConfiguredCredentialRef(bundle, "web_fetch");
   if (webFetchPolicy !== null && webFetchCredential !== null) {
-    projectedTools.push(createWebFetchToolDefinition());
+    projectedTools.push(createWebFetchToolDefinition(webFetchPolicy));
   }
   const browserPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "browser", "worker");
   const browserCredential = resolveConfiguredCredentialRef(bundle, "browser");
@@ -102,7 +102,7 @@ export function projectRuntimeNativeTools(
     browserCredential !== null &&
     supportsCurrentNativeBrowserProvider(bundle, browserCredential.providerId ?? null)
   ) {
-    projectedTools.push(createBrowserToolDefinition(bundle));
+    projectedTools.push(createBrowserToolDefinition(bundle, browserPolicy));
   }
   const imageGeneratePolicy = resolveAllowedModelVisibleToolPolicy(
     bundle,
@@ -115,7 +115,7 @@ export function projectRuntimeNativeTools(
     imageGenerateCredential !== null &&
     supportsCurrentNativeImageGenerateProvider(imageGenerateCredential.providerId ?? null)
   ) {
-    projectedTools.push(createImageGenerateToolDefinition());
+    projectedTools.push(createImageGenerateToolDefinition(imageGeneratePolicy));
   }
   const imageEditPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "image_edit", "worker");
   const imageEditCredential = resolveConfiguredCredentialRef(bundle, "image_edit");
@@ -124,7 +124,7 @@ export function projectRuntimeNativeTools(
     imageEditCredential !== null &&
     supportsCurrentNativeImageEditProvider(imageEditCredential.providerId ?? null)
   ) {
-    projectedTools.push(createImageEditToolDefinition());
+    projectedTools.push(createImageEditToolDefinition(imageEditPolicy));
   }
   const videoGeneratePolicy = resolveAllowedModelVisibleToolPolicy(
     bundle,
@@ -137,7 +137,7 @@ export function projectRuntimeNativeTools(
     videoGenerateCredential !== null &&
     supportsCurrentNativeVideoGenerateProvider(videoGenerateCredential.providerId ?? null)
   ) {
-    projectedTools.push(createVideoGenerateToolDefinition());
+    projectedTools.push(createVideoGenerateToolDefinition(videoGeneratePolicy));
   }
   const ttsPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "tts", "worker");
   const ttsCredential = bundle.governance.toolCredentialRefs.tts ?? null;
@@ -146,7 +146,7 @@ export function projectRuntimeNativeTools(
     ttsCredential !== null &&
     supportsCurrentNativeTtsProvider(ttsCredential)
   ) {
-    projectedTools.push(createTtsToolDefinition());
+    projectedTools.push(createTtsToolDefinition(ttsPolicy));
   }
   const scheduledActionPolicy = resolveAllowedModelVisibleToolPolicy(
     bundle,
@@ -154,7 +154,7 @@ export function projectRuntimeNativeTools(
     "worker"
   );
   if (scheduledActionPolicy !== null) {
-    projectedTools.push(createScheduledActionToolDefinition());
+    projectedTools.push(createScheduledActionToolDefinition(scheduledActionPolicy));
   }
 
   return {
@@ -224,11 +224,13 @@ function createMemoryWriteToolDefinition(): ProviderGatewayToolDefinition {
   };
 }
 
-function createQuotaStatusToolDefinition(): ProviderGatewayToolDefinition {
+function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "quota_status",
-    description:
-      "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge quota buckets. Use this when the user asks about remaining usage or whether a quota-governed capability is currently available. Do not use this for factual subscription details; use knowledge_search or knowledge_fetch with source=subscription for plan facts.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Read live PersAI quota status for the current assistant."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -243,11 +245,13 @@ function createQuotaStatusToolDefinition(): ProviderGatewayToolDefinition {
   };
 }
 
-function createWebSearchToolDefinition(): ProviderGatewayToolDefinition {
+function createWebSearchToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "web_search",
-    description:
-      "Search the public web through the currently configured search provider. Use this when you need sources or links about a topic and do not already have one exact URL to fetch.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Search the public web through the currently configured search provider."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -326,11 +330,13 @@ function createKnowledgeFetchToolDefinition(
   };
 }
 
-function createWebFetchToolDefinition(): ProviderGatewayToolDefinition {
+function createWebFetchToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "web_fetch",
-    description:
-      "Fetch and extract the main content of a public webpage through the current web-fetch provider. Use this when you already know the exact URL and need page content, not a search results list.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Fetch and extract the main content of a public webpage through the current web-fetch provider."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -357,12 +363,15 @@ function createWebFetchToolDefinition(): ProviderGatewayToolDefinition {
 }
 
 function createBrowserToolDefinition(
-  bundle: AssistantRuntimeBundle
+  bundle: AssistantRuntimeBundle,
+  policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
   return {
     name: "browser",
-    description:
-      "Use a real browser for JavaScript-rendered or interactive pages when web_search or web_fetch are insufficient. Use action=snapshot to inspect a page and action=act only after the user explicitly wants page interaction.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Use a real browser for JavaScript-rendered or interactive pages when web_search or web_fetch are insufficient."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -429,11 +438,15 @@ function createBrowserToolDefinition(
   };
 }
 
-function createImageGenerateToolDefinition(): ProviderGatewayToolDefinition {
+function createImageGenerateToolDefinition(
+  policy: RuntimeToolPolicy
+): ProviderGatewayToolDefinition {
   return {
     name: "image_generate",
-    description:
-      "Generate brand-new images from a text prompt. Use this for image creation only; do not use it for editing existing images or for video generation.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Generate brand-new images from a text prompt."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -464,11 +477,13 @@ function createImageGenerateToolDefinition(): ProviderGatewayToolDefinition {
   };
 }
 
-function createImageEditToolDefinition(): ProviderGatewayToolDefinition {
+function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "image_edit",
-    description:
-      'Edit images only when the user explicitly asks to modify an image, for example replace, remove, add, recolor, restyle, insert, or draw something. Never use this tool for describing an image, OCR, solving a task from an image, or answering "what do you see". Use the current user message attachments only: with one image, edit that image; with multiple images, edit only the source image and return one edited version of that source image. Use optional referenceImageIndex only as a visual guide for style, appearance, makeup, color, lighting, or background cues from another current-turn image. If the user says things like "make it like the second photo", "как на втором фото", or similar, treat image #1 as the source and image #2 as the reference unless the user clearly says otherwise. Ask a clarifying question instead of guessing when the roles are still unclear.',
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Edit an existing user-referenced image according to the requested changes."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -505,11 +520,15 @@ function createImageEditToolDefinition(): ProviderGatewayToolDefinition {
   };
 }
 
-function createVideoGenerateToolDefinition(): ProviderGatewayToolDefinition {
+function createVideoGenerateToolDefinition(
+  policy: RuntimeToolPolicy
+): ProviderGatewayToolDefinition {
   return {
     name: "video_generate",
-    description:
-      "Generate a short brand-new video clip from a text prompt. Use this only when the user explicitly wants a generated video, animation, or clip. You may optionally guide the video with one current-turn image attachment as a first-frame style or appearance reference by setting referenceImageIndex. Do not use this tool for editing an existing video or for answering questions about an image.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Generate a short brand-new video clip from a text prompt."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -545,11 +564,13 @@ function createVideoGenerateToolDefinition(): ProviderGatewayToolDefinition {
   };
 }
 
-function createTtsToolDefinition(): ProviderGatewayToolDefinition {
+function createTtsToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "tts",
-    description:
-      "Generate spoken audio for the current assistant persona. Use this only when the user explicitly wants a voice note, spoken reply, narration, or audio version of text.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Generate spoken audio for the current assistant persona."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -576,20 +597,15 @@ function createTtsToolDefinition(): ProviderGatewayToolDefinition {
   };
 }
 
-function createScheduledActionToolDefinition(): ProviderGatewayToolDefinition {
+function createScheduledActionToolDefinition(
+  policy: RuntimeToolPolicy
+): ProviderGatewayToolDefinition {
   return {
     name: "scheduled_action",
-    description: [
-      "Schedule actions for both user-visible reminders and hidden assistant follow-ups.",
-      'Use audience="user" for reminders the user should actually see, for example reminders in a few hours, daily or weekly nudges, and deadlines.',
-      'Use audience="assistant" for background checks and reasoning, for example coming back to a project or habit later, inspecting memory, and when available using knowledge_search or knowledge_fetch before deciding whether any gentle user-facing nudge is appropriate.',
-      "Background assistant actions MUST NOT directly message the user.",
-      'For assistant-side conditional checks, first verify the condition, then if a user-facing follow-up is requested and the condition is met create a new scheduled_action with audience="user" and an immediate schedule such as delayMs=1; otherwise stay quiet.',
-      'They are for checking progress or changes, noticing the user is already doing well and quietly doing nothing, or, when it is helpful and not pushy, scheduling a new scheduled_action with audience="user" and a short human-like message.',
-      'Respect explicit "don\'t remind me" or paused/cancelled signals, avoid spamming multiple unsolicited reminders about the same thing, and phrase user-facing reminders as low-pressure offers rather than commands.',
-      "For create, title, audience, and exactly one schedule are required: runAt, delayMs, everyMs, or cronExpr.",
-      "Prefer taskId from an earlier list result when pausing, resuming, or cancelling; if taskId is unavailable, use titleMatch to resolve one current task by title."
-    ].join(" "),
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Schedule actions for both user-visible reminders and hidden assistant follow-ups."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -693,6 +709,12 @@ function resolveAllowedModelVisibleToolPolicy(
     return null;
   }
   return policy;
+}
+
+function resolveToolDefinitionDescription(policy: RuntimeToolPolicy, fallback: string): string {
+  const description = policy.description?.trim() || fallback;
+  const guidance = policy.usageGuidance?.trim();
+  return guidance ? `${description} Guidance: ${guidance}` : description;
 }
 
 function resolveConfiguredCredentialRef(

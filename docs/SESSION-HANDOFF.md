@@ -1,5 +1,154 @@
 # SESSION-HANDOFF
 
+## 2026-04-16 - ADR-072 Step 15b production Prompt Constructor landing
+
+### What changed
+
+1. Prompt templates are now a real prompt-constructor domain in code: prompt-template defaults/repository/service/controller naming replaced bootstrap-domain terminology in active admin/control-plane code, Prisma now exposes `PromptTemplate`, and admin APIs remain canonical at `GET/PATCH /api/v1/admin/prompt-templates(:id)`.
+2. Tool wording is no longer code-owned only. `apps/api` now exposes `GET/PATCH /api/v1/admin/tools/metadata(:toolCode)` and stores per-tool `modelDescription` plus `modelUsageGuidance` inside the canonical tool-catalog metadata path.
+3. A dedicated `CompilePromptConstructorService` now compiles ordinary runtime prompt sections plus onboarding/recreate first-turn prompt into structured runtime-bundle `promptConstructor` output. Materialization, publish/reapply/rollback, and setup preview now all consume that same compiled prompt truth.
+4. `apps/runtime` no longer rebuilds the live system prompt from mixed prompt-doc plus hardcoded tool guidance. `TurnExecutionService` now sends the compiled bundle `promptConstructor.ordinary.systemPrompt`, and native tool projection now reads admin-owned tool description/guidance from runtime tool policy metadata.
+5. The admin Prompt Constructor page is now split into ordinary runtime sections, onboarding/recreate prompt, per-tool model instruction editors, and a compiled preview instead of behaving like a thin markdown preset page.
+6. Active lifecycle surfaces now use neutral materialization names (`assistantConfigDocument` / `assistantWorkspaceDocument`, internal runtime config payload `assistantConfig` / `assistantWorkspace`) instead of leaking `openclawBootstrap*` / `openclawWorkspace*` through current API truth.
+7. Focused verification now includes compiler, prompt-template, tool-metadata, native-tool-projection, and turn-execution tests plus regenerated OpenAPI/contracts.
+
+### Why
+
+1. Step 15b required a real single source of truth for system prompt construction; a renamed preset editor without runtime/compiler ownership was not production-safe.
+2. Tool descriptions visible to the model must be admin-owned if Prompt Constructor is the real control plane.
+3. Preview, publish, reapply, rollback, and recreate cannot drift if onboarding/system prompt text is compiled in one place and shipped as runtime bundle truth.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15b — Replace bootstrap preset and lifecycle UI with native prompt surfaces` has now landed as the production Prompt Constructor baseline and compiler cutover. Remaining adapter-internal OpenClaw removal belongs to later runtime-replacement cleanup, not admin/control-plane ownership.
+
+### Files touched
+
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/seed.ts`
+- `apps/api/prisma/seed-catalog.ts`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/prisma/tool-catalog-sync.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-lifecycle.mapper.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-lifecycle.types.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-tool-prompt-metadata.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-bootstrap-presets.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/openclaw-assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.ts`
+- `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-effective-tool-availability.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts`
+- `apps/api/src/modules/workspace-management/application/tool-prompt-metadata.ts`
+- `apps/api/src/modules/workspace-management/domain/bootstrap-document-preset.repository.ts`
+- `apps/api/src/modules/workspace-management/domain/tool-catalog.entity.ts`
+- `apps/api/src/modules/workspace-management/domain/tool-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-bootstrap-document-preset.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-tool-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-bootstrap-presets.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-tool-metadata.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-config-generation.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/compile-prompt-constructor.service.test.ts`
+- `apps/api/test/manage-admin-tool-prompt-metadata.service.test.ts`
+- `apps/api/test/manage-bootstrap-presets.service.test.ts`
+- `apps/api/test/read-assistant-knowledge.service.test.ts`
+- `apps/api/test/tool-catalog-sync.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/web/app/admin/presets/page.tsx`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `packages/contracts/openapi.yaml`
+- `packages/runtime-bundle/src/index.ts`
+- `packages/runtime-contract/src/index.ts`
+
+### Verification
+
+- `corepack pnpm --filter @persai/api typecheck`
+- `corepack pnpm --filter @persai/runtime typecheck`
+- `corepack pnpm --filter @persai/web typecheck`
+- `corepack pnpm --filter @persai/contracts typecheck`
+- `corepack pnpm contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-bootstrap-presets.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-prompt-metadata.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/compile-prompt-constructor.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+
+## 2026-04-16 - ADR-072 Step 15b production prompt-constructor baseline
+
+### What changed
+
+1. Admin prompt editing now lands as one explicit `Prompt Constructor` surface instead of OpenClaw-shaped bootstrap wording. `apps/web` admin nav/title/section labels were updated, with legacy `*.md` names kept only as migration references.
+2. Admin prompt sections now cover the previously hidden runtime pieces: `heartbeat` and first-turn `bootstrap` templates are now first-class editable prompt templates alongside `soul/user/identity/agents/tools`.
+3. Backend prompt-template API moved to the neutral path `GET/PATCH /api/v1/admin/prompt-templates(:id)` (no dual-route mode), and auth middleware routing was updated accordingly.
+4. Prompt-template persistence now self-heals missing default rows in existing databases (`getAll` seeds any missing defaults, not only empty tables), and updates now use upsert semantics for stable admin writes.
+5. Runtime materialization now consumes `heartbeat` and `bootstrap` templates from the same prompt-template source as other sections, removing those hidden hardcoded sections from ordinary Step 15b admin ownership.
+6. `docs/API-BOUNDARY.md` now captures the Step 15b prompt-constructor boundary explicitly (`GET/PATCH /api/v1/admin/prompt-templates` plus canonical template-id ownership and materialization ownership rules).
+7. Focused API coverage now includes `manage-bootstrap-presets.service.test.ts` for missing-default backfill, invalid-id rejection, and config-generation bump on update.
+8. Setup/settings EN/RU wording now reflects real create/recreate semantics: reset is user-facing recreate, destructive scope is explicit, and recreate progress text lists deleted state (chats, memory, tasks, published versions, materialized runtime bundles/specs, media artifacts).
+
+### Why
+
+1. Step 15b requires admin/setup surfaces to own every runtime prompt section that affects execution; `heartbeat` and first-turn `bootstrap` were still hidden in code before this landing.
+2. A production baseline cannot keep bootstrap/openclaw framing in admin APIs and UX; this checkpoint moves the control surface and endpoint naming to neutral prompt-constructor semantics.
+3. Recreate/reset messaging must be explicit and destructive by design; vague copy was not production-safe.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15b — Replace bootstrap preset and lifecycle UI with native prompt surfaces` remains in progress after the first production prompt-constructor baseline; next work is hard contract/domain rename cleanup and full lifecycle compile-path convergence.
+
+### Files touched
+
+- `apps/web/app/admin/layout.tsx`
+- `apps/web/app/admin/presets/page.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `apps/api/src/modules/workspace-management/interface/http/admin-bootstrap-presets.controller.ts`
+- `apps/api/src/modules/workspace-management/application/manage-bootstrap-presets.service.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `apps/api/test/manage-bootstrap-presets.service.test.ts`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web typecheck`
+- `corepack pnpm --filter @persai/api typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-bootstrap-presets.service.test.ts`
+
+### Risks
+
+1. Internal class/file/model names still contain legacy `bootstrap` terminology; this checkpoint normalizes product/admin surface and API path first, but internal domain rename remains follow-through.
+2. OpenAPI/generated contract naming has not yet been hard-renamed in this pack and still needs coordinated cleanup.
+
+### Next recommended step
+
+1. Continue Step 15b with hard contract/domain rename and lifecycle convergence: remove remaining bootstrap/openclaw naming from active contracts and guarantee one compile path across create/preview/publish/reapply/reset/recreate.
+
 ## 2026-04-15 - ADR-072 T15-7 closeout and Step 16 boundary cleanup
 
 ### What changed

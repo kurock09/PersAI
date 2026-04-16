@@ -23,7 +23,7 @@ export interface AssistantMaterializationState {
   /** @nullable */
   runtimeAssignment: AssistantMaterializationStateRuntimeAssignment;
   /** @nullable */
-  openclawBootstrapDocument: string | null;
+  assistantConfigDocument: string | null;
   /** @nullable */
-  openclawWorkspaceDocument: string | null;
+  assistantWorkspaceDocument: string | null;
 }

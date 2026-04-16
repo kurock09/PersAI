@@ -20,6 +20,8 @@ export type EffectiveToolAvailabilityState = {
     code: string;
     displayName: string;
     description: string | null;
+    modelDescription: string | null;
+    modelUsageGuidance: string | null;
     capabilityGroup: "knowledge" | "automation" | "communication" | "workspace_ops";
     toolClass: "cost_driving" | "utility";
     policyClass: "plan_managed" | "platform_managed" | "hidden_internal";

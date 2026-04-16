@@ -117,6 +117,7 @@ export interface RuntimeToolPolicy {
   toolCode: string;
   displayName: string;
   description: string | null;
+  usageGuidance?: string | null;
   kind: PersaiRuntimeToolKind;
   executionMode: PersaiRuntimeToolExecutionMode;
   usageRule: PersaiRuntimeToolUsageRule;

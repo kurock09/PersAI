@@ -131,10 +131,10 @@ export class ApplyAssistantPublishedVersionService {
           ? { runtimeTier: runtimeAssignment.effectiveTier }
           : {}),
         runtimeBundle: materializedSpec.runtimeBundle,
-        legacyBridge: {
+        adapterPayload: {
           contentHash: materializedSpec.contentHash,
-          bootstrap: materializedSpec.openclawBootstrap,
-          workspace: materializedSpec.openclawWorkspace
+          assistantConfig: materializedSpec.openclawBootstrap,
+          assistantWorkspace: materializedSpec.openclawWorkspace
         },
         reapply
       });

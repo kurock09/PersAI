@@ -480,6 +480,36 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       agents: "",
       heartbeat: "",
       bootstrap: ""
+    },
+    promptConstructor: {
+      ordinary: {
+        sections: {
+          assistantIdentity: "Assistant display name: PersAI",
+          userIdentity: "User display name: Alex",
+          locale: "User locale: en",
+          timezone: "User timezone: UTC",
+          personaInstructions: "Answer as a concise assistant.",
+          soul: "# COMPILED SECTION\nOnly trust compiled prompt constructor output.",
+          user: "# USER\nBe mindful of user context.",
+          identity: "# IDENTITY\nYou are PersAI.",
+          tools:
+            "# TOOL RUNTIME\nsummarize_context\ncompact_context\nquota_status\nknowledge_search\nknowledge_fetch",
+          agents: "",
+          heartbeat: ""
+        },
+        systemPrompt: [
+          "Assistant display name: PersAI",
+          "User display name: Alex",
+          "User locale: en",
+          "User timezone: UTC",
+          "Answer as a concise assistant.",
+          "# COMPILED SECTION\nOnly trust compiled prompt constructor output.",
+          "# TOOL RUNTIME\nsummarize_context\ncompact_context\nquota_status\nknowledge_search\nknowledge_fetch"
+        ].join("\n\n")
+      },
+      onboarding: {
+        firstTurnPrompt: "Introduce yourself naturally."
+      }
     }
   });
 
@@ -1289,6 +1319,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ]
   );
   assert.equal(providerGatewayClient.calls[0]?.toolChoice, "auto");
+  assert.match(
+    providerGatewayClient.calls[0]?.systemPrompt ?? "",
+    /Only trust compiled prompt constructor output/
+  );
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /summarize_context/);
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /compact_context/);
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /quota_status/);
@@ -1766,6 +1800,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "knowledge_search",
       "knowledge_fetch"
     ]
+  );
+  assert.match(
+    providerGatewayClient.streamCalls[0]?.systemPrompt ?? "",
+    /Only trust compiled prompt constructor output/
   );
   assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /summarize_context/);
   assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /compact_context/);

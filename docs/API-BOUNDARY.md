@@ -247,8 +247,8 @@ Behavior baseline:
     - `algorithmVersion`
     - `contentHash`
     - `generatedAt`
-    - `openclawBootstrapDocument`
-    - `openclawWorkspaceDocument`
+    - `assistantConfigDocument`
+    - `assistantWorkspaceDocument`
   - `createdAt`, `updatedAt`
 - returns not found if assistant has not been created yet
 
@@ -1108,6 +1108,85 @@ Behavior baseline:
   - tool credential refs are emitted into the materialized native runtime bundle during the next materialization/apply, with `tool_image_generate` reused for `image_generate`, `image_edit`, and `video_generate`
   - plan-controlled `videoGenerateModelKey` is materialized separately onto the server-owned native bundle seam `toolCredentialRefs.video_generate.modelKey`; the tool still reuses the shared `tool_image_generate` secret ref instead of creating a second video-specific credential slot
   - OpenClaw resolves tool credentials through the same `POST /api/v1/internal/runtime/provider-secrets/resolve` endpoint
+
+## ADR-072 Step 15b prompt-constructor admin boundary
+
+### GET /api/v1/admin/prompt-templates
+
+- authenticated caller only
+- requires admin read role:
+  - `ops_admin|business_admin|security_admin|super_admin`
+  - or legacy owner fallback
+- returns editable prompt-template rows (`id`, `template`, `updatedAt`) for runtime prompt construction
+- required template ids in steady-state:
+  - `soul`
+  - `user`
+  - `identity`
+  - `agents`
+  - `tools`
+  - `heartbeat`
+  - `bootstrap`
+- behavior:
+  - when one or more default template ids are missing in DB, backend seeds only the missing ids and preserves edited rows
+  - this endpoint is the canonical admin prompt-constructor read surface; no compatibility alias path is required
+
+### PATCH /api/v1/admin/prompt-templates/{id}
+
+- authenticated caller only
+- requires dangerous-action role (`ops_admin|super_admin`) or legacy owner fallback
+- request body:
+  - `template` non-empty string
+- behavior:
+  - `id` must be one of the canonical template ids listed above
+  - update uses idempotent upsert semantics to avoid write failures on partially-seeded environments
+  - bumps `configGeneration` via the existing config-generation invalidation flow
+
+### GET /api/v1/admin/tools/metadata
+
+- authenticated caller only
+- requires admin read role:
+  - `ops_admin|business_admin|security_admin|super_admin`
+  - or legacy owner fallback
+- returns per-tool model-facing metadata rows:
+  - `toolCode`
+  - `displayName`
+  - `description`
+  - `modelDescription`
+  - `modelUsageGuidance`
+  - `toolClass`
+  - `capabilityGroup`
+  - `policyClass`
+  - `catalogStatus`
+- behavior:
+  - this is the admin-owned source of truth for tool wording injected into compiled prompt construction and provider-facing native tool definitions
+  - metadata is stored inside the canonical tool catalog domain, not a second disconnected tool-description store
+
+### PATCH /api/v1/admin/tools/metadata/{toolCode}
+
+- authenticated caller only
+- requires dangerous-action role (`ops_admin|super_admin`) or legacy owner fallback
+- request body:
+  - `modelDescription` optional string or null
+  - `modelUsageGuidance` optional string or null
+- behavior:
+  - patching either field updates tool prompt metadata for that tool row and bumps `configGeneration`
+  - runtime tool projection must source model-facing description text from this admin-owned metadata whenever a tool policy exists
+
+### Runtime materialization ownership rule
+
+- the following prompt sections must be loaded from prompt-template storage (fallback to code defaults only if storage read fails):
+  - `soulDocument`
+  - `userDocument`
+  - `identityDocument`
+  - `agentsDocument`
+  - `toolsDocument`
+  - `heartbeatDocument`
+  - `bootstrapDocument`
+- Step 15b target rule:
+  - runtime-relevant prompt guidance cannot stay hidden as hardcoded-only sections once the constructor surface exists
+  - first-turn/recreate bootstrap greeting and ordinary turn prompt sections are both explicit admin-owned templates with separate ids
+  - ordinary native system prompt assembly is now compiled in API and shipped in the runtime bundle as structured `promptConstructor` output
+  - setup preview, publish, rollback, and reapply must all consume the same compiled prompt-constructor output instead of local ad hoc prompt assembly
 
 ## Step 12 H1b global runtime provider settings
 

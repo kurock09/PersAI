@@ -34,10 +34,10 @@ async function run(): Promise<void> {
     publishedVersionId: "pub-1",
     runtimeTier: "paid_shared_restricted",
     runtimeBundle: { schema: "persai.runtime.bundle.v1" },
-    legacyBridge: {
+    adapterPayload: {
       contentHash: "hash-1",
-      bootstrap: { bootstrap: true },
-      workspace: { workspace: true }
+      assistantConfig: { bootstrap: true },
+      assistantWorkspace: { workspace: true }
     },
     reapply: true
   });
@@ -57,9 +57,9 @@ async function run(): Promise<void> {
     runtimeTier: "free_shared_restricted",
     userMessage: "hello",
     runtimeBundle: { schema: "persai.runtime.bundle.v1" },
-    legacyBridge: {
-      bootstrap: { preview: true },
-      workspace: { temp: true }
+    adapterPayload: {
+      assistantConfig: { preview: true },
+      assistantWorkspace: { temp: true }
     },
     userTimezone: "UTC",
     currentTimeIso: "2026-04-10T12:00:00.000Z"

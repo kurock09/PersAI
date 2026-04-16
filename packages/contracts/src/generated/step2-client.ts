@@ -32,7 +32,9 @@ import type {
   GetAdminPlanVisibilityResponse,
   GetAdminPlansResponse,
   GetAdminPlatformRolloutsResponse,
+  GetAdminPromptTemplatesResponse,
   GetAdminRuntimeProviderSettingsResponse,
+  GetAdminToolPromptMetadataResponse,
   GetAssistantKnowledgeSourceResponse,
   GetAssistantKnowledgeSourcesResponse,
   GetAssistantMemoryItemsResponse,
@@ -49,6 +51,10 @@ import type {
   OnboardingRequest,
   PatchAdminNotificationWebhookChannelRequest,
   PatchAdminNotificationWebhookChannelResponse,
+  PatchAdminPromptTemplateRequest,
+  PatchAdminPromptTemplateResponse,
+  PatchAdminToolPromptMetadataRequest,
+  PatchAdminToolPromptMetadataResponse,
   PostAdminAbuseUnblockResponse,
   PostAdminAssistantOwnershipResponse,
   PostAdminOpsUserPlanOverrideParams,
@@ -3078,6 +3084,246 @@ export const putAdminRuntimeProviderSettings = async (
       method: "PUT",
       headers: { "Content-Type": "application/json", ...options?.headers },
       body: JSON.stringify(adminRuntimeProviderSettingsRequest)
+    }
+  );
+};
+
+/**
+ * @summary List admin-owned prompt constructor templates
+ */
+export type getAdminPromptTemplatesResponse200 = {
+  data: GetAdminPromptTemplatesResponse;
+  status: 200;
+};
+
+export type getAdminPromptTemplatesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminPromptTemplatesResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminPromptTemplatesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminPromptTemplatesResponseSuccess = getAdminPromptTemplatesResponse200 & {
+  headers: Headers;
+};
+export type getAdminPromptTemplatesResponseError = (
+  | getAdminPromptTemplatesResponse401
+  | getAdminPromptTemplatesResponse403
+  | getAdminPromptTemplatesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminPromptTemplatesResponse =
+  | getAdminPromptTemplatesResponseSuccess
+  | getAdminPromptTemplatesResponseError;
+
+export const getGetAdminPromptTemplatesUrl = () => {
+  return `/admin/prompt-templates`;
+};
+
+export const getAdminPromptTemplates = async (
+  options?: RequestInit
+): Promise<getAdminPromptTemplatesResponse> => {
+  return customFetch<getAdminPromptTemplatesResponse>(getGetAdminPromptTemplatesUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Update one prompt constructor template
+ */
+export type patchAdminPromptTemplateResponse200 = {
+  data: PatchAdminPromptTemplateResponse;
+  status: 200;
+};
+
+export type patchAdminPromptTemplateResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchAdminPromptTemplateResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type patchAdminPromptTemplateResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type patchAdminPromptTemplateResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type patchAdminPromptTemplateResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type patchAdminPromptTemplateResponseSuccess = patchAdminPromptTemplateResponse200 & {
+  headers: Headers;
+};
+export type patchAdminPromptTemplateResponseError = (
+  | patchAdminPromptTemplateResponse400
+  | patchAdminPromptTemplateResponse401
+  | patchAdminPromptTemplateResponse403
+  | patchAdminPromptTemplateResponse404
+  | patchAdminPromptTemplateResponse500
+) & {
+  headers: Headers;
+};
+
+export type patchAdminPromptTemplateResponse =
+  | patchAdminPromptTemplateResponseSuccess
+  | patchAdminPromptTemplateResponseError;
+
+export const getPatchAdminPromptTemplateUrl = (id: string) => {
+  return `/admin/prompt-templates/${id}`;
+};
+
+export const patchAdminPromptTemplate = async (
+  id: string,
+  patchAdminPromptTemplateRequest: PatchAdminPromptTemplateRequest,
+  options?: RequestInit
+): Promise<patchAdminPromptTemplateResponse> => {
+  return customFetch<patchAdminPromptTemplateResponse>(getPatchAdminPromptTemplateUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(patchAdminPromptTemplateRequest)
+  });
+};
+
+/**
+ * @summary List model-facing tool descriptions and usage guidance
+ */
+export type getAdminToolPromptMetadataResponse200 = {
+  data: GetAdminToolPromptMetadataResponse;
+  status: 200;
+};
+
+export type getAdminToolPromptMetadataResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminToolPromptMetadataResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminToolPromptMetadataResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminToolPromptMetadataResponseSuccess = getAdminToolPromptMetadataResponse200 & {
+  headers: Headers;
+};
+export type getAdminToolPromptMetadataResponseError = (
+  | getAdminToolPromptMetadataResponse401
+  | getAdminToolPromptMetadataResponse403
+  | getAdminToolPromptMetadataResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminToolPromptMetadataResponse =
+  | getAdminToolPromptMetadataResponseSuccess
+  | getAdminToolPromptMetadataResponseError;
+
+export const getGetAdminToolPromptMetadataUrl = () => {
+  return `/admin/tools/metadata`;
+};
+
+export const getAdminToolPromptMetadata = async (
+  options?: RequestInit
+): Promise<getAdminToolPromptMetadataResponse> => {
+  return customFetch<getAdminToolPromptMetadataResponse>(getGetAdminToolPromptMetadataUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Update model-facing tool description and usage guidance
+ */
+export type patchAdminToolPromptMetadataResponse200 = {
+  data: PatchAdminToolPromptMetadataResponse;
+  status: 200;
+};
+
+export type patchAdminToolPromptMetadataResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchAdminToolPromptMetadataResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type patchAdminToolPromptMetadataResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type patchAdminToolPromptMetadataResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type patchAdminToolPromptMetadataResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type patchAdminToolPromptMetadataResponseSuccess =
+  patchAdminToolPromptMetadataResponse200 & {
+    headers: Headers;
+  };
+export type patchAdminToolPromptMetadataResponseError = (
+  | patchAdminToolPromptMetadataResponse400
+  | patchAdminToolPromptMetadataResponse401
+  | patchAdminToolPromptMetadataResponse403
+  | patchAdminToolPromptMetadataResponse404
+  | patchAdminToolPromptMetadataResponse500
+) & {
+  headers: Headers;
+};
+
+export type patchAdminToolPromptMetadataResponse =
+  | patchAdminToolPromptMetadataResponseSuccess
+  | patchAdminToolPromptMetadataResponseError;
+
+export const getPatchAdminToolPromptMetadataUrl = (toolCode: string) => {
+  return `/admin/tools/metadata/${toolCode}`;
+};
+
+export const patchAdminToolPromptMetadata = async (
+  toolCode: string,
+  patchAdminToolPromptMetadataRequest: PatchAdminToolPromptMetadataRequest,
+  options?: RequestInit
+): Promise<patchAdminToolPromptMetadataResponse> => {
+  return customFetch<patchAdminToolPromptMetadataResponse>(
+    getPatchAdminToolPromptMetadataUrl(toolCode),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(patchAdminToolPromptMetadataRequest)
     }
   );
 };

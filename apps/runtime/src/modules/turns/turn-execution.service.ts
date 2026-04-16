@@ -635,7 +635,7 @@ export class TurnExecutionService {
     return {
       provider: providerSelection.provider,
       model: providerSelection.model,
-      systemPrompt: this.buildSystemPrompt(bundle, projectedTools),
+      systemPrompt: this.buildSystemPrompt(bundle),
       messages,
       ...(projectedTools.tools.length === 0
         ? {}
@@ -646,46 +646,8 @@ export class TurnExecutionService {
     };
   }
 
-  private buildSystemPrompt(
-    bundle: AssistantRuntimeBundle,
-    projectedTools: RuntimeNativeToolProjection
-  ): string | null {
-    const sections = [
-      bundle.persona.displayName === null
-        ? null
-        : `Assistant display name: ${bundle.persona.displayName}`,
-      bundle.userContext.displayName === null
-        ? null
-        : `User display name: ${bundle.userContext.displayName}`,
-      `User locale: ${bundle.userContext.locale}`,
-      `User timezone: ${bundle.userContext.timezone}`,
-      this.normalizeOptionalText(bundle.persona.instructions),
-      this.normalizeOptionalText(bundle.promptDocuments.soul),
-      this.normalizeOptionalText(bundle.promptDocuments.user),
-      this.normalizeOptionalText(bundle.promptDocuments.identity),
-      this.buildToolRuntimeGuidance(projectedTools),
-      this.normalizeOptionalText(bundle.promptDocuments.agents),
-      this.normalizeOptionalText(bundle.promptDocuments.heartbeat)
-    ].filter((section): section is string => section !== null);
-
-    return sections.length === 0 ? null : sections.join("\n\n");
-  }
-
-  private buildToolRuntimeGuidance(projectedTools: RuntimeNativeToolProjection): string {
-    if (projectedTools.tools.length === 0) {
-      return [
-        "Native tool runtime:",
-        "- No model-visible tools are enabled for this turn.",
-        "- Do not claim or invent access to tools that are not declared as machine-readable tools for this request."
-      ].join("\n");
-    }
-
-    return [
-      "Native tool runtime:",
-      "- Use only the machine-readable tools declared for this turn.",
-      "- Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.",
-      ...projectedTools.tools.map((tool) => `- ${tool.name}: ${tool.description}`)
-    ].join("\n");
+  private buildSystemPrompt(bundle: AssistantRuntimeBundle): string | null {
+    return this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt);
   }
 
   private resolveProviderSelection(

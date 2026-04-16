@@ -7,7 +7,7 @@ import {
   STARTER_TRIAL_TOOL_POLICY
 } from "../../../../prisma/tool-catalog-data";
 import { upsertToolCatalogEntry } from "../../../../prisma/tool-catalog-sync";
-import { BOOTSTRAP_PRESET_DEFAULTS } from "../../../../prisma/bootstrap-preset-data";
+import { PROMPT_TEMPLATE_DEFAULTS } from "../../../../prisma/bootstrap-preset-data";
 
 const DEFAULT_PLAN_CODE = "starter_trial";
 
@@ -23,7 +23,7 @@ export class SeedToolCatalogService implements OnModuleInit {
       await this.ensureDefaultPlan();
       await this.syncNonPlanManagedToolPolicyAcrossPlans();
       await this.backfillNullPlanGovernances();
-      await this.syncBootstrapPresets();
+      await this.syncPromptTemplates();
     } catch (err) {
       this.logger.warn(
         `Platform data auto-seed failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`
@@ -32,9 +32,15 @@ export class SeedToolCatalogService implements OnModuleInit {
   }
 
   private async syncToolCatalog(): Promise<void> {
+    const existingRows = await this.prisma.toolCatalogTool.findMany({
+      select: { id: true, providerHints: true }
+    });
+    const providerHintsById = new Map(
+      existingRows.map((row) => [row.id, row.providerHints] as const)
+    );
     let upserted = 0;
     for (const t of TOOL_CATALOG) {
-      await upsertToolCatalogEntry(this.prisma, t);
+      await upsertToolCatalogEntry(this.prisma, t, providerHintsById.get(t.id) ?? null);
       upserted++;
     }
     this.logger.log(`Tool catalog synced: ${upserted} entries`);
@@ -210,17 +216,17 @@ export class SeedToolCatalogService implements OnModuleInit {
     }
   }
 
-  private async syncBootstrapPresets(): Promise<void> {
-    const rows = await this.prisma.bootstrapDocumentPreset.findMany({ select: { id: true } });
+  private async syncPromptTemplates(): Promise<void> {
+    const rows = await this.prisma.promptTemplate.findMany({ select: { id: true } });
     const have = new Set(rows.map((r) => r.id));
     let created = 0;
-    for (const [id, template] of Object.entries(BOOTSTRAP_PRESET_DEFAULTS)) {
+    for (const [id, template] of Object.entries(PROMPT_TEMPLATE_DEFAULTS)) {
       if (have.has(id)) continue;
-      await this.prisma.bootstrapDocumentPreset.create({ data: { id, template } });
+      await this.prisma.promptTemplate.create({ data: { id, template } });
       created++;
     }
     if (created > 0) {
-      this.logger.log(`Bootstrap presets backfilled: ${String(created)} new row(s)`);
+      this.logger.log(`Prompt templates backfilled: ${String(created)} new row(s)`);
     }
   }
 }

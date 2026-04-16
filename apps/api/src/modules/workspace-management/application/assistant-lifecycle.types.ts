@@ -94,8 +94,8 @@ export interface AssistantMaterializationState {
   contentHash: string | null;
   generatedAt: string | null;
   runtimeAssignment: AssistantRuntimeAssignmentState | null;
-  openclawBootstrapDocument: string | null;
-  openclawWorkspaceDocument: string | null;
+  assistantConfigDocument: string | null;
+  assistantWorkspaceDocument: string | null;
 }
 
 export interface AssistantLifecycleState {

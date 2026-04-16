@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
   for (const t of TOOL_CATALOG) {
-    await upsertToolCatalogEntry(prisma, t);
+    await upsertToolCatalogEntry(prisma, t, null);
   }
   console.log(`seed:catalog — upserted ${TOOL_CATALOG.length} tools`);
 }
