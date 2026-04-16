@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
+import {
+  compileAssistantRuntimeBundle,
+  hashAssistantRuntimeBundleDocument
+} from "@persai/runtime-bundle";
 import type { RuntimeConfig } from "@persai/config";
 import type {
   RuntimeBrowserConfig,
@@ -461,6 +464,45 @@ function createWarmInputMissingToolPolicy() {
   };
 }
 
+function createWarmInputQuotaStatusRemap() {
+  const input = createWarmInput(
+    "bundle-quota-remap",
+    "assistant-quota-remap",
+    "version-quota-remap"
+  );
+  const bundleDocument = JSON.parse(input.bundleDocument) as {
+    governance: {
+      toolAvailability: {
+        tools: Array<{ code: string; effectiveActivation: string }>;
+      } | null;
+      toolPolicies: Array<Record<string, unknown>>;
+    };
+  };
+  bundleDocument.governance.toolAvailability = {
+    tools: [{ code: "persai_tool_quota_status", effectiveActivation: "active" }]
+  };
+  bundleDocument.governance.toolPolicies.push({
+    toolCode: "quota_status",
+    displayName: "Quota Status",
+    description: "Read live quota usage.",
+    kind: "system",
+    executionMode: "inline",
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: false,
+    dailyCallLimit: null
+  });
+  return {
+    ...input,
+    bundle: {
+      ...input.bundle,
+      bundleHash: hashAssistantRuntimeBundleDocument(JSON.stringify(bundleDocument))
+    },
+    bundleDocument: JSON.stringify(bundleDocument)
+  };
+}
+
 function createWarmInputInvalidSharedCompaction() {
   const input = createWarmInput(
     "bundle-invalid-shared-compaction",
@@ -598,6 +640,7 @@ export async function runRuntimeBundleRegistryServiceTest(): Promise<void> {
   assert.equal(afterInit.bundleCacheEntries, 0);
 
   registryService.validateWarmBundleInput(createWarmInput("bundle-0", "assistant-0", "version-0"));
+  registryService.validateWarmBundleInput(createWarmInputQuotaStatusRemap());
 
   const warmedOne = registryService.warmBundle(
     createWarmInput("bundle-1", "assistant-1", "version-1")

@@ -182,9 +182,11 @@ export function Sidebar({
           ? t("telegramInvalidToken")
           : t("notConnected");
   const planName = data.plan?.effectivePlan.displayName ?? t("freePlan");
-  const tokenUsage = data.plan?.limits.tokenBudgetPercent ?? 0;
-  const tokenUsed = data.plan?.limits.tokenBudgetUsed ?? 0;
-  const tokenLimit = data.plan?.limits.tokenBudgetLimit ?? null;
+  const tokenBucket =
+    data.plan?.limits.quotaBuckets.find((bucket) => bucket.bucketCode === "token_budget") ?? null;
+  const tokenUsage = tokenBucket?.percent ?? 0;
+  const tokenUsed = tokenBucket?.used ?? 0;
+  const tokenLimit = tokenBucket?.limit ?? null;
 
   return (
     <aside className="flex h-dvh w-[280px] shrink-0 flex-col border-r border-border bg-surface">

@@ -34,6 +34,32 @@ type PlanQuotaHints = {
   workspaceStorageBytesLimit: bigint | null;
 };
 
+export type AssistantQuotaBucketCode =
+  | "token_budget"
+  | "active_web_chats"
+  | "media_storage_bytes"
+  | "knowledge_storage_bytes";
+
+export type AssistantQuotaBucketUnit = "tokens" | "count" | "bytes";
+
+export type AssistantQuotaBucketStatus = "ok" | "limit_reached" | "usage_unavailable";
+
+export type AssistantQuotaBucketSnapshot = {
+  bucketCode: AssistantQuotaBucketCode;
+  displayName: string;
+  unit: AssistantQuotaBucketUnit;
+  used: number | null;
+  limit: number | null;
+  percent: number | null;
+  usageAvailable: boolean;
+  status: AssistantQuotaBucketStatus;
+};
+
+export type AssistantQuotaSnapshot = {
+  planCode: string | null;
+  buckets: AssistantQuotaBucketSnapshot[];
+};
+
 function asObject(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -48,6 +74,46 @@ function asInteger(value: unknown): number | null {
 function asPositiveInteger(value: unknown): number | null {
   const parsed = asInteger(value);
   return parsed === null || parsed === 0 ? null : parsed;
+}
+
+function bigintToNumber(value: bigint | null): number | null {
+  return value === null ? null : Number(value);
+}
+
+function toPercent(used: number, limit: number | null): number | null {
+  if (limit === null || limit <= 0) {
+    return null;
+  }
+  const raw = Math.round((used / limit) * 100);
+  return Math.max(0, Math.min(100, raw));
+}
+
+function buildQuotaBucketSnapshot(input: {
+  bucketCode: AssistantQuotaBucketCode;
+  displayName: string;
+  unit: AssistantQuotaBucketUnit;
+  used: number | null;
+  limit: number | null;
+  usageAvailable: boolean;
+}): AssistantQuotaBucketSnapshot {
+  const percent =
+    input.usageAvailable && input.used !== null ? toPercent(input.used, input.limit) : null;
+  const limitReached =
+    input.usageAvailable &&
+    input.used !== null &&
+    input.limit !== null &&
+    input.limit > 0 &&
+    input.used >= input.limit;
+  return {
+    bucketCode: input.bucketCode,
+    displayName: input.displayName,
+    unit: input.unit,
+    used: input.used,
+    limit: input.limit,
+    percent,
+    usageAvailable: input.usageAvailable,
+    status: !input.usageAvailable ? "usage_unavailable" : limitReached ? "limit_reached" : "ok"
+  };
 }
 
 function readQuotaHintFromLimitsPermissions(
@@ -480,26 +546,59 @@ export class TrackWorkspaceQuotaUsageService {
     return this.resolveLimits(assistant, governance);
   }
 
+  async resolveAssistantQuotaSnapshot(assistant: Assistant): Promise<AssistantQuotaSnapshot> {
+    const governance = await this.resolveGovernance(assistant.id);
+    const quotaContext = await this.resolveQuotaContext(assistant, governance);
+    const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(
+      assistant.workspaceId
+    );
+    const limits = this.buildWorkspaceQuotaLimits(quotaContext.config, quotaContext.planQuotaHints);
+
+    return {
+      planCode: quotaContext.effectiveSubscription.planCode,
+      buckets: [
+        buildQuotaBucketSnapshot({
+          bucketCode: "token_budget",
+          displayName: "Token budget",
+          unit: "tokens",
+          used: bigintToNumber(quotaState?.tokenBudgetUsed ?? BigInt(0)),
+          limit: bigintToNumber(limits.tokenBudgetLimit),
+          usageAvailable: true
+        }),
+        buildQuotaBucketSnapshot({
+          bucketCode: "active_web_chats",
+          displayName: "Active web chats",
+          unit: "count",
+          used: quotaState?.activeWebChatsCurrent ?? 0,
+          limit: limits.activeWebChatsLimit,
+          usageAvailable: true
+        }),
+        buildQuotaBucketSnapshot({
+          bucketCode: "media_storage_bytes",
+          displayName: "Media storage",
+          unit: "bytes",
+          used: bigintToNumber(quotaState?.mediaStorageBytesUsed ?? BigInt(0)),
+          limit: bigintToNumber(limits.mediaStorageBytesLimit),
+          usageAvailable: true
+        }),
+        buildQuotaBucketSnapshot({
+          bucketCode: "knowledge_storage_bytes",
+          displayName: "Knowledge storage",
+          unit: "bytes",
+          used: bigintToNumber(quotaState?.knowledgeStorageBytesUsed ?? BigInt(0)),
+          limit: bigintToNumber(limits.knowledgeStorageBytesLimit),
+          usageAvailable: true
+        })
+      ]
+    };
+  }
+
   async resolveWorkspaceStorageLimit(assistant: Assistant): Promise<{ limitBytes: bigint | null }> {
     const governance = await this.resolveGovernance(assistant.id);
-    const effectiveSubscription = await this.resolveEffectiveSubscriptionStateService.execute({
-      userId: assistant.userId,
-      workspaceId: assistant.workspaceId,
-      assistantId: assistant.id,
-      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
-      assistantQuotaPlanCode: governance.quotaPlanCode
-    });
-    const plan =
-      effectiveSubscription.planCode === null
-        ? null
-        : await this.assistantPlanCatalogRepository.findByCode(effectiveSubscription.planCode);
-    const hints = parsePlanQuotaHints(
-      plan?.billingProviderHints ?? null,
-      plan?.entitlementModel?.limitsPermissions
-    );
-    const config = loadApiConfig(process.env);
+    const { config, planQuotaHints } = await this.resolveQuotaContext(assistant, governance);
     const limitBytes =
-      hints.workspaceStorageBytesLimit ?? BigInt(config.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT);
+      planQuotaHints.workspaceStorageBytesLimit ??
+      BigInt(config.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT);
     return { limitBytes };
   }
 
@@ -507,6 +606,18 @@ export class TrackWorkspaceQuotaUsageService {
     assistant: Assistant,
     governance: AssistantGovernance
   ): Promise<WorkspaceQuotaLimitsInput> {
+    const { config, planQuotaHints } = await this.resolveQuotaContext(assistant, governance);
+    return this.buildWorkspaceQuotaLimits(config, planQuotaHints);
+  }
+
+  private async resolveQuotaContext(
+    assistant: Assistant,
+    governance: AssistantGovernance
+  ): Promise<{
+    config: ReturnType<typeof loadApiConfig>;
+    effectiveSubscription: Awaited<ReturnType<ResolveEffectiveSubscriptionStateService["execute"]>>;
+    planQuotaHints: PlanQuotaHints;
+  }> {
     const config = loadApiConfig(process.env);
     const effectiveSubscription = await this.resolveEffectiveSubscriptionStateService.execute({
       userId: assistant.userId,
@@ -515,16 +626,24 @@ export class TrackWorkspaceQuotaUsageService {
       assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
       assistantQuotaPlanCode: governance.quotaPlanCode
     });
-
     const plan =
       effectiveSubscription.planCode === null
         ? null
         : await this.assistantPlanCatalogRepository.findByCode(effectiveSubscription.planCode);
-    const planQuotaHints = parsePlanQuotaHints(
-      plan?.billingProviderHints ?? null,
-      plan?.entitlementModel?.limitsPermissions
-    );
+    return {
+      config,
+      effectiveSubscription,
+      planQuotaHints: parsePlanQuotaHints(
+        plan?.billingProviderHints ?? null,
+        plan?.entitlementModel?.limitsPermissions
+      )
+    };
+  }
 
+  private buildWorkspaceQuotaLimits(
+    config: ReturnType<typeof loadApiConfig>,
+    planQuotaHints: PlanQuotaHints
+  ): WorkspaceQuotaLimitsInput {
     return {
       tokenBudgetLimit:
         planQuotaHints.tokenBudgetLimit ?? BigInt(config.QUOTA_TOKEN_BUDGET_DEFAULT),

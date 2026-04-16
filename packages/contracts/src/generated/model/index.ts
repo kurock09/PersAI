@@ -293,3 +293,6 @@ export * from "./userPlanVisibilityState";
 export * from "./workspaceSummary";
 export * from "./workspaceSummaryRole";
 export * from "./workspaceSummaryStatus";
+export * from "./quotaVisibilityBucketState";
+export * from "./quotaVisibilityBucketStateStatus";
+export * from "./quotaVisibilityBucketStateUnit";

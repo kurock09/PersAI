@@ -71,6 +71,10 @@ export function projectRuntimeNativeTools(
     createCompactContextToolDefinition(bundle),
     createMemoryWriteToolDefinition()
   ];
+  const quotaStatusPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "quota_status");
+  if (quotaStatusPolicy !== null) {
+    projectedTools.push(createQuotaStatusToolDefinition());
+  }
   if (projectedKnowledgeSearchSources.length > 0) {
     projectedTools.push(createKnowledgeSearchToolDefinition(projectedKnowledgeSearchSources));
   }
@@ -214,6 +218,25 @@ function createMemoryWriteToolDefinition(): ProviderGatewayToolDefinition {
           type: "string",
           maxLength: MEMORY_WRITE_MAX_CHARS,
           description: "One concise durable memory statement to store."
+        }
+      }
+    }
+  };
+}
+
+function createQuotaStatusToolDefinition(): ProviderGatewayToolDefinition {
+  return {
+    name: "quota_status",
+    description:
+      "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge quota buckets. Use this when the user asks about remaining usage or whether a quota-governed capability is currently available. Do not use this for factual subscription details; use knowledge_search or knowledge_fetch with source=subscription for plan facts.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        toolCode: {
+          type: "string",
+          description:
+            "Optional tool code to inspect one quota-governed tool. Leave unset to return all daily tool counters plus the current quota bucket snapshot."
         }
       }
     }

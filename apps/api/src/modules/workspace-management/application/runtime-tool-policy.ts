@@ -20,8 +20,15 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   scheduled_action: "worker",
   persai_workspace_attach: "inline",
   persai_tool_quota_status: "inline",
+  quota_status: "inline",
   cron: "worker"
 };
+
+const RUNTIME_TOOL_CODE_BY_INVENTORY_CODE: Record<string, string> = {
+  persai_tool_quota_status: "quota_status"
+};
+
+const MIGRATION_ONLY_MODEL_HIDDEN_TOOLS = new Set(["persai_workspace_attach"]);
 
 function resolveToolKind(
   policyClass: EffectiveToolAvailabilityState["tools"][number]["policyClass"]
@@ -43,6 +50,33 @@ function resolveToolExecutionMode(toolCode: string): RuntimeToolPolicy["executio
   return mode;
 }
 
+function resolveRuntimeToolCode(toolCode: string): string {
+  return RUNTIME_TOOL_CODE_BY_INVENTORY_CODE[toolCode] ?? toolCode;
+}
+
+function resolveRuntimeToolDisplayName(
+  tool: EffectiveToolAvailabilityState["tools"][number],
+  runtimeToolCode: string
+): string {
+  if (runtimeToolCode === "quota_status") {
+    return "Quota Status";
+  }
+  return tool.displayName;
+}
+
+function resolveRuntimeToolDescription(
+  tool: EffectiveToolAvailabilityState["tools"][number],
+  runtimeToolCode: string
+): string | null {
+  if (runtimeToolCode === "quota_status") {
+    return "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge buckets.";
+  }
+  if (MIGRATION_ONLY_MODEL_HIDDEN_TOOLS.has(tool.code)) {
+    return "Migration-only inventory entry. Step 15 does not expose raw path-based workspace attachment to the model.";
+  }
+  return tool.description;
+}
+
 export function resolveRuntimeToolPolicies(params: {
   tools: EffectiveToolAvailabilityState["tools"];
   planToolQuotaPolicy: ToolQuotaPolicyEntry[];
@@ -53,13 +87,15 @@ export function resolveRuntimeToolPolicies(params: {
 
   return params.tools.map((tool) => {
     const kind = resolveToolKind(tool.policyClass);
-    const enabled = tool.effectiveActivation === "active";
+    const runtimeToolCode = resolveRuntimeToolCode(tool.code);
+    const enabled =
+      tool.effectiveActivation === "active" && !MIGRATION_ONLY_MODEL_HIDDEN_TOOLS.has(tool.code);
     return {
-      toolCode: tool.code,
-      displayName: tool.displayName,
-      description: tool.description,
+      toolCode: runtimeToolCode,
+      displayName: resolveRuntimeToolDisplayName(tool, runtimeToolCode),
+      description: resolveRuntimeToolDescription(tool, runtimeToolCode),
       kind,
-      executionMode: resolveToolExecutionMode(tool.code),
+      executionMode: resolveToolExecutionMode(runtimeToolCode),
       usageRule: enabled && kind !== "internal" ? "allowed" : "forbidden",
       enabled,
       visibleToModel: kind !== "internal" && enabled,
@@ -78,10 +114,10 @@ function buildToolLine(tool: RuntimeToolPolicy, details: string): string {
 export function buildRuntimeToolPoliciesMarkdown(toolPolicies: RuntimeToolPolicy[]): string {
   const lines: string[] = [];
   const activePlanTools = toolPolicies.filter((tool) => tool.kind === "plan" && tool.enabled);
-  const activeSystemTools = toolPolicies.filter((tool) => tool.kind === "system" && tool.enabled);
-  const disabledVisibleTools = toolPolicies.filter(
-    (tool) => tool.kind !== "internal" && !tool.enabled
+  const activeSystemTools = toolPolicies.filter(
+    (tool) => tool.kind === "system" && tool.enabled && tool.visibleToModel
   );
+  const disabledVisibleTools = toolPolicies.filter((tool) => tool.kind === "plan" && !tool.enabled);
 
   if (activePlanTools.length > 0) {
     lines.push("## Active Plan Tools");
@@ -132,10 +168,7 @@ export function buildRuntimeToolPoliciesMarkdown(toolPolicies: RuntimeToolPolicy
   );
   lines.push("- Daily caps above are plan limits only, not remaining usage for today.");
   lines.push(
-    "- Do not infer exhaustion from earlier messages; plans and counters change. When the user asks about remaining quota, call the `persai_tool_quota_status` tool first."
-  );
-  lines.push(
-    "- To attach an existing workspace file to the chat (image, document, audio, video) without loading file bytes into context, call `persai_workspace_attach` with a path relative to the workspace root."
+    "- Do not infer exhaustion from earlier messages; plans and counters change. When the user asks about remaining quota, storage pressure, or whether a quota-governed tool is currently available, call the `quota_status` tool first."
   );
   lines.push("");
 

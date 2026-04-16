@@ -26,6 +26,7 @@ import {
   type RuntimeKnowledgeFetchToolResult,
   type RuntimeKnowledgeSearchToolResult,
   type RuntimeMemoryWriteToolResult,
+  type RuntimeQuotaStatusToolResult,
   type RuntimeBrowserToolResult,
   type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
@@ -59,6 +60,7 @@ import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
+import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
@@ -105,6 +107,7 @@ type ToolExecutionOutcome = {
     | RuntimeKnowledgeSearchToolResult
     | RuntimeKnowledgeFetchToolResult
     | RuntimeMemoryWriteToolResult
+    | RuntimeQuotaStatusToolResult
     | RuntimeBrowserToolResult
     | RuntimeImageEditToolResult
     | RuntimeImageGenerateToolResult
@@ -141,6 +144,7 @@ const WEB_FETCH_DEFAULT_EXTRACT_MODE: PersaiRuntimeWebFetchExtractMode = "markdo
 const WEB_FETCH_MIN_MAX_CHARS = 100;
 const WEB_FETCH_MAX_MAX_CHARS = 50_000;
 const MEMORY_WRITE_TOOL_CODE = "memory_write";
+const QUOTA_STATUS_TOOL_CODE = "quota_status";
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
 const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
@@ -164,6 +168,7 @@ export class TurnExecutionService {
     private readonly runtimeImageGenerateToolService: RuntimeImageGenerateToolService,
     private readonly runtimeKnowledgeToolService: RuntimeKnowledgeToolService,
     private readonly runtimeMemoryWriteToolService: RuntimeMemoryWriteToolService,
+    private readonly runtimeQuotaStatusToolService: RuntimeQuotaStatusToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
     private readonly runtimeTtsToolService: RuntimeTtsToolService,
     private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService
@@ -919,6 +924,13 @@ export class TurnExecutionService {
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
+      case QUOTA_STATUS_TOOL_CODE: {
+        const result = await this.runtimeQuotaStatusToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
       case WEB_SEARCH_TOOL_CODE:
         return this.executeWebSearchTool(execution, toolCall);
       case WEB_FETCH_TOOL_CODE:
@@ -1299,6 +1311,7 @@ export class TurnExecutionService {
       | RuntimeKnowledgeSearchToolResult
       | RuntimeKnowledgeFetchToolResult
       | RuntimeMemoryWriteToolResult
+      | RuntimeQuotaStatusToolResult
       | RuntimeBrowserToolResult
       | RuntimeImageEditToolResult
       | RuntimeImageGenerateToolResult

@@ -15,6 +15,7 @@ import { runTurnExecutionServiceTest } from "./turn-execution.service.test";
 import { runTurnFinalizationServiceTest } from "./turn-finalization.service.test";
 import { runTurnLeaseHeartbeatServiceTest } from "./turn-lease-heartbeat.service.test";
 import { runRuntimeMediaTranscriptionServiceTest } from "./runtime-media-transcription.service.test";
+import { runRuntimeQuotaStatusToolServiceTest } from "./runtime-quota-status-tool.service.test";
 import { runRuntimeTtsToolServiceTest } from "./runtime-tts-tool.service.test";
 import { runRuntimeVideoGenerateToolServiceTest } from "./runtime-video-generate-tool.service.test";
 
@@ -27,6 +28,7 @@ async function run(): Promise<void> {
   await runRuntimeStateRedisServiceTest();
   await runProviderGatewayClientServiceTest();
   await runRuntimeMediaTranscriptionServiceTest();
+  await runRuntimeQuotaStatusToolServiceTest();
   await runRuntimeTtsToolServiceTest();
   await runRuntimeVideoGenerateToolServiceTest();
   await runSessionStoreServiceTest();

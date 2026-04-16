@@ -65,7 +65,7 @@ const PRESET_META: Record<
     variables: [
       {
         key: "tools_catalog_block",
-        hint: "Required. Generated from the current plan: Active/Disabled tools, daily limits, Live usage (persai_tool_quota_status)"
+        hint: "Required. Generated from the current plan: Active/Disabled tools, daily limits, Live usage (quota_status)"
       }
     ]
   }
@@ -103,7 +103,7 @@ const SAMPLE_VARIABLES: Record<string, string> = {
 ## Live usage
 
 - Daily caps above are plan limits only, not remaining usage for today.
-- When the user asks about remaining quota, call the \`persai_tool_quota_status\` tool first.`
+- When the user asks about remaining quota, call the \`quota_status\` tool first.`
 };
 
 function interpolatePreview(template: string): string {

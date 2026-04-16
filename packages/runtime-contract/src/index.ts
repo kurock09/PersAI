@@ -361,6 +361,37 @@ export interface RuntimeMemoryWriteToolResult {
   warning: string | null;
 }
 
+export interface RuntimeQuotaStatusToolRow {
+  toolCode: string;
+  activationStatus: string;
+  dailyCallLimit: number | null;
+  currentCount: number;
+  allowed: boolean;
+}
+
+export interface RuntimeQuotaStatusBucket {
+  bucketCode: string;
+  displayName: string;
+  unit: "tokens" | "count" | "bytes";
+  used: number | null;
+  limit: number | null;
+  percent: number | null;
+  usageAvailable: boolean;
+  status: "ok" | "limit_reached" | "usage_unavailable";
+}
+
+export interface RuntimeQuotaStatusToolResult {
+  toolCode: "quota_status";
+  executionMode: "inline";
+  requestedToolCode: string | null;
+  planCode: string | null;
+  tools: RuntimeQuotaStatusToolRow[];
+  buckets: RuntimeQuotaStatusBucket[];
+  action: "reported" | "skipped";
+  reason: string | null;
+  warning: string | null;
+}
+
 export const PERSAI_RUNTIME_WORKER_TOOL_FAMILIES = [
   "browser_interaction",
   "media_generation",

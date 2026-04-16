@@ -18,7 +18,38 @@ async function run(): Promise<void> {
         return { ok: true, currentCount: 2, limit: 3 };
       }
     } as never,
-    {} as never
+    {
+      parseInput(body: unknown) {
+        return body as { assistantId: string; toolCode?: string };
+      },
+      async execute() {
+        return {
+          ok: true,
+          planCode: "pro",
+          tools: [
+            {
+              toolCode: "web_search",
+              activationStatus: "active",
+              dailyCallLimit: 3,
+              currentCount: 2,
+              allowed: true
+            }
+          ],
+          buckets: [
+            {
+              bucketCode: "token_budget",
+              displayName: "Token budget",
+              unit: "tokens",
+              used: 1250,
+              limit: 5000,
+              percent: 25,
+              usageAvailable: true,
+              status: "ok"
+            }
+          ]
+        };
+      }
+    } as never
   );
 
   const success = await successController.consumeToolDailyLimit(
@@ -30,6 +61,15 @@ async function run(): Promise<void> {
     currentCount: 2,
     limit: 3
   });
+
+  const check = await successController.checkToolDailyQuota(
+    { headers: { authorization: "Bearer gateway-token" } },
+    { assistantId: "assistant-1", toolCode: "web_search" }
+  );
+  assert.equal(check.planCode, "pro");
+  assert.equal(check.tools[0]?.toolCode, "web_search");
+  assert.equal(check.buckets[0]?.bucketCode, "token_budget");
+  assert.equal(check.buckets.length, 1);
 
   const deniedController = new InternalRuntimeToolQuotaController(
     {
@@ -44,7 +84,14 @@ async function run(): Promise<void> {
         });
       }
     } as never,
-    {} as never
+    {
+      parseInput(body: unknown) {
+        return body as { assistantId: string; toolCode?: string };
+      },
+      async execute() {
+        return { ok: true, planCode: null, tools: [], buckets: [] };
+      }
+    } as never
   );
 
   await assert.rejects(

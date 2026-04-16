@@ -8,6 +8,7 @@ async function run(): Promise<void> {
   process.env.CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY ?? "sk_test_1234567890123456";
   process.env.PERSAI_INTERNAL_API_TOKEN =
     process.env.PERSAI_INTERNAL_API_TOKEN ?? "internal-token-1234567890";
+  let adminAuthCalls = 0;
 
   const service = new ResolvePlanVisibilityService(
     {
@@ -108,20 +109,60 @@ async function run(): Promise<void> {
           createdAt: new Date(),
           updatedAt: new Date()
         };
-      }
-    } as never,
-    {
-      async findByWorkspaceId(workspaceId: string) {
-        assert.equal(workspaceId, "ws-1");
-        return {
-          workspaceId,
-          tokenBudgetUsed: BigInt(1250),
-          costOrTokenDrivingToolClassUnitsUsed: 0,
-          activeWebChatsCurrent: 2,
-          tokenBudgetLimit: BigInt(5000),
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
+      },
+      async listAll() {
+        return [
+          {
+            id: "plan-free",
+            code: "free",
+            displayName: "Free",
+            description: null,
+            status: "inactive",
+            billingProviderHints: null,
+            entitlementModel: null,
+            toolActivations: [],
+            isDefaultFirstRegistrationPlan: true,
+            isTrialPlan: false,
+            trialDurationDays: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          },
+          {
+            id: "plan-1",
+            code: "pro",
+            displayName: "Pro",
+            description: null,
+            status: "active",
+            billingProviderHints: {
+              quotaAccounting: {
+                tokenBudgetLimit: 5000
+              }
+            },
+            entitlementModel: {
+              schemaVersion: 1,
+              capabilities: [],
+              toolClasses: [],
+              channelsAndSurfaces: [],
+              mediaClasses: [],
+              limitsPermissions: []
+            },
+            toolActivations: [
+              {
+                toolCode: "memory_search",
+                displayName: "Memory Search",
+                toolClass: "utility",
+                policyClass: "plan_managed",
+                activationStatus: "active",
+                dailyCallLimit: 25
+              }
+            ],
+            isDefaultFirstRegistrationPlan: false,
+            isTrialPlan: false,
+            trialDurationDays: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        ];
       }
     } as never,
     {
@@ -180,6 +221,55 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async resolveAssistantQuotaSnapshot(assistant: { id: string; workspaceId: string }) {
+        assert.equal(assistant.id, "assistant-1");
+        assert.equal(assistant.workspaceId, "ws-1");
+        return {
+          planCode: "pro",
+          buckets: [
+            {
+              bucketCode: "token_budget",
+              displayName: "Token budget",
+              unit: "tokens",
+              used: 1250,
+              limit: 5000,
+              percent: 25,
+              usageAvailable: true,
+              status: "ok"
+            },
+            {
+              bucketCode: "active_web_chats",
+              displayName: "Active web chats",
+              unit: "count",
+              used: 2,
+              limit: 5,
+              percent: 40,
+              usageAvailable: true,
+              status: "ok"
+            },
+            {
+              bucketCode: "media_storage_bytes",
+              displayName: "Media storage",
+              unit: "bytes",
+              used: 2048,
+              limit: 8192,
+              percent: 25,
+              usageAvailable: true,
+              status: "ok"
+            },
+            {
+              bucketCode: "knowledge_storage_bytes",
+              displayName: "Knowledge storage",
+              unit: "bytes",
+              used: 1024,
+              limit: 4096,
+              percent: 25,
+              usageAvailable: true,
+              status: "ok"
+            }
+          ]
+        };
+      },
       async checkToolDailyLimit(params: {
         workspaceId: string;
         toolCode: string;
@@ -193,8 +283,9 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async assertCanReadAdminSurface() {
-        throw new Error("admin auth should not be used for user visibility");
+      async assertCanReadAdminSurface(userId: string) {
+        adminAuthCalls += 1;
+        assert.equal(userId, "user-1");
       }
     } as never
   );
@@ -205,12 +296,17 @@ async function run(): Promise<void> {
   assert.equal(visibility.effectivePlan.displayName, "Pro");
   assert.equal(visibility.entitlements.channelsAndSurfaces.telegram, true);
   assert.equal(visibility.entitlements.channelsAndSurfaces.whatsapp, false);
-  assert.equal(visibility.limits.tokenBudgetUsed, 1250);
-  assert.equal(visibility.limits.tokenBudgetLimit, 5000);
-  assert.equal(visibility.limits.tokenBudgetPercent, 25);
-  assert.equal(visibility.limits.activeWebChatsUsed, 2);
-  assert.equal(typeof visibility.limits.activeWebChatsLimit, "number");
-  assert.ok((visibility.limits.activeWebChatsLimit ?? 0) > 0);
+  assert.equal(visibility.limits.quotaBuckets.length, 4);
+  assert.deepEqual(visibility.limits.quotaBuckets[0], {
+    bucketCode: "token_budget",
+    displayName: "Token budget",
+    unit: "tokens",
+    used: 1250,
+    limit: 5000,
+    percent: 25,
+    usageAvailable: true,
+    status: "ok"
+  });
   assert.equal(visibility.limits.toolDailyLimits.length, 1);
   assert.deepEqual(visibility.limits.toolDailyLimits[0], {
     toolCode: "memory_search",
@@ -219,6 +315,21 @@ async function run(): Promise<void> {
     dailyCallsUsed: 3,
     active: true
   });
+
+  const adminVisibility = await service.getAdminVisibility("user-1");
+  assert.equal(adminAuthCalls, 1);
+  assert.equal(adminVisibility.planState.effectivePlanCode, "pro");
+  assert.equal(adminVisibility.planState.defaultRegistrationPlanCode, "free");
+  assert.equal(adminVisibility.planState.totalPlans, 2);
+  assert.equal(adminVisibility.planState.activePlans, 1);
+  assert.equal(adminVisibility.planState.inactivePlans, 1);
+  assert.equal(adminVisibility.usagePressure.tokenBudgetPercent, 25);
+  assert.equal(adminVisibility.usagePressure.activeWebChatsPercent, 40);
+  assert.equal(adminVisibility.usagePressure.mediaStorageBytesPercent, 25);
+  assert.equal(adminVisibility.usagePressure.knowledgeStorageBytesPercent, 25);
+  assert.equal(adminVisibility.usagePressure.pressureLevel, "low");
+  assert.equal(adminVisibility.quotaBuckets.length, 4);
+  assert.equal(adminVisibility.effectiveEntitlements?.channelsAndSurfaces.telegram, true);
 }
 
 void run();

@@ -17,5 +17,15 @@ export interface AdminPlanVisibilityUsagePressure {
    * @maximum 100
    */
   activeWebChatsPercent: number;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  mediaStorageBytesPercent: number;
+  /**
+   * @minimum 0
+   * @maximum 100
+   */
+  knowledgeStorageBytesPercent: number;
   pressureLevel: AdminPlanVisibilityUsagePressurePressureLevel;
 }

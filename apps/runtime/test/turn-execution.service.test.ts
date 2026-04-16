@@ -38,6 +38,7 @@ import type {
 } from "../src/modules/turns/turn-acceptance.service";
 import type {
   ConsumeToolDailyLimitOutcome,
+  InternalQuotaStatusOutcome,
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeBrowserToolService } from "../src/modules/turns/runtime-browser-tool.service";
@@ -45,6 +46,7 @@ import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeKnowledgeToolService } from "../src/modules/turns/runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "../src/modules/turns/runtime-memory-write-tool.service";
+import { RuntimeQuotaStatusToolService } from "../src/modules/turns/runtime-quota-status-tool.service";
 import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
@@ -425,15 +427,15 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           description: "Attach an existing workspace file.",
           kind: "system",
           executionMode: "inline",
-          usageRule: "allowed",
-          enabled: true,
-          visibleToModel: true,
+          usageRule: "forbidden",
+          enabled: false,
+          visibleToModel: false,
           visibleInPlanEditor: false,
           dailyCallLimit: null
         },
         {
-          toolCode: "persai_tool_quota_status",
-          displayName: "Tool Quota Status",
+          toolCode: "quota_status",
+          displayName: "Quota Status",
           description: "Read live quota usage.",
           kind: "system",
           executionMode: "inline",
@@ -474,8 +476,7 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       soul: "# SOUL\nStay on mission.",
       user: "# USER\nBe mindful of user context.",
       identity: "# IDENTITY\nYou are PersAI.",
-      tools:
-        "# TOOLS.md\n- web_search\n- memory_search\n- persai_workspace_attach\n- persai_tool_quota_status",
+      tools: "# TOOLS.md\n- web_search\n- memory_search\n- quota_status",
       agents: "",
       heartbeat: "",
       bootstrap: ""
@@ -897,6 +898,7 @@ class FakeTurnFinalizationService {
 
 class FakePersaiInternalApiClientService {
   consumeCalls: Array<{ assistantId: string; toolCode: string; dailyCallLimit: number }> = [];
+  quotaStatusCalls: Array<Record<string, unknown>> = [];
   reminderTaskListCalls: string[] = [];
   reminderTaskControlCalls: Array<Record<string, unknown>> = [];
   memoryWriteCalls: Array<Record<string, unknown>> = [];
@@ -943,6 +945,31 @@ class FakePersaiInternalApiClientService {
       chatId: null
     }
   };
+  quotaStatusOutcome: InternalQuotaStatusOutcome = {
+    planCode: "paid",
+    tools: [
+      {
+        toolCode: "web_search",
+        activationStatus: "active",
+        dailyCallLimit: 10,
+        currentCount: 1,
+        allowed: true
+      }
+    ],
+    buckets: [
+      {
+        bucketCode: "token_budget",
+        displayName: "Token budget",
+        unit: "tokens",
+        used: 1200,
+        limit: 5000,
+        percent: 24,
+        usageAvailable: true,
+        status: "ok"
+      }
+    ]
+  };
+  quotaStatusError: Error | null = null;
 
   async consumeToolDailyLimit(input: {
     assistantId: string;
@@ -954,6 +981,14 @@ class FakePersaiInternalApiClientService {
       throw this.error;
     }
     return this.consumeOutcome;
+  }
+
+  async readQuotaStatus(input: Record<string, unknown>) {
+    this.quotaStatusCalls.push(input);
+    if (this.quotaStatusError !== null) {
+      throw this.quotaStatusError;
+    }
+    return this.quotaStatusOutcome;
   }
 
   async listScheduledActions(assistantId: string) {
@@ -1189,6 +1224,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeMemoryWriteToolService = new RuntimeMemoryWriteToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
+  const runtimeQuotaStatusToolService = new RuntimeQuotaStatusToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
   const runtimeVideoGenerateToolService = new RuntimeVideoGenerateToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
@@ -1215,6 +1253,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeImageGenerateToolService,
     runtimeKnowledgeToolService,
     runtimeMemoryWriteToolService,
+    runtimeQuotaStatusToolService,
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService
@@ -1240,11 +1279,19 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   });
   assert.deepEqual(
     providerGatewayClient.calls[0]?.tools?.map((tool) => tool.name),
-    ["summarize_context", "compact_context", "memory_write", "knowledge_search", "knowledge_fetch"]
+    [
+      "summarize_context",
+      "compact_context",
+      "memory_write",
+      "quota_status",
+      "knowledge_search",
+      "knowledge_fetch"
+    ]
   );
   assert.equal(providerGatewayClient.calls[0]?.toolChoice, "auto");
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /summarize_context/);
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /compact_context/);
+  assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /quota_status/);
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /knowledge_search/);
   assert.match(providerGatewayClient.calls[0]?.systemPrompt ?? "", /knowledge_fetch/);
   assert.doesNotMatch(
@@ -1309,6 +1356,61 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   };
   assert.equal(memoryWriteToolHistory.action, "remembered");
   assert.equal(memoryWriteToolHistory.requestedKind, "preference");
+  await flushTaskQueue();
+  assert.equal(sessionCompactionService.calls.length, 0);
+
+  const quotaStatusRequest = createRuntimeTurnRequest();
+  quotaStatusRequest.bundle.bundleHash = request.bundle.bundleHash;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt: "2026-04-11T12:00:03.100Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-quota-status-1",
+          name: "quota_status",
+          arguments: {
+            toolCode: "web_search"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after quota status",
+      respondedAt: "2026-04-11T12:00:03.400Z",
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const quotaStatusCompleted = await service.createTurn(quotaStatusRequest);
+  assert.equal(quotaStatusCompleted.assistantText, "reply after quota status");
+  assert.deepEqual(persaiInternalApiClientService.quotaStatusCalls.at(-1), {
+    assistantId: "assistant-1",
+    toolCode: "web_search"
+  });
+  const quotaStatusToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    requestedToolCode?: string | null;
+    tools?: Array<{ toolCode?: string }>;
+    buckets?: Array<{ bucketCode?: string; status?: string }>;
+  };
+  assert.equal(quotaStatusToolHistory.action, "reported");
+  assert.equal(quotaStatusToolHistory.requestedToolCode, "web_search");
+  assert.equal(quotaStatusToolHistory.tools?.[0]?.toolCode, "web_search");
+  assert.equal(quotaStatusToolHistory.buckets?.[0]?.bucketCode, "token_budget");
+  assert.equal(quotaStatusToolHistory.buckets?.length, 1);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
@@ -1656,10 +1758,18 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   });
   assert.deepEqual(
     providerGatewayClient.streamCalls[0]?.tools?.map((tool) => tool.name),
-    ["summarize_context", "compact_context", "memory_write", "knowledge_search", "knowledge_fetch"]
+    [
+      "summarize_context",
+      "compact_context",
+      "memory_write",
+      "quota_status",
+      "knowledge_search",
+      "knowledge_fetch"
+    ]
   );
   assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /summarize_context/);
   assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /compact_context/);
+  assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /quota_status/);
   assert.equal(turnFinalizationService.completed.length, completedBeforeStream + 1);
   const completedEvent = streamEvents[2];
   assert.equal(completedEvent?.type, "completed");
@@ -1741,7 +1851,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(providerGatewayClient.streamCalls.length, streamCallCountBeforeToolLoop + 2);
   assert.deepEqual(
     providerGatewayClient.streamCalls.at(-2)?.tools?.map((tool) => tool.name),
-    ["summarize_context", "compact_context", "memory_write", "knowledge_search", "knowledge_fetch"]
+    [
+      "summarize_context",
+      "compact_context",
+      "memory_write",
+      "quota_status",
+      "knowledge_search",
+      "knowledge_fetch"
+    ]
   );
   assert.equal(providerGatewayClient.streamCalls.at(-1)?.toolHistory?.length, 1);
   assert.deepEqual(providerGatewayClient.streamCalls.at(-1)?.requestMetadata, {
@@ -2014,6 +2131,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "summarize_context",
       "compact_context",
       "memory_write",
+      "quota_status",
       "knowledge_search",
       "knowledge_fetch",
       "web_fetch"

@@ -171,7 +171,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <SlideOver open={telegramOpen} onClose={() => setTelegramOpen(false)} title={tt("title")}>
           <TelegramConnect
             integration={appData.telegram}
-            capabilityAllowed={appData.plan?.limits.activeWebChatsPercent !== undefined}
+            capabilityAllowed={appData.plan?.entitlements.channelsAndSurfaces.telegram ?? false}
             assistantAvatarUrl={appData.assistant?.draft.avatarUrl ?? undefined}
             assistantAvatarEmoji={appData.assistant?.draft.avatarEmoji ?? undefined}
             assistantDisplayName={appData.assistant?.draft.displayName ?? undefined}

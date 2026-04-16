@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
-import { CheckInternalRuntimeToolDailyLimitService } from "../../application/check-internal-runtime-tool-daily-limit.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "../../application/consume-internal-runtime-tool-daily-limit.service";
+import { ReadInternalRuntimeQuotaStatusService } from "../../application/read-internal-runtime-quota-status.service";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
 type InternalRequestLike = {
@@ -11,7 +11,7 @@ type InternalRequestLike = {
 export class InternalRuntimeToolQuotaController {
   constructor(
     private readonly consumeInternalRuntimeToolDailyLimitService: ConsumeInternalRuntimeToolDailyLimitService,
-    private readonly checkInternalRuntimeToolDailyLimitService: CheckInternalRuntimeToolDailyLimitService
+    private readonly readInternalRuntimeQuotaStatusService: ReadInternalRuntimeQuotaStatusService
   ) {}
 
   @HttpCode(200)
@@ -40,10 +40,20 @@ export class InternalRuntimeToolQuotaController {
       currentCount: number;
       allowed: boolean;
     }>;
+    buckets: Array<{
+      bucketCode: string;
+      displayName: string;
+      unit: string;
+      used: number | null;
+      limit: number | null;
+      percent: number | null;
+      usageAvailable: boolean;
+      status: string;
+    }>;
   }> {
     this.assertAuthorized(req);
-    const input = this.checkInternalRuntimeToolDailyLimitService.parseInput(body);
-    return this.checkInternalRuntimeToolDailyLimitService.execute(input);
+    const input = this.readInternalRuntimeQuotaStatusService.parseInput(body);
+    return this.readInternalRuntimeQuotaStatusService.execute(input);
   }
 
   private assertAuthorized(req: InternalRequestLike): void {

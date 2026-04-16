@@ -302,10 +302,11 @@ Behavior baseline:
 ### Internal runtime tool quota check (read-only)
 
 - `POST /api/v1/internal/runtime/tools/check`
-- caller: OpenClaw PersAI runtime tool `persai_tool_quota_status` (optional future callers)
+- caller: current migration seam for the legacy helper `persai_tool_quota_status`; `T15-7` remaps the steady-state model-visible contract onto the PersAI-native read-only system tool `quota_status`
 - auth: same internal PersAI bearer token (`PERSAI_INTERNAL_API_TOKEN`) as `consume`
 - body: `{ "assistantId": "<uuid>", "toolCode"?: "<catalog code>" }` — omit `toolCode` to return all tools on the **effective plan** (subscription / governance fallback)
 - purpose: return **live** `currentCount` for today (workspace-scoped) vs **current** plan `dailyCallLimit` and `activationStatus` from the control plane — does **not** increment counters and is advisory/read-only; enforcement remains `consume`
+- this seam is for live operational quota truth and must not be replaced by `knowledge_* source="subscription"`, which remains a bounded factual read over effective plan/subscription state rather than live counters
 - success: `{ ok: true, planCode, tools: [{ toolCode, activationStatus, dailyCallLimit, currentCount, allowed }] }`
 
 ### POST /api/v1/assistant/publish (Step 3 A3 baseline)
@@ -423,7 +424,9 @@ Behavior baseline:
 - active runtime read backends are `source="document"` over assistant-owned uploaded knowledge, `source="memory"` over active assistant memory-registry rows, `source="chat"` over canonical assistant chat-message rows, `source="preset"` over current materialized preset/config documents plus shared bootstrap templates, `source="subscription"` over effective current plan state, and `source="global"` over platform-owned product/tool/plan documents
 - `knowledge_search` returns lightweight references/snippets from canonical indexed chunk rows, memory rows, chat-message rows, preset/config documents, current subscription documents, or platform-owned global product documents
 - `knowledge_fetch` returns one bounded excerpt/window around the selected document chunk reference, one bounded memory item payload, one bounded transcript window around the selected chat message, or one bounded preset/subscription/global document payload instead of full corpora dumps
+- `source="subscription"` is a bounded knowledge source for effective plan/subscription facts and entitlement documents; it does not replace live per-tool or live storage counter inspection, which stays on the separate `quota_status` system-tool path
 - execution goes through PersAI internal API over canonical PersAI rows; it does not read sandbox files or raw object-storage blobs at request time
+- live user/sandbox file discovery or raw path-based attachment is outside `knowledge_*`; current user uploads stay on the attachment endpoints, Step 16 establishes the sandbox/file-authority boundary, and any later attach-by-ref flow must resolve canonical `fileRef` / artifact references rather than raw filesystem paths
 - explicit durable human-memory writes now land separately through native `memory_write` over `POST /api/v1/internal/runtime/memory/write`
 - richer ranking/retrieval polish remains later `T15-6b` follow-through; the first bounded richer hydration baseline is now active through preserved durable-memory and reusable-compaction context
 

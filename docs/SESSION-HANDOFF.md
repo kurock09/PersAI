@@ -1,5 +1,367 @@
 # SESSION-HANDOFF
 
+## 2026-04-15 - ADR-072 T15-7 closeout and Step 16 boundary cleanup
+
+### What changed
+
+1. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now closes `T15-7` and `Step 15` honestly instead of leaving them semi-open after the already-landed quota/prompt/admin follow-through.
+2. The ADR now makes the `persai_workspace_attach` decision explicit at the right boundary: it remains migration/reference truth only, and any later attach-by-ref replacement lives in an explicit post-Step-16 follow-through subsection on top of the sandbox/file-authority boundary rather than inside `Step 16` itself.
+3. The stray `Sandbox tool matrix` row was removed from the Step 15 tool-slice ledger and moved into the `Step 16` section where it belongs. `read_file`, `write_file`, `edit_file`, `exec`, `shell`, and related sandbox/file/process tools are now documented there as the Step 16 matrix.
+4. `docs/API-BOUNDARY.md` and `docs/TEST-PLAN.md` were aligned to the same repo truth: Step 16 owns sandbox/file-authority foundations, while any future chat-facing attach-by-ref flow comes only later on top of canonical `fileRef` references.
+
+### Why
+
+1. `persai_workspace_attach` and the sandbox tool family are related, but they are not the same thing. Step 16 owns the isolated sandbox tools and file-authority boundary; the future replacement for the old attach helper is a later capability built on top of that boundary.
+2. Leaving the sandbox matrix inside the Step 15 ledger made the plan look like Step 15 still carried a hidden extra slice. It was cleaner to close `T15-7` and move the matrix to the Step 16 section that actually owns it.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` is now complete through `T15-7`. The next unopened work inside `Slice 6` is to choose among `Step 15a`, `Step 15b`, and `Step 16`.
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- not run; docs-only closeout
+
+### Risks
+
+1. Historical handoff/changelog entries still describe earlier intermediate thinking; the newest entry is the current source-of-truth summary.
+2. The later post-Step-16 attach-by-ref capability is now intentionally unassigned to a numbered step, so future sessions must not silently pull it back into Step 16 without an explicit planning decision.
+
+### Next recommended step
+
+1. Choose the next real Slice 6 step explicitly: `Step 15a`, `Step 15b`, or `Step 16`. Do not reopen `T15-7`.
+
+## 2026-04-15 - ADR-072 T15-7 native quota truth cleanup
+
+### What changed
+
+1. `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts` no longer projects `workspace_storage_bytes` into the shared Step 15 quota snapshot. The current bucket contract is now limited to the PersAI-owned live buckets: `token_budget`, `active_web_chats`, `media_storage_bytes`, and `knowledge_storage_bytes`.
+2. `apps/api` plan visibility, `packages/contracts` OpenAPI/generated types, `apps/runtime` quota tool projection/tests, and the web/admin quota panels were updated together so user/admin/model-facing quota surfaces all use that same trimmed contract.
+3. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now states the same repo truth explicitly: OpenClaw-backed workspace storage is not part of the current Step 15 native quota contract and should not be surfaced as a partial/native bucket.
+
+### Why
+
+1. `workspace` storage still belongs to the remaining OpenClaw tail and is headed for removal; surfacing it inside the new native quota contract made Step 15 look more native-complete than it really is.
+2. The honest current state is that PersAI-native quota visibility exists today for token/chat/media/knowledge, while workspace/file/sandbox semantics remain separate legacy/deferred concerns.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-7 — Plan/admin exposure, quotas, and model guidance` now has a cleaner quota boundary: `quota_status` and plan/admin visibility expose only the real PersAI-native buckets, while OpenClaw-backed workspace storage remains outside the Step 15 bucket contract.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts`
+- `apps/api/src/modules/workspace-management/application/plan-visibility.types.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/test/internal-runtime-tool-quota.controller.test.ts`
+- `apps/api/test/plan-visibility.service.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/test/runtime-quota-status-tool.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `packages/contracts/openapi.yaml`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api test`
+- `corepack pnpm --filter @persai/runtime test`
+- `corepack pnpm --filter @persai/api typecheck`
+- `corepack pnpm --filter @persai/runtime typecheck`
+- `corepack pnpm --filter @persai/web typecheck`
+- `corepack pnpm --filter @persai/contracts typecheck`
+- `ReadLints` on the touched API/runtime/web test files
+
+### Risks
+
+1. Plan catalog/admin editing still contains legacy workspace-storage fields because that older OpenClaw-backed quota plumbing exists outside this Step 15 visibility contract cleanup.
+2. Later sandbox/removal work still needs to decide whether workspace storage disappears entirely or returns under a new PersAI-native boundary after OpenClaw is gone.
+
+### Next recommended step
+
+1. Finish the remaining `T15-7` follow-through only on genuinely native/operator-facing quota or guidance surfaces. Do not reintroduce OpenClaw workspace state into `quota_status` or user/admin visibility.
+
+## 2026-04-15 - ADR-072 T15-7 admin quota visibility panel
+
+### What changed
+
+1. `apps/web/app/admin/plans/page.tsx` now shows a real current-workspace quota visibility panel on the Plans control-plane screen instead of leaving the new admin quota contract dark in UI. The panel reads `getAdminPlanVisibility(...)`, shows the effective plan plus all `quotaBuckets`, and keeps `workspace_storage_bytes` explicitly in a `limit only / usage unavailable` state rather than pretending Step 16 telemetry already exists.
+2. `apps/api/test/plan-visibility.service.test.ts` now also covers the admin path of `ResolvePlanVisibilityService`, asserting the expanded `usagePressure` fields and the shared `quotaBuckets` shape so the operator-facing panel is backed by an explicit test instead of only type-checking.
+
+### Why
+
+1. `T15-7` quota visibility was already landed in API/runtime/user surfaces, but there was still no real admin control-plane screen using the bucket-aware contract.
+2. The clean next step was to expose the existing admin quota truth in UI, not to invent new quota math or re-open Step 16 file/sandbox semantics.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-7 — Plan/admin exposure, quotas, and model guidance` now reaches a real admin Plans surface on top of the landed bucket contract. Remaining work is later operator-facing follow-through and eventual Step 15 closeout; `workspace` live usage still intentionally waits for Step 16.
+
+### Files touched
+
+- `apps/api/test/plan-visibility.service.test.ts`
+- `apps/web/app/admin/plans/page.tsx`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api test`
+- `corepack pnpm --filter @persai/api typecheck`
+- `corepack pnpm --filter @persai/web typecheck`
+
+### Risks
+
+1. The new admin panel is intentionally current-workspace visibility, not a global platform-wide quota dashboard.
+2. `workspace_storage_bytes` remains honest-but-incomplete: operators can see the limit, but live usage still does not exist before Step 16.
+
+### Next recommended step
+
+1. Continue any remaining `T15-7` operator-facing follow-through only where the quota contract is already real. Do not synthesize `workspace` usage or re-open raw file/path semantics before Step 16.
+
+## 2026-04-15 - ADR-072 T15-7 full quota visibility landing
+
+### What changed
+
+1. `apps/api` now treats quota visibility as one shared PersAI-owned snapshot instead of split per-surface logic: `TrackWorkspaceQuotaUsageService` resolves the live token/chat/media/knowledge buckets plus an honest `workspace_storage_bytes` limit-only row, and the internal runtime `/api/v1/internal/runtime/tools/check` seam now returns both per-tool daily status and those shared quota buckets.
+2. `packages/runtime-contract`, `apps/runtime`, and their tests now carry the expanded `quota_status` payload end to end, so the model-visible system tool returns daily tool counters together with the main quota buckets instead of only per-tool daily usage.
+3. `apps/api` user/admin visibility now project the same `quotaBuckets` vocabulary, `packages/contracts` OpenAPI/generated models were regenerated around that shared shape, and `apps/web` now renders the broader bucket list in the assistant limits panel while keeping `workspace` explicitly marked as usage-not-tracked-yet instead of faking a 0% meter.
+4. Prompt/runtime descriptions were refreshed so `quota_status` now clearly means bucket-aware live quota visibility, while `persai_workspace_attach` still stays hidden as migration-only truth and raw path/file semantics remain deferred until after Step 16 establishes the sandbox/file-authority boundary.
+
+### Why
+
+1. `T15-7` needed to move past the first `quota_status` landing into the real quota-visibility contract that users, admins, and the model all see consistently.
+2. The repo already had live truth for token/chat/media/knowledge limits and usage, so leaving those buckets invisible would have kept Step 15 half-finished for quota exposure.
+3. `workspace` usage is still not measured on the live PersAI-native path before Step 16, so the clean honest state is “limit known, usage unavailable” rather than a fabricated counter.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-7 — Plan/admin exposure, quotas, and model guidance` now includes both the native `quota_status` executor and the broader shared quota bucket visibility for runtime, user visibility, admin visibility, and prompt guidance. Remaining work inside `T15-7` is now narrower follow-through; `workspace` live usage still intentionally waits for Step 16 telemetry.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
+- `apps/api/src/modules/workspace-management/application/read-internal-runtime-quota-status.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts`
+- `apps/api/src/modules/workspace-management/application/plan-visibility.types.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-tool-quota.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/plan-visibility.service.test.ts`
+- `apps/api/test/internal-runtime-tool-quota.controller.test.ts`
+- `packages/runtime-contract/src/index.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-quota-status-tool.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/runtime-quota-status-tool.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/sidebar.tsx`
+- `apps/web/app/app/_components/app-shell.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api test`
+- `corepack pnpm --filter @persai/runtime test`
+- `corepack pnpm --filter @persai/api typecheck`
+- `corepack pnpm --filter @persai/runtime typecheck`
+- `corepack pnpm --filter @persai/web typecheck`
+- `corepack pnpm --filter @persai/contracts typecheck`
+
+### Risks
+
+1. `workspace_storage_bytes` is intentionally limit-only today: the contract now exposes that honestly, but real live usage for that bucket still does not exist before Step 16.
+2. Admin/user visibility now share the bucket vocabulary, but there is still no final post-Step-16 live file discovery/attach-by-ref helper; `persai_workspace_attach` remains hidden migration truth only.
+
+### Next recommended step
+
+1. Continue the remaining `T15-7` operator-facing follow-through on top of the landed bucket contract, but do not invent `workspace` usage counters before Step 16. If a surface needs workspace quota today, show the limit and the explicit “usage unavailable” state rather than reopening sandbox/path semantics.
+
+## 2026-04-15 - ADR-072 T15-7 native quota_status landing
+
+### What changed
+
+1. `packages/runtime-contract` now defines the structured native `quota_status` tool result, and `apps/runtime` now has a real `RuntimeQuotaStatusToolService` that reads live quota state from the existing PersAI internal `/api/v1/internal/runtime/tools/check` seam instead of leaving the helper as a legacy OpenClaw-shaped tail.
+2. Native runtime projection/execution now exposes the canonical system tool name `quota_status` to the model, and `TurnExecutionService` now executes it through the same bounded internal-API/native-tool loop family as other PersAI-owned helpers.
+3. `apps/api` runtime materialization now remaps current inventory `persai_tool_quota_status` onto canonical runtime/tool-prompt `quota_status`, hides migration-only `persai_workspace_attach` from Step 15 model-facing tool guidance, and allows runtime bundle warm validation to accept the explicit inventory-to-runtime remap.
+4. Operator-facing prompt/runtime strings were aligned so `TOOLS.md`, admin preset hints, and the runtime tier security policy no longer advertise the old quota helper name or keep raw path-based attach semantics alive on the Step 15 model surface.
+
+### Why
+
+1. `T15-7` needed a first honest executable landing after the docs-first contract reconciliation, and `quota_status` was the smallest real native helper that unblocked runtime/prompt alignment without dragging Step 16 sandbox/file semantics back in.
+2. Live operational quota inspection stays separate from `knowledge_* source="subscription"` factual plan/subscription reads, which preserves a clean boundary between knowledge and counters.
+3. Leaving `persai_tool_quota_status` and `persai_workspace_attach` in model-facing prompt/runtime surfaces would have kept the split-brain the docs cleanup was trying to remove.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-7 — Plan/admin exposure, quotas, and model guidance` now has both the docs-first contract reconciliation and the first native code landing: `quota_status` is a real model-visible native system tool, while `persai_workspace_attach` remains migration-only truth and stays hidden from the Step 15 model contract.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-quota-status-tool.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts`
+- `apps/runtime/test/runtime-quota-status-tool.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/run-suite.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tier-security-policy.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/web/app/admin/presets/page.tsx`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime test`
+- `corepack pnpm exec tsx "apps/api/test/runtime-tool-policy.test.ts"`
+- `corepack pnpm --filter @persai/api typecheck`
+- `corepack pnpm --filter @persai/web typecheck`
+
+### Risks
+
+1. The newly landed native `quota_status` helper currently reports live per-tool daily quota state from the existing internal quota seam; broader token/media/knowledge/workspace quota surfaces and their operator/user visibility still remain open follow-through inside `T15-7`.
+2. `persai_workspace_attach` is now intentionally hidden from Step 15 model-facing prompt/runtime surfaces, but the future live file discovery plus attach-by-ref path is still deferred until after Step 16 establishes the sandbox/file-authority boundary, so there is still no final PersAI-native runtime helper for user/sandbox file delivery today.
+
+### Next recommended step
+
+1. Continue `T15-7` on quota/admin visibility follow-through: extend quota exposure beyond per-tool daily limits into the distinct token/media/knowledge/workspace buckets already fixed in docs, without reopening raw path-based attach semantics before Step 16.
+
+## 2026-04-15 - ADR-072 T15-7 contract reconciliation
+
+### What changed
+
+1. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now opens `T15-7` on a docs-first contract reconciliation instead of leaving the next Step 15 slice semantically vague. The ADR now fixes the target-state rule that live quota inspection remains a separate read-only system tool `quota_status` rather than being folded into `knowledge_* source="subscription"`.
+2. The same ADR now treats current inventory `persai_workspace_attach` as migration/reference truth only. Step 15 no longer keeps a raw path-based attach helper as a steady-state model-visible contract; current uploads and indexed knowledge stay on their existing surfaces, while any future live file discovery plus chat delivery for user/sandbox files moves to post-Step-16 follow-through on top of canonical `fileRef` / artifact references.
+3. `docs/API-BOUNDARY.md` and `docs/TEST-PLAN.md` now mirror those decisions so the internal quota seam, knowledge-layer boundary, and Step 15 validation pack all describe the same target contract before code work starts.
+
+### Why
+
+1. The previous docs still left room to accidentally treat `knowledge_* source="subscription"` as a replacement for live quota state, which would blur factual knowledge reads with operational counters.
+2. The old OpenClaw-shaped `persai_workspace_attach` helper mixed retrieval, attachments, and live file access semantics that belong to different boundaries in PersAI-native architecture.
+3. Starting `T15-7` with explicit contract cleanup prevents later implementation from preserving legacy names or path-based helper behavior by inertia.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-7 — Plan/admin exposure, quotas, and model guidance` is now in progress on docs-first contract reconciliation: live quota stays a separate `quota_status` system tool, while current inventory `persai_workspace_attach` is migration-only truth rather than the steady-state Step 15 contract.
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- Docs-only contract reconciliation; no code tests run.
+
+### Risks
+
+1. `quota_status` is now fixed as the target contract in docs, but the native executor/runtime/admin visibility follow-through still remains to be implemented.
+2. The future live file discovery plus attach-by-ref path is intentionally deferred until after Step 16 establishes the sandbox/file-authority boundary, so there is still no final PersAI-native runtime helper for live user/sandbox file delivery today.
+
+### Next recommended step
+
+1. Implement the native `quota_status` system tool plus prompt/runtime/admin visibility alignment, keeping `knowledge_* source="subscription"` factual only and not reopening raw path-based attach semantics.
+
+## 2026-04-15 - ADR-072 T15-6b closeout status sync
+
+### What changed
+
+1. Repo-truth docs now close `T15-6b` honestly after the full landing pack: storage/index/upload/list/delete/reindex, multi-namespace `knowledge_search` / `knowledge_fetch`, explicit `memory_write`, bounded richer hydration, plan-owned `runtime.contextHydration`, plan-driven compaction UX, and ranking polish are all treated as complete.
+2. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now carries an explicit closeout marker inside the `T15-6b` slice and keeps the next honest Step 15 follow-through on `T15-7`.
+3. `docs/TEST-PLAN.md` now reflects the real active `knowledge_*` namespace set instead of the older document-only activation wording.
+
+### Why
+
+1. The current repo-truth docs were already functionally at `T15-6b` closure, but a few remaining status lines still read like the slice was only partially active.
+2. The next coding focus should now be framed as `T15-7`, not more implied core landing work inside `T15-6b`.
+3. Historical handoff entries remain valid as historical checkpoints; this top entry is the current closure marker.
+
+### Current active slice
+
+- `Slice 6 — Tools, control-plane UX, and sandbox separation`
+
+### Current active step
+
+- `Step 15 — Introduce bounded inline tools and async worker jobs` remains active. `T15-6b — Human memory and namespaced knowledge sources` is now closed; the next honest Step 15 work is `T15-7 — Plan/admin exposure, quotas, and model guidance`.
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Tests run
+
+- Docs-only status sync; no code tests run.
+
+### Risks
+
+1. `T15-7` still remains open, so operator-facing exposure, quota visibility, and model guidance are not closed by this checkpoint.
+2. Later UX/product polish on the now-landed `T15-6b` surfaces can still happen without reopening the slice status.
+
+### Next recommended step
+
+1. Open `T15-7` when ready and keep later work scoped to exposure/admin/quota/model-guidance follow-through rather than reopening `T15-6b` core delivery.
+
 ## 2026-04-14 - ADR-072 T15-6b ranking polish follow-through
 
 ### What changed

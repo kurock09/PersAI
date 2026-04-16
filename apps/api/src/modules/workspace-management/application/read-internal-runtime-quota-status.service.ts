@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import type { AssistantQuotaBucketSnapshot } from "./track-workspace-quota-usage.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 
-export type CheckInternalRuntimeToolDailyLimitRequest = {
+export type ReadInternalRuntimeQuotaStatusRequest = {
   assistantId: string;
   toolCode?: string;
 };
@@ -16,13 +17,13 @@ export type ToolDailyQuotaStatusRow = {
 };
 
 @Injectable()
-export class CheckInternalRuntimeToolDailyLimitService {
+export class ReadInternalRuntimeQuotaStatusService {
   constructor(
     private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
-  parseInput(payload: unknown): CheckInternalRuntimeToolDailyLimitRequest {
+  parseInput(payload: unknown): ReadInternalRuntimeQuotaStatusRequest {
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
       throw new BadRequestException("Tool quota check payload must be an object.");
     }
@@ -30,7 +31,7 @@ export class CheckInternalRuntimeToolDailyLimitService {
     if (typeof row.assistantId !== "string" || row.assistantId.trim().length === 0) {
       throw new BadRequestException("assistantId must be a non-empty string.");
     }
-    const out: CheckInternalRuntimeToolDailyLimitRequest = {
+    const out: ReadInternalRuntimeQuotaStatusRequest = {
       assistantId: row.assistantId.trim()
     };
     if (typeof row.toolCode === "string" && row.toolCode.trim().length > 0) {
@@ -39,10 +40,11 @@ export class CheckInternalRuntimeToolDailyLimitService {
     return out;
   }
 
-  async execute(input: CheckInternalRuntimeToolDailyLimitRequest): Promise<{
+  async execute(input: ReadInternalRuntimeQuotaStatusRequest): Promise<{
     ok: true;
     planCode: string | null;
     tools: ToolDailyQuotaStatusRow[];
+    buckets: AssistantQuotaBucketSnapshot[];
   }> {
     const resolved = await this.resolveInternalRuntimeToolDailyPolicyService.execute(
       input.toolCode
@@ -83,6 +85,15 @@ export class CheckInternalRuntimeToolDailyLimitService {
       });
     }
 
-    return { ok: true, planCode: resolved.planCode, tools };
+    const snapshot = await this.trackWorkspaceQuotaUsageService.resolveAssistantQuotaSnapshot(
+      resolved.assistant
+    );
+
+    return {
+      ok: true,
+      planCode: resolved.planCode,
+      tools,
+      buckets: snapshot.buckets
+    };
   }
 }

@@ -20,7 +20,8 @@ import {
 } from "lucide-react";
 import type {
   AssistantMemoryRegistryItemState,
-  AssistantTaskRegistryItemState
+  AssistantTaskRegistryItemState,
+  UserPlanVisibilityState
 } from "@persai/contracts";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
@@ -70,6 +71,28 @@ interface AssistantSettingsProps {
 }
 
 type ActionFeedback = { type: "ok" | "err"; text: string } | null;
+
+type QuotaBucketState = UserPlanVisibilityState["limits"]["quotaBuckets"][number];
+
+function formatQuotaNumber(value: number): string {
+  return new Intl.NumberFormat().format(value);
+}
+
+function formatQuotaBytes(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"] as const;
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = value >= 100 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function formatQuotaBucketScalar(bucket: QuotaBucketState, value: number): string {
+  return bucket.unit === "bytes" ? formatQuotaBytes(value) : formatQuotaNumber(value);
+}
 
 function Section({
   icon,
@@ -279,6 +302,23 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     )[data.assistantStatus] ?? "notCreated"
   );
   const statusDot = STATUS_LABELS[data.assistantStatus]?.dot ?? "bg-text-subtle";
+  const quotaBucketLabels: Record<QuotaBucketState["bucketCode"], string> = {
+    token_budget: t("tokenBudget"),
+    active_web_chats: t("activeChats"),
+    media_storage_bytes: t("mediaStorage"),
+    knowledge_storage_bytes: t("knowledgeStorage")
+  };
+  const formatQuotaBucketValue = (bucket: QuotaBucketState): string => {
+    const limitLabel =
+      bucket.limit === null ? "∞" : formatQuotaBucketScalar(bucket, Math.max(0, bucket.limit));
+    if (!bucket.usageAvailable || bucket.used === null) {
+      return bucket.limit === null
+        ? t("usageUnavailable")
+        : t("usageUnavailableWithLimit", { limit: limitLabel });
+    }
+    const usedLabel = formatQuotaBucketScalar(bucket, Math.max(0, bucket.used));
+    return bucket.limit === null ? usedLabel : `${usedLabel}/${limitLabel}`;
+  };
 
   const version = assistant?.latestPublishedVersion ?? null;
   const [draftName, setDraftName] = useState(assistant?.draft.displayName ?? "");
@@ -1528,24 +1568,15 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                 <span className="text-[11px] text-text-muted">{data.plan.effectivePlan.code}</span>
               )}
             </div>
-            <LimitBar
-              label={t("tokenBudget")}
-              pct={data.plan.limits.tokenBudgetPercent}
-              valueLabel={
-                data.plan.limits.tokenBudgetLimit === null
-                  ? String(data.plan.limits.tokenBudgetUsed)
-                  : `${data.plan.limits.tokenBudgetUsed}/${data.plan.limits.tokenBudgetLimit}`
-              }
-            />
-            <LimitBar
-              label={t("activeChats")}
-              pct={data.plan.limits.activeWebChatsPercent}
-              valueLabel={
-                data.plan.limits.activeWebChatsLimit === null
-                  ? String(data.plan.limits.activeWebChatsUsed)
-                  : `${data.plan.limits.activeWebChatsUsed}/${data.plan.limits.activeWebChatsLimit}`
-              }
-            />
+            {data.plan.limits.quotaBuckets.map((bucket) => (
+              <LimitBar
+                key={bucket.bucketCode}
+                label={quotaBucketLabels[bucket.bucketCode] ?? bucket.displayName}
+                pct={bucket.percent}
+                valueLabel={formatQuotaBucketValue(bucket)}
+                unavailable={!bucket.usageAvailable}
+              />
+            ))}
             {data.plan.limits.toolDailyLimits.length > 0 && (
               <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
                 <p className="mb-2 text-xs font-medium text-text">{t("toolLimits")}</p>
@@ -1632,17 +1663,30 @@ function ChannelRow({
   );
 }
 
-function LimitBar({ label, pct, valueLabel }: { label: string; pct: number; valueLabel?: string }) {
+function LimitBar({
+  label,
+  pct,
+  valueLabel,
+  unavailable = false
+}: {
+  label: string;
+  pct: number | null;
+  valueLabel?: string;
+  unavailable?: boolean;
+}) {
   return (
     <div>
       <div className="flex justify-between text-[11px]">
         <span className="text-text-muted">{label}</span>
-        <span className="text-text-subtle">{valueLabel ?? `${pct}%`}</span>
+        <span className="text-text-subtle">{valueLabel ?? (pct === null ? "—" : `${pct}%`)}</span>
       </div>
       <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-raised/80">
         <div
-          className={cn("h-full rounded-full", pct >= 90 ? "bg-destructive" : "bg-accent")}
-          style={{ width: `${Math.min(pct, 100)}%` }}
+          className={cn(
+            "h-full rounded-full",
+            unavailable ? "bg-text-subtle/60" : (pct ?? 0) >= 90 ? "bg-destructive" : "bg-accent"
+          )}
+          style={{ width: `${Math.min(pct ?? 0, 100)}%` }}
         />
       </div>
     </div>

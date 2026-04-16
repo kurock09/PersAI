@@ -166,7 +166,7 @@ async function run(): Promise<void> {
         dailyCallLimit: null
       },
       {
-        toolCode: "persai_tool_quota_status",
+        toolCode: "quota_status",
         kind: "system",
         executionMode: "inline",
         usageRule: "allowed",
@@ -191,7 +191,7 @@ async function run(): Promise<void> {
   assert.match(markdown, /\*\*web_search\*\* — inline, allowed \(daily limit: 20\)/);
   assert.match(markdown, /\*\*scheduled_action\*\* — worker, allowed/);
   assert.match(markdown, /## Active System Tools/);
-  assert.match(markdown, /\*\*persai_tool_quota_status\*\* — inline, allowed/);
+  assert.match(markdown, /\*\*quota_status\*\* — inline, allowed/);
   assert.match(markdown, /## Disabled Tools/);
   assert.match(markdown, /~~image_generate~~ — worker, forbidden on current plan/);
   assert.match(markdown, /~~image_edit~~ — worker, forbidden on current plan/);

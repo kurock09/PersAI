@@ -102,8 +102,8 @@ import { DeliverReminderNotificationService } from "./application/deliver-remind
 import { BuildReminderContextSnapshotService } from "./application/build-reminder-context-snapshot.service";
 import { PersaiScheduledActionSchedulerService } from "./application/persai-scheduled-action-scheduler.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
-import { CheckInternalRuntimeToolDailyLimitService } from "./application/check-internal-runtime-tool-daily-limit.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
+import { ReadInternalRuntimeQuotaStatusService } from "./application/read-internal-runtime-quota-status.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./application/resolve-assistant-inbound-runtime-context.service";
 import { ResolveAssistantRuntimeTierService } from "./application/resolve-assistant-runtime-tier.service";
 import { RenderAssistantInboundSurfaceMessageService } from "./application/render-assistant-inbound-surface-message.service";
@@ -240,7 +240,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,
     ConsumeInternalRuntimeToolDailyLimitService,
-    CheckInternalRuntimeToolDailyLimitService,
+    ReadInternalRuntimeQuotaStatusService,
     ResolveAssistantInboundRuntimeContextService,
     ResolveAssistantRuntimeTierService,
     RenderAssistantInboundSurfaceMessageService,

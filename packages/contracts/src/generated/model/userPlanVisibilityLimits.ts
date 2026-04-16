@@ -4,32 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { QuotaVisibilityBucketState } from "./quotaVisibilityBucketState";
 import type { UserPlanVisibilityLimitsToolDailyLimitsItem } from "./userPlanVisibilityLimitsToolDailyLimitsItem";
 
 export interface UserPlanVisibilityLimits {
-  /** @minimum 0 */
-  tokenBudgetUsed: number;
-  /**
-   * @minimum 0
-   * @nullable
-   */
-  tokenBudgetLimit: number | null;
-  /**
-   * @minimum 0
-   * @maximum 100
-   */
-  tokenBudgetPercent: number;
-  /** @minimum 0 */
-  activeWebChatsUsed: number;
-  /**
-   * @minimum 0
-   * @nullable
-   */
-  activeWebChatsLimit: number | null;
-  /**
-   * @minimum 0
-   * @maximum 100
-   */
-  activeWebChatsPercent: number;
+  quotaBuckets: QuotaVisibilityBucketState[];
   toolDailyLimits: UserPlanVisibilityLimitsToolDailyLimitsItem[];
 }

@@ -1,3 +1,7 @@
+import type { AssistantQuotaBucketSnapshot } from "./track-workspace-quota-usage.service";
+
+export type QuotaVisibilityBucketState = AssistantQuotaBucketSnapshot;
+
 export type UserPlanVisibilityState = {
   effectivePlan: {
     code: string | null;
@@ -31,12 +35,7 @@ export type UserPlanVisibilityState = {
     };
   };
   limits: {
-    tokenBudgetUsed: number;
-    tokenBudgetLimit: number | null;
-    tokenBudgetPercent: number;
-    activeWebChatsUsed: number;
-    activeWebChatsLimit: number | null;
-    activeWebChatsPercent: number;
+    quotaBuckets: QuotaVisibilityBucketState[];
     toolDailyLimits: Array<{
       toolCode: string;
       displayName: string;
@@ -61,8 +60,11 @@ export type AdminPlanVisibilityState = {
   usagePressure: {
     tokenBudgetPercent: number;
     activeWebChatsPercent: number;
+    mediaStorageBytesPercent: number;
+    knowledgeStorageBytesPercent: number;
     pressureLevel: "low" | "elevated" | "high";
   };
+  quotaBuckets: QuotaVisibilityBucketState[];
   effectiveEntitlements: {
     toolClasses: {
       costDrivingAllowed: boolean;

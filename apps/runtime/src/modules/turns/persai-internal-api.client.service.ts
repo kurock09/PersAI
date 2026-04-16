@@ -11,7 +11,9 @@ import type {
   PersaiRuntimeKnowledgeSource,
   RuntimeKnowledgeDocument,
   RuntimeKnowledgeSearchHit,
-  RuntimeMemoryWriteItem
+  RuntimeMemoryWriteItem,
+  RuntimeQuotaStatusBucket,
+  RuntimeQuotaStatusToolRow
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../runtime-config";
 
@@ -34,6 +36,12 @@ export type ConsumeToolDailyLimitOutcome =
       code: string;
       message: string;
     };
+
+export type InternalQuotaStatusOutcome = {
+  planCode: string | null;
+  tools: RuntimeQuotaStatusToolRow[];
+  buckets: RuntimeQuotaStatusBucket[];
+};
 
 export type InternalScheduledActionItem = {
   id: string;
@@ -169,6 +177,63 @@ export class PersaiInternalApiClientService {
 
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected the tool quota consume request."
+    );
+  }
+
+  async readQuotaStatus(input: {
+    assistantId: string;
+    toolCode?: string | null;
+  }): Promise<InternalQuotaStatusOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/tools/check", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        assistantId: input.assistantId,
+        ...(typeof input.toolCode === "string" && input.toolCode.trim().length > 0
+          ? { toolCode: input.toolCode.trim() }
+          : {})
+      })
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const tools = payload?.tools;
+      const buckets = payload?.buckets;
+      if (
+        payload?.ok === true &&
+        (payload.planCode === null || typeof payload.planCode === "string") &&
+        Array.isArray(tools) &&
+        tools.every((tool) => this.isQuotaStatusToolRow(tool)) &&
+        Array.isArray(buckets) &&
+        buckets.every((bucket) => this.isQuotaStatusBucket(bucket))
+      ) {
+        return {
+          planCode: (payload.planCode as string | null) ?? null,
+          tools: tools as RuntimeQuotaStatusToolRow[],
+          buckets: buckets as RuntimeQuotaStatusBucket[]
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid quota-status response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API quota-status request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the quota-status request."
     );
   }
 
@@ -481,6 +546,44 @@ export class PersaiInternalApiClientService {
       (row.sourceLabel === null || typeof row.sourceLabel === "string") &&
       typeof row.createdAt === "string" &&
       (row.chatId === null || typeof row.chatId === "string")
+    );
+  }
+
+  private isQuotaStatusToolRow(value: unknown): value is RuntimeQuotaStatusToolRow {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.toolCode === "string" &&
+      typeof row.activationStatus === "string" &&
+      (row.dailyCallLimit === null ||
+        (typeof row.dailyCallLimit === "number" &&
+          Number.isInteger(row.dailyCallLimit) &&
+          row.dailyCallLimit >= 0)) &&
+      typeof row.currentCount === "number" &&
+      Number.isInteger(row.currentCount) &&
+      row.currentCount >= 0 &&
+      typeof row.allowed === "boolean"
+    );
+  }
+
+  private isQuotaStatusBucket(value: unknown): value is RuntimeQuotaStatusBucket {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.bucketCode === "string" &&
+      typeof row.displayName === "string" &&
+      (row.unit === "tokens" || row.unit === "count" || row.unit === "bytes") &&
+      (row.used === null ||
+        (typeof row.used === "number" && Number.isFinite(row.used) && row.used >= 0)) &&
+      (row.limit === null ||
+        (typeof row.limit === "number" && Number.isFinite(row.limit) && row.limit >= 0)) &&
+      (row.percent === null ||
+        (typeof row.percent === "number" &&
+          Number.isFinite(row.percent) &&
+          row.percent >= 0 &&
+          row.percent <= 100)) &&
+      typeof row.usageAvailable === "boolean" &&
+      (row.status === "ok" || row.status === "limit_reached" || row.status === "usage_unavailable")
     );
   }
 

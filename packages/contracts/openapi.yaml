@@ -3727,39 +3727,59 @@ components:
           nullable: true
         isTrialPlan:
           type: boolean
+    QuotaVisibilityBucketState:
+      type: object
+      required:
+        - bucketCode
+        - displayName
+        - unit
+        - used
+        - limit
+        - percent
+        - usageAvailable
+        - status
+      properties:
+        bucketCode:
+          type: string
+        displayName:
+          type: string
+        unit:
+          type: string
+          enum:
+            - tokens
+            - count
+            - bytes
+        used:
+          type: integer
+          minimum: 0
+          nullable: true
+        limit:
+          type: integer
+          minimum: 0
+          nullable: true
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+        usageAvailable:
+          type: boolean
+        status:
+          type: string
+          enum:
+            - ok
+            - limit_reached
+            - usage_unavailable
     UserPlanVisibilityLimits:
       type: object
       required:
-        - tokenBudgetUsed
-        - tokenBudgetLimit
-        - tokenBudgetPercent
-        - activeWebChatsUsed
-        - activeWebChatsLimit
-        - activeWebChatsPercent
+        - quotaBuckets
         - toolDailyLimits
       properties:
-        tokenBudgetUsed:
-          type: integer
-          minimum: 0
-        tokenBudgetLimit:
-          type: integer
-          minimum: 0
-          nullable: true
-        tokenBudgetPercent:
-          type: integer
-          minimum: 0
-          maximum: 100
-        activeWebChatsUsed:
-          type: integer
-          minimum: 0
-        activeWebChatsLimit:
-          type: integer
-          minimum: 0
-          nullable: true
-        activeWebChatsPercent:
-          type: integer
-          minimum: 0
-          maximum: 100
+        quotaBuckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotaVisibilityBucketState"
         toolDailyLimits:
           type: array
           items:
@@ -3862,6 +3882,8 @@ components:
       required:
         - tokenBudgetPercent
         - activeWebChatsPercent
+        - mediaStorageBytesPercent
+        - knowledgeStorageBytesPercent
         - pressureLevel
       properties:
         tokenBudgetPercent:
@@ -3869,6 +3891,14 @@ components:
           minimum: 0
           maximum: 100
         activeWebChatsPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        mediaStorageBytesPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        knowledgeStorageBytesPercent:
           type: integer
           minimum: 0
           maximum: 100
@@ -3915,6 +3945,7 @@ components:
       required:
         - planState
         - usagePressure
+        - quotaBuckets
         - effectiveEntitlements
         - updatedAt
       properties:
@@ -3922,6 +3953,10 @@ components:
           $ref: "#/components/schemas/AdminPlanVisibilityPlanState"
         usagePressure:
           $ref: "#/components/schemas/AdminPlanVisibilityUsagePressure"
+        quotaBuckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotaVisibilityBucketState"
         effectiveEntitlements:
           allOf:
             - $ref: "#/components/schemas/AdminPlanVisibilityEffectiveEntitlements"

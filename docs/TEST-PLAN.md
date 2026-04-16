@@ -899,9 +899,9 @@ Required in CI:
 - Shared tool-runtime observability validates:
   - provider/runtime request metadata distinguishes `main_turn`, `tool_loop_followup`, `manual_compaction`, and `auto_compaction`
   - internal tool and compaction hops no longer need to be inferred from provider-side pseudo-message logs
-- Deferred knowledge scaffolding validates:
-  - `runtime.knowledgeAccess` may remain on the native runtime bundle as reserved future scaffolding until a real backend exists
-  - `knowledge_search` / `knowledge_fetch` only become model-visible for namespaces with a real PersAI-native backend; the current truthful activation point is `T15-6b` `source="document"`
+- Native knowledge layer validates:
+  - `runtime.knowledgeAccess` now carries real native source configuration for the landed `knowledge_search` / `knowledge_fetch` path instead of staying only as reserved future scaffolding
+  - `knowledge_search` / `knowledge_fetch` only become model-visible for namespaces with a real PersAI-native backend; the now-landed truthful `T15-6b` activation set is uploaded-document `source="document"`, assistant-user-private `source="memory"` and `source="chat"`, shared `source="preset"` and `source="subscription"`, and PersAI-global `source="global"`
   - current `web_search` / `web_fetch` executor tests do not route through `knowledge_*` placeholders
 - T15-3b web retrieval sub-step validates:
   - the first truthful landing may expose `web_fetch` before `web_search`, but only when plan policy, credential availability, and real native executor availability all agree
@@ -969,6 +969,13 @@ Required in CI:
   - Telegram sends a short post-reply auto-compaction notice only when post-turn auto-compaction actually succeeded on the native runtime path
   - knowledge ranking now uses deterministic structured lexical ordering with title/filename/locator boosts, per-source weighting, length normalization, duplicate collapse, and better snippet selection instead of one flat substring counter
   - `document`, `memory`, and `chat` now also apply a lightweight local hybrid rerank on top of lexical candidates, while memory/chat blend recency without falling back to blunt newest-first ordering
+- T15-7 exposure/quota/model-guidance closeout validates:
+  - the steady-state read-only system-tool contract is `quota_status`; current inventory `persai_tool_quota_status` may survive only as migration/reference truth and must not remain as a second model-visible alias
+  - `quota_status` reads live quota/accounting truth, while `knowledge_* source="subscription"` stays a bounded factual read over effective plan/subscription state instead of becoming a live counter surface
+  - user/admin visibility surfaces show distinct token/chat, per-tool daily, knowledge-storage, and media-storage buckets from PersAI-owned accounting truth instead of one opaque usage number
+  - current inventory `persai_workspace_attach` does not survive as a steady-state Step 15 raw path helper
+  - current-turn uploads and indexed knowledge remain on their existing surfaces, while any future live file discovery plus chat delivery for user/sandbox files is deferred until after Step 16 establishes the sandbox/file-authority boundary and resolves canonical `fileRef` / artifact references instead of raw paths
+  - prompt/runtime alignment tests prove no Step 15 model-visible tool exposes raw filesystem/path semantics, and any later attach-by-ref surface exists only on top of the real Step 16 sandbox/file-authority boundary
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift
@@ -1030,7 +1037,8 @@ Required in CI:
 - Declared vs effective capability checks validate:
   - effective subscription precedence is `workspace subscription -> assistant override -> assistant fallback -> catalog default -> none`
   - materialized runtime tool policy is derived from effective tool availability rather than raw activation rows
-  - `persai_workspace_attach` and `persai_tool_quota_status` stay always-on platform-managed tools
+  - `persai_tool_quota_status` stays the always-on platform-managed quota helper where still needed
+  - `persai_workspace_attach` does not revive as a raw path helper; any later replacement is post-Step-16 attach-by-ref follow-through on top of canonical `fileRef` authority
 - Graceful limit fallback validates:
   - token-budget exhaustion degrades to the configured safe fallback path instead of killing chat entirely
   - user-facing transport/runtime metadata shows when fallback was used

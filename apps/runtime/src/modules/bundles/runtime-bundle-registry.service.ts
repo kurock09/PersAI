@@ -34,6 +34,10 @@ import type {
   WarmRuntimeBundleResponse
 } from "./bundle.types";
 
+const TOOL_POLICY_PARITY_RUNTIME_CODE_BY_INVENTORY_CODE: Record<string, string> = {
+  persai_tool_quota_status: "quota_status"
+};
+
 @Injectable()
 export class RuntimeBundleRegistryService implements OnModuleInit {
   private readonly bundles = new Map<string, RuntimeBundleCacheEntry>();
@@ -261,9 +265,12 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
       if (!this.isRecord(tool) || typeof tool.code !== "string" || tool.code.trim().length === 0) {
         continue;
       }
-      if (!policyByCode.has(tool.code)) {
+      const inventoryToolCode = tool.code;
+      const runtimePolicyToolCode =
+        TOOL_POLICY_PARITY_RUNTIME_CODE_BY_INVENTORY_CODE[inventoryToolCode] ?? inventoryToolCode;
+      if (!policyByCode.has(runtimePolicyToolCode)) {
         throw new BadRequestException(
-          `bundleDocument.governance.toolPolicies is missing explicit policy metadata for "${tool.code}"`
+          `bundleDocument.governance.toolPolicies is missing explicit policy metadata for "${inventoryToolCode}"`
         );
       }
     }

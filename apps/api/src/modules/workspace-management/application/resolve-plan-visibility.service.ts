@@ -1,5 +1,4 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { loadApiConfig } from "@persai/config";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
@@ -9,49 +8,22 @@ import {
   type AssistantPlanCatalogRepository
 } from "../domain/assistant-plan-catalog.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import {
-  WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
-  type WorkspaceQuotaAccountingRepository
-} from "../domain/workspace-quota-accounting.repository";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
-import type { AdminPlanVisibilityState, UserPlanVisibilityState } from "./plan-visibility.types";
+import type {
+  AdminPlanVisibilityState,
+  QuotaVisibilityBucketState,
+  UserPlanVisibilityState
+} from "./plan-visibility.types";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 
-function asObject(value: unknown): Record<string, unknown> | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
-}
-
-function asPositiveInt(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
-}
-
-function readLimitFromEntitlements(
-  limitsPermissions: unknown[] | undefined,
-  key: string
-): number | null {
-  if (!Array.isArray(limitsPermissions)) {
-    return null;
-  }
-  for (const item of limitsPermissions) {
-    const row = asObject(item);
-    if (row?.key === key) {
-      return asPositiveInt(row.limit);
-    }
-  }
-  return null;
-}
-
-function toPercent(used: number, limit: number): number {
-  if (limit <= 0) {
-    return 0;
-  }
-  const raw = Math.round((used / limit) * 100);
-  return Math.max(0, Math.min(100, raw));
+function indexQuotaBuckets(
+  buckets: QuotaVisibilityBucketState[]
+): Partial<Record<QuotaVisibilityBucketState["bucketCode"], QuotaVisibilityBucketState>> {
+  return Object.fromEntries(buckets.map((bucket) => [bucket.bucketCode, bucket])) as Partial<
+    Record<QuotaVisibilityBucketState["bucketCode"], QuotaVisibilityBucketState>
+  >;
 }
 
 @Injectable()
@@ -63,8 +35,6 @@ export class ResolvePlanVisibilityService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository,
-    @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
-    private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
@@ -92,18 +62,12 @@ export class ResolvePlanVisibilityService {
       subscription.planCode === null
         ? null
         : await this.assistantPlanCatalogRepository.findByCode(subscription.planCode);
-    const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(
-      assistant.workspaceId
-    );
     const effectiveCapabilities = await this.resolveEffectiveCapabilityStateService.execute({
       assistant,
       governance
     });
-    const limits = this.resolveLimits(plan);
-    const tokenLimit = limits.tokenBudgetLimit;
-    const tokenUsed = Number(quotaState?.tokenBudgetUsed ?? BigInt(0));
-    const chatsLimit = limits.activeWebChatsLimit;
-    const chatsUsed = quotaState?.activeWebChatsCurrent ?? 0;
+    const quotaSnapshot =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantQuotaSnapshot(assistant);
     return {
       effectivePlan: {
         code: plan?.code ?? subscription.planCode,
@@ -124,12 +88,7 @@ export class ResolvePlanVisibilityService {
         }
       },
       limits: {
-        tokenBudgetUsed: tokenUsed,
-        tokenBudgetLimit: tokenLimit,
-        tokenBudgetPercent: toPercent(tokenUsed, tokenLimit),
-        activeWebChatsUsed: chatsUsed,
-        activeWebChatsLimit: chatsLimit,
-        activeWebChatsPercent: toPercent(chatsUsed, chatsLimit),
+        quotaBuckets: quotaSnapshot.buckets,
         toolDailyLimits: await this.resolveToolDailyLimitsWithUsage(
           assistant.workspaceId,
           plan?.toolActivations ?? []
@@ -172,19 +131,14 @@ export class ResolvePlanVisibilityService {
       assistant,
       governance
     });
-    const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(
-      assistant.workspaceId
-    );
-    const limits = this.resolveLimits(effectivePlan);
-
-    const tokenLimit = limits.tokenBudgetLimit;
-    const tokenUsed = Number(quotaState?.tokenBudgetUsed ?? BigInt(0));
-    const chatsLimit = limits.activeWebChatsLimit;
-    const chatsUsed = quotaState?.activeWebChatsCurrent ?? 0;
-
-    const tokenPercent = toPercent(tokenUsed, tokenLimit);
-    const chatsPercent = toPercent(chatsUsed, chatsLimit);
-    const maxPercent = Math.max(tokenPercent, chatsPercent);
+    const quotaSnapshot =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantQuotaSnapshot(assistant);
+    const bucketsByCode = indexQuotaBuckets(quotaSnapshot.buckets);
+    const tokenPercent = bucketsByCode.token_budget?.percent ?? 0;
+    const chatsPercent = bucketsByCode.active_web_chats?.percent ?? 0;
+    const mediaPercent = bucketsByCode.media_storage_bytes?.percent ?? 0;
+    const knowledgePercent = bucketsByCode.knowledge_storage_bytes?.percent ?? 0;
+    const maxPercent = Math.max(tokenPercent, chatsPercent, mediaPercent, knowledgePercent);
     const pressureLevel: "low" | "elevated" | "high" =
       maxPercent >= 90 ? "high" : maxPercent >= 65 ? "elevated" : "low";
 
@@ -201,8 +155,11 @@ export class ResolvePlanVisibilityService {
       usagePressure: {
         tokenBudgetPercent: tokenPercent,
         activeWebChatsPercent: chatsPercent,
+        mediaStorageBytesPercent: mediaPercent,
+        knowledgeStorageBytesPercent: knowledgePercent,
         pressureLevel
       },
+      quotaBuckets: quotaSnapshot.buckets,
       effectiveEntitlements: {
         toolClasses: {
           costDrivingAllowed: effectiveCapabilities.toolClasses.costDriving.allowed,
@@ -256,22 +213,5 @@ export class ResolvePlanVisibilityService {
         };
       })
     );
-  }
-
-  private resolveLimits(plan: Awaited<ReturnType<AssistantPlanCatalogRepository["findByCode"]>>): {
-    tokenBudgetLimit: number;
-    activeWebChatsLimit: number;
-  } {
-    const config = loadApiConfig(process.env);
-    const hints = asObject(plan?.billingProviderHints ?? null);
-    const quotaHints = asObject(hints?.quotaAccounting ?? null);
-    const tokenBudgetLimit =
-      asPositiveInt(quotaHints?.tokenBudgetLimit) ??
-      readLimitFromEntitlements(plan?.entitlementModel?.limitsPermissions, "token_budget_limit") ??
-      config.QUOTA_TOKEN_BUDGET_DEFAULT;
-    return {
-      tokenBudgetLimit,
-      activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
-    };
   }
 }
