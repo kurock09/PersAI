@@ -262,3 +262,15 @@ export function joinPromptToolInstruction(
   }
   return `${normalizedDescription} ${normalizedGuidance}`;
 }
+
+export function buildPromptToolMarkdownEntry(
+  toolCode: string,
+  description: string | null | undefined,
+  usageGuidance: string | null | undefined
+): string | null {
+  const instruction = joinPromptToolInstruction(description, usageGuidance);
+  if (!instruction) {
+    return null;
+  }
+  return `**\`${toolCode}\`**\n${instruction}`;
+}

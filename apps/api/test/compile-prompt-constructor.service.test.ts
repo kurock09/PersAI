@@ -87,7 +87,7 @@ async function run(): Promise<void> {
   assert.match(compiled.promptConstructor.ordinary.systemPrompt ?? "", /Core Persona/);
   assert.match(
     compiled.promptConstructor.ordinary.systemPrompt ?? "",
-    /summarize_context: Create a concise shared-context summary/
+    /\*\*`summarize_context`\*\*\nCreate a concise shared-context summary/
   );
   assert.doesNotMatch(compiled.promptConstructor.ordinary.systemPrompt ?? "", /# User Context/);
   assert.equal(

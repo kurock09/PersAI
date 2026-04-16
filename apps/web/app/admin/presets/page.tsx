@@ -193,17 +193,17 @@ function buildPreviewToolCatalogBlock(toolStates: ToolPromptState[]): string {
     }
     return left.toolCode.localeCompare(right.toolCode);
   });
-  const lines: string[] = [];
+  const blocks: string[] = [];
   for (const tool of orderedTools) {
     const description = tool.modelDescription?.trim() || tool.description?.trim() || null;
     const guidance = tool.modelUsageGuidance?.trim() || null;
     const instruction =
       description && guidance ? `${description} ${guidance}` : (description ?? guidance);
     if (instruction) {
-      lines.push(`${tool.toolCode}: ${instruction}`);
+      blocks.push(`**\`${tool.toolCode}\`**\n${instruction}`);
     }
   }
-  return lines.join("\n").trimEnd();
+  return blocks.join("\n\n").trimEnd();
 }
 
 function buildOrdinaryPreview(

@@ -145,13 +145,16 @@ async function run(): Promise<void> {
   );
 
   const markdown = buildRuntimeToolPoliciesMarkdown(toolPolicies);
-  assert.match(markdown, /summarize_context: Create a concise shared-context summary/);
-  assert.match(markdown, /quota_status: Read live PersAI quota status/);
-  assert.match(markdown, /knowledge_search: Search assistant-owned or PersAI-owned knowledge/);
-  assert.match(markdown, /web_search: Search the public web\./);
+  assert.match(markdown, /\*\*`summarize_context`\*\*\nCreate a concise shared-context summary/);
+  assert.match(markdown, /\*\*`quota_status`\*\*\nRead live PersAI quota status/);
   assert.match(
     markdown,
-    /scheduled_action: Create and manage user reminders or hidden assistant actions\./
+    /\*\*`knowledge_search`\*\*\nSearch assistant-owned or PersAI-owned knowledge/
+  );
+  assert.match(markdown, /\*\*`web_search`\*\*\nSearch the public web\./);
+  assert.match(
+    markdown,
+    /\*\*`scheduled_action`\*\*\nCreate and manage user reminders or hidden assistant actions\./
   );
   assert.doesNotMatch(markdown, /cron/);
   assert.doesNotMatch(markdown, /image_generate/);

@@ -6,9 +6,9 @@ import {
 } from "@persai/runtime-contract";
 import type { EffectiveToolAvailabilityState } from "./effective-tool-availability.types";
 import {
+  buildPromptToolMarkdownEntry,
   PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER,
   SYNTHETIC_PROMPT_CONSTRUCTOR_TOOL_DEFAULTS,
-  joinPromptToolInstruction,
   resolveSyntheticPromptConstructorTool
 } from "./prompt-constructor-tool-metadata";
 
@@ -360,12 +360,12 @@ export function buildRuntimeToolPoliciesMarkdown(toolPolicies: RuntimeToolPolicy
     }
     return left.toolCode.localeCompare(right.toolCode);
   });
-  const lines: string[] = [];
+  const blocks: string[] = [];
   for (const tool of orderedTools) {
-    const instruction = joinPromptToolInstruction(tool.description, tool.usageGuidance);
-    if (instruction) {
-      lines.push(`${tool.toolCode}: ${instruction}`);
+    const block = buildPromptToolMarkdownEntry(tool.toolCode, tool.description, tool.usageGuidance);
+    if (block) {
+      blocks.push(block);
     }
   }
-  return lines.join("\n").trimEnd();
+  return blocks.join("\n\n").trimEnd();
 }
