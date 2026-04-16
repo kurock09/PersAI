@@ -16,10 +16,15 @@ import {
 } from "./persai-internal-api.client.service";
 
 const SCHEDULED_ACTION_CONTEXT_MESSAGES_MAX = 10;
+const SCHEDULED_ACTION_THREAD_PREFIX = "system:scheduled-action:";
 
 class ScheduledActionResolutionError extends Error {
   constructor(
-    readonly code: "target_required" | "task_not_found" | "multiple_task_matches",
+    readonly code:
+      | "target_required"
+      | "task_not_found"
+      | "multiple_task_matches"
+      | "self_target_not_allowed",
     message: string
   ) {
     super(message);
@@ -77,8 +82,11 @@ export class RuntimeScheduledActionToolService {
 
       switch (request.action) {
         case "list": {
-          const items = await this.persaiInternalApiClientService.listScheduledActions(
-            params.bundle.metadata.assistantId
+          const items = this.filterCurrentBackgroundTask(
+            await this.persaiInternalApiClientService.listScheduledActions(
+              params.bundle.metadata.assistantId
+            ),
+            params.conversation
           );
           return {
             payload: {
@@ -148,6 +156,7 @@ export class RuntimeScheduledActionToolService {
         case "cancel": {
           const target = await this.resolveTaskTarget({
             assistantId: params.bundle.metadata.assistantId,
+            conversation: params.conversation,
             ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
             ...(request.titleMatch === undefined ? {} : { titleMatch: request.titleMatch })
           });
@@ -192,7 +201,7 @@ export class RuntimeScheduledActionToolService {
       if (error instanceof ScheduledActionResolutionError) {
         return {
           payload: this.createSkippedResult(errorAction(request), error.code, error.message),
-          isError: true
+          isError: error.code !== "self_target_not_allowed"
         };
       }
       return {
@@ -338,15 +347,22 @@ export class RuntimeScheduledActionToolService {
 
   private async resolveTaskTarget(params: {
     assistantId: string;
+    conversation: RuntimeConversationAddress;
     taskId?: string;
     titleMatch?: string;
   }): Promise<InternalScheduledActionItem> {
-    const items = await this.persaiInternalApiClientService.listScheduledActions(
-      params.assistantId
-    );
+    const items = await this.persaiInternalApiClientService.listScheduledActions(params.assistantId);
+    const currentBackgroundTask = this.resolveCurrentBackgroundTask(items, params.conversation);
+    const visibleItems = this.filterCurrentBackgroundTask(items, params.conversation);
     if (params.taskId) {
-      const match = items.find((item) => item.id === params.taskId);
+      const match = visibleItems.find((item) => item.id === params.taskId);
       if (match === undefined) {
+        if (currentBackgroundTask?.id === params.taskId) {
+          throw new ScheduledActionResolutionError(
+            "self_target_not_allowed",
+            "The currently running assistant background task cannot pause, resume, or cancel itself during its own run."
+          );
+        }
         throw new ScheduledActionResolutionError(
           "task_not_found",
           `Task "${params.taskId}" was not found.`
@@ -363,8 +379,14 @@ export class RuntimeScheduledActionToolService {
       );
     }
 
-    const matches = items.filter((item) => item.title.toLowerCase().includes(titleMatch));
+    const matches = visibleItems.filter((item) => item.title.toLowerCase().includes(titleMatch));
     if (matches.length === 0) {
+      if (currentBackgroundTask?.title.toLowerCase().includes(titleMatch)) {
+        throw new ScheduledActionResolutionError(
+          "self_target_not_allowed",
+          "The currently running assistant background task cannot pause, resume, or cancel itself during its own run."
+        );
+      }
       throw new ScheduledActionResolutionError(
         "task_not_found",
         `No current task matched "${params.titleMatch}".`
@@ -377,6 +399,39 @@ export class RuntimeScheduledActionToolService {
       );
     }
     return matches[0]!;
+  }
+
+  private filterCurrentBackgroundTask(
+    items: InternalScheduledActionItem[],
+    conversation: RuntimeConversationAddress
+  ): InternalScheduledActionItem[] {
+    const currentExternalRef = this.readCurrentScheduledActionExternalRef(conversation);
+    if (currentExternalRef === null) {
+      return items;
+    }
+    return items.filter((item) => item.externalRef !== currentExternalRef);
+  }
+
+  private resolveCurrentBackgroundTask(
+    items: InternalScheduledActionItem[],
+    conversation: RuntimeConversationAddress
+  ): InternalScheduledActionItem | null {
+    const currentExternalRef = this.readCurrentScheduledActionExternalRef(conversation);
+    if (currentExternalRef === null) {
+      return null;
+    }
+    return items.find((item) => item.externalRef === currentExternalRef) ?? null;
+  }
+
+  private readCurrentScheduledActionExternalRef(
+    conversation: RuntimeConversationAddress
+  ): string | null {
+    const externalThreadKey = conversation.externalThreadKey.trim();
+    if (!externalThreadKey.startsWith(SCHEDULED_ACTION_THREAD_PREFIX)) {
+      return null;
+    }
+    const externalRef = externalThreadKey.slice(SCHEDULED_ACTION_THREAD_PREFIX.length).trim();
+    return externalRef.length > 0 ? externalRef : null;
   }
 
   private resolveAllowedWorkerToolPolicy(
