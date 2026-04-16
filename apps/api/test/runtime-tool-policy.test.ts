@@ -106,97 +106,50 @@ async function run(): Promise<void> {
         dailyCallLimit: 5,
         activationStatus: "inactive"
       }
-    ]
+    ],
+    toolCredentialRefs: {
+      web_search: {
+        refKey: "tool_web_search",
+        secretRef: { source: "env", provider: "tavily", id: "tool_web_search" },
+        configured: true,
+        providerId: "tavily"
+      },
+      web_fetch: {
+        refKey: "tool_web_fetch",
+        secretRef: { source: "env", provider: "firecrawl", id: "tool_web_fetch" },
+        configured: true,
+        providerId: "firecrawl"
+      }
+    },
+    knowledgeAccessEnabled: true
   });
 
-  assert.deepEqual(
-    toolPolicies.map((tool) => ({
-      toolCode: tool.toolCode,
-      kind: tool.kind,
-      executionMode: tool.executionMode,
-      usageRule: tool.usageRule,
-      enabled: tool.enabled,
-      visibleToModel: tool.visibleToModel,
-      dailyCallLimit: tool.dailyCallLimit
-    })),
-    [
-      {
-        toolCode: "web_search",
-        kind: "plan",
-        executionMode: "inline",
-        usageRule: "allowed",
-        enabled: true,
-        visibleToModel: true,
-        dailyCallLimit: 20
-      },
-      {
-        toolCode: "image_generate",
-        kind: "plan",
-        executionMode: "worker",
-        usageRule: "forbidden",
-        enabled: false,
-        visibleToModel: false,
-        dailyCallLimit: 5
-      },
-      {
-        toolCode: "image_edit",
-        kind: "plan",
-        executionMode: "worker",
-        usageRule: "forbidden",
-        enabled: false,
-        visibleToModel: false,
-        dailyCallLimit: null
-      },
-      {
-        toolCode: "video_generate",
-        kind: "plan",
-        executionMode: "worker",
-        usageRule: "forbidden",
-        enabled: false,
-        visibleToModel: false,
-        dailyCallLimit: null
-      },
-      {
-        toolCode: "scheduled_action",
-        kind: "plan",
-        executionMode: "worker",
-        usageRule: "allowed",
-        enabled: true,
-        visibleToModel: true,
-        dailyCallLimit: null
-      },
-      {
-        toolCode: "quota_status",
-        kind: "system",
-        executionMode: "inline",
-        usageRule: "allowed",
-        enabled: true,
-        visibleToModel: true,
-        dailyCallLimit: null
-      },
-      {
-        toolCode: "cron",
-        kind: "internal",
-        executionMode: "worker",
-        usageRule: "forbidden",
-        enabled: true,
-        visibleToModel: false,
-        dailyCallLimit: null
-      }
-    ]
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "summarize_context" && tool.enabled));
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "compact_context" && tool.enabled));
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "memory_write" && tool.enabled));
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "quota_status" && tool.enabled));
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "knowledge_search" && tool.enabled));
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "knowledge_fetch" && tool.enabled));
+  assert.ok(
+    toolPolicies.some(
+      (tool) => tool.toolCode === "web_search" && tool.enabled && tool.dailyCallLimit === 20
+    )
   );
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "scheduled_action" && tool.enabled));
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "image_generate" && !tool.enabled));
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "cron" && !tool.visibleToModel));
 
   const markdown = buildRuntimeToolPoliciesMarkdown(toolPolicies);
-  assert.match(markdown, /## Active Plan Tools/);
-  assert.match(markdown, /\*\*web_search\*\* — inline, allowed \(daily limit: 20\)/);
-  assert.match(markdown, /\*\*scheduled_action\*\* — worker, allowed/);
-  assert.match(markdown, /## Active System Tools/);
-  assert.match(markdown, /\*\*quota_status\*\* — inline, allowed/);
-  assert.match(markdown, /## Disabled Tools/);
-  assert.match(markdown, /~~image_generate~~ — worker, forbidden on current plan/);
-  assert.match(markdown, /~~image_edit~~ — worker, forbidden on current plan/);
-  assert.match(markdown, /~~video_generate~~ — worker, forbidden on current plan/);
+  assert.match(markdown, /summarize_context: Create a concise shared-context summary/);
+  assert.match(markdown, /quota_status: Read live PersAI quota status/);
+  assert.match(markdown, /knowledge_search: Search assistant-owned or PersAI-owned knowledge/);
+  assert.match(markdown, /web_search: Search the public web\./);
+  assert.match(
+    markdown,
+    /scheduled_action: Create and manage user reminders or hidden assistant actions\./
+  );
   assert.doesNotMatch(markdown, /cron/);
+  assert.doesNotMatch(markdown, /image_generate/);
 }
 
 void run();

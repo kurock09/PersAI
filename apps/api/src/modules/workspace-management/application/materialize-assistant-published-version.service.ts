@@ -67,6 +67,7 @@ import {
   CompilePromptConstructorService,
   type PromptTemplateMap
 } from "./compile-prompt-constructor.service";
+import { buildSyntheticPromptToolOverrideMap } from "./prompt-constructor-tool-metadata";
 import {
   isPersaiRuntimeVideoGenerateModelKey,
   type PersaiRuntimeTtsProviderId,
@@ -346,13 +347,18 @@ export class MaterializeAssistantPublishedVersionService {
       videoGenerateModelKey: planVideoGenerateModelKey
     });
     const planToolQuotaPolicy = await this.resolveToolQuotaPolicy(effectivePlanCode);
+    const promptTemplateRows = await this.loadPromptTemplateRows();
     const openclawToolQuotaPolicy = this.resolveOpenClawToolQuotaPolicy(
       toolAvailability.tools,
       planToolQuotaPolicy
     );
+    const knowledgeAccess = buildRuntimeKnowledgeAccessConfig();
     const toolPolicies = resolveRuntimeToolPolicies({
       tools: toolAvailability.tools,
-      planToolQuotaPolicy
+      planToolQuotaPolicy,
+      toolCredentialRefs,
+      knowledgeAccessEnabled: knowledgeAccess.sources.length > 0,
+      syntheticToolOverrides: buildSyntheticPromptToolOverrideMap(promptTemplateRows)
     });
     const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
     const planContextHydrationPolicy =
@@ -362,7 +368,6 @@ export class MaterializeAssistantPublishedVersionService {
       telegramAutoCompactionEnabled: telegramChannel.autoCompactionEnabled
     });
     const browser = buildRuntimeBrowserConfig();
-    const knowledgeAccess = buildRuntimeKnowledgeAccessConfig();
     const workerTools = buildRuntimeWorkerToolsConfig(toolPolicies);
     const sharedCompaction = buildRuntimeSharedCompactionConfig({
       compactionPolicy: platformRuntimeProviderSettings.optimizationPolicy.compaction,
@@ -407,13 +412,11 @@ export class MaterializeAssistantPublishedVersionService {
     };
 
     const userContext = await this.resolveUserContext(assistant.userId, assistant.workspaceId);
-    const promptTemplates = await this.loadPresetTemplates();
+    const promptTemplates = this.toPromptTemplateMap(promptTemplateRows);
     const compiledPromptConstructor = this.compilePromptConstructorService.compile({
       publishedVersion,
       userContext,
       toolPolicies,
-      memoryControl,
-      tasksControl,
       promptTemplates
     });
     const bootstrapDocuments = {
@@ -863,36 +866,32 @@ export class MaterializeAssistantPublishedVersionService {
     };
   }
 
-  private async loadPresetTemplates(): Promise<PromptTemplateMap> {
+  private async loadPromptTemplateRows() {
     try {
-      const presets = await this.promptTemplateRepository.findAll();
-      const map: PromptTemplateMap = {
-        soul: null,
-        user: null,
-        identity: null,
-        agents: null,
-        tools: null,
-        heartbeat: null,
-        bootstrap: null
-      };
-      for (const p of presets) {
-        if (p.id in map) {
-          map[p.id as keyof PromptTemplateMap] = p.template;
-        }
-      }
-      return map;
+      return await this.promptTemplateRepository.findAll();
     } catch (err) {
       this.logger.warn("Failed to load prompt templates from DB, using hardcoded fallbacks", err);
-      return {
-        soul: null,
-        user: null,
-        identity: null,
-        agents: null,
-        tools: null,
-        heartbeat: null,
-        bootstrap: null
-      };
+      return [];
     }
+  }
+
+  private toPromptTemplateMap(presets: Array<{ id: string; template: string }>): PromptTemplateMap {
+    const map: PromptTemplateMap = {
+      system: null,
+      soul: null,
+      user: null,
+      identity: null,
+      agents: null,
+      tools: null,
+      heartbeat: null,
+      bootstrap: null
+    };
+    for (const p of presets) {
+      if (p.id in map) {
+        map[p.id as keyof PromptTemplateMap] = p.template;
+      }
+    }
+    return map;
   }
 
   private async resolveTelegramChannelConfig(assistantId: string): Promise<{

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { BadRequestException } from "@nestjs/common";
 import { BuildReminderContextSnapshotService } from "../src/modules/workspace-management/application/build-reminder-context-snapshot.service";
 import { ControlInternalScheduledActionService } from "../src/modules/workspace-management/application/control-internal-scheduled-action.service";
 
@@ -393,10 +394,51 @@ async function runLegacyPauseFallbackTest(): Promise<void> {
   });
 }
 
+async function runNestedAssistantActionRejectedTest(): Promise<void> {
+  const assistantRepository = new FakeAssistantRepository();
+  const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
+  const runtimeFacade = new FakeAssistantRuntimeFacade();
+  const syncService = new FakeSyncAssistantTaskRegistryService();
+  const tierService = new FakeResolveAssistantRuntimeTierService();
+  const prisma = new FakeWorkspaceManagementPrismaService();
+  const contextSnapshotService = new BuildReminderContextSnapshotService(
+    new FakeAssistantChatRepository() as never
+  );
+
+  const service = new ControlInternalScheduledActionService(
+    assistantRepository as never,
+    bindingRepository as never,
+    runtimeFacade as never,
+    prisma as never,
+    contextSnapshotService as never,
+    syncService as never,
+    tierService as never
+  );
+
+  const input = service.parseInput({
+    assistantId: "assistant-1",
+    action: "create",
+    audience: "assistant",
+    title: "Nested assistant action",
+    reminderText: "Do not create nested background jobs.",
+    actionType: "follow_up",
+    delayMs: 1,
+    contextSessionKey: "system:scheduled-action:abc-123"
+  });
+
+  await assert.rejects(
+    () => service.execute(input),
+    (error) =>
+      error instanceof BadRequestException &&
+      error.message.includes("Nested assistant scheduled_action creation is not allowed")
+  );
+}
+
 async function run(): Promise<void> {
   await runNativeCreateTest();
   await runAssistantActionCreateTest();
   await runLegacyPauseFallbackTest();
+  await runNestedAssistantActionRejectedTest();
 }
 
 void run();

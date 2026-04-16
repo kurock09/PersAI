@@ -27,6 +27,8 @@ export class InternalRuntimeTaskRegistryController {
       title: string;
       audience: "user" | "assistant";
       actionType: string | null;
+      sourceLabel: string | null;
+      scheduleKind: "one_time" | "recurring" | "unknown";
       controlStatus: "active" | "disabled";
       nextRunAt: string | null;
       externalRef: string | null;

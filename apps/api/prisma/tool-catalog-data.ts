@@ -21,9 +21,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "web_search",
     displayName: "Web Search",
     description: "Provider-backed external web lookup tool.",
-    modelDescription: "Search the public web through the configured external search provider.",
+    modelDescription: "Search the public web through the currently configured search provider.",
     modelUsageGuidance:
-      "Use this for fresh external information, links, or recent facts you cannot know from local context alone.",
+      "Use this when you need sources or links about a topic and do not already have one exact URL to fetch.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_web_search",
@@ -34,9 +34,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "web_fetch",
     displayName: "Web Fetch",
     description: "Structured webpage content extraction via Firecrawl or fallback fetch.",
-    modelDescription: "Fetch and extract structured content from one exact public URL.",
+    modelDescription:
+      "Fetch and extract the main content of a public webpage through the current web-fetch provider.",
     modelUsageGuidance:
-      "Use this when you already have the exact page URL and need page contents rather than a search result list.",
+      "Use this when you already know the exact URL and need page content, not a search results list.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_web_fetch",
@@ -47,9 +48,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "image_generate",
     displayName: "Image Generate",
     description: "AI image generation via DALL-E or other supported providers.",
-    modelDescription: "Generate one or more new images from a text prompt.",
+    modelDescription: "Generate brand-new images from a text prompt.",
     modelUsageGuidance:
-      "Use this only when the user clearly wants a new image asset or visual output, not for ordinary text answers.",
+      "Use this for image creation only; do not use it for editing existing images or for video generation.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -62,9 +63,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description:
       "Edit a single referenced image with prompt-guided changes through supported providers.",
     modelDescription:
-      "Edit an existing referenced image according to the user's requested changes.",
+      "Edit images only when the user explicitly asks to modify an image, for example replace, remove, add, recolor, restyle, insert, or draw something.",
     modelUsageGuidance:
-      "Use this only when the user supplied or referenced an image to modify; do not use it to create a brand new image from scratch.",
+      'Never use this tool for describing an image, OCR, solving a task from an image, or answering "what do you see". Use the current user message attachments only: with one image, edit that image; with multiple images, edit only the source image and return one edited version of that source image. Use optional referenceImageIndex only as a visual guide for style, appearance, makeup, color, lighting, or background cues from another current-turn image. If the user says things like "make it like the second photo", "как на втором фото", or similar, treat image #1 as the source and image #2 as the reference unless the user clearly says otherwise. Ask a clarifying question instead of guessing when the roles are still unclear.',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -76,10 +77,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Video Generate",
     description:
       "Generate a short video clip from a text prompt, optionally guided by one current-turn reference image.",
-    modelDescription:
-      "Generate a short video clip from a text prompt, optionally guided by one current-turn reference image.",
+    modelDescription: "Generate a short brand-new video clip from a text prompt.",
     modelUsageGuidance:
-      "Use this for explicit short video generation requests, not as a substitute for text explanation or static image output.",
+      "Use this only when the user explicitly wants a generated video, animation, or clip. You may optionally guide the video with one current-turn image attachment as a first-frame style or appearance reference by setting referenceImageIndex. Do not use this tool for editing an existing video or for answering questions about an image.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -91,9 +91,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     displayName: "Text to Speech",
     description:
       "Text-to-speech synthesis via provider-specific TTS credentials with native provider fallback.",
-    modelDescription: "Convert assistant text into generated speech audio.",
+    modelDescription: "Generate spoken audio for the current assistant persona.",
     modelUsageGuidance:
-      "Use this only when the user explicitly wants spoken audio or voice delivery, not for ordinary text replies.",
+      "Use this only when the user explicitly wants a voice note, spoken reply, narration, or audio version of text.",
     capabilityGroup: "communication" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -103,9 +103,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "browser",
     displayName: "Browser",
     description: "Automated web browser for interactive page navigation and content extraction.",
-    modelDescription: "Open and interact with web pages when static search or fetch is not enough.",
+    modelDescription:
+      "Use a real browser for JavaScript-rendered or interactive pages when web_search or web_fetch are insufficient.",
     modelUsageGuidance:
-      "Use this only for page interaction or dynamic content flows that cannot be completed with web_search and web_fetch alone.",
+      "Use action=snapshot to inspect a page and action=act only after the user explicitly wants page interaction.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_browser",
@@ -155,9 +156,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description:
       "Schedule actions for both user-visible reminders and hidden assistant follow-ups.",
     modelDescription:
-      "Create, list, pause, resume, or cancel reminders and scheduled follow-up actions.",
+      "Schedule actions for both user-visible reminders and hidden assistant follow-ups.",
     modelUsageGuidance:
-      "Use this when the user wants reminders, delayed follow-ups, or scheduled future actions.",
+      'Use audience="user" for reminders the user should actually see, for example reminders in a few hours, daily or weekly nudges, and deadlines. Use audience="assistant" for background checks and reasoning, for example coming back to a project or habit later, inspecting memory, and when available using knowledge_search or knowledge_fetch before deciding whether any gentle user-facing nudge is appropriate. Background assistant actions MUST NOT directly message the user. For assistant-side conditional checks, first verify the condition, then if a user-facing follow-up is requested and the condition is met create a new scheduled_action with audience="user" and an immediate schedule such as delayMs=1; otherwise stay quiet. They are for checking progress or changes, noticing the user is already doing well and quietly doing nothing, or, when it is helpful and not pushy, scheduling a new scheduled_action with audience="user" and a short human-like message. Respect explicit "don\'t remind me" or paused/cancelled signals, avoid spamming multiple unsolicited reminders about the same thing, and phrase user-facing reminders as low-pressure offers rather than commands. For create, title, audience, and exactly one schedule are required: runAt, delayMs, everyMs, or cronExpr. Prefer taskId from an earlier list result when pausing, resuming, or cancelling; if taskId is unavailable, use titleMatch to resolve one current task by title.',
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"

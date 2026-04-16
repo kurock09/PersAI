@@ -13,6 +13,8 @@ type SchedulerRow = {
   payloadText: string | null;
   scheduleJson: unknown;
   controlStatus: "active" | "disabled" | "cancelled";
+  disabledAt?: Date | null;
+  cancelledAt?: Date | null;
   retryAfterAt: Date | null;
   schedulerClaimToken: string | null;
   schedulerClaimEpoch: number | null;
@@ -60,10 +62,22 @@ class FakeBumpConfigGenerationService {
 }
 
 class FakeWorkspaceManagementPrismaService {
+  runtimeTurnReceipt: {
+    count: (params: { where: { externalThreadKey: string } }) => Promise<number>;
+  };
+
   constructor(
     public rows: SchedulerRow[],
-    private readonly getCurrentEpoch: () => number
-  ) {}
+    private readonly getCurrentEpoch: () => number,
+    private readonly failedReceiptsByExternalRef: Record<string, number> = {}
+  ) {
+    this.runtimeTurnReceipt = {
+      count: async ({ where }: { where: { externalThreadKey: string } }) => {
+        const externalRef = where.externalThreadKey.replace("system:scheduled-action:", "");
+        return this.failedReceiptsByExternalRef[externalRef] ?? 0;
+      }
+    };
+  }
 
   assistantTaskRegistryItem = {
     updateMany: async ({
@@ -341,6 +355,111 @@ async function runFailureRetryTest(): Promise<void> {
   assert.ok((prisma.rows[0]?.retryAfterAt?.getTime() ?? 0) > Date.now());
 }
 
+async function runAssistantFailureRetryTest(): Promise<void> {
+  const dueAt = new Date(Date.now() - 60_000);
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [
+      {
+        id: "task-assistant-retry",
+        assistantId: "assistant-1",
+        externalRef: "job-assistant-retry",
+        title: "Assistant retry reminder",
+        audience: "assistant",
+        actionType: "follow_up",
+        actionPayloadJson: null,
+        nextRunAt: dueAt,
+        payloadText: "Assistant action should retry while below limit.",
+        scheduleJson: {
+          kind: "at",
+          at: dueAt.toISOString()
+        },
+        controlStatus: "active",
+        retryAfterAt: null,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null,
+        createdAt: new Date(dueAt.getTime() - 60_000)
+      }
+    ],
+    () => epochs.currentEpoch,
+    {
+      "job-assistant-retry": 2
+    }
+  );
+  const handler = new FakeHandleInternalCronFireService();
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  assistantRunner.shouldThrow = true;
+  const service = new PersaiScheduledActionSchedulerService(
+    prisma as never,
+    handler as never,
+    epochs as never,
+    assistantRunner as never
+  );
+
+  const count = await service.processDueJobsBatch();
+
+  assert.equal(count, 1);
+  assert.equal(handler.calls.length, 0);
+  assert.equal(assistantRunner.calls.length, 1);
+  assert.equal(prisma.rows[0]?.controlStatus, "active");
+  assert.ok(prisma.rows[0]?.retryAfterAt instanceof Date);
+}
+
+async function runAssistantFailureExhaustionTest(): Promise<void> {
+  const dueAt = new Date(Date.now() - 60_000);
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [
+      {
+        id: "task-assistant-stop",
+        assistantId: "assistant-1",
+        externalRef: "job-assistant-stop",
+        title: "Assistant exhausted reminder",
+        audience: "assistant",
+        actionType: "follow_up",
+        actionPayloadJson: null,
+        nextRunAt: dueAt,
+        payloadText: "Assistant action should stop after failed retries.",
+        scheduleJson: {
+          kind: "at",
+          at: dueAt.toISOString()
+        },
+        controlStatus: "active",
+        retryAfterAt: null,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null,
+        createdAt: new Date(dueAt.getTime() - 60_000)
+      }
+    ],
+    () => epochs.currentEpoch,
+    {
+      "job-assistant-stop": 5
+    }
+  );
+  const handler = new FakeHandleInternalCronFireService();
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  assistantRunner.shouldThrow = true;
+  const service = new PersaiScheduledActionSchedulerService(
+    prisma as never,
+    handler as never,
+    epochs as never,
+    assistantRunner as never
+  );
+
+  const count = await service.processDueJobsBatch();
+
+  assert.equal(count, 1);
+  assert.equal(handler.calls.length, 0);
+  assert.equal(assistantRunner.calls.length, 1);
+  assert.equal(prisma.rows[0]?.controlStatus, "disabled");
+  assert.equal(prisma.rows[0]?.retryAfterAt, null);
+  assert.ok(prisma.rows[0]?.disabledAt instanceof Date);
+}
+
 async function runEpochResetReclaimTest(): Promise<void> {
   const dueAt = new Date(Date.now() - 60_000);
   const epochs = new FakeBumpConfigGenerationService(5);
@@ -527,6 +646,8 @@ async function run(): Promise<void> {
   await runSuccessBatchTest();
   await runRecurringBoundaryAdvanceTest();
   await runFailureRetryTest();
+  await runAssistantFailureRetryTest();
+  await runAssistantFailureExhaustionTest();
   await runEpochResetReclaimTest();
   await runEpochBumpSkipsOldWorkerTest();
   await runAssistantActionBatchTest();

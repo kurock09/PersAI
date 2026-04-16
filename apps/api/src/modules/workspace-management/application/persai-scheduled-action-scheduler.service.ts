@@ -15,6 +15,8 @@ const SCHEDULED_ACTION_POLL_INTERVAL_MS = 5_000;
 const SCHEDULED_ACTION_BATCH_SIZE = 8;
 const SCHEDULED_ACTION_CLAIM_TTL_MS = 120_000;
 const SCHEDULED_ACTION_RETRY_DELAY_MS = 30_000;
+const ASSISTANT_SCHEDULED_ACTION_MAX_FAILED_RECEIPTS = 5;
+const SCHEDULED_ACTION_THREAD_PREFIX = "system:scheduled-action:";
 
 type ClaimedScheduledAction = {
   id: string;
@@ -236,11 +238,31 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
       });
       await this.clearClaim(task.id, task.claimToken, task.claimEpoch);
     } catch (error) {
+      if (task.audience === "assistant") {
+        const failedReceipts = await this.countFailedAssistantActionReceipts(task.externalRef);
+        if (failedReceipts >= ASSISTANT_SCHEDULED_ACTION_MAX_FAILED_RECEIPTS) {
+          await this.disableAfterExhaustedRetries(task.id, task.claimToken, task.claimEpoch);
+          this.logger.error(
+            `Scheduled action ${task.id} disabled after ${failedReceipts} failed delivery attempts.`
+          );
+          return;
+        }
+      }
       await this.deferRetry(task.id, task.claimToken, task.claimEpoch);
       this.logger.error(
         `Scheduled action ${task.id} failed: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+  }
+
+  private async countFailedAssistantActionReceipts(externalRef: string): Promise<number> {
+    const externalThreadKey = `${SCHEDULED_ACTION_THREAD_PREFIX}${externalRef}`;
+    return this.prisma.runtimeTurnReceipt.count({
+      where: {
+        externalThreadKey,
+        status: { in: ["failed", "interrupted"] }
+      }
+    });
   }
 
   private async clearClaim(id: string, claimToken: string, claimEpoch: number): Promise<void> {
@@ -261,6 +283,26 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
       where: { id, schedulerClaimToken: claimToken, schedulerClaimEpoch: claimEpoch },
       data: {
         retryAfterAt: new Date(Date.now() + SCHEDULED_ACTION_RETRY_DELAY_MS),
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null
+      }
+    });
+  }
+
+  private async disableAfterExhaustedRetries(
+    id: string,
+    claimToken: string,
+    claimEpoch: number
+  ): Promise<void> {
+    await this.prisma.assistantTaskRegistryItem.updateMany({
+      where: { id, schedulerClaimToken: claimToken, schedulerClaimEpoch: claimEpoch },
+      data: {
+        controlStatus: "disabled",
+        disabledAt: new Date(),
+        cancelledAt: null,
+        retryAfterAt: null,
         schedulerClaimToken: null,
         schedulerClaimEpoch: null,
         schedulerClaimedAt: null,

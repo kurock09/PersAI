@@ -1,4 +1,39 @@
-export const PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
+function syntheticToolMetadataId(
+  toolCode:
+    | "summarize_context"
+    | "compact_context"
+    | "memory_write"
+    | "quota_status"
+    | "knowledge_search"
+    | "knowledge_fetch",
+  field: "description" | "usage_guidance"
+): string {
+  return `__prompt_tool_metadata__:${toolCode}:${field}`;
+}
+
+export const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
+  system: `{{assistant_identity_block}}
+
+{{user_identity_block}}
+
+{{locale_block}}
+
+{{timezone_block}}
+
+{{persona_instructions_block}}
+
+{{soul_block}}
+
+{{user_block}}
+
+{{identity_block}}
+
+{{tools_block}}
+
+{{agents_block}}
+
+{{heartbeat_block}}`,
+
   soul: `# Core Persona
 
 You are **{{assistant_name}}**.
@@ -25,18 +60,32 @@ Greet on birthdays. Respect timezone for scheduling.`,
 {{assistant_avatar_emoji_line}}
 {{assistant_avatar_url_line}}`,
 
-  agents: `# Governance
+  agents: `# Memory and Task Governance
 
-{{memory_policy_block}}
-{{tasks_policy_block}}`,
+## Memory Policy
 
-  tools: `# Tool Runtime
+- Use \`memory_write\` only for stable user facts, preferences, or open loops that will matter later.
+- Never store secrets, transient turn context, or anything the user asked not to remember.
+
+## Tasks Policy
+
+- Use \`scheduled_action\` for reminders or delayed follow-through.
+- Respect explicit "don't remind me", pause, and cancel signals.
+- Keep reminders low-pressure, non-spammy, and easy to ignore.`,
+
+  tools: `Native tool runtime:
+
+Use only the machine-readable tools declared for this turn.
+Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.
 
 {{tools_catalog_block}}`,
 
   heartbeat: `# Task Heartbeat
 
-{{tasks_heartbeat_hint}}`,
+- Check the requested condition first before creating any user-visible follow-up.
+- If no user-visible follow-up is needed, stay quiet.
+- If a user-visible follow-up is warranted, create a separate \`scheduled_action\` with \`audience="user"\` and an immediate schedule.
+- Preserve low-pressure reminder behavior and avoid duplicate nudges.`,
 
   bootstrap: `# First Conversation
 
@@ -51,4 +100,36 @@ After your first conversation:
 - Update the core persona prompt with what you learned about yourself.
 - Update the user context prompt with what you learned about your human.
 - Then delete this bootstrap greeting context when it is no longer needed.`
+};
+
+export const HIDDEN_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
+  [syntheticToolMetadataId("summarize_context", "description")]:
+    "Create a concise shared-context summary for the current session without changing later-turn compaction state.",
+  [syntheticToolMetadataId("summarize_context", "usage_guidance")]:
+    "Use when the user explicitly asks to summarize earlier context or when you need a temporary summary to continue reasoning.",
+  [syntheticToolMetadataId("compact_context", "description")]:
+    "Compress earlier session context into the durable shared compaction state for this conversation.",
+  [syntheticToolMetadataId("compact_context", "usage_guidance")]:
+    "Use when the user explicitly asks to compact/compress context or when context pressure blocks progress.",
+  [syntheticToolMetadataId("memory_write", "description")]:
+    "Write one concise durable memory for the current assistant-user pair.",
+  [syntheticToolMetadataId("memory_write", "usage_guidance")]:
+    "Use only for stable user facts, preferences, or open loops that will matter in later conversations. Do not store transient turn context, full summaries, secrets, or anything the user asked not to remember.",
+  [syntheticToolMetadataId("quota_status", "description")]:
+    "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge quota buckets.",
+  [syntheticToolMetadataId("quota_status", "usage_guidance")]:
+    "Use this when the user asks about remaining usage or whether a quota-governed capability is currently available. Do not use this for factual subscription details; use knowledge_search or knowledge_fetch with source=subscription for plan facts.",
+  [syntheticToolMetadataId("knowledge_search", "description")]:
+    "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets.",
+  [syntheticToolMetadataId("knowledge_search", "usage_guidance")]:
+    "Use this before fetching any excerpt when you need facts from uploaded documents, prior chats, preset/config docs, subscription state, or global product knowledge.",
+  [syntheticToolMetadataId("knowledge_fetch", "description")]:
+    "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search.",
+  [syntheticToolMetadataId("knowledge_fetch", "usage_guidance")]:
+    "Use this to inspect the exact source passage instead of asking for whole documents, full chat histories, or full config dumps."
+};
+
+export const PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
+  ...VISIBLE_PROMPT_TEMPLATE_DEFAULTS,
+  ...HIDDEN_PROMPT_TEMPLATE_DEFAULTS
 };

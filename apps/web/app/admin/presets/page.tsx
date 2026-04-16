@@ -23,8 +23,25 @@ interface ToolPromptState {
   catalogStatus: "active" | "inactive";
 }
 
+const SYSTEM_TEMPLATE_IDS = ["system"] as const;
 const ORDINARY_TEMPLATE_IDS = ["soul", "user", "identity", "tools", "agents", "heartbeat"] as const;
 const ONBOARDING_TEMPLATE_IDS = ["bootstrap"] as const;
+const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
+  "summarize_context",
+  "compact_context",
+  "memory_write",
+  "quota_status",
+  "knowledge_search",
+  "knowledge_fetch",
+  "web_search",
+  "web_fetch",
+  "browser",
+  "image_generate",
+  "image_edit",
+  "video_generate",
+  "tts",
+  "scheduled_action"
+] as const;
 
 const PRESET_META: Record<
   string,
@@ -34,9 +51,27 @@ const PRESET_META: Record<
     variables: Array<{ key: string; hint: string }>;
   }
 > = {
+  system: {
+    label: "System Prompt Assembly",
+    description:
+      "The real ordinary-turn assembly order. Reorder, remove, or repeat blocks here to control the compiled system prompt directly.",
+    variables: [
+      { key: "assistant_identity_block", hint: "Assistant display-name line" },
+      { key: "user_identity_block", hint: "User display-name line" },
+      { key: "locale_block", hint: "User locale line" },
+      { key: "timezone_block", hint: "User timezone line" },
+      { key: "persona_instructions_block", hint: "Published assistant instructions block" },
+      { key: "soul_block", hint: "Compiled soul prompt block" },
+      { key: "user_block", hint: "Compiled user-context block" },
+      { key: "identity_block", hint: "Compiled identity block" },
+      { key: "tools_block", hint: "Compiled native tool runtime block" },
+      { key: "agents_block", hint: "Compiled memory and task governance block" },
+      { key: "heartbeat_block", hint: "Compiled task heartbeat block" }
+    ]
+  },
   soul: {
-    label: "Character Generator",
-    description: "Core assistant persona, traits, and persistent behavioral instructions.",
+    label: "Core Persona",
+    description: "Assistant persona, traits, and explicit instructions.",
     variables: [
       { key: "assistant_name", hint: "Assistant display name" },
       { key: "assistant_gender_line", hint: "Optional assistant gender line" },
@@ -45,8 +80,8 @@ const PRESET_META: Record<
     ]
   },
   user: {
-    label: "User Context Generator",
-    description: "Structured human context available to the runtime during ordinary turns.",
+    label: "User Context",
+    description: "Structured human context available during ordinary turns.",
     variables: [
       { key: "user_name_line", hint: "User display name line" },
       { key: "user_birthday_line", hint: "User birthday line" },
@@ -56,8 +91,8 @@ const PRESET_META: Record<
     ]
   },
   identity: {
-    label: "Identity Generator",
-    description: "Assistant identity metadata such as name, avatar, and visual identity.",
+    label: "Identity",
+    description: "Assistant identity metadata such as name and avatar.",
     variables: [
       { key: "assistant_name", hint: "Assistant display name" },
       { key: "assistant_gender_line", hint: "Optional assistant gender line" },
@@ -66,28 +101,25 @@ const PRESET_META: Record<
     ]
   },
   tools: {
-    label: "Tool Runtime Section",
+    label: "Native Tool Runtime",
     description:
-      "System-prompt section for tool availability, tool descriptions, and tool usage guidance.",
+      "Canonical machine-readable tool instruction block assembled from the actual model-facing tool metadata surface.",
     variables: [
       {
         key: "tools_catalog_block",
-        hint: "Compiled runtime tool block generated from active tool metadata and policy truth"
+        hint: "Compiled runtime tool block generated from the actual declared tool surface"
       }
     ]
   },
   agents: {
-    label: "Governance Section",
-    description: "Memory and task governance instructions used during ordinary runtime turns.",
-    variables: [
-      { key: "memory_policy_block", hint: "Generated memory policy block" },
-      { key: "tasks_policy_block", hint: "Generated tasks policy block" }
-    ]
+    label: "Memory and Task Governance",
+    description: "Directly editable governance instructions for memory and scheduled actions.",
+    variables: []
   },
   heartbeat: {
-    label: "Task Heartbeat Section",
-    description: "Scheduler continuity instructions used for task and reminder follow-through.",
-    variables: [{ key: "tasks_heartbeat_hint", hint: "Generated scheduler heartbeat guidance" }]
+    label: "Task Heartbeat",
+    description: "Directly editable follow-through instructions for reminders and delayed checks.",
+    variables: []
   },
   bootstrap: {
     label: "Onboarding / Recreate Greeting",
@@ -102,6 +134,12 @@ const PRESET_META: Record<
 };
 
 const SAMPLE_VARIABLES: Record<string, string> = {
+  assistant_identity_block: "Assistant display name: Nova",
+  user_identity_block: "User display name: Alex",
+  locale_block: "User locale: en-US",
+  timezone_block: "User timezone: Europe/Moscow",
+  persona_instructions_block:
+    "Be helpful and proactive. Suggest ideas when appropriate, but stay grounded.",
   assistant_name: "Nova",
   traits_block:
     "## Personality Traits\n\n- **formality**: 40/100\n- **verbosity**: 60/100\n- **playfulness**: 75/100\n- **initiative**: 55/100\n- **warmth**: 80/100",
@@ -115,12 +153,6 @@ const SAMPLE_VARIABLES: Record<string, string> = {
   assistant_gender_line: "- **Gender**: female",
   assistant_avatar_emoji_line: "- **Avatar**: 🌟",
   assistant_avatar_url_line: "",
-  memory_policy_block:
-    "## Memory Policy\n\n- Remember important long-lived user facts.\n- Avoid storing transient turn noise.",
-  tasks_policy_block:
-    "## Tasks Policy\n\n- Manage reminders and follow-ups carefully.\n- Prefer low-pressure user-facing reminders.",
-  tasks_heartbeat_hint:
-    "Track upcoming reminder/task follow-ups and preserve scheduler continuity context between runs.",
   human_name: "Alex",
   traits_summary_line: "They set your personality to: warmth 80/100, playfulness 75/100."
 };
@@ -146,34 +178,31 @@ function interpolateTemplate(template: string, variables: Record<string, string>
 }
 
 function buildPreviewToolCatalogBlock(toolStates: ToolPromptState[]): string {
-  const preferredActive = ["web_search", "web_fetch", "scheduled_action", "tts"];
-  const active = toolStates.filter((tool) => preferredActive.includes(tool.toolCode));
-  const disabled = toolStates
-    .filter((tool) => !preferredActive.includes(tool.toolCode))
-    .slice(0, 4);
-
-  const lines: string[] = ["## Active Tools", ""];
-  for (const tool of active) {
-    lines.push(
-      `- **${tool.toolCode}** — ${tool.modelDescription ?? tool.description ?? tool.displayName}${
-        tool.modelUsageGuidance ? ` Guidance: ${tool.modelUsageGuidance}` : ""
-      }`
+  const orderedTools = [...toolStates].sort((left, right) => {
+    const leftIndex = PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.indexOf(
+      left.toolCode as (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number]
     );
-  }
-  lines.push("");
-  if (disabled.length > 0) {
-    lines.push("## Hidden Or Disabled In This Preview");
-    lines.push("");
-    for (const tool of disabled) {
-      lines.push(`- ~~${tool.toolCode}~~ — ${tool.displayName}`);
+    const rightIndex = PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.indexOf(
+      right.toolCode as (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number]
+    );
+    if (leftIndex !== -1 || rightIndex !== -1) {
+      return (
+        (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
+        (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex)
+      );
     }
-    lines.push("");
+    return left.toolCode.localeCompare(right.toolCode);
+  });
+  const lines: string[] = [];
+  for (const tool of orderedTools) {
+    const description = tool.modelDescription?.trim() || tool.description?.trim() || null;
+    const guidance = tool.modelUsageGuidance?.trim() || null;
+    const instruction =
+      description && guidance ? `${description} ${guidance}` : (description ?? guidance);
+    if (instruction) {
+      lines.push(`${tool.toolCode}: ${instruction}`);
+    }
   }
-  lines.push("## Usage Rules");
-  lines.push("");
-  lines.push(
-    "- Use only the machine-readable tools actually declared for the turn. The block above explains intent, not availability by itself."
-  );
   return lines.join("\n").trimEnd();
 }
 
@@ -184,20 +213,48 @@ function buildOrdinaryPreview(
   const templateById = new Map(
     templates.map((template) => [template.id, template.template] as const)
   );
-  const variables = {
+  const sectionVariables = {
     ...SAMPLE_VARIABLES,
     tools_catalog_block: buildPreviewToolCatalogBlock(toolStates)
   };
-  const sections = ORDINARY_TEMPLATE_IDS.map((id) =>
-    interpolateTemplate(templateById.get(id) ?? "", variables)
-  ).filter((section) => section.trim().length > 0);
-  return [
-    "Assistant display name: Nova",
-    "User display name: Alex",
-    "User locale: en-US",
-    "User timezone: Europe/Moscow",
-    ...sections
-  ].join("\n\n");
+  const sectionById = Object.fromEntries(
+    ORDINARY_TEMPLATE_IDS.map((id) => [
+      id,
+      interpolateTemplate(templateById.get(id) ?? "", sectionVariables).trim()
+    ])
+  ) as Record<(typeof ORDINARY_TEMPLATE_IDS)[number], string>;
+  const systemTemplate =
+    templateById.get("system") ??
+    `{{assistant_identity_block}}
+
+{{user_identity_block}}
+
+{{locale_block}}
+
+{{timezone_block}}
+
+{{persona_instructions_block}}
+
+{{soul_block}}
+
+{{user_block}}
+
+{{identity_block}}
+
+{{tools_block}}
+
+{{agents_block}}
+
+{{heartbeat_block}}`;
+  return interpolateTemplate(systemTemplate, {
+    ...SAMPLE_VARIABLES,
+    soul_block: sectionById.soul,
+    user_block: sectionById.user,
+    identity_block: sectionById.identity,
+    tools_block: sectionById.tools,
+    agents_block: sectionById.agents,
+    heartbeat_block: sectionById.heartbeat
+  }).trim();
 }
 
 function buildOnboardingPreview(templates: PromptTemplateState[]): string {
@@ -630,7 +687,29 @@ export default function AdminPresetsPage() {
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-accent" />
-          <h2 className="text-sm font-semibold text-text">Ordinary Runtime Prompt</h2>
+          <h2 className="text-sm font-semibold text-text">System Prompt Assembly</h2>
+        </div>
+        <div className="grid gap-4">
+          {SYSTEM_TEMPLATE_IDS.map((id) => {
+            const template = templates.find((entry) => entry.id === id);
+            const meta = PRESET_META[id];
+            if (!template || !meta) return null;
+            return (
+              <PromptTemplateEditor
+                key={id}
+                template={template}
+                meta={meta}
+                onSave={handleSaveTemplate}
+              />
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-accent" />
+          <h2 className="text-sm font-semibold text-text">Compiled Sections</h2>
         </div>
         <div className="grid gap-4">
           {ORDINARY_TEMPLATE_IDS.map((id) => {

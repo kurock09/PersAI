@@ -6,6 +6,7 @@ import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-
 import { SendNativeWebChatTurnService } from "./send-native-web-chat-turn.service";
 
 const SCHEDULED_ACTION_THREAD_PREFIX = "system:scheduled-action:";
+const ACCEPTED_RECEIPT_STALE_MS = 2 * 60 * 1000;
 
 type ScheduledActionDeliveryAttempt = { kind: "send"; userMessageId: string } | { kind: "skip" };
 
@@ -130,7 +131,8 @@ export class RunScheduledAssistantActionService {
       },
       select: {
         idempotencyKey: true,
-        status: true
+        status: true,
+        createdAt: true
       }
     });
     const latestReceipt = receipts.at(-1);
@@ -141,6 +143,15 @@ export class RunScheduledAssistantActionService {
       return { kind: "skip" };
     }
     if (isRetriableFailedReceipt(latestReceipt.status)) {
+      return {
+        kind: "send",
+        userMessageId: `${baseUserMessageId}:retry:${String(receipts.length + 1)}`
+      };
+    }
+    if (
+      latestReceipt.status === "accepted" &&
+      Date.now() - latestReceipt.createdAt.getTime() > ACCEPTED_RECEIPT_STALE_MS
+    ) {
       return {
         kind: "send",
         userMessageId: `${baseUserMessageId}:retry:${String(receipts.length + 1)}`

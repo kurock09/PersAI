@@ -1,5 +1,16 @@
-import type { RuntimeToolPolicy } from "@persai/runtime-contract";
+import type { AssistantRuntimeBundleToolCredentialRef } from "@persai/runtime-bundle";
+import {
+  PERSAI_RUNTIME_BROWSER_PROVIDER_IDS,
+  PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
+  type RuntimeToolPolicy
+} from "@persai/runtime-contract";
 import type { EffectiveToolAvailabilityState } from "./effective-tool-availability.types";
+import {
+  PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER,
+  SYNTHETIC_PROMPT_CONSTRUCTOR_TOOL_DEFAULTS,
+  joinPromptToolInstruction,
+  resolveSyntheticPromptConstructorTool
+} from "./prompt-constructor-tool-metadata";
 
 type ToolQuotaPolicyEntry = {
   toolCode: string;
@@ -7,7 +18,21 @@ type ToolQuotaPolicyEntry = {
   activationStatus: string;
 };
 
+type SyntheticPromptToolOverrideMap = Record<
+  string,
+  {
+    description: string | null;
+    usageGuidance: string | null;
+  }
+>;
+
 const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMode"]> = {
+  summarize_context: "inline",
+  compact_context: "inline",
+  memory_write: "inline",
+  quota_status: "inline",
+  knowledge_search: "inline",
+  knowledge_fetch: "inline",
   web_search: "inline",
   web_fetch: "inline",
   browser: "worker",
@@ -20,7 +45,6 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   scheduled_action: "worker",
   persai_workspace_attach: "inline",
   persai_tool_quota_status: "inline",
-  quota_status: "inline",
   cron: "worker"
 };
 
@@ -29,6 +53,7 @@ const RUNTIME_TOOL_CODE_BY_INVENTORY_CODE: Record<string, string> = {
 };
 
 const MIGRATION_ONLY_MODEL_HIDDEN_TOOLS = new Set(["persai_workspace_attach"]);
+const HIDDEN_TOOL_CODES = new Set(["memory_search", "memory_get", "persai_tool_quota_status"]);
 
 function resolveToolKind(
   policyClass: EffectiveToolAvailabilityState["tools"][number]["policyClass"]
@@ -65,15 +90,8 @@ function resolveRuntimeToolDisplayName(
 }
 
 function resolveRuntimeToolDescription(
-  tool: EffectiveToolAvailabilityState["tools"][number],
-  runtimeToolCode: string
+  tool: EffectiveToolAvailabilityState["tools"][number]
 ): string | null {
-  if (runtimeToolCode === "quota_status") {
-    return (
-      tool.modelDescription ??
-      "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge buckets."
-    );
-  }
   if (MIGRATION_ONLY_MODEL_HIDDEN_TOOLS.has(tool.code)) {
     return "Migration-only inventory entry. Step 15 does not expose raw path-based workspace attachment to the model.";
   }
@@ -81,39 +99,186 @@ function resolveRuntimeToolDescription(
 }
 
 function resolveRuntimeToolUsageGuidance(
-  tool: EffectiveToolAvailabilityState["tools"][number],
-  runtimeToolCode: string
+  tool: EffectiveToolAvailabilityState["tools"][number]
 ): string | null {
-  if (runtimeToolCode === "quota_status") {
-    return (
-      tool.modelUsageGuidance ??
-      "Use this when the user asks about remaining usage, current quota pressure, or whether a quota-governed capability is available right now."
-    );
-  }
   if (MIGRATION_ONLY_MODEL_HIDDEN_TOOLS.has(tool.code)) {
     return "Keep this helper off the normal model-visible path.";
   }
   return tool.modelUsageGuidance;
 }
 
+function hasConfiguredCredential(
+  toolCredentialRefs: Record<string, AssistantRuntimeBundleToolCredentialRef>,
+  toolCode: string
+): AssistantRuntimeBundleToolCredentialRef | null {
+  const credential = toolCredentialRefs[toolCode] ?? null;
+  return credential?.configured === true ? credential : null;
+}
+
+function supportsCurrentNativeWebSearchProvider(providerId: string | null): boolean {
+  return (
+    providerId === null ||
+    providerId === "tavily" ||
+    providerId === "brave" ||
+    providerId === "perplexity" ||
+    providerId === "google"
+  );
+}
+
+function supportsCurrentNativeBrowserProvider(providerId: string | null): boolean {
+  return (
+    providerId === null ||
+    PERSAI_RUNTIME_BROWSER_PROVIDER_IDS.includes(
+      providerId as (typeof PERSAI_RUNTIME_BROWSER_PROVIDER_IDS)[number]
+    )
+  );
+}
+
+function supportsCurrentNativeImageGenerateProvider(providerId: string | null): boolean {
+  return providerId === null || providerId === "openai";
+}
+
+function supportsCurrentNativeImageEditProvider(providerId: string | null): boolean {
+  const resolved = providerId ?? "openai";
+  return PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS.includes(
+    resolved as (typeof PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS)[number]
+  );
+}
+
+function supportsCurrentNativeVideoGenerateProvider(providerId: string | null): boolean {
+  return (providerId ?? "openai") === "openai";
+}
+
+function supportsCurrentNativeTtsProvider(
+  credential: AssistantRuntimeBundleToolCredentialRef | null
+): boolean {
+  if (!credential) {
+    return false;
+  }
+  const candidates = [credential, ...(credential.fallbacks ?? [])];
+  return candidates.some(
+    (entry) =>
+      entry.configured === true &&
+      (entry.providerId === "elevenlabs" ||
+        entry.providerId === "yandex" ||
+        entry.providerId === "openai")
+  );
+}
+
+function hasNativeModelExecution(
+  runtimeToolCode: string,
+  params: {
+    toolCredentialRefs: Record<string, AssistantRuntimeBundleToolCredentialRef>;
+    knowledgeAccessEnabled: boolean;
+  }
+): boolean {
+  if (
+    runtimeToolCode === "summarize_context" ||
+    runtimeToolCode === "compact_context" ||
+    runtimeToolCode === "memory_write" ||
+    runtimeToolCode === "quota_status" ||
+    runtimeToolCode === "scheduled_action"
+  ) {
+    return true;
+  }
+  if (runtimeToolCode === "knowledge_search" || runtimeToolCode === "knowledge_fetch") {
+    return params.knowledgeAccessEnabled;
+  }
+  if (runtimeToolCode === "web_search") {
+    const credential = hasConfiguredCredential(params.toolCredentialRefs, "web_search");
+    return (
+      credential !== null && supportsCurrentNativeWebSearchProvider(credential.providerId ?? null)
+    );
+  }
+  if (runtimeToolCode === "web_fetch") {
+    return hasConfiguredCredential(params.toolCredentialRefs, "web_fetch") !== null;
+  }
+  if (runtimeToolCode === "browser") {
+    const credential = hasConfiguredCredential(params.toolCredentialRefs, "browser");
+    return (
+      credential !== null && supportsCurrentNativeBrowserProvider(credential.providerId ?? null)
+    );
+  }
+  if (runtimeToolCode === "image_generate") {
+    const credential = hasConfiguredCredential(params.toolCredentialRefs, "image_generate");
+    return (
+      credential !== null &&
+      supportsCurrentNativeImageGenerateProvider(credential.providerId ?? null)
+    );
+  }
+  if (runtimeToolCode === "image_edit") {
+    const credential = hasConfiguredCredential(params.toolCredentialRefs, "image_edit");
+    return (
+      credential !== null && supportsCurrentNativeImageEditProvider(credential.providerId ?? null)
+    );
+  }
+  if (runtimeToolCode === "video_generate") {
+    const credential = hasConfiguredCredential(params.toolCredentialRefs, "video_generate");
+    return (
+      credential !== null &&
+      supportsCurrentNativeVideoGenerateProvider(credential.providerId ?? null)
+    );
+  }
+  if (runtimeToolCode === "tts") {
+    return supportsCurrentNativeTtsProvider(
+      hasConfiguredCredential(params.toolCredentialRefs, "tts")
+    );
+  }
+  return false;
+}
+
+function buildSyntheticSystemToolPolicy(
+  toolCode: keyof typeof SYNTHETIC_PROMPT_CONSTRUCTOR_TOOL_DEFAULTS,
+  overrides: SyntheticPromptToolOverrideMap,
+  knowledgeAccessEnabled: boolean
+): RuntimeToolPolicy {
+  const base = resolveSyntheticPromptConstructorTool(toolCode, []);
+  const override = overrides[toolCode];
+  const enabled =
+    toolCode === "knowledge_search" || toolCode === "knowledge_fetch"
+      ? knowledgeAccessEnabled
+      : true;
+  return {
+    toolCode,
+    displayName: base.displayName,
+    description: override?.description ?? base.modelDescription,
+    usageGuidance: override?.usageGuidance ?? base.modelUsageGuidance,
+    kind: "system",
+    executionMode: resolveToolExecutionMode(toolCode),
+    usageRule: enabled ? "allowed" : "forbidden",
+    enabled,
+    visibleToModel: enabled,
+    visibleInPlanEditor: false,
+    dailyCallLimit: null
+  };
+}
+
 export function resolveRuntimeToolPolicies(params: {
   tools: EffectiveToolAvailabilityState["tools"];
   planToolQuotaPolicy: ToolQuotaPolicyEntry[];
+  toolCredentialRefs: Record<string, AssistantRuntimeBundleToolCredentialRef>;
+  knowledgeAccessEnabled: boolean;
+  syntheticToolOverrides?: SyntheticPromptToolOverrideMap;
 }): RuntimeToolPolicy[] {
   const dailyLimitByCode = new Map(
     params.planToolQuotaPolicy.map((tool) => [tool.toolCode, tool.dailyCallLimit] as const)
   );
-
-  return params.tools.map((tool) => {
+  const catalogPolicies = params.tools.map((tool): RuntimeToolPolicy => {
     const kind = resolveToolKind(tool.policyClass);
     const runtimeToolCode = resolveRuntimeToolCode(tool.code);
     const enabled =
-      tool.effectiveActivation === "active" && !MIGRATION_ONLY_MODEL_HIDDEN_TOOLS.has(tool.code);
+      tool.effectiveActivation === "active" &&
+      !MIGRATION_ONLY_MODEL_HIDDEN_TOOLS.has(tool.code) &&
+      !HIDDEN_TOOL_CODES.has(tool.code) &&
+      hasNativeModelExecution(runtimeToolCode, {
+        toolCredentialRefs: params.toolCredentialRefs,
+        knowledgeAccessEnabled: params.knowledgeAccessEnabled
+      });
     return {
       toolCode: runtimeToolCode,
       displayName: resolveRuntimeToolDisplayName(tool, runtimeToolCode),
-      description: resolveRuntimeToolDescription(tool, runtimeToolCode),
-      usageGuidance: resolveRuntimeToolUsageGuidance(tool, runtimeToolCode),
+      description: resolveRuntimeToolDescription(tool),
+      usageGuidance: resolveRuntimeToolUsageGuidance(tool),
       kind,
       executionMode: resolveToolExecutionMode(runtimeToolCode),
       usageRule: enabled && kind !== "internal" ? "allowed" : "forbidden",
@@ -123,76 +288,50 @@ export function resolveRuntimeToolPolicies(params: {
       dailyCallLimit: dailyLimitByCode.get(tool.code) ?? null
     };
   });
-}
-
-function buildToolLine(tool: RuntimeToolPolicy, details: string): string {
-  const limit =
-    tool.dailyCallLimit !== null ? ` (daily limit: ${String(tool.dailyCallLimit)})` : "";
-  const description = tool.description ? ` — ${tool.description}` : "";
-  const guidance = tool.usageGuidance ? ` Guidance: ${tool.usageGuidance}` : "";
-  return `- **${tool.toolCode}** — ${details}${limit}${description}${guidance}`;
+  const canonicalToolCodes = new Set(
+    catalogPolicies
+      .filter((tool) => tool.toolCode !== "quota_status" || tool.visibleToModel)
+      .map((tool) => tool.toolCode)
+  );
+  const syntheticPolicies = (
+    Object.keys(SYNTHETIC_PROMPT_CONSTRUCTOR_TOOL_DEFAULTS) as Array<
+      keyof typeof SYNTHETIC_PROMPT_CONSTRUCTOR_TOOL_DEFAULTS
+    >
+  )
+    .filter((toolCode) => !canonicalToolCodes.has(toolCode))
+    .map((toolCode) =>
+      buildSyntheticSystemToolPolicy(
+        toolCode,
+        params.syntheticToolOverrides ?? {},
+        params.knowledgeAccessEnabled
+      )
+    );
+  return [...catalogPolicies, ...syntheticPolicies];
 }
 
 export function buildRuntimeToolPoliciesMarkdown(toolPolicies: RuntimeToolPolicy[]): string {
+  const visibleTools = toolPolicies.filter((tool) => tool.enabled && tool.visibleToModel);
+  const orderedTools = [...visibleTools].sort((left, right) => {
+    const leftIndex = PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.indexOf(
+      left.toolCode as (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number]
+    );
+    const rightIndex = PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.indexOf(
+      right.toolCode as (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number]
+    );
+    if (leftIndex !== -1 || rightIndex !== -1) {
+      return (
+        (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
+        (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex)
+      );
+    }
+    return left.toolCode.localeCompare(right.toolCode);
+  });
   const lines: string[] = [];
-  const activePlanTools = toolPolicies.filter((tool) => tool.kind === "plan" && tool.enabled);
-  const activeSystemTools = toolPolicies.filter(
-    (tool) => tool.kind === "system" && tool.enabled && tool.visibleToModel
-  );
-  const disabledVisibleTools = toolPolicies.filter((tool) => tool.kind === "plan" && !tool.enabled);
-
-  if (activePlanTools.length > 0) {
-    lines.push("## Active Plan Tools");
-    lines.push("");
-    for (const tool of activePlanTools) {
-      lines.push(buildToolLine(tool, `${tool.executionMode}, ${tool.usageRule}`));
+  for (const tool of orderedTools) {
+    const instruction = joinPromptToolInstruction(tool.description, tool.usageGuidance);
+    if (instruction) {
+      lines.push(`${tool.toolCode}: ${instruction}`);
     }
-    lines.push("");
   }
-
-  if (activeSystemTools.length > 0) {
-    lines.push("## Active System Tools");
-    lines.push("");
-    for (const tool of activeSystemTools) {
-      lines.push(buildToolLine(tool, `${tool.executionMode}, ${tool.usageRule}`));
-    }
-    lines.push("");
-  }
-
-  if (disabledVisibleTools.length > 0) {
-    lines.push("## Disabled Tools");
-    lines.push("");
-    for (const tool of disabledVisibleTools) {
-      lines.push(`- ~~${tool.toolCode}~~ — ${tool.executionMode}, forbidden on current plan`);
-    }
-    lines.push("");
-  }
-
-  if (
-    activePlanTools.length === 0 &&
-    activeSystemTools.length === 0 &&
-    disabledVisibleTools.length === 0
-  ) {
-    lines.push("No tools configured yet.");
-    lines.push("");
-  }
-
-  lines.push("## Usage Rules");
-  lines.push("");
-  lines.push(
-    "- `allowed` means the runtime may expose the tool to the model in the current bundle."
-  );
-  lines.push(
-    "- `forbidden` means the tool must stay out of the model-visible tool list for the current bundle."
-  );
-  lines.push(
-    "- Hidden internal tools stay outside the model-visible tool list even when platform internals still use them."
-  );
-  lines.push("- Daily caps above are plan limits only, not remaining usage for today.");
-  lines.push(
-    "- Do not infer exhaustion from earlier messages; plans and counters change. When the user asks about remaining quota, storage pressure, or whether a quota-governed tool is currently available, call the `quota_status` tool first."
-  );
-  lines.push("");
-
   return lines.join("\n").trimEnd();
 }

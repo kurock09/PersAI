@@ -10,7 +10,7 @@ import { normalizeAssistantGender } from "./assistant-gender";
 import { buildRuntimeToolPoliciesMarkdown } from "./runtime-tool-policy";
 
 export type PromptTemplateMap = Record<
-  keyof AssistantRuntimePromptDocuments,
+  keyof AssistantRuntimePromptDocuments | "system",
   string | null | undefined
 >;
 
@@ -26,8 +26,6 @@ export class CompilePromptConstructorService {
       timezone: string;
     };
     toolPolicies: RuntimeToolPolicy[];
-    memoryControl: unknown;
-    tasksControl: unknown;
     promptTemplates: PromptTemplateMap;
   }): {
     promptDocuments: AssistantRuntimePromptDocuments;
@@ -41,17 +39,8 @@ export class CompilePromptConstructorService {
         params.promptTemplates.identity ?? null
       ),
       tools: this.generateToolsPrompt(params.toolPolicies, params.promptTemplates.tools ?? null),
-      agents: this.generateAgentsPrompt(
-        {
-          memoryControl: params.memoryControl,
-          tasksControl: params.tasksControl
-        },
-        params.promptTemplates.agents ?? null
-      ),
-      heartbeat: this.generateHeartbeatPrompt(
-        params.tasksControl,
-        params.promptTemplates.heartbeat ?? null
-      ),
+      agents: this.generateAgentsPrompt(params.promptTemplates.agents ?? null),
+      heartbeat: this.generateHeartbeatPrompt(params.promptTemplates.heartbeat ?? null),
       bootstrap: this.generateBootstrapPrompt(
         params.publishedVersion,
         params.userContext,
@@ -79,21 +68,10 @@ export class CompilePromptConstructorService {
       heartbeat: promptDocuments.heartbeat
     };
 
-    const systemPrompt = [
-      ordinarySections.assistantIdentity,
-      ordinarySections.userIdentity,
-      ordinarySections.locale,
-      ordinarySections.timezone,
-      ordinarySections.personaInstructions,
-      this.normalizeOptionalText(ordinarySections.soul),
-      this.normalizeOptionalText(ordinarySections.user),
-      this.normalizeOptionalText(ordinarySections.identity),
-      this.normalizeOptionalText(ordinarySections.tools),
-      this.normalizeOptionalText(ordinarySections.agents),
-      this.normalizeOptionalText(ordinarySections.heartbeat)
-    ]
-      .filter((section): section is string => section !== null)
-      .join("\n\n");
+    const systemPrompt = this.generateSystemPrompt(
+      ordinarySections,
+      params.promptTemplates.system ?? null
+    );
 
     return {
       promptDocuments,
@@ -230,49 +208,56 @@ export class CompilePromptConstructorService {
     const catalog = buildRuntimeToolPoliciesMarkdown(toolPolicies);
     if (template) {
       return this.interpolateTemplate(template, {
-        tools_catalog_block: catalog.length > 0 ? catalog : "No tools configured yet.\n"
+        tools_catalog_block: catalog
       });
     }
 
-    return ["# Tool Runtime", "", catalog].join("\n").trimEnd();
+    return catalog;
   }
 
-  private generateAgentsPrompt(
-    ctx: { memoryControl: unknown; tasksControl: unknown },
+  private generateAgentsPrompt(template: string | null): string {
+    return this.normalizeOptionalText(template) ?? "";
+  }
+
+  private generateHeartbeatPrompt(template: string | null): string {
+    return this.normalizeOptionalText(template) ?? "";
+  }
+
+  private generateSystemPrompt(
+    ordinarySections: AssistantRuntimeCompiledOrdinaryPromptSections,
     template: string | null
   ): string {
-    const mc = ctx.memoryControl as Record<string, unknown> | null;
-    const tc = ctx.tasksControl as Record<string, unknown> | null;
-
-    const memoryPolicyBlock = mc
-      ? "## Memory Policy\n\n- Remember important facts about your human from conversations.\n- Update long-lived memory only when information will matter later."
-      : "";
-
-    const tasksPolicyBlock = tc
-      ? "## Tasks Policy\n\n- You may manage reminders and recurring tasks for your human.\n- Keep scheduled actions accurate and minimal."
-      : "";
-
     if (template) {
       return this.interpolateTemplate(template, {
-        memory_policy_block: memoryPolicyBlock,
-        tasks_policy_block: tasksPolicyBlock
-      });
+        assistant_identity_block: ordinarySections.assistantIdentity,
+        user_identity_block: ordinarySections.userIdentity,
+        locale_block: ordinarySections.locale,
+        timezone_block: ordinarySections.timezone,
+        persona_instructions_block: ordinarySections.personaInstructions,
+        soul_block: ordinarySections.soul,
+        user_block: ordinarySections.user,
+        identity_block: ordinarySections.identity,
+        tools_block: ordinarySections.tools,
+        agents_block: ordinarySections.agents,
+        heartbeat_block: ordinarySections.heartbeat
+      }).trim();
     }
 
-    return ["# Governance", "", memoryPolicyBlock, "", tasksPolicyBlock].join("\n").trimEnd();
-  }
-
-  private generateHeartbeatPrompt(tasksControl: unknown, template: string | null): string {
-    const tc = tasksControl as Record<string, unknown> | null;
-    const tasksHeartbeatHint = tc
-      ? "Track upcoming reminder/task follow-ups and preserve scheduler continuity context between runs."
-      : null;
-    if (template) {
-      return this.interpolateTemplate(template, {
-        tasks_heartbeat_hint: tasksHeartbeatHint
-      });
-    }
-    return tasksHeartbeatHint ? `# Heartbeat\n\n${tasksHeartbeatHint}` : "# Heartbeat";
+    return [
+      ordinarySections.assistantIdentity,
+      ordinarySections.userIdentity,
+      ordinarySections.locale,
+      ordinarySections.timezone,
+      ordinarySections.personaInstructions,
+      this.normalizeOptionalText(ordinarySections.soul),
+      this.normalizeOptionalText(ordinarySections.user),
+      this.normalizeOptionalText(ordinarySections.identity),
+      this.normalizeOptionalText(ordinarySections.tools),
+      this.normalizeOptionalText(ordinarySections.agents),
+      this.normalizeOptionalText(ordinarySections.heartbeat)
+    ]
+      .filter((section): section is string => section !== null)
+      .join("\n\n");
   }
 
   private generateBootstrapPrompt(

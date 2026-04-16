@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { PROMPT_TEMPLATE_DEFAULTS } from "../prisma/bootstrap-preset-data";
+import { VISIBLE_PROMPT_TEMPLATE_DEFAULTS } from "../prisma/bootstrap-preset-data";
 import { ManagePromptTemplatesService } from "../src/modules/workspace-management/application/manage-bootstrap-presets.service";
 
 type PresetRow = {
@@ -60,7 +60,7 @@ async function run(): Promise<void> {
     const all = await service.getAll("admin-user");
     assert.deepEqual(
       all.map((row) => row.id),
-      Object.keys(PROMPT_TEMPLATE_DEFAULTS).sort(),
+      Object.keys(VISIBLE_PROMPT_TEMPLATE_DEFAULTS).sort(),
       "getAll should backfill missing default template ids"
     );
     assert.equal(

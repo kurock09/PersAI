@@ -166,7 +166,7 @@ async function run(): Promise<void> {
   assert.ok(webSearch, "web_search should be projected when enabled and configured");
   assert.equal(
     webSearch?.description,
-    "Search the public web for current external facts. Guidance: Use this when the answer depends on recent external information or links."
+    "Search the public web for current external facts. Use this when the answer depends on recent external information or links."
   );
 }
 

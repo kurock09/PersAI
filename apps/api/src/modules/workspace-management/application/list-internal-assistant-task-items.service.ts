@@ -12,10 +12,23 @@ export type InternalAssistantTaskItemState = {
   title: string;
   audience: "user" | "assistant";
   actionType: string | null;
+  sourceLabel: string | null;
+  scheduleKind: "one_time" | "recurring" | "unknown";
   controlStatus: "active" | "disabled";
   nextRunAt: string | null;
   externalRef: string | null;
 };
+
+function resolveScheduleKind(sourceLabel: string | null): "one_time" | "recurring" | "unknown" {
+  const normalized = sourceLabel?.toLowerCase() ?? "";
+  if (normalized.includes("one-time")) {
+    return "one_time";
+  }
+  if (normalized.includes("recurring")) {
+    return "recurring";
+  }
+  return "unknown";
+}
 
 @Injectable()
 export class ListInternalAssistantTaskItemsService {
@@ -46,6 +59,8 @@ export class ListInternalAssistantTaskItemsService {
       title: item.title,
       audience: item.audience,
       actionType: item.actionType,
+      sourceLabel: item.sourceLabel,
+      scheduleKind: resolveScheduleKind(item.sourceLabel),
       controlStatus: item.controlStatus,
       nextRunAt: item.nextRunAt?.toISOString() ?? null,
       externalRef: item.externalRef

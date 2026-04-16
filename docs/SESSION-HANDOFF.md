@@ -1,5 +1,50 @@
 # SESSION-HANDOFF
 
+## 2026-04-16 - ADR-072 late-stage order realignment
+
+### What changed
+
+1. `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` now moves sandbox off the primary late-stage production path. The main order is now: active OpenClaw removal, legacy schema/document cleanup, UI/control-plane/runtime audit cleanup, `10000+` user scale hardening, and only then the isolated sandbox service.
+2. The ADR now redefines the late slices accordingly: `Slice 6` closes as tools/control-plane UX, `Slice 7` becomes OpenClaw removal plus cleanup, `Slice 8` becomes scale hardening for `10000+` users, and `Slice 9` becomes the deferred sandbox slice.
+3. The late step ledger is now aligned to that order. `Step 16` is now active OpenClaw runtime removal, `Step 17` is legacy schema/document cleanup, `Step 18` is UI/control-plane/runtime audit cleanup, `Step 19` is scale hardening, and `Step 20` is the isolated sandbox service.
+4. `Step 15a` is now explicitly deferred behind cleanup and scale hardening so it no longer blocks the primary production path.
+5. `docs/API-BOUNDARY.md` and `docs/TEST-PLAN.md` now point any future attach-by-ref or file-authority work at the deferred sandbox boundary in `Step 20` instead of the old `Step 16` numbering.
+
+### Why
+
+1. Sandbox is still a wanted capability, but it is not the fastest way to make the current native production path clean, honest, and shippable.
+2. Building sandbox on top of remaining OpenClaw/UI/control-plane debt would spread that debt into another critical subsystem.
+3. Scale evidence for `10000+` users should be gathered on the real target production path, not on a path that is still carrying cleanup debt or an unfinished sandbox layer.
+
+### Current active slice
+
+- `Slice 7 — OpenClaw removal and cleanup`
+
+### Current active step
+
+- `Step 16 — Remove OpenClaw runtime integration from PersAI active paths`
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- not run; docs-only reorder
+
+### Risks
+
+1. This changes execution order, so future sessions must follow the updated ADR ledger instead of older historical handoff/changelog entries that still mention the previous numbering.
+2. Sandbox remains intentionally deferred rather than removed; if product scope changes again, the ADR order should be amended explicitly instead of silently jumping steps.
+
+### Next recommended step
+
+1. Start `Step 16 — Remove OpenClaw runtime integration from PersAI active paths`, then proceed through `Step 17`, `Step 18`, and `Step 19` before reopening `Step 15a` or `Step 20`.
+
 ## 2026-04-16 - ADR-072 Step 15b production Prompt Constructor landing
 
 ### What changed

@@ -401,7 +401,7 @@ The PersAI-native runtime uses three explicit tool classes:
 - **Plan tools**
   Product capabilities enabled or disabled by plan/admin policy. Examples: `web_search`, `web_fetch`, future knowledge-layer tools such as `knowledge_search` / `knowledge_fetch`, external API tools, `tts`, `image_generate`, `image_edit`, and `video_generate`.
 - **Sandbox tools**
-  High-risk workspace/code/file/system operations such as `read_file`, `write_file`, `edit_file`, `exec`, `shell`, and similar filesystem/process tools. These are not ordinary runtime tools and land only behind the isolated sandbox boundary in Step 16.
+  High-risk workspace/code/file/system operations such as `read_file`, `write_file`, `edit_file`, `exec`, `shell`, and similar filesystem/process tools. These are not ordinary runtime tools and land only behind the isolated sandbox boundary in Step 20.
 
 Bounded durable-memory write helpers are separate from read-side knowledge access. If the model is later allowed to persist cross-session human memory, it must do so through an explicit PersAI-owned tool/validator path rather than by treating an ordinary assistant reply, session summary, or compaction artifact as an implicit write.
 
@@ -466,8 +466,8 @@ Human memory and knowledge access remain part of the ADR-072 target architecture
 - `memory_search` / `memory_get` belong to that future read layer only when a real PersAI-native backend exists and may later become compatibility aliases instead of separate executor families
 - the shared memory/knowledge layer must stay reference-first and token-budgeted: `knowledge_search` returns lightweight hits/references, `knowledge_fetch` returns bounded excerpts/windows, and ordinary turns must not auto-inject full corpora or full prior chats by default
 - live quota/counter inspection remains a separate read-only system-tool concern; `T15-7` remaps the current inventory helper `persai_tool_quota_status` onto the steady-state PersAI-native contract `quota_status` instead of hiding live operational state inside `knowledge_*`
-- current inventory `persai_workspace_attach` is migration baseline only; steady-state Step 15 does not keep a raw path-based attach helper, because indexed document recall lives under `knowledge_*`, current user uploads stay on the PersAI-owned attachment surfaces, and any future live file discovery plus chat delivery for user/sandbox files is post-Step-16 follow-through on top of a real sandbox/file-authority boundary and must use canonical `fileRef` / artifact references rather than raw paths
-- workspace/sandbox files may feed later ingestion/index jobs, but live sandbox filesystem/process access remains Step 16 and must not be smuggled into `knowledge_*`
+- current inventory `persai_workspace_attach` is migration baseline only; steady-state Step 15 does not keep a raw path-based attach helper, because indexed document recall lives under `knowledge_*`, current user uploads stay on the PersAI-owned attachment surfaces, and any future live file discovery plus chat delivery for user/sandbox files is post-Step-20 follow-through on top of a real sandbox/file-authority boundary and must use canonical `fileRef` / artifact references rather than raw paths
+- workspace/sandbox files may feed later ingestion/index jobs, but live sandbox filesystem/process access remains Step 20 and must not be smuggled into `knowledge_*`
 - only the namespaces with a real PersAI-native backend may be exposed on the active runtime path; later sources stay dark until their backends exist
 
 Media generation/editing tools must be provider-agnostic:
@@ -534,7 +534,7 @@ Current provider/credential seams that must be preserved in the new tool runtime
 Current catalog/UI/runtime parity map for `T15-0`:
 
 - This map preserves the current product/control-plane surface, not the legacy executor ownership. Step 15 may re-implement these capabilities natively, but it may not silently delete or rename them without an explicit product/control-plane decision.
-- Explicit target-state decisions now recorded in ADR-072: current inventory `persai_tool_quota_status` remaps onto the steady-state read-only system tool `quota_status`, while current inventory `persai_workspace_attach` is preserved only as migration/reference truth and does not survive as a raw path-based Step 15 model contract. Any later attach-by-ref replacement is post-Step-16 follow-through on top of the sandbox/file-authority boundary rather than part of the Step 16 sandbox tool matrix itself.
+- Explicit target-state decisions now recorded in ADR-072: current inventory `persai_tool_quota_status` remaps onto the steady-state read-only system tool `quota_status`, while current inventory `persai_workspace_attach` is preserved only as migration/reference truth and does not survive as a raw path-based Step 15 model contract. Any later attach-by-ref replacement is post-Step-20 follow-through on top of the sandbox/file-authority boundary rather than part of the Step 20 sandbox tool matrix itself.
 
 | Current tool               | Current catalog/UI/runtime truth                                                                                                                                             | Required Step 15 parity landing                                                                                                                                                                                                                                                                                                                                                                                           |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -547,7 +547,7 @@ Current catalog/UI/runtime parity map for `T15-0`:
 | `memory_search`            | `plan_managed`, utility, visible in the plan editor; credential seam `tool_memory_search`                                                                                    | Preserve in `T15-0` inventory truth and later remap its read semantics into `T15-6b` as part of the unified PersAI-native knowledge layer; until then, do not expose it on the active native runtime path                                                                                                                                                                                                                 |
 | `memory_get`               | `plan_managed`, utility, visible in the plan editor; no separate credential seam today                                                                                       | Preserve in `T15-0` inventory truth and later remap its read semantics into `T15-6b` as part of the unified PersAI-native knowledge layer; until then, do not expose it on the active native runtime path                                                                                                                                                                                                                 |
 | `scheduled_action`         | `plan_managed`, utility, visible in the plan editor; current product-facing reminder/task tool with explicit `audience=user                                                  | assistant` semantics over the PersAI-owned control plane                                                                                                                                                                                                                                                                                                                                                                  | Preserve in `T15-5`; keep `audience="user"` as the user-visible reminder surface, add hidden `audience="assistant"` background actions, and keep raw scheduler triggers such as `cron` out of the product/model surface |
-| `persai_workspace_attach`  | `platform_managed`, utility, read-only in plan surfaces; projected into the native runtime bundle `toolPolicies` / `TOOLS.md` as a platform-owned helper                     | Treat as migration/reference truth only. Do not keep a raw path-based Step 15 model contract. Current-turn uploads stay on the PersAI-owned attachment surfaces, indexed document recall stays under `knowledge_*`, and any later replacement for live file discovery plus chat delivery for user/sandbox files is post-Step-16 follow-through on top of a real sandbox/file-authority boundary as a canonical `attach_file` / `fileRef` flow. |
+| `persai_workspace_attach`  | `platform_managed`, utility, read-only in plan surfaces; projected into the native runtime bundle `toolPolicies` / `TOOLS.md` as a platform-owned helper                     | Treat as migration/reference truth only. Do not keep a raw path-based Step 15 model contract. Current-turn uploads stay on the PersAI-owned attachment surfaces, indexed document recall stays under `knowledge_*`, and any later replacement for live file discovery plus chat delivery for user/sandbox files is post-Step-20 follow-through on top of a real sandbox/file-authority boundary as a canonical `attach_file` / `fileRef` flow. |
 | `persai_tool_quota_status` | `platform_managed`, utility, read-only in plan surfaces; projected into the native runtime bundle `toolPolicies` / `TOOLS.md` as the live quota-status helper                | Treat as a migration/reference name only and land the steady-state Step 15 parity as the always-on read-only system tool `quota_status`; it must read live quota/counter truth from PersAI-owned accounting surfaces and must not be folded into `knowledge_* source="subscription"` or treated as a plan-managed upsell. |
 | `cron`                     | `hidden_internal`, utility, not visible in the plan editor and intentionally suppressed from user-visible `TOOLS.md`; currently backs reminder/internal callback flows only  | Keep hidden-internal only in the current inventory baseline; `T15-5` must remap the legacy cron callback behavior onto PersAI-native hidden scheduler/worker triggers and must not re-expose raw `cron` as a user/model-facing plan tool                                                                                                                                                                                  |
 
@@ -932,7 +932,7 @@ Replace the Telegram webhook proxy loop with a PersAI-native adapter over the sa
 - group smoke flows
 - live delivery latency and duplicate suppression metrics
 
-### Slice 6 — Tools, control-plane UX, and sandbox separation
+### Slice 6 — Tools and control-plane UX
 
 **Goal**
 
@@ -942,9 +942,8 @@ Move heavy execution off the ordinary chat path while aligning operator/user sur
 
 - bounded inline tool rules
 - async worker queue
-- sandbox service
 - job polling and artifact return path
-- system tools, plan tools, and sandbox tools split
+- system tools and plan tools split
 - admin prompt/lifecycle surface cleanup
 
 **What is included**
@@ -956,13 +955,13 @@ Move heavy execution off the ordinary chat path while aligning operator/user sur
 - media generation/editing tool runtime
 - native prompt-template/system-prompt editor
 - setup preview, publish, reapply, and reset/recreate lifecycle cleanup
-- isolated sandbox service contract
 - runtime job enqueue/poll interfaces
 
 **What is excluded**
 
 - generic plugin framework parity
 - arbitrary synchronous code execution
+- isolated sandbox/file/process execution, which is deferred until the late-stage sandbox slice
 - keeping Telegram-only or OpenClaw-shaped tool behavior as final architecture
 
 **Risks**
@@ -975,10 +974,9 @@ Move heavy execution off the ordinary chat path while aligning operator/user sur
 
 - queue latency measurements
 - no regression in ordinary chat latency
-- sandbox isolation tests
 - prompt preview vs publish/reapply parity checks
 
-### Slice 7 — OpenClaw removal and schema cleanup
+### Slice 7 — OpenClaw removal and cleanup
 
 **Goal**
 
@@ -989,6 +987,7 @@ Remove the old runtime path completely once native execution is primary for acti
 - delete adapters and controllers
 - remove callbacks and legacy env/config
 - drop OpenClaw-shaped fields from PersAI schemas
+- audit and remove remaining OpenClaw/bootstrap mental-model leakage from active control-plane/runtime surfaces
 
 **What is included**
 
@@ -996,6 +995,7 @@ Remove the old runtime path completely once native execution is primary for acti
 - remove Telegram proxy controller
 - remove legacy runtime apply/spec callback dependencies
 - drop `openclaw*` materialization fields
+- clean remaining active UI/control-plane/runtime tails after the request-path cutover
 
 **What is excluded**
 
@@ -1011,6 +1011,80 @@ Remove the old runtime path completely once native execution is primary for acti
 - repository-wide search returns no active request-path OpenClaw runtime integration
 - migrations and cleanup tests pass
 - runtime traffic fully served by PersAI-native services
+- active admin/setup/control-plane surfaces no longer require OpenClaw bootstrap mental models
+
+### Slice 8 — Scale hardening for 10000+ users
+
+**Goal**
+
+Measure and harden the native production path for sustained multi-pod load before adding more architectural surface area.
+
+**Scope**
+
+- runtime/provider-gateway/API concurrency and latency profiling
+- Redis/Postgres hot-path pressure and queue contention
+- stream fanout and worker throughput tuning
+- production observability and operational guardrails
+
+**What is included**
+
+- load-test baselines and bottleneck identification
+- latency/throughput optimization on the PersAI-native path
+- queue/backpressure tuning
+- proof that the active runtime path is production-ready at `10000+` users
+
+**What is excluded**
+
+- new user-facing product capability unrelated to scale/stability
+- sandbox/file/process execution capability
+
+**Risks**
+
+- chasing micro-optimizations before removing the biggest architectural tails
+- measuring the wrong concurrency mix
+- regressing correctness while tuning latency
+
+**Validation**
+
+- bounded load evidence for `10000+` active users
+- p95/p99 latency evidence on the native path
+- no cross-pod/session-ordering regressions under pressure
+
+### Slice 9 — Isolated sandbox service
+
+**Goal**
+
+Add code/file/process execution only after the primary native production path is clean, honest, and load-hardened.
+
+**Scope**
+
+- isolated sandbox service
+- sandbox/file-authority boundary
+- filesystem/process tool family
+- sandbox enqueue/poll and artifact-return path
+
+**What is included**
+
+- isolated sandbox service contract
+- runtime enqueue/poll interfaces for sandbox jobs
+- sandbox-only file/process tools
+- separate permissions, limits, audit, and isolation policy
+
+**What is excluded**
+
+- putting sandbox or generic code execution into the ordinary chat hot path
+- reviving raw path-based helper semantics in ordinary runtime tools
+
+**Risks**
+
+- over-expanding capability surface after cleanup and scale work
+- isolation gaps or quota/audit drift between sandbox and ordinary runtime tools
+
+**Validation**
+
+- sandbox isolation tests
+- queue/job isolation tests
+- file-authority and permission-boundary tests
 
 ## Step-by-step implementation plan
 
@@ -1063,7 +1137,7 @@ Replace `openclawBootstrap/openclawWorkspace` as the future runtime artifact.
 
 - dual-write native bundle beside legacy fields
 - do not remove old columns yet
-- `runtimeBundle.userContext` plus compiled `promptDocuments` are the future runtime truth for bootstrap/user/persona prompt material; legacy `USER.md` / `BOOTSTRAP.md` files may still be materialized only as temporary OpenClaw tails until Step 17 removes them
+- `runtimeBundle.userContext` plus compiled `promptDocuments` are the future runtime truth for bootstrap/user/persona prompt material; legacy `USER.md` / `BOOTSTRAP.md` files may still be materialized only as temporary OpenClaw tails until Step 16 removes them
 - the current `Bootstrap Document Presets` page is migration scaffolding only; final admin ownership must move to PersAI-native prompt/lifecycle surfaces before OpenClaw removal
 
 **Rollback notes**
@@ -1304,7 +1378,7 @@ Validate the new runtime with real traffic before making it primary.
 - `shadow` is allowed only as temporary boundary scaffolding:
   - why: validate native web behavior on real traffic before making it the ordinary user-visible path
   - where: `packages/config/src/api-config.ts`, `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`, `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`, and `apps/api/src/modules/workspace-management/application/web-runtime-shadow-comparison.service.ts`
-  - removal: later Step 10 cutover sets native as the ordinary web mode and Step 17 deletes the remaining OpenClaw web path entirely
+  - removal: later Step 10 cutover sets native as the ordinary web mode and Step 16 deletes the remaining OpenClaw web path entirely
 - `shadow` comparison evidence may begin as logs only, but the current bounded operator surface also allows a pod-local Admin Overview read model (`webRuntimeShadowComparisons`) as long as it stays diagnostic-only and does not become a durable telemetry authority
 - native web parity also depends on runtime context depth:
   - `apps/runtime` must assemble provider `messages[]` from bundle + canonical state, not only from the newest inbound text
@@ -1470,7 +1544,7 @@ Restore necessary capability without polluting ordinary chat latency.
 - Step 15 starts with the existing current-tool inventory baseline from PersAI control-plane/UI truth; do not invent a new tool list before preserving and remapping the current one
 - only bounded inline tools enter ordinary chat path
 - all heavy tools queue jobs
-- sandbox tools are explicitly excluded from Step 15 and land only in Step 16
+- sandbox tools are explicitly excluded from Step 15 and land only in Step 20
 - models must receive explicit tool usage policy; do not rely on heuristic tool discovery or prompt folklore
 - shared compaction capability belongs here as a runtime/tool surface for user-invoked and automatic flows; do not reintroduce channel-specific slash-command compaction before this step
 - existing useful OpenClaw tool behavior may be referenced only to preserve product semantics; do not copy OpenClaw ownership or shape into the new runtime
@@ -1479,7 +1553,7 @@ Restore necessary capability without polluting ordinary chat latency.
 - `knowledge_search` / `knowledge_fetch` plus bounded durable human-memory writes land in `T15-6b` only once real PersAI-native memory/knowledge backends exist; the first active backends are uploaded-document `source="document"` reads, assistant-user-private `source="memory"` reads over the PersAI memory registry, assistant-user-private `source="chat"` reads over canonical chat transcripts, shared `source="preset"` / `source="subscription"` reads over current PersAI config/plan rows, PersAI-global `source="global"` reads over platform-owned product/tool/plan documents, and the explicit `memory_write` durable-memory helper
 - `memory_search` / `memory_get` remain tracked in `T15-0` inventory truth, but they later map into the `T15-6b` read layer and do not justify exposing a fake native knowledge executor family early
 - `browser` remains a separate plan-managed family and must not be folded into search/fetch
-- workspace/sandbox files may feed ingestion or snapshot jobs for `T15-6b`, but live filesystem/process access remains Step 16 and must not be smuggled into `knowledge_*`
+- workspace/sandbox files may feed ingestion or snapshot jobs for `T15-6b`, but live filesystem/process access remains Step 20 and must not be smuggled into `knowledge_*`
 - `T15-6b` is not retrieval-only; it must also land the minimal PersAI-owned storage, upload/list/delete/status/reindex, and quota/accounting surface required to make user knowledge sources real inside ADR-072, while richer file-manager polish may follow later
 - `T15-6b` must treat prior-chat search as a first-class assistant-user-private source through the same `knowledge_search` / `knowledge_fetch` layer rather than through ad hoc prompt scanning of raw transcripts
 - the fixed hydrated-history cap in `turn-context-hydration` remains temporary implementation debt/guardrail; after `T15-6b` it is only a bounded fallback rather than the target ordinary prod context policy
@@ -1519,7 +1593,7 @@ Restore necessary capability without polluting ordinary chat latency.
   Define the PersAI-owned tool model so the runtime and the model both know exactly how tools are meant to be used.
 - **Included**
   - `system tools` vs `plan tools` taxonomy
-  - `sandbox tools` explicitly excluded to Step 16
+  - `sandbox tools` explicitly excluded to Step 20
   - tool policy contract in bundle/runtime metadata
   - `required | allowed | forbidden` invocation rules
   - `inline | worker | sandbox` execution modes
@@ -1580,7 +1654,7 @@ Restore necessary capability without polluting ordinary chat latency.
   - lease-safe in-turn tool execution and durable post-tool state updates
   - structured tool result/audit envelopes reusable by later tool families
   - explicit provider/runtime request classification for main turns, tool-loop follow-ups, and compaction-only internal requests
-  - remaining always-on system helpers such as `persai_tool_quota_status`; migration-only `persai_workspace_attach` stays gated off the ordinary model-visible path and is resolved later as a post-Step-16 attach-by-ref follow-through rather than a Step 15 raw path helper
+  - remaining always-on system helpers such as `persai_tool_quota_status`; migration-only `persai_workspace_attach` stays gated off the ordinary model-visible path and is resolved later as a post-Step-20 attach-by-ref follow-through rather than a Step 15 raw path helper
   - `TOOLS.md` and similar artifacts as derived guidance only, never the source of truth
 - **Excluded**
   - new knowledge-source executors
@@ -1721,7 +1795,7 @@ Restore necessary capability without polluting ordinary chat latency.
 - **Status**
   Completed. `T15-6b` is now closed on the native runtime path; the next honest Step 15 follow-through is `T15-7 — Plan/admin exposure, quotas, and model guidance`.
 - **Goal**
-  Land PersAI-native cross-session human memory and namespaced knowledge sources so assistants can remember users between sessions and answer against private/shared corpora without confusing session context, durable human memory, product knowledge, or Step 16 sandbox access, and so ordinary prod turns stop depending on a blunt fixed-count history slice as their primary context strategy. This slice also lands the minimal PersAI-owned storage/ingest/status surface needed to make uploaded knowledge sources real inside ADR-072 rather than deferring all file/source management until later. The resulting layer must be one shared recall plane for facts, prior chats, and uploaded knowledge, but remain reference-first and token-budgeted so it does not dump whole corpora into ordinary prompts.
+  Land PersAI-native cross-session human memory and namespaced knowledge sources so assistants can remember users between sessions and answer against private/shared corpora without confusing session context, durable human memory, product knowledge, or Step 20 sandbox access, and so ordinary prod turns stop depending on a blunt fixed-count history slice as their primary context strategy. This slice also lands the minimal PersAI-owned storage/ingest/status surface needed to make uploaded knowledge sources real inside ADR-072 rather than deferring all file/source management until later. The resulting layer must be one shared recall plane for facts, prior chats, and uploaded knowledge, but remain reference-first and token-budgeted so it does not dump whole corpora into ordinary prompts.
 - **Included**
   - structured cross-session human memory per `assistantId + userId` for durable facts, preferences, and open loops rather than raw transcript blobs
   - an explicit bounded durable-memory write helper (`memory_write`) so the agent decides what to store through a tool call plus validator/audit path instead of hidden answer-side effects
@@ -1732,7 +1806,7 @@ Restore necessary capability without polluting ordinary chat latency.
   - one shared PersAI memory/knowledge retrieval plane across durable human-memory facts, searchable prior chats, uploaded knowledge, and shared product corpora instead of separate prompt hacks per source
   - PersAI-managed ingestion/index pipelines with versioning, citations, and source provenance
   - minimal native web/API surfaces to upload, list, delete, inspect status, inspect usage, and trigger bounded reindex for knowledge sources so the user has a real product surface for their assistant knowledge base during ADR-072
-  - distinct quota/accounting for knowledge-source storage that does not piggyback on chat media upload counters or Step 16 workspace/sandbox storage limits
+  - distinct quota/accounting for knowledge-source storage that does not piggyback on chat media upload counters or Step 20 workspace/sandbox storage limits
   - `knowledge_search` returns lightweight hits/references (namespace, source identifiers, snippet/score, and chat/message/chunk refs when the source is prior chats) while `knowledge_fetch` returns bounded source excerpts or surrounding-context windows rather than whole transcripts/documents
   - compatibility remapping for current inventory `memory_search` / `memory_get` semantics into the unified read layer once the real backends exist
   - policy-controlled runtime auto-hydration of hot memory/open loops where it reduces tool spam without hiding heavier retrieval and without exceeding explicit per-turn token budgets
@@ -1746,7 +1820,7 @@ Restore necessary capability without polluting ordinary chat latency.
   - treating `summarize_context` / `compact_context` as long-term human memory
   - copying full prior chats/transcript corpora into durable human memory just to make them searchable
   - treating sandbox as the canonical storage location for user knowledge files
-  - direct live reads from sandbox filesystem/process state or direct code/file execution; Step 16 owns that boundary
+  - direct live reads from sandbox filesystem/process state or direct code/file execution; Step 20 owns that boundary
   - folding `web_search` / `web_fetch` into the internal knowledge layer
   - raw storage/vector/document vendor APIs as model-facing tool contracts
   - unvalidated freeform memory writes from ordinary assistant messages
@@ -1759,9 +1833,9 @@ Restore necessary capability without polluting ordinary chat latency.
   - memory-write policy/validation/audit tests
   - retrieval citation/provenance tests for `knowledge_search` / `knowledge_fetch`
   - prior-chat transcript search tests prove `knowledge_search` can find canonical cross-session chat hits and `knowledge_fetch` returns bounded surrounding context by reference instead of replaying full transcripts
-  - ingestion/reindex tests from workspace/sandbox uploads into indexed knowledge without requiring Step 16 file/process access during ordinary turns
+  - ingestion/reindex tests from workspace/sandbox uploads into indexed knowledge without requiring Step 20 file/process access during ordinary turns
   - upload/list/delete/status/reindex flows preserve namespace isolation, provenance, and replay-safe quota/accounting updates for knowledge-source files
-  - knowledge-source storage accounting stays distinct from chat media upload accounting and Step 16 workspace/sandbox storage accounting
+  - knowledge-source storage accounting stays distinct from chat media upload accounting and Step 20 workspace/sandbox storage accounting
   - token-budget tests prove only bounded hot memory/open loops auto-hydrate into ordinary turns while heavier transcript/document recall remains tool-driven through `knowledge_fetch`
   - ranking tests prove deterministic ordering, title/filename/locator boosts, duplicate collapse, and fresher relevant memory/chat hits without regressing the bounded reference-first search/fetch contract
   - bad-row/schema guards for durable memory and knowledge payloads
@@ -1772,7 +1846,7 @@ Restore necessary capability without polluting ordinary chat latency.
 ##### Tool slice T15-7 — Plan/admin exposure, quotas, and model guidance
 
 - **Status**
-  Completed. `T15-7` is now closed on the native path: canonical `quota_status` is live, plan/admin/model guidance is aligned on the real PersAI-owned quota surfaces, and `persai_workspace_attach` is resolved as migration-only truth with any later attach-by-ref replacement deferred until after Step 16 establishes the sandbox/file-authority boundary.
+  Completed. `T15-7` is now closed on the native path: canonical `quota_status` is live, plan/admin/model guidance is aligned on the real PersAI-owned quota surfaces, and `persai_workspace_attach` is resolved as migration-only truth with any later attach-by-ref replacement deferred until after Step 20 establishes the sandbox/file-authority boundary.
 - **Goal**
   Make tool exposure predictable for operators, users, and the model after the executor families are real.
 - **Included**
@@ -1780,7 +1854,7 @@ Restore necessary capability without polluting ordinary chat latency.
   - user/model/admin exposure of always-on helpers that stayed dark in `T15-3a` until real PersAI-native executors existed
   - steady-state remap of current inventory `persai_tool_quota_status` onto the read-only system tool `quota_status`
   - explicit separation between `quota_status` live counter inspection and `knowledge_* source="subscription"` plan/subscription facts
-  - explicit target-state resolution of current inventory `persai_workspace_attach`: no ordinary Step 15 raw path helper; current uploads and indexed knowledge stay on their own surfaces, while any later live file discovery plus attach-by-ref flow is deferred until after Step 16
+  - explicit target-state resolution of current inventory `persai_workspace_attach`: no ordinary Step 15 raw path helper; current uploads and indexed knowledge stay on their own surfaces, while any later live file discovery plus attach-by-ref flow is deferred until after Step 20
   - `plan tools` enabled/disabled by plan/admin policy
   - per-tool quotas and audit rules
   - user/model-facing descriptions of what each tool is for
@@ -1797,7 +1871,7 @@ Restore necessary capability without polluting ordinary chat latency.
   - forcing users to manage knowledge sources only through hidden backend flows or chat-only prompt magic once the native knowledge layer exists
   - collapsing token/chat, media upload, and knowledge-source storage quotas into one opaque metric
   - keeping raw path-based `persai_workspace_attach` as a steady-state model-visible Step 15 helper
-  - adding Step 16 sandbox/file-authority work or later attach-by-ref semantics early just to preserve the old helper
+  - adding Step 20 sandbox/file-authority work or later attach-by-ref semantics early just to preserve the old helper
   - user-facing or plan-facing lightweight-mode toggles
   - silently auto-enabling forced lightweight prompt mode in ordinary prod traffic
 - **Validation**
@@ -1806,7 +1880,7 @@ Restore necessary capability without polluting ordinary chat latency.
   - user/admin surfaces show native usage, limits, and source/index status from PersAI quota/accounting truth rather than inferred UI-only state
   - prompt/runtime alignment checks so the model does not hallucinate unavailable tools
   - `quota_status` reads live quota/counter truth while `knowledge_* source="subscription"` remains bounded factual knowledge about the effective plan/subscription state
-  - no Step 15 model-visible tool exposes raw filesystem/path semantics, and any later attach-by-ref flow exists only on top of a real Step 16 sandbox/file-authority boundary
+  - no Step 15 model-visible tool exposes raw filesystem/path semantics, and any later attach-by-ref flow exists only on top of a real Step 20 sandbox/file-authority boundary
   - forced lightweight prompt mode stays off by default, admin/operator-only, and visible in audit/runtime trace outputs when active
 
 #### Deferred activation within ADR-072 — Future knowledge access layer
@@ -1828,7 +1902,7 @@ Deliver real web voice output as a PersAI-native channel capability rather than 
 
 **Dependencies**
 
-- Steps 9, 10, and 15
+- Steps 9, 10, 15, and 19
 
 **Migration notes**
 
@@ -1837,6 +1911,7 @@ Deliver real web voice output as a PersAI-native channel capability rather than 
 - persisted audio attachments may remain optional archival or replay artifacts, but they are not the primary contract for native web voice output
 - the model may still use explicit `tts` tools where product semantics require tool-driven audio generation, but ordinary web voice playback remains owned by the channel/output layer
 - Step 15a is not the whole TTS tool program; it covers native web voice output as a channel capability while explicit `tts` tool semantics stay under Step 15 tool slices
+- Step 15a is explicitly deferred behind active-path cleanup and scale hardening; it is not on the critical path to removing OpenClaw or reaching the current native production baseline
 - keep text-only web turn behavior healthy when voice output is disabled or unavailable
 
 **Rollback notes**
@@ -1885,52 +1960,7 @@ Move admin/setup UX onto the PersAI-native prompt and lifecycle model before fin
 - temporarily keep the legacy preset UI label while continuing to compile the native prompt templates underneath
 - runtime execution remains native even if the admin surface rollback is needed
 
-### Step 16 — Build isolated sandbox service
-
-**Purpose**
-
-Move code execution into a separate system with no request-path contamination.
-
-**Files/modules likely affected**
-
-- new `apps/sandbox/*`
-- new queue/job contracts
-- runtime enqueue/poll endpoints
-
-**Dependencies**
-
-- Step 15
-
-**Migration notes**
-
-- sandbox is opt-in and async only
-- ordinary web and Telegram turns must not wait on it by default
-- Step 16 owns the isolated sandbox tool matrix and the underlying sandbox/file-authority boundary; these tools do not belong to Step 15
-- any future live file discovery/search over sandbox-backed or other user file authorities must resolve canonical `fileRef` / artifact references before delivery; ordinary chat/model surfaces must not use raw filesystem paths as the steady-state contract
-- any later "send this file to the chat" capability is an attach-by-ref flow on top of that file-authority boundary, not a revival of a Step 15 path helper, and it is post-Step-16 follow-through rather than part of the Step 16 sandbox tool matrix itself
-- sandbox tools require separate permissions, limits, audit, and isolation policy from ordinary runtime tools
-
-#### Step 16 sandbox tool matrix
-
-- `read_file`
-- `write_file`
-- `edit_file`
-- `exec`
-- `shell`
-- related filesystem/process tools
-
-#### Post-Step-16 attach-by-ref follow-through
-
-- the future replacement for current inventory `persai_workspace_attach` does not belong to the Step 16 sandbox tool matrix itself
-- Step 16 first establishes the isolated sandbox tools plus the sandbox/file-authority boundary
-- only after that boundary exists may PersAI add a chat-facing attach-by-ref capability for user/sandbox files
-- that later surface must resolve canonical `attach_file` / `fileRef` / artifact references rather than raw filesystem paths
-
-**Rollback notes**
-
-- disable sandbox feature gates independently of the runtime core
-
-### Step 17 — Remove OpenClaw runtime integration from PersAI active paths
+### Step 16 — Remove OpenClaw runtime integration from PersAI active paths
 
 **Purpose**
 
@@ -1945,7 +1975,7 @@ Delete the legacy request-time executor once native runtime is primary.
 
 **Dependencies**
 
-- Steps 10, 12, 14, 15, 15b, 16
+- Steps 10, 12, 14, 15, and 15b
 
 **Migration notes**
 
@@ -1955,7 +1985,7 @@ Delete the legacy request-time executor once native runtime is primary.
 
 - none after this point beyond repo revert and redeploy
 
-### Step 18 — Remove OpenClaw-shaped schema and document cleanup
+### Step 17 — Remove OpenClaw-shaped schema and document cleanup
 
 **Purpose**
 
@@ -1973,7 +2003,7 @@ Finish the architectural reset by removing legacy concepts from the repo.
 
 **Dependencies**
 
-- Step 17
+- Step 16
 
 **Migration notes**
 
@@ -1983,6 +2013,106 @@ Finish the architectural reset by removing legacy concepts from the repo.
 **Rollback notes**
 
 - only full migration rollback before column drop; after cleanup the new runtime is authoritative
+
+### Step 18 — Audit and clean UI/control-plane/runtime tails
+
+**Purpose**
+
+Finish the operator and user-facing cleanup after OpenClaw removal so the active product/control-plane feels natively PersAI-owned rather than merely adapter-free.
+
+**Files/modules likely affected**
+
+- admin/setup/runtime docs
+- active `apps/web` admin and settings surfaces
+- active `apps/api` lifecycle/control-plane contracts
+- any remaining prompt/bootstrap/OpenClaw naming on active operator/user surfaces
+
+**Dependencies**
+
+- Step 17
+
+**Migration notes**
+
+- remove leftover product/control-plane wording that still leaks OpenClaw/bootstrap mental models
+- do not preserve dual naming or compatibility wording on active surfaces once the native path is authoritative
+- perform a repo-wide audit of active user/admin/control-plane flows before calling cleanup complete
+
+**Rollback notes**
+
+- revert affected UI/control-plane cleanup patches; no legacy runtime reactivation
+
+### Step 19 — Scale hardening for 10000+ active users
+
+**Purpose**
+
+Measure and optimize the native path under real multi-pod pressure before expanding the architecture with sandbox execution.
+
+**Files/modules likely affected**
+
+- `apps/runtime/*`
+- `apps/provider-gateway/*`
+- `apps/api/*`
+- runtime/provider/queue observability and deployment docs
+- scale-readiness and live-test runbooks
+
+**Dependencies**
+
+- Step 18
+
+**Migration notes**
+
+- prioritize the existing native production path: session ordering, queue pressure, stream fanout, provider latency, and storage coordination
+- optimize only after OpenClaw tails and user/admin cleanup are out of the way, so measurements reflect the real target path
+- sandbox does not block this work and must not be reintroduced as a hidden dependency of ordinary-turn scale readiness
+
+**Rollback notes**
+
+- revert individual tuning changes without reopening legacy runtime paths
+
+### Step 20 — Build isolated sandbox service
+
+**Purpose**
+
+Move code execution into a separate system with no request-path contamination after the primary production path is already clean and scale-hardened.
+
+**Files/modules likely affected**
+
+- new `apps/sandbox/*`
+- new queue/job contracts
+- runtime enqueue/poll endpoints
+
+**Dependencies**
+
+- Step 19
+
+**Migration notes**
+
+- sandbox is opt-in and async only
+- ordinary web and Telegram turns must not wait on it by default
+- Step 20 owns the isolated sandbox tool matrix and the underlying sandbox/file-authority boundary; these tools do not belong to Step 15
+- any future live file discovery/search over sandbox-backed or other user file authorities must resolve canonical `fileRef` / artifact references before delivery; ordinary chat/model surfaces must not use raw filesystem paths as the steady-state contract
+- any later "send this file to the chat" capability is an attach-by-ref flow on top of that file-authority boundary, not a revival of a Step 15 path helper, and it is post-Step-20 follow-through rather than part of the Step 20 sandbox tool matrix itself
+- sandbox tools require separate permissions, limits, audit, and isolation policy from ordinary runtime tools
+
+#### Step 20 sandbox tool matrix
+
+- `read_file`
+- `write_file`
+- `edit_file`
+- `exec`
+- `shell`
+- related filesystem/process tools
+
+#### Post-Step-20 attach-by-ref follow-through
+
+- the future replacement for current inventory `persai_workspace_attach` does not belong to the Step 20 sandbox tool matrix itself
+- Step 20 first establishes the isolated sandbox tools plus the sandbox/file-authority boundary
+- only after that boundary exists may PersAI add a chat-facing attach-by-ref capability for user/sandbox files
+- that later surface must resolve canonical `attach_file` / `fileRef` / artifact references rather than raw filesystem paths
+
+**Rollback notes**
+
+- disable sandbox feature gates independently of the runtime core
 
 ## Cursor session continuity protocol
 
@@ -2094,9 +2224,9 @@ Use only these statuses:
 | Item                               | Status      | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ---------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ADR-072 document                   | completed   | Target architecture, slices, and step order are documented                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Runtime replacement implementation | in_progress | Steps 1-15 are now complete on the main native path. Native web retrieval, browser, reminders/scheduled actions, `image_generate`, `image_edit`, `tts`, and `video_generate` now run through the shared runtime/provider-gateway/object-storage boundary; `apps/api` owns assistant-scoped knowledge-source upload/list/detail/delete/reindex with PersAI-owned storage/chunk rows plus separate knowledge quota accounting; native runtime `knowledge_search` / `knowledge_fetch` now work for uploaded-document `source="document"`, assistant-user-private `source="memory"` / `source="chat"`, shared `source="preset"` / `source="subscription"`, and PersAI-global `source="global"` over real PersAI-owned rows/documents; native runtime also exposes the explicit bounded `memory_write` system tool through a PersAI-owned validator/audit write seam into the assistant memory registry; ordinary turn hydration now preserves bounded durable memory plus reusable compaction before recent-history trimming; Admin Plans now materialize plan-owned `runtime.contextHydration` plus plan-driven web/Telegram compaction UX; and `T15-7` is now closed with canonical `quota_status` plus aligned plan/admin/model guidance. Later Slice 6 work remains in `Step 15a`, `Step 15b`, and `Step 16`. |
-| Current active slice               | in_progress | `Slice 6 — Tools, control-plane UX, and sandbox separation` remains the active migration area: `Step 15` is now complete, while `Step 15a`, `Step 15b`, and `Step 16` are still planned inside the slice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Current active step                | completed   | `Step 15b — Replace bootstrap preset and lifecycle UI with native prompt surfaces` is now landed as the production Prompt Constructor cutover: prompt-template domain naming replaced active bootstrap-domain control-plane wording, admin now owns per-tool model descriptions/usage guidance through `GET/PATCH api/v1/admin/tools/metadata(:toolCode)`, API materialization compiles one structured `promptConstructor` bundle for ordinary turns plus onboarding/recreate first-turns, setup preview consumes that compiled onboarding prompt, and runtime now reads compiled system prompt output plus admin-owned tool wording instead of rebuilding those instructions locally. |
+| Runtime replacement implementation | in_progress | Steps 1-15 are now complete on the main native path. Native web retrieval, browser, reminders/scheduled actions, `image_generate`, `image_edit`, `tts`, and `video_generate` now run through the shared runtime/provider-gateway/object-storage boundary; `apps/api` owns assistant-scoped knowledge-source upload/list/detail/delete/reindex with PersAI-owned storage/chunk rows plus separate knowledge quota accounting; native runtime `knowledge_search` / `knowledge_fetch` now work for uploaded-document `source="document"`, assistant-user-private `source="memory"` / `source="chat"`, shared `source="preset"` / `source="subscription"`, and PersAI-global `source="global"` over real PersAI-owned rows/documents; native runtime also exposes the explicit bounded `memory_write` system tool through a PersAI-owned validator/audit write seam into the assistant memory registry; ordinary turn hydration now preserves bounded durable memory plus reusable compaction before recent-history trimming; Admin Plans now materialize plan-owned `runtime.contextHydration` plus plan-driven web/Telegram compaction UX; and `T15-7` is now closed with canonical `quota_status` plus aligned plan/admin/model guidance. The primary late-stage path now runs through OpenClaw removal, cleanup, and scale hardening before deferred capabilities such as web voice-output streaming and sandbox execution. |
+| Current active slice               | in_progress | `Slice 7 — OpenClaw removal and cleanup` is now the active migration area. `Step 15b` is complete, `Step 15a` is explicitly deferred behind cleanup and scale hardening, and the next primary execution step is `Step 16 — Remove OpenClaw runtime integration from PersAI active paths`. |
+| Current active step                | planned     | `Step 16 — Remove OpenClaw runtime integration from PersAI active paths` is now the highest-priority unfinished step on the primary production path. `Step 15a` and `Step 20` are intentionally deferred so current sessions focus first on removing active OpenClaw tails, then cleanup, then `10000+` user scale hardening. |
 
 ### Slice ledger
 
@@ -2107,8 +2237,10 @@ Use only these statuses:
 | Slice 3 — Distributed session/state core and web runtime  | completed   | Web request-time text execution now runs through native runtime on Redis/Postgres session state, with Step 10 closed after bounded shadow evidence plus live native cutover validation in dev                                 |
 | Slice 4 — Attachment context and STT cutover              | completed   | Attachment staging now lives in PersAI-owned object storage with bounded current-turn multimodal input, richer canonical extracts, and native STT routed through `apps/runtime` / `apps/provider-gateway` instead of OpenClaw |
 | Slice 5 — Telegram native adapter and group semantics     | completed   | Telegram ingress/delivery and native Telegram request-time text/group execution now run through PersAI over the shared runtime core                                                                                           |
-| Slice 6 — Tools, control-plane UX, and sandbox separation | in_progress | Heavy tools and sandbox are isolated from ordinary chat latency, and admin/setup surfaces align to native prompt/runtime truth                                                                                                |
-| Slice 7 — OpenClaw removal and schema cleanup             | planned     | OpenClaw request-time path and `openclaw*` runtime artifacts are removed from PersAI                                                                                                                                          |
+| Slice 6 — Tools and control-plane UX                     | completed   | Heavy tools are isolated from ordinary chat latency, and admin/setup surfaces align to native prompt/runtime truth                                                                                                             |
+| Slice 7 — OpenClaw removal and cleanup                   | in_progress | OpenClaw request-time path, schema tails, and active control-plane/UI leakage are removed from PersAI                                                                                                                         |
+| Slice 8 — Scale hardening for 10000+ users               | planned     | The PersAI-native runtime path is measured and hardened for sustained multi-pod production load                                                                                                                                |
+| Slice 9 — Isolated sandbox service                       | planned     | Sandbox/file/process execution is added only after cleanup and scale hardening, without polluting ordinary chat latency                                                                                                       |
 
 ### Step ledger
 
@@ -2129,11 +2261,13 @@ Use only these statuses:
 | Step 13 — Replace Telegram proxy with a native Telegram adapter | completed | Steps 8, 9, 11, 12 | Public Telegram webhook ingress, owner gate handling, group/chat metadata sync, Bot API media download/delivery, and canonical transcript persistence now run in `apps/api`; the old PersAI internal Telegram ingress/callback endpoints were removed with the proxy loop |
 | Step 14 — Cut over Telegram text and groups | completed | Step 13 | Telegram text/group request-time execution now routes through native `apps/runtime` with shared conversation identity/history hydration, live dev Telegram validation passed, and the temporary Telegram-only `/compact`/hint seam was removed instead of being carried forward |
 | Step 15 — Introduce bounded inline tools and async worker jobs | completed | Steps 9-10 | `T15-0` through `T15-7` are now landed. The native Step 15 runtime covers shared compaction, web retrieval, browser, scheduled actions/reminders, the full first media family (`image_generate`, `image_edit`, `tts`, `video_generate`) on one shared worker/provider-gateway/object-storage/media-delivery boundary, assistant-scoped uploaded knowledge-source upload/list/detail/delete/reindex with separate knowledge quota accounting plus reset/delete cleanup, bounded `knowledge_search` / `knowledge_fetch` for uploaded-document `source="document"`, assistant-user-private memory `source="memory"`, assistant-user-private prior-chat `source="chat"`, shared preset/config `source="preset"`, effective current-plan `source="subscription"`, and PersAI-global product/tool/plan `source="global"`, plus the explicit durable-memory `memory_write` system tool. Ordinary turn hydration preserves bounded durable memory plus reusable compaction before recent-history trimming, Admin Plans materialize plan-owned `runtime.contextHydration` plus plan-driven web/Telegram compaction UX on top of that same context path, and the read-side knowledge layer has richer deterministic ranking plus lightweight hybrid rerank for the highest-value private namespaces. `T15-7` closes with canonical `quota_status`, aligned prompt/runtime/admin guidance, native token/chat/media/knowledge quota visibility, and `persai_workspace_attach` resolved as migration-only truth rather than a steady-state Step 15 path helper. |
-| Step 15a — Native web TTS streaming/output | planned | Steps 9, 10, 15 | Native web voice output is a channel capability and no longer relies on post-turn attachment delivery to feel complete |
+| Step 15a — Native web TTS streaming/output | planned | Steps 9, 10, 15, 19 | Native web voice output remains a deferred channel capability and is not on the primary cleanup/removal path |
 | Step 15b — Replace bootstrap preset and lifecycle UI with native prompt surfaces | completed | Steps 2, 7, 15 | Admin Prompt Constructor is now the production source of truth for runtime prompt sections and per-tool model wording. Active control-plane naming moved to prompt-template / prompt-constructor terminology, API materialization compiles one structured `promptConstructor` bundle consumed by preview plus native runtime, setup preview no longer owns a separate local first-turn prompt string, native tool projection now reads admin-owned description/guidance from tool policy metadata, and active lifecycle materialization fields no longer leak `openclawBootstrap*` / `openclawWorkspace*` names through current API contracts. |
-| Step 16 — Build isolated sandbox service | planned | Step 15 | Sandbox exists outside ordinary chat path |
-| Step 17 — Remove OpenClaw runtime integration from PersAI active paths | planned | Steps 10, 12, 14, 15, 15b, 16 | Legacy active request-time runtime path is deleted |
-| Step 18 — Remove OpenClaw-shaped schema and document cleanup | planned | Step 17 | Final architectural cleanup is complete |
+| Step 16 — Remove OpenClaw runtime integration from PersAI active paths | planned | Steps 10, 12, 14, 15, 15b | Legacy active request-time runtime path is deleted |
+| Step 17 — Remove OpenClaw-shaped schema and document cleanup | planned | Step 16 | Final architectural cleanup of legacy runtime artifacts is complete |
+| Step 18 — Audit and clean UI/control-plane/runtime tails | planned | Step 17 | Active admin/setup/runtime surfaces are cleaned of remaining OpenClaw/bootstrap leakage |
+| Step 19 — Scale hardening for 10000+ active users | planned | Step 18 | The primary PersAI-native path is proven and optimized for sustained production concurrency |
+| Step 20 — Build isolated sandbox service | planned | Step 19 | Sandbox exists outside the ordinary chat path and lands only after cleanup plus scale hardening |
 
 ### Step 15 tool slice ledger
 
@@ -2148,7 +2282,7 @@ Use only these statuses:
 | T15-5 — Reminder and scheduled action plan tools | completed | Step 15 | `scheduled_action` is now the canonical product-facing surface while PersAI-native scheduler/worker triggers remain hidden internal machinery instead of carrying forward raw legacy `cron` semantics. The full code slice is now landed: `scheduled_action` compiles as a worker `scheduled_action` on the shared `runtime.workerTools` layer, native runtime now projects/executes the product-facing `create` / `list` / `pause` / `resume` / `cancel` surface through PersAI internal task registry/control seams plus clean native `conversationContext` for Telegram reminder target routing, the create contract now distinguishes `audience="user"` reminders from hidden `audience="assistant"` background actions with `actionType` / `actionPayload`, assistant-side actions run on a hidden native runtime path that cannot directly create user-visible chat output, current reminder delivery/fanout now runs through one shared PersAI-owned delivery core instead of living only inside the legacy `cron-fire` adapter, and new scheduled actions now persist native schedule/payload state directly in PersAI task rows so a hidden PersAI-owned scheduler loop can claim due work with a global rollout-resettable scheduler epoch, expiring claims, and retry delay instead of creating legacy cron jobs. Hidden internal `cron` stays internal-only only as legacy callback compatibility for pre-cutover rows during rollout, the current tasks UI now renders assistant-side actions in a separate subdued panel without reopening raw scheduler semantics on the model/product surface, and bounded live validation plus the post-validation assistant follow-up retry/prompt hardening now close this slice honestly |
 | T15-6 — Media generation and editing plan tools | completed | Step 15 | `T15-6` is now fully landed on the shared native media boundary. `image_generate`, `image_edit`, `tts`, and `video_generate` are all real worker tools with PersAI-owned contracts, provider-gateway execution, quota-aware runtime projection/execution, object-storage artifact persistence, and shared web/Telegram delivery. The slice now also includes explicit edit-intent/source-vs-reference handling for `image_edit`, bounded prompt-only plus current-turn-reference-image video generation, provider-side reference-image normalization, worker-derived timeout alignment, truthful media status UX in web and Telegram, and admin-managed per-plan `video_generate` model selection through the bounded `sora-2` / `sora-2-pro` allowlist. |
 | T15-6b — Human memory and namespaced knowledge sources | completed | Step 15 | `T15-6b` is now fully landed on the native path. `apps/api` owns assistant-scoped uploaded workspace knowledge through PersAI-owned source/chunk rows, knowledge-specific object storage, separate `knowledge_storage_bytes` quota/accounting, and public `upload`, `list`, per-source detail/status, `delete`, and `reindex` surfaces plus reset/admin-delete cleanup. `apps/runtime` now also exposes bounded `knowledge_search` / `knowledge_fetch` for uploaded-document `source="document"`, assistant-user-private `source="memory"`, assistant-user-private prior-chat `source="chat"`, shared `source="preset"` / `source="subscription"`, and PersAI-global `source="global"` through PersAI internal API search/fetch seams, returning lightweight references and bounded excerpt windows or transcript windows instead of raw file reads. Native runtime also exposes the explicit bounded `memory_write` system tool so durable facts/preferences/open loops can be persisted through a PersAI-owned validator/audit path into the assistant memory registry instead of hidden answer-side effects, ordinary turn hydration preserves bounded durable memory plus validated reusable compaction before recent-history trimming so the fixed cap is no longer the only continuity mechanism, Admin Plans materialize plan-owned `runtime.contextHydration`, the web/Telegram compaction UX follows that same server-owned policy through context-pressure state plus post-turn auto-compaction notices, and the read-side knowledge layer now has deterministic richer ranking plus lightweight hybrid rerank for the highest-value private namespaces. |
-| T15-7 — Plan/admin exposure, quotas, and model guidance | completed | Step 15 | Native runtime exposes canonical `quota_status`, prompt/runtime/admin guidance use that canonical system-tool contract, and the shared PersAI quota seam reports per-tool daily status plus the main token/chat/media/knowledge buckets that already exist on the native path. User/admin visibility project the same bucket vocabulary, Admin Plans surfaces the current quota view in control-plane UI, `persai_workspace_attach` remains hidden as migration-only truth rather than a steady-state path helper, and any later attach-by-ref replacement is deferred until after Step 16 establishes the sandbox/file-authority boundary. |
+| T15-7 — Plan/admin exposure, quotas, and model guidance | completed | Step 15 | Native runtime exposes canonical `quota_status`, prompt/runtime/admin guidance use that canonical system-tool contract, and the shared PersAI quota seam reports per-tool daily status plus the main token/chat/media/knowledge buckets that already exist on the native path. User/admin visibility project the same bucket vocabulary, Admin Plans surfaces the current quota view in control-plane UI, `persai_workspace_attach` remains hidden as migration-only truth rather than a steady-state path helper, and any later attach-by-ref replacement is deferred until after Step 20 establishes the sandbox/file-authority boundary. |
 
 ## Universal Cursor master prompt
 
@@ -2187,7 +2321,7 @@ Required workflow:
 1. Read the source-of-truth docs in order.
 2. Inspect the execution ledger in ADR-072 and the latest checkpoint in docs/SESSION-HANDOFF.md.
 3. Choose the highest-priority unfinished step whose dependencies are satisfied.
-3a. If the active step is Step 15, follow the tool-slice order exactly: `T15-0 -> T15-1 -> T15-2 -> T15-3a -> T15-3b -> T15-4 -> T15-5 -> T15-6 -> T15-6b -> T15-7`. `web_search` and `web_fetch` are separate plan tools in `T15-3b`; do not hide them behind `knowledge_*`. `knowledge_search` / `knowledge_fetch` and bounded durable-memory writes land later in `T15-6b` only once real PersAI-native memory/knowledge backends exist, and sandbox filesystem/process access still waits for Step 16.
+3a. If the active step is Step 15, follow the tool-slice order exactly: `T15-0 -> T15-1 -> T15-2 -> T15-3a -> T15-3b -> T15-4 -> T15-5 -> T15-6 -> T15-6b -> T15-7`. `web_search` and `web_fetch` are separate plan tools in `T15-3b`; do not hide them behind `knowledge_*`. `knowledge_search` / `knowledge_fetch` and bounded durable-memory writes land later in `T15-6b` only once real PersAI-native memory/knowledge backends exist, and sandbox filesystem/process access still waits for Step 20.
 4. Before editing, state explicitly:
    - current slice
    - current step

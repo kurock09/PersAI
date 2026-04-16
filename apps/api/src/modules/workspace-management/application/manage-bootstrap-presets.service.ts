@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { PROMPT_TEMPLATE_DEFAULTS } from "../../../../prisma/bootstrap-preset-data";
+import { VISIBLE_PROMPT_TEMPLATE_DEFAULTS } from "../../../../prisma/bootstrap-preset-data";
 import {
   PROMPT_TEMPLATE_REPOSITORY,
   type PromptTemplate,
@@ -8,8 +8,8 @@ import {
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 
-const VALID_PRESET_IDS = new Set(Object.keys(PROMPT_TEMPLATE_DEFAULTS));
-const DEFAULT_TEMPLATES: Record<string, string> = { ...PROMPT_TEMPLATE_DEFAULTS };
+const VALID_PRESET_IDS = new Set(Object.keys(VISIBLE_PROMPT_TEMPLATE_DEFAULTS));
+const DEFAULT_TEMPLATES: Record<string, string> = { ...VISIBLE_PROMPT_TEMPLATE_DEFAULTS };
 
 @Injectable()
 export class ManagePromptTemplatesService {
@@ -31,7 +31,7 @@ export class ManagePromptTemplatesService {
     );
 
     if (missingDefaults.length === 0) {
-      return presets;
+      return presets.filter((preset) => VALID_PRESET_IDS.has(preset.id));
     }
 
     this.logger.log(
@@ -40,7 +40,9 @@ export class ManagePromptTemplatesService {
     for (const [id, template] of missingDefaults) {
       await this.promptTemplateRepository.upsert(id, template);
     }
-    return this.promptTemplateRepository.findAll();
+    return (await this.promptTemplateRepository.findAll()).filter((preset) =>
+      VALID_PRESET_IDS.has(preset.id)
+    );
   }
 
   async update(userId: string, id: string, template: string): Promise<PromptTemplate> {

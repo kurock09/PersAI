@@ -66,20 +66,40 @@ export function projectRuntimeNativeTools(
       sourceConfig.source === "global"
   );
 
-  const projectedTools: ProviderGatewayToolDefinition[] = [
-    createSummarizeContextToolDefinition(bundle),
-    createCompactContextToolDefinition(bundle),
-    createMemoryWriteToolDefinition()
-  ];
+  const projectedTools: ProviderGatewayToolDefinition[] = [];
+  const summarizeContextPolicy = resolveAllowedModelVisibleToolPolicy(
+    bundle,
+    bundle.runtime.sharedCompaction.summarizeToolCode
+  );
+  if (summarizeContextPolicy !== null) {
+    projectedTools.push(createSummarizeContextToolDefinition(bundle, summarizeContextPolicy));
+  }
+  const compactContextPolicy = resolveAllowedModelVisibleToolPolicy(
+    bundle,
+    bundle.runtime.sharedCompaction.compactToolCode
+  );
+  if (compactContextPolicy !== null) {
+    projectedTools.push(createCompactContextToolDefinition(bundle, compactContextPolicy));
+  }
+  const memoryWritePolicy = resolveAllowedModelVisibleToolPolicy(bundle, "memory_write");
+  if (memoryWritePolicy !== null) {
+    projectedTools.push(createMemoryWriteToolDefinition(memoryWritePolicy));
+  }
   const quotaStatusPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "quota_status");
   if (quotaStatusPolicy !== null) {
     projectedTools.push(createQuotaStatusToolDefinition(quotaStatusPolicy));
   }
-  if (projectedKnowledgeSearchSources.length > 0) {
-    projectedTools.push(createKnowledgeSearchToolDefinition(projectedKnowledgeSearchSources));
+  const knowledgeSearchPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "knowledge_search");
+  if (projectedKnowledgeSearchSources.length > 0 && knowledgeSearchPolicy !== null) {
+    projectedTools.push(
+      createKnowledgeSearchToolDefinition(knowledgeSearchPolicy, projectedKnowledgeSearchSources)
+    );
   }
-  if (projectedKnowledgeFetchSources.length > 0) {
-    projectedTools.push(createKnowledgeFetchToolDefinition(projectedKnowledgeFetchSources));
+  const knowledgeFetchPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "knowledge_fetch");
+  if (projectedKnowledgeFetchSources.length > 0 && knowledgeFetchPolicy !== null) {
+    projectedTools.push(
+      createKnowledgeFetchToolDefinition(knowledgeFetchPolicy, projectedKnowledgeFetchSources)
+    );
   }
   const webSearchPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "web_search");
   const webSearchCredential = resolveConfiguredCredentialRef(bundle, "web_search");
@@ -165,23 +185,29 @@ export function projectRuntimeNativeTools(
 }
 
 function createSummarizeContextToolDefinition(
-  bundle: AssistantRuntimeBundle
+  bundle: AssistantRuntimeBundle,
+  policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
   return {
     name: bundle.runtime.sharedCompaction.summarizeToolCode,
-    description:
-      "Create a concise shared-context summary for the current session without changing later-turn compaction state. Use when the user explicitly asks to summarize earlier context or when you need a temporary summary to continue reasoning.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Create a concise shared-context summary for the current session without changing later-turn compaction state."
+    ),
     inputSchema: createCompactionInputSchema()
   };
 }
 
 function createCompactContextToolDefinition(
-  bundle: AssistantRuntimeBundle
+  bundle: AssistantRuntimeBundle,
+  policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
   return {
     name: bundle.runtime.sharedCompaction.compactToolCode,
-    description:
-      "Compress earlier session context into the durable shared compaction state for this conversation. Use when the user explicitly asks to compact/compress context or when context pressure blocks progress.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Compress earlier session context into the durable shared compaction state for this conversation."
+    ),
     inputSchema: createCompactionInputSchema()
   };
 }
@@ -199,11 +225,13 @@ function createCompactionInputSchema(): Record<string, unknown> {
   };
 }
 
-function createMemoryWriteToolDefinition(): ProviderGatewayToolDefinition {
+function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "memory_write",
-    description:
-      "Write one concise durable memory for the current assistant-user pair. Use only for stable user facts, preferences, or open loops that will matter in later conversations. Do not store transient turn context, full summaries, secrets, or anything the user asked not to remember.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Write one concise durable memory for the current assistant-user pair."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -273,12 +301,15 @@ function createWebSearchToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
 }
 
 function createKnowledgeSearchToolDefinition(
+  policy: RuntimeToolPolicy,
   sourceConfigs: RuntimeKnowledgeAccessSourceConfig[]
 ): ProviderGatewayToolDefinition {
   return {
     name: "knowledge_search",
-    description:
-      "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets. Use this before fetching any excerpt when you need facts from uploaded documents, prior chats, preset/config docs, subscription state, or global product knowledge.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -305,12 +336,15 @@ function createKnowledgeSearchToolDefinition(
 }
 
 function createKnowledgeFetchToolDefinition(
+  policy: RuntimeToolPolicy,
   sourceConfigs: RuntimeKnowledgeAccessSourceConfig[]
 ): ProviderGatewayToolDefinition {
   return {
     name: "knowledge_fetch",
-    description:
-      "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search. Use this to inspect the exact source passage instead of asking for whole documents, full chat histories, or full config dumps.",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search."
+    ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -714,7 +748,7 @@ function resolveAllowedModelVisibleToolPolicy(
 function resolveToolDefinitionDescription(policy: RuntimeToolPolicy, fallback: string): string {
   const description = policy.description?.trim() || fallback;
   const guidance = policy.usageGuidance?.trim();
-  return guidance ? `${description} Guidance: ${guidance}` : description;
+  return guidance ? `${description} ${guidance}` : description;
 }
 
 function resolveConfiguredCredentialRef(

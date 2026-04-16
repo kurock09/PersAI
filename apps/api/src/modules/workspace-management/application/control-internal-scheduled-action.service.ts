@@ -19,6 +19,7 @@ import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-
 
 type ScheduledActionControlAction = "create" | "pause" | "resume" | "cancel";
 type ScheduledActionAudience = "user" | "assistant";
+const SCHEDULED_ACTION_THREAD_PREFIX = "system:scheduled-action:";
 
 type CreateScheduledActionControlRequest = {
   assistantId: string;
@@ -262,10 +263,11 @@ function resolveTaskSourceLabel(params: {
 }): string {
   if (params.audience === "assistant") {
     const actionType = params.actionType?.trim();
-    if (actionType) {
-      return `Assistant ${actionType}`;
+    const actionLabel = actionType ? `Assistant ${actionType}` : "Assistant action";
+    if (params.schedule.kind === "at") {
+      return `${actionLabel} (one-time)`;
     }
-    return params.schedule.kind === "at" ? "Assistant follow-up" : "Recurring assistant action";
+    return `${actionLabel} (recurring)`;
   }
   if (params.schedule.kind === "at") {
     return "One-time reminder";
@@ -587,6 +589,14 @@ export class ControlInternalScheduledActionService {
     assistant: { id: string; userId: string; workspaceId: string },
     input: CreateScheduledActionControlRequest
   ): Promise<unknown> {
+    if (
+      input.audience === "assistant" &&
+      input.contextSessionKey?.startsWith(SCHEDULED_ACTION_THREAD_PREFIX)
+    ) {
+      throw new BadRequestException(
+        'Nested assistant scheduled_action creation is not allowed during assistant background runs. Create audience="user" for any visible follow-up.'
+      );
+    }
     const schedule = buildSchedule(input);
     const nextRunAtMs = computeReminderNextRunAtMs(schedule, Date.now());
     if (nextRunAtMs === undefined) {

@@ -974,8 +974,8 @@ Required in CI:
   - `quota_status` reads live quota/accounting truth, while `knowledge_* source="subscription"` stays a bounded factual read over effective plan/subscription state instead of becoming a live counter surface
   - user/admin visibility surfaces show distinct token/chat, per-tool daily, knowledge-storage, and media-storage buckets from PersAI-owned accounting truth instead of one opaque usage number
   - current inventory `persai_workspace_attach` does not survive as a steady-state Step 15 raw path helper
-  - current-turn uploads and indexed knowledge remain on their existing surfaces, while any future live file discovery plus chat delivery for user/sandbox files is deferred until after Step 16 establishes the sandbox/file-authority boundary and resolves canonical `fileRef` / artifact references instead of raw paths
-  - prompt/runtime alignment tests prove no Step 15 model-visible tool exposes raw filesystem/path semantics, and any later attach-by-ref surface exists only on top of the real Step 16 sandbox/file-authority boundary
+  - current-turn uploads and indexed knowledge remain on their existing surfaces, while any future live file discovery plus chat delivery for user/sandbox files is deferred until after Step 20 establishes the sandbox/file-authority boundary and resolves canonical `fileRef` / artifact references instead of raw paths
+  - prompt/runtime alignment tests prove no Step 15 model-visible tool exposes raw filesystem/path semantics, and any later attach-by-ref surface exists only on top of the real Step 20 sandbox/file-authority boundary
 - Fork audit automation validates actual code + git diff/history, not only `openclaw/docs/PERSAI-FORK-PATCHES.md`:
   - `persai-fork-base..HEAD` file inventory
   - high-risk native file drift
@@ -1028,7 +1028,7 @@ Required in CI:
     - `https://api.persai.dev/api/v1/internal/...` returns `404`
     - from the OpenClaw pod, `http://api-internal:3002/api/v1/internal/...` reaches the internal listener while `http://api:3001/api/v1/internal/...` and `http://api-internal:3002/health` both return `404`
 
-## Step 16 K16 verification focus
+## Runtime/security verification focus
 
 - Canonical control-plane truth validates:
   - admin plan catalog exposes only `plan_managed` tools as editable
@@ -1038,7 +1038,7 @@ Required in CI:
   - effective subscription precedence is `workspace subscription -> assistant override -> assistant fallback -> catalog default -> none`
   - materialized runtime tool policy is derived from effective tool availability rather than raw activation rows
   - `persai_tool_quota_status` stays the always-on platform-managed quota helper where still needed
-  - `persai_workspace_attach` does not revive as a raw path helper; any later replacement is post-Step-16 attach-by-ref follow-through on top of canonical `fileRef` authority
+  - `persai_workspace_attach` does not revive as a raw path helper; any later replacement is post-Step-20 attach-by-ref follow-through on top of canonical `fileRef` authority
 - Graceful limit fallback validates:
   - token-budget exhaustion degrades to the configured safe fallback path instead of killing chat entirely
   - user-facing transport/runtime metadata shows when fallback was used
@@ -1054,7 +1054,7 @@ Required in CI:
   - `corepack pnpm contracts:generate`
   - `corepack pnpm --filter @persai/api run typecheck`
   - `corepack pnpm --filter @persai/web run typecheck`
-  - focused tests for touched K16 slices, including `apps/api/test/plan-visibility.service.test.ts`
+  - focused tests for touched runtime/security slices, including `apps/api/test/plan-visibility.service.test.ts`
 
 ## Scaling readiness program verification baseline
 

@@ -7,6 +7,7 @@ import type { AssistantRepository } from "../src/modules/workspace-management/do
 type ReceiptRow = {
   idempotencyKey: string;
   status: "accepted" | "completed" | "interrupted" | "failed";
+  createdAt: Date;
 };
 
 class FakeSendNativeWebChatTurnService {
@@ -85,7 +86,8 @@ describe("RunScheduledAssistantActionService", () => {
     const { service, sendService } = createService([
       {
         idempotencyKey: BASE_USER_MESSAGE_ID,
-        status: "completed"
+        status: "completed",
+        createdAt: new Date()
       }
     ]);
 
@@ -98,7 +100,8 @@ describe("RunScheduledAssistantActionService", () => {
     const { service, sendService } = createService([
       {
         idempotencyKey: BASE_USER_MESSAGE_ID,
-        status: "failed"
+        status: "failed",
+        createdAt: new Date()
       }
     ]);
 
@@ -112,11 +115,13 @@ describe("RunScheduledAssistantActionService", () => {
     const { service, sendService } = createService([
       {
         idempotencyKey: BASE_USER_MESSAGE_ID,
-        status: "failed"
+        status: "failed",
+        createdAt: new Date()
       },
       {
         idempotencyKey: `${BASE_USER_MESSAGE_ID}:retry:2`,
-        status: "interrupted"
+        status: "interrupted",
+        createdAt: new Date()
       }
     ]);
 
@@ -130,7 +135,8 @@ describe("RunScheduledAssistantActionService", () => {
     const { service, sendService } = createService([
       {
         idempotencyKey: BASE_USER_MESSAGE_ID,
-        status: "accepted"
+        status: "accepted",
+        createdAt: new Date()
       }
     ]);
 
@@ -142,5 +148,20 @@ describe("RunScheduledAssistantActionService", () => {
           `Scheduled assistant action turn "${BASE_USER_MESSAGE_ID}" is still processing.`
     );
     assert.equal(sendService.calls.length, 0);
+  });
+
+  test("retries when accepted receipt became stale", async () => {
+    const { service, sendService } = createService([
+      {
+        idempotencyKey: BASE_USER_MESSAGE_ID,
+        status: "accepted",
+        createdAt: new Date("1970-01-01T00:00:00.000Z")
+      }
+    ]);
+
+    await service.execute(INPUT);
+
+    assert.equal(sendService.calls.length, 1);
+    assert.equal(sendService.calls[0]?.userMessageId, `${BASE_USER_MESSAGE_ID}:retry:2`);
   });
 });

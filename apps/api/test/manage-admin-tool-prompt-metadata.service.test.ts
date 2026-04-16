@@ -6,6 +6,25 @@ async function run(): Promise<void> {
     let bumped = 0;
     const service = new ManageAdminToolPromptMetadataService(
       {
+        async findAll() {
+          return [];
+        },
+        async findById() {
+          return null;
+        },
+        async update() {
+          throw new Error("not used");
+        },
+        async upsert(id: string, template: string) {
+          return {
+            id,
+            template,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      },
+      {
         async listToolsForPlanActivationView() {
           return [];
         },
@@ -51,8 +70,9 @@ async function run(): Promise<void> {
     );
 
     const listed = await service.list("admin-user");
-    assert.equal(listed.length, 1);
-    assert.equal(listed[0]?.toolCode, "web_search");
+    assert.equal(listed.length, 7);
+    assert.equal(listed[0]?.toolCode, "summarize_context");
+    assert.equal(listed[6]?.toolCode, "web_search");
 
     const updated = await service.update("admin-user", "web_search", {
       modelDescription: "Search current public web information.",
@@ -64,7 +84,101 @@ async function run(): Promise<void> {
   }
 
   {
+    let bumped = 0;
+    let storedDescription = "";
+    let storedGuidance = "";
     const service = new ManageAdminToolPromptMetadataService(
+      {
+        async findAll() {
+          return [
+            {
+              id: "__prompt_tool_metadata__:summarize_context:description",
+              template: storedDescription,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            },
+            {
+              id: "__prompt_tool_metadata__:summarize_context:usage_guidance",
+              template: storedGuidance,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            }
+          ];
+        },
+        async findById() {
+          return null;
+        },
+        async update() {
+          throw new Error("not used");
+        },
+        async upsert(id: string, template: string) {
+          if (id.endsWith(":description")) {
+            storedDescription = template;
+          } else {
+            storedGuidance = template;
+          }
+          return {
+            id,
+            template,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      },
+      {
+        async listToolsForPlanActivationView() {
+          return [];
+        },
+        async listToolsForPromptMetadata() {
+          return [];
+        },
+        async updateToolPromptMetadata() {
+          throw new Error("not used");
+        }
+      },
+      {
+        async assertCanReadAdminSurface() {
+          return undefined;
+        }
+      } as never,
+      {
+        async execute() {
+          bumped += 1;
+        }
+      } as never
+    );
+
+    const updated = await service.update("admin-user", "summarize_context", {
+      modelDescription: "Short summary.",
+      modelUsageGuidance: "Use only when needed."
+    });
+    assert.equal(updated.toolCode, "summarize_context");
+    assert.equal(updated.modelDescription, "Short summary.");
+    assert.equal(updated.modelUsageGuidance, "Use only when needed.");
+    assert.equal(bumped, 1);
+  }
+
+  {
+    const service = new ManageAdminToolPromptMetadataService(
+      {
+        async findAll() {
+          return [];
+        },
+        async findById() {
+          return null;
+        },
+        async update() {
+          throw new Error("not used");
+        },
+        async upsert(id: string, template: string) {
+          return {
+            id,
+            template,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      },
       {
         async listToolsForPlanActivationView() {
           return [];

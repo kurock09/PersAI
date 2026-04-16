@@ -324,6 +324,42 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       },
       toolPolicies: [
         {
+          toolCode: "summarize_context",
+          displayName: "Summarize Context",
+          description: "Create a concise shared-context summary for the current session.",
+          kind: "system",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: false,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "compact_context",
+          displayName: "Compact Context",
+          description: "Compress earlier session context into durable shared compaction state.",
+          kind: "system",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: false,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "memory_write",
+          displayName: "Memory Write",
+          description: "Write one concise durable memory for the current assistant-user pair.",
+          kind: "system",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: false,
+          dailyCallLimit: null
+        },
+        {
           toolCode: "browser",
           displayName: "Browser",
           description: "Navigate and interact with web pages.",
@@ -419,6 +455,32 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           enabled: true,
           visibleToModel: true,
           visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "knowledge_search",
+          displayName: "Knowledge Search",
+          description:
+            "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets.",
+          kind: "system",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: false,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "knowledge_fetch",
+          displayName: "Knowledge Fetch",
+          description:
+            "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId.",
+          kind: "system",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: false,
           dailyCallLimit: null
         },
         {
