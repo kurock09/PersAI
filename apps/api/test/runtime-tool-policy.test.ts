@@ -138,6 +138,11 @@ async function run(): Promise<void> {
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "scheduled_action" && tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "image_generate" && !tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "cron" && !tool.visibleToModel));
+  assert.equal(
+    toolPolicies.filter((tool) => tool.toolCode === "quota_status").length,
+    1,
+    "quota_status should be emitted only once even when legacy inventory aliases exist"
+  );
 
   const markdown = buildRuntimeToolPoliciesMarkdown(toolPolicies);
   assert.match(markdown, /summarize_context: Create a concise shared-context summary/);

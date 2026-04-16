@@ -253,6 +253,40 @@ function buildSyntheticSystemToolPolicy(
   };
 }
 
+function preferRuntimeToolPolicy(
+  current: RuntimeToolPolicy,
+  candidate: RuntimeToolPolicy
+): RuntimeToolPolicy {
+  if (candidate.visibleToModel !== current.visibleToModel) {
+    return candidate.visibleToModel ? candidate : current;
+  }
+  if (candidate.enabled !== current.enabled) {
+    return candidate.enabled ? candidate : current;
+  }
+  if (candidate.usageRule !== current.usageRule) {
+    return candidate.usageRule === "allowed" ? candidate : current;
+  }
+  if ((candidate.description?.trim().length ?? 0) !== (current.description?.trim().length ?? 0)) {
+    return (candidate.description?.trim().length ?? 0) > (current.description?.trim().length ?? 0)
+      ? candidate
+      : current;
+  }
+  return current;
+}
+
+function dedupeRuntimeToolPolicies(toolPolicies: RuntimeToolPolicy[]): RuntimeToolPolicy[] {
+  const byToolCode = new Map<string, RuntimeToolPolicy>();
+  for (const policy of toolPolicies) {
+    const existing = byToolCode.get(policy.toolCode);
+    if (!existing) {
+      byToolCode.set(policy.toolCode, policy);
+      continue;
+    }
+    byToolCode.set(policy.toolCode, preferRuntimeToolPolicy(existing, policy));
+  }
+  return [...byToolCode.values()];
+}
+
 export function resolveRuntimeToolPolicies(params: {
   tools: EffectiveToolAvailabilityState["tools"];
   planToolQuotaPolicy: ToolQuotaPolicyEntry[];
@@ -306,7 +340,7 @@ export function resolveRuntimeToolPolicies(params: {
         params.knowledgeAccessEnabled
       )
     );
-  return [...catalogPolicies, ...syntheticPolicies];
+  return dedupeRuntimeToolPolicies([...catalogPolicies, ...syntheticPolicies]);
 }
 
 export function buildRuntimeToolPoliciesMarkdown(toolPolicies: RuntimeToolPolicy[]): string {
