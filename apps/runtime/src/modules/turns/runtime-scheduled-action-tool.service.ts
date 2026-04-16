@@ -351,7 +351,9 @@ export class RuntimeScheduledActionToolService {
     taskId?: string;
     titleMatch?: string;
   }): Promise<InternalScheduledActionItem> {
-    const items = await this.persaiInternalApiClientService.listScheduledActions(params.assistantId);
+    const items = await this.persaiInternalApiClientService.listScheduledActions(
+      params.assistantId
+    );
     const currentBackgroundTask = this.resolveCurrentBackgroundTask(items, params.conversation);
     const visibleItems = this.filterCurrentBackgroundTask(items, params.conversation);
     if (params.taskId) {
