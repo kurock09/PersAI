@@ -13,7 +13,6 @@ function setApiEnv(overrides?: Record<string, string | undefined>): void {
     DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public",
     CLERK_SECRET_KEY: "clerk-secret",
     PERSAI_INTERNAL_API_TOKEN: "persai-internal-token",
-    PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE: "native",
     PERSAI_RUNTIME_BASE_URL: "http://runtime.local",
     PERSAI_RUNTIME_TURN_TIMEOUT_MS: "9000",
     ...overrides
@@ -82,19 +81,17 @@ describe("SendNativeWebChatTurnService", () => {
           materializedAtConfigGeneration: 1,
           layers: {},
           runtimeBundle: {},
-          openclawBootstrap: {},
-          openclawWorkspace: {},
+          assistantConfig: {},
+          assistantWorkspace: {},
           layersDocument: "{}",
           runtimeBundleDocument: "{}",
           runtimeBundleHash: "bundle-hash-1",
-          openclawBootstrapDocument: "{}",
-          openclawWorkspaceDocument: "{}",
+          assistantConfigDocument: "{}",
+          assistantWorkspaceDocument: "{}",
           contentHash: "content-hash-1",
           createdAt: new Date("2026-04-11T12:59:00.000Z")
         })
       } as AssistantMaterializedSpecRepository);
-
-      assert.equal(service.getMode(), "native");
 
       const result = await service.execute({
         assistantId: "assistant-1",
@@ -174,13 +171,13 @@ describe("SendNativeWebChatTurnService", () => {
           materializedAtConfigGeneration: 1,
           layers: {},
           runtimeBundle: {},
-          openclawBootstrap: {},
-          openclawWorkspace: {},
+          assistantConfig: {},
+          assistantWorkspace: {},
           layersDocument: "{}",
           runtimeBundleDocument: "{}",
           runtimeBundleHash: "bundle-hash-1",
-          openclawBootstrapDocument: "{}",
-          openclawWorkspaceDocument: "{}",
+          assistantConfigDocument: "{}",
+          assistantWorkspaceDocument: "{}",
           contentHash: "content-hash-1",
           createdAt: new Date("2026-04-11T12:59:00.000Z")
         })
@@ -240,13 +237,13 @@ describe("SendNativeWebChatTurnService", () => {
           materializedAtConfigGeneration: 1,
           layers: {},
           runtimeBundle: {},
-          openclawBootstrap: {},
-          openclawWorkspace: {},
+          assistantConfig: {},
+          assistantWorkspace: {},
           layersDocument: "{}",
           runtimeBundleDocument: "{}",
           runtimeBundleHash: "bundle-hash-1",
-          openclawBootstrapDocument: "{}",
-          openclawWorkspaceDocument: "{}",
+          assistantConfigDocument: "{}",
+          assistantWorkspaceDocument: "{}",
           contentHash: "content-hash-1",
           createdAt: new Date("2026-04-11T12:59:00.000Z")
         })

@@ -13,11 +13,7 @@ import {
   type AssistantMaterializedSpecRepository
 } from "../domain/assistant-materialized-spec.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  AssistantRuntimeError,
-  type AssistantRuntimeFacade
-} from "./assistant-runtime.facade";
+import { AssistantRuntimeError } from "./assistant-runtime.facade";
 import { CompactNativeWebChatSessionService } from "./compact-native-web-chat-session.service";
 import { ResolveNativeWebChatSessionStateService } from "./resolve-native-web-chat-session-state.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
@@ -81,8 +77,6 @@ export class ManageWebChatListService {
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
@@ -370,12 +364,6 @@ export class ManageWebChatListService {
     if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
-
-    await this.assistantRuntime.deleteWebChatSession({
-      assistantId: assistant.id,
-      chatId: chat.id,
-      surfaceThreadKey: chat.surfaceThreadKey
-    });
 
     const attachments = await this.attachmentRepository.listByChatId(chat.id);
     const releasedBytes = attachments.reduce(

@@ -1,5 +1,100 @@
 # SESSION-HANDOFF
 
+## 2026-04-17 - ADR-072 Step 17 legacy schema/document cleanup closeout
+
+### What changed
+
+1. The Step 17 repo-truth docs now match the landed neutral materialized-spec naming: `assistant_materialized_specs` stores `assistant_config` / `assistant_workspace` and `assistant_config_document` / `assistant_workspace_document`, while active code/docs use `assistantConfig` / `assistantWorkspace`.
+2. Current-state docs now describe `assistantConfig` / `assistantWorkspace` as bounded compatibility views beside authoritative `runtimeBundle`, not long-term runtime truth.
+3. API-boundary and test-plan docs now record the current freshness response shape: `POST /internal/v1/runtime/ensure-fresh-spec` returns refreshed `spec.assistantConfig` / `spec.assistantWorkspace`, and active request-path runtime model override reads `runtimeBundle` instead of the old compatibility-materialization path.
+4. ADR-072 current baseline + step ledger now close `Step 17` and move the next recommended work to `Step 18 — Audit and clean UI/control-plane/runtime tails`.
+
+### Current active slice
+
+- `Slice 7 — OpenClaw removal and cleanup`
+
+### Current active step
+
+- `Step 18 — Audit and clean UI/control-plane/runtime tails`
+
+### Files touched
+
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/ARCHITECTURE.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- not run; docs-only closeout
+
+### Risks
+
+1. This only refreshes source-of-truth docs; it does not by itself validate deploy-time or live-runtime behavior.
+2. `Step 18` still needs the broader active-surface audit to remove remaining OpenClaw/bootstrap wording outside the Step 17 schema/document rename scope.
+
+### Next recommended step
+
+1. Start `Step 18 — Audit and clean UI/control-plane/runtime tails`, while keeping `assistantConfig` / `assistantWorkspace` documented only as bounded compatibility views beside `runtimeBundle`.
+
+## 2026-04-17 - ADR-072 Step 16 active OpenClaw removal closeout
+
+### What changed
+
+1. `apps/api` no longer contains live OpenClaw adapter/facade wiring: `openclaw-runtime.adapter.ts`, `openclaw-assistant-runtime.facade.ts`, `assistant-runtime-adapter.types.ts`, and their focused tests were deleted, and `workspace-management.module.ts` no longer registers those providers.
+2. The remaining Step 16 active-path seams were re-homed onto PersAI-owned boundaries:
+   - `web` chat hard delete no longer calls runtime session cleanup
+   - media delivery and Telegram outbound media now download from native runtime URLs / PersAI object storage directly
+   - assistant reset and admin user delete no longer call OpenClaw reset hooks
+   - workspace memory endpoints now use the assistant memory registry (`memory_write` rows only)
+   - assistant avatar upload/download now use PersAI media object storage
+   - legacy scheduled-action rows now fail closed for pause/resume and allow cancel-only cleanup
+3. API config/examples and Helm API env were cleaned up so `OPENCLAW_ADAPTER_*`, `OPENCLAW_BASE_URL_*`, and API-side `OPENCLAW_GATEWAY_TOKEN` are no longer part of the active `apps/api` runtime surface. Admin runtime visibility now derives from `PERSAI_RUNTIME_BASE_URL` instead of OpenClaw adapter flags.
+
+### Verification
+
+1. `corepack pnpm exec tsx test/control-internal-scheduled-action.service.test.ts`
+2. `corepack pnpm exec tsx test/manage-web-chat-list.service.test.ts`
+3. `corepack pnpm exec tsx test/media-delivery.service.test.ts`
+4. `corepack pnpm exec tsx test/reset-assistant.service.test.ts`
+5. `corepack pnpm exec tsx test/admin-delete-user.service.test.ts`
+6. `corepack pnpm exec tsx test/resolve-admin-overview-dashboard.service.test.ts`
+7. `corepack pnpm run typecheck`
+
+### Current active slice
+
+- `Slice 8 — Legacy schema/document cleanup and audit follow-through`
+
+### Current active step
+
+- `Step 17 — Legacy schema/document cleanup`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/application/manage-assistant-workspace-memory.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-assistant-avatar.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-bot.client.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-internal-scheduled-action.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/application/create-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/admin-delete-user.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `packages/config/src/api-config.ts`
+- `apps/api/.env.local.example`
+- `apps/api/.env.dev.example`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
 ## 2026-04-16 - ADR-072 Step 19 deploy/reapply scale-hardening requirement
 
 ### What changed

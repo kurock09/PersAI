@@ -188,11 +188,6 @@ async function run(): Promise<void> {
   const attachmentRepository = createAttachmentRepositoryMock();
   const mediaDeliveryService = createMediaDeliveryServiceMock();
   const concurrentService = new HandleInternalTelegramTurnService(
-    {
-      async consumeBootstrapWorkspace() {
-        return undefined;
-      }
-    } as never,
     chatRepository as never,
     attachmentRepository as never,
     concurrentBindingRepository as never,
@@ -278,11 +273,6 @@ async function run(): Promise<void> {
   const releasedAttachmentRepository = createAttachmentRepositoryMock();
   const releasedMediaDeliveryService = createMediaDeliveryServiceMock();
   const fixedReleaseService = new HandleInternalTelegramTurnService(
-    {
-      async consumeBootstrapWorkspace() {
-        return undefined;
-      }
-    } as never,
     releasedChatRepository as never,
     releasedAttachmentRepository as never,
     releasedBindingRepository as never,
@@ -400,11 +390,6 @@ async function run(): Promise<void> {
     }
   ];
   const mediaRewriteService = new HandleInternalTelegramTurnService(
-    {
-      async consumeBootstrapWorkspace() {
-        return undefined;
-      }
-    } as never,
     mediaChatRepository as never,
     mediaAttachmentRepository as never,
     mediaBindingRepository as never,

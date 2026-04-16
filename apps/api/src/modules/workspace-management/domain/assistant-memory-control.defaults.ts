@@ -1,7 +1,7 @@
 /**
  * Step 6 D1: canonical control-plane envelope for assistant memory governance.
- * Runtime memory behavior stays in OpenClaw; this object is the explicit contract
- * surfaced via materialization (`openclawWorkspace.memoryControl`) and API `governance.memoryControl`.
+ * Runtime memory behavior stays in the execution plane; this object is the explicit contract
+ * surfaced via materialization (`assistantWorkspace.memoryControl`) and API `governance.memoryControl`.
  */
 export const PERSAI_MEMORY_CONTROL_SCHEMA_V1 = "persai.memoryControl.v1" as const;
 

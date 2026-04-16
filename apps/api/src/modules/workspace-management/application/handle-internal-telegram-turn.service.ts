@@ -1,11 +1,7 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { RuntimeTurnAutoCompactionState } from "@persai/runtime-contract";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  type AssistantRuntimeFacade,
-  type RuntimeMediaArtifact
-} from "./assistant-runtime.facade";
+import { type RuntimeMediaArtifact } from "./assistant-runtime.facade";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -64,8 +60,6 @@ export class HandleInternalTelegramTurnService {
   private static readonly TELEGRAM_UPDATE_CLAIM_STALE_MS = 120_000;
 
   constructor(
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly chatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
@@ -285,8 +279,6 @@ export class HandleInternalTelegramTurnService {
         );
         trace.stage("update_completed");
       }
-      await this.consumeBootstrapBestEffort(resolved.assistantId, resolved.runtimeTier);
-      trace.stage("bootstrap_consumed");
 
       trace.finish({
         status: "completed",
@@ -411,21 +403,6 @@ export class HandleInternalTelegramTurnService {
     } catch (error) {
       this.logger.warn(
         `[telegram-turn] Non-fatal: failed to release Telegram update claim ${updateId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
-  }
-
-  private async consumeBootstrapBestEffort(
-    assistantId: string,
-    runtimeTier: import("./runtime-assignment").RuntimeTier
-  ): Promise<void> {
-    try {
-      await this.assistantRuntime.consumeBootstrapWorkspace(assistantId, runtimeTier);
-    } catch (error) {
-      this.logger.warn(
-        `[telegram-turn] Non-fatal: failed to consume BOOTSTRAP.md: ${
           error instanceof Error ? error.message : String(error)
         }`
       );

@@ -117,7 +117,7 @@ export class ResolveAdminOverviewDashboardService {
       webRuntimeShadowComparisons: this.webRuntimeShadowComparisonService.getState(),
       activeUsers: activeUsersResult.length,
       activeWebChats,
-      runtime: { adapterEnabled: config.OPENCLAW_ADAPTER_ENABLED, tiers },
+      runtime: { adapterEnabled: Boolean(config.PERSAI_RUNTIME_BASE_URL?.trim()), tiers },
       health,
       queuePressure,
       warnings,

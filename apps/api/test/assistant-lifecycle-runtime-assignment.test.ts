@@ -71,13 +71,13 @@ async function run(): Promise<void> {
       }
     },
     runtimeBundle: null,
-    openclawBootstrap: {},
-    openclawWorkspace: {},
+    assistantConfig: {},
+    assistantWorkspace: {},
     layersDocument: "{}",
     runtimeBundleDocument: null,
     runtimeBundleHash: null,
-    openclawBootstrapDocument: "{}",
-    openclawWorkspaceDocument: "{}",
+    assistantConfigDocument: "{}",
+    assistantWorkspaceDocument: "{}",
     contentHash: "hash-1",
     createdAt: new Date("2026-04-04T10:03:00.000Z")
   };

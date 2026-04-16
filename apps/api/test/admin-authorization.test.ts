@@ -10,7 +10,6 @@ function applyBaseEnv(overrides: NodeJS.ProcessEnv = {}): void {
     APP_ENV: "local",
     DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public",
     CLERK_SECRET_KEY: "clerk-secret",
-    OPENCLAW_ADAPTER_ENABLED: "false",
     PERSAI_INTERNAL_API_TOKEN: "internal-api-token",
     ...overrides
   };

@@ -28,16 +28,13 @@ function asObject(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function parseRuntimeModelOverride(
-  bootstrap: unknown,
+function parseRuntimeModelOverrideFromRuntimeBundle(
+  runtimeBundle: unknown,
   trigger: "cost_driving_restricted"
 ): RuntimeModelOverride | null {
-  const root = asObject(bootstrap);
-  const governance = asObject(root?.governance);
-  const capabilityEnvelope = asObject(governance?.openclawCapabilityEnvelope);
-  const routing = capabilityEnvelope?.runtimeProviderRouting as
-    | RuntimeProviderRoutingState
-    | undefined;
+  const root = asObject(runtimeBundle);
+  const runtime = asObject(root?.runtime);
+  const routing = runtime?.runtimeProviderRouting as RuntimeProviderRoutingState | undefined;
   const target = routing?.fallbackMatrix.find((item) => item.trigger === trigger);
   if (!target?.eligible) {
     return null;
@@ -125,8 +122,8 @@ export class ResolveAssistantInboundRuntimeContextService {
       assistantId: assistant.id,
       publishedVersionId: latestPublishedVersion.id,
       runtimeTier: runtimeAssignment?.effectiveTier ?? "free_shared_restricted",
-      quotaDegradeModelOverride: parseRuntimeModelOverride(
-        materializedSpec?.openclawBootstrap ?? null,
+      quotaDegradeModelOverride: parseRuntimeModelOverrideFromRuntimeBundle(
+        materializedSpec?.runtimeBundle ?? null,
         "cost_driving_restricted"
       ),
       userId: assistant.userId,

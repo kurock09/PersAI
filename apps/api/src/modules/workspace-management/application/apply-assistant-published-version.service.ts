@@ -5,11 +5,7 @@ import {
 } from "../domain/assistant-materialized-spec.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  AssistantRuntimeError,
-  type AssistantRuntimeFacade
-} from "./assistant-runtime.facade";
+import { AssistantRuntimeError } from "./assistant-runtime.facade";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
@@ -23,8 +19,6 @@ export class ApplyAssistantPublishedVersionService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
     private readonly syncNativeRuntimeBundleService: SyncNativeRuntimeBundleService,
@@ -124,20 +118,6 @@ export class ApplyAssistantPublishedVersionService {
         materializedSpec.layers
       );
       const runtimeTier = runtimeAssignment?.effectiveTier ?? "free_shared_restricted";
-      await this.assistantRuntime.applyMaterializedSpec({
-        assistantId: assistantInProgress.id,
-        publishedVersionId: publishedVersion.id,
-        ...(runtimeAssignment?.effectiveTier
-          ? { runtimeTier: runtimeAssignment.effectiveTier }
-          : {}),
-        runtimeBundle: materializedSpec.runtimeBundle,
-        adapterPayload: {
-          contentHash: materializedSpec.contentHash,
-          assistantConfig: materializedSpec.openclawBootstrap,
-          assistantWorkspace: materializedSpec.openclawWorkspace
-        },
-        reapply
-      });
       const nativeRuntimeBundleSync = await this.syncNativeRuntimeBundleService.execute({
         materializedSpec,
         runtimeTier

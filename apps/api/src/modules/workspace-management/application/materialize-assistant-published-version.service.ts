@@ -76,20 +76,20 @@ import {
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
-const OPENCLAW_BOOTSTRAP_SCHEMA = "openclaw.bootstrap.v1";
-const OPENCLAW_WORKSPACE_SCHEMA = "openclaw.workspace.v1";
+const ASSISTANT_CONFIG_SCHEMA = "persai.assistantConfig.v1";
+const ASSISTANT_WORKSPACE_SCHEMA = "persai.assistantWorkspace.v1";
 
 export interface AssistantRuntimeArtifacts {
   currentConfigGeneration: number;
   layers: Record<string, unknown>;
   runtimeBundle: AssistantRuntimeBundle;
-  openclawBootstrap: Record<string, unknown>;
-  openclawWorkspace: Record<string, unknown>;
+  assistantConfig: Record<string, unknown>;
+  assistantWorkspace: Record<string, unknown>;
   layersDocument: string;
   runtimeBundleDocument: string;
   runtimeBundleHash: string;
-  openclawBootstrapDocument: string;
-  openclawWorkspaceDocument: string;
+  assistantConfigDocument: string;
+  assistantWorkspaceDocument: string;
   contentHash: string;
 }
 
@@ -189,13 +189,13 @@ export class MaterializeAssistantPublishedVersionService {
       materializedAtConfigGeneration: artifacts.currentConfigGeneration,
       layers: artifacts.layers,
       runtimeBundle: artifacts.runtimeBundle,
-      openclawBootstrap: artifacts.openclawBootstrap,
-      openclawWorkspace: artifacts.openclawWorkspace,
+      assistantConfig: artifacts.assistantConfig,
+      assistantWorkspace: artifacts.assistantWorkspace,
       layersDocument: artifacts.layersDocument,
       runtimeBundleDocument: artifacts.runtimeBundleDocument,
       runtimeBundleHash: artifacts.runtimeBundleHash,
-      openclawBootstrapDocument: artifacts.openclawBootstrapDocument,
-      openclawWorkspaceDocument: artifacts.openclawWorkspaceDocument,
+      assistantConfigDocument: artifacts.assistantConfigDocument,
+      assistantWorkspaceDocument: artifacts.assistantWorkspaceDocument,
       contentHash: artifacts.contentHash
     });
 
@@ -380,8 +380,8 @@ export class MaterializeAssistantPublishedVersionService {
       apiConfig.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT
     );
 
-    const openclawBootstrap = {
-      schema: OPENCLAW_BOOTSTRAP_SCHEMA,
+    const assistantConfig = {
+      schema: ASSISTANT_CONFIG_SCHEMA,
       assistant: {
         id: assistant.id,
         workspaceId: assistant.workspaceId
@@ -429,8 +429,8 @@ export class MaterializeAssistantPublishedVersionService {
       bootstrapDocument: compiledPromptConstructor.promptDocuments.bootstrap
     };
 
-    const openclawWorkspace = {
-      schema: OPENCLAW_WORKSPACE_SCHEMA,
+    const assistantWorkspace = {
+      schema: ASSISTANT_WORKSPACE_SCHEMA,
       workspace: {
         assistantId: assistant.id,
         publishedVersionId: publishedVersion.id,
@@ -535,23 +535,23 @@ export class MaterializeAssistantPublishedVersionService {
 
     const layersDocument = toDeterministicDocument(layers);
     const runtimeBundleDocument = runtimeBundleArtifact.document;
-    const openclawBootstrapDocument = toDeterministicDocument(openclawBootstrap);
-    const openclawWorkspaceDocument = toDeterministicDocument(openclawWorkspace);
+    const assistantConfigDocument = toDeterministicDocument(assistantConfig);
+    const assistantWorkspaceDocument = toDeterministicDocument(assistantWorkspace);
     const contentHash = createHash("sha256")
-      .update(`${layersDocument}\n${openclawBootstrapDocument}\n${openclawWorkspaceDocument}`)
+      .update(`${layersDocument}\n${assistantConfigDocument}\n${assistantWorkspaceDocument}`)
       .digest("hex");
 
     return {
       currentConfigGeneration,
       layers,
       runtimeBundle: runtimeBundleArtifact.bundle,
-      openclawBootstrap,
-      openclawWorkspace,
+      assistantConfig,
+      assistantWorkspace,
       layersDocument,
       runtimeBundleDocument,
       runtimeBundleHash: runtimeBundleArtifact.hash,
-      openclawBootstrapDocument,
-      openclawWorkspaceDocument,
+      assistantConfigDocument,
+      assistantWorkspaceDocument,
       contentHash
     };
   }

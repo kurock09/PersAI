@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
+import { afterEach } from "node:test";
 import { PreviewAssistantSetupService } from "../src/modules/workspace-management/application/preview-assistant-setup.service";
-import type {
-  AssistantRuntimeFacade,
-  AssistantRuntimeSetupPreviewTurnInput
-} from "../src/modules/workspace-management/application/assistant-runtime.facade";
 import type { AssistantPublishedVersionRepository } from "../src/modules/workspace-management/domain/assistant-published-version.repository";
 import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
 import type { Assistant } from "../src/modules/workspace-management/domain/assistant.entity";
 import type { AssistantPublishedVersion } from "../src/modules/workspace-management/domain/assistant-published-version.entity";
 import type { MaterializeAssistantPublishedVersionService } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
 import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
+
+const ORIGINAL_ENV = process.env;
 
 const assistant: Assistant = {
   id: "assistant-1",
@@ -49,8 +48,27 @@ const latestVersion: AssistantPublishedVersion = {
   createdAt: new Date("2026-04-02T00:00:00.000Z")
 };
 
+function setApiEnv(): void {
+  process.env = {
+    ...ORIGINAL_ENV,
+    APP_ENV: "local",
+    DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public",
+    CLERK_SECRET_KEY: "clerk-secret",
+    PERSAI_INTERNAL_API_TOKEN: "persai-internal-token",
+    PERSAI_RUNTIME_BASE_URL: "http://runtime.local",
+    PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS: "9000",
+    PERSAI_RUNTIME_TURN_TIMEOUT_MS: "9000"
+  };
+}
+
+afterEach(() => {
+  process.env = ORIGINAL_ENV;
+});
+
 async function run(): Promise<void> {
-  let previewInput: AssistantRuntimeSetupPreviewTurnInput | null = null;
+  setApiEnv();
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; body: Record<string, unknown> | null }> = [];
 
   const assistantRepository: AssistantRepository = {
     findById: async () => assistant,
@@ -69,51 +87,6 @@ async function run(): Promise<void> {
     findLatestByAssistantId: async () => latestVersion,
     findById: async () => latestVersion
   };
-
-  const assistantRuntime = {
-    preflight: async () => ({ live: true, ready: true, checkedAt: new Date().toISOString() }),
-    applyMaterializedSpec: async () => {
-      throw new Error("preview should not apply a live runtime spec");
-    },
-    cleanupWorkspace: async () => {
-      throw new Error("preview should not clean the live workspace");
-    },
-    consumeBootstrapWorkspace: async () => undefined,
-    resetWorkspace: async () => undefined,
-    resetMemoryWorkspace: async () => undefined,
-    deleteWebChatSession: async () => undefined,
-    sendWebChatTurn: async () => {
-      throw new Error("preview should not send a normal web chat turn");
-    },
-    previewSetupTurn: async (input) => {
-      previewInput = input;
-      return {
-        assistantMessage: "Hello, I am Mira.",
-        respondedAt: "2026-04-03T12:00:00.000Z",
-        media: []
-      };
-    },
-    streamWebChatTurn: async function* () {
-      throw new Error("unused");
-      yield undefined as never;
-    },
-    controlCronJob: async () => ({}),
-    downloadChatMedia: async () => null
-  } as Pick<
-    AssistantRuntimeFacade,
-    | "preflight"
-    | "applyMaterializedSpec"
-    | "cleanupWorkspace"
-    | "consumeBootstrapWorkspace"
-    | "resetWorkspace"
-    | "resetMemoryWorkspace"
-    | "deleteWebChatSession"
-    | "sendWebChatTurn"
-    | "previewSetupTurn"
-    | "streamWebChatTurn"
-    | "controlCronJob"
-    | "downloadChatMedia"
-  > as AssistantRuntimeFacade;
 
   const materializeService = {
     buildRuntimeArtifacts: async (
@@ -135,13 +108,13 @@ async function run(): Promise<void> {
             }
           }
         },
-        openclawBootstrap: { bootstrap: true },
-        openclawWorkspace: { workspace: true },
+        assistantConfig: { bootstrap: true },
+        assistantWorkspace: { workspace: true },
         layersDocument: "{}",
         runtimeBundleDocument: "{}",
         runtimeBundleHash: "bundle-hash-1",
-        openclawBootstrapDocument: "{}",
-        openclawWorkspaceDocument: "{}",
+        assistantConfigDocument: "{}",
+        assistantWorkspaceDocument: "{}",
         contentHash: "hash-1"
       };
     }
@@ -156,34 +129,95 @@ async function run(): Promise<void> {
     }
   } as WorkspaceManagementPrismaService;
 
-  const service = new PreviewAssistantSetupService(
-    assistantRepository,
-    publishedVersionRepository,
-    assistantRuntime,
-    materializeService,
-    prisma
-  );
-
-  const result = await service.execute("user-1");
-
-  assert.deepEqual(result, {
-    message: "Hello, I am Mira.",
-    respondedAt: "2026-04-03T12:00:00.000Z"
-  });
-  assert.ok(previewInput);
-  assert.equal(previewInput.assistantId, assistant.id);
-  assert.deepEqual(previewInput.adapterPayload.assistantConfig, { bootstrap: true });
-  assert.deepEqual(previewInput.adapterPayload.assistantWorkspace, { workspace: true });
-  assert.deepEqual(previewInput.runtimeBundle, {
-    schema: "persai.runtime.bundle.v1",
-    promptConstructor: {
-      onboarding: {
-        firstTurnPrompt: "Hello Alex, I am Mira."
-      }
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const body = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : null;
+    requests.push({ url, body });
+    if (url === "http://runtime.local/api/v1/bundles/warm") {
+      return new Response(
+        JSON.stringify({
+          bundle: body?.bundle,
+          warmedAt: "2026-04-03T12:00:00.000Z",
+          replaced: false,
+          cacheEntries: 1,
+          evictedBundleIds: []
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
     }
-  });
-  assert.equal(previewInput.userTimezone, "Europe/Moscow");
-  assert.equal(previewInput.userMessage, "Hello Alex, I am Mira.");
+    if (url === "http://runtime.local/api/v1/turns/create") {
+      return new Response(
+        JSON.stringify({
+          requestId: "runtime-request-1",
+          sessionId: "runtime-session-1",
+          assistantText: "Hello, I am Mira.",
+          artifacts: [],
+          respondedAt: "2026-04-03T12:00:00.000Z",
+          usage: null
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    if (url === "http://runtime.local/api/v1/bundles/invalidate") {
+      return new Response(
+        JSON.stringify({
+          invalidatedAt: "2026-04-03T12:00:01.000Z",
+          invalidatedCount: 1,
+          remainingEntries: 0
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    throw new Error(`Unexpected preview fetch url: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const service = new PreviewAssistantSetupService(
+      assistantRepository,
+      publishedVersionRepository,
+      materializeService,
+      prisma
+    );
+
+    const result = await service.execute("user-1");
+
+    assert.deepEqual(result, {
+      message: "Hello, I am Mira.",
+      respondedAt: "2026-04-03T12:00:00.000Z"
+    });
+    assert.equal(requests.length, 3);
+    assert.equal(requests[0]?.url, "http://runtime.local/api/v1/bundles/warm");
+    assert.equal((requests[0]?.body?.bundle as Record<string, unknown>)?.assistantId, assistant.id);
+    assert.equal(
+      (requests[0]?.body?.bundle as Record<string, unknown>)?.publishedVersionId,
+      (requests[1]?.body?.bundle as Record<string, unknown>)?.publishedVersionId
+    );
+    assert.equal(requests[0]?.body?.runtimeTier, "free_shared_restricted");
+    assert.equal(requests[0]?.body?.bundleDocument, "{}");
+    assert.equal(requests[1]?.url, "http://runtime.local/api/v1/turns/create");
+    assert.equal(requests[1]?.body?.runtimeTier, "free_shared_restricted");
+    assert.equal(
+      (requests[1]?.body?.message as Record<string, unknown>)?.text,
+      "Hello Alex, I am Mira."
+    );
+    assert.equal(
+      (requests[1]?.body?.message as Record<string, unknown>)?.timezone,
+      "Europe/Moscow"
+    );
+    assert.equal((requests[2]?.body as Record<string, unknown>)?.assistantId, assistant.id);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 }
 
 run().catch((error) => {

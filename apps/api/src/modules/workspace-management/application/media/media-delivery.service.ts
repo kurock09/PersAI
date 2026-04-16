@@ -1,10 +1,8 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
 import {
-  ASSISTANT_RUNTIME_FACADE,
   describeRuntimeMediaArtifact,
-  readRuntimeMediaArtifactFilename,
-  type AssistantRuntimeFacade
+  readRuntimeMediaArtifactFilename
 } from "../assistant-runtime.facade";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
@@ -22,9 +20,9 @@ import {
   type MediaArtifact,
   type OutboundMediaDeliverParams
 } from "./media.types";
-import { ResolveAssistantRuntimeTierService } from "../resolve-assistant-runtime-tier.service";
 import { validatePersaiMediaFile } from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
+import { downloadRuntimeMediaUrl } from "./runtime-media-download";
 
 @Injectable()
 export class MediaDeliveryService {
@@ -32,13 +30,10 @@ export class MediaDeliveryService {
   private readonly adapterMap: Map<string, ChannelMediaAdapter>;
 
   constructor(
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(CHANNEL_MEDIA_ADAPTERS)
     adapters: ChannelMediaAdapter[],
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {
@@ -95,14 +90,7 @@ export class MediaDeliveryService {
     buffer: Buffer;
     filename: string;
   }> {
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      params.assistantId
-    );
-    const downloadResult = await this.downloadArtifactSource(
-      artifact,
-      params.assistantId,
-      runtimeTier
-    );
+    const downloadResult = await this.downloadArtifactSource(artifact);
     if (!downloadResult) {
       throw new Error(`Media file not found on storage: ${describeRuntimeMediaArtifact(artifact)}`);
     }
@@ -181,14 +169,15 @@ export class MediaDeliveryService {
   }
 
   private async downloadArtifactSource(
-    artifact: MediaArtifact,
-    assistantId: string,
-    runtimeTier: Awaited<ReturnType<ResolveAssistantRuntimeTierService["resolveByAssistantId"]>>
+    artifact: MediaArtifact
   ): Promise<{ buffer: Buffer; contentType: string } | null> {
     if (artifact.source === "persai_object_storage") {
       return this.mediaObjectStorage.downloadObject(artifact.objectKey);
     }
-    return this.assistantRuntime.downloadChatMedia(assistantId, artifact.url, runtimeTier);
+    return (
+      (await downloadRuntimeMediaUrl(artifact.url)) ??
+      this.mediaObjectStorage.downloadObject(artifact.url)
+    );
   }
 
   private async sendViaAdapter(

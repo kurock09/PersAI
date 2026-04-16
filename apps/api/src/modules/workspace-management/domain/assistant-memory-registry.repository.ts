@@ -18,11 +18,23 @@ export interface AssistantMemoryRegistryRepository {
   create(input: CreateAssistantMemoryRegistryItemInput): Promise<AssistantMemoryRegistryItem>;
   listActiveByAssistantId(
     assistantId: string,
-    limit: number
+    limit: number,
+    filter?: { sourceType?: AssistantMemoryRegistryItem["sourceType"] }
+  ): Promise<AssistantMemoryRegistryItem[]>;
+  searchActiveByAssistantId(
+    assistantId: string,
+    query: string,
+    limit: number,
+    filter?: { sourceType?: AssistantMemoryRegistryItem["sourceType"] }
   ): Promise<AssistantMemoryRegistryItem[]>;
   findActiveByIdAndAssistantId(
     id: string,
     assistantId: string
+  ): Promise<AssistantMemoryRegistryItem | null>;
+  updateSummaryById(
+    id: string,
+    assistantId: string,
+    summary: string
   ): Promise<AssistantMemoryRegistryItem | null>;
   markForgottenById(id: string, assistantId: string): Promise<boolean>;
   markForgottenForMessages(

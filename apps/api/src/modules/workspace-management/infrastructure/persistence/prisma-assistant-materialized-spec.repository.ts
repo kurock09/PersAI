@@ -42,13 +42,13 @@ export class PrismaAssistantMaterializedSpecRepository implements AssistantMater
         materializedAtConfigGeneration: input.materializedAtConfigGeneration,
         layers: input.layers as Prisma.InputJsonValue,
         runtimeBundle: input.runtimeBundle as Prisma.InputJsonValue,
-        openclawBootstrap: input.openclawBootstrap as Prisma.InputJsonValue,
-        openclawWorkspace: input.openclawWorkspace as Prisma.InputJsonValue,
+        assistantConfig: input.assistantConfig as Prisma.InputJsonValue,
+        assistantWorkspace: input.assistantWorkspace as Prisma.InputJsonValue,
         layersDocument: input.layersDocument,
         runtimeBundleDocument: input.runtimeBundleDocument,
         runtimeBundleHash: input.runtimeBundleHash,
-        openclawBootstrapDocument: input.openclawBootstrapDocument,
-        openclawWorkspaceDocument: input.openclawWorkspaceDocument,
+        assistantConfigDocument: input.assistantConfigDocument,
+        assistantWorkspaceDocument: input.assistantWorkspaceDocument,
         contentHash: input.contentHash
       },
       update: {
@@ -58,13 +58,13 @@ export class PrismaAssistantMaterializedSpecRepository implements AssistantMater
         materializedAtConfigGeneration: input.materializedAtConfigGeneration,
         layers: input.layers as Prisma.InputJsonValue,
         runtimeBundle: input.runtimeBundle as Prisma.InputJsonValue,
-        openclawBootstrap: input.openclawBootstrap as Prisma.InputJsonValue,
-        openclawWorkspace: input.openclawWorkspace as Prisma.InputJsonValue,
+        assistantConfig: input.assistantConfig as Prisma.InputJsonValue,
+        assistantWorkspace: input.assistantWorkspace as Prisma.InputJsonValue,
         layersDocument: input.layersDocument,
         runtimeBundleDocument: input.runtimeBundleDocument,
         runtimeBundleHash: input.runtimeBundleHash,
-        openclawBootstrapDocument: input.openclawBootstrapDocument,
-        openclawWorkspaceDocument: input.openclawWorkspaceDocument,
+        assistantConfigDocument: input.assistantConfigDocument,
+        assistantWorkspaceDocument: input.assistantWorkspaceDocument,
         contentHash: input.contentHash
       }
     });
@@ -82,13 +82,13 @@ export class PrismaAssistantMaterializedSpecRepository implements AssistantMater
       materializedAtConfigGeneration: spec.materializedAtConfigGeneration,
       layers: spec.layers,
       runtimeBundle: spec.runtimeBundle,
-      openclawBootstrap: spec.openclawBootstrap,
-      openclawWorkspace: spec.openclawWorkspace,
+      assistantConfig: spec.assistantConfig,
+      assistantWorkspace: spec.assistantWorkspace,
       layersDocument: spec.layersDocument,
       runtimeBundleDocument: spec.runtimeBundleDocument,
       runtimeBundleHash: spec.runtimeBundleHash,
-      openclawBootstrapDocument: spec.openclawBootstrapDocument,
-      openclawWorkspaceDocument: spec.openclawWorkspaceDocument,
+      assistantConfigDocument: spec.assistantConfigDocument,
+      assistantWorkspaceDocument: spec.assistantWorkspaceDocument,
       contentHash: spec.contentHash,
       createdAt: spec.createdAt
     };

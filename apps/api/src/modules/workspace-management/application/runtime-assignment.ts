@@ -96,31 +96,3 @@ export function readRuntimeAssignmentStateFromMaterializedLayers(
     source
   };
 }
-
-export function readRuntimeAssignmentStateFromOpenClawBootstrap(
-  openclawBootstrap: unknown
-): RuntimeAssignmentState | null {
-  const root = asObject(openclawBootstrap);
-  const governance = asObject(root?.governance);
-  const runtimeAssignment = asObject(governance?.runtimeAssignment);
-  const effectiveTier = parseRuntimeTier(runtimeAssignment?.effectiveTier);
-  if (effectiveTier === null) {
-    return null;
-  }
-
-  const sourceValue = runtimeAssignment?.source;
-  const source: RuntimeAssignmentSource =
-    sourceValue === "assistant_override" ||
-    sourceValue === "plan_default" ||
-    sourceValue === "platform_fallback"
-      ? sourceValue
-      : "platform_fallback";
-
-  return {
-    schema: "persai.runtimeAssignment.v1",
-    planDefaultTier: parseRuntimeTier(runtimeAssignment?.planDefaultTier),
-    runtimeTierOverride: parseRuntimeTier(runtimeAssignment?.runtimeTierOverride),
-    effectiveTier,
-    source
-  };
-}

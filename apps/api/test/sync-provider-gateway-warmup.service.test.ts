@@ -24,13 +24,13 @@ function createMaterializedSpec(): AssistantMaterializedSpec {
       }
     },
     runtimeBundle: null,
-    openclawBootstrap: {},
-    openclawWorkspace: {},
+    assistantConfig: {},
+    assistantWorkspace: {},
     layersDocument: "{}",
     runtimeBundleDocument: null,
     runtimeBundleHash: null,
-    openclawBootstrapDocument: "{}",
-    openclawWorkspaceDocument: "{}",
+    assistantConfigDocument: "{}",
+    assistantWorkspaceDocument: "{}",
     contentHash: "content-hash-1",
     createdAt: new Date("2026-04-11T12:30:00.000Z")
   };

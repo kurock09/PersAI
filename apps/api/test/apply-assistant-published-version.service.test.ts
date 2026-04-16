@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { ApplyAssistantPublishedVersionService } from "../src/modules/workspace-management/application/apply-assistant-published-version.service";
-import {
-  AssistantRuntimeError,
-  type AssistantRuntimeFacade
-} from "../src/modules/workspace-management/application/assistant-runtime.facade";
+import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
 import type { SyncNativeRuntimeBundleService } from "../src/modules/workspace-management/application/sync-native-runtime-bundle.service";
 import type { SyncProviderGatewayWarmupService } from "../src/modules/workspace-management/application/sync-provider-gateway-warmup.service";
 import type { MaterializeAssistantPublishedVersionService } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
@@ -82,19 +79,18 @@ const materializedSpec: AssistantMaterializedSpec = {
       workspaceId: "workspace-1"
     }
   },
-  openclawBootstrap: { bootstrap: true },
-  openclawWorkspace: { workspace: true },
+  assistantConfig: { bootstrap: true },
+  assistantWorkspace: { workspace: true },
   layersDocument: "{}",
   runtimeBundleDocument: '{"metadata":{"workspaceId":"workspace-1"}}',
   runtimeBundleHash: "bundle-hash-1",
-  openclawBootstrapDocument: "{}",
-  openclawWorkspaceDocument: "{}",
+  assistantConfigDocument: "{}",
+  assistantWorkspaceDocument: "{}",
   contentHash: "content-hash-1",
   createdAt: new Date("2026-04-11T10:01:00.000Z")
 };
 
 async function runSuccessCase(): Promise<void> {
-  let appliedInput: Parameters<AssistantRuntimeFacade["applyMaterializedSpec"]>[0] | null = null;
   let syncedInput: { materializedSpec: AssistantMaterializedSpec; runtimeTier: string } | null =
     null;
   let warmedProviderGatewayInput: { materializedSpec: AssistantMaterializedSpec } | null = null;
@@ -130,14 +126,6 @@ async function runSuccessCase(): Promise<void> {
     "findByPublishedVersionId"
   > as AssistantMaterializedSpecRepository;
 
-  const assistantRuntime = {
-    applyMaterializedSpec: async (
-      input: Parameters<AssistantRuntimeFacade["applyMaterializedSpec"]>[0]
-    ) => {
-      appliedInput = input;
-    }
-  } as Pick<AssistantRuntimeFacade, "applyMaterializedSpec"> as AssistantRuntimeFacade;
-
   const appendAudit = {
     execute: async (event: unknown) => {
       auditEvents.push(event);
@@ -171,7 +159,6 @@ async function runSuccessCase(): Promise<void> {
   const service = new ApplyAssistantPublishedVersionService(
     assistantRepository,
     materializedSpecRepository,
-    assistantRuntime,
     appendAudit,
     materializeService,
     syncNativeRuntimeBundleService,
@@ -180,18 +167,6 @@ async function runSuccessCase(): Promise<void> {
 
   await service.execute("user-1", publishedVersion, true);
 
-  assert.deepEqual(appliedInput, {
-    assistantId: "assistant-1",
-    publishedVersionId: "version-1",
-    runtimeTier: "paid_shared_restricted",
-    runtimeBundle: materializedSpec.runtimeBundle,
-    adapterPayload: {
-      contentHash: "content-hash-1",
-      assistantConfig: { bootstrap: true },
-      assistantWorkspace: { workspace: true }
-    },
-    reapply: true
-  });
   assert.deepEqual(syncedInput, {
     materializedSpec,
     runtimeTier: "paid_shared_restricted"
@@ -244,10 +219,6 @@ async function runDegradedWarmCase(): Promise<void> {
     "findByPublishedVersionId"
   > as AssistantMaterializedSpecRepository;
 
-  const assistantRuntime = {
-    applyMaterializedSpec: async () => undefined
-  } as Pick<AssistantRuntimeFacade, "applyMaterializedSpec"> as AssistantRuntimeFacade;
-
   const appendAudit = {
     execute: async (event: unknown) => {
       auditEvents.push(event);
@@ -277,7 +248,6 @@ async function runDegradedWarmCase(): Promise<void> {
   const service = new ApplyAssistantPublishedVersionService(
     assistantRepository,
     materializedSpecRepository,
-    assistantRuntime,
     appendAudit,
     materializeService,
     syncNativeRuntimeBundleService,
@@ -333,10 +303,6 @@ async function runProviderGatewayDegradedCase(): Promise<void> {
     "findByPublishedVersionId"
   > as AssistantMaterializedSpecRepository;
 
-  const assistantRuntime = {
-    applyMaterializedSpec: async () => undefined
-  } as Pick<AssistantRuntimeFacade, "applyMaterializedSpec"> as AssistantRuntimeFacade;
-
   const appendAudit = {
     execute: async (event: unknown) => {
       auditEvents.push(event);
@@ -366,7 +332,6 @@ async function runProviderGatewayDegradedCase(): Promise<void> {
   const service = new ApplyAssistantPublishedVersionService(
     assistantRepository,
     materializedSpecRepository,
-    assistantRuntime,
     appendAudit,
     materializeService,
     syncNativeRuntimeBundleService,

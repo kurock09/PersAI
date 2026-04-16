@@ -28,7 +28,6 @@ function createOverviewLatencyTraceServiceMock() {
 
 describe("SendWebChatTurnService", () => {
   test("replays duplicate clientTurnId without starting a second sync runtime turn", async () => {
-    let runtimeCalls = 0;
     let nativeRuntimeCalls = 0;
     const completedState = {
       clientTurnId: "turn-1",
@@ -72,17 +71,6 @@ describe("SendWebChatTurnService", () => {
         getCompletedWebTurnProcessing: async () => completedState
       } as never,
       {
-        sendWebChatTurn: async () => {
-          runtimeCalls += 1;
-          return {
-            assistantMessage: "live",
-            respondedAt: "2026-04-05T12:00:01.000Z",
-            media: []
-          };
-        }
-      } as never,
-      {
-        getMode: () => "legacy",
         execute: async () => {
           nativeRuntimeCalls += 1;
           return {
@@ -105,8 +93,6 @@ describe("SendWebChatTurnService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
       createOverviewLatencyTraceServiceMock() as never
     );
 
@@ -116,18 +102,14 @@ describe("SendWebChatTurnService", () => {
       clientTurnId: "turn-1"
     });
 
-    assert.equal(runtimeCalls, 0);
     assert.equal(nativeRuntimeCalls, 0);
     assert.equal(result.userMessage.id, "user-msg-1");
     assert.equal(result.assistantMessage.id, "assistant-msg-1");
     assert.equal(result.assistantMessage.content, "hi back");
   });
 
-  test("routes sync web turns through the native runtime service when the mode is native", async () => {
-    let legacyRuntimeCalls = 0;
+  test("routes sync web turns through the native runtime service", async () => {
     let nativeRuntimeCalls = 0;
-    let bootstrapConsumeCalls = 0;
-    let attachmentContextCalls = 0;
     let capturedNativeUserMessage = "";
 
     const service = new SendWebChatTurnService(
@@ -149,20 +131,6 @@ describe("SendWebChatTurnService", () => {
         releaseWebTurnProcessing: async () => undefined
       } as never,
       {
-        sendWebChatTurn: async () => {
-          legacyRuntimeCalls += 1;
-          return {
-            assistantMessage: "legacy",
-            respondedAt: "2026-04-05T12:00:01.000Z",
-            media: []
-          };
-        },
-        consumeBootstrapWorkspace: async () => {
-          bootstrapConsumeCalls += 1;
-        }
-      } as never,
-      {
-        getMode: () => "native",
         execute: async (input: { userMessage: string }) => {
           nativeRuntimeCalls += 1;
           capturedNativeUserMessage = input.userMessage;
@@ -221,16 +189,7 @@ describe("SendWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
-        buildContextForCurrentMessageAttachments: async () => {
-          attachmentContextCalls += 1;
-          return '[Files attached by user:\n- attachment (document "draft.txt")]';
-        }
-      } as never,
-      {
         deliver: async () => ({ attachments: [] })
-      } as never,
-      {
-        queueSyncNativeComparison: async () => undefined
       } as never,
       createOverviewLatencyTraceServiceMock() as never
     );
@@ -241,139 +200,7 @@ describe("SendWebChatTurnService", () => {
     });
 
     assert.equal(nativeRuntimeCalls, 1);
-    assert.equal(legacyRuntimeCalls, 0);
-    assert.equal(bootstrapConsumeCalls, 0);
-    assert.equal(attachmentContextCalls, 0);
     assert.equal(capturedNativeUserMessage, "hello");
     assert.equal(result.assistantMessage.content, "native");
-  });
-
-  test("keeps legacy sync primary and queues native shadow comparison in shadow mode", async () => {
-    let legacyRuntimeCalls = 0;
-    let nativeRuntimeCalls = 0;
-    let bootstrapConsumeCalls = 0;
-    let shadowComparisonCalls = 0;
-    let attachmentContextCalls = 0;
-    let capturedLegacyUserMessage = "";
-
-    const service = new SendWebChatTurnService(
-      {
-        createMessage: async (input: Record<string, unknown>) => ({
-          id: "assistant-msg-1",
-          chatId: input.chatId,
-          assistantId: input.assistantId,
-          author: input.author,
-          content: input.content,
-          createdAt: new Date("2026-04-05T12:00:02.000Z")
-        })
-      } as never,
-      {
-        listByMessageId: async () => []
-      } as never,
-      {
-        completeWebTurnProcessing: async () => undefined,
-        releaseWebTurnProcessing: async () => undefined
-      } as never,
-      {
-        sendWebChatTurn: async (input: { userMessage: string }) => {
-          legacyRuntimeCalls += 1;
-          capturedLegacyUserMessage = input.userMessage;
-          return {
-            assistantMessage: "legacy",
-            respondedAt: "2026-04-05T12:00:01.000Z",
-            media: []
-          };
-        },
-        consumeBootstrapWorkspace: async () => {
-          bootstrapConsumeCalls += 1;
-        }
-      } as never,
-      {
-        getMode: () => "shadow",
-        execute: async () => {
-          nativeRuntimeCalls += 1;
-          return {
-            assistantMessage: "native",
-            respondedAt: "2026-04-05T12:00:01.000Z",
-            media: []
-          };
-        }
-      } as never,
-      {
-        execute: async () => ({
-          chat: {
-            id: "chat-1",
-            assistantId: "assistant-1",
-            surface: "web",
-            surfaceThreadKey: "thread-1",
-            title: "Chat",
-            archivedAt: null,
-            lastMessageAt: null,
-            createdAt: "2026-04-05T12:00:00.000Z",
-            updatedAt: "2026-04-05T12:00:00.000Z"
-          },
-          userMessage: {
-            id: "user-msg-1",
-            chatId: "chat-1",
-            assistantId: "assistant-1",
-            author: "user",
-            content: "hello",
-            attachments: [],
-            createdAt: "2026-04-05T12:00:00.000Z"
-          },
-          assistant: {
-            id: "assistant-1",
-            workspaceId: "workspace-1"
-          },
-          assistantId: "assistant-1",
-          publishedVersionId: "version-1",
-          runtimeTier: "paid_shared_restricted",
-          quotaDegradeModelOverride: null,
-          quotaDegradeReason: null,
-          userId: "user-1",
-          workspaceId: "workspace-1",
-          workspaceTimezone: "UTC"
-        })
-      } as never,
-      {
-        resolveByUserId: async () => ({
-          assistantId: "assistant-1"
-        })
-      } as never,
-      {
-        execute: async () => undefined
-      } as never,
-      {
-        recordWebChatTurnUsage: async () => undefined
-      } as never,
-      {
-        buildContextForCurrentMessageAttachments: async () => {
-          attachmentContextCalls += 1;
-          return '[Files attached by user:\n- attachment (document "draft.txt")]';
-        }
-      } as never,
-      {
-        deliver: async () => ({ attachments: [] })
-      } as never,
-      {
-        queueSyncNativeComparison: () => {
-          shadowComparisonCalls += 1;
-        }
-      } as never,
-      createOverviewLatencyTraceServiceMock() as never
-    );
-
-    const result = await service.execute("user-1", {
-      surfaceThreadKey: "thread-1",
-      message: "hello"
-    });
-
-    assert.equal(legacyRuntimeCalls, 1);
-    assert.equal(nativeRuntimeCalls, 0);
-    assert.equal(bootstrapConsumeCalls, 1);
-    assert.equal(shadowComparisonCalls, 1);
-    assert.equal(attachmentContextCalls, 1);
-    assert.match(capturedLegacyUserMessage, /Files attached by user/);
-    assert.equal(result.assistantMessage.content, "legacy");
   });
 });

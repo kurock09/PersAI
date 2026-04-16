@@ -13,11 +13,7 @@ import {
   type AssistantChannelSurfaceBindingRepository,
   type CompletedWebTurnReplayState
 } from "../domain/assistant-channel-surface-binding.repository";
-import {
-  ASSISTANT_RUNTIME_FACADE,
-  type AssistantRuntimeFacade,
-  type AssistantRuntimeWebChatTurnResult
-} from "./assistant-runtime.facade";
+import { type AssistantRuntimeWebChatTurnResult } from "./assistant-runtime.facade";
 import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -25,10 +21,8 @@ import type { AssistantWebChatTurnState } from "./web-chat.types";
 import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-turn.service";
 import {
   createAssistantInboundConflict,
-  toAssistantInboundFailurePayload,
   toAssistantInboundHttpException
 } from "./assistant-inbound-error";
-import { InboundMediaService } from "./media/inbound-media.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { toRuntimeAttachmentRef } from "./media/media.types";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
@@ -37,8 +31,6 @@ import {
   SendNativeWebChatTurnService,
   type SendNativeWebChatTurnInput
 } from "./send-native-web-chat-turn.service";
-import { WebRuntimeShadowComparisonService } from "./web-runtime-shadow-comparison.service";
-import { type WebChatRuntimeMode } from "./web-runtime-mode";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
@@ -128,16 +120,12 @@ export class SendWebChatTurnService {
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly sendNativeWebChatTurnService: SendNativeWebChatTurnService,
     private readonly prepareAssistantInboundTurnService: PrepareAssistantInboundTurnService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly inboundMediaService: InboundMediaService,
     private readonly mediaDeliveryService: MediaDeliveryService,
-    private readonly webRuntimeShadowComparisonService: WebRuntimeShadowComparisonService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService
   ) {}
 
@@ -211,18 +199,6 @@ export class SendWebChatTurnService {
       const userAttachments = await this.attachmentRepository.listByMessageId(
         prepared.userMessage.id
       );
-      const runtimeMode = this.sendNativeWebChatTurnService.getMode();
-      let legacyUserMessage = prepared.userMessage.content;
-      if (runtimeMode !== "native") {
-        const attachmentContext =
-          await this.inboundMediaService.buildContextForCurrentMessageAttachments(
-            prepared.userMessage.id
-          );
-        legacyUserMessage = attachmentContext
-          ? `${attachmentContext}\n${prepared.userMessage.content}`
-          : prepared.userMessage.content;
-      }
-      trace.stage("attachment_context");
       const currentTimeIso = new Date().toISOString();
       const nativeTurnInput = this.buildNativeSyncTurnInput({
         assistantId: prepared.assistantId,
@@ -245,54 +221,15 @@ export class SendWebChatTurnService {
       });
       this.logWebRuntimeRoute({
         route: "sync",
-        mode: runtimeMode,
         assistantId: prepared.assistantId,
         surfaceThreadKey: prepared.chat.surfaceThreadKey,
         ...(request.clientTurnId === undefined ? {} : { clientTurnId: request.clientTurnId })
       });
 
-      const runtimeStartedAt = Date.now();
-      let primaryRuntimeMs = 0;
       let runtimeResponse: AssistantRuntimeWebChatTurnResult;
       try {
-        runtimeResponse = await this.executeSyncRuntimeTurn({
-          runtimeMode,
-          nativeTurnInput,
-          assistantId: prepared.assistantId,
-          publishedVersionId: prepared.publishedVersionId,
-          runtimeTier: prepared.runtimeTier,
-          chatId: prepared.chat.id,
-          surfaceThreadKey: prepared.chat.surfaceThreadKey,
-          userMessageId: prepared.userMessage.id,
-          userMessage: legacyUserMessage,
-          userTimezone: prepared.workspaceTimezone,
-          currentTimeIso,
-          ...(prepared.quotaDegradeModelOverride
-            ? {
-                providerOverride: prepared.quotaDegradeModelOverride.provider,
-                modelOverride: prepared.quotaDegradeModelOverride.model
-              }
-            : {}),
-          ...(trace.isEnabled() ? { overviewTraceId: trace.getTraceId() } : {})
-        });
-        primaryRuntimeMs = Date.now() - runtimeStartedAt;
+        runtimeResponse = await this.sendNativeWebChatTurnService.execute(nativeTurnInput);
       } catch (error: unknown) {
-        primaryRuntimeMs = Date.now() - runtimeStartedAt;
-        if (runtimeMode === "shadow") {
-          const primaryFailure = toAssistantInboundFailurePayload(error);
-          this.webRuntimeShadowComparisonService.queueSyncNativeComparison({
-            assistantId: prepared.assistantId,
-            surfaceThreadKey: prepared.chat.surfaceThreadKey,
-            ...(request.clientTurnId === undefined ? {} : { clientTurnId: request.clientTurnId }),
-            primary: {
-              status: "failed",
-              runtimeMs: primaryRuntimeMs,
-              errorCode: primaryFailure.code,
-              errorMessage: primaryFailure.message
-            },
-            executeShadow: () => this.sendNativeWebChatTurnService.execute(nativeTurnInput)
-          });
-        }
         throw toAssistantInboundHttpException(error);
       }
       if (runtimeResponse.runtimeTrace) {
@@ -337,10 +274,6 @@ export class SendWebChatTurnService {
         source: "web_chat_turn_sync"
       });
       trace.stage("quota_recorded");
-      if (runtimeMode === "legacy" || runtimeMode === "shadow") {
-        await this.consumeBootstrapBestEffort(prepared.assistantId, prepared.runtimeTier);
-        trace.stage("bootstrap_consumed");
-      }
 
       if (request.clientTurnId !== undefined) {
         await this.bindingRepository.completeWebTurnProcessing(
@@ -360,20 +293,6 @@ export class SendWebChatTurnService {
           }
         );
         trace.stage("replay_completed");
-      }
-
-      if (runtimeMode === "shadow") {
-        this.webRuntimeShadowComparisonService.queueSyncNativeComparison({
-          assistantId: prepared.assistantId,
-          surfaceThreadKey: prepared.chat.surfaceThreadKey,
-          ...(request.clientTurnId === undefined ? {} : { clientTurnId: request.clientTurnId }),
-          primary: {
-            status: "completed",
-            runtimeMs: primaryRuntimeMs,
-            assistantMessage: runtimeResponse.assistantMessage
-          },
-          executeShadow: () => this.sendNativeWebChatTurnService.execute(nativeTurnInput)
-        });
       }
 
       trace.finish({
@@ -528,17 +447,6 @@ export class SendWebChatTurnService {
     };
   }
 
-  private async consumeBootstrapBestEffort(
-    assistantId: string,
-    runtimeTier: import("./runtime-assignment").RuntimeTier
-  ): Promise<void> {
-    try {
-      await this.assistantRuntime.consumeBootstrapWorkspace(assistantId, runtimeTier);
-    } catch (error) {
-      console.warn("[web-chat] Non-fatal: failed to consume BOOTSTRAP.md:", error);
-    }
-  }
-
   private buildNativeSyncTurnInput(input: {
     assistantId: string;
     publishedVersionId: string;
@@ -573,61 +481,14 @@ export class SendWebChatTurnService {
 
   private logWebRuntimeRoute(input: {
     route: "sync";
-    mode: WebChatRuntimeMode;
     assistantId: string;
     surfaceThreadKey: string;
     clientTurnId?: string;
   }): void {
-    if (input.mode === "legacy") {
-      return;
-    }
-
     this.logger.log(
-      `web_runtime_route route=${input.route} mode=${input.mode} primary=${
-        input.mode === "native" ? "native" : "legacy"
-      } shadow=${input.mode === "shadow" ? "native" : "none"} assistantId=${
+      `web_runtime_route route=${input.route} mode=native primary=native shadow=none assistantId=${
         input.assistantId
       } threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId ?? "n/a"}`
     );
-  }
-
-  private async executeSyncRuntimeTurn(input: {
-    runtimeMode: WebChatRuntimeMode;
-    nativeTurnInput: SendNativeWebChatTurnInput;
-    assistantId: string;
-    publishedVersionId: string;
-    runtimeTier: import("./runtime-assignment").RuntimeTier;
-    chatId: string;
-    surfaceThreadKey: string;
-    userMessageId: string;
-    userMessage: string;
-    userTimezone: string;
-    currentTimeIso: string;
-    providerOverride?: "openai" | "anthropic";
-    modelOverride?: string;
-    overviewTraceId?: string;
-  }) {
-    if (input.runtimeMode === "native") {
-      return this.sendNativeWebChatTurnService.execute(input.nativeTurnInput);
-    }
-
-    return this.assistantRuntime.sendWebChatTurn({
-      assistantId: input.assistantId,
-      publishedVersionId: input.publishedVersionId,
-      runtimeTier: input.runtimeTier,
-      ...(input.providerOverride
-        ? {
-            providerOverride: input.providerOverride,
-            modelOverride: input.modelOverride
-          }
-        : {}),
-      ...(input.overviewTraceId ? { overviewTraceId: input.overviewTraceId } : {}),
-      chatId: input.chatId,
-      surfaceThreadKey: input.surfaceThreadKey,
-      userMessageId: input.userMessageId,
-      userMessage: input.userMessage,
-      userTimezone: input.userTimezone,
-      currentTimeIso: input.currentTimeIso
-    });
   }
 }

@@ -13,7 +13,6 @@ import type {
   AdminOpsCockpitChannelBinding,
   AdminOpsCockpitChatStats
 } from "./ops-cockpit.types";
-import { resolveRuntimeBaseUrl } from "./runtime-endpoint-routing";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
@@ -72,21 +71,9 @@ export class ResolveAdminOpsCockpitService {
             assistantPlanOverrideCode: governance?.assistantPlanOverrideCode ?? null,
             assistantQuotaPlanCode: governance?.quotaPlanCode ?? null
           });
-    const runtimeEndpointHost =
-      config.OPENCLAW_ADAPTER_ENABLED && runtimeTier
-        ? new URL(
-            resolveRuntimeBaseUrl({
-              config: {
-                tierBaseUrls: {
-                  free_shared_restricted: config.OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED!,
-                  paid_shared_restricted: config.OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED!,
-                  paid_isolated: config.OPENCLAW_BASE_URL_PAID_ISOLATED!
-                }
-              },
-              runtimeTier
-            }).baseUrl
-          ).host
-        : null;
+    const runtimeBaseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim() || null;
+    const runtimeConfigured = runtimeBaseUrl !== null && runtimeBaseUrl.length > 0;
+    const runtimeEndpointHost = runtimeConfigured ? new URL(runtimeBaseUrl).host : null;
     const preflight = await this.assistantRuntimePreflightService.execute(runtimeTier ?? undefined);
 
     if (assistant === null) {
@@ -126,7 +113,7 @@ export class ResolveAdminOpsCockpitService {
           runtimeApply: null
         },
         runtime: {
-          adapterEnabled: config.OPENCLAW_ADAPTER_ENABLED,
+          adapterEnabled: runtimeConfigured,
           runtimeTier,
           runtimeEndpointHost,
           preflight
@@ -222,7 +209,7 @@ export class ResolveAdminOpsCockpitService {
         }
       },
       runtime: {
-        adapterEnabled: config.OPENCLAW_ADAPTER_ENABLED,
+        adapterEnabled: runtimeConfigured,
         runtimeTier,
         runtimeEndpointHost,
         preflight

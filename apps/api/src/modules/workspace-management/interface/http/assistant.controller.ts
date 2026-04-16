@@ -5,7 +5,6 @@ import {
   Delete,
   Get,
   HttpCode,
-  Inject,
   NotFoundException,
   Param,
   Patch,
@@ -26,7 +25,6 @@ import type { AssistantLifecycleState } from "../../application/assistant-lifecy
 import type { UserPlanVisibilityState } from "../../application/plan-visibility.types";
 import { CreateAssistantService } from "../../application/create-assistant.service";
 import { GetAssistantByUserIdService } from "../../application/get-assistant-by-user-id.service";
-import { ResolveAssistantRuntimeTierService } from "../../application/resolve-assistant-runtime-tier.service";
 import { PublishAssistantDraftService } from "../../application/publish-assistant-draft.service";
 import { ReapplyAssistantService } from "../../application/reapply-assistant.service";
 import { ResetAssistantService } from "../../application/reset-assistant.service";
@@ -64,10 +62,11 @@ import type {
 } from "../../application/web-chat.types";
 import type { TelegramIntegrationState } from "../../application/telegram-integration.types";
 import { toAssistantInboundHttpException } from "../../application/assistant-inbound-error";
+import { ManageAssistantAvatarService } from "../../application/manage-assistant-avatar.service";
 import {
-  ASSISTANT_RUNTIME_FACADE,
-  type AssistantRuntimeFacade
-} from "../../application/assistant-runtime.facade";
+  ManageAssistantWorkspaceMemoryService,
+  type WorkspaceMemoryItemState
+} from "../../application/manage-assistant-workspace-memory.service";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
 @Controller("api/v1")
@@ -75,7 +74,6 @@ export class AssistantController {
   constructor(
     private readonly createAssistantService: CreateAssistantService,
     private readonly getAssistantByUserIdService: GetAssistantByUserIdService,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly publishAssistantDraftService: PublishAssistantDraftService,
     private readonly reapplyAssistantService: ReapplyAssistantService,
     private readonly rollbackAssistantService: RollbackAssistantService,
@@ -102,8 +100,8 @@ export class AssistantController {
     private readonly disableAssistantTaskRegistryItemService: DisableAssistantTaskRegistryItemService,
     private readonly enableAssistantTaskRegistryItemService: EnableAssistantTaskRegistryItemService,
     private readonly cancelAssistantTaskRegistryItemService: CancelAssistantTaskRegistryItemService,
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
+    private readonly manageAssistantAvatarService: ManageAssistantAvatarService,
+    private readonly manageAssistantWorkspaceMemoryService: ManageAssistantWorkspaceMemoryService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -189,22 +187,15 @@ export class AssistantController {
     @Req() req: RequestWithPlatformContext,
     @UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string } | undefined
   ): Promise<{ requestId: string | null; avatarUrl: string }> {
-    const userId = this.resolveRequestUserId(req);
     if (!file || !file.mimetype.startsWith("image/")) {
       throw new BadRequestException("An image file is required.");
     }
-
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
-    if (!assistant) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-
-    const ext = file.originalname.split(".").pop()?.toLowerCase() ?? "png";
-    const result = await this.assistantRuntime.uploadWorkspaceAvatar({
-      assistantId: assistant.id,
+    const result = await this.manageAssistantAvatarService.upload({
+      userId: this.resolveRequestUserId(req),
       fileBuffer: file.buffer,
       mimeType: file.mimetype,
-      extension: ext
+      originalFilename: file.originalname,
+      avatarUrl: this.buildAbsoluteAssistantAvatarUrl(req)
     });
 
     return { requestId: req.requestId ?? null, avatarUrl: result.avatarUrl };
@@ -215,13 +206,7 @@ export class AssistantController {
     @Req() req: RequestWithPlatformContext,
     @Res() res: ResponseWithPlatformContext
   ): Promise<void> {
-    const userId = this.resolveRequestUserId(req);
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
-    if (!assistant) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-
-    const result = await this.assistantRuntime.downloadWorkspaceAvatar(assistant.id);
+    const result = await this.manageAssistantAvatarService.download(this.resolveRequestUserId(req));
     if (!result) {
       res.statusCode = 404;
       res.setHeader("Content-Type", "application/json");
@@ -686,75 +671,67 @@ export class AssistantController {
   }
 
   @Get("assistant/memory/workspace/items")
-  async listWorkspaceMemoryItems(@Req() req: RequestWithPlatformContext): Promise<unknown> {
-    const userId = this.resolveRequestUserId(req);
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
-    if (!assistant) throw new NotFoundException("Assistant not found.");
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
-    return this.assistantRuntime.listMemoryItems(assistant.id, runtimeTier);
+  async listWorkspaceMemoryItems(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    items: WorkspaceMemoryItemState[];
+  }> {
+    return {
+      requestId: req.requestId ?? null,
+      items: await this.manageAssistantWorkspaceMemoryService.list(this.resolveRequestUserId(req))
+    };
   }
 
   @Post("assistant/memory/workspace/add")
   async addWorkspaceMemoryItem(
     @Req() req: RequestWithPlatformContext,
     @Body() body: { content: string }
-  ): Promise<unknown> {
-    const userId = this.resolveRequestUserId(req);
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
-    if (!assistant) throw new NotFoundException("Assistant not found.");
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
-    return this.assistantRuntime.addMemoryItem(assistant.id, body.content, runtimeTier);
+  ): Promise<{ requestId: string | null; item: WorkspaceMemoryItemState }> {
+    return {
+      requestId: req.requestId ?? null,
+      item: await this.manageAssistantWorkspaceMemoryService.add(
+        this.resolveRequestUserId(req),
+        body.content
+      )
+    };
   }
 
   @Patch("assistant/memory/workspace/edit")
   async editWorkspaceMemoryItem(
     @Req() req: RequestWithPlatformContext,
     @Body() body: { itemId: string; content: string }
-  ): Promise<unknown> {
-    const userId = this.resolveRequestUserId(req);
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
-    if (!assistant) throw new NotFoundException("Assistant not found.");
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
-    return this.assistantRuntime.editMemoryItem(
-      assistant.id,
+  ): Promise<{ requestId: string | null; updated: true }> {
+    await this.manageAssistantWorkspaceMemoryService.edit(
+      this.resolveRequestUserId(req),
       body.itemId,
-      body.content,
-      runtimeTier
+      body.content
     );
+    return { requestId: req.requestId ?? null, updated: true };
   }
 
   @Post("assistant/memory/workspace/forget")
   async forgetWorkspaceMemoryItem(
     @Req() req: RequestWithPlatformContext,
     @Body() body: { itemId: string }
-  ): Promise<unknown> {
-    const userId = this.resolveRequestUserId(req);
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
-    if (!assistant) throw new NotFoundException("Assistant not found.");
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
+  ): Promise<{ requestId: string | null; forgotten: true }> {
+    await this.manageAssistantWorkspaceMemoryService.forget(
+      this.resolveRequestUserId(req),
+      body.itemId
     );
-    return this.assistantRuntime.forgetMemoryItem(assistant.id, body.itemId, runtimeTier);
+    return { requestId: req.requestId ?? null, forgotten: true };
   }
 
   @Get("assistant/memory/workspace/search")
   async searchWorkspaceMemory(
     @Req() req: RequestWithPlatformContext,
     @Query("q") query: string
-  ): Promise<unknown> {
-    const userId = this.resolveRequestUserId(req);
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
-    if (!assistant) throw new NotFoundException("Assistant not found.");
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
-    return this.assistantRuntime.searchMemory(assistant.id, query, runtimeTier);
+  ): Promise<{ requestId: string | null; items: WorkspaceMemoryItemState[] }> {
+    return {
+      requestId: req.requestId ?? null,
+      items: await this.manageAssistantWorkspaceMemoryService.search(
+        this.resolveRequestUserId(req),
+        query
+      )
+    };
   }
 
   @Get("assistant/chats/web")
@@ -1002,5 +979,22 @@ export class AssistantController {
     }
 
     return req.resolvedAppUser.id;
+  }
+
+  private buildAbsoluteAssistantAvatarUrl(req: RequestWithPlatformContext): string {
+    const forwardedProto = req.headers["x-forwarded-proto"];
+    const protocol =
+      typeof forwardedProto === "string" && forwardedProto.trim().length > 0
+        ? forwardedProto.split(",")[0]!.trim()
+        : "https";
+    const forwardedHost = req.headers["x-forwarded-host"];
+    const host =
+      typeof forwardedHost === "string" && forwardedHost.trim().length > 0
+        ? forwardedHost.split(",")[0]!.trim()
+        : req.headers.host;
+    if (!host) {
+      throw new BadRequestException("Unable to resolve assistant avatar host.");
+    }
+    return `${protocol}://${host}/api/v1/assistant/avatar`;
   }
 }

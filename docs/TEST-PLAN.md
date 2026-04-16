@@ -23,17 +23,26 @@ Required in CI:
 - prisma migrate check
 - build
 
+## ADR-072 Step 16 focus
+
+- Active verification now targets the PersAI-native production path after OpenClaw adapter removal.
+- Focused `apps/api` verification for the Step 16 closeout:
+  - `corepack pnpm exec tsx test/control-internal-scheduled-action.service.test.ts`
+  - `corepack pnpm exec tsx test/manage-web-chat-list.service.test.ts`
+  - `corepack pnpm exec tsx test/media-delivery.service.test.ts`
+  - `corepack pnpm exec tsx test/reset-assistant.service.test.ts`
+  - `corepack pnpm exec tsx test/admin-delete-user.service.test.ts`
+  - `corepack pnpm exec tsx test/resolve-admin-overview-dashboard.service.test.ts`
+  - `corepack pnpm run typecheck`
+- Acceptance for this step:
+  - no live `apps/api` request/control path depends on the OpenClaw adapter/facade wiring
+  - workspace memory, avatar, media delivery, reset/delete, and scheduled-action control are PersAI-owned seams
+  - API env/config examples and Helm API env no longer advertise `OPENCLAW_ADAPTER_*` / `OPENCLAW_BASE_URL_*` adapter settings
+
 ## ADR-072 Step 3 focus
 
-- `apps/api` application services and controllers now depend on `AssistantRuntimeFacade` instead of growing the OpenClaw-shaped adapter contract directly.
-- `assistant-runtime-adapter.types.ts` is now the temporary `OpenClawRuntimeBridge` boundary contract only; legacy payload translation must stay confined there.
-- Apply and preview flows carry the PersAI-native `runtimeBundle` into the facade while the boundary implementation maps only the temporary `legacyBridge` payload into OpenClaw HTTP inputs.
-- Focused facade/app-service regressions remain green:
-  - `apps/api/test/openclaw-assistant-runtime.facade.test.ts`
-  - `apps/api/test/preview-assistant-setup.service.test.ts`
-  - `apps/api/test/admin-delete-user.service.test.ts`
-  - `apps/api/test/assistant-lifecycle-runtime-assignment.test.ts`
-- Workspace-wide API typecheck remains green after the DI rewiring and error-type migration.
+- Historical only after `ADR-072 Step 16`.
+- The temporary OpenClaw facade/bridge tests from this step were removed when the adapter wiring was deleted from `apps/api`.
 
 ## ADR-072 Step 4 focus
 
@@ -606,7 +615,8 @@ Required in CI:
 
 ### Materialization
 
-- `MaterializeAssistantPublishedVersionService.execute()` reads current `configGeneration`, writes to `materializedAtConfigGeneration` on spec, embeds in `openclawBootstrap.governance.configGeneration`.
+- `MaterializeAssistantPublishedVersionService.execute()` reads current `configGeneration`, writes to `materializedAtConfigGeneration` on spec, embeds in `assistantConfig.governance.configGeneration`.
+- `assistantConfig` / `assistantWorkspace` remain bounded compatibility views beside authoritative `runtimeBundle`; request-path runtime override assertions should continue to read `runtimeBundle.runtime.runtimeProviderRouting`.
 - After successful materialization: `assistant.configDirtyAt` cleared to NULL.
 - Existing publish/rollback/reapply flows continue to work (they call `execute()` which now records generation).
 
@@ -615,7 +625,7 @@ Required in CI:
 - `GET /internal/v1/runtime/config-generation` returns `{ generation }`, authenticated with gateway token.
 - `POST /internal/v1/runtime/ensure-fresh-spec` checks global generation + per-user dirty flag; returns 204 (fresh) or 200 (fresh spec); no callback to OpenClaw.
 
-### OpenClaw freshness check
+### Compatibility freshness check
 
 - Both chat handlers (sync + stream) check freshness before using stored spec.
 - Global generation cached in-memory with configurable TTL (`PERSAI_CONFIG_GENERATION_CACHE_TTL_MS`).
@@ -685,7 +695,6 @@ Required in CI:
   - `test/enforcement-points.test.ts`
   - `test/internal-runtime-tool-quota.controller.test.ts`
   - `test/handle-internal-cron-fire.test.ts`
-  - `test/openclaw-runtime-adapter.test.ts`
   - `test/quota-accounting.test.ts`
   - `test/render-assistant-inbound-surface-message.test.ts`
   - `openclaw/src/gateway/persai-runtime/persai-runtime-agent-turn.test.ts`
@@ -720,8 +729,8 @@ Required in CI:
 
 ### Materialization
 
-- Active Telegram binding → `openclawBootstrap.channels.telegram.enabled: true` with resolved `botToken`, `webhookUrl`, `webhookSecret`.
-- No active binding → `channels.telegram.enabled: false`, null token/webhook fields.
+- Active Telegram binding → `assistantConfig.channels.telegram.enabled: true` with resolved `botToken`, `webhookUrl`, `webhookSecret`.
+- No active binding → `assistantConfig.channels.telegram.enabled: false`, null token/webhook fields.
 - `groupReplyMode` defaults to `"mention_reply"` when not explicitly set in config.
 - HMAC webhook secret derived deterministically from `assistantId` + `TELEGRAM_WEBHOOK_HMAC_SECRET`.
 
@@ -781,7 +790,7 @@ Required in CI:
 
 - `POST /internal/v1/runtime/ensure-fresh-spec` returns:
   - `204` when assistant runtime state is already fresh
-  - `200` with fresh `{generation, assistantId, publishedVersionId, contentHash, spec}` when only that assistant needs refresh
+  - `200` with fresh `{generation, assistantId, publishedVersionId, contentHash, spec.assistantConfig, spec.assistantWorkspace}` when only that assistant needs refresh
 - Backend must not trigger `ApplyAssistantPublishedVersionService` from this path.
 - OpenClaw chat-time freshness must apply the returned spec locally and continue the turn without waiting for a backend `full apply`.
 
@@ -1233,7 +1242,6 @@ Required in CI:
   - runtime-side failures invalidate the cached preflight state so the next call rechecks live readiness
 - Minimum verification for this sub-slice:
   - `corepack pnpm --filter @persai/api run typecheck`
-  - `corepack pnpm --filter @persai/api exec tsx test/openclaw-runtime-adapter.test.ts`
 
 ## SR3c shared Prisma client baseline
 

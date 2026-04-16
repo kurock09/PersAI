@@ -48,10 +48,10 @@ It is not part of backend domain logic.
 
 ## ADR-072 transition boundary
 
-- `assistant_materialized_specs` now dual-writes a PersAI-native `runtimeBundle` beside the legacy `openclawBootstrap` / `openclawWorkspace` artifacts.
-- the native bundle is the future runtime artifact for the PersAI-native execution plane
-- the legacy OpenClaw artifacts remain only as a migration boundary while request-time execution still routes through the existing adapter
-- active request-time apply, preview, Telegram, media, and session paths are still legacy; web chat is now the first request-time path validated on the PersAI-native runtime in dev, while the temporary `legacy|shadow|native` route modes remain only as migration/rollback seams until later cleanup
+- `assistant_materialized_specs` now writes a PersAI-native `runtimeBundle` beside neutral `assistantConfig` / `assistantWorkspace` compatibility views.
+- the native bundle is the authoritative active runtime artifact for the PersAI-native execution plane
+- the compatibility views remain only as a bounded migration/control-plane seam; they are not long-term runtime truth
+- active request-time web, Telegram, media, and session paths now stay on PersAI-native runtime/storage seams, and request-path runtime model override reads `runtimeBundle` instead of compatibility-view materialization
 
 ## ADR-072 execution-plane bootstrap boundary
 
@@ -208,7 +208,7 @@ It is not part of backend domain logic.
   - prefer PersAI-only fixes when the change is policy, config generation, admin UI, or product behavior
   - touch native OpenClaw only when existing PersAI-owned seams cannot express the needed runtime behavior or observability
 - current audited repo status for `ADR-071` slices 1-5:
-  - slices 1-4 are mostly wired through the intended control-plane path (`admin runtime settings -> config generation/materialization -> OpenClaw runtime override`)
+  - slices 1-4 are mostly wired through the intended control-plane path (`admin runtime settings -> config generation/materialization -> runtimeBundle/runtimeProviderRouting`)
   - rendered Helm/runtime-pool defaults are still a transitional infra baseline for optimization policy and must not be treated as the only runtime source-of-truth
   - slice 5 currently keeps only the web compaction suggestion/manual compact surface live; Telegram-specific hinting and slash-command compaction were removed from the active product path and will return only as a shared runtime/tool capability in Step 15
 
@@ -301,7 +301,7 @@ It is not part of backend domain logic.
   - forget-request markers (control-plane only in D1; not runtime memory contents)
   - audit routing toward governance `audit_hook`
 - OpenClaw owns **runtime memory behavior** and consumption during assistant execution
-- materialized `openclawWorkspace.memoryControl` carries the resolved envelope so the runtime does not infer policy
+- materialized `assistantWorkspace.memoryControl` carries the resolved envelope so the runtime does not infer policy
 - legacy `policyEnvelope.memoryControl` is supported only as a migration/fallback path
 
 ## Memory Center registry (Step 6 D2)
@@ -324,7 +324,7 @@ It is not part of backend domain logic.
 
 - backend owns **`tasks_control`** on `assistant_governance` (`persai.tasksControl.v1`): ownership model, source/surface tagging hooks, control-plane lifecycle labels, user enable/disable/cancel flags, audit delegation; tasks are not a billable quota dimension (enforced by convention, no longer via a dedicated `tasksExcludedFromPlanQuotas` flag)
 - OpenClaw owns **execution, scheduling, and trigger routing**; PersAI does not implement a backend scheduler in D4
-- materialized `openclawWorkspace.tasksControl` carries the resolved envelope for runtime alignment without inferring policy locally
+- materialized `assistantWorkspace.tasksControl` carries the resolved envelope for runtime alignment without inferring policy locally
 
 ## Tasks Center registry (Step 6 D5)
 
@@ -409,7 +409,7 @@ It is not part of backend domain logic.
   - it enforces policy at entry boundaries
   - it does not route runtime tool behavior
 - OpenClaw materialization includes explicit `toolAvailability` truth so runtime does not assume unavailable tool classes exist
-- per-plan model selection is resolved from `billing_provider_hints.primaryModelKey` during materialization; it overrides `runtimeProviderProfile.primary.model` (the field OpenClaw reads via `extractPersaiRuntimeModelOverride`) and takes priority over the global admin-managed model in routing resolution
+- per-plan model selection is resolved from `billing_provider_hints.primaryModelKey` during materialization; it overrides `runtimeProviderProfile.primary.model` inside the bounded compatibility view, and active request-path model override now reads the derived routing from `runtimeBundle.runtime.runtimeProviderRouting`
 
 ## Unified inbound turn gateway boundary (Step 12 H13)
 
@@ -507,7 +507,7 @@ It is not part of backend domain logic.
 - Step 12 H1 adds the first admin-managed runtime profile on top of that seam:
   - raw selection lives in `assistant_governance.policyEnvelope.runtimeProviderProfile`
   - provider credential refs live in `assistant_governance.secret_refs.refs.runtime_provider_credentials`
-  - materialization resolves `openclawBootstrap.governance.runtimeProviderProfile`
+- materialization resolves `assistantConfig.governance.runtimeProviderProfile`
 - routing baseline is runtime-managed and minimal:
   - primary path: `openclaw_managed_default` + model key
   - explicit fallback matrix for timeout/provider-failure, runtime-degraded, and cost-driving restriction cases
@@ -732,7 +732,7 @@ It is not part of backend domain logic.
   - transport fingerprint decides whether Telegram bot rotation is required
   - profile fingerprint decides whether Telegram profile APIs should run
 - startup/reinit must be bounded with concurrency control, jitter, and retry backoff; non-critical profile work is deferred until after gateway readiness
-- the single-assistant freshness seam returns fresh materialized spec data to OpenClaw for local reconcile; it does not route through the normal backend runtime-apply lifecycle
+- the single-assistant freshness seam returns fresh compatibility-view data (`assistantConfig` / `assistantWorkspace`) beside authoritative `runtimeBundle`; it does not route through the normal backend runtime-apply lifecycle
 - PersAI assistant create/reset flows must trigger assistant-scoped runtime session cleanup; generic OpenClaw session maintenance remains a safety backstop, not the primary reset semantic
 
 ## Memory source policy enforcement (Step 6 D3)
@@ -752,7 +752,7 @@ It is not part of backend domain logic.
 
 ### Bootstrap file pipeline
 
-- PersAI `MaterializeAssistantPublishedVersionService` emits seven Markdown bootstrap docs into materialized `openclawWorkspace.bootstrapDocuments` (e.g. SOUL.md, USER.md, IDENTITY.md, TOOLS.md, AGENTS.md, HEARTBEAT.md, BOOTSTRAP.md).
+- PersAI `MaterializeAssistantPublishedVersionService` emits seven Markdown bootstrap docs into materialized `assistantWorkspace.bootstrapDocuments` (e.g. SOUL.md, USER.md, IDENTITY.md, TOOLS.md, AGENTS.md, HEARTBEAT.md, BOOTSTRAP.md).
 - Admin-editable bootstrap presets (`bootstrap_document_presets`) now include **`tools`** alongside soul/user/identity/agents. The `TOOLS.md` preset is a Markdown wrapper; **`{{tools_catalog_block}}`** is filled at materialize time from the effective plan (active/disabled tool codes, daily limits, live-usage guidance). Omitting the placeholder drops the generated catalog from the final doc.
 - Apply path: materialized spec → `POST /api/v1/runtime/spec/apply` → OpenClaw `persai-runtime-workspace.ts` writes files on disk with **write-once / never overwrite** rules for bootstrap artifacts.
 - PersAI assistant workspaces treat `BOOTSTRAP.md` as a one-time birth certificate:

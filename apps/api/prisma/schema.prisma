@@ -821,13 +821,13 @@ model AssistantMaterializedSpec {
   algorithmVersion               Int                                  @default(1) @map("algorithm_version")
   layers                         Json                                 @map("layers")
   runtimeBundle                  Json?                                @map("runtime_bundle")
-  openclawBootstrap              Json                                 @map("openclaw_bootstrap")
-  openclawWorkspace              Json                                 @map("openclaw_workspace")
+  assistantConfig                Json                                 @map("assistant_config")
+  assistantWorkspace             Json                                 @map("assistant_workspace")
   layersDocument                 String                               @map("layers_document") @db.Text
   runtimeBundleDocument          String?                              @map("runtime_bundle_document") @db.Text
   runtimeBundleHash              String?                              @map("runtime_bundle_hash")
-  openclawBootstrapDocument      String                               @map("openclaw_bootstrap_document") @db.Text
-  openclawWorkspaceDocument      String                               @map("openclaw_workspace_document") @db.Text
+  assistantConfigDocument        String                               @map("assistant_config_document") @db.Text
+  assistantWorkspaceDocument     String                               @map("assistant_workspace_document") @db.Text
   contentHash                    String                               @map("content_hash")
   materializedAtConfigGeneration Int                                  @default(0) @map("materialized_at_config_generation")
   createdAt                      DateTime                             @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -165,8 +165,8 @@ export class InternalRuntimeConfigGenerationController {
       publishedVersionId: refreshedSpec.publishedVersionId,
       contentHash: refreshedSpec.contentHash,
       spec: {
-        assistantConfig: refreshedSpec.openclawBootstrap,
-        assistantWorkspace: refreshedSpec.openclawWorkspace
+        assistantConfig: refreshedSpec.assistantConfig,
+        assistantWorkspace: refreshedSpec.assistantWorkspace
       }
     };
   }

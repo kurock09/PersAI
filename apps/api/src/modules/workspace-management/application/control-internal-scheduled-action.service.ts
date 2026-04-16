@@ -1,7 +1,12 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
@@ -14,8 +19,6 @@ import {
   parseReminderSchedule,
   type ReminderSchedule
 } from "./reminder-schedule";
-import { SyncAssistantTaskRegistryService } from "./sync-assistant-task-registry.service";
-import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 
 type ScheduledActionControlAction = "create" | "pause" | "resume" | "cancel";
 type ScheduledActionAudience = "user" | "assistant";
@@ -278,45 +281,6 @@ function resolveTaskSourceLabel(params: {
   return "Scheduled reminder";
 }
 
-function buildTaskRegistrySyncPayload(params: { assistantId: string; job: unknown }) {
-  if (!isRecord(params.job)) {
-    return null;
-  }
-  const externalRef = typeof params.job.id === "string" ? params.job.id.trim() : "";
-  const title = typeof params.job.name === "string" ? params.job.name.trim() : "";
-  if (!externalRef || !title) {
-    return null;
-  }
-  const enabled = params.job.enabled !== false;
-  const state = isRecord(params.job.state) ? params.job.state : undefined;
-  const nextRunAtMs =
-    typeof state?.nextRunAtMs === "number" && Number.isFinite(state.nextRunAtMs)
-      ? state.nextRunAtMs
-      : null;
-
-  return {
-    operation: "upsert" as const,
-    assistantId: params.assistantId,
-    externalRef,
-    title,
-    sourceSurface: "web" as const,
-    sourceLabel:
-      typeof params.job.schedule === "object" &&
-      params.job.schedule !== null &&
-      "kind" in params.job.schedule &&
-      (params.job.schedule.kind === "at" ||
-        params.job.schedule.kind === "every" ||
-        params.job.schedule.kind === "cron")
-        ? resolveTaskSourceLabel({
-            audience: "user",
-            schedule: params.job.schedule as ReminderSchedule
-          })
-        : "Scheduled reminder",
-    controlStatus: enabled ? ("active" as const) : ("disabled" as const),
-    nextRunAt: nextRunAtMs === null ? null : new Date(nextRunAtMs).toISOString()
-  };
-}
-
 function buildSchedule(input: CreateScheduledActionControlRequest): ReminderSchedule {
   const definedCount =
     Number(Boolean(input.runAt)) +
@@ -369,12 +333,8 @@ export class ControlInternalScheduledActionService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly buildReminderContextSnapshotService: BuildReminderContextSnapshotService,
-    private readonly syncAssistantTaskRegistryService: SyncAssistantTaskRegistryService,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService
+    private readonly buildReminderContextSnapshotService: BuildReminderContextSnapshotService
   ) {}
 
   parseInput(body: unknown): InternalScheduledActionControlRequest {
@@ -528,28 +488,14 @@ export class ControlInternalScheduledActionService {
       });
     }
 
-    if (!task.externalRef) {
-      throw new BadRequestException("Task is missing runtime externalRef.");
-    }
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
-
+    const legacyExternalRef = task.externalRef ?? task.id;
     if (input.action === "cancel") {
-      try {
-        await this.assistantRuntime.controlCronJob({
-          runtimeTier,
-          action: "remove",
-          args: { id: task.externalRef }
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!message.toLowerCase().includes("unknown cron job id")) {
-          throw error;
-        }
+      await this.prisma.assistantTaskRegistryItem.delete({
+        where: { id: task.id }
+      });
+      if (task.audience === "user") {
+        await this.deleteTelegramReminderTarget(assistant.id, legacyExternalRef);
       }
-      await this.deleteTaskRegistryRow(assistant.id, task.externalRef);
-      await this.deleteTelegramReminderTarget(assistant.id, task.externalRef);
       return {
         ok: true,
         cancelled: true,
@@ -557,32 +503,9 @@ export class ControlInternalScheduledActionService {
         title: task.title
       };
     }
-
-    const updatedJob = await this.assistantRuntime.controlCronJob({
-      runtimeTier,
-      action: "update",
-      args: {
-        id: task.externalRef,
-        patch: {
-          enabled: input.action === "resume"
-        }
-      }
-    });
-
-    const syncPayload = buildTaskRegistrySyncPayload({
-      assistantId: assistant.id,
-      job: this.unwrapToolDetails(updatedJob)
-    });
-    if (syncPayload !== null) {
-      await this.syncAssistantTaskRegistryService.execute(syncPayload);
-    }
-
-    return {
-      ok: true,
-      [input.action === "pause" ? "paused" : "resumed"]: true,
-      taskId: task.id,
-      title: task.title
-    };
+    throw new ConflictException(
+      "This scheduled action still points at the retired OpenClaw scheduler. Cancel and recreate it to continue."
+    );
   }
 
   private async createScheduledAction(
@@ -749,24 +672,6 @@ export class ControlInternalScheduledActionService {
       );
     }
     return new Date(nextRunAtMs);
-  }
-
-  private unwrapToolDetails(value: unknown): unknown {
-    if (!isRecord(value)) {
-      return value;
-    }
-    if ("details" in value) {
-      return value.details;
-    }
-    return value;
-  }
-
-  private async deleteTaskRegistryRow(assistantId: string, externalRef: string): Promise<void> {
-    await this.syncAssistantTaskRegistryService.execute({
-      operation: "delete",
-      assistantId,
-      externalRef
-    });
   }
 
   private async persistTelegramReminderTarget(

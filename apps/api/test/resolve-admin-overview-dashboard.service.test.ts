@@ -13,7 +13,6 @@ async function run(): Promise<void> {
     DATABASE_URL: process.env.DATABASE_URL,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
     PERSAI_INTERNAL_API_TOKEN: process.env.PERSAI_INTERNAL_API_TOKEN,
-    OPENCLAW_ADAPTER_ENABLED: process.env.OPENCLAW_ADAPTER_ENABLED,
     POD_NAME: process.env.POD_NAME
   };
 
@@ -21,7 +20,6 @@ async function run(): Promise<void> {
   process.env.DATABASE_URL = "postgres://postgres:postgres@localhost:5432/persai";
   process.env.CLERK_SECRET_KEY = "sk_test_1234567890123456";
   process.env.PERSAI_INTERNAL_API_TOKEN = "internal_token_123456";
-  process.env.OPENCLAW_ADAPTER_ENABLED = "false";
   process.env.POD_NAME = "api-test-1";
 
   try {
@@ -104,7 +102,6 @@ async function run(): Promise<void> {
     process.env.DATABASE_URL = prevEnv.DATABASE_URL;
     process.env.CLERK_SECRET_KEY = prevEnv.CLERK_SECRET_KEY;
     process.env.PERSAI_INTERNAL_API_TOKEN = prevEnv.PERSAI_INTERNAL_API_TOKEN;
-    process.env.OPENCLAW_ADAPTER_ENABLED = prevEnv.OPENCLAW_ADAPTER_ENABLED;
     process.env.POD_NAME = prevEnv.POD_NAME;
   }
 }

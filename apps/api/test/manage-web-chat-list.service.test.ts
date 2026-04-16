@@ -292,20 +292,6 @@ function createService(overrides?: {
       }
     } as never,
     {
-      deleteWebChatSession: async (input: {
-        assistantId: string;
-        chatId: string;
-        surfaceThreadKey: string;
-      }) => {
-        callOrder.push("runtime-delete");
-        assert.deepEqual(input, {
-          assistantId: "assistant-1",
-          chatId: "chat-1",
-          surfaceThreadKey: "thread-1"
-        });
-      }
-    } as never,
-    {
       resolveByAssistantId: async (assistantId: string) => {
         assert.equal(assistantId, "assistant-1");
         return "free_shared_restricted";
@@ -375,7 +361,6 @@ describe("ManageWebChatListService", () => {
     await service.hardDeleteChat("user-1", "chat-1", { confirmText: "DELETE" });
 
     assert.deepEqual(callOrder, [
-      "runtime-delete",
       "object-storage-delete:assistant-media/assistants/assistant-1/chats/chat-1/",
       "attachments-delete",
       "repo-delete",

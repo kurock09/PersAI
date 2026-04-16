@@ -29,19 +29,12 @@ function createAttachment(
 }
 
 async function run(): Promise<void> {
+  const originalFetch = globalThis.fetch;
   let uploadCalls = 0;
   let createCalls = 0;
   const blockedMetrics = new PlatformHttpMetricsService();
 
   const blockedService = new MediaDeliveryService(
-    {
-      async downloadChatMedia() {
-        return {
-          buffer: Buffer.from("console.log('x');"),
-          contentType: "application/octet-stream"
-        };
-      }
-    } as never,
     {
       async create() {
         createCalls += 1;
@@ -49,11 +42,6 @@ async function run(): Promise<void> {
       }
     } as never,
     [],
-    {
-      async resolveByAssistantId() {
-        return "free_shared_restricted";
-      }
-    } as never,
     {
       buildChatMessageObjectKey() {
         return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/blocked.js";
@@ -71,8 +59,19 @@ async function run(): Promise<void> {
     blockedMetrics
   );
 
+  globalThis.fetch = async () =>
+    new Response(Buffer.from("console.log('x');"), {
+      status: 200,
+      headers: { "Content-Type": "application/octet-stream" }
+    });
   const blocked = await blockedService.deliver({
-    artifacts: [{ source: "runtime_url", url: "reports/payload.js", type: "document" }],
+    artifacts: [
+      {
+        source: "runtime_url",
+        url: "https://media.example/reports/payload.js",
+        type: "document"
+      }
+    ],
     channel: "web",
     assistantId: "assistant-1",
     chatId: "chat-1",
@@ -97,14 +96,6 @@ async function run(): Promise<void> {
   const safeMetrics = new PlatformHttpMetricsService();
   const safeService = new MediaDeliveryService(
     {
-      async downloadChatMedia() {
-        return {
-          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
-          contentType: "application/octet-stream"
-        };
-      }
-    } as never,
-    {
       async create(input: {
         storagePath: string;
         originalFilename: string | null;
@@ -120,11 +111,6 @@ async function run(): Promise<void> {
       }
     } as never,
     [],
-    {
-      async resolveByAssistantId() {
-        return "free_shared_restricted";
-      }
-    } as never,
     {
       buildChatMessageObjectKey() {
         return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/render.png";
@@ -142,8 +128,19 @@ async function run(): Promise<void> {
     safeMetrics
   );
 
+  globalThis.fetch = async () =>
+    new Response(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]), {
+      status: 200,
+      headers: { "Content-Type": "application/octet-stream" }
+    });
   const delivered = await safeService.deliver({
-    artifacts: [{ source: "runtime_url", url: "images/render.png", type: "image" }],
+    artifacts: [
+      {
+        source: "runtime_url",
+        url: "https://media.example/images/render.png",
+        type: "image"
+      }
+    ],
     channel: "web",
     assistantId: "assistant-1",
     chatId: "chat-1",
@@ -165,17 +162,10 @@ async function run(): Promise<void> {
     );
   assert.equal(successSeries?.count, 1);
 
-  let runtimeDownloadCalls = 0;
   let objectDownloadCalls = 0;
   let deletedObjectKey: string | null = null;
   const nativeMetrics = new PlatformHttpMetricsService();
   const nativeService = new MediaDeliveryService(
-    {
-      async downloadChatMedia() {
-        runtimeDownloadCalls += 1;
-        return null;
-      }
-    } as never,
     {
       async create(input: {
         storagePath: string;
@@ -192,11 +182,6 @@ async function run(): Promise<void> {
       }
     } as never,
     [],
-    {
-      async resolveByAssistantId() {
-        return "free_shared_restricted";
-      }
-    } as never,
     {
       buildChatMessageObjectKey() {
         return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated.png";
@@ -242,11 +227,11 @@ async function run(): Promise<void> {
     workspaceId: "workspace-1"
   });
 
-  assert.equal(runtimeDownloadCalls, 0);
   assert.equal(objectDownloadCalls, 1);
   assert.equal(deletedObjectKey, "assistant-media/runtime-output/generated.png");
   assert.equal(nativeDelivered.attachments.length, 1);
   assert.equal(nativeDelivered.attachments[0]?.originalFilename, "generated.png");
+  globalThis.fetch = originalFetch;
 }
 
 void run();

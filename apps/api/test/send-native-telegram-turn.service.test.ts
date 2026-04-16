@@ -32,13 +32,13 @@ function createMaterializedSpec() {
     materializedAtConfigGeneration: 1,
     layers: {},
     runtimeBundle: {},
-    openclawBootstrap: {},
-    openclawWorkspace: {},
+    assistantConfig: {},
+    assistantWorkspace: {},
     layersDocument: "{}",
     runtimeBundleDocument: "{}",
     runtimeBundleHash: "bundle-hash-1",
-    openclawBootstrapDocument: "{}",
-    openclawWorkspaceDocument: "{}",
+    assistantConfigDocument: "{}",
+    assistantWorkspaceDocument: "{}",
     contentHash: "content-hash-1",
     createdAt: new Date("2026-04-11T12:59:00.000Z")
   };

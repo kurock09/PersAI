@@ -2,22 +2,7 @@ import { z } from "zod";
 
 const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace"] as const;
 const APP_ENVS = ["local", "dev"] as const;
-const WEB_CHAT_RUNTIME_MODES = ["legacy", "shadow", "native"] as const;
-const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
-const FALSE_VALUES = new Set(["0", "false", "no", "off", ""]);
-
-const envBoolean = z.preprocess((value) => {
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (TRUE_VALUES.has(normalized)) {
-      return true;
-    }
-    if (FALSE_VALUES.has(normalized)) {
-      return false;
-    }
-  }
-  return value;
-}, z.boolean());
+const WEB_CHAT_RUNTIME_MODES = ["native"] as const;
 
 const optionalUrl = z.preprocess((value) => {
   if (typeof value === "string" && value.trim().length === 0) {
@@ -35,8 +20,8 @@ const baseApiConfigSchema = z.object({
   CLERK_SECRET_KEY: z.string().min(1),
   ADMIN_STEP_UP_HMAC_SECRET: z.string().optional(),
   RUNTIME_PROVIDER_SECRETS_MASTER_KEY: z.string().min(16).optional(),
-  PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE: z.enum(WEB_CHAT_RUNTIME_MODES).default("legacy"),
-  PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE: z.enum(WEB_CHAT_RUNTIME_MODES).default("legacy"),
+  PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE: z.enum(WEB_CHAT_RUNTIME_MODES).default("native"),
+  PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE: z.enum(WEB_CHAT_RUNTIME_MODES).default("native"),
   PERSAI_RUNTIME_BASE_URL: optionalUrl,
   PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   PERSAI_RUNTIME_TURN_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
@@ -46,14 +31,7 @@ const baseApiConfigSchema = z.object({
   PERSAI_MEDIA_BUCKET_NAME: z.string().optional(),
   PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("assistant-media"),
   PERSAI_KNOWLEDGE_OBJECT_PREFIX: z.string().min(1).default("assistant-knowledge"),
-  OPENCLAW_ADAPTER_ENABLED: envBoolean.default(false),
-  OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: optionalUrl,
-  OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: optionalUrl,
-  OPENCLAW_BASE_URL_PAID_ISOLATED: optionalUrl,
-  OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
   PERSAI_INTERNAL_API_TOKEN: z.string().optional(),
-  OPENCLAW_ADAPTER_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
-  OPENCLAW_ADAPTER_MAX_RETRIES: z.coerce.number().int().nonnegative().default(1),
   TELEGRAM_WEBHOOK_BASE_URL: z.string().url().optional(),
   TELEGRAM_WEBHOOK_HMAC_SECRET: z.string().min(16).optional(),
   WEB_ACTIVE_CHATS_CAP: z.coerce.number().int().positive().default(20),
@@ -109,26 +87,9 @@ export function loadApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
     throw new Error(`Invalid API environment configuration: ${formatIssues(parsed.error.issues)}`);
   }
 
-  if (parsed.data.OPENCLAW_ADAPTER_ENABLED && !parsed.data.OPENCLAW_GATEWAY_TOKEN) {
-    throw new Error(
-      "Invalid API environment configuration: OPENCLAW_GATEWAY_TOKEN is required when OPENCLAW_ADAPTER_ENABLED=true."
-    );
-  }
-
   if (!parsed.data.PERSAI_INTERNAL_API_TOKEN?.trim()) {
     throw new Error(
       "Invalid API environment configuration: PERSAI_INTERNAL_API_TOKEN is required for internal runtime endpoints."
-    );
-  }
-
-  if (
-    parsed.data.OPENCLAW_ADAPTER_ENABLED &&
-    (!parsed.data.OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED?.trim() ||
-      !parsed.data.OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED?.trim() ||
-      !parsed.data.OPENCLAW_BASE_URL_PAID_ISOLATED?.trim())
-  ) {
-    throw new Error(
-      "Invalid API environment configuration: OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED, OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED, and OPENCLAW_BASE_URL_PAID_ISOLATED are required when OPENCLAW_ADAPTER_ENABLED=true."
     );
   }
 

@@ -24,7 +24,6 @@ import {
 } from "./assistant-inbound-error";
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
 import type { RuntimeTier } from "./runtime-assignment";
-import { getWebChatStreamRuntimeMode, type WebChatRuntimeMode } from "./web-runtime-mode";
 
 export interface StreamNativeWebChatTurnInput {
   assistantId: string;
@@ -54,10 +53,6 @@ export class StreamNativeWebChatTurnService {
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository
   ) {}
-
-  getMode(): WebChatRuntimeMode {
-    return getWebChatStreamRuntimeMode();
-  }
 
   async *execute(
     input: StreamNativeWebChatTurnInput,

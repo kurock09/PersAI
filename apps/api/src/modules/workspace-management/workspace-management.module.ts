@@ -77,6 +77,8 @@ import { EnableAssistantTaskRegistryItemService } from "./application/enable-ass
 import { CancelAssistantTaskRegistryItemService } from "./application/cancel-assistant-task-registry-item.service";
 import { GetAssistantByUserIdService } from "./application/get-assistant-by-user-id.service";
 import { ManageAssistantKnowledgeSourcesService } from "./application/manage-assistant-knowledge-sources.service";
+import { ManageAssistantAvatarService } from "./application/manage-assistant-avatar.service";
+import { ManageAssistantWorkspaceMemoryService } from "./application/manage-assistant-workspace-memory.service";
 import { ReadAssistantKnowledgeService } from "./application/read-assistant-knowledge.service";
 import { WriteAssistantMemoryService } from "./application/write-assistant-memory.service";
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
@@ -131,11 +133,7 @@ import { ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY } from "./domain/assistant
 import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.repository";
 import { ASSISTANT_MATERIALIZED_SPEC_REPOSITORY } from "./domain/assistant-materialized-spec.repository";
 import { ASSISTANT_PUBLISHED_VERSION_REPOSITORY } from "./domain/assistant-published-version.repository";
-import { OPENCLAW_RUNTIME_BRIDGE } from "./application/assistant-runtime-adapter.types";
-import { ASSISTANT_RUNTIME_FACADE } from "./application/assistant-runtime.facade";
-import { OpenClawAssistantRuntimeFacade } from "./application/openclaw-assistant-runtime.facade";
 import { ASSISTANT_REPOSITORY } from "./domain/assistant.repository";
-import { OpenClawRuntimeAdapter } from "./infrastructure/openclaw/openclaw-runtime.adapter";
 import { NullBillingProviderAdapter } from "./infrastructure/billing/null-billing-provider.adapter";
 import { PrismaAssistantGovernanceRepository } from "./infrastructure/persistence/prisma-assistant-governance.repository";
 import { PrismaAssistantPlanCatalogRepository } from "./infrastructure/persistence/prisma-assistant-plan-catalog.repository";
@@ -250,7 +248,9 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ResolveAssistantRuntimeTierService,
     RenderAssistantInboundSurfaceMessageService,
     GetAssistantByUserIdService,
+    ManageAssistantAvatarService,
     ManageAssistantKnowledgeSourcesService,
+    ManageAssistantWorkspaceMemoryService,
     ReadAssistantKnowledgeService,
     WriteAssistantMemoryService,
     ApplyAssistantPublishedVersionService,
@@ -368,16 +368,6 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     {
       provide: ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
       useClass: PrismaAssistantChannelSurfaceBindingRepository
-    },
-    OpenClawRuntimeAdapter,
-    {
-      provide: OPENCLAW_RUNTIME_BRIDGE,
-      useExisting: OpenClawRuntimeAdapter
-    },
-    OpenClawAssistantRuntimeFacade,
-    {
-      provide: ASSISTANT_RUNTIME_FACADE,
-      useExisting: OpenClawAssistantRuntimeFacade
     },
     {
       provide: ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,

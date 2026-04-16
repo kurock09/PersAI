@@ -13,7 +13,6 @@ function setApiEnv(overrides?: Record<string, string | undefined>): void {
     DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public",
     CLERK_SECRET_KEY: "clerk-secret",
     PERSAI_INTERNAL_API_TOKEN: "persai-internal-token",
-    PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE: "native",
     PERSAI_RUNTIME_BASE_URL: "http://runtime.local",
     PERSAI_RUNTIME_STREAM_TIMEOUT_MS: "9000",
     ...overrides
@@ -30,13 +29,13 @@ function createMaterializedSpec() {
     materializedAtConfigGeneration: 1,
     layers: {},
     runtimeBundle: {},
-    openclawBootstrap: {},
-    openclawWorkspace: {},
+    assistantConfig: {},
+    assistantWorkspace: {},
     layersDocument: "{}",
     runtimeBundleDocument: "{}",
     runtimeBundleHash: "bundle-hash-1",
-    openclawBootstrapDocument: "{}",
-    openclawWorkspaceDocument: "{}",
+    assistantConfigDocument: "{}",
+    assistantWorkspaceDocument: "{}",
     contentHash: "content-hash-1",
     createdAt: new Date("2026-04-11T12:59:00.000Z")
   };
@@ -153,8 +152,6 @@ describe("StreamNativeWebChatTurnService", () => {
       const service = new StreamNativeWebChatTurnService({
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
-
-      assert.equal(service.getMode(), "native");
 
       const chunks = await collectChunks(
         service.execute({

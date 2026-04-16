@@ -1,12 +1,9 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
-  ASSISTANT_RUNTIME_FACADE,
   describeRuntimeMediaArtifact,
   readRuntimeMediaArtifactFilename,
-  type AssistantRuntimeFacade,
   type RuntimeMediaArtifact
 } from "./assistant-runtime.facade";
-import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import {
   buildTelegramHtmlMessageBodies,
   lossyPlainFromTelegramHtml
@@ -18,6 +15,7 @@ import {
 } from "./telegram-outbound-chunks";
 import type { InternalTelegramTurnResult } from "./handle-internal-telegram-turn.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
+import { downloadRuntimeMediaUrl } from "./media/runtime-media-download";
 
 type TelegramApiEnvelope<T> = {
   ok: boolean;
@@ -83,12 +81,7 @@ function isMultipartFilePart(value: unknown): value is {
 export class TelegramBotClientService {
   private readonly logger = new Logger(TelegramBotClientService.name);
 
-  constructor(
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
-    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
-  ) {}
+  constructor(private readonly mediaObjectStorage: PersaiMediaObjectStorageService) {}
 
   async downloadInboundFile(
     botToken: string,
@@ -253,19 +246,13 @@ export class TelegramBotClientService {
 
     if (params.turnResult.media.length > 0) {
       await params.onBeforeMediaSend?.(params.turnResult.media);
-      const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-        params.assistantId
-      );
       for (const item of params.turnResult.media) {
         try {
           const downloaded =
             item.source === "persai_object_storage"
               ? await this.mediaObjectStorage.downloadObject(item.objectKey)
-              : await this.assistantRuntime.downloadChatMedia(
-                  params.assistantId,
-                  item.url,
-                  runtimeTier
-                );
+              : ((await downloadRuntimeMediaUrl(item.url)) ??
+                (await this.mediaObjectStorage.downloadObject(item.url)));
           if (!downloaded) {
             this.logger.warn(
               `Telegram outbound media not found: ${describeRuntimeMediaArtifact(item)}`

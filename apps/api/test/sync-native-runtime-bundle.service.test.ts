@@ -17,13 +17,13 @@ function createMaterializedSpec(): AssistantMaterializedSpec {
         workspaceId: "workspace-1"
       }
     },
-    openclawBootstrap: {},
-    openclawWorkspace: {},
+    assistantConfig: {},
+    assistantWorkspace: {},
     layersDocument: "{}",
     runtimeBundleDocument: '{"metadata":{"workspaceId":"workspace-1"}}',
     runtimeBundleHash: "bundle-hash-1",
-    openclawBootstrapDocument: "{}",
-    openclawWorkspaceDocument: "{}",
+    assistantConfigDocument: "{}",
+    assistantWorkspaceDocument: "{}",
     contentHash: "content-hash-1",
     createdAt: new Date("2026-04-11T12:00:00.000Z")
   };

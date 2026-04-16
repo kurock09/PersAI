@@ -97,15 +97,15 @@ Postgres with Prisma.
 - source_action (`publish|rollback|reset`)
 - algorithm_version
 - layers (jsonb)
-- runtime_bundle (jsonb, nullable during Step 2 backfill window) — PersAI-native runtime artifact introduced by ADR-072 Step 2
-- openclaw_bootstrap (jsonb)
-- openclaw_workspace (jsonb)
+- runtime_bundle (jsonb, nullable during Step 2 backfill window) — PersAI-native runtime artifact introduced by ADR-072 Step 2 and the authoritative runtime truth
+- assistant_config (jsonb) — bounded compatibility view beside `runtime_bundle`, not long-term runtime truth
+- assistant_workspace (jsonb) — bounded compatibility view beside `runtime_bundle`, not long-term runtime truth
 - `layers.governance.runtimeAssignment` (Step 15 R15d): resolved runtime assignment state with `planDefaultTier`, `runtimeTierOverride`, `effectiveTier`, and `source`
 - layers_document (text)
 - runtime_bundle_document (text, nullable during Step 2 backfill window)
 - runtime_bundle_hash (text, nullable during Step 2 backfill window)
-- openclaw_bootstrap_document (text)
-- openclaw_workspace_document (text)
+- assistant_config_document (text) — deterministic diff document for the compatibility view
+- assistant_workspace_document (text) — deterministic diff document for the compatibility view
 - content_hash — legacy OpenClaw apply hash retained during ADR-072 Slice 1 migration
 - created_at
 
@@ -591,10 +591,10 @@ Postgres with Prisma.
   - unique: `published_version_id` (one deterministic materialization per published version)
   - stores:
     - layered materialization structure (`layers`)
-    - PersAI-native runtime artifact (`runtime_bundle`, `runtime_bundle_document`, `runtime_bundle_hash`)
-    - OpenClaw-native outputs (`openclaw_bootstrap`, `openclaw_workspace`)
+    - PersAI-native runtime artifact (`runtime_bundle`, `runtime_bundle_document`, `runtime_bundle_hash`) as the authoritative runtime truth
+    - neutral assistant config/workspace compatibility views (`assistant_config`, `assistant_workspace`) as a bounded migration/control-plane seam only
     - deterministic diff documents (`*_document`)
-    - legacy OpenClaw apply integrity hash (`content_hash`) while request-time execution remains on the migration boundary
+    - legacy OpenClaw apply integrity hash (`content_hash`) retained only as a bounded compatibility tail
 - `assistant_chats`:
   - primary key: `id`
   - unique per-assistant/per-surface thread identity:

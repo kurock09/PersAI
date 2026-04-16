@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { BuildReminderContextSnapshotService } from "../src/modules/workspace-management/application/build-reminder-context-snapshot.service";
 import { ControlInternalScheduledActionService } from "../src/modules/workspace-management/application/control-internal-scheduled-action.service";
 
@@ -60,42 +60,6 @@ class FakeAssistantChannelSurfaceBindingRepository {
     patch: Record<string, unknown>
   ) {
     this.patched.push({ assistantId, provider, surface, patch });
-  }
-}
-
-class FakeAssistantRuntimeFacade {
-  controlCalls: unknown[] = [];
-
-  async controlCronJob(input: unknown) {
-    this.controlCalls.push(input);
-    return {
-      details: {
-        id: "legacy-job",
-        name: "Legacy reminder",
-        enabled: false,
-        state: {
-          nextRunAtMs: Date.parse("2026-04-14T12:00:00.000Z")
-        },
-        schedule: {
-          kind: "at"
-        }
-      }
-    };
-  }
-}
-
-class FakeSyncAssistantTaskRegistryService {
-  calls: unknown[] = [];
-
-  async execute(input: unknown) {
-    this.calls.push(input);
-    return { ok: true };
-  }
-}
-
-class FakeResolveAssistantRuntimeTierService {
-  async resolveByAssistantId() {
-    return "paid_shared_restricted";
   }
 }
 
@@ -201,9 +165,6 @@ class FakeWorkspaceManagementPrismaService {
 async function runNativeCreateTest(): Promise<void> {
   const assistantRepository = new FakeAssistantRepository();
   const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
-  const runtimeFacade = new FakeAssistantRuntimeFacade();
-  const syncService = new FakeSyncAssistantTaskRegistryService();
-  const tierService = new FakeResolveAssistantRuntimeTierService();
   const prisma = new FakeWorkspaceManagementPrismaService();
   const contextSnapshotService = new BuildReminderContextSnapshotService(
     new FakeAssistantChatRepository() as never
@@ -212,11 +173,8 @@ async function runNativeCreateTest(): Promise<void> {
   const service = new ControlInternalScheduledActionService(
     assistantRepository as never,
     bindingRepository as never,
-    runtimeFacade as never,
     prisma as never,
-    contextSnapshotService as never,
-    syncService as never,
-    tierService as never
+    contextSnapshotService as never
   );
 
   const runAtIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -236,8 +194,6 @@ async function runNativeCreateTest(): Promise<void> {
 
   const result = await service.execute(input);
 
-  assert.equal(runtimeFacade.controlCalls.length, 0);
-  assert.equal(syncService.calls.length, 0);
   assert.equal(prisma.rows.length, 1);
   assert.equal(prisma.rows[0]?.audience, "user");
   assert.equal(prisma.rows[0]?.scheduleJson && typeof prisma.rows[0].scheduleJson, "object");
@@ -271,9 +227,6 @@ async function runNativeCreateTest(): Promise<void> {
 async function runAssistantActionCreateTest(): Promise<void> {
   const assistantRepository = new FakeAssistantRepository();
   const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
-  const runtimeFacade = new FakeAssistantRuntimeFacade();
-  const syncService = new FakeSyncAssistantTaskRegistryService();
-  const tierService = new FakeResolveAssistantRuntimeTierService();
   const prisma = new FakeWorkspaceManagementPrismaService();
   const contextSnapshotService = new BuildReminderContextSnapshotService(
     new FakeAssistantChatRepository() as never
@@ -282,11 +235,8 @@ async function runAssistantActionCreateTest(): Promise<void> {
   const service = new ControlInternalScheduledActionService(
     assistantRepository as never,
     bindingRepository as never,
-    runtimeFacade as never,
     prisma as never,
-    contextSnapshotService as never,
-    syncService as never,
-    tierService as never
+    contextSnapshotService as never
   );
 
   const input = service.parseInput({
@@ -310,8 +260,6 @@ async function runAssistantActionCreateTest(): Promise<void> {
 
   const result = await service.execute(input);
 
-  assert.equal(runtimeFacade.controlCalls.length, 0);
-  assert.equal(syncService.calls.length, 0);
   assert.equal(prisma.rows.length, 1);
   assert.equal(prisma.rows[0]?.audience, "assistant");
   assert.equal(prisma.rows[0]?.actionType, "follow_up");
@@ -335,12 +283,9 @@ async function runAssistantActionCreateTest(): Promise<void> {
   });
 }
 
-async function runLegacyPauseFallbackTest(): Promise<void> {
+async function runLegacyPauseRejectedTest(): Promise<void> {
   const assistantRepository = new FakeAssistantRepository();
   const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
-  const runtimeFacade = new FakeAssistantRuntimeFacade();
-  const syncService = new FakeSyncAssistantTaskRegistryService();
-  const tierService = new FakeResolveAssistantRuntimeTierService();
   const prisma = new FakeWorkspaceManagementPrismaService();
   prisma.rows.push({
     id: "task-legacy",
@@ -361,34 +306,60 @@ async function runLegacyPauseFallbackTest(): Promise<void> {
   const service = new ControlInternalScheduledActionService(
     assistantRepository as never,
     bindingRepository as never,
-    runtimeFacade as never,
     prisma as never,
-    contextSnapshotService as never,
-    syncService as never,
-    tierService as never
+    contextSnapshotService as never
+  );
+
+  await assert.rejects(
+    () =>
+      service.execute({
+        assistantId: "assistant-1",
+        action: "pause",
+        taskId: "task-legacy"
+      }),
+    (error) =>
+      error instanceof ConflictException && error.message.includes("retired OpenClaw scheduler")
+  );
+  assert.equal(prisma.rows.length, 1);
+}
+
+async function runLegacyCancelFallbackTest(): Promise<void> {
+  const assistantRepository = new FakeAssistantRepository();
+  const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
+  const prisma = new FakeWorkspaceManagementPrismaService();
+  prisma.rows.push({
+    id: "task-legacy",
+    assistantId: "assistant-1",
+    title: "Legacy reminder",
+    audience: "user",
+    actionType: null,
+    controlStatus: "active",
+    nextRunAt: new Date("2026-04-14T12:00:00.000Z"),
+    externalRef: "legacy-job",
+    scheduleJson: null,
+    payloadText: null
+  });
+  const contextSnapshotService = new BuildReminderContextSnapshotService(
+    new FakeAssistantChatRepository() as never
+  );
+
+  const service = new ControlInternalScheduledActionService(
+    assistantRepository as never,
+    bindingRepository as never,
+    prisma as never,
+    contextSnapshotService as never
   );
 
   const result = await service.execute({
     assistantId: "assistant-1",
-    action: "pause",
+    action: "cancel",
     taskId: "task-legacy"
   });
 
-  assert.equal(runtimeFacade.controlCalls.length, 1);
-  assert.deepEqual(runtimeFacade.controlCalls[0], {
-    runtimeTier: "paid_shared_restricted",
-    action: "update",
-    args: {
-      id: "legacy-job",
-      patch: {
-        enabled: false
-      }
-    }
-  });
-  assert.equal(syncService.calls.length, 1);
+  assert.equal(prisma.rows.length, 0);
   assert.deepEqual(result, {
     ok: true,
-    paused: true,
+    cancelled: true,
     taskId: "task-legacy",
     title: "Legacy reminder"
   });
@@ -397,9 +368,6 @@ async function runLegacyPauseFallbackTest(): Promise<void> {
 async function runNestedAssistantActionRejectedTest(): Promise<void> {
   const assistantRepository = new FakeAssistantRepository();
   const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
-  const runtimeFacade = new FakeAssistantRuntimeFacade();
-  const syncService = new FakeSyncAssistantTaskRegistryService();
-  const tierService = new FakeResolveAssistantRuntimeTierService();
   const prisma = new FakeWorkspaceManagementPrismaService();
   const contextSnapshotService = new BuildReminderContextSnapshotService(
     new FakeAssistantChatRepository() as never
@@ -408,11 +376,8 @@ async function runNestedAssistantActionRejectedTest(): Promise<void> {
   const service = new ControlInternalScheduledActionService(
     assistantRepository as never,
     bindingRepository as never,
-    runtimeFacade as never,
     prisma as never,
-    contextSnapshotService as never,
-    syncService as never,
-    tierService as never
+    contextSnapshotService as never
   );
 
   const input = service.parseInput({
@@ -437,7 +402,8 @@ async function runNestedAssistantActionRejectedTest(): Promise<void> {
 async function run(): Promise<void> {
   await runNativeCreateTest();
   await runAssistantActionCreateTest();
-  await runLegacyPauseFallbackTest();
+  await runLegacyPauseRejectedTest();
+  await runLegacyCancelFallbackTest();
   await runNestedAssistantActionRejectedTest();
 }
 

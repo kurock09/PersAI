@@ -33,10 +33,38 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
 
   async listActiveByAssistantId(
     assistantId: string,
-    limit: number
+    limit: number,
+    filter?: { sourceType?: AssistantMemoryRegistryItem["sourceType"] }
   ): Promise<AssistantMemoryRegistryItem[]> {
     const rows = await this.prisma.assistantMemoryRegistryItem.findMany({
-      where: { assistantId, forgottenAt: null },
+      where: {
+        assistantId,
+        forgottenAt: null,
+        ...(filter?.sourceType === undefined ? {} : { sourceType: filter.sourceType })
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit
+    });
+
+    return rows.map((row) => this.mapToDomain(row));
+  }
+
+  async searchActiveByAssistantId(
+    assistantId: string,
+    query: string,
+    limit: number,
+    filter?: { sourceType?: AssistantMemoryRegistryItem["sourceType"] }
+  ): Promise<AssistantMemoryRegistryItem[]> {
+    const rows = await this.prisma.assistantMemoryRegistryItem.findMany({
+      where: {
+        assistantId,
+        forgottenAt: null,
+        ...(filter?.sourceType === undefined ? {} : { sourceType: filter.sourceType }),
+        summary: {
+          contains: query,
+          mode: "insensitive"
+        }
+      },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit
     });
@@ -53,6 +81,26 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     });
 
     return row ? this.mapToDomain(row) : null;
+  }
+
+  async updateSummaryById(
+    id: string,
+    assistantId: string,
+    summary: string
+  ): Promise<AssistantMemoryRegistryItem | null> {
+    const existing = await this.prisma.assistantMemoryRegistryItem.findFirst({
+      where: { id, assistantId, forgottenAt: null },
+      select: { id: true }
+    });
+    if (existing === null) {
+      return null;
+    }
+
+    const row = await this.prisma.assistantMemoryRegistryItem.update({
+      where: { id },
+      data: { summary }
+    });
+    return this.mapToDomain(row);
   }
 
   async markForgottenById(id: string, assistantId: string): Promise<boolean> {

@@ -90,11 +90,6 @@ api:
     PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "10000"
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
     PERSAI_MEDIA_OBJECT_PREFIX: "assistant-media"
-    OPENCLAW_ADAPTER_ENABLED: "true"
-    OPENCLAW_BASE_URL_FREE_SHARED_RESTRICTED: "http://openclaw-free-shared-restricted-sandbox:18789"
-    OPENCLAW_BASE_URL_PAID_SHARED_RESTRICTED: "http://openclaw-paid-shared-restricted-sandbox:18789"
-    OPENCLAW_BASE_URL_PAID_ISOLATED: "http://openclaw-paid-isolated:18789"
-    OPENCLAW_ADAPTER_TIMEOUT_MS: "90000"
     TELEGRAM_WEBHOOK_BASE_URL: "https://bot.persai.dev"
     ABUSE_PEER_SLOWDOWN_REQUESTS_PER_MINUTE: "12"
     ABUSE_PEER_BLOCK_REQUESTS_PER_MINUTE: "30"
@@ -123,9 +118,6 @@ api:
       secretName: persai-api-secrets
       secretKey: TELEGRAM_WEBHOOK_HMAC_SECRET
       optional: true
-    OPENCLAW_GATEWAY_TOKEN:
-      secretName: persai-openclaw-secrets
-      secretKey: OPENCLAW_GATEWAY_TOKEN
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-openclaw-secrets
       secretKey: PERSAI_INTERNAL_API_TOKEN

@@ -1,6 +1,5 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { ASSISTANT_RUNTIME_FACADE, type AssistantRuntimeFacade } from "./assistant-runtime.facade";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
@@ -15,8 +14,6 @@ export class AdminDeleteUserService {
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    @Inject(ASSISTANT_RUNTIME_FACADE)
-    private readonly assistantRuntime: AssistantRuntimeFacade,
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
@@ -34,15 +31,6 @@ export class AdminDeleteUserService {
     const assistant = await this.prisma.assistant.findUnique({
       where: { userId: targetUserId }
     });
-
-    if (assistant) {
-      this.logger.log(`Resetting runtime workspace for assistant ${assistant.id}`);
-      try {
-        await this.assistantRuntime.resetWorkspace(assistant.id);
-      } catch (err) {
-        this.logger.warn("Runtime workspace reset failed (continuing)", err);
-      }
-    }
     const releasedBytes =
       assistant === null
         ? BigInt(0)

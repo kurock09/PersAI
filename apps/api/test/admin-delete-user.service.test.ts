@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { AdminDeleteUserService } from "../src/modules/workspace-management/application/admin-delete-user.service";
-import type { AssistantRuntimeFacade } from "../src/modules/workspace-management/application/assistant-runtime.facade";
 import type { AdminAuthorizationService } from "../src/modules/workspace-management/application/admin-authorization.service";
 
 function normalizeSql(value: string): string {
@@ -11,7 +10,6 @@ async function run(): Promise<void> {
   const rawSql: string[] = [];
   const auditUpdateCalls: Array<unknown> = [];
   const deleted: string[] = [];
-  const runtimeResets: string[] = [];
   const releasedBytes: bigint[] = [];
   const releasedKnowledgeBytes: bigint[] = [];
   const deletedPrefixes: string[] = [];
@@ -165,11 +163,6 @@ async function run(): Promise<void> {
   const service = new AdminDeleteUserService(
     prisma as never,
     {
-      resetWorkspace: async (assistantId: string) => {
-        runtimeResets.push(assistantId);
-      }
-    } as Pick<AssistantRuntimeFacade, "resetWorkspace"> as AssistantRuntimeFacade,
-    {
       assertCanReadAdminSurface: async () => undefined
     } as Pick<AdminAuthorizationService, "assertCanReadAdminSurface"> as AdminAuthorizationService,
     {
@@ -200,7 +193,6 @@ async function run(): Promise<void> {
 
   await service.execute("admin-1", "user-1");
 
-  assert.deepEqual(runtimeResets, ["assistant-1"]);
   assert.deepEqual(deletedPrefixes, [
     "assistant-media/assistants/assistant-1/",
     "assistant-knowledge/assistants/assistant-1/"

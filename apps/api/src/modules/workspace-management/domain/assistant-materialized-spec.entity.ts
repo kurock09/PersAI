@@ -9,13 +9,13 @@ export type AssistantMaterializedSpec = {
   materializedAtConfigGeneration: number;
   layers: unknown;
   runtimeBundle: unknown | null;
-  openclawBootstrap: unknown;
-  openclawWorkspace: unknown;
+  assistantConfig: unknown;
+  assistantWorkspace: unknown;
   layersDocument: string;
   runtimeBundleDocument: string | null;
   runtimeBundleHash: string | null;
-  openclawBootstrapDocument: string;
-  openclawWorkspaceDocument: string;
+  assistantConfigDocument: string;
+  assistantWorkspaceDocument: string;
   contentHash: string;
   createdAt: Date;
 };

@@ -11,7 +11,6 @@ async function run(): Promise<void> {
   const releasedMediaBytes: bigint[] = [];
   const releasedKnowledgeBytes: bigint[] = [];
   const deletedPrefixes: string[] = [];
-  const runtimeResets: string[] = [];
   const auditEvents: Array<{ summary: string; eventCode: string }> = [];
   const assistant = {
     id: "assistant-1",
@@ -72,11 +71,6 @@ async function run(): Promise<void> {
       sumSizeBytesByAssistantId: async (assistantId: string) =>
         assistantId === "assistant-1" ? BigInt(5) : BigInt(0)
     } as never,
-    {
-      resetWorkspace: async (assistantId: string) => {
-        runtimeResets.push(assistantId);
-      }
-    } as never,
     prisma as never,
     {
       execute: async (event: { summary: string; eventCode: string }) => {
@@ -118,7 +112,6 @@ async function run(): Promise<void> {
     "assistant-media/assistants/assistant-1/",
     "assistant-knowledge/assistants/assistant-1/"
   ]);
-  assert.deepEqual(runtimeResets, ["assistant-1"]);
   assert.deepEqual(releasedMediaBytes, [BigInt(5)]);
   assert.deepEqual(releasedKnowledgeBytes, [BigInt(13)]);
   assert.equal(

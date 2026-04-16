@@ -111,8 +111,8 @@ export function toAssistantLifecycleState(
       runtimeAssignment: readRuntimeAssignmentStateFromMaterializedLayers(
         materialization?.layers ?? null
       ),
-      assistantConfigDocument: materialization?.openclawBootstrapDocument ?? null,
-      assistantWorkspaceDocument: materialization?.openclawWorkspaceDocument ?? null
+      assistantConfigDocument: materialization?.assistantConfigDocument ?? null,
+      assistantWorkspaceDocument: materialization?.assistantWorkspaceDocument ?? null
     },
     createdAt: assistant.createdAt.toISOString(),
     updatedAt: assistant.updatedAt.toISOString()
