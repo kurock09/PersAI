@@ -198,14 +198,14 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
   }
 
   private async processClaimedTask(task: ClaimedScheduledAction): Promise<void> {
+    const dueAtMs = task.nextRunAt.getTime();
+    const nextRunAtMs = computeReminderNextRunAtMs(task.schedule, dueAtMs);
     try {
       const currentEpoch = await this.bumpConfigGenerationService.currentReminderSchedulerEpoch();
       if (currentEpoch !== task.claimEpoch) {
         await this.clearClaim(task.id, task.claimToken, task.claimEpoch);
         return;
       }
-      const dueAtMs = task.nextRunAt.getTime();
-      const nextRunAtMs = computeReminderNextRunAtMs(task.schedule, dueAtMs);
       if (task.audience === "assistant") {
         if (!task.actionType) {
           throw new Error("Assistant scheduled action is missing actionType.");
@@ -219,11 +219,16 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
           payloadText: task.payloadText,
           runAtMs: dueAtMs
         });
+        const resolvedNextRunAtMs = this.resolveAssistantNextRunAtMs(
+          task.schedule,
+          dueAtMs,
+          Date.now()
+        );
         await this.completeAssistantActionRun(
           task.id,
           task.claimToken,
           task.claimEpoch,
-          nextRunAtMs
+          resolvedNextRunAtMs
         );
         return;
       }
@@ -240,12 +245,34 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
     } catch (error) {
       if (task.audience === "assistant") {
         const failedReceipts = await this.countFailedAssistantActionReceipts(task.externalRef);
-        if (failedReceipts >= ASSISTANT_SCHEDULED_ACTION_MAX_FAILED_RECEIPTS) {
+        if (
+          task.schedule.kind === "at" &&
+          failedReceipts >= ASSISTANT_SCHEDULED_ACTION_MAX_FAILED_RECEIPTS
+        ) {
           await this.disableAfterExhaustedRetries(task.id, task.claimToken, task.claimEpoch);
           this.logger.error(
             `Scheduled action ${task.id} disabled after ${failedReceipts} failed delivery attempts.`
           );
           return;
+        }
+        if (!this.isAssistantActionStillProcessingError(error)) {
+          const resolvedNextRunAtMs = this.resolveAssistantNextRunAtMs(
+            task.schedule,
+            dueAtMs,
+            Date.now()
+          );
+          if (resolvedNextRunAtMs !== undefined) {
+            await this.completeAssistantActionRun(
+              task.id,
+              task.claimToken,
+              task.claimEpoch,
+              resolvedNextRunAtMs
+            );
+            this.logger.error(
+              `Scheduled action ${task.id} failed and advanced to the next recurring run: ${error instanceof Error ? error.message : String(error)}`
+            );
+            return;
+          }
         }
       }
       await this.deferRetry(task.id, task.claimToken, task.claimEpoch);
@@ -310,6 +337,35 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         schedulerClaimExpiresAt: null
       }
     });
+  }
+
+  private resolveAssistantNextRunAtMs(
+    schedule: ReminderSchedule,
+    previousRunAtMs: number,
+    floorMs: number
+  ): number | undefined {
+    if (schedule.kind === "at") {
+      return undefined;
+    }
+    if (schedule.kind === "every") {
+      const everyMs = Math.max(1, Math.floor(schedule.everyMs));
+      const anchorMs = Math.max(0, Math.floor(schedule.anchorMs ?? previousRunAtMs));
+      if (floorMs < anchorMs) {
+        return anchorMs;
+      }
+      const elapsed = floorMs - anchorMs;
+      const steps = Math.floor(elapsed / everyMs) + 1;
+      return anchorMs + steps * everyMs;
+    }
+    return computeReminderNextRunAtMs(schedule, floorMs);
+  }
+
+  private isAssistantActionStillProcessingError(error: unknown): boolean {
+    return (
+      error instanceof Error &&
+      typeof error.message === "string" &&
+      error.message.toLowerCase().includes("still processing")
+    );
   }
 
   private async completeAssistantActionRun(

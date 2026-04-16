@@ -2678,6 +2678,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     audience: "user",
     title: "Pay rent",
     reminderText: "Pay rent",
+    contextSessionKey: "thread-1",
     delayMs: 300000,
     contextMessages: 2,
     conversationContext: {

@@ -456,6 +456,166 @@ async function runAssistantFailureRetryTest(): Promise<void> {
   assert.ok(prisma.rows[0]?.retryAfterAt instanceof Date);
 }
 
+async function runRecurringAssistantSuccessSkipsPastIntervalsTest(): Promise<void> {
+  const everyMs = 60_000;
+  const dueAt = new Date(Date.now() - 5 * everyMs);
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [
+      {
+        id: "task-assistant-recurring-success",
+        assistantId: "assistant-1",
+        externalRef: "job-assistant-recurring-success",
+        title: "Assistant recurring success",
+        audience: "assistant",
+        actionType: "follow_up",
+        actionPayloadJson: null,
+        nextRunAt: dueAt,
+        payloadText: "Assistant recurring action should skip missed slots after success.",
+        scheduleJson: {
+          kind: "every",
+          everyMs
+        },
+        controlStatus: "active",
+        retryAfterAt: null,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null,
+        createdAt: new Date(dueAt.getTime() - everyMs)
+      }
+    ],
+    () => epochs.currentEpoch
+  );
+  const handler = new FakeHandleInternalCronFireService();
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  const service = new PersaiScheduledActionSchedulerService(
+    prisma as never,
+    handler as never,
+    epochs as never,
+    assistantRunner as never
+  );
+
+  const count = await service.processDueJobsBatch();
+
+  assert.equal(count, 1);
+  assert.equal(handler.calls.length, 0);
+  assert.equal(assistantRunner.calls.length, 1);
+  assert.equal(prisma.rows[0]?.controlStatus, "active");
+  assert.equal(prisma.rows[0]?.retryAfterAt, null);
+  assert.ok((prisma.rows[0]?.nextRunAt?.getTime() ?? 0) > Date.now());
+}
+
+async function runRecurringAssistantFailureAdvancesTest(): Promise<void> {
+  const everyMs = 60_000;
+  const dueAt = new Date(Date.now() - 5 * everyMs);
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [
+      {
+        id: "task-assistant-recurring-failure",
+        assistantId: "assistant-1",
+        externalRef: "job-assistant-recurring-failure",
+        title: "Assistant recurring failure",
+        audience: "assistant",
+        actionType: "follow_up",
+        actionPayloadJson: null,
+        nextRunAt: dueAt,
+        payloadText: "Assistant recurring action should advance after a failed fire.",
+        scheduleJson: {
+          kind: "every",
+          everyMs
+        },
+        controlStatus: "active",
+        retryAfterAt: null,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null,
+        createdAt: new Date(dueAt.getTime() - everyMs)
+      }
+    ],
+    () => epochs.currentEpoch,
+    {
+      "job-assistant-recurring-failure": 1
+    }
+  );
+  const handler = new FakeHandleInternalCronFireService();
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  assistantRunner.shouldThrow = true;
+  const service = new PersaiScheduledActionSchedulerService(
+    prisma as never,
+    handler as never,
+    epochs as never,
+    assistantRunner as never
+  );
+
+  const count = await service.processDueJobsBatch();
+
+  assert.equal(count, 1);
+  assert.equal(handler.calls.length, 0);
+  assert.equal(assistantRunner.calls.length, 1);
+  assert.equal(prisma.rows[0]?.controlStatus, "active");
+  assert.equal(prisma.rows[0]?.retryAfterAt, null);
+  assert.ok((prisma.rows[0]?.nextRunAt?.getTime() ?? 0) > Date.now());
+}
+
+async function runRecurringAssistantFailureDoesNotDisableAtReceiptCapTest(): Promise<void> {
+  const everyMs = 60_000;
+  const dueAt = new Date(Date.now() - 5 * everyMs);
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [
+      {
+        id: "task-assistant-recurring-cap",
+        assistantId: "assistant-1",
+        externalRef: "job-assistant-recurring-cap",
+        title: "Assistant recurring cap",
+        audience: "assistant",
+        actionType: "follow_up",
+        actionPayloadJson: null,
+        nextRunAt: dueAt,
+        payloadText:
+          "Recurring assistant action should not auto-disable at the one-shot receipt cap.",
+        scheduleJson: {
+          kind: "every",
+          everyMs
+        },
+        controlStatus: "active",
+        retryAfterAt: null,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null,
+        createdAt: new Date(dueAt.getTime() - everyMs)
+      }
+    ],
+    () => epochs.currentEpoch,
+    {
+      "job-assistant-recurring-cap": 5
+    }
+  );
+  const handler = new FakeHandleInternalCronFireService();
+  const assistantRunner = new FakeRunScheduledAssistantActionService();
+  assistantRunner.shouldThrow = true;
+  const service = new PersaiScheduledActionSchedulerService(
+    prisma as never,
+    handler as never,
+    epochs as never,
+    assistantRunner as never
+  );
+
+  const count = await service.processDueJobsBatch();
+
+  assert.equal(count, 1);
+  assert.equal(handler.calls.length, 0);
+  assert.equal(assistantRunner.calls.length, 1);
+  assert.equal(prisma.rows[0]?.controlStatus, "active");
+  assert.equal(prisma.rows[0]?.disabledAt ?? null, null);
+  assert.equal(prisma.rows[0]?.retryAfterAt, null);
+  assert.ok((prisma.rows[0]?.nextRunAt?.getTime() ?? 0) > Date.now());
+}
+
 async function runAssistantFailureExhaustionTest(): Promise<void> {
   const dueAt = new Date(Date.now() - 60_000);
   const epochs = new FakeBumpConfigGenerationService(3);
@@ -698,6 +858,9 @@ async function run(): Promise<void> {
   await runOneTimeUserReminderDeletedAfterDeliveryTest();
   await runFailureRetryTest();
   await runAssistantFailureRetryTest();
+  await runRecurringAssistantSuccessSkipsPastIntervalsTest();
+  await runRecurringAssistantFailureAdvancesTest();
+  await runRecurringAssistantFailureDoesNotDisableAtReceiptCapTest();
   await runAssistantFailureExhaustionTest();
   await runEpochResetReclaimTest();
   await runEpochBumpSkipsOldWorkerTest();

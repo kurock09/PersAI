@@ -115,6 +115,7 @@ export class RuntimeScheduledActionToolService {
             ...(request.actionPayload === undefined
               ? {}
               : { actionPayload: request.actionPayload }),
+            contextSessionKey: params.conversation.externalThreadKey,
             ...(request.runAt === undefined ? {} : { runAt: request.runAt }),
             ...(request.delayMs === undefined ? {} : { delayMs: request.delayMs }),
             ...(request.everyMs === undefined ? {} : { everyMs: request.everyMs }),

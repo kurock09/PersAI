@@ -67,6 +67,7 @@ export type InternalScheduledActionControlInput =
       reminderText: string;
       actionType?: string;
       actionPayload?: Record<string, unknown>;
+      contextSessionKey?: string;
       runAt?: string;
       delayMs?: number;
       everyMs?: number;

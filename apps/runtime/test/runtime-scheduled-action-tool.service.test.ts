@@ -279,6 +279,32 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
   assert.equal(webList.payload.items?.length, 2);
   assert.equal(webList.payload.items?.[0]?.id, "task-current");
 
+  const createReminder = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "create",
+      audience: "user",
+      title: "Pay rent",
+      delayMs: 300000
+    }),
+    conversation: createConversation("thread-1")
+  });
+  assert.equal(createReminder.payload.action, "created");
+  assert.equal(createReminder.isError, false);
+  assert.deepEqual(internalApi.controlCalls.at(-1), {
+    assistantId: "assistant-1",
+    action: "create",
+    audience: "user",
+    title: "Pay rent",
+    reminderText: "Pay rent",
+    contextSessionKey: "thread-1",
+    delayMs: 300000,
+    conversationContext: {
+      channel: "web",
+      externalThreadKey: "thread-1"
+    }
+  });
+
   const blockedSelfCancel = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({
@@ -291,7 +317,7 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
   assert.equal(blockedSelfCancel.payload.reason, "self_target_not_allowed");
   assert.equal(blockedSelfCancel.payload.warning !== null, true);
   assert.equal(blockedSelfCancel.isError, false);
-  assert.equal(internalApi.controlCalls.length, 0);
+  assert.equal(internalApi.controlCalls.length, 1);
 
   const cancelOtherTask = await service.executeToolCall({
     bundle,
