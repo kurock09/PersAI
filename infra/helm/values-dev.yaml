@@ -513,7 +513,7 @@ openclaw:
 
 
     tag: c94e6d55d83a864640b4065fb9b8af49e9e728b4
-    digest: sha256:a65c1c9b215196e704183a3485eba1a6af52a7e2ce5a06d74cdfc9446adf7e59
+    digest: sha256:4348ff1363969b5e197497168bed0ef8f91d952b060ad1d0440cf4952be93e50
 
     pullPolicy: IfNotPresent
   resources:
