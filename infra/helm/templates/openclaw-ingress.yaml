@@ -1,2 +1,0 @@
-{{/* Deprecated: Telegram webhook is now handled by the unified ingress.yaml */}}
-{{/* This file is intentionally left empty. Remove after confirming unified ingress works. */}}

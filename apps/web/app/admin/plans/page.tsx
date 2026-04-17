@@ -916,7 +916,7 @@ function PlanForm({
                 />
               </label>
               <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                <span title="Total sandbox disk — max MB for everything (agent files, downloads, user uploads). Enforced by OpenClaw.">
+                <span title="Total sandbox disk — max MB for everything (agent files, downloads, user uploads). Applied on the PersAI-native runtime path.">
                   Workspace disk (MB)
                 </span>
                 <input

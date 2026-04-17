@@ -173,7 +173,7 @@ export class ResolveRuntimeProviderRoutingService {
         runtimeProviderProfile.mode === "admin_managed"
           ? [
               "H1 baseline derives runtime routing from PersAI admin-managed provider profile.",
-              "OpenClaw remains the runtime executor and secret resolver on the applied path.",
+              "PersAI-native runtime executes the applied path through provider-gateway and platform-managed runtime secret wiring.",
               "No user-facing provider picker or provider marketplace logic is introduced in this slice."
             ]
           : [

@@ -1,89 +1,79 @@
 # Dev GKE Infra Baseline
 
-This directory contains the Step 1 dev GKE infrastructure baseline.
+This directory documents the current PersAI-native dev baseline for `persai-dev`.
 
-## Scope in this phase
+## Active scope
 
-- namespace skeleton
-- Helm chart baseline for `apps/api`, `apps/runtime`, `apps/provider-gateway`, `apps/web`, and the separately built `openclaw` runtime image
-- Docker build baseline for `apps/api`, `apps/runtime`, `apps/provider-gateway`, and `apps/web`
-- CI image publish baseline to Artifact Registry
-- no direct cluster mutation from CI workflows
-- no cleanup/reset execution
+- namespace and Argo CD bootstrap
+- Helm deploy for `api`, `web`, `runtime`, and `provider-gateway`
+- Google Artifact Registry image pull/publish wiring
+- Workload Identity and Cloud SQL proxy wiring for `api` and `runtime`
+- manual reset/bootstrap procedures described in `infra/dev/gke/RUNBOOK.md`
 
-## OpenClaw rule
+## Active deploy truth
 
-- OpenClaw remains a separate neighboring runtime boundary.
-- OpenClaw is enabled in dev values for O3 deploy baseline.
+The active chart does not deploy OpenClaw workloads or OpenClaw-specific ingress, secrets, or configmaps.
 
-## Notes
+Current workload set in `persai-dev`:
 
-- Initial bootstrap/reset remains manual via runbook, but routine dev rollout follows GitOps pin updates plus Argo CD auto-sync.
-- Argo CD wiring skeleton lives in `infra/dev/gitops/argocd`.
-- Cleanup/reset and first deploy manual procedures live in `infra/dev/gke/RUNBOOK.md`.
-- CI now pins `infra/helm/values-dev.yaml` `global.images.tag` to immutable commit SHA on each `main` push after successful image publish.
-- API deployment requires secret `persai-api-secrets` in namespace `persai-dev` with keys:
+- `deployment/api`
+- `deployment/web`
+- `deployment/runtime`
+- `deployment/provider-gateway`
+- `service/api`
+- `service/api-internal`
+- `service/web`
+- `service/runtime`
+- `service/provider-gateway`
+
+Current ingress truth:
+
+- `persai.dev` -> `web:3000`
+- `api.persai.dev` -> `api:3001`
+- `bot.persai.dev` `/telegram-webhook` -> `api:3001`
+
+## Secret mapping
+
+Required namespace secrets:
+
+- `persai-api-secrets`
   - `DATABASE_URL`
   - `CLERK_SECRET_KEY`
-- Runtime deployment in dev reuses:
-  - `persai-api-secrets.DATABASE_URL`
-  - `persai-openclaw-secrets.PERSAI_RUNTIME_SPEC_STORE_REDIS_URL` as `RUNTIME_STATE_REDIS_URL`
-  - the existing `api-sa` Workload Identity + Cloud SQL proxy baseline for bounded dev access to Cloud SQL
-- Provider-gateway deployment in dev reuses:
-  - `persai-openclaw-secrets.OPENAI_API_KEY` as `PROVIDER_GATEWAY_OPENAI_API_KEY`
-  - optional `persai-openclaw-secrets.ANTHROPIC_API_KEY` as `PROVIDER_GATEWAY_ANTHROPIC_API_KEY` when present
-- Web deployment requires:
-  - `web.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `infra/helm/values-dev.yaml`
-  - `web.secretEnv.CLERK_SECRET_KEY` mapped from `persai-api-secrets`
-- OpenClaw baseline secret in dev namespace:
-  - `persai-openclaw-secrets` with key `OPENCLAW_GATEWAY_TOKEN`
-  - `persai-openclaw-secrets` with key `PERSAI_INTERNAL_API_TOKEN`
-  - source-of-truth follows ADR-008 policy: Google Secret Manager -> Kubernetes Secret sync
-- OpenClaw baseline config targets for dev (wired in O3):
-  - `OPENCLAW_GATEWAY_BIND=lan`
-  - `OPENCLAW_GATEWAY_PORT=18789`
-- OpenClaw runtime in O3:
-  - command/args set to `node openclaw.mjs gateway --bind lan --port 18789`
-  - service/deployment port aligned to `18789`
-  - auth token injected via `secretKeyRef` from `persai-openclaw-secrets`
-  - Control UI non-loopback origin policy is explicitly wired via ConfigMap-mounted OpenClaw config:
-    - `gateway.controlUi.allowedOrigins = ["http://localhost:18789","http://127.0.0.1:18789"]`
-    - `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = false`
-- OpenClaw provider/channel credentials are intentionally out of O5 scope.
-- API deployment uses Cloud SQL proxy sidecar in dev:
-  - dedicated KSA (`api-sa`) with GCP service account annotation for Workload Identity
-  - `api.cloudSqlProxy.enabled=true` in `infra/helm/values-dev.yaml`
-  - `api.cloudSqlProxy.usePrivateIp=true` (proxy connects over Cloud SQL private IP path)
-  - set `DATABASE_URL` host to `127.0.0.1` and port `5432` in `persai-api-secrets`
+  - optional admin/runtime support keys such as `ADMIN_STEP_UP_HMAC_SECRET`, `RUNTIME_PROVIDER_SECRETS_MASTER_KEY`, `TELEGRAM_WEBHOOK_HMAC_SECRET`
+- `persai-runtime-secrets`
+  - `PERSAI_INTERNAL_API_TOKEN`
+  - `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL`
+  - provider keys such as `OPENAI_API_KEY` and optional `ANTHROPIC_API_KEY`
 
-## CI config required for image publish baseline
+Current secret usage:
 
-Workflow: `.github/workflows/dev-image-publish.yml`
+- `api` reads `DATABASE_URL` and `CLERK_SECRET_KEY` from `persai-api-secrets`
+- `api`, `runtime`, and `provider-gateway` read `PERSAI_INTERNAL_API_TOKEN` from `persai-runtime-secrets`
+- `runtime` reads `PERSAI_RUNTIME_SPEC_STORE_REDIS_URL` from `persai-runtime-secrets` as `RUNTIME_STATE_REDIS_URL`
+- `provider-gateway` reads provider API keys from `persai-runtime-secrets`
 
-Required repository variables:
+## Runtime/config truth
 
-- `GAR_REGION` (example: `europe-west1`)
-- `GCP_PROJECT_ID`
-- `GAR_REPOSITORY` (example: `persai`)
-- `GCP_WIF_PROVIDER` (full Workload Identity Provider resource name)
-- `GCP_WIF_SERVICE_ACCOUNT` (service account email used for GAR push)
+Current dev routing in `infra/helm/values-dev.yaml`:
 
-No GitHub secret is required for GAR auth in this workflow.
+- `PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE=native`
+- `PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE=native`
+- `PERSAI_RUNTIME_BASE_URL=http://runtime:3012`
+- `PERSAI_PROVIDER_GATEWAY_BASE_URL=http://provider-gateway:3011`
+- `RUNTIME_PROVIDER_GATEWAY_BASE_URL=http://provider-gateway:3011`
+- `PERSAI_API_BASE_URL=http://api-internal:3002`
 
-## Required GCP resources for WIF
+## Image publish
 
-- Workload Identity Pool (global)
-- Workload Identity Provider for GitHub OIDC
-- Target service account for image publish
+Active image publish is handled by `.github/workflows/dev-image-publish.yml`.
 
-Provider must map GitHub repository claim:
+That workflow publishes the active PersAI images and updates `infra/helm/values-dev.yaml` `global.images.tag` to the immutable Git SHA used by Argo CD. There is no separate OpenClaw image publish step in the current path.
 
-- `attribute.repository=assertion.repository`
+## Related files
 
-Required IAM bindings:
-
-- allow GitHub principal set to impersonate target service account:
-  - role: `roles/iam.workloadIdentityUser`
-  - member: `principalSet://iam.googleapis.com/projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<POOL_ID>/attribute.repository/<GITHUB_OWNER>/<GITHUB_REPO>`
-- allow target service account to push images:
-  - role: `roles/artifactregistry.writer` on GAR repository (or project scope)
+- `infra/dev/gke/namespace.yaml`
+- `infra/dev/gitops/argocd/project-dev.yaml`
+- `infra/dev/gitops/argocd/application-dev.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `infra/dev/gke/RUNBOOK.md`

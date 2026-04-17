@@ -1,3 +1,30 @@
+# Roadmap
+
+This roadmap tracks the active PersAI-native path only.
+
+## Current platform baseline
+
+Completed baseline:
+
+- PersAI-native request-time runtime path for web and current active surfaces
+- internal `runtime` and `provider-gateway` services
+- GitOps/Helm deploy path for `api`, `web`, `runtime`, and `provider-gateway`
+- admin/control-plane/runtime bundle materialization on the native path
+- removal of OpenClaw from the active repo deploy/runtime/control-plane path
+
+## Near-term focus
+
+1. Scale and resilience hardening for the native runtime path
+2. Broader runtime diagnostics and operational visibility for native services
+3. Further cleanup of historical compatibility traces when they stop carrying migration value
+4. Product/runtime improvements that stay within the PersAI-native architecture
+
+## Roadmap rule
+
+Future work must not reintroduce OpenClaw-specific deploy wiring, image pinning, secrets, route modes, or operational assumptions into the active path.
+
+Historical migration detail lives in ADRs, changelog entries, and session handoff logs rather than in the current roadmap.
+
 # ROADMAP
 
 ## Current phase
@@ -5,6 +32,7 @@
 Step 15 — Tiered OpenClaw runtime and production hardening
 
 Scaling-readiness control layer is now tracked by:
+
 - `docs/ADR/070-scaling-readiness-program-and-clean-delivery-discipline.md`
 - `docs/SCALING-READINESS-PLAN.md`
 - current active slice: `SR10` (Capacity validation and production gate)

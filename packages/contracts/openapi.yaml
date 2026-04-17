@@ -535,7 +535,7 @@ paths:
   /assistant/runtime/preflight:
     get:
       operationId: getAssistantRuntimePreflight
-      summary: Check OpenClaw runtime preflight health/readiness via adapter
+      summary: Check PersAI native runtime preflight health/readiness
       security:
         - bearerAuth: []
       responses:
@@ -3048,7 +3048,7 @@ components:
         memoryControl:
           description: >
             Step 6 D1 control-plane memory governance envelope (policy, provenance hooks,
-            visibility hooks, forget-request markers, audit routing). Not raw OpenClaw/runtime memory.
+            visibility hooks, forget-request markers, audit routing). Not raw runtime memory state.
           type: object
           additionalProperties: true
           nullable: true
@@ -3056,7 +3056,7 @@ components:
           description: >
             Step 6 D4 control-plane tasks/reminders/triggers governance (ownership, source/surface hooks,
             control lifecycle labels, enable/disable/cancel flags, commercial quota exclusion for tasks,
-            audit routing). OpenClaw owns execution and scheduling; PersAI does not run a backend scheduler here.
+            audit routing). PersAI-native runtime owns execution and scheduling; PersAI does not run a separate backend scheduler here.
           type: object
           additionalProperties: true
           nullable: true

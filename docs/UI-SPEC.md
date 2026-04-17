@@ -114,24 +114,29 @@ First-time flow after auth when no assistant exists. This is the "wow moment".
 Top to bottom:
 
 #### 1. Assistant card
+
 - Small round avatar, name, status indicator (Live / Draft / Failed)
 - Click → opens settings slide-over on the right
 
 #### 2. New chat button
+
 - Prominent, above chat list
 
 #### 3. Web chats
+
 - Grouped by date: Today / Yesterday / Previous 7 days / Older (ChatGPT style)
 - Three-dot menu on hover: Rename, Archive, Delete
 - Active chats visually emphasized
 
 #### 4. Messenger history (below web chats)
+
 - Visually muted section
 - Readonly — cannot compose messages here
 - Messenger icon + preview per item
 - For viewing chat history from Telegram/WhatsApp channels
 
 #### 5. Integrations
+
 - Mini cards for each messenger:
   - Telegram: icon + status (Connected / Not connected)
   - WhatsApp: icon + "Coming soon"
@@ -139,10 +144,12 @@ Top to bottom:
 - Click → modal window for integration settings
 
 #### 6. Limits
+
 - Compact line: usage bar or percentage (token budget, active chats)
 - Minimal, non-intrusive
 
 #### 7. User
+
 - Avatar, display name, logout button
 - Anchored at sidebar bottom
 
@@ -151,10 +158,12 @@ Top to bottom:
 ### Chat area (main, right side)
 
 #### Header
+
 - Current chat title (editable inline) or "New chat"
 - Small assistant avatar
 
 #### Message stream
+
 - Streaming with character-by-character typing animation
 - Markdown rendering:
   - Code blocks with syntax highlighting + copy button
@@ -164,9 +173,11 @@ Top to bottom:
   - Collapsible long outputs
 
 #### User messages
+
 - Right-aligned, dark bubble
 
 #### Assistant messages
+
 - Left-aligned, with assistant avatar
 - Action icons below message (subtle, appear on hover):
   - Copy
@@ -175,17 +186,20 @@ Top to bottom:
   - Like/dislike feedback (UI-ready; backend is follow-up work)
 
 #### Activity badges
+
 - Compact inline badges between or below messages:
   - Tool usage: "Used web search", "Ran code" (icon + text, expandable)
   - System: "Assistant updated", "Platform update applied"
 
 #### Input area
+
 - Bottom-anchored, multi-line textarea with auto-resize
 - Send button (or Enter to send)
 - Stop button visible during streaming
 - Attach button (UI-ready, no backend yet)
 
 #### Error/degradation
+
 - Inline in chat: human-friendly messages (from existing `toWebChatUxIssue` classifier)
 - No raw stack traces or technical internals
 
@@ -198,29 +212,36 @@ Opens on click of assistant card in sidebar. On mobile: fullscreen.
 ### Sections (ordered by "humanization" priority)
 
 #### 1. Character (hero section, top)
+
 - Clickable avatar: shows inline emoji picker grid + file upload button; selecting emoji clears URL and vice versa
 - Name input + status badge
 - "Edit personality" and "Save and apply" buttons side by side; "Edit personality" expands trait sliders + instructions textarea
 
 #### 2. Quick actions
+
 - Publish / Rollback / Reset buttons with confirmation dialogs
 - Current version number + apply status indicator
 
 #### 3. Memory
+
 - Memory Center: list of remembered items, forget button, search/filter
 - Visually muted — important but not the hero
 
 #### 4. Tasks
+
 - Tasks Center: active/inactive items, pause/stop/enable controls
 - Compact layout
 
 #### 5. Channels
+
 - Links to integration modal windows (same as sidebar integrations)
 
 #### 6. Limits & Plan
+
 - Usage bars, plan name, upgrade CTA placeholder
 
 #### 7. Publish history
+
 - Compact version list with timestamps
 
 ---
@@ -247,12 +268,14 @@ Opens on click of assistant card in sidebar. On mobile: fullscreen.
 ## Theme
 
 ### Dark mode (default)
+
 - Background: deep dark (`#0d0f11` / `#151a1e` range)
 - Accent color: warm green (`#66bb6a` dark / `#43a047` light`)
 - Text: warm light gray hierarchy (`#e8e6e3` / `#b0ada8` / `#7a7672`)
 - Cards/surfaces: subtle elevation with warm-toned borders (`#2a2d30`)
 
 ### Light mode
+
 - Toggle in sidebar user section
 - Clean warm white/gray palette (`#faf9f7` / `#f2f0ed`)
 - Same component structure, inverted color tokens
@@ -277,6 +300,7 @@ When the user hits a quota limit, capability gate, or active chat cap, the assis
 Example (playful persona): "I'd love to keep going, but I'm running low on energy this month. Want to unlock more of my abilities? I could do so much more for you..."
 
 Implementation path:
+
 - New message kind: `author=assistant, kind=upsell_hint` (governance-triggered, not a normal chat turn)
 - Personality-flavored text generation: denial reason + persona traits → in-character message (template engine or one cheap LLM call)
 - Works in web chat and Telegram/WhatsApp channels — assistant stays in-character everywhere
@@ -289,11 +313,9 @@ Admin gets their own assistant with extended tool access for platform operations
 - **User assistant scope:** chat, memory, tasks, personal tools only — never sees beyond own workspace sandbox
 - **Admin assistant scope:** ops cockpit queries, business cockpit insights, rollout suggestions, proactive alerts ("3 assistants have failed apply, want to reapply?", "Quota pressure is high, time to review plans?")
 - Architecture fit: same assistant entity, different tool catalog scope — admin tools are allowed only for admin role codes via existing per-tool allow/deny in capability envelope
-- Backend needs: admin-scoped tool definitions in tool catalog, admin API read tools for OpenClaw consumption, role-gated tool activation rules
+- Backend needs: admin-scoped tool definitions in tool catalog, admin API read tools for PersAI-native runtime/operator surfaces, role-gated tool activation rules
 
 ---
-
-
 
 - Native mobile app
 - Full landing page / marketing site
@@ -319,6 +341,7 @@ All user-facing API endpoints already exist. The UI redesign is a frontend-only 
 - Admin: all `/admin/*` endpoints (existing — plans with quota limits and model key, runtime with fallback and model editor, tools)
 
 New backend fields needed (follow-up):
+
 - Regenerate endpoint (retry last assistant turn)
 - Like/dislike feedback endpoint
 

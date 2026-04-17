@@ -504,7 +504,7 @@ export class ControlInternalScheduledActionService {
       };
     }
     throw new ConflictException(
-      "This scheduled action still points at the retired OpenClaw scheduler. Cancel and recreate it to continue."
+      "This scheduled action still points at a retired legacy scheduler. Cancel and recreate it to continue."
     );
   }
 

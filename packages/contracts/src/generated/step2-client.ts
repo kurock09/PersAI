@@ -872,7 +872,7 @@ export const postAssistantKnowledgeSourceReindex = async (
 };
 
 /**
- * @summary Check OpenClaw runtime preflight health/readiness via adapter
+ * @summary Check PersAI native runtime preflight health/readiness
  */
 export type getAssistantRuntimePreflightResponse200 = {
   data: GetAssistantRuntimePreflightResponse;

@@ -318,7 +318,7 @@ async function runLegacyPauseRejectedTest(): Promise<void> {
         taskId: "task-legacy"
       }),
     (error) =>
-      error instanceof ConflictException && error.message.includes("retired OpenClaw scheduler")
+      error instanceof ConflictException && error.message.includes("retired legacy scheduler")
   );
   assert.equal(prisma.rows.length, 1);
 }

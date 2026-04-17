@@ -6,7 +6,7 @@
  */
 
 /**
- * Step 6 D1 control-plane memory governance envelope (policy, provenance hooks, visibility hooks, forget-request markers, audit routing). Not raw OpenClaw/runtime memory.
+ * Step 6 D1 control-plane memory governance envelope (policy, provenance hooks, visibility hooks, forget-request markers, audit routing). Not raw runtime memory state.
 
  * @nullable
  */

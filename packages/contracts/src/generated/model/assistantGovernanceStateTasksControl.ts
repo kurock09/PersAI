@@ -6,7 +6,7 @@
  */
 
 /**
- * Step 6 D4 control-plane tasks/reminders/triggers governance (ownership, source/surface hooks, control lifecycle labels, enable/disable/cancel flags, commercial quota exclusion for tasks, audit routing). OpenClaw owns execution and scheduling; PersAI does not run a backend scheduler here.
+ * Step 6 D4 control-plane tasks/reminders/triggers governance (ownership, source/surface hooks, control lifecycle labels, enable/disable/cancel flags, commercial quota exclusion for tasks, audit routing). PersAI-native runtime owns execution and scheduling; PersAI does not run a separate backend scheduler here.
 
  * @nullable
  */
