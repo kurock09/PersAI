@@ -397,7 +397,8 @@ function createBundleEntry(input?: { sharedCompactionSummaryBudgetTokens?: numbe
       tools: "",
       agents: "",
       heartbeat: "",
-      bootstrap: ""
+      preview: "",
+      welcome: ""
     }
   });
 

@@ -89,10 +89,24 @@ export class ResetAssistantService {
           this.logger.log("Step 6: deleting knowledge sources");
           await tx.assistantKnowledgeSource.deleteMany({ where: { assistantId: aid } });
 
-          this.logger.log("Step 7: deleting materialized specs");
+          this.logger.log("Step 7: deleting runtime turn receipts");
+          await tx.runtimeTurnReceipt.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 8: deleting runtime session compactions");
+          await tx.runtimeSessionCompaction.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 9: deleting runtime sessions");
+          await tx.runtimeSession.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 10: deleting runtime bundle states");
+          await tx.runtimeBundleState.deleteMany({ where: { assistantId: aid } });
+
+          this.logger.log("Step 11: deleting materialized specs");
           await tx.assistantMaterializedSpec.deleteMany({ where: { assistantId: aid } });
 
-          this.logger.log("Step 8: disabling immutability trigger and deleting published versions");
+          this.logger.log(
+            "Step 12: disabling immutability trigger and deleting published versions"
+          );
           await tx.$executeRawUnsafe(
             `ALTER TABLE "assistant_published_versions" DISABLE TRIGGER "assistant_published_versions_no_delete"`
           );
@@ -135,7 +149,7 @@ export class ResetAssistantService {
         eventCategory: "assistant_lifecycle",
         eventCode: "assistant.full_reset",
         summary:
-          "Full assistant reset: all chats, memory, tasks, knowledge sources, published versions, materialized specs and workspace files deleted.",
+          "Full assistant reset: chats, memory, tasks, knowledge sources, runtime state, published versions, materialized specs, and workspace files deleted.",
         details: {}
       });
     } catch (err) {

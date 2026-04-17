@@ -51,12 +51,36 @@ function parseRuntimeModelOverrideFromRuntimeBundle(
   };
 }
 
+function parseWelcomeFirstTurnPromptFromRuntimeBundle(runtimeBundle: unknown): string | null {
+  const root = asObject(runtimeBundle);
+  const promptConstructor = asObject(root?.promptConstructor);
+  const onboarding = asObject(promptConstructor?.onboarding);
+  const welcomeTurnPrompt = onboarding?.welcomeTurnPrompt;
+  if (typeof welcomeTurnPrompt === "string" && welcomeTurnPrompt.trim().length > 0) {
+    return welcomeTurnPrompt.trim();
+  }
+  const legacyFirstTurnPrompt = onboarding?.firstTurnPrompt;
+  if (typeof legacyFirstTurnPrompt === "string" && legacyFirstTurnPrompt.trim().length > 0) {
+    return legacyFirstTurnPrompt.trim();
+  }
+  const promptDocuments = asObject(root?.promptDocuments);
+  const welcomeDocument = promptDocuments?.welcome;
+  if (typeof welcomeDocument === "string" && welcomeDocument.trim().length > 0) {
+    return welcomeDocument.trim();
+  }
+  const legacyBootstrapDocument = promptDocuments?.bootstrap;
+  return typeof legacyBootstrapDocument === "string" && legacyBootstrapDocument.trim().length > 0
+    ? legacyBootstrapDocument.trim()
+    : null;
+}
+
 export interface ResolvedAssistantInboundRuntimeContext {
   assistant: Assistant;
   assistantId: string;
   publishedVersionId: string;
   runtimeTier: RuntimeTier;
   quotaDegradeModelOverride: RuntimeModelOverride | null;
+  welcomeFirstTurnPrompt: string | null;
   userId: string;
   workspaceId: string;
 }
@@ -125,6 +149,9 @@ export class ResolveAssistantInboundRuntimeContextService {
       quotaDegradeModelOverride: parseRuntimeModelOverrideFromRuntimeBundle(
         materializedSpec?.runtimeBundle ?? null,
         "cost_driving_restricted"
+      ),
+      welcomeFirstTurnPrompt: parseWelcomeFirstTurnPromptFromRuntimeBundle(
+        materializedSpec?.runtimeBundle ?? null
       ),
       userId: assistant.userId,
       workspaceId: assistant.workspaceId

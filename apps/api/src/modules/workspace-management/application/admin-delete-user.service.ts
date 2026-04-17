@@ -79,6 +79,10 @@ export class AdminDeleteUserService {
             await tx.assistantMemoryRegistryItem.deleteMany({ where: { assistantId: aid } });
             await tx.assistantTaskRegistryItem.deleteMany({ where: { assistantId: aid } });
             await tx.assistantKnowledgeSource.deleteMany({ where: { assistantId: aid } });
+            await tx.runtimeTurnReceipt.deleteMany({ where: { assistantId: aid } });
+            await tx.runtimeSessionCompaction.deleteMany({ where: { assistantId: aid } });
+            await tx.runtimeSession.deleteMany({ where: { assistantId: aid } });
+            await tx.runtimeBundleState.deleteMany({ where: { assistantId: aid } });
 
             await tx.assistantMaterializedSpec.deleteMany({ where: { assistantId: aid } });
 

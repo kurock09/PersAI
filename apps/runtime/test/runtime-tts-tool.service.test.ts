@@ -222,7 +222,8 @@ function createBundle(options?: {
       tools: "",
       agents: "",
       heartbeat: "",
-      bootstrap: ""
+      preview: "",
+      welcome: ""
     }
   }).bundle;
 }

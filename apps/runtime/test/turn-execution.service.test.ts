@@ -539,7 +539,8 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
       tools: "# TOOLS.md\n- web_search\n- memory_search\n- quota_status",
       agents: "",
       heartbeat: "",
-      bootstrap: ""
+      preview: "",
+      welcome: ""
     },
     promptConstructor: {
       ordinary: {
@@ -568,6 +569,8 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
         ].join("\n\n")
       },
       onboarding: {
+        previewTurnPrompt: "Show your tone naturally.",
+        welcomeTurnPrompt: "Introduce yourself naturally.",
         firstTurnPrompt: "Introduce yourself naturally."
       }
     }

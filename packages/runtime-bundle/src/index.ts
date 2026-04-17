@@ -112,7 +112,9 @@ export interface AssistantRuntimePromptDocuments {
   tools: string;
   agents: string;
   heartbeat: string;
-  bootstrap: string;
+  preview: string;
+  welcome: string;
+  bootstrap?: string;
 }
 
 export interface AssistantRuntimeCompiledOrdinaryPromptSections {
@@ -135,7 +137,9 @@ export interface AssistantRuntimePromptConstructor {
     systemPrompt: string | null;
   };
   onboarding: {
-    firstTurnPrompt: string;
+    previewTurnPrompt: string;
+    welcomeTurnPrompt: string;
+    firstTurnPrompt?: string;
   };
 }
 
@@ -239,7 +243,9 @@ export function createAssistantRuntimeBundle(
         .join("\n\n")
     },
     onboarding: {
-      firstTurnPrompt: input.promptDocuments.bootstrap
+      previewTurnPrompt: input.promptDocuments.preview,
+      welcomeTurnPrompt: input.promptDocuments.welcome,
+      firstTurnPrompt: input.promptDocuments.welcome
     }
   };
   return {
@@ -251,7 +257,10 @@ export function createAssistantRuntimeBundle(
     runtime: input.runtime,
     governance: input.governance,
     channels: input.channels,
-    promptDocuments: input.promptDocuments,
+    promptDocuments: {
+      ...input.promptDocuments,
+      bootstrap: input.promptDocuments.bootstrap ?? input.promptDocuments.welcome
+    },
     promptConstructor
   };
 }

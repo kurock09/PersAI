@@ -109,6 +109,13 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolveWelcomeUserMessage(
+  welcomeFirstTurnPrompt: string | null,
+  welcomeLocale?: string
+): string {
+  return welcomeFirstTurnPrompt ?? resolveWelcomeTurnInstruction(welcomeLocale);
+}
+
 @Injectable()
 export class SendWebChatTurnService {
   private readonly logger = new Logger(SendWebChatTurnService.name);
@@ -199,6 +206,9 @@ export class SendWebChatTurnService {
       const userAttachments = await this.attachmentRepository.listByMessageId(
         prepared.userMessage.id
       );
+      const baseMessage = request.welcomeTurn
+        ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, request.welcomeLocale)
+        : prepared.userMessage.content;
       const currentTimeIso = new Date().toISOString();
       const nativeTurnInput = this.buildNativeSyncTurnInput({
         assistantId: prepared.assistantId,
@@ -208,7 +218,7 @@ export class SendWebChatTurnService {
         workspaceId: prepared.workspaceId,
         surfaceThreadKey: prepared.chat.surfaceThreadKey,
         userMessageId: prepared.userMessage.id,
-        userMessage: prepared.userMessage.content,
+        userMessage: baseMessage,
         attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
         userTimezone: prepared.workspaceTimezone,
         currentTimeIso,
@@ -262,14 +272,14 @@ export class SendWebChatTurnService {
         chatId: prepared.chat.id,
         userMessageId: prepared.userMessage.id,
         assistantMessageId: assistantMessage.id,
-        userContent: prepared.userMessage.content,
+        userContent: baseMessage,
         assistantContent: runtimeResponse.assistantMessage,
         memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
       });
       trace.stage("memory_recorded");
       await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
         assistant: prepared.assistant,
-        userContent: prepared.userMessage.content,
+        userContent: baseMessage,
         assistantContent: assistantMessage.content,
         source: "web_chat_turn_sync"
       });

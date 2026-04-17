@@ -113,7 +113,7 @@ export default function SignUpPage() {
           {stage === "form" && (
             <>
               <h2 className="text-lg font-semibold text-text">{t("signUpTitle")}</h2>
-              <p className="mt-1 text-xs text-text-muted">{t("signUpSubtitle")}</p>
+              <p className="mt-1 text-xs leading-relaxed text-text-muted">{t("signUpSubtitle")}</p>
 
               <button
                 type="button"
@@ -162,6 +162,9 @@ export default function SignUpPage() {
               {fieldErrors?.password && (
                 <p className="mt-1 text-xs text-destructive">{fieldErrors.password.message}</p>
               )}
+              <p className="mt-2 text-xs leading-relaxed text-text-subtle">
+                {t("passwordCreateHint")}
+              </p>
 
               <button
                 type="button"
@@ -183,6 +186,13 @@ export default function SignUpPage() {
                   </>
                 )}
               </button>
+
+              <a
+                href="/sign-in?mode=forgot-password"
+                className="mt-3 inline-flex text-xs font-medium text-accent transition-colors hover:text-accent-hover"
+              >
+                {t("forgotPasswordLink")}
+              </a>
             </>
           )}
 

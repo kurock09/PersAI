@@ -248,7 +248,6 @@ describe("SetupWizardPage", () => {
       .mockResolvedValueOnce("token-create-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
-      .mockResolvedValueOnce("token-create")
       .mockResolvedValueOnce("token-avatar")
       .mockResolvedValueOnce("token-final-patch")
       .mockResolvedValueOnce("token-publish");
@@ -303,6 +302,9 @@ describe("SetupWizardPage", () => {
       expect(assistantApiMocks.uploadAssistantAvatar).toHaveBeenCalledTimes(1);
       expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
     });
+    expect(meApiMocks.postOnboarding).toHaveBeenCalledTimes(1);
+    expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledTimes(1);
+    expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(2);
     expect(assistantApiMocks.uploadAssistantAvatar).toHaveBeenCalledWith(
       "token-avatar",
       expect.any(File)
@@ -310,14 +312,59 @@ describe("SetupWizardPage", () => {
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenLastCalledWith(
       "token-final-patch",
       expect.objectContaining({
-        displayName: "Nova",
-        assistantGender: "female",
         avatarEmoji: null,
         avatarUrl: "https://example.com/avatar.png"
       })
     );
     expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-publish");
+    expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   }, 10000);
+
+  it("publishes from the persisted preview draft without repeating setup writes", async () => {
+    clerkMocks.getToken
+      .mockResolvedValueOnce("token-prefill")
+      .mockResolvedValueOnce("token-onboarding-preview")
+      .mockResolvedValueOnce("token-create-preview")
+      .mockResolvedValueOnce("token-patch-preview")
+      .mockResolvedValueOnce("token-runtime-preview")
+      .mockResolvedValueOnce("token-publish");
+
+    renderWithIntl(<SetupWizardPage />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
+
+    fireEvent.change(screen.getByPlaceholderText(/name — e\.g\./i), {
+      target: { value: "Nova" }
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Female" }).at(-1)!);
+    fireEvent.click(
+      screen
+        .getAllByRole("button")
+        .find(
+          (button) => button.textContent?.includes("Nova") && button.textContent?.includes("🌟")
+        )!
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+
+    expect(
+      await screen.findByText("Hi Alex, I'm Nova. I'll keep things clear, warm, and proactive.")
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /create assistant/i }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
+    });
+
+    expect(meApiMocks.postOnboarding).toHaveBeenCalledTimes(1);
+    expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledTimes(1);
+    expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
+    expect(assistantApiMocks.uploadAssistantAvatar).not.toHaveBeenCalled();
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-publish");
+    expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
+  });
 });
 
 function cleanupLocation() {

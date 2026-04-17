@@ -1,16 +1,145 @@
 "use client";
 
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useUser, useClerk } from "@clerk/nextjs";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { ArrowLeft, LogOut, Mail, Shield, User } from "lucide-react";
+import {
+  ArrowLeft,
+  Camera,
+  KeyRound,
+  Loader2,
+  LogOut,
+  Mail,
+  Save,
+  Shield,
+  User
+} from "lucide-react";
+import { cn } from "@/app/lib/utils";
 
 export default function ProfilePage() {
   const { user } = useUser();
   const { signOut } = useClerk();
   const router = useRouter();
   const t = useTranslations("profile");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [profileFeedback, setProfileFeedback] = useState<{
+    type: "ok" | "err";
+    text: string;
+  } | null>(null);
+  const [avatarFeedback, setAvatarFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(
+    null
+  );
+  const [passwordFeedback, setPasswordFeedback] = useState<{
+    type: "ok" | "err";
+    text: string;
+  } | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  useEffect(() => {
+    setFirstName(user?.firstName ?? "");
+    setLastName(user?.lastName ?? "");
+  }, [user?.firstName, user?.lastName]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) {
+        URL.revokeObjectURL(avatarPreviewUrl);
+      }
+    };
+  }, [avatarPreviewUrl]);
+
+  const handleProfileSave = useCallback(async () => {
+    if (!user) return;
+    setProfileSaving(true);
+    setProfileFeedback(null);
+    try {
+      await user.update({
+        firstName: firstName.trim() || null,
+        lastName: lastName.trim() || null
+      });
+      setProfileFeedback({ type: "ok", text: t("profileSaved") });
+    } catch (error) {
+      setProfileFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : t("profileSaveFailed")
+      });
+    } finally {
+      setProfileSaving(false);
+    }
+  }, [firstName, lastName, t, user]);
+
+  const handleAvatarChange = useCallback(
+    async (file: File) => {
+      if (!user) return;
+      setAvatarSaving(true);
+      setAvatarFeedback(null);
+      const localPreviewUrl = URL.createObjectURL(file);
+      setAvatarPreviewUrl((previous) => {
+        if (previous) {
+          URL.revokeObjectURL(previous);
+        }
+        return localPreviewUrl;
+      });
+
+      try {
+        await user.setProfileImage({ file });
+        await user.reload();
+        setAvatarFeedback({ type: "ok", text: t("avatarSaved") });
+        setAvatarPreviewUrl((previous) => {
+          if (previous) {
+            URL.revokeObjectURL(previous);
+          }
+          return null;
+        });
+      } catch (error) {
+        setAvatarFeedback({
+          type: "err",
+          text: error instanceof Error ? error.message : t("avatarSaveFailed")
+        });
+      } finally {
+        setAvatarSaving(false);
+      }
+    },
+    [t, user]
+  );
+
+  const handlePasswordSave = useCallback(async () => {
+    if (!user) return;
+    if (newPassword !== confirmPassword) {
+      setPasswordFeedback({ type: "err", text: t("passwordMismatch") });
+      return;
+    }
+
+    setPasswordSaving(true);
+    setPasswordFeedback(null);
+    try {
+      await user.updatePassword({
+        currentPassword,
+        newPassword
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordFeedback({ type: "ok", text: t("passwordSaved") });
+    } catch (error) {
+      setPasswordFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : t("passwordSaveFailed")
+      });
+    } finally {
+      setPasswordSaving(false);
+    }
+  }, [confirmPassword, currentPassword, newPassword, t, user]);
 
   if (!user) return null;
 
@@ -20,10 +149,10 @@ export default function ProfilePage() {
     user.username?.[0] ??
     t("unnamedUser").charAt(0)
   ).toUpperCase();
+  const profileImage = avatarPreviewUrl ?? user.imageUrl;
 
   return (
-    <div className="mx-auto max-w-lg px-4 py-8">
-      {/* Back button */}
+    <div className="mx-auto max-w-4xl px-4 py-8">
       <button
         type="button"
         onClick={() => router.push("/app" as Route)}
@@ -36,28 +165,54 @@ export default function ProfilePage() {
       <h1 className="text-2xl font-bold text-text">{t("account")}</h1>
       <p className="mt-1 text-sm text-text-muted">{t("manageProfile")}</p>
 
-      {/* Profile card */}
-      <div className="mt-6 rounded-2xl border border-border bg-surface p-5">
-        <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-accent/20 text-lg font-bold text-accent overflow-hidden">
-            {user.imageUrl ? (
-              <img src={user.imageUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              initials
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold text-text">{displayName}</p>
-            <p className="truncate text-sm text-text-muted">
-              {user.primaryEmailAddress?.emailAddress}
-            </p>
+      <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+            <div className="relative">
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl bg-accent/20 text-2xl font-bold text-accent">
+                {profileImage ? (
+                  <img src={profileImage} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  initials
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={avatarSaving}
+                className="absolute -bottom-2 -right-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-border bg-surface text-text-muted shadow-sm transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60"
+                title={t("changeAvatar")}
+              >
+                {avatarSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Camera className="h-4 w-4" />
+                )}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  void handleAvatarChange(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-semibold text-text">{displayName}</p>
+              <p className="mt-1 truncate text-sm text-text-muted">
+                {user.primaryEmailAddress?.emailAddress}
+              </p>
+              <p className="mt-2 text-xs leading-relaxed text-text-subtle">{t("avatarHelp")}</p>
+              <FeedbackLine feedback={avatarFeedback} />
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Sections */}
-      <div className="mt-4 space-y-3">
-        {/* Email */}
         <Section icon={<Mail className="h-4 w-4" />} title={t("email")}>
           {user.emailAddresses.map((email) => (
             <div key={email.id} className="flex items-center gap-2">
@@ -70,35 +225,120 @@ export default function ProfilePage() {
             </div>
           ))}
         </Section>
+      </div>
 
-        {/* Connected accounts */}
-        {user.externalAccounts.length > 0 && (
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <Section icon={<User className="h-4 w-4" />} title={t("profileDetails")}>
+          <p className="mb-4 text-sm text-text-muted">{t("profileDetailsHelp")}</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs text-text-muted">{t("firstName")}</span>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(event) => setFirstName(event.target.value)}
+                className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-text-muted">{t("lastName")}</span>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(event) => setLastName(event.target.value)}
+                className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleProfileSave()}
+            disabled={profileSaving}
+            className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-default disabled:opacity-60"
+          >
+            {profileSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            {t("saveProfile")}
+          </button>
+          <FeedbackLine feedback={profileFeedback} />
+        </Section>
+
+        <Section icon={<KeyRound className="h-4 w-4" />} title={t("passwordTitle")}>
+          <p className="mb-4 text-sm text-text-muted">{t("passwordHelp")}</p>
+          <div className="space-y-3">
+            <label className="block">
+              <span className="mb-1 block text-xs text-text-muted">{t("currentPassword")}</span>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-text-muted">{t("newPassword")}</span>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-text-muted">{t("confirmPassword")}</span>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handlePasswordSave();
+                  }
+                }}
+                className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+              />
+            </label>
+          </div>
+          <p className="mt-3 text-xs text-text-subtle">{t("passwordHint")}</p>
+          <button
+            type="button"
+            onClick={() => void handlePasswordSave()}
+            disabled={
+              passwordSaving ||
+              !currentPassword.trim() ||
+              !newPassword.trim() ||
+              !confirmPassword.trim()
+            }
+            className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface-raised px-4 py-2.5 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:cursor-default disabled:opacity-60"
+          >
+            {passwordSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <KeyRound className="h-4 w-4" />
+            )}
+            {t("savePassword")}
+          </button>
+          <FeedbackLine feedback={passwordFeedback} />
+        </Section>
+      </div>
+
+      {user.externalAccounts.length > 0 && (
+        <div className="mt-4">
           <Section icon={<Shield className="h-4 w-4" />} title={t("connectedAccounts")}>
             {user.externalAccounts.map((account) => (
               <div key={account.id} className="flex items-center gap-2">
-                <span className="text-sm text-text capitalize">{account.provider}</span>
+                <span className="text-sm capitalize text-text">{account.provider}</span>
                 <span className="text-xs text-text-muted">{account.emailAddress}</span>
               </div>
             ))}
           </Section>
-        )}
+        </div>
+      )}
 
-        {/* Profile details */}
-        <Section icon={<User className="h-4 w-4" />} title={t("profileDetails")}>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p className="text-text-muted text-xs">{t("firstName")}</p>
-              <p className="text-text">{user.firstName ?? "—"}</p>
-            </div>
-            <div>
-              <p className="text-text-muted text-xs">{t("lastName")}</p>
-              <p className="text-text">{user.lastName ?? "—"}</p>
-            </div>
-          </div>
-        </Section>
-      </div>
-
-      {/* Sign out */}
       <button
         type="button"
         onClick={() => void signOut({ redirectUrl: "/" })}
@@ -128,5 +368,14 @@ function Section({
       </div>
       <div className="space-y-2">{children}</div>
     </div>
+  );
+}
+
+function FeedbackLine({ feedback }: { feedback: { type: "ok" | "err"; text: string } | null }) {
+  if (!feedback) return null;
+  return (
+    <p className={cn("mt-3 text-sm", feedback.type === "ok" ? "text-success" : "text-destructive")}>
+      {feedback.text}
+    </p>
   );
 }

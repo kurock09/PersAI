@@ -25,7 +25,7 @@ interface ToolPromptState {
 
 const SYSTEM_TEMPLATE_IDS = ["system"] as const;
 const ORDINARY_TEMPLATE_IDS = ["soul", "user", "identity", "tools", "agents", "heartbeat"] as const;
-const ONBOARDING_TEMPLATE_IDS = ["bootstrap"] as const;
+const ONBOARDING_TEMPLATE_IDS = ["preview_bootstrap", "welcome_bootstrap"] as const;
 const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
   "summarize_context",
   "compact_context",
@@ -121,10 +121,19 @@ const PRESET_META: Record<
     description: "Directly editable follow-through instructions for reminders and delayed checks.",
     variables: []
   },
-  bootstrap: {
-    label: "Onboarding / Recreate Greeting",
+  preview_bootstrap: {
+    label: "Preview Character Test",
     description:
-      "First-turn prompt used by setup preview and recreate onboarding instead of a hidden bootstrap file.",
+      "Hidden prompt used only for setup/recreate preview so admins can test personality and tone without simulating the literal first live chat.",
+    variables: [
+      { key: "assistant_name", hint: "Assistant display name" },
+      { key: "human_name", hint: "Human display name" },
+      { key: "traits_summary_line", hint: "One-line trait summary for preview mode" }
+    ]
+  },
+  welcome_bootstrap: {
+    label: "Welcome / First Chat Greeting",
+    description: "Hidden prompt used for the real first welcome message after publish or recreate.",
     variables: [
       { key: "assistant_name", hint: "Assistant display name" },
       { key: "human_name", hint: "Human display name" },
@@ -257,8 +266,11 @@ function buildOrdinaryPreview(
   }).trim();
 }
 
-function buildOnboardingPreview(templates: PromptTemplateState[]): string {
-  const template = templates.find((entry) => entry.id === "bootstrap")?.template ?? "";
+function buildOnboardingPreview(
+  templates: PromptTemplateState[],
+  templateId: (typeof ONBOARDING_TEMPLATE_IDS)[number]
+): string {
+  const template = templates.find((entry) => entry.id === templateId)?.template ?? "";
   return interpolateTemplate(template, SAMPLE_VARIABLES);
 }
 
@@ -577,7 +589,7 @@ export default function AdminPresetsPage() {
   const [tools, setTools] = useState<ToolPromptState[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [previewMode, setPreviewMode] = useState<"ordinary" | "onboarding">("ordinary");
+  const [previewMode, setPreviewMode] = useState<"ordinary" | "preview" | "welcome">("ordinary");
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -654,7 +666,14 @@ export default function AdminPresetsPage() {
   );
 
   const ordinaryPreview = useMemo(() => buildOrdinaryPreview(templates, tools), [templates, tools]);
-  const onboardingPreview = useMemo(() => buildOnboardingPreview(templates), [templates]);
+  const previewPromptPreview = useMemo(
+    () => buildOnboardingPreview(templates, "preview_bootstrap"),
+    [templates]
+  );
+  const welcomePromptPreview = useMemo(
+    () => buildOnboardingPreview(templates, "welcome_bootstrap"),
+    [templates]
+  );
 
   if (loading) {
     return (
@@ -679,9 +698,10 @@ export default function AdminPresetsPage() {
         <h1 className="text-base font-bold text-text">Prompt Constructor</h1>
       </div>
       <p className="max-w-3xl text-xs text-text-muted">
-        Edit the real production prompt layers that feed setup preview, publish, reapply, ordinary
-        runtime turns, and recreate. Character, user context, identity, governance, onboarding, and
-        per-tool model instructions all live here as one control plane.
+        Edit the real production prompt layers that feed setup preview, welcome onboarding, publish,
+        reapply, ordinary runtime turns, and recreate. Character, user context, identity,
+        governance, preview/welcome prompts, and per-tool model instructions all live here as one
+        control plane.
       </p>
 
       <section className="space-y-3">
@@ -731,8 +751,12 @@ export default function AdminPresetsPage() {
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-accent" />
-          <h2 className="text-sm font-semibold text-text">Onboarding / Recreate Prompt</h2>
+          <h2 className="text-sm font-semibold text-text">Preview / Welcome Prompts</h2>
         </div>
+        <p className="text-xs text-text-muted">
+          Keep preview focused on character testing, and keep welcome focused on the real first live
+          greeting after publish or recreate.
+        </p>
         <div className="grid gap-4">
           {ONBOARDING_TEMPLATE_IDS.map((id) => {
             const template = templates.find((entry) => entry.id === id);
@@ -786,19 +810,35 @@ export default function AdminPresetsPage() {
           </button>
           <button
             type="button"
-            onClick={() => setPreviewMode("onboarding")}
+            onClick={() => setPreviewMode("preview")}
             className={cn(
               "rounded px-2 py-1 text-[11px] font-medium",
-              previewMode === "onboarding"
+              previewMode === "preview"
                 ? "bg-accent/10 text-accent"
                 : "text-text-muted hover:text-text"
             )}
           >
-            Onboarding / recreate
+            Preview character test
+          </button>
+          <button
+            type="button"
+            onClick={() => setPreviewMode("welcome")}
+            className={cn(
+              "rounded px-2 py-1 text-[11px] font-medium",
+              previewMode === "welcome"
+                ? "bg-accent/10 text-accent"
+                : "text-text-muted hover:text-text"
+            )}
+          >
+            Welcome first chat
           </button>
         </div>
         <pre className="max-h-[520px] overflow-auto rounded border border-border bg-bg p-3 text-xs text-text-muted whitespace-pre-wrap">
-          {previewMode === "ordinary" ? ordinaryPreview : onboardingPreview}
+          {previewMode === "ordinary"
+            ? ordinaryPreview
+            : previewMode === "preview"
+              ? previewPromptPreview
+              : welcomePromptPreview}
         </pre>
       </section>
     </div>

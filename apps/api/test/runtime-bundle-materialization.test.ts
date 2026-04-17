@@ -421,7 +421,8 @@ function createInput(order: "alpha" | "beta") {
       tools: "# TOOLS.md\n",
       agents: "# AGENTS.md\n",
       heartbeat: "# HEARTBEAT.md\n",
-      bootstrap: "# BOOTSTRAP.md\n"
+      preview: "# PREVIEW.md\n",
+      welcome: "# WELCOME.md\n"
     }
   };
 }

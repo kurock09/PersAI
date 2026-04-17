@@ -73,7 +73,9 @@ async function run(): Promise<void> {
       tools: "{{tools_catalog_block}}",
       agents: "# Governance\n\nUse memory_write carefully.\nUse scheduled_action carefully.",
       heartbeat: "# Task Heartbeat\n\nStay quiet unless a user-visible follow-up is warranted.",
-      bootstrap:
+      preview_bootstrap:
+        "# Character Preview\n\nShow {{assistant_name}}'s personality when talking to {{human_name}}.",
+      welcome_bootstrap:
         "# First Conversation\n\nYour name is {{assistant_name}}. Say hello to {{human_name}}."
     }
   });
@@ -90,6 +92,14 @@ async function run(): Promise<void> {
     /\*\*`summarize_context`\*\*\nCreate a concise shared-context summary/
   );
   assert.doesNotMatch(compiled.promptConstructor.ordinary.systemPrompt ?? "", /# User Context/);
+  assert.equal(
+    compiled.promptConstructor.onboarding.previewTurnPrompt,
+    "# Character Preview\n\nShow Nova's personality when talking to Alex."
+  );
+  assert.equal(
+    compiled.promptConstructor.onboarding.welcomeTurnPrompt,
+    "# First Conversation\n\nYour name is Nova. Say hello to Alex."
+  );
   assert.equal(
     compiled.promptConstructor.onboarding.firstTurnPrompt,
     "# First Conversation\n\nYour name is Nova. Say hello to Alex."

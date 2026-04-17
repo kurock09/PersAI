@@ -40,6 +40,28 @@ interface JsonResponse {
   body: unknown;
 }
 
+function resolvePreviewTurnPrompt(runtimeBundle: {
+  promptConstructor?: {
+    onboarding?: {
+      previewTurnPrompt?: string | null;
+      firstTurnPrompt?: string | null;
+    };
+  };
+}): string {
+  const previewPrompt = runtimeBundle.promptConstructor?.onboarding?.previewTurnPrompt?.trim();
+  if (previewPrompt) {
+    return previewPrompt;
+  }
+  const legacyPrompt = runtimeBundle.promptConstructor?.onboarding?.firstTurnPrompt?.trim();
+  if (legacyPrompt) {
+    return legacyPrompt;
+  }
+  throw new AssistantRuntimeError(
+    "runtime_degraded",
+    "Native runtime setup preview prompt is missing from the materialized bundle."
+  );
+}
+
 @Injectable()
 export class PreviewAssistantSetupService {
   constructor(
@@ -98,7 +120,7 @@ export class PreviewAssistantSetupService {
       runtimeTier: runtimeAssignment?.effectiveTier ?? "free_shared_restricted",
       runtimeBundleDocument: artifacts.runtimeBundleDocument,
       runtimeBundleHash: artifacts.runtimeBundleHash,
-      userMessage: artifacts.runtimeBundle.promptConstructor.onboarding.firstTurnPrompt,
+      userMessage: resolvePreviewTurnPrompt(artifacts.runtimeBundle),
       userTimezone: workspace?.timezone ?? "UTC",
       currentTimeIso: new Date().toISOString()
     }).catch((error: unknown) => {

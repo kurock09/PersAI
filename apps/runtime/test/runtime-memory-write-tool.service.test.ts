@@ -158,7 +158,8 @@ function createBundle() {
       tools: "",
       agents: "",
       heartbeat: "",
-      bootstrap: ""
+      preview: "",
+      welcome: ""
     }
   }).bundle;
 }

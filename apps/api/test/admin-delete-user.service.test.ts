@@ -72,6 +72,18 @@ async function run(): Promise<void> {
     assistantKnowledgeSource: {
       deleteMany: recordDelete("assistantKnowledgeSource")
     },
+    runtimeTurnReceipt: {
+      deleteMany: recordDelete("runtimeTurnReceipt")
+    },
+    runtimeSessionCompaction: {
+      deleteMany: recordDelete("runtimeSessionCompaction")
+    },
+    runtimeSession: {
+      deleteMany: recordDelete("runtimeSession")
+    },
+    runtimeBundleState: {
+      deleteMany: recordDelete("runtimeBundleState")
+    },
     assistantMaterializedSpec: {
       deleteMany: recordDelete("assistantMaterializedSpec")
     },
@@ -215,6 +227,8 @@ async function run(): Promise<void> {
     'ALTER TABLE "assistant_audit_events" ENABLE TRIGGER "assistant_audit_events_no_update"'
   );
   assert.ok(deleted.includes("assistantKnowledgeSource"));
+  assert.ok(deleted.includes("runtimeBundleState"));
+  assert.ok(deleted.indexOf("runtimeBundleState") < deleted.indexOf("assistantMaterializedSpec"));
   assert.ok(deleted.includes("assistant"));
   assert.ok(deleted.includes("appUser"));
   assert.deepEqual(releasedBytes, [BigInt(7)]);

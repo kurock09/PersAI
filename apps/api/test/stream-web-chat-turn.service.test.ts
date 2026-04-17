@@ -386,6 +386,127 @@ describe("StreamWebChatTurnService", () => {
     ]);
   });
 
+  test("uses the admin-managed onboarding prompt for welcome stream turns", async () => {
+    let capturedNativeUserMessage = "";
+    const memoryWrites: Array<Record<string, unknown>> = [];
+
+    const service = new StreamWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        findChatById: async (chatId: string) => ({
+          id: chatId,
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "welcome",
+          title: "Welcome",
+          archivedAt: null,
+          lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:00.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async function* (input: { userMessage: string }) {
+          capturedNativeUserMessage = input.userMessage;
+          yield { type: "delta", delta: "Hi Alex", accumulated: "Hi Alex" };
+          yield { type: "done", respondedAt: "2026-04-05T12:00:01.000Z" };
+        }
+      } as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
+        }
+      } as never,
+      {
+        execute: async (input: Record<string, unknown>) => {
+          memoryWrites.push(input);
+        }
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never
+    );
+
+    const outcome = await service.streamToCompletion(
+      {
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "welcome",
+          title: "Welcome",
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: "2026-04-05T12:00:00.000Z",
+          updatedAt: "2026-04-05T12:00:00.000Z"
+        },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "__welcome_init__",
+          attachments: [],
+          createdAt: "2026-04-05T12:00:00.000Z"
+        },
+        assistant: {
+          id: "assistant-1",
+          workspaceId: "workspace-1"
+        },
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        runtimeTier: "paid_shared",
+        quotaDegradeModelOverride: null,
+        quotaDegradeReason: null,
+        welcomeFirstTurnPrompt: "You just came online. Introduce yourself warmly to Alex.",
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        workspaceTimezone: "UTC",
+        welcomeTurn: true,
+        welcomeLocale: "ru"
+      } as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onDone: () => undefined
+      }
+    );
+
+    assert.equal(outcome.status, "completed");
+    assert.equal(
+      capturedNativeUserMessage,
+      "You just came online. Introduce yourself warmly to Alex."
+    );
+    assert.equal(
+      memoryWrites[0]?.userContent,
+      "You just came online. Introduce yourself warmly to Alex."
+    );
+  });
+
   test("replays duplicate clientTurnId without starting a second runtime stream", async () => {
     const completedState = {
       clientTurnId: "turn-1",

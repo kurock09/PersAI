@@ -416,14 +416,16 @@ export class MaterializeAssistantPublishedVersionService {
       toolPolicies,
       promptTemplates
     });
-    const bootstrapDocuments = {
+    const onboardingDocuments = {
       soulDocument: compiledPromptConstructor.promptDocuments.soul,
       userDocument: compiledPromptConstructor.promptDocuments.user,
       identityDocument: compiledPromptConstructor.promptDocuments.identity,
       toolsDocument: compiledPromptConstructor.promptDocuments.tools,
       agentsDocument: compiledPromptConstructor.promptDocuments.agents,
       heartbeatDocument: compiledPromptConstructor.promptDocuments.heartbeat,
-      bootstrapDocument: compiledPromptConstructor.promptDocuments.bootstrap
+      previewDocument: compiledPromptConstructor.promptDocuments.preview,
+      welcomeDocument: compiledPromptConstructor.promptDocuments.welcome,
+      bootstrapDocument: compiledPromptConstructor.promptDocuments.welcome
     };
 
     const assistantWorkspace = {
@@ -449,7 +451,7 @@ export class MaterializeAssistantPublishedVersionService {
       memoryControl,
       tasksControl,
       userContext,
-      bootstrapDocuments
+      bootstrapDocuments: onboardingDocuments
     };
 
     const runtimeBundleArtifact = compileAssistantRuntimeBundle({
@@ -518,13 +520,15 @@ export class MaterializeAssistantPublishedVersionService {
         }
       },
       promptDocuments: {
-        soul: bootstrapDocuments.soulDocument,
-        user: bootstrapDocuments.userDocument,
-        identity: bootstrapDocuments.identityDocument,
-        tools: bootstrapDocuments.toolsDocument,
-        agents: bootstrapDocuments.agentsDocument,
-        heartbeat: bootstrapDocuments.heartbeatDocument,
-        bootstrap: bootstrapDocuments.bootstrapDocument
+        soul: onboardingDocuments.soulDocument,
+        user: onboardingDocuments.userDocument,
+        identity: onboardingDocuments.identityDocument,
+        tools: onboardingDocuments.toolsDocument,
+        agents: onboardingDocuments.agentsDocument,
+        heartbeat: onboardingDocuments.heartbeatDocument,
+        preview: onboardingDocuments.previewDocument,
+        welcome: onboardingDocuments.welcomeDocument,
+        bootstrap: onboardingDocuments.bootstrapDocument
       },
       promptConstructor: compiledPromptConstructor.promptConstructor
     });
@@ -880,6 +884,8 @@ export class MaterializeAssistantPublishedVersionService {
       agents: null,
       tools: null,
       heartbeat: null,
+      preview_bootstrap: null,
+      welcome_bootstrap: null,
       bootstrap: null
     };
     for (const p of presets) {

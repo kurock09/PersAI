@@ -154,7 +154,8 @@ async function run(): Promise<void> {
       tools: "# Tool Runtime",
       agents: "",
       heartbeat: "",
-      bootstrap: "# First Conversation"
+      preview: "# Character Preview",
+      welcome: "# First Conversation"
     }
   });
 

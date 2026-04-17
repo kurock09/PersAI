@@ -309,7 +309,8 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
       tools: "",
       agents: "",
       heartbeat: "",
-      bootstrap: ""
+      preview: "",
+      welcome: ""
     }
   });
 
@@ -441,7 +442,8 @@ function createWarmInputMissingToolPolicy() {
       tools: "",
       agents: "",
       heartbeat: "",
-      bootstrap: ""
+      preview: "",
+      welcome: ""
     }
   });
 

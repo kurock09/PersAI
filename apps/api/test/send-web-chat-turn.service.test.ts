@@ -203,4 +203,116 @@ describe("SendWebChatTurnService", () => {
     assert.equal(capturedNativeUserMessage, "hello");
     assert.equal(result.assistantMessage.content, "native");
   });
+
+  test("uses the admin-managed onboarding prompt for welcome sync turns", async () => {
+    let capturedNativeUserMessage = "";
+    const memoryWrites: Array<Record<string, unknown>> = [];
+    const quotaWrites: Array<Record<string, unknown>> = [];
+
+    const service = new SendWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:02.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        completeWebTurnProcessing: async () => undefined,
+        releaseWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async (input: { userMessage: string }) => {
+          capturedNativeUserMessage = input.userMessage;
+          return {
+            assistantMessage: "native",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            media: []
+          };
+        }
+      } as never,
+      {
+        execute: async () => ({
+          chat: {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: "welcome",
+            title: "Welcome",
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: "2026-04-05T12:00:00.000Z",
+            updatedAt: "2026-04-05T12:00:00.000Z"
+          },
+          userMessage: {
+            id: "user-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "__welcome_init__",
+            attachments: [],
+            createdAt: "2026-04-05T12:00:00.000Z"
+          },
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          },
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          quotaDegradeModelOverride: null,
+          quotaDegradeReason: null,
+          welcomeFirstTurnPrompt: "You just came online. Introduce yourself warmly to Alex.",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          workspaceTimezone: "UTC"
+        })
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1"
+        })
+      } as never,
+      {
+        execute: async (input: Record<string, unknown>) => {
+          memoryWrites.push(input);
+        }
+      } as never,
+      {
+        recordWebChatTurnUsage: async (input: Record<string, unknown>) => {
+          quotaWrites.push(input);
+        }
+      } as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never
+    );
+
+    await service.execute("user-1", {
+      surfaceThreadKey: "welcome",
+      message: "__welcome_init__",
+      welcomeTurn: true,
+      welcomeLocale: "ru"
+    });
+
+    assert.equal(
+      capturedNativeUserMessage,
+      "You just came online. Introduce yourself warmly to Alex."
+    );
+    assert.equal(
+      memoryWrites[0]?.userContent,
+      "You just came online. Introduce yourself warmly to Alex."
+    );
+    assert.equal(
+      quotaWrites[0]?.userContent,
+      "You just came online. Introduce yourself warmly to Alex."
+    );
+  });
 });

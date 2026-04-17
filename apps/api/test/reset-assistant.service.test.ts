@@ -43,6 +43,18 @@ async function run(): Promise<void> {
     assistantKnowledgeSource: {
       deleteMany: recordDelete("assistantKnowledgeSource")
     },
+    runtimeTurnReceipt: {
+      deleteMany: recordDelete("runtimeTurnReceipt")
+    },
+    runtimeSessionCompaction: {
+      deleteMany: recordDelete("runtimeSessionCompaction")
+    },
+    runtimeSession: {
+      deleteMany: recordDelete("runtimeSession")
+    },
+    runtimeBundleState: {
+      deleteMany: recordDelete("runtimeBundleState")
+    },
     assistantMaterializedSpec: {
       deleteMany: recordDelete("assistantMaterializedSpec")
     },
@@ -107,7 +119,9 @@ async function run(): Promise<void> {
 
   assert.ok(deleted.includes("assistantKnowledgeSource"));
   assert.ok(deleted.includes("assistantChat"));
+  assert.ok(deleted.includes("runtimeBundleState"));
   assert.ok(deleted.includes("assistantMaterializedSpec"));
+  assert.ok(deleted.indexOf("runtimeBundleState") < deleted.indexOf("assistantMaterializedSpec"));
   assert.deepEqual(deletedPrefixes, [
     "assistant-media/assistants/assistant-1/",
     "assistant-knowledge/assistants/assistant-1/"
@@ -126,7 +140,7 @@ async function run(): Promise<void> {
   assert.equal(auditEvents[0]?.eventCode, "assistant.full_reset");
   assert.equal(
     auditEvents[0]?.summary,
-    "Full assistant reset: all chats, memory, tasks, knowledge sources, published versions, materialized specs and workspace files deleted."
+    "Full assistant reset: chats, memory, tasks, knowledge sources, runtime state, published versions, materialized specs, and workspace files deleted."
   );
 }
 

@@ -1,5 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-04-17 - ADR-073 user UI polish big slice
+
+### What changed
+
+1. `apps/web/app/app/_components/assistant-settings.tsx` was repacked for desktop and mobile polish: the top layout is no longer one long column, `Save` is now a real primary CTA, uploaded avatars render with a consistent shape, the behavior/instructions textarea is promoted as the main character block, legacy voice controls were collapsed down to one base-voice chooser, advanced trait sliders stay available behind an explicit expander, quick actions default closed, task panels are compact/collapsible, and working memory now loads in smaller `5 at a time` batches.
+2. `apps/web/app/app/_components/sidebar.tsx` and `apps/web/app/app/_components/chat-area.tsx` now tighten the chat shell UX: deleting a chat shows an explicit `Deleting...` busy state on the second confirm click, integrations stay collapsed by default with a green active indicator, and the context-pressure banner is visually smaller while `Postpone` now snoozes it for the next `20` messages instead of only the next single turn.
+3. `apps/web/app/app/profile/page.tsx` is now a real custom Clerk profile screen instead of a read-only card view. Users can edit first/last name, upload a new avatar, and change password directly on the custom page.
+4. `apps/web/app/sign-in/[[...sign-in]]/page.tsx` now includes a real custom Clerk forgot-password flow (`request code -> verify code -> set new password`) and `apps/web/app/sign-up/[[...sign-up]]/page.tsx` now links directly into that recovery path while also using clearer user-facing copy. Focused web tests were added for the new auth recovery flow and for the sign-up recovery entrypoint.
+
+### Current active slice
+
+- `ADR-073 - user UI polish`
+
+### Current active step
+
+- `User UI polish complete; next step is ADR-073 memory, knowledge, cache, and smart-model economics`
+
+### Files touched
+
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/sidebar.tsx`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/profile/page.tsx`
+- `apps/web/app/sign-in/[[...sign-in]]/page.tsx`
+- `apps/web/app/sign-up/[[...sign-up]]/page.tsx`
+- `apps/web/app/sign-in/[[...sign-in]]/page.test.tsx`
+- `apps/web/app/sign-up/[[...sign-up]]/page.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/web test -- app/sign-in/[[...sign-in]]/page.test.tsx app/sign-up/[[...sign-up]]/page.test.tsx app/app/setup/page.test.tsx app/app/chat/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / notes
+
+1. The new custom forgot-password flow currently handles the email reset-code path only. If the product later enables phone-based recovery or mandatory second-factor completion on reset, the custom UI will need an explicit follow-up state for those branches.
+2. Profile/avatar/password edits now go through Clerk client APIs directly from the custom UI, so future Clerk SDK upgrades should include a quick regression pass on these screens even when the rest of the app is unchanged.
+
+### Next recommended step
+
+1. Move to the next ordered ADR-073 bucket: audit memory, knowledge, cache, and smart-model economics end to end, then land the smallest bounded slice that improves real retrieval/cost behavior without mixing in deploy-recovery hardening.
+
 ## 2026-04-17 - ADR-073 residue and polish baseline
 
 ### What changed
@@ -17131,3 +17177,275 @@ The O(N) inline mass-reapply was the only auto-propagation mechanism and it bloc
 - Verify Telegram webhook works via `bot.persai.dev`.
 - Continue UI improvements (sidebar, chat UX).
 - **H4 — Telegram runtime readiness alignment** against admin-driven runtime profile.
+
+---
+
+## ADR-073 A1a — setup preview/create dedupe and post-publish handoff
+
+### What changed
+
+1. **Preview-backed create flow:** `apps/web/app/app/setup/page.tsx` now treats the successful step-3 preview persistence as the authoritative draft sync before publish. Final create reuses that persisted onboarding + assistant + draft state instead of repeating the same control-plane writes after preview.
+
+2. **Avatar-only final patch when needed:** final create now uploads and patches avatar fields only when the user picked a custom image. Preset emoji avatars publish directly from the already-persisted preview draft.
+
+3. **Client-side chat handoff:** successful publish now uses `router.replace("/app/chat")` instead of `window.location.href`, keeping the setup flow on the normal app-router path.
+
+4. **Focused regression coverage:** `apps/web/app/app/setup/page.test.tsx` now asserts both:
+   - custom-avatar flow still uploads + patches avatar before publish
+   - preset-avatar flow publishes without repeating onboarding/create/draft writes after preview
+
+### Why changed
+
+ADR-073 identifies duplicated setup writes as an active create/recreate lifecycle problem: preview and final create were both calling onboarding, assistant create, and draft patch even when preview had already persisted the exact same draft. This slice removes that unnecessary second write wave while keeping scope bounded to the setup lifecycle path.
+
+### Slice boundary
+
+- PersAI frontend only: setup wizard flow and its focused tests.
+- No backend/API contract changes.
+- No change to reset/recreate semantics yet.
+- No attempt yet to make uploaded custom avatars visible in runtime preview.
+- No broader UI-polish, model-routing, cache, or Step 19 work mixed into this slice.
+
+### Key files changed
+
+- `apps/web/app/app/setup/page.tsx` — reuse preview-persisted draft on final create; avatar-only final patch; client-side post-publish routing
+- `apps/web/app/app/setup/page.test.tsx` — regression coverage for uploaded-avatar and preset-avatar create flows
+- `docs/CHANGELOG.md` — recorded the bounded ADR-073 lifecycle fix
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web run test -- app/app/setup/page.test.tsx`
+
+### Risks
+
+1. The base draft still depends on the preview persistence step rather than a single backend transaction that combines preview/create/publish lifecycle semantics.
+2. Uploaded custom avatars are still local-only until final create uploads them, so runtime preview still cannot show the final uploaded avatar truth.
+
+### Next recommended step
+
+- Continue ADR-073 create/recreate lifecycle polish by replacing the hidden `POST /assistant` `409 already existed` recreate fallback with an explicit recreate/recover lifecycle path.
+
+---
+
+## ADR-073 A1b — reset runtime-state cleanup and desktop settings/setup polish
+
+### What changed
+
+1. **Reset no longer dies on runtime bundle FK cleanup:** `ResetAssistantService` now deletes assistant-scoped native runtime state rows before deleting materialized specs and published versions:
+   - `runtime_turn_receipts`
+   - `runtime_session_compactions`
+   - `runtime_sessions`
+   - `runtime_bundle_states`
+
+2. **Admin delete user cleanup aligned to the same native runtime truth:** `AdminDeleteUserService` now deletes the same runtime-state rows before removing materialized specs / published versions / assistant rows, avoiding the same latent FK failure path there.
+
+3. **Reset/recreate cleanup semantics are more honest:** reset audit wording now explicitly includes runtime state, matching the real native runtime data model instead of pretending reset only clears chats/memory/tasks/spec rows.
+
+4. **Desktop assistant settings panel no longer feels like a narrow single-column portyanka:** the slide-over is wider on desktop, the top character block now puts the main identity/edit area and action buttons into a more balanced layout, the personality editor is split into a cleaner two-column desktop composition, and the textarea/voice/sliders no longer stack as one long unbalanced column.
+
+5. **Setup/recreate personality step polished for desktop:** `apps/web/app/app/setup/page.tsx` step 2 now uses a wider desktop layout with preset card + slider card on one side and the custom-instructions card on the other, instead of one long vertical block.
+
+6. **Discrete slider movement:** personality sliders in both setup and assistant settings now move in `10`-point steps and show the current numeric value inline.
+
+### Why changed
+
+The user hit a real reset failure caused by deleting `assistant_materialized_specs` while `runtime_bundle_states` still referenced those rows. At the same time, the current settings/setup desktop UI still looked like a narrow stacked form rather than a polished create/recreate surface. This slice fixes the concrete reset bug and applies the next bounded UI cleanup inside the same ADR-073 lifecycle/settings area.
+
+### Slice boundary
+
+- PersAI backend:
+  - cleanup ordering in reset
+  - cleanup ordering in admin delete user
+- PersAI frontend:
+  - desktop settings slide-over width/layout
+  - setup/recreate personality-step layout
+  - discrete personality sliders
+- No backend API contract changes.
+- No explicit recreate/recover endpoint or `409` lifecycle redesign yet.
+- No Redis runtime-marker cleanup yet; this slice stays on durable DB/runtime-state cleanup plus UI polish.
+
+### Key files changed
+
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/admin-delete-user.service.ts`
+- `apps/api/test/reset-assistant.service.test.ts`
+- `apps/api/test/admin-delete-user.service.test.ts`
+- `apps/web/app/app/_components/slide-over.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/setup/page.tsx`
+- `docs/CHANGELOG.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/reset-assistant.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+- `corepack pnpm --filter @persai/web run test -- app/app/setup/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks
+
+1. Reset now clears the durable Postgres runtime state rows, but this slice does not yet explicitly clear any companion Redis runtime markers.
+2. The UI polish was validated by focused tests/typecheck rather than screenshot-based visual review, so further spacing tweaks may still be desirable after manual desktop QA.
+
+### Next recommended step
+
+- Continue ADR-073 create/recreate lifecycle polish by replacing the hidden `POST /assistant` `409 already existed` recreate fallback with an explicit recreate/recover lifecycle path, then tighten the remaining reset/recreate user messaging around destructive scope and recovery.
+
+---
+
+## ADR-073 A1c — preview prompt clarity and explicit welcome-chat flow
+
+### What changed
+
+1. **Setup preview is now explicitly explained in UI:** the step-3 preview page now tells the user that the response is generated from the admin-managed onboarding/recreate greeting together with the current draft personality, so preview reads as an intentional first-greeting test rather than a generic sample reply.
+
+2. **Welcome chat now uses the same prompt family as preview:** web welcome turns no longer rely only on the separate hardcoded welcome instruction. The runtime path now prefers the active materialized `runtimeBundle.promptConstructor.onboarding.firstTurnPrompt` (admin-managed via Prompt Constructor / admin presets UI) and only falls back to the old locale-specific hardcoded greeting instruction if that onboarding prompt is missing.
+
+3. **Welcome creation is now explicit instead of accidental:** setup/recreate publish now routes into `thread=welcome&welcome=1`, and `apps/web/app/app/chat/page.tsx` now creates the welcome chat only when that explicit flag is present. The old behavior that auto-created a welcome chat whenever an existing account happened to have zero chats is removed.
+
+4. **Welcome chat routing is cleaner:** setup now lands directly on the welcome thread target instead of entering a generic chat page first and inferring welcome creation indirectly from the empty sidebar state.
+
+5. **Focused regression coverage landed for both layers:**
+   - API tests now assert that sync + stream welcome turns use the admin-managed onboarding prompt when present
+   - web tests now assert that empty chat history alone no longer auto-creates welcome, while explicit `welcome=1` still does
+
+### Why changed
+
+The current preview path was already wired to the admin-managed onboarding prompt, but the real welcome chat still used a separate hardcoded greeting path and the web UI auto-created that welcome chat merely because the chat list was empty. That made the final setup step both conceptually inconsistent and behaviorally wrong after manual chat deletion. This slice aligns preview and welcome on one prompt model and makes welcome creation explicit.
+
+### Slice boundary
+
+- PersAI backend:
+  - resolve active onboarding first-turn prompt from the materialized runtime bundle
+  - use that prompt on sync/stream welcome turns with hardcoded fallback only as backup
+- PersAI frontend:
+  - explicit welcome query flow after publish
+  - remove empty-chat auto-welcome behavior
+  - preview-page explanatory copy
+- No broader recreate endpoint redesign yet.
+- No rework of canonical hidden sentinel storage yet (`__welcome_init__` still remains the persisted hidden user message marker).
+
+### Key files changed
+
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-inbound-runtime-context.service.ts`
+- `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/web/app/app/setup/page.tsx`
+- `apps/web/app/app/setup/page.test.tsx`
+- `apps/web/app/app/chat/page.tsx`
+- `apps/web/app/app/chat/page.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/CHANGELOG.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/web run test -- app/app/setup/page.test.tsx app/app/chat/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks
+
+1. Welcome turns still persist the hidden sentinel user message row (`__welcome_init__`) and replace it only at runtime-input / history-filtering layers; this slice did not redesign that canonical representation yet.
+2. If the active materialized runtime bundle is somehow missing its onboarding prompt, welcome still falls back to the old locale-specific hardcoded instruction instead of failing closed.
+
+### Next recommended step
+
+- Continue ADR-073 create/recreate lifecycle polish by replacing the hidden `POST /assistant` `409 already existed` recreate fallback with an explicit recreate/recover lifecycle path, then decide whether the hidden welcome sentinel should stay as canonical storage or be replaced by a more explicit first-turn record model.
+
+---
+
+## ADR-073 A1d — split preview and welcome prompts
+
+### What changed
+
+1. **Preview and welcome are no longer the same hidden prompt:** Prompt Constructor now exposes two separate admin-managed templates instead of one shared `bootstrap` editor:
+   - `Preview Character Test`
+   - `Welcome / First Chat Greeting`
+
+2. **Runtime bundle now materializes separate first-turn fields:** `apps/api` now compiles:
+   - `promptConstructor.onboarding.previewTurnPrompt`
+   - `promptConstructor.onboarding.welcomeTurnPrompt`
+   while keeping `firstTurnPrompt` and `promptDocuments.bootstrap` only as welcome-oriented legacy compatibility aliases.
+
+3. **Setup preview now uses the preview-only prompt:** `PreviewAssistantSetupService` now feeds the native preview turn with `previewTurnPrompt`, so step-3 preview is a character/tone test instead of pretending to be the literal first live welcome chat.
+
+4. **Welcome chat now uses the welcome-only prompt:** live sync/stream welcome turns now resolve `welcomeTurnPrompt` from the materialized runtime bundle. For already-materialized old bundles, the parser still falls back to legacy `firstTurnPrompt` / `promptDocuments.bootstrap`, and then to the old locale-specific hardcoded greeting instruction only if no bundle welcome prompt exists.
+
+5. **Admin preview UI now reflects the split:** the admin presets page now shows separate editors and separate compiled previews for:
+   - ordinary turn
+   - preview character test
+   - welcome first chat
+
+6. **Setup copy now matches product semantics:** the setup preview page no longer describes itself as the final welcome greeting. It now explicitly frames step 3 as a character/style test before publish.
+
+### Why changed
+
+The user explicitly called out that preview and welcome are very different product moments. Preview should test tone, warmth, initiative, and style. Welcome should be the real first live message after publish/recreate. Keeping both on one hidden prompt made the UX and admin mental model muddy, so this slice separates them at the source of truth and through runtime materialization.
+
+### Slice boundary
+
+- Added separate admin-managed prompt templates for preview and welcome.
+- Split compiled onboarding prompt fields in the runtime bundle.
+- Rewired setup preview to use preview-only prompt semantics.
+- Rewired live welcome turns to use welcome-only prompt semantics with legacy fallback.
+- Updated focused tests plus runtime-bundle test fixtures impacted by the bundle shape change.
+- No recreate endpoint redesign yet.
+- No hidden welcome sentinel redesign yet.
+
+### Key files changed
+
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-inbound-runtime-context.service.ts`
+- `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/web/app/admin/presets/page.tsx`
+- `packages/runtime-bundle/src/index.ts`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `apps/api/test/compile-prompt-constructor.service.test.ts`
+- `apps/api/test/preview-assistant-setup.service.test.ts`
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/api/test/runtime-bundle-materialization.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/runtime-video-generate-tool.service.test.ts`
+- `apps/runtime/test/runtime-tts-tool.service.test.ts`
+- `apps/runtime/test/runtime-scheduled-action-tool.service.test.ts`
+- `apps/runtime/test/runtime-quota-status-tool.service.test.ts`
+- `apps/runtime/test/runtime-memory-write-tool.service.test.ts`
+- `apps/runtime/test/runtime-knowledge-tool.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `docs/CHANGELOG.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/compile-prompt-constructor.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/preview-assistant-setup.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/web run test -- app/app/setup/page.test.tsx app/app/chat/page.test.tsx`
+- `corepack pnpm --filter @persai/runtime run test -- test/turn-execution.service.test.ts test/runtime-bundle-materialization.test.ts test/native-tool-projection.test.ts`
+
+### Risks
+
+1. Older materialized bundles still rely on the welcome legacy compatibility path (`firstTurnPrompt` / `promptDocuments.bootstrap`) until they are republished or reapplied.
+2. Welcome turns still persist the hidden sentinel user message row (`__welcome_init__`); this slice only separated prompt semantics, not canonical storage shape.
+
+### Next recommended step
+
+- Continue ADR-073 create/recreate lifecycle polish by replacing the hidden `POST /assistant` `409 already existed` recreate fallback with an explicit recreate/recover lifecycle path, then tighten reset/recreate messaging around destructive scope, recovery, and the first-run welcome lifecycle.

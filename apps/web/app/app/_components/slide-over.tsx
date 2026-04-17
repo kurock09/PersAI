@@ -33,7 +33,7 @@ export function SlideOver({ open, onClose, title, children }: SlideOverProps) {
             onClick={onClose}
           />
           <motion.aside
-            className="fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-surface border-l border-border shadow-2xl md:max-w-[420px]"
+            className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-surface shadow-2xl md:max-w-[560px] lg:max-w-[680px] xl:max-w-[760px]"
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}

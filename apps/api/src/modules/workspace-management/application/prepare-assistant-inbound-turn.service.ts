@@ -44,6 +44,7 @@ export interface PreparedAssistantInboundTurn {
   runtimeTier: RuntimeTier;
   quotaDegradeModelOverride: { provider: "openai" | "anthropic"; model: string } | null;
   quotaDegradeReason: AssistantInboundQuotaDegradeReason | null;
+  welcomeFirstTurnPrompt: string | null;
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
@@ -176,6 +177,7 @@ export class PrepareAssistantInboundTurnService {
       quotaDegradeModelOverride:
         quotaDecision.mode === "degrade_allowed" ? resolved.quotaDegradeModelOverride : null,
       quotaDegradeReason: quotaDecision.mode === "degrade_allowed" ? quotaDecision.reason : null,
+      welcomeFirstTurnPrompt: resolved.welcomeFirstTurnPrompt,
       userId: assistant.userId,
       workspaceId: assistant.workspaceId,
       workspaceTimezone: workspace.timezone

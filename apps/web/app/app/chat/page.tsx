@@ -21,6 +21,7 @@ function ChatPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const threadFromUrl = searchParams.get("thread");
+  const welcomeFromUrl = searchParams.get("welcome") === "1";
 
   const threadKey = useMemo(() => threadFromUrl ?? `web-${Date.now()}`, [threadFromUrl]);
 
@@ -47,28 +48,40 @@ function ChatPageInner() {
     }
   }, [chat.chatId, threadFromUrl]); // eslint-disable-line
 
-  // Welcome chat: trigger once on first visit when no chats exist.
+  // Welcome chat: trigger only when setup/recreate explicitly requests it.
   const welcomeTriggeredRef = useRef(false);
   useEffect(() => {
     if (welcomeTriggeredRef.current) return;
     if (appData.isLoading) return;
     if (appData.assistantStatus !== "live") return;
-    if (threadFromUrl) return;
+    if (!welcomeFromUrl) return;
+    if (threadFromUrl !== WELCOME_THREAD_KEY) return;
     if (chat.isStreaming) return;
 
     const existingWelcome = appData.chats.find(
       (c) => c.chat.surfaceThreadKey === WELCOME_THREAD_KEY
     );
-    if (existingWelcome) return; // already done
-
-    if (appData.chats.length === 0) {
+    if (existingWelcome) {
       welcomeTriggeredRef.current = true;
-      void chat.sendWelcome(locale).then(() => {
-        void appData.reloadChats();
-        router.replace(`/app/chat?thread=${WELCOME_THREAD_KEY}` as Route);
-      });
+      router.replace(`/app/chat?thread=${WELCOME_THREAD_KEY}` as Route);
+      return;
     }
-  }, [appData.isLoading, appData.assistantStatus, appData.chats, threadFromUrl]); // eslint-disable-line
+
+    welcomeTriggeredRef.current = true;
+    void chat.sendWelcome(locale).then(() => {
+      void appData.reloadChats();
+      router.replace(`/app/chat?thread=${WELCOME_THREAD_KEY}` as Route);
+    });
+  }, [
+    appData.isLoading,
+    appData.assistantStatus,
+    appData.chats,
+    chat,
+    locale,
+    router,
+    threadFromUrl,
+    welcomeFromUrl
+  ]);
 
   return (
     <ChatArea

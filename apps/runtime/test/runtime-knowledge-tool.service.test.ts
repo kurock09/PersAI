@@ -209,7 +209,8 @@ function createBundle(knowledgeAccess: RuntimeKnowledgeAccessConfig) {
       tools: "",
       agents: "",
       heartbeat: "",
-      bootstrap: ""
+      preview: "",
+      welcome: ""
     }
   }).bundle;
 }

@@ -16,7 +16,8 @@ import {
   History,
   Loader2,
   AlertTriangle,
-  Upload
+  Upload,
+  SlidersHorizontal
 } from "lucide-react";
 import type {
   AssistantMemoryRegistryItemState,
@@ -157,14 +158,16 @@ function ActionButton({
   onClick,
   busy,
   variant = "default",
-  disabled
+  disabled,
+  className
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
   busy: boolean;
-  variant?: "default" | "danger";
+  variant?: "default" | "primary" | "danger";
   disabled?: boolean;
+  className?: string;
 }) {
   return (
     <button
@@ -175,7 +178,10 @@ function ActionButton({
         "flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-50",
         variant === "danger"
           ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
-          : "bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"
+          : variant === "primary"
+            ? "bg-accent text-white shadow-sm shadow-accent/20 hover:bg-accent-hover"
+            : "bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text",
+        className
       )}
     >
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : icon}
@@ -342,6 +348,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const [draftVoiceProfile, setDraftVoiceProfile] = useState<AssistantVoiceProfile>(
     normalizeVoiceProfile(assistant?.draft.voiceProfile)
   );
+  const [showTraitControls, setShowTraitControls] = useState(false);
   const [avatarPreviewBlobUrl, setAvatarPreviewBlobUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -357,7 +364,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const [memoryItems, setMemoryItems] = useState<AssistantMemoryRegistryItemState[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [forgettingId, setForgettingId] = useState<string | null>(null);
-  const [memoryVisibleCount, setMemoryVisibleCount] = useState(10);
+  const [memoryVisibleCount, setMemoryVisibleCount] = useState(5);
 
   const [wsMemoryItems, setWsMemoryItems] = useState<WorkspaceMemoryItem[]>([]);
   const [wsMemoryLoading, setWsMemoryLoading] = useState(false);
@@ -365,11 +372,14 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const [wsMemoryAdding, setWsMemoryAdding] = useState(false);
   const [wsNewMemory, setWsNewMemory] = useState("");
   const [wsForgettingId, setWsForgettingId] = useState<string | null>(null);
+  const [wsMemoryVisibleCount, setWsMemoryVisibleCount] = useState(5);
   const [memoryTab, setMemoryTab] = useState<"workspace" | "registry">("workspace");
 
   const [taskItems, setTaskItems] = useState<AssistantTaskRegistryItemState[]>([]);
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
+  const [showUserTasks, setShowUserTasks] = useState(false);
+  const [showAssistantActions, setShowAssistantActions] = useState(false);
   const [notificationChannel, setNotificationChannel] =
     useState<AssistantPreferredNotificationChannel>("web");
   const [notificationSaving, setNotificationSaving] = useState(false);
@@ -379,14 +389,6 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const [voiceSettingsError, setVoiceSettingsError] = useState<string | null>(null);
 
   const primaryVoiceProviderId = voiceSettings?.primaryProviderId ?? null;
-  const primaryVoiceProviderLabel =
-    primaryVoiceProviderId === "elevenlabs"
-      ? t("voiceProviderElevenlabs")
-      : primaryVoiceProviderId === "yandex"
-        ? t("voiceProviderYandex")
-        : primaryVoiceProviderId === "openai"
-          ? t("voiceProviderOpenai")
-          : t("voiceLoading");
   const yandexVoiceOptions = useMemo(
     () => filterVoiceOptions(YANDEX_VOICE_OPTIONS, draftAssistantGender),
     [draftAssistantGender]
@@ -507,11 +509,6 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       t
     ]
   );
-  const voiceProviderHint =
-    primaryVoiceProviderId === null
-      ? t("voiceLoading")
-      : t("voicePrimaryProviderHint", { provider: primaryVoiceProviderLabel });
-
   useEffect(() => {
     setDraftName(assistant?.draft.displayName ?? "");
     setDraftInstructions(assistant?.draft.instructions ?? "");
@@ -522,6 +519,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     setDraftAvatarUrl(assistant?.draft.avatarUrl ?? null);
     setDraftAssistantGender(normalizeAssistantGender(assistant?.draft.assistantGender));
     setDraftVoiceProfile(normalizeVoiceProfile(assistant?.draft.voiceProfile));
+    setShowTraitControls(false);
     setAvatarPreviewBlobUrl(null);
   }, [assistant]);
 
@@ -637,7 +635,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     const token = await getToken();
     if (!token) return;
     setMemoryLoading(true);
-    setMemoryVisibleCount(10);
+    setMemoryVisibleCount(5);
     try {
       setMemoryItems(await getAssistantMemoryItems(token));
     } catch {
@@ -663,6 +661,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       const token = await getToken();
       if (!token) return;
       setWsMemoryLoading(true);
+      setWsMemoryVisibleCount(5);
       try {
         const items = query
           ? await searchWorkspaceMemory(token, query)
@@ -739,7 +738,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
         }
       });
       await postAssistantPublish(token);
-      setSaveFb({ type: "ok", text: t("savedAndApplied") });
+      setSaveFb({ type: "ok", text: t("saved") });
       data.reload();
     } catch (e) {
       setSaveFb({ type: "err", text: e instanceof Error ? e.message : t("saveFailed") });
@@ -868,73 +867,102 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     <div>
       {/* 1. Character — hero */}
       <Section icon={<Sparkles className="h-4 w-4" />} title={t("character")}>
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => setEmojiPickerOpen((o) => !o)}
-            className="flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center rounded-2xl bg-accent/15 text-3xl overflow-hidden transition-colors hover:bg-accent/25"
-            title={t("changeAvatar")}
-          >
-            {avatarUploading ? (
-              <Loader2 className="h-6 w-6 animate-spin text-accent" />
-            ) : avatarPreviewBlobUrl ? (
-              <img src={avatarPreviewBlobUrl} alt="Avatar" className="h-full w-full object-cover" />
-            ) : draftAvatarUrl ? (
-              <AssistantAvatar avatarUrl={draftAvatarUrl} size="md" />
-            ) : (
-              draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="rounded-2xl border border-border bg-surface-raised p-4">
+            <div className="grid gap-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+              <button
+                type="button"
+                onClick={() => setEmojiPickerOpen((o) => !o)}
+                className="flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
+                title={t("changeAvatar")}
+              >
+                {avatarUploading ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-accent" />
+                ) : avatarPreviewBlobUrl ? (
+                  <img
+                    src={avatarPreviewBlobUrl}
+                    alt="Avatar"
+                    className="h-full w-full object-cover"
+                  />
+                ) : draftAvatarUrl ? (
+                  <AssistantAvatar
+                    avatarUrl={draftAvatarUrl}
+                    size="md"
+                    className="h-full w-full rounded-2xl"
+                  />
+                ) : (
+                  draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />
+                )}
+              </button>
+              <div className="min-w-0 flex-1">
+                <input
+                  type="text"
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  placeholder={t("assistantNamePlaceholder")}
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                />
+                <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
+                  <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
+                  <span>{statusLabel}</span>
+                </div>
+              </div>
+            </div>
+            {emojiPickerOpen && (
+              <div className="mt-3 grid grid-cols-6 gap-1 rounded-lg border border-border bg-surface p-2">
+                {AVATAR_EMOJIS.map((em) => (
+                  <button
+                    key={em}
+                    type="button"
+                    onClick={() => {
+                      setDraftAvatarEmoji(em);
+                      setDraftAvatarUrl(null);
+                      setEmojiPickerOpen(false);
+                    }}
+                    className={cn(
+                      "flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-xl transition-colors",
+                      draftAvatarEmoji === em && !draftAvatarUrl
+                        ? "bg-accent/20 ring-1 ring-accent"
+                        : "hover:bg-surface-hover"
+                    )}
+                  >
+                    {em}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className={cn(
+                    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg transition-colors",
+                    draftAvatarUrl
+                      ? "bg-accent/20 ring-1 ring-accent"
+                      : "text-text-subtle hover:bg-surface-hover"
+                  )}
+                  title={t("uploadImage")}
+                >
+                  <Upload className="h-4 w-4" />
+                </button>
+              </div>
             )}
-          </button>
-          <div className="min-w-0 flex-1">
-            <input
-              type="text"
-              value={draftName}
-              onChange={(e) => setDraftName(e.target.value)}
-              placeholder={t("assistantNamePlaceholder")}
-              className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+          </div>
+          <div className="flex flex-col gap-2">
+            <ActionButton
+              icon={<Rocket className="h-3.5 w-3.5" />}
+              label={t("save")}
+              onClick={() => void handleSaveAndApply()}
+              busy={saving}
+              variant="primary"
+              className="w-full justify-center"
             />
-            <span className="mt-1.5 flex items-center gap-1.5">
-              <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
-              <span className="text-xs text-text-muted">{statusLabel}</span>
-            </span>
+            <ActionButton
+              icon={<Sparkles className="h-3.5 w-3.5" />}
+              label={editingPersonality ? t("hidePersonality") : t("editPersonality")}
+              onClick={() => setEditingPersonality(!editingPersonality)}
+              busy={false}
+              className="w-full justify-center"
+            />
           </div>
         </div>
-        {emojiPickerOpen && (
-          <div className="mt-2 grid grid-cols-6 gap-1 rounded-lg border border-border bg-surface-raised p-2">
-            {AVATAR_EMOJIS.map((em) => (
-              <button
-                key={em}
-                type="button"
-                onClick={() => {
-                  setDraftAvatarEmoji(em);
-                  setDraftAvatarUrl(null);
-                  setEmojiPickerOpen(false);
-                }}
-                className={cn(
-                  "flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-xl transition-colors",
-                  draftAvatarEmoji === em && !draftAvatarUrl
-                    ? "bg-accent/20 ring-1 ring-accent"
-                    : "hover:bg-surface-hover"
-                )}
-              >
-                {em}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className={cn(
-                "flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg transition-colors",
-                draftAvatarUrl
-                  ? "bg-accent/20 ring-1 ring-accent"
-                  : "hover:bg-surface-hover text-text-subtle"
-              )}
-              title={t("uploadImage")}
-            >
-              <Upload className="h-4 w-4" />
-            </button>
-          </div>
-        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -963,222 +991,241 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
             })();
           }}
         />
-
-        <div className="mt-3 flex items-center gap-2">
-          <ActionButton
-            icon={<Rocket className="h-3.5 w-3.5" />}
-            label={t("saveAndApply")}
-            onClick={() => void handleSaveAndApply()}
-            busy={saving}
-          />
-          <ActionButton
-            icon={<Sparkles className="h-3.5 w-3.5" />}
-            label={editingPersonality ? t("hidePersonality") : t("editPersonality")}
-            onClick={() => setEditingPersonality(!editingPersonality)}
-            busy={false}
-          />
-        </div>
         <FeedbackLine fb={saveFb} />
 
         {editingPersonality && (
-          <>
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {ASSISTANT_GENDER_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setDraftAssistantGender(opt.value)}
-                  className={cn(
-                    "rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
-                    draftAssistantGender === opt.value
-                      ? "border-accent bg-accent/10 text-accent"
-                      : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
-                  )}
-                >
-                  {tp(opt.labelKey)}
-                </button>
-              ))}
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+              <div className="rounded-xl border border-border bg-surface-raised p-4">
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-medium text-text">{t("characterBasicsTitle")}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                      {t("characterBasicsHelp")}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
+                      {t("assistantGenderLabel")}
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {ASSISTANT_GENDER_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setDraftAssistantGender(opt.value)}
+                          className={cn(
+                            "min-h-[42px] rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                            draftAssistantGender === opt.value
+                              ? "border-accent bg-accent/10 text-accent"
+                              : "border-border bg-surface text-text-muted hover:border-border-strong hover:text-text"
+                          )}
+                        >
+                          {tp(opt.labelKey)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border/70 bg-surface p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium text-text">{t("voice")}</p>
+                        <p className="mt-1 text-xs text-text-muted">{t("voiceSimpleHelp")}</p>
+                      </div>
+                      <span className="rounded-full bg-surface-raised px-2.5 py-1 text-[10px] text-text-muted">
+                        {t("voiceLocale", { locale: draftVoiceProfile.defaultLocale })}
+                      </span>
+                    </div>
+                    {voiceSettingsError && (
+                      <p className="mt-2 text-[11px] text-destructive">{voiceSettingsError}</p>
+                    )}
+                    {primaryVoiceProviderId === "elevenlabs" && (
+                      <label className="mt-3 block">
+                        <span className="mb-1 block text-[11px] text-text-muted">
+                          {t("voiceBaseVoice")}
+                        </span>
+                        <select
+                          value={draftVoiceProfile.elevenlabs.voiceId ?? ""}
+                          onChange={(e) =>
+                            setDraftVoiceProfile((prev) => ({
+                              ...prev,
+                              elevenlabs: {
+                                voiceId: e.target.value === "" ? null : e.target.value
+                              }
+                            }))
+                          }
+                          disabled={
+                            voiceSettingsLoading || voiceSettings?.elevenlabs?.loadState !== "ready"
+                          }
+                          className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
+                        >
+                          <option value="">{t("voiceChooseBaseVoice")}</option>
+                          {elevenLabsSelectOptions.map((voice) => (
+                            <option key={voice.value} value={voice.value}>
+                              {voice.label}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-2 text-[11px] text-text-subtle">
+                          {voiceSettingsLoading
+                            ? t("voiceElevenlabsLoading")
+                            : voiceSettings?.elevenlabs?.loadState === "not_configured"
+                              ? t("voiceElevenlabsNotConfigured")
+                              : voiceSettings?.elevenlabs?.loadState === "unavailable"
+                                ? (voiceSettings.elevenlabs.warning ??
+                                  t("voiceElevenlabsUnavailable"))
+                                : filteredElevenLabsVoiceOptions.length === 0
+                                  ? t("voiceNoVoicesForGender")
+                                  : t("voiceGenderFilterHint")}
+                        </p>
+                      </label>
+                    )}
+                    {primaryVoiceProviderId === "yandex" && (
+                      <label className="mt-3 block">
+                        <span className="mb-1 block text-[11px] text-text-muted">
+                          {t("voiceBaseVoice")}
+                        </span>
+                        <select
+                          value={draftVoiceProfile.yandex.voice ?? ""}
+                          onChange={(e) =>
+                            setDraftVoiceProfile((prev) => ({
+                              ...prev,
+                              yandex: {
+                                ...prev.yandex,
+                                voice:
+                                  e.target.value === ""
+                                    ? null
+                                    : (e.target
+                                        .value as (typeof YANDEX_VOICE_OPTIONS)[number]["value"])
+                              }
+                            }))
+                          }
+                          className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                        >
+                          {yandexVoiceOptions.map((voice) => (
+                            <option key={voice.value} value={voice.value}>
+                              {voice.label}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-2 text-[11px] text-text-subtle">
+                          {t("voiceGenderFilterHint")}
+                        </p>
+                      </label>
+                    )}
+                    {primaryVoiceProviderId === "openai" && (
+                      <label className="mt-3 block">
+                        <span className="mb-1 block text-[11px] text-text-muted">
+                          {t("voiceBaseVoice")}
+                        </span>
+                        <select
+                          value={draftVoiceProfile.openai.voice ?? ""}
+                          onChange={(e) =>
+                            setDraftVoiceProfile((prev) => ({
+                              ...prev,
+                              openai: {
+                                voice:
+                                  e.target.value === ""
+                                    ? null
+                                    : (e.target
+                                        .value as (typeof OPENAI_VOICE_OPTIONS)[number]["value"])
+                              }
+                            }))
+                          }
+                          className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                        >
+                          {openAiVoiceOptions.map((voice) => (
+                            <option key={voice.value} value={voice.value}>
+                              {voice.label}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-2 text-[11px] text-text-subtle">
+                          {t("voiceGenderFilterHint")}
+                        </p>
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-surface-raised p-4">
+                <div className="flex items-start gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-text">{t("behaviorTitle")}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                      {t("behaviorHelp")}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-lg border border-border/70 bg-surface p-3">
+                  <p className="text-[11px] leading-relaxed text-text-subtle">
+                    {t("behaviorExample")}
+                  </p>
+                </div>
+                <textarea
+                  value={draftInstructions}
+                  onChange={(e) => setDraftInstructions(e.target.value)}
+                  placeholder={t("behaviorPlaceholder")}
+                  rows={8}
+                  className="mt-3 min-h-[240px] w-full resize-y rounded-lg border border-border bg-surface px-3 py-3 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                />
+              </div>
             </div>
-            <div className="mt-4 rounded-xl border border-border bg-surface-raised p-4">
-              <div className="flex items-start justify-between gap-3">
+
+            <div className="rounded-xl border border-border bg-surface-raised p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium text-text">{t("voice")}</p>
-                  <p className="mt-1 text-xs text-text-muted">{t("voiceDescription")}</p>
+                  <p className="text-sm font-medium text-text">{t("traitControlsTitle")}</p>
+                  <p className="mt-1 text-xs text-text-muted">{t("traitControlsHelp")}</p>
                 </div>
-                <span className="rounded-full bg-surface px-2 py-1 text-[10px] text-text-muted">
-                  {t("voiceLocale", { locale: draftVoiceProfile.defaultLocale })}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowTraitControls((open) => !open)}
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  {showTraitControls ? t("hideTraitControls") : t("showTraitControls")}
+                </button>
               </div>
-              <p className="mt-2 text-[11px] text-text-subtle">{t("voiceToneNote")}</p>
-              <p className="mt-2 text-[11px] text-text-subtle">{voiceProviderHint}</p>
-              {voiceSettingsError && (
-                <p className="mt-2 text-[11px] text-destructive">{voiceSettingsError}</p>
+
+              {showTraitControls && (
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {TRAIT_SLIDERS.map(({ key, labelLeftKey, labelRightKey }) => (
+                    <div key={key} className="rounded-lg border border-border/70 bg-surface p-3">
+                      <div className="mb-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-[11px]">
+                        <span className="truncate text-text-muted">{tp(labelLeftKey)}</span>
+                        <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] text-text-subtle">
+                          {draftTraits[key] ?? 50}
+                        </span>
+                        <span className="truncate text-right text-text-muted">
+                          {tp(labelRightKey)}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={10}
+                        value={draftTraits[key] ?? 50}
+                        onChange={(e) =>
+                          setDraftTraits((prev) => ({ ...prev, [key]: Number(e.target.value) }))
+                        }
+                        className="w-full accent-accent"
+                      />
+                    </div>
+                  ))}
+                </div>
               )}
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <label className="block">
-                  <span className="mb-1 block text-[11px] text-text-muted">
-                    {t("voiceDelivery")}
-                  </span>
-                  <select
-                    value={draftVoiceProfile.deliveryKind}
-                    onChange={(e) =>
-                      setDraftVoiceProfile((prev) => ({
-                        ...prev,
-                        deliveryKind: e.target.value as AssistantVoiceProfile["deliveryKind"]
-                      }))
-                    }
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                  >
-                    <option value="voice_note">{t("voiceDeliveryVoiceNote")}</option>
-                    <option value="audio">{t("voiceDeliveryAudio")}</option>
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-[11px] text-text-muted">
-                    {t("voicePrimaryProvider")}
-                  </span>
-                  <div className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text">
-                    {primaryVoiceProviderLabel}
-                  </div>
-                </label>
-                {primaryVoiceProviderId === "elevenlabs" && (
-                  <label className="block md:col-span-2">
-                    <span className="mb-1 block text-[11px] text-text-muted">
-                      {t("voiceBaseVoice")}
-                    </span>
-                    <select
-                      value={draftVoiceProfile.elevenlabs.voiceId ?? ""}
-                      onChange={(e) =>
-                        setDraftVoiceProfile((prev) => ({
-                          ...prev,
-                          elevenlabs: {
-                            voiceId: e.target.value === "" ? null : e.target.value
-                          }
-                        }))
-                      }
-                      disabled={
-                        voiceSettingsLoading || voiceSettings?.elevenlabs?.loadState !== "ready"
-                      }
-                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
-                    >
-                      <option value="">{t("voiceChooseBaseVoice")}</option>
-                      {elevenLabsSelectOptions.map((voice) => (
-                        <option key={voice.value} value={voice.value}>
-                          {voice.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-2 text-[11px] text-text-subtle">
-                      {voiceSettingsLoading
-                        ? t("voiceElevenlabsLoading")
-                        : voiceSettings?.elevenlabs?.loadState === "not_configured"
-                          ? t("voiceElevenlabsNotConfigured")
-                          : voiceSettings?.elevenlabs?.loadState === "unavailable"
-                            ? (voiceSettings.elevenlabs.warning ?? t("voiceElevenlabsUnavailable"))
-                            : filteredElevenLabsVoiceOptions.length === 0
-                              ? t("voiceNoVoicesForGender")
-                              : t("voiceGenderFilterHint")}
-                    </p>
-                  </label>
-                )}
-                {primaryVoiceProviderId === "yandex" && (
-                  <label className="block md:col-span-2">
-                    <span className="mb-1 block text-[11px] text-text-muted">
-                      {t("voiceBaseVoice")}
-                    </span>
-                    <select
-                      value={draftVoiceProfile.yandex.voice ?? ""}
-                      onChange={(e) =>
-                        setDraftVoiceProfile((prev) => ({
-                          ...prev,
-                          yandex: {
-                            ...prev.yandex,
-                            voice:
-                              e.target.value === ""
-                                ? null
-                                : (e.target.value as (typeof YANDEX_VOICE_OPTIONS)[number]["value"])
-                          }
-                        }))
-                      }
-                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                    >
-                      {yandexVoiceOptions.map((voice) => (
-                        <option key={voice.value} value={voice.value}>
-                          {voice.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-2 text-[11px] text-text-subtle">
-                      {t("voiceGenderFilterHint")}
-                    </p>
-                  </label>
-                )}
-                {primaryVoiceProviderId === "openai" && (
-                  <label className="block md:col-span-2">
-                    <span className="mb-1 block text-[11px] text-text-muted">
-                      {t("voiceBaseVoice")}
-                    </span>
-                    <select
-                      value={draftVoiceProfile.openai.voice ?? ""}
-                      onChange={(e) =>
-                        setDraftVoiceProfile((prev) => ({
-                          ...prev,
-                          openai: {
-                            voice:
-                              e.target.value === ""
-                                ? null
-                                : (e.target.value as (typeof OPENAI_VOICE_OPTIONS)[number]["value"])
-                          }
-                        }))
-                      }
-                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                    >
-                      {openAiVoiceOptions.map((voice) => (
-                        <option key={voice.value} value={voice.value}>
-                          {voice.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-2 text-[11px] text-text-subtle">
-                      {t("voiceGenderFilterHint")}
-                    </p>
-                  </label>
-                )}
-              </div>
             </div>
-            <div className="mt-3 space-y-3">
-              {TRAIT_SLIDERS.map(({ key, labelLeftKey, labelRightKey }) => (
-                <div key={key}>
-                  <div className="flex justify-between text-[11px] text-text-muted mb-1">
-                    <span>{tp(labelLeftKey)}</span>
-                    <span>{tp(labelRightKey)}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={draftTraits[key] ?? 50}
-                    onChange={(e) =>
-                      setDraftTraits((prev) => ({ ...prev, [key]: Number(e.target.value) }))
-                    }
-                    className="w-full accent-accent"
-                  />
-                </div>
-              ))}
-            </div>
-            <textarea
-              value={draftInstructions}
-              onChange={(e) => setDraftInstructions(e.target.value)}
-              placeholder={t("customInstructions")}
-              rows={4}
-              className="mt-3 w-full resize-y rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-            />
-          </>
+          </div>
         )}
       </Section>
 
       {/* 2. Quick actions */}
-      <Section icon={<Rocket className="h-4 w-4" />} title={t("quickActions")}>
+      <Section icon={<Rocket className="h-4 w-4" />} title={t("quickActions")} defaultOpen={false}>
         {version && (
           <p className="mb-3 text-xs text-text-muted">
             {t("version", { v: version.version, status: assistant.runtimeApply.status })}
@@ -1312,31 +1359,42 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
             ) : wsMemoryItems.length === 0 ? (
               <p className="text-xs text-text-subtle">{t("noWorkspaceMemories")}</p>
             ) : (
-              <ul className="space-y-2">
-                {wsMemoryItems.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
-                  >
-                    <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
-                      {item.content}
-                    </p>
-                    <button
-                      type="button"
-                      disabled={wsForgettingId === item.id}
-                      onClick={() => void handleForgetWsMemory(item.id)}
-                      className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                      title={t("forget")}
+              <>
+                <ul className="space-y-2">
+                  {wsMemoryItems.slice(0, wsMemoryVisibleCount).map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
                     >
-                      {wsForgettingId === item.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3 w-3" />
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                      <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
+                        {item.content}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={wsForgettingId === item.id}
+                        onClick={() => void handleForgetWsMemory(item.id)}
+                        className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                        title={t("forget")}
+                      >
+                        {wsForgettingId === item.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {wsMemoryVisibleCount < wsMemoryItems.length && (
+                  <button
+                    type="button"
+                    onClick={() => setWsMemoryVisibleCount((count) => count + 5)}
+                    className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
+                  >
+                    {t("loadMore")} ({wsMemoryItems.length - wsMemoryVisibleCount})
+                  </button>
+                )}
+              </>
             )}
           </>
         )}
@@ -1379,7 +1437,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                 {memoryVisibleCount < memoryItems.length && (
                   <button
                     type="button"
-                    onClick={() => setMemoryVisibleCount((c) => c + 10)}
+                    onClick={() => setMemoryVisibleCount((count) => count + 5)}
                     className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
                   >
                     {t("loadMore")} ({memoryItems.length - memoryVisibleCount})
@@ -1399,100 +1457,142 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
           </div>
         ) : (
           <div className="space-y-4">
-            {userTaskItems.length === 0 ? (
-              <p className="text-xs text-text-subtle">{t("noCurrentTasks")}</p>
-            ) : (
-              <ul className="space-y-2">
-                {userTaskItems.map((item) => (
-                  <li key={item.id} className="rounded-lg bg-surface-raised p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
-                        {item.title}
-                      </span>
-                      <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
-                        {getTaskScheduleKindLabel(item.sourceLabel)}
-                      </span>
-                      <span
-                        className={cn(
-                          "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                          "bg-success/15 text-success"
-                        )}
-                      >
-                        {getTaskStatusLabel(item.controlStatus)}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-[11px] text-text-subtle">{getTaskTimingLabel(item)}</p>
-                    <div className="mt-2 flex gap-1.5">
-                      <ActionButton
-                        icon={<RotateCcw className="h-3 w-3" />}
-                        label={t("disable")}
-                        onClick={() => void handleTaskAction(item.id, "disable")}
-                        busy={taskActionId === item.id}
-                      />
-                      <ActionButton
-                        icon={<Trash2 className="h-3 w-3" />}
-                        label={t("cancel")}
-                        variant="danger"
-                        onClick={() => void handleTaskAction(item.id, "cancel")}
-                        busy={taskActionId === item.id}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3">
+              <button
+                type="button"
+                onClick={() => setShowUserTasks((open) => !open)}
+                className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
+              >
+                <div>
+                  <p className="text-sm font-medium text-text">{t("userTasksTitle")}</p>
+                  <p className="mt-1 text-[11px] text-text-subtle">{t("userTasksHelp")}</p>
+                </div>
+                <span className="rounded-full bg-background px-2.5 py-1 text-[10px] font-semibold text-text-muted">
+                  {userTaskItems.length}
+                </span>
+              </button>
+
+              {showUserTasks && (
+                <>
+                  {userTaskItems.length === 0 ? (
+                    <p className="mt-3 text-xs text-text-subtle">{t("noCurrentTasks")}</p>
+                  ) : (
+                    <ul className="mt-3 space-y-2">
+                      {userTaskItems.map((item) => (
+                        <li
+                          key={item.id}
+                          className="rounded-lg border border-border/60 bg-background/40 p-2.5"
+                        >
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
+                              {item.title}
+                            </span>
+                            <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                              {getTaskScheduleKindLabel(item.sourceLabel)}
+                            </span>
+                            <span className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
+                              {getTaskStatusLabel(item.controlStatus)}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[11px] text-text-subtle">
+                              {getTaskTimingLabel(item)}
+                            </p>
+                            <div className="flex gap-1.5">
+                              <ActionButton
+                                icon={<RotateCcw className="h-3 w-3" />}
+                                label={t("disable")}
+                                onClick={() => void handleTaskAction(item.id, "disable")}
+                                busy={taskActionId === item.id}
+                                className="px-2.5 py-1.5"
+                              />
+                              <ActionButton
+                                icon={<Trash2 className="h-3 w-3" />}
+                                label={t("cancel")}
+                                variant="danger"
+                                onClick={() => void handleTaskAction(item.id, "cancel")}
+                                busy={taskActionId === item.id}
+                                className="px-2.5 py-1.5"
+                              />
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
 
             <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3">
-              <div className="flex items-center gap-2">
-                <Brain className="h-3.5 w-3.5 text-text-subtle" />
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
-                  {t("assistantActions")}
-                </p>
-              </div>
-              <p className="mt-1 text-[11px] text-text-subtle">
-                {t("assistantActionsDescription")}
-              </p>
-              {assistantTaskItems.length === 0 ? (
-                <p className="mt-3 text-xs text-text-subtle">{t("noAssistantActions")}</p>
-              ) : (
-                <ul className="mt-3 space-y-2">
-                  {assistantTaskItems.map((item) => (
-                    <li
-                      key={item.id}
-                      className="rounded-lg border border-border/60 bg-background/40 p-3"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-muted">
-                          {item.title}
-                        </span>
-                        <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
-                          {getAssistantActionTypeLabel(item)}
-                        </span>
-                        <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
-                          {t("assistantAction")}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-[11px] text-text-subtle">
-                        {getTaskTimingLabel(item)}
-                      </p>
-                      <div className="mt-2 flex gap-1.5">
-                        <ActionButton
-                          icon={<RotateCcw className="h-3 w-3" />}
-                          label={t("disable")}
-                          onClick={() => void handleTaskAction(item.id, "disable")}
-                          busy={taskActionId === item.id}
-                        />
-                        <ActionButton
-                          icon={<Trash2 className="h-3 w-3" />}
-                          label={t("cancel")}
-                          variant="danger"
-                          onClick={() => void handleTaskAction(item.id, "cancel")}
-                          busy={taskActionId === item.id}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+              <button
+                type="button"
+                onClick={() => setShowAssistantActions((open) => !open)}
+                className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
+              >
+                <div className="flex items-start gap-2">
+                  <Brain className="mt-0.5 h-3.5 w-3.5 text-text-subtle" />
+                  <div>
+                    <p className="text-sm font-medium text-text">{t("assistantActions")}</p>
+                    <p className="mt-1 text-[11px] text-text-subtle">
+                      {t("assistantActionsDescription")}
+                    </p>
+                  </div>
+                </div>
+                <span className="rounded-full bg-background px-2.5 py-1 text-[10px] font-semibold text-text-muted">
+                  {assistantTaskItems.length}
+                </span>
+              </button>
+
+              {showAssistantActions && (
+                <>
+                  {assistantTaskItems.length === 0 ? (
+                    <p className="mt-3 text-xs text-text-subtle">{t("noAssistantActions")}</p>
+                  ) : (
+                    <ul className="mt-3 space-y-2">
+                      {assistantTaskItems.map((item) => (
+                        <li
+                          key={item.id}
+                          className="rounded-lg border border-border/60 bg-background/40 p-2.5"
+                        >
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-muted">
+                              {item.title}
+                            </span>
+                            <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
+                              {getAssistantActionTypeLabel(item)}
+                            </span>
+                            <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
+                              {t("assistantAction")}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[11px] text-text-subtle">
+                              {getTaskTimingLabel(item)}
+                            </p>
+                            <div className="flex gap-1.5">
+                              <ActionButton
+                                icon={<RotateCcw className="h-3 w-3" />}
+                                label={t("disable")}
+                                onClick={() => void handleTaskAction(item.id, "disable")}
+                                busy={taskActionId === item.id}
+                                className="px-2.5 py-1.5"
+                              />
+                              <ActionButton
+                                icon={<Trash2 className="h-3 w-3" />}
+                                label={t("cancel")}
+                                variant="danger"
+                                onClick={() => void handleTaskAction(item.id, "cancel")}
+                                busy={taskActionId === item.id}
+                                className="px-2.5 py-1.5"
+                              />
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
               )}
             </div>
           </div>

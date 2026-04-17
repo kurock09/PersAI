@@ -9,10 +9,18 @@ import type { AssistantPublishedVersion } from "../domain/assistant-published-ve
 import { normalizeAssistantGender } from "./assistant-gender";
 import { buildRuntimeToolPoliciesMarkdown } from "./runtime-tool-policy";
 
-export type PromptTemplateMap = Record<
-  keyof AssistantRuntimePromptDocuments | "system",
-  string | null | undefined
->;
+export interface PromptTemplateMap {
+  system?: string | null;
+  soul?: string | null;
+  user?: string | null;
+  identity?: string | null;
+  tools?: string | null;
+  agents?: string | null;
+  heartbeat?: string | null;
+  preview_bootstrap?: string | null;
+  welcome_bootstrap?: string | null;
+  bootstrap?: string | null;
+}
 
 @Injectable()
 export class CompilePromptConstructorService {
@@ -41,10 +49,15 @@ export class CompilePromptConstructorService {
       tools: this.generateToolsPrompt(params.toolPolicies, params.promptTemplates.tools ?? null),
       agents: this.generateAgentsPrompt(params.promptTemplates.agents ?? null),
       heartbeat: this.generateHeartbeatPrompt(params.promptTemplates.heartbeat ?? null),
-      bootstrap: this.generateBootstrapPrompt(
+      preview: this.generatePreviewPrompt(
         params.publishedVersion,
         params.userContext,
-        params.promptTemplates.bootstrap ?? null
+        params.promptTemplates.preview_bootstrap ?? null
+      ),
+      welcome: this.generateWelcomePrompt(
+        params.publishedVersion,
+        params.userContext,
+        params.promptTemplates.welcome_bootstrap ?? params.promptTemplates.bootstrap ?? null
       )
     };
 
@@ -81,7 +94,9 @@ export class CompilePromptConstructorService {
           systemPrompt: systemPrompt.length > 0 ? systemPrompt : null
         },
         onboarding: {
-          firstTurnPrompt: promptDocuments.bootstrap
+          previewTurnPrompt: promptDocuments.preview,
+          welcomeTurnPrompt: promptDocuments.welcome,
+          firstTurnPrompt: promptDocuments.welcome
         }
       }
     };
@@ -260,20 +275,55 @@ export class CompilePromptConstructorService {
       .join("\n\n");
   }
 
-  private generateBootstrapPrompt(
+  private renderTraitsSummaryLine(traits: Record<string, number> | null): string | null {
+    return traits && Object.keys(traits).length > 0
+      ? `They set your personality to: ${Object.entries(traits)
+          .map(([trait, value]) => `${trait}: ${String(value)}/100`)
+          .join(", ")}.`
+      : null;
+  }
+
+  private generatePreviewPrompt(
     pv: AssistantPublishedVersion,
     userCtx: { displayName: string | null },
     template: string | null
   ): string {
     const assistantName = pv.snapshotDisplayName ?? "Assistant";
     const humanName = userCtx.displayName ?? "your human";
-    const traits = pv.snapshotTraits;
-    const traitSummaryLine =
-      traits && Object.keys(traits).length > 0
-        ? `They set your personality to: ${Object.entries(traits)
-            .map(([t, v]) => `${t}: ${String(v)}/100`)
-            .join(", ")}.`
-        : null;
+    const traitSummaryLine = this.renderTraitsSummaryLine(pv.snapshotTraits);
+
+    if (template) {
+      return this.interpolateTemplate(template, {
+        assistant_name: assistantName,
+        human_name: humanName,
+        traits_summary_line: traitSummaryLine
+      });
+    }
+
+    return [
+      "# Character Preview",
+      "",
+      `You are testing how **${assistantName}** should sound before launch.`,
+      "",
+      `You are talking to **${humanName}** in a setup preview, not in a real first conversation.`,
+      traitSummaryLine,
+      "",
+      "Reply with one short natural sample message that clearly shows the assistant's tone, warmth, initiative, and style.",
+      "Do not say that you just came online, were created, or are meeting for the first time."
+    ]
+      .filter((line): line is string => line !== null)
+      .join("\n")
+      .trimEnd();
+  }
+
+  private generateWelcomePrompt(
+    pv: AssistantPublishedVersion,
+    userCtx: { displayName: string | null },
+    template: string | null
+  ): string {
+    const assistantName = pv.snapshotDisplayName ?? "Assistant";
+    const humanName = userCtx.displayName ?? "your human";
+    const traitSummaryLine = this.renderTraitsSummaryLine(pv.snapshotTraits);
 
     if (template) {
       return this.interpolateTemplate(template, {

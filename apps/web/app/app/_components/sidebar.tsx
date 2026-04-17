@@ -16,6 +16,8 @@ import {
   Pencil,
   Archive,
   Trash2,
+  ChevronDown,
+  ChevronRight,
   Sun,
   Moon,
   LogOut,
@@ -187,6 +189,10 @@ export function Sidebar({
   const tokenUsage = tokenBucket?.percent ?? 0;
   const tokenUsed = tokenBucket?.used ?? 0;
   const tokenLimit = tokenBucket?.limit ?? null;
+  const [integrationsOpen, setIntegrationsOpen] = useState(false);
+  const hasActiveIntegrations =
+    data.telegram?.connectionStatus === "connected" ||
+    data.telegram?.connectionStatus === "claim_required";
 
   return (
     <aside className="flex h-dvh w-[280px] shrink-0 flex-col border-r border-border bg-surface">
@@ -277,28 +283,51 @@ export function Sidebar({
       <div className="shrink-0 border-t border-border">
         {/* 5. Integrations */}
         <div className="px-3 pt-3 pb-2">
-          <p className="mb-1.5 px-2.5 text-[11px] font-medium uppercase tracking-wider text-text-subtle">
-            {t("integrations")}
-          </p>
-          <IntegrationRow
-            icon={<Send className="h-3.5 w-3.5" />}
-            name={t("telegram")}
-            status={telegramStatusLabel}
-            connected={telegramConnected}
-            onClick={onTelegramClick}
-          />
-          <IntegrationRow
-            icon={<Smartphone className="h-3.5 w-3.5" />}
-            name={t("whatsApp")}
-            status={t("comingSoon")}
-            muted
-          />
-          <IntegrationRow
-            icon={<MessageCircle className="h-3.5 w-3.5" />}
-            name={t("max")}
-            status={t("comingSoon")}
-            muted
-          />
+          <button
+            type="button"
+            onClick={() => setIntegrationsOpen((open) => !open)}
+            className="flex w-full cursor-pointer items-center justify-between rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-hover"
+          >
+            <span className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-block h-2 w-2 rounded-full",
+                  hasActiveIntegrations ? "bg-success" : "bg-text-subtle"
+                )}
+              />
+              <span className="text-[11px] font-medium uppercase tracking-wider text-text-subtle">
+                {t("integrations")}
+              </span>
+            </span>
+            {integrationsOpen ? (
+              <ChevronDown className="h-4 w-4 text-text-subtle" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-text-subtle" />
+            )}
+          </button>
+          {integrationsOpen && (
+            <div className="mt-1">
+              <IntegrationRow
+                icon={<Send className="h-3.5 w-3.5" />}
+                name={t("telegram")}
+                status={telegramStatusLabel}
+                connected={telegramConnected}
+                onClick={onTelegramClick}
+              />
+              <IntegrationRow
+                icon={<Smartphone className="h-3.5 w-3.5" />}
+                name={t("whatsApp")}
+                status={t("comingSoon")}
+                muted
+              />
+              <IntegrationRow
+                icon={<MessageCircle className="h-3.5 w-3.5" />}
+                name={t("max")}
+                status={t("comingSoon")}
+                muted
+              />
+            </div>
+          )}
         </div>
 
         {/* 6. Plan — compact token bar */}
@@ -549,6 +578,7 @@ function ChatListItem({
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -602,12 +632,14 @@ function ChatListItem({
   const handleDelete = useCallback(async () => {
     const token = await getToken();
     if (!token) return;
+    setDeleting(true);
     try {
       await deleteAssistantWebChat(token, item.chat.id, { confirmText: "DELETE" });
       onChanged();
     } catch {
       /* non-critical */
     }
+    setDeleting(false);
     setMenuOpen(false);
     setConfirmDelete(false);
   }, [getToken, item.chat.id, onChanged]);
@@ -683,10 +715,12 @@ function ChatListItem({
           <button
             type="button"
             onClick={() => {
+              if (deleting) return;
               setRenameValue(item.chat.title ?? "");
               setRenaming(true);
               setMenuOpen(false);
             }}
+            disabled={deleting}
             className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <Pencil className="h-3 w-3" />
@@ -695,6 +729,7 @@ function ChatListItem({
           <button
             type="button"
             onClick={() => void handleArchive()}
+            disabled={deleting}
             className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <Archive className="h-3 w-3" />
@@ -705,15 +740,21 @@ function ChatListItem({
             <button
               type="button"
               onClick={() => void handleDelete()}
+              disabled={deleting}
               className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
             >
-              <Trash2 className="h-3 w-3" />
-              {t("confirmDelete")}
+              {deleting ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Trash2 className="h-3 w-3" />
+              )}
+              {deleting ? t("deleting") : t("confirmDelete")}
             </button>
           ) : (
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
+              disabled={deleting}
               className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
             >
               <Trash2 className="h-3 w-3" />

@@ -49,6 +49,7 @@ export interface StreamWebChatTurnPrepared {
   runtimeTier: RuntimeTier;
   quotaDegradeModelOverride: { provider: "openai" | "anthropic"; model: string } | null;
   quotaDegradeReason: "token_budget_limit_reached" | null;
+  welcomeFirstTurnPrompt: string | null;
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
@@ -98,6 +99,13 @@ function toAttachmentState(attachment: {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveWelcomeUserMessage(
+  welcomeFirstTurnPrompt: string | null,
+  welcomeLocale?: string
+): string {
+  return welcomeFirstTurnPrompt ?? resolveWelcomeTurnInstruction(welcomeLocale);
 }
 
 export interface StreamWebChatTurnOutcomeCompleted {
@@ -199,7 +207,7 @@ export class StreamWebChatTurnService {
       prepared.userMessage.id
     );
     const baseMessage = prepared.welcomeTurn
-      ? resolveWelcomeTurnInstruction(prepared.welcomeLocale)
+      ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, prepared.welcomeLocale)
       : prepared.userMessage.content;
     const currentTimeIso = new Date().toISOString();
     const nativeTurnInput = this.buildNativeStreamTurnInput({
@@ -362,7 +370,7 @@ export class StreamWebChatTurnService {
         userMessageId: prepared.userMessage.id,
         assistantMessageId: assistantMessage.id,
         userContent: prepared.welcomeTurn
-          ? resolveWelcomeTurnInstruction(prepared.welcomeLocale)
+          ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, prepared.welcomeLocale)
           : prepared.userMessage.content,
         assistantContent: cleanedAccumulated,
         memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
@@ -370,7 +378,7 @@ export class StreamWebChatTurnService {
       trace.stage("memory_recorded");
       await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
         assistant: prepared.assistant,
-        userContent: prepared.userMessage.content,
+        userContent: baseMessage,
         assistantContent: cleanedAccumulated,
         source: "web_chat_turn_stream_completed"
       });

@@ -104,6 +104,8 @@ async function run(): Promise<void> {
           schema: "persai.runtime.bundle.v1",
           promptConstructor: {
             onboarding: {
+              previewTurnPrompt: "Show Mira's character to Alex.",
+              welcomeTurnPrompt: "Hello Alex, I am Mira.",
               firstTurnPrompt: "Hello Alex, I am Mira."
             }
           }
@@ -208,7 +210,7 @@ async function run(): Promise<void> {
     assert.equal(requests[1]?.body?.runtimeTier, "free_shared_restricted");
     assert.equal(
       (requests[1]?.body?.message as Record<string, unknown>)?.text,
-      "Hello Alex, I am Mira."
+      "Show Mira's character to Alex."
     );
     assert.equal(
       (requests[1]?.body?.message as Record<string, unknown>)?.timezone,

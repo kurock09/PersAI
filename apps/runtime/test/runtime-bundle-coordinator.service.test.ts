@@ -323,7 +323,8 @@ function createWarmInput() {
       tools: "",
       agents: "",
       heartbeat: "",
-      bootstrap: ""
+      preview: "",
+      welcome: ""
     }
   });
 

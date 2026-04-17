@@ -199,7 +199,8 @@ function createBundle(options?: { configured?: boolean; modelKey?: "sora-2" | "s
       tools: "",
       agents: "",
       heartbeat: "",
-      bootstrap: ""
+      preview: "",
+      welcome: ""
     }
   }).bundle;
 }
