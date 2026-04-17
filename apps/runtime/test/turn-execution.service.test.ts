@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { BadRequestException, ServiceUnavailableException } from "@nestjs/common";
-import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
+import {
+  buildAssistantRuntimePromptStablePrefix,
+  compileAssistantRuntimeBundle
+} from "@persai/runtime-bundle";
 import type {
   ProviderGatewayBrowserActionRequest,
   ProviderGatewayBrowserActionResult,
@@ -579,6 +583,17 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
     },
     promptConstructor: {
       ordinary: {
+        stablePrefix: buildAssistantRuntimePromptStablePrefix(
+          [
+            "Assistant display name: PersAI",
+            "User display name: Alex",
+            "User locale: en",
+            "User timezone: UTC",
+            "Answer as a concise assistant.",
+            "# COMPILED SECTION\nOnly trust compiled prompt constructor output.",
+            "# TOOL RUNTIME\nsummarize_context\ncompact_context\nquota_status\nknowledge_search\nknowledge_fetch"
+          ].join("\n\n")
+        ),
         sections: {
           assistantIdentity: "Assistant display name: PersAI",
           userIdentity: "User display name: Alex",
@@ -1290,6 +1305,30 @@ async function flushTaskQueue(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+function computeHydratedStableBlockTokens(
+  messages: ProviderGatewayTextGenerateRequest["messages"]
+): string[] {
+  const tokens: string[] = [];
+  for (const message of messages) {
+    if (message.role !== "assistant" || typeof message.content !== "string") {
+      break;
+    }
+    const normalized = message.content.trim();
+    if (normalized.startsWith("[Durable user context retained across conversations]")) {
+      tokens.push(`durable_memory.v1.${createHash("sha256").update(normalized).digest("hex")}`);
+      continue;
+    }
+    if (normalized.startsWith("[Earlier conversation summary retained by shared compaction]")) {
+      tokens.push(
+        `shared_compaction_summary.v1.${createHash("sha256").update(normalized).digest("hex")}`
+      );
+      continue;
+    }
+    break;
+  }
+  return tokens;
+}
+
 function enableScheduledActionTool(entry: RuntimeBundleCacheEntry | null): void {
   if (entry === null) {
     return;
@@ -1416,6 +1455,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     toolLoopIteration: 0,
     compactionToolCode: null
   });
+  assert.equal(providerGatewayClient.calls[0]?.promptCache?.retention, "in_memory");
+  assert.match(providerGatewayClient.calls[0]?.promptCache?.key ?? "", /^persai:ordinary_chat:/);
+  assert.match(providerGatewayClient.calls[0]?.promptCache?.key ?? "", /:b\d{2}$/);
+  assert.match(providerGatewayClient.calls[0]?.promptCache?.key ?? "", /:ordinary_prompt\.v1\./);
+  assert.match(
+    providerGatewayClient.calls[0]?.promptCache?.key ?? "",
+    new RegExp(
+      `ordinary_prompt\\.v1\\.${bundleRegistry.entry?.parsedBundle.promptConstructor.ordinary.stablePrefix?.hash ?? ""}`
+    )
+  );
   assert.deepEqual(
     providerGatewayClient.calls[0]?.tools?.map((tool) => tool.name),
     [
@@ -1583,6 +1632,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ["role", "lookupStrategy", "reason"]
   );
   assert.equal(providerGatewayClient.calls[chooserCallOffset + 1]?.model, "gpt-4.1");
+  assert.equal(
+    providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.retention,
+    "in_memory"
+  );
+  assert.match(
+    providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.key ?? "",
+    /^persai:route_control:[a-f0-9]{64}:b\d{2}$/
+  );
   assert.equal(providerGatewayClient.calls[chooserCallOffset + 2]?.model, "gpt-5.4-pro");
   assert.equal(
     providerGatewayClient.calls[chooserCallOffset + 2]?.tools?.some(
@@ -2243,6 +2300,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     {
       role: "assistant",
       content:
+        "[Durable user context retained across conversations]\n- User prefers concise status updates."
+    },
+    {
+      role: "assistant",
+      content:
         "[Earlier conversation summary retained by shared compaction]\nStable facts:\n- Durable compacted context."
     },
     {
@@ -2352,6 +2414,17 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(manualDurableCompactionTurn.assistantText, "post-compaction reply");
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeManualDurableCompaction + 2);
   assert.deepEqual(providerGatewayClient.calls.at(-1)?.messages, refreshedMessagesAfterCompaction);
+  const hydratedStableBlockTokens = computeHydratedStableBlockTokens(
+    refreshedMessagesAfterCompaction
+  );
+  assert.equal(hydratedStableBlockTokens.length, 2);
+  for (const token of hydratedStableBlockTokens) {
+    assert.match(providerGatewayClient.calls.at(-1)?.promptCache?.key ?? "", new RegExp(token));
+  }
+  assert.notEqual(
+    providerGatewayClient.calls.at(-1)?.promptCache?.key,
+    providerGatewayClient.calls.at(-2)?.promptCache?.key
+  );
   assert.deepEqual(providerGatewayClient.calls.at(-1)?.requestMetadata, {
     classification: "tool_loop_followup",
     runtimeRequestId: "request-1",
@@ -2489,6 +2562,22 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     toolLoopIteration: 0,
     compactionToolCode: null
   });
+  assert.equal(providerGatewayClient.streamCalls[0]?.promptCache?.retention, "in_memory");
+  assert.match(
+    providerGatewayClient.streamCalls[0]?.promptCache?.key ?? "",
+    /^persai:ordinary_chat:/
+  );
+  assert.match(providerGatewayClient.streamCalls[0]?.promptCache?.key ?? "", /:b\d{2}$/);
+  assert.match(
+    providerGatewayClient.streamCalls[0]?.promptCache?.key ?? "",
+    /:ordinary_prompt\.v1\./
+  );
+  assert.match(
+    providerGatewayClient.streamCalls[0]?.promptCache?.key ?? "",
+    new RegExp(
+      `ordinary_prompt\\.v1\\.${bundleRegistry.entry?.parsedBundle.promptConstructor.ordinary.stablePrefix?.hash ?? ""}`
+    )
+  );
   assert.deepEqual(
     providerGatewayClient.streamCalls[0]?.tools?.map((tool) => tool.name),
     [

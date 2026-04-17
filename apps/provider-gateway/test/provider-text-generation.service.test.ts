@@ -151,6 +151,14 @@ function createRequest(provider: "openai" | "anthropic"): ProviderGatewayTextGen
     provider,
     model: provider === "openai" ? "gpt-5.4" : "claude-sonnet-4-5",
     systemPrompt: "Be helpful.",
+    ...(provider === "openai"
+      ? {
+          promptCache: {
+            key: "persai:ordinary_chat:bundle-hash-1:b03",
+            retention: "in_memory" as const
+          }
+        }
+      : {}),
     messages: [
       {
         role: "user",
@@ -174,6 +182,10 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   assert.equal(openaiResult.text, "openai-result");
   assert.equal(openaiClient.calls.length, 1);
   assert.equal(anthropicClient.calls.length, 0);
+  assert.deepEqual(openaiClient.calls[0]?.promptCache, {
+    key: "persai:ordinary_chat:bundle-hash-1:b03",
+    retention: "in_memory"
+  });
 
   warmupService.snapshot.providers[0] = {
     ...warmupService.snapshot.providers[0]!,
@@ -246,6 +258,54 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   assert.equal(structuredOpenAIResult.text, "openai-result");
   assert.equal(openaiClient.calls.at(-1)?.outputSchema?.name, "shared_compaction");
 
+  const historicalToolResult = await service.generateText({
+    ...createRequest("openai"),
+    tools: [
+      {
+        name: "knowledge_search",
+        description: "Search knowledge",
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            query: {
+              type: "string"
+            }
+          },
+          required: ["query"]
+        }
+      }
+    ],
+    toolHistory: [
+      {
+        toolCall: {
+          id: "call-route-control-1",
+          name: "route_control",
+          arguments: {
+            reason: "Need smarter routing."
+          }
+        },
+        toolResult: {
+          toolCallId: "call-route-control-1",
+          name: "route_control",
+          content:
+            '{"toolCode":"route_control","action":"planned","modelRole":"reasoning","lookupStrategy":"web_required"}',
+          isError: false
+        }
+      }
+    ],
+    requestMetadata: {
+      classification: "tool_loop_followup",
+      runtimeRequestId: "request-2",
+      runtimeSessionId: "session-2",
+      toolLoopIteration: 1,
+      compactionToolCode: null
+    }
+  });
+  assert.equal(historicalToolResult.text, "openai-result");
+  assert.equal(openaiClient.calls.at(-1)?.toolHistory?.[0]?.toolCall.name, "route_control");
+  assert.equal(openaiClient.calls.at(-1)?.tools?.[0]?.name, "knowledge_search");
+
   const openaiStream = await service.streamText(createRequest("openai"));
   const openaiStreamEvents = await collectStreamEvents(openaiStream);
   assert.equal(openaiClient.streamCalls.length, 1);
@@ -302,6 +362,23 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
         ]
       }),
     /dataBase64 must be non-empty/
+  );
+
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        promptCache: {
+          retention: "forever" as "in_memory"
+        },
+        messages: [
+          {
+            role: "user",
+            content: "hello"
+          }
+        ]
+      }),
+    /promptCache.retention must be one of the supported provider prompt cache retention values/
   );
 
   await assert.rejects(

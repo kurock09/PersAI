@@ -1130,6 +1130,16 @@ export interface ProviderGatewayStructuredOutputSchema {
   strict?: boolean;
 }
 
+export const PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS = ["in_memory", "24h"] as const;
+
+export type ProviderGatewayPromptCacheRetention =
+  (typeof PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS)[number];
+
+export interface ProviderGatewayPromptCacheConfig {
+  key?: string;
+  retention?: ProviderGatewayPromptCacheRetention;
+}
+
 export interface ProviderGatewayTextGenerateRequest {
   provider: "openai" | "anthropic";
   model: string;
@@ -1141,6 +1151,7 @@ export interface ProviderGatewayTextGenerateRequest {
   toolHistory?: ProviderGatewayToolExchange[];
   requestMetadata?: ProviderGatewayRequestMetadata;
   outputSchema?: ProviderGatewayStructuredOutputSchema;
+  promptCache?: ProviderGatewayPromptCacheConfig;
 }
 
 export interface ProviderGatewayTextGenerateResult {

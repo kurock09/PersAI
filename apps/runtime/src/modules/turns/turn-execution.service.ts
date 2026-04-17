@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -16,6 +17,7 @@ import {
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
   type PersaiRuntimeWebSearchProviderId,
   type PersaiRuntimeSharedCompactionToolCode,
+  type ProviderGatewayPromptCacheConfig,
   type ProviderGatewayRequestMetadata,
   type ProviderGatewayToolCall,
   type ProviderGatewayToolExchange,
@@ -68,6 +70,10 @@ import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.servi
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
+import {
+  buildPromptCacheStableBlockToken,
+  resolveLeadingHydratedPromptCacheStableBlockTokens
+} from "./prompt-cache-stable-blocks";
 import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
@@ -80,6 +86,9 @@ type ProviderSelection = {
   provider: NativeManagedProvider;
   model: string;
 };
+
+const PROMPT_CACHE_KEY_BUCKETS = 8;
+const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 
 type UserFacingTurnModelRole = Extract<
   PersaiRuntimeModelRole,
@@ -521,9 +530,8 @@ export class TurnExecutionService {
             }
             if (durableCompactionExecuted) {
               execution.providerRequest = await this.refreshProviderRequestMessages(
-                execution.providerRequest,
-                input,
-                execution.bundle
+                execution,
+                input
               );
             }
 
@@ -734,11 +742,21 @@ export class TurnExecutionService {
     lookupStrategy: TurnLookupStrategy,
     deepModeEnabled: boolean
   ): ProviderGatewayTextGenerateRequest {
+    const promptCache = this.buildPromptCacheConfig({
+      bundle,
+      provider: providerSelection.provider,
+      family: deepModeEnabled ? "deep_chat" : "ordinary_chat",
+      messages,
+      lookupStrategy,
+      deepModeEnabled,
+      projectedTools
+    });
     return {
       provider: providerSelection.provider,
       model: providerSelection.model,
       systemPrompt: this.buildSystemPrompt(bundle, projectedTools, lookupStrategy, deepModeEnabled),
       messages,
+      ...(promptCache === undefined ? {} : { promptCache }),
       ...(projectedTools.tools.length === 0
         ? {}
         : {
@@ -993,6 +1011,11 @@ export class TurnExecutionService {
     hydratedMessages: ProviderGatewayTextMessage[];
     routeControlReason?: string | null;
   }): ProviderGatewayTextGenerateRequest {
+    const promptCache = this.buildPromptCacheConfig({
+      bundle: input.bundle,
+      provider: input.providerSelection.provider,
+      family: "route_control"
+    });
     const attachmentSummary =
       input.input.message.attachments.length === 0
         ? "none"
@@ -1045,6 +1068,7 @@ export class TurnExecutionService {
       ],
       maxOutputTokens: TURN_MODEL_ROLE_SELECTION_MAX_OUTPUT_TOKENS,
       outputSchema: TURN_MODEL_ROLE_SELECTION_OUTPUT_SCHEMA,
+      ...(promptCache === undefined ? {} : { promptCache }),
       requestMetadata: {
         classification: "role_selection",
         runtimeRequestId: input.input.requestId,
@@ -1422,11 +1446,7 @@ export class TurnExecutionService {
       }
       toolHistory.push(...exchanges);
       if (durableCompactionExecuted) {
-        execution.providerRequest = await this.refreshProviderRequestMessages(
-          execution.providerRequest,
-          input,
-          execution.bundle
-        );
+        execution.providerRequest = await this.refreshProviderRequestMessages(execution, input);
       }
     }
 
@@ -2263,14 +2283,21 @@ export class TurnExecutionService {
   }
 
   private async refreshProviderRequestMessages(
-    baseRequest: ProviderGatewayTextGenerateRequest,
-    input: RuntimeTurnRequest,
-    bundle: AssistantRuntimeBundle
+    execution: PreparedTurnExecution,
+    input: RuntimeTurnRequest
   ): Promise<ProviderGatewayTextGenerateRequest> {
-    return {
-      ...baseRequest,
-      messages: await this.turnContextHydrationService.buildMessages(input, bundle)
-    };
+    const messages = await this.turnContextHydrationService.buildMessages(input, execution.bundle);
+    return this.buildProviderRequest(
+      execution.bundle,
+      {
+        provider: execution.providerRequest.provider,
+        model: execution.providerRequest.model
+      },
+      messages,
+      execution.projectedTools,
+      execution.selectedLookupStrategy,
+      execution.deepModeEnabled
+    );
   }
 
   private createTurnProviderRequestMetadata(input: {
@@ -2285,6 +2312,95 @@ export class TurnExecutionService {
       toolLoopIteration: input.toolLoopIteration,
       compactionToolCode: null
     };
+  }
+
+  private buildPromptCacheConfig(input: {
+    bundle: AssistantRuntimeBundle;
+    provider: NativeManagedProvider;
+    family: string;
+    messages?: ProviderGatewayTextMessage[];
+    lookupStrategy?: TurnLookupStrategy;
+    deepModeEnabled?: boolean;
+    projectedTools?: RuntimeNativeToolProjection;
+  }): ProviderGatewayPromptCacheConfig | undefined {
+    if (input.provider !== "openai") {
+      return undefined;
+    }
+    const stablePrefixHash = this.resolvePromptCacheStablePrefixHash(input.bundle, input.family);
+    const stablePrefixToken =
+      stablePrefixHash === null
+        ? null
+        : buildPromptCacheStableBlockToken({
+            family: "ordinary_prompt",
+            hash: stablePrefixHash
+          });
+    const hydratedStableBlockTokens =
+      input.messages === undefined
+        ? []
+        : this.resolveHydratedStableBlockTokens(input.messages, input.family);
+    const variantHash =
+      input.lookupStrategy === undefined &&
+      input.deepModeEnabled === undefined &&
+      input.projectedTools === undefined
+        ? null
+        : createHash("sha256")
+            .update(
+              JSON.stringify({
+                lookupStrategy: input.lookupStrategy ?? null,
+                deepModeEnabled: input.deepModeEnabled ?? false,
+                tools: input.projectedTools?.tools ?? []
+              })
+            )
+            .digest("hex");
+    return {
+      key: [
+        `persai:${input.family}`,
+        stablePrefixToken ?? this.computePromptCacheIdentityHash(input.bundle),
+        ...hydratedStableBlockTokens,
+        ...(variantHash === null ? [] : [variantHash]),
+        `b${this.computePromptCacheBucket(input.bundle.metadata.assistantId)}`
+      ].join(":"),
+      retention: DEFAULT_OPENAI_PROMPT_CACHE_RETENTION
+    };
+  }
+
+  private resolvePromptCacheStablePrefixHash(
+    bundle: AssistantRuntimeBundle,
+    family: string
+  ): string | null {
+    if (family !== "ordinary_chat" && family !== "deep_chat") {
+      return null;
+    }
+    return bundle.promptConstructor.ordinary.stablePrefix?.hash ?? null;
+  }
+
+  private resolveHydratedStableBlockTokens(
+    messages: ProviderGatewayTextMessage[],
+    family: string
+  ): string[] {
+    if (family !== "ordinary_chat" && family !== "deep_chat") {
+      return [];
+    }
+    return resolveLeadingHydratedPromptCacheStableBlockTokens(messages);
+  }
+
+  private computePromptCacheIdentityHash(bundle: AssistantRuntimeBundle): string {
+    return createHash("sha256")
+      .update(
+        [
+          bundle.metadata.assistantId,
+          bundle.metadata.publishedVersionId,
+          String(bundle.metadata.publishedVersion),
+          String(bundle.metadata.algorithmVersion),
+          String(bundle.metadata.configGeneration)
+        ].join(":")
+      )
+      .digest("hex");
+  }
+
+  private computePromptCacheBucket(source: string): string {
+    const digest = createHash("sha256").update(source).digest();
+    return String((digest.at(0) ?? 0) % PROMPT_CACHE_KEY_BUCKETS).padStart(2, "0");
   }
 
   private recordUsageEntry(

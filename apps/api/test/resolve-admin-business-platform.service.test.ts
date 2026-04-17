@@ -90,6 +90,22 @@ async function run(): Promise<void> {
           if (args.where.eventCode === "assistant.runtime.apply_failed") return 2;
           return 0;
         }
+      },
+      async $queryRaw() {
+        return [
+          {
+            completed_turns: 10,
+            turns_with_usage_accounting: 8,
+            cached_input_hit_turns: 5,
+            avg_input_tokens: 1200,
+            avg_cached_input_tokens: 650,
+            avg_output_tokens: 220,
+            avg_total_tokens: 1420,
+            avg_usage_steps_per_turn: 2,
+            cached_input_share_percent: 54,
+            cached_input_hit_turn_percent: 63
+          }
+        ];
       }
     } as unknown as WorkspaceManagementPrismaService,
     {
@@ -162,6 +178,19 @@ async function run(): Promise<void> {
     total: 14
   });
   assert.equal(result.publishApplyHealth.applySuccessPercent, 63);
+  assert.deepEqual(result.runtimeTurnAverages, {
+    window: "last_7_days",
+    completedTurns: 10,
+    turnsWithUsageAccounting: 8,
+    cachedInputHitTurns: 5,
+    avgInputTokens: 1200,
+    avgCachedInputTokens: 650,
+    avgOutputTokens: 220,
+    avgTotalTokens: 1420,
+    avgUsageStepsPerTurn: 2,
+    cachedInputSharePercent: 54,
+    cachedInputHitTurnPercent: 63
+  });
   assert.deepEqual(
     result.planDistribution.map((entry) => [entry.planCode, entry.userCount, entry.percent]),
     [

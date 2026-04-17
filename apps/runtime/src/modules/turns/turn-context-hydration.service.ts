@@ -18,6 +18,10 @@ import {
   resolveRuntimeContextHydrationConfig,
   resolveSharedCompactionSummaryCharBudget
 } from "./runtime-context-hydration-policy";
+import {
+  formatDurableMemoryStableBlock,
+  formatSharedCompactionStableBlock
+} from "./prompt-cache-stable-blocks";
 import { parseStoredReusableCompactionState } from "./shared-compaction-state";
 
 const MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -497,7 +501,7 @@ export class TurnContextHydrationService {
 
     return {
       role: "assistant",
-      content: `[Durable user context retained across conversations]\n${lines.join("\n")}`
+      content: formatDurableMemoryStableBlock(lines)
     };
   }
 
@@ -506,7 +510,7 @@ export class TurnContextHydrationService {
   }
 
   private formatReusableCompactionSummary(summaryText: string): string {
-    return `[Earlier conversation summary retained by shared compaction]\n${summaryText}`;
+    return formatSharedCompactionStableBlock(summaryText);
   }
 
   private limitHydratedMessages(

@@ -11,6 +11,20 @@ export type QuotaPressureDistribution = {
   high: number;
 };
 
+export type RuntimeTurnAverages = {
+  window: "last_7_days";
+  completedTurns: number;
+  turnsWithUsageAccounting: number;
+  cachedInputHitTurns: number;
+  avgInputTokens: number;
+  avgCachedInputTokens: number;
+  avgOutputTokens: number;
+  avgTotalTokens: number;
+  avgUsageStepsPerTurn: number;
+  cachedInputSharePercent: number;
+  cachedInputHitTurnPercent: number;
+};
+
 export type AdminBusinessPlatformState = {
   totalUsers: number;
   totalAssistants: number;
@@ -40,5 +54,6 @@ export type AdminBusinessPlatformState = {
     inactivePlans: number;
     defaultRegistrationPlanCode: string | null;
   };
+  runtimeTurnAverages: RuntimeTurnAverages;
   updatedAt: string;
 };

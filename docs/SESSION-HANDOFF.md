@@ -1,5 +1,211 @@
 # SESSION-HANDOFF
 
+## 2026-04-17 - ADR-073 Slice B completion and admin business economics metrics
+
+### What changed
+
+1. `apps/runtime` no longer treats hydrated stable cache prefixes as unversioned string conventions. Ordinary/deep OpenAI cache keys now include explicit versioned stable-family tokens for the current active prompt families:
+   - `ordinary_prompt.v1.<hash>`
+   - `durable_memory.v1.<hash>`
+   - `shared_compaction_summary.v1.<hash>`
+2. `TurnContextHydrationService` now formats durable-memory and reusable shared-compaction-summary assistant prefix blocks through shared helpers, keeping the user-facing text and the cache-identity rules aligned in one place.
+3. Post-compaction follow-up requests still rebuild the full provider request, so refreshed hydrated messages and refreshed `prompt_cache_key` stay consistent after a compaction-driven prefix change.
+4. `/api/v1/admin/business/platform` now aggregates rolling `last_7_days` completed-turn economics from persisted `runtime_turn_receipts.result_payload.usageAccounting` and exposes:
+   - average `input`, `cached input`, `output`, and `total` tokens per completed turn
+   - average usage-step count per completed turn
+   - cached-input share percent
+   - cached-input hit-turn percent
+5. `apps/web` `/admin/business` now renders those averaged runtime economics directly on the admin surface, so operators can inspect cache behavior without probing live logs.
+
+### Current active slice
+
+- `ADR-073 - Economics Slice C (knowledge correction and retrieval-model path)`
+
+### Current active step
+
+- `Slice B prompt-cache-first context architecture is complete on the active path; next economics work should move to Slice C retrieval/knowledge correction`
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/prompt-cache-stable-blocks.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/api/src/modules/workspace-management/application/platform-business.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-business-platform.service.ts`
+- `apps/api/test/resolve-admin-business-platform.service.test.ts`
+- `apps/web/app/admin/business/page.tsx`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/ROADMAP.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-business-platform.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / notes
+
+1. The new admin economics metrics intentionally summarize only persisted completed-turn receipts with `usageAccounting`; failed turns and missing-accounting payloads are excluded from the averages.
+2. Future KB/retrieval digest prompt blocks are not separately present on the active path yet, but when they land they should join the same versioned stable-family scheme instead of introducing ad hoc cache-key rules.
+3. `/admin/business` now exposes averaged economics, but it is still a business/admin view rather than a high-cardinality low-latency tracing dashboard.
+
+### Next recommended step
+
+1. Move the economics program to `Slice C`: correct the retrieval truth (`pattern_only` today), decide where a retrieval-specialized model path is actually justified, and only then introduce hybrid embeddings/vector retrieval with equally honest observability.
+
+## 2026-04-17 - ADR-073 Slice B hydrated stable-prefix routing
+
+### What changed
+
+1. `apps/runtime` ordinary/deep OpenAI cache identity now includes not only the compiled ordinary stable prompt hash, but also the leading hydrated stable assistant blocks when they exist: `durable memory` and reusable shared-compaction summary.
+2. The runtime derives that extra hash from the actual leading hydrated assistant messages already being sent to the provider, so cache routing now tracks the real long-lived prefix that survives across turns instead of only the bundle-owned prompt shell.
+3. Post-tool compaction refresh no longer updates only `messages`; it now rebuilds the full provider request so `prompt_cache_key`, projected tools, and refreshed hydrated context stay aligned after compaction changes the leading prefix.
+4. Focused runtime coverage now asserts that a compaction-driven refresh with leading durable-memory/shared-summary blocks produces a corresponding cache-key change on the follow-up provider request.
+
+### Current active slice
+
+- `ADR-073 - Economics Slice B (prompt-cache-first context architecture)`
+
+### Current active step
+
+- `Ordinary compiled prompt identity plus hydrated leading memory/summary blocks now shape OpenAI cache routing; next step is broader block/version ownership and observability beyond these first stable families`
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / notes
+
+1. This still is not full Slice B prompt-block architecture: only the compiled ordinary shell plus the currently hydrated leading memory/summary blocks influence ordinary/deep cache identity.
+2. The leading-block hash is derived from actual hydrated message content, so any future format/header changes in those stable assistant messages will intentionally invalidate that cache family.
+3. KB digest-style stable blocks, explicit block versioning, and operator-facing cache-hit observability are still open follow-through.
+
+### Next recommended step
+
+1. Promote the remaining long-lived context families into explicit versioned stable blocks too, especially KB/profile-style reusable context, and add operator-visible metrics sliced by prompt family/block identity so the cache-hit improvement is measurable on live traffic.
+
+## 2026-04-17 - ADR-073 Slice B ordinary stable-prefix materialization
+
+### What changed
+
+1. `packages/runtime-bundle` now defines a first explicit `ordinary.stablePrefix` record under `promptConstructor`, carrying the compiled ordinary prompt text plus a deterministic SHA-256 hash. This keeps stable prompt identity inside the existing runtime-bundle authority instead of inventing a second cache registry.
+2. `CompilePromptConstructorService` now materializes that `stablePrefix` from the actual compiled ordinary system prompt, so published/runtime bundle truth can expose both the human-readable compiled prompt and the machine-usable stable-prefix hash.
+3. `apps/runtime` ordinary/deep turn cache routing no longer depends only on coarse bundle metadata identity. Ordinary-turn OpenAI cache keys now derive from:
+   - the materialized ordinary stable-prefix hash from the runtime bundle
+   - turn-variant state (`lookupStrategy`, `deepModeEnabled`)
+   - the projected tool envelope for that turn
+   while leaving user-visible prompt wording, warmth, and flexibility unchanged.
+4. Focused API/runtime tests now cover both the new bundle materialization seam and the runtime cache-key shaping rule that uses the materialized stable prompt identity.
+
+### Current active slice
+
+- `ADR-073 - Economics Slice B (prompt-cache-first context architecture)`
+
+### Current active step
+
+- `OpenAI cache-routing seam is landed and ordinary compiled prompt now materializes stable-prefix identity; next step is broader stable block coverage and invalidation/versioning beyond the ordinary compiled shell`
+
+### Files touched
+
+- `packages/runtime-bundle/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts`
+- `apps/api/test/compile-prompt-constructor.service.test.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/compile-prompt-constructor.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / notes
+
+1. This is still not full Slice B block architecture: only the compiled ordinary prompt now has first-class stable-prefix materialization. Durable memory, shared compaction summaries, and later KB digest-style stable blocks still remain later follow-through.
+2. Ordinary cache identity is now better aligned to prompt truth, but broader operator-facing observability for `cachedInputTokens` still remains open.
+3. Helper families such as `scheduled_hidden` and broader setup/welcome minimization still remain separate Slice B follow-through; this step only strengthens ordinary prompt identity.
+
+### Next recommended step
+
+1. Extend the same materialized stable-prefix/block treatment beyond the ordinary compiled shell: durable memory prefix, reusable compaction summary prefix, and explicit invalidation/versioning rules so real user turns keep hitting cached input after context updates.
+
+## 2026-04-17 - ADR-073 Slice B cache-routing baseline
+
+### What changed
+
+1. `packages/runtime-contract` now has a first explicit provider-side prompt-cache seam for text generation: `ProviderGatewayTextGenerateRequest.promptCache` can carry a stable cache key plus an optional retention policy instead of forcing runtime/provider payloads to stay blind to provider-native prompt-caching knobs.
+2. `apps/runtime` now derives stable OpenAI prompt-cache hints on the active text path without changing ordinary user-visible prompt semantics:
+   - ordinary turns and deep-mode turns now send a stable family-scoped `prompt_cache_key`
+   - hidden `route_control` planner requests now also send a stable cache key
+   - shared compaction requests now send a stable cache key too
+   - all of those requests currently use explicit `in_memory` retention hints only; this slice does not hardcode a broader provider-specific retention policy into product truth
+3. `apps/provider-gateway` now forwards `prompt_cache_key` and `prompt_cache_retention` to OpenAI Responses API requests while leaving Anthropic and other non-supporting paths unaffected.
+4. Focused provider/runtime tests now cover this seam end to end, including request validation, OpenAI payload forwarding, runtime client pass-through, ordinary turn request shaping, hidden `route_control`, and shared compaction request shaping.
+5. Live probing on `persai-dev` now gives hard evidence that provider-native caching is real on the active path: two identical long `gpt-5.4-mini` requests sent through live `provider-gateway` returned `cachedInputTokens=0` on the first request and `cachedInputTokens=6912` out of `7278 inputTokens` on the second request.
+
+### Current active slice
+
+- `ADR-073 - Economics Slice B (prompt-cache-first context architecture)`
+
+### Current active step
+
+- `Bounded OpenAI cache-routing knob step landed; next step is stable prompt-block materialization and broader observability so real user turns hit cached input more reliably`
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/provider-gateway/src/modules/providers/provider-text-generation.service.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/provider-gateway/test/provider-text-generation.service.test.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/session-compaction.service.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/session-compaction.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/openai-provider.client.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-text-generation.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/provider-gateway.client.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/session-compaction.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / notes
+
+1. This slice improves provider-side cache routing on the current OpenAI path, but it does not yet finish Slice B: ordinary prompt assembly still needs explicit stable-block materialization and deliberate invalidation/versioning to maximize exact-prefix reuse on real user traffic.
+2. `prompt_cache_retention` support is now wired, but this slice intentionally stays conservative and uses explicit `in_memory` hints only; broader retention policy should stay provider-aware and policy-driven instead of being hardcoded repo truth too early.
+3. PersAI still lacks a first-class product/admin observability surface for `cachedInputTokens`; live probing and raw runtime/provider results prove the seam works, but ordinary operators cannot yet inspect that economics signal comfortably from the app.
+
+### Next recommended step
+
+1. Continue `ADR-073 Slice B` with the next bounded architecture cut: materialize stable prompt families/blocks in the runtime bundle, keep the early prefix ordered and versioned, and make `cachedInputTokens` observable by prompt family and bundle identity on real turns.
+
 ## 2026-04-17 - ADR-073 Economics Slice A ready + live hardening follow-through
 
 ### What changed

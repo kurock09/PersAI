@@ -49,6 +49,10 @@ function createGenerateTextRequest(): ProviderGatewayTextGenerateRequest {
     provider: "openai",
     model: "gpt-5.4",
     systemPrompt: "Be helpful.",
+    promptCache: {
+      key: "persai:ordinary_chat:bundle-hash-1:b03",
+      retention: "in_memory"
+    },
     messages: [
       {
         role: "user",
@@ -564,11 +568,19 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
     assert.deepEqual(
+      JSON.parse(String(requests[1]?.init?.body ?? "{}")).promptCache,
+      createGenerateTextRequest().promptCache
+    );
+    assert.deepEqual(
       streamEvents.map((event) => event.type),
       ["text_delta", "completed"]
     );
     assert.equal(requests[2]?.url, "http://provider-gateway.local/api/v1/providers/stream-text");
     assert.equal(requests[2]?.init?.method, "POST");
+    assert.deepEqual(
+      JSON.parse(String(requests[2]?.init?.body ?? "{}")).promptCache,
+      createGenerateTextRequest().promptCache
+    );
     assert.equal(
       requests[3]?.url,
       "http://provider-gateway.local/api/v1/providers/transcribe-audio"

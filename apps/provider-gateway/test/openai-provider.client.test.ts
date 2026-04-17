@@ -32,6 +32,10 @@ function createRequest(): ProviderGatewayTextGenerateRequest {
     provider: "openai",
     model: "gpt-5.4",
     systemPrompt: "Be concise.",
+    promptCache: {
+      key: "persai:ordinary_chat:bundle-hash-1:b03",
+      retention: "in_memory"
+    },
     messages: [
       {
         role: "user",
@@ -183,6 +187,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     tool_choice?: unknown;
     text?: unknown;
     metadata?: unknown;
+    prompt_cache_key?: unknown;
+    prompt_cache_retention?: unknown;
   } | null = null;
   let capturedStreamPayload: {
     input?: unknown;
@@ -190,6 +196,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     tool_choice?: unknown;
     text?: unknown;
     metadata?: unknown;
+    prompt_cache_key?: unknown;
+    prompt_cache_retention?: unknown;
   } | null = null;
   let capturedTranscriptionInput: unknown = null;
   let capturedImagePayload: unknown = null;
@@ -432,6 +440,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     persai_tool_loop_iteration: "0",
     persai_compaction_tool_code: ""
   });
+  assert.equal(capturedGeneratePayload!.prompt_cache_key, "persai:ordinary_chat:bundle-hash-1:b03");
+  assert.equal(capturedGeneratePayload!.prompt_cache_retention, "in_memory");
   const baselineGenerateInput = capturedGeneratePayload!.input;
 
   const structuredRequest: ProviderGatewayTextGenerateRequest = {
@@ -598,6 +608,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     persai_tool_loop_iteration: "0",
     persai_compaction_tool_code: ""
   });
+  assert.equal(capturedStreamPayload!.prompt_cache_key, "persai:ordinary_chat:bundle-hash-1:b03");
+  assert.equal(capturedStreamPayload!.prompt_cache_retention, "in_memory");
   assert.deepEqual(
     events.map((event) => event.type),
     ["text_delta", "completed"]

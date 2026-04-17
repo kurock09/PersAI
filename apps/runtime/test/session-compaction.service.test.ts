@@ -593,6 +593,11 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     toolLoopIteration: null,
     compactionToolCode: "compact_context"
   });
+  assert.equal(providerGateway.requests[0]?.promptCache?.retention, "in_memory");
+  assert.match(
+    providerGateway.requests[0]?.promptCache?.key ?? "",
+    /^persai:shared_compaction:[a-f0-9]{64}:b\d{2}$/
+  );
   assert.deepEqual(
     providerGateway.requests[0]?.outputSchema,
     REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA

@@ -161,6 +161,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           payload as OpenAINonStreamingCreateParams & { metadata?: Record<string, string> }
         ).metadata = metadata;
       }
+      this.applyOpenAIPromptCache(payload as Record<string, unknown>, input);
       const response = (await this.client.responses.create(payload, {
         signal
       })) as OpenAINonStreamingResponse;
@@ -530,6 +531,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       if (metadata !== undefined) {
         payload.metadata = metadata;
       }
+      this.applyOpenAIPromptCache(payload, input);
       const stream = (await this.client.responses.create(
         payload as unknown as OpenAIResponseCreateParams,
         {
@@ -772,6 +774,19 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     return {
       format
     };
+  }
+
+  private applyOpenAIPromptCache(
+    payload: Record<string, unknown>,
+    input: ProviderGatewayTextGenerateRequest
+  ): void {
+    const promptCache = input.promptCache;
+    if (promptCache?.key !== undefined) {
+      payload.prompt_cache_key = promptCache.key;
+    }
+    if (promptCache?.retention !== undefined) {
+      payload.prompt_cache_retention = promptCache.retention;
+    }
   }
 
   private toOpenAIMetadata(

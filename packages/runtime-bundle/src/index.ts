@@ -132,10 +132,16 @@ export interface AssistantRuntimeCompiledOrdinaryPromptSections {
   heartbeat: string;
 }
 
+export interface AssistantRuntimePromptStablePrefix {
+  text: string | null;
+  hash: string | null;
+}
+
 export interface AssistantRuntimePromptConstructor {
   ordinary: {
     sections: AssistantRuntimeCompiledOrdinaryPromptSections;
     systemPrompt: string | null;
+    stablePrefix?: AssistantRuntimePromptStablePrefix;
   };
   onboarding: {
     previewTurnPrompt: string;
@@ -177,6 +183,16 @@ export interface AssistantRuntimeBundleArtifact {
   bundle: AssistantRuntimeBundle;
   document: string;
   hash: string;
+}
+
+export function buildAssistantRuntimePromptStablePrefix(
+  text: string | null | undefined
+): AssistantRuntimePromptStablePrefix {
+  const normalized = typeof text === "string" && text.trim().length > 0 ? text.trim() : null;
+  return {
+    text: normalized,
+    hash: normalized === null ? null : createHash("sha256").update(normalized).digest("hex")
+  };
 }
 
 function sortKeysDeep(value: unknown): unknown {
@@ -242,7 +258,30 @@ export function createAssistantRuntimeBundle(
         .filter(
           (section): section is string => typeof section === "string" && section.trim().length > 0
         )
-        .join("\n\n")
+        .join("\n\n"),
+      stablePrefix: buildAssistantRuntimePromptStablePrefix(
+        [
+          input.persona.displayName === null
+            ? null
+            : `Assistant display name: ${input.persona.displayName}`,
+          input.userContext.displayName === null
+            ? null
+            : `User display name: ${input.userContext.displayName}`,
+          `User locale: ${input.userContext.locale}`,
+          `User timezone: ${input.userContext.timezone}`,
+          input.persona.instructions,
+          input.promptDocuments.soul,
+          input.promptDocuments.user,
+          input.promptDocuments.identity,
+          input.promptDocuments.tools,
+          input.promptDocuments.agents,
+          input.promptDocuments.heartbeat
+        ]
+          .filter(
+            (section): section is string => typeof section === "string" && section.trim().length > 0
+          )
+          .join("\n\n")
+      )
     },
     onboarding: {
       previewTurnPrompt: input.promptDocuments.preview,

@@ -100,6 +100,10 @@ The active path already has bundle caching and compaction reuse, but not the ful
 - runtime bundle warm/cache exists
 - durable compaction reuse exists
 - idempotent turn replay exists
+- OpenAI `cached input` usage already flows into runtime accounting as `cachedInputTokens`
+- a live probe on the active `provider-gateway` path already confirmed that a repeated long OpenAI prefix can return large cached input on the second request
+- the active OpenAI text path can now carry provider-side prompt-cache routing hints without inventing a PersAI-managed vendor cache id
+- the ordinary compiled prompt now also carries a materialized stable-prefix record in the runtime bundle, so cache routing on ordinary turns no longer has to rely only on coarse bundle identity
 - provider-native cached input, especially OpenAI prompt caching where the active provider supports it, is not yet the primary prompt-economy target
 - prompt assembly does not yet maximize a large stable cached prefix plus a smaller dynamic tail
 - there is no explicit stable cache layer for tariff-global prompts, user profile blocks, KB summary blocks, or reusable long-lived context blocks
@@ -236,6 +240,8 @@ User-facing UX should stay simple:
 ### C. Prompt-cache-first context target
 
 PersAI should treat provider-native cached input as the primary savings lever, with OpenAI Prompt Caching as the current cost target wherever the active provider and request shape support it.
+
+OpenAI prompt caching is automatic for eligible exact-prefix reuse; PersAI should improve hit rates by materializing stable prompt blocks, preserving exact early-prefix ordering, and sending provider-side cache routing hints such as `prompt_cache_key` and retention policy where supported, rather than pretending PersAI owns a vendor cache-id lifecycle.
 
 Stable prompt families should be assembled so that a large exact prefix can be reused between turns:
 
@@ -429,9 +435,12 @@ The first implementation wave after ADR-073 approval is grouped into larger slic
    - plan slots for normal reply, premium/reasoning, hidden system/tool work, and optional retrieval-specialized work are landed on the active path
    - hidden `route_control` plus explicit deeper-thinking mode now steer ambiguous turns without exposing raw model pickers
    - honest per-turn accounting now records `input`, `cached input`, `output`, and per-call totals across internal model work
-4. **Economics Slice B - prompt-cache-first context architecture** (next active step)
-   - maximize provider-native cached input with large stable prefixes
-   - formalize stable profile/summary/KB blocks plus invalidation/versioning rules
+4. **Economics Slice B - prompt-cache-first context architecture** (completed on the current active path)
+   - bounded OpenAI request-side cache-routing support is now landed on the active text path: provider requests can carry stable `prompt_cache_key` plus explicit retention policy hints, and a live probe already confirmed large cached-input reuse on a repeated long prefix
+   - ordinary compiled prompt output now also materializes a stable-prefix record in the runtime bundle, and ordinary-turn cache keys can derive from that stable prompt identity plus turn-variant state instead of only from bundle-level metadata
+   - ordinary/deep cache identity now also incorporates the hydrated leading `durable memory` and reusable shared-compaction-summary blocks, and those stable families now use explicit versioned cache-key tokens instead of implicit header-only matching
+   - operator-facing observability for the active path now reaches `/admin/business`, where averaged completed-turn economics (`avg input`, `avg cached input`, `avg output`, cache-hit turn rate, cache-share percent, average usage steps) are aggregated from persisted runtime turn receipts over the rolling `last_7_days` window
+   - future KB/retrieval digest blocks should reuse this same versioned stable-family scheme when they are introduced, rather than keeping Slice B itself open
 5. **Economics Slice C - knowledge correction and retrieval-model path** (planned)
    - align docs/product/runtime truth around current `pattern_only` retrieval
    - add specialized retrieval-model assistance where justified, then land real hybrid embedding retrieval
@@ -465,7 +474,7 @@ ADR-073 does not:
 | Create/recreate lifecycle polish              | completed | Preview/create dedupe, reset cleanup, preview/welcome split, explicit recover/recreate wizard path, redirect-loop fix, and gender-safe default voice selection are now landed on the active path |
 | User UI polish                                | completed | Assistant/chat/sidebar/profile/auth polish landed on the active native path                                                                                                                      |
 | Smart-model and plan-slot contract            | completed | Plan-scoped normal/premium/reasoning/system-tool/retrieval slots, hidden `route_control`, and deeper-thinking mode are now landed on the active path                                             |
-| Prompt-cache-first context architecture       | planned   | Bundle cache exists; provider-native cached input and stable cached prompt prefixes do not                                                                                                       |
+| Prompt-cache-first context architecture       | completed | Bundle cache exists; OpenAI text requests now carry provider-side cache-routing hints, ordinary compiled prompt output materializes a stable-prefix record for bundle-owned cache identity, hydrated durable-memory/shared-summary leading blocks participate in ordinary/deep cache identity via explicit versioned stable-family tokens, and `/admin/business` now exposes rolling averaged runtime token/cache economics from persisted completed-turn receipts on the active path |
 | Knowledge correction and retrieval-model path | planned   | Current active retrieval remains `pattern_only` plus heuristic rerank, and no specialized retrieval-model contract exists yet                                                                    |
 | Hidden system/tool model and turn economics   | completed | Hidden utility-model routing plus per-call `input` / `cached input` / `output` accounting are now first-class on the active path                                                                 |
 | Step 19 scale hardening                       | planned   | Deploy/restart recovery and self-healing warm semantics remain active blockers                                                                                                                   |

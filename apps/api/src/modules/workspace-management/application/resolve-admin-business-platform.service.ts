@@ -8,7 +8,8 @@ import {
 import type {
   AdminBusinessPlatformState,
   PlanDistributionEntry,
-  QuotaPressureDistribution
+  QuotaPressureDistribution,
+  RuntimeTurnAverages
 } from "./platform-business.types";
 
 const BUSINESS_WINDOW_DAYS = 7;
@@ -101,6 +102,7 @@ export class ResolveAdminBusinessPlatformService {
       }));
 
     const quotaPressureDistribution = await this.computeQuotaPressure();
+    const runtimeTurnAverages = await this.computeRuntimeTurnAverages(windowStart);
 
     const webChats = await this.prisma.assistantChat.count({
       where: { surface: "web", archivedAt: null }
@@ -177,6 +179,7 @@ export class ResolveAdminBusinessPlatformService {
         inactivePlans: allPlans.length - activePlans.length,
         defaultRegistrationPlanCode: defaultPlan?.code ?? null
       },
+      runtimeTurnAverages,
       updatedAt: now.toISOString()
     };
   }
@@ -207,5 +210,123 @@ export class ResolveAdminBusinessPlatformService {
     }
 
     return distribution;
+  }
+
+  private async computeRuntimeTurnAverages(windowStart: Date): Promise<RuntimeTurnAverages> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        completed_turns: number;
+        turns_with_usage_accounting: number;
+        cached_input_hit_turns: number;
+        avg_input_tokens: number;
+        avg_cached_input_tokens: number;
+        avg_output_tokens: number;
+        avg_total_tokens: number;
+        avg_usage_steps_per_turn: number;
+        cached_input_share_percent: number;
+        cached_input_hit_turn_percent: number;
+      }>
+    >`
+      SELECT
+        COUNT(*)::int AS completed_turns,
+        COUNT(*) FILTER (
+          WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
+        )::int AS turns_with_usage_accounting,
+        COUNT(*) FILTER (
+          WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
+            AND COALESCE((result_payload -> 'usageAccounting' ->> 'cachedInputTokens')::int, 0) > 0
+        )::int AS cached_input_hit_turns,
+        COALESCE(
+          ROUND(
+            AVG((result_payload -> 'usageAccounting' ->> 'inputTokens')::numeric) FILTER (
+              WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
+            )
+          ),
+          0
+        )::int AS avg_input_tokens,
+        COALESCE(
+          ROUND(
+            AVG((result_payload -> 'usageAccounting' ->> 'cachedInputTokens')::numeric) FILTER (
+              WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
+            )
+          ),
+          0
+        )::int AS avg_cached_input_tokens,
+        COALESCE(
+          ROUND(
+            AVG((result_payload -> 'usageAccounting' ->> 'outputTokens')::numeric) FILTER (
+              WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
+            )
+          ),
+          0
+        )::int AS avg_output_tokens,
+        COALESCE(
+          ROUND(
+            AVG((result_payload -> 'usageAccounting' ->> 'totalTokens')::numeric) FILTER (
+              WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
+            )
+          ),
+          0
+        )::int AS avg_total_tokens,
+        COALESCE(
+          ROUND(
+            AVG(
+              CASE
+                WHEN jsonb_typeof(result_payload -> 'usageAccounting' -> 'entries') = 'array'
+                  THEN jsonb_array_length(result_payload -> 'usageAccounting' -> 'entries')::numeric
+                ELSE NULL
+              END
+            )
+          ),
+          0
+        )::int AS avg_usage_steps_per_turn,
+        COALESCE(
+          ROUND(
+            (
+              SUM(
+                COALESCE((result_payload -> 'usageAccounting' ->> 'cachedInputTokens')::numeric, 0)
+              ) * 100
+            ) / NULLIF(
+              SUM(COALESCE((result_payload -> 'usageAccounting' ->> 'inputTokens')::numeric, 0)),
+              0
+            )
+          ),
+          0
+        )::int AS cached_input_share_percent,
+        COALESCE(
+          ROUND(
+            (
+              COUNT(*) FILTER (
+                WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
+                  AND COALESCE((result_payload -> 'usageAccounting' ->> 'cachedInputTokens')::int, 0) > 0
+              ) * 100.0
+            ) / NULLIF(
+              COUNT(*) FILTER (
+                WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
+              ),
+              0
+            )
+          ),
+          0
+        )::int AS cached_input_hit_turn_percent
+      FROM runtime_turn_receipts
+      WHERE status = 'completed'
+        AND completed_at IS NOT NULL
+        AND completed_at >= ${windowStart}
+    `;
+    const row = rows[0];
+    return {
+      window: "last_7_days",
+      completedTurns: row?.completed_turns ?? 0,
+      turnsWithUsageAccounting: row?.turns_with_usage_accounting ?? 0,
+      cachedInputHitTurns: row?.cached_input_hit_turns ?? 0,
+      avgInputTokens: row?.avg_input_tokens ?? 0,
+      avgCachedInputTokens: row?.avg_cached_input_tokens ?? 0,
+      avgOutputTokens: row?.avg_output_tokens ?? 0,
+      avgTotalTokens: row?.avg_total_tokens ?? 0,
+      avgUsageStepsPerTurn: row?.avg_usage_steps_per_turn ?? 0,
+      cachedInputSharePercent: row?.cached_input_share_percent ?? 0,
+      cachedInputHitTurnPercent: row?.cached_input_hit_turn_percent ?? 0
+    };
   }
 }

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import {
+  PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS,
   PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS,
   PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES,
   type ProviderGatewayMessageContent,
@@ -67,9 +68,10 @@ export class ProviderTextGenerationService {
     }
     const declaredToolNames = this.assertValidTools(input);
     this.assertValidToolChoice(input, declaredToolNames);
-    this.assertValidToolHistory(input, declaredToolNames);
+    this.assertValidToolHistory(input);
     this.assertValidOutputSchema(input);
     this.assertValidRequestMetadata(input);
+    this.assertValidPromptCache(input);
   }
 
   private assertProviderReady(input: ProviderGatewayTextGenerateRequest): void {
@@ -176,10 +178,7 @@ export class ProviderTextGenerationService {
     }
   }
 
-  private assertValidToolHistory(
-    input: ProviderGatewayTextGenerateRequest,
-    declaredToolNames: Set<string>
-  ): void {
+  private assertValidToolHistory(input: ProviderGatewayTextGenerateRequest): void {
     if (input.toolHistory === undefined) {
       return;
     }
@@ -216,11 +215,6 @@ export class ProviderTextGenerationService {
       }
       if (exchange.toolResult.content.trim().length === 0) {
         throw new BadRequestException(`toolHistory[${index}].toolResult.content must be non-empty`);
-      }
-      if (declaredToolNames.size > 0 && !declaredToolNames.has(exchange.toolCall.name)) {
-        throw new BadRequestException(
-          `toolHistory[${index}] references undeclared tool "${exchange.toolCall.name}"`
-        );
       }
     }
   }
@@ -351,6 +345,30 @@ export class ProviderTextGenerationService {
           );
         }
         break;
+    }
+  }
+
+  private assertValidPromptCache(input: ProviderGatewayTextGenerateRequest): void {
+    const promptCache = input.promptCache;
+    if (promptCache === undefined) {
+      return;
+    }
+    if (promptCache === null || typeof promptCache !== "object" || Array.isArray(promptCache)) {
+      throw new BadRequestException("promptCache must be an object when provided");
+    }
+    if (
+      promptCache.key !== undefined &&
+      (typeof promptCache.key !== "string" || promptCache.key.trim().length === 0)
+    ) {
+      throw new BadRequestException("promptCache.key must be a non-empty string when provided");
+    }
+    if (
+      promptCache.retention !== undefined &&
+      !PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS.includes(promptCache.retention)
+    ) {
+      throw new BadRequestException(
+        "promptCache.retention must be one of the supported provider prompt cache retention values"
+      );
     }
   }
 

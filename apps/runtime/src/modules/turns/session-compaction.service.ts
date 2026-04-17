@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   Injectable,
@@ -7,6 +8,7 @@ import {
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   PersaiRuntimeSharedCompactionToolCode,
+  ProviderGatewayPromptCacheConfig,
   ProviderGatewayRequestMetadata,
   ProviderGatewayTextGenerateRequest,
   RuntimeCompactionRequest,
@@ -73,6 +75,8 @@ type SharedCompactionRequest = RuntimeCompactionRequest & {
 const MIN_SUMMARIZED_MESSAGE_COUNT = 2;
 const SHARED_COMPACTION_MAX_ATTEMPTS = 2;
 const SHARED_COMPACTION_MAX_OUTPUT_TOKENS = 1_200;
+const SHARED_COMPACTION_PROMPT_CACHE_BUCKETS = 8;
+const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 
 @Injectable()
 export class SessionCompactionService {
@@ -409,6 +413,7 @@ export class SessionCompactionService {
     messages: ProviderGatewayTextGenerateRequest["messages"];
     retryReason?: ReusableSharedCompactionOutputRejectionReason | null;
   }): ProviderGatewayTextGenerateRequest {
+    const promptCache = this.buildPromptCacheConfig(input.bundle, input.providerSelection.provider);
     const sections = [
       "You are the PersAI native shared compaction tool.",
       "Summarize earlier conversation context so later runtime turns can preserve durable facts and open threads without replaying all old messages.",
@@ -444,6 +449,7 @@ export class SessionCompactionService {
       model: input.providerSelection.model,
       systemPrompt: sections.join("\n\n"),
       messages: input.messages,
+      ...(promptCache === undefined ? {} : { promptCache }),
       maxOutputTokens: SHARED_COMPACTION_MAX_OUTPUT_TOKENS,
       outputSchema: REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA,
       requestMetadata: this.createRequestMetadata({
@@ -524,6 +530,40 @@ export class SessionCompactionService {
       normalizedSummary: null,
       usage
     };
+  }
+
+  private buildPromptCacheConfig(
+    bundle: AssistantRuntimeBundle,
+    provider: NativeManagedProvider
+  ): ProviderGatewayPromptCacheConfig | undefined {
+    if (provider !== "openai") {
+      return undefined;
+    }
+    return {
+      key: `persai:shared_compaction:${this.computePromptCacheIdentityHash(bundle)}:b${this.computePromptCacheBucket(
+        bundle.metadata.assistantId
+      )}`,
+      retention: DEFAULT_OPENAI_PROMPT_CACHE_RETENTION
+    };
+  }
+
+  private computePromptCacheIdentityHash(bundle: AssistantRuntimeBundle): string {
+    return createHash("sha256")
+      .update(
+        [
+          bundle.metadata.assistantId,
+          bundle.metadata.publishedVersionId,
+          String(bundle.metadata.publishedVersion),
+          String(bundle.metadata.algorithmVersion),
+          String(bundle.metadata.configGeneration)
+        ].join(":")
+      )
+      .digest("hex");
+  }
+
+  private computePromptCacheBucket(source: string): string {
+    const digest = createHash("sha256").update(source).digest();
+    return String((digest.at(0) ?? 0) % SHARED_COMPACTION_PROMPT_CACHE_BUCKETS).padStart(2, "0");
   }
 
   private resolveProviderSelection(bundle: AssistantRuntimeBundle): ProviderSelection {

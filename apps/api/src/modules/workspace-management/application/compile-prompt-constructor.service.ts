@@ -4,6 +4,7 @@ import type {
   AssistantRuntimePromptConstructor,
   AssistantRuntimePromptDocuments
 } from "@persai/runtime-bundle";
+import { buildAssistantRuntimePromptStablePrefix as toStablePrefix } from "@persai/runtime-bundle";
 import type { RuntimeToolPolicy } from "@persai/runtime-contract";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import { normalizeAssistantGender } from "./assistant-gender";
@@ -95,7 +96,8 @@ export class CompilePromptConstructorService {
       promptConstructor: {
         ordinary: {
           sections: ordinarySections,
-          systemPrompt: systemPrompt.length > 0 ? systemPrompt : null
+          systemPrompt: systemPrompt.length > 0 ? systemPrompt : null,
+          stablePrefix: toStablePrefix(systemPrompt)
         },
         onboarding: {
           previewTurnPrompt: promptDocuments.preview,

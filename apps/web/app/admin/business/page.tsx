@@ -57,6 +57,19 @@ type Platform = {
     inactivePlans: number;
     defaultRegistrationPlanCode: string | null;
   };
+  runtimeTurnAverages: {
+    window: string;
+    completedTurns: number;
+    turnsWithUsageAccounting: number;
+    cachedInputHitTurns: number;
+    avgInputTokens: number;
+    avgCachedInputTokens: number;
+    avgOutputTokens: number;
+    avgTotalTokens: number;
+    avgUsageStepsPerTurn: number;
+    cachedInputSharePercent: number;
+    cachedInputHitTurnPercent: number;
+  };
   updatedAt: string;
 };
 
@@ -316,6 +329,66 @@ export default function AdminBusinessPage() {
               </div>
             </Fold>
           </div>
+
+          <Fold t="Runtime Token Economics · Global · 7 days" open>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+              {(
+                [
+                  {
+                    l: "Avg Input",
+                    v: p.runtimeTurnAverages.avgInputTokens,
+                    s: "tokens / completed turn"
+                  },
+                  {
+                    l: "Avg Cached",
+                    v: p.runtimeTurnAverages.avgCachedInputTokens,
+                    s: `${p.runtimeTurnAverages.cachedInputSharePercent}% of input`
+                  },
+                  {
+                    l: "Avg Output",
+                    v: p.runtimeTurnAverages.avgOutputTokens,
+                    s: "tokens / completed turn"
+                  },
+                  {
+                    l: "Avg Total",
+                    v: p.runtimeTurnAverages.avgTotalTokens,
+                    s: "tokens / completed turn"
+                  },
+                  {
+                    l: "Cache-Hit Turns",
+                    v: `${p.runtimeTurnAverages.cachedInputHitTurnPercent}%`,
+                    s: `${p.runtimeTurnAverages.cachedInputHitTurns} of ${p.runtimeTurnAverages.turnsWithUsageAccounting}`
+                  },
+                  {
+                    l: "Avg Usage Steps",
+                    v: p.runtimeTurnAverages.avgUsageStepsPerTurn,
+                    s: "model/tool calls / turn"
+                  },
+                  {
+                    l: "Completed Turns",
+                    v: p.runtimeTurnAverages.completedTurns,
+                    s: "last 7 days"
+                  },
+                  {
+                    l: "Turns With Usage",
+                    v: p.runtimeTurnAverages.turnsWithUsageAccounting,
+                    s: "eligible for economics"
+                  }
+                ] as const
+              ).map((metric) => (
+                <div
+                  key={metric.l}
+                  className="rounded border border-border/40 bg-surface px-2.5 py-2"
+                >
+                  <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                    {metric.l}
+                  </p>
+                  <p className="mt-0.5 text-lg font-bold tabular-nums text-text">{metric.v}</p>
+                  <p className="text-[10px] leading-tight text-text-muted">{metric.s}</p>
+                </div>
+              ))}
+            </div>
+          </Fold>
 
           {/* Apply Health */}
           <Fold t="Publish / Apply Health · Global · 7 days" open>

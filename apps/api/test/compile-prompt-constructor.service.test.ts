@@ -87,6 +87,11 @@ async function run(): Promise<void> {
     /Use this when you need sources or links about a topic/
   );
   assert.match(compiled.promptConstructor.ordinary.systemPrompt ?? "", /Core Persona/);
+  assert.equal(
+    compiled.promptConstructor.ordinary.stablePrefix?.text,
+    compiled.promptConstructor.ordinary.systemPrompt
+  );
+  assert.match(compiled.promptConstructor.ordinary.stablePrefix?.hash ?? "", /^[a-f0-9]{64}$/);
   assert.match(
     compiled.promptConstructor.ordinary.systemPrompt ?? "",
     /\*\*`summarize_context`\*\*\nCreate a concise shared-context summary/
